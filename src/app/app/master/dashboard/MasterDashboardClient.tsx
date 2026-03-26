@@ -986,12 +986,12 @@ function ComponentCard({ pc }: { pc: ProductComponent }) {
       <div className="flex items-start justify-between gap-3">
 <div>
   <div className="text-sm font-medium text-[#F5F5F7]">
-    {item.productNameSnapshot}
+    {pc.componentName}
   </div>
   <div className="mt-1 text-xs text-[#8A8A96]">
-    {item.skuSnapshot ? `${item.skuSnapshot} · ` : ''}
-    {catalogItems.find((p) => p.id === item.productId)?.unitsPerService
-      ? `${catalogItems.find((p) => p.id === item.productId)?.unitsPerService} und/serv`
+    {pc.componentSku ? `${pc.componentSku} · ` : ''}
+    {catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService
+      ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
       : '—'}
   </div>
 </div>
