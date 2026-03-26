@@ -27,9 +27,9 @@ type RawOrderRow = {
   external_driver_name: string | null;
   external_partner_id: number | null;
   internal_driver_user_id: string | null;
-  client: { full_name: string | null; phone: string | null } | null;
-  advisor: { full_name: string | null } | null;
-  creator: { full_name: string | null } | null;
+client: { full_name: string | null; phone: string | null }[] | null;
+advisor: { full_name: string | null }[] | null;
+creator: { full_name: string | null }[] | null;
 };
 
 type RawOrderItemRow = {
@@ -842,8 +842,8 @@ const { data: orderItemsData, error: orderItemsError } = await supabase
     else if (reportState.rejectedCount > 0) paymentVerify = 'rejected';
     else if (confirmedPaidUsd > 0.01 || reportState.confirmedCount > 0) paymentVerify = 'confirmed';
 
-const creatorName = row.creator?.full_name?.trim() || 'Usuario';
-const advisorProfileName = row.advisor?.full_name?.trim() || null;
+const creatorName = row.creator?.[0]?.full_name?.trim() || 'Usuario';
+const advisorProfileName = row.advisor?.[0]?.full_name?.trim() || null;
 
 const advisorName =
   row.source === 'master'
@@ -853,10 +853,10 @@ const advisorName =
       : advisorProfileName || creatorName || 'Sin asesor';
 
 
-    const clientName =
-      row.client?.full_name?.trim() ||
-      row.extra_fields?.receiver?.name?.trim() ||
-      'Cliente sin nombre';
+const clientName =
+  row.client?.[0]?.full_name?.trim() ||
+  row.extra_fields?.receiver?.name?.trim() ||
+  'Cliente sin nombre';
 
     const deliveryAtISO = buildDeliveryISO(row.extra_fields, row.created_at);
 
