@@ -1,5 +1,5 @@
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 export async function createSupabaseServer() {
   const cookieStore = await cookies();
@@ -12,18 +12,14 @@ export async function createSupabaseServer() {
         getAll() {
           return cookieStore.getAll();
         },
-
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
             });
           } catch {
-            // En algunos contextos server component no se pueden mutar cookies.
+            // Ignore if called from a Server Component where setting cookies isn't allowed.
+            // Middleware / Route Handlers should handle refresh persistence.
           }
         },
       },
