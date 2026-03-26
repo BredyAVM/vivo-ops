@@ -978,7 +978,13 @@ function InfoCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ComponentCard({ pc }: { pc: ProductComponent }) {
+function ComponentCard({
+  pc,
+  catalogItems,
+}: {
+  pc: ProductComponent;
+  catalogItems: CatalogItem[];
+}) {
   const isSelectable = pc.componentMode === 'selectable';
 
   return (
@@ -4003,9 +4009,9 @@ suppressHydrationWarning
                     <div className="mt-3 text-sm text-[#B7B7C2]">Sin componentes fijos.</div>
                   ) : (
                     <div className="mt-3 space-y-2">
-                      {selectedFixedComponents.map((pc) => (
-                        <ComponentCard key={pc.id} pc={pc} />
-                      ))}
+{selectedFixedComponents.map((pc) => (
+  <ComponentCard key={pc.id} pc={pc} catalogItems={catalogItems} />
+))}
                     </div>
                   )}
                 </div>
@@ -4017,9 +4023,9 @@ suppressHydrationWarning
                     <div className="mt-3 text-sm text-[#B7B7C2]">Sin componentes seleccionables.</div>
                   ) : (
                     <div className="mt-3 space-y-2">
-                      {selectedSelectableComponents.map((pc) => (
-                        <ComponentCard key={pc.id} pc={pc} />
-                      ))}
+{selectedSelectableComponents.map((pc) => (
+  <ComponentCard key={pc.id} pc={pc} catalogItems={catalogItems} />
+))}
                     </div>
                   )}
                 </div>
