@@ -697,12 +697,12 @@ function getProcessSteps(o: Order) {
 function getProcessCurrentKey(o: Order) {
   if (o.status === 'created') return 'created';
   if (o.status === 'queued') return 'queued';
-  if (o.status === 'confirmed' || o.status === 'in_kitchen') return 'confirmed';
-  if (o.status === 'ready') return 'ready';
-  if (o.fulfillment === 'pickup' && o.status === 'ready') return 'pickup_ready';
-  if (o.status === 'out_for_delivery') return 'out_for_delivery';
-  if (o.status === 'delivered') return 'delivered';
-  if (o.status === 'cancelled') return 'cancelled';
+if (o.status === 'confirmed' || o.status === 'in_kitchen') return 'confirmed';
+if (o.fulfillment === 'pickup' && o.status === 'ready') return 'pickup_ready';
+if (o.status === 'ready') return 'ready';
+if (o.status === 'out_for_delivery') return 'out_for_delivery';
+if (o.status === 'delivered') return 'delivered';
+if (o.status === 'cancelled') return 'cancelled';
   return 'created';
 }
 
