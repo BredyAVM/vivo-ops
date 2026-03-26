@@ -128,17 +128,18 @@ type RawProductComponentRow = {
   sort_order: number | string;
   notes: string | null;
   parent_product: {
-    id: number;
-    sku: string | null;
-    name: string;
-    type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
-  } | null;
-  component_product: {
-    id: number;
-    sku: string | null;
-    name: string;
-    type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
-  } | null;
+  id: number;
+  sku: string | null;
+  name: string;
+  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+}[] | null;
+
+component_product: {
+  id: number;
+  sku: string | null;
+  name: string;
+  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+}[] | null;
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -804,24 +805,24 @@ const { data: orderItemsData, error: orderItemsError } = await supabase
     isComboComponentSelectable: p.is_combo_component_selectable,
   }));
 
-  const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
-    .filter((row) => row.parent_product && row.component_product)
-    .map((row) => ({
-      id: Number(row.id),
-      parentProductId: Number(row.parent_product_id),
-      componentProductId: Number(row.component_product_id),
-      componentMode: row.component_mode,
-      quantity: toNumber(row.quantity, 0),
-      countsTowardDetailLimit: row.counts_toward_detail_limit,
-      isRequired: row.is_required,
-      sortOrder: toNumber(row.sort_order, 0),
-      notes: row.notes ?? null,
-      parentSku: row.parent_product?.sku ?? '',
-      parentName: row.parent_product?.name ?? 'Producto padre',
-      componentSku: row.component_product?.sku ?? '',
-      componentName: row.component_product?.name ?? 'Componente',
-      componentType: row.component_product?.type ?? 'product',
-    }));
+const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
+  .filter((row) => row.parent_product?.[0] && row.component_product?.[0])
+  .map((row) => ({
+    id: Number(row.id),
+    parentProductId: Number(row.parent_product_id),
+    componentProductId: Number(row.component_product_id),
+    componentMode: row.component_mode,
+    quantity: toNumber(row.quantity, 0),
+    countsTowardDetailLimit: row.counts_toward_detail_limit,
+    isRequired: row.is_required,
+    sortOrder: toNumber(row.sort_order, 0),
+    notes: row.notes ?? null,
+    parentSku: row.parent_product?.[0]?.sku ?? '',
+    parentName: row.parent_product?.[0]?.name ?? 'Producto padre',
+    componentSku: row.component_product?.[0]?.sku ?? '',
+    componentName: row.component_product?.[0]?.name ?? 'Componente',
+    componentType: row.component_product?.[0]?.type ?? 'product',
+  }));
 
   const initialOrders = rawOrders.map((row) => {
     const confirmedPaidUsd = confirmedPaidByOrder.get(row.id) ?? 0;
