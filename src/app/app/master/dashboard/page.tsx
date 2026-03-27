@@ -127,19 +127,35 @@ type RawProductComponentRow = {
   is_required: boolean;
   sort_order: number | string;
   notes: string | null;
-parent_product: {
-  id: number;
-  sku: string | null;
-  name: string;
-  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
-}[] | null;
+parent_product:
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }[]
+  | null;
 
-component_product: {
-  id: number;
-  sku: string | null;
-  name: string;
-  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
-}[] | null;
+component_product:
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }
+  | {
+      id: number;
+      sku: string | null;
+      name: string;
+      type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+    }[]
+  | null;
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -806,24 +822,33 @@ const { data: orderItemsData, error: orderItemsError } = await supabase
   }));
 
 const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
-  .filter((row) => row.parent_product?.[0] && row.component_product?.[0])
-  .map((row) => ({
-    id: Number(row.id),
-    parentProductId: Number(row.parent_product_id),
-    componentProductId: Number(row.component_product_id),
-    componentMode: row.component_mode,
-    quantity: toNumber(row.quantity, 0),
-    countsTowardDetailLimit: row.counts_toward_detail_limit,
-    isRequired: row.is_required,
-    sortOrder: toNumber(row.sort_order, 0),
-    notes: row.notes ?? null,
-    parentSku: row.parent_product?.[0]?.sku ?? '',
-    parentName: row.parent_product?.[0]?.name ?? 'Producto padre',
-    componentSku: row.component_product?.[0]?.sku ?? '',
-    componentName: row.component_product?.[0]?.name ?? 'Componente',
-    componentType: row.component_product?.[0]?.type ?? 'product',
-  }));
+  .map((row) => {
+    const parent = Array.isArray(row.parent_product)
+      ? row.parent_product[0]
+      : row.parent_product;
 
+    const component = Array.isArray(row.component_product)
+      ? row.component_product[0]
+      : row.component_product;
+
+    return {
+      id: Number(row.id),
+      parentProductId: Number(row.parent_product_id),
+      componentProductId: Number(row.component_product_id),
+      componentMode: row.component_mode,
+      quantity: toNumber(row.quantity, 0),
+      countsTowardDetailLimit: row.counts_toward_detail_limit,
+      isRequired: row.is_required,
+      sortOrder: toNumber(row.sort_order, 0),
+      notes: row.notes ?? null,
+      parentSku: parent?.sku ?? '',
+      parentName: parent?.name ?? 'Producto padre',
+      componentSku: component?.sku ?? '',
+      componentName: component?.name ?? 'Componente',
+      componentType: component?.type ?? 'product',
+    };
+  })
+  .filter((row) => row.parentProductId && row.componentProductId);
   const initialOrders = rawOrders.map((row) => {
     const confirmedPaidUsd = confirmedPaidByOrder.get(row.id) ?? 0;
     const totalUsd = toNumber(row.total_usd, 0);
