@@ -995,6 +995,11 @@ items: Array<{
     input.deliveryAmPm
   );
 
+  const fxRate = Number(input.fxRate || 0);
+if (!Number.isFinite(fxRate) || fxRate <= 0) {
+  throw new Error('La tasa de la orden es inválida.');
+}
+
   let clientId = input.selectedClientId;
 
   if (!clientId) {
@@ -1130,6 +1135,7 @@ pricing: {
       fulfillment,
       status: 'created',
       total_usd: totalUsd,
+      total_bs_snapshot: totalUsd * fxRate,
       is_price_locked: false,
       delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
       receiver_name: input.receiverName.trim() || null,
@@ -1392,20 +1398,21 @@ export async function updateOrderAction(input: {
 
   const nowIso = new Date().toISOString();
 
-  const orderUpdatePayload: Record<string, any> = {
-    client_id: clientId,
-    attributed_advisor_id: attributedAdvisorId,
-    source,
-    fulfillment,
-    total_usd: totalUsd,
-    delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
-    receiver_name: input.receiverName.trim() || null,
-    receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
-    notes: input.note.trim() || null,
-    extra_fields: extraFields,
-    last_modified_at: nowIso,
-    last_modified_by: user.id,
-  };
+const orderUpdatePayload: Record<string, any> = {
+  client_id: clientId,
+  attributed_advisor_id: attributedAdvisorId,
+  source,
+  fulfillment,
+  total_usd: totalUsd,
+  total_bs_snapshot: totalBs,
+  delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+  receiver_name: input.receiverName.trim() || null,
+  receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
+  notes: input.note.trim() || null,
+  extra_fields: extraFields,
+  last_modified_at: nowIso,
+  last_modified_by: user.id,
+};
 
   if (currentOrder.status === 'queued') {
     orderUpdatePayload.queued_needs_reapproval = true;
