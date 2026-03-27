@@ -643,33 +643,29 @@ export async function updateExchangeRateAction(input: {
     throw new Error(productsError.message);
   }
 
-  for (const product of products ?? []) {
-    const sourceAmount = Number(product.source_price_amount || 0);
-    const sourceCurrency = String(product.source_price_currency || '');
+for (const product of products ?? []) {
+  const sourceAmount = Number(product.source_price_amount || 0);
+  const sourceCurrency = String(product.source_price_currency || '');
 
-    let basePriceUsd = 0;
-    let basePriceBs = 0;
-
-    if (sourceCurrency === 'USD') {
-      basePriceUsd = sourceAmount;
-      basePriceBs = sourceAmount * rate;
-    } else if (sourceCurrency === 'VES') {
-      basePriceBs = sourceAmount;
-      basePriceUsd = rate > 0 ? sourceAmount / rate : 0;
-    }
-
-    const { error: updateProductError } = await supabase
-      .from('products')
-      .update({
-        base_price_usd: basePriceUsd,
-        base_price_bs: basePriceBs,
-      })
-      .eq('id', product.id);
-
-    if (updateProductError) {
-      throw new Error(updateProductError.message);
-    }
+  if (sourceCurrency !== 'USD') {
+    continue;
   }
+
+  const basePriceUsd = sourceAmount;
+  const basePriceBs = sourceAmount * rate;
+
+  const { error: updateProductError } = await supabase
+    .from('products')
+    .update({
+      base_price_usd: basePriceUsd,
+      base_price_bs: basePriceBs,
+    })
+    .eq('id', product.id);
+
+  if (updateProductError) {
+    throw new Error(updateProductError.message);
+  }
+}
 
   revalidatePath('/app/master/dashboard');
 }
