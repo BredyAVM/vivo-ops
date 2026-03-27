@@ -127,7 +127,7 @@ type RawProductComponentRow = {
   is_required: boolean;
   sort_order: number | string;
   notes: string | null;
-  parent_product: {
+parent_product: {
   id: number;
   sku: string | null;
   name: string;
