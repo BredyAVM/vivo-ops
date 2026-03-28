@@ -1148,19 +1148,23 @@ pricing: {
 
   const orderId = Number(createdOrder.id);
 
-  const itemsPayload = input.items.map((item) => ({
-    order_id: orderId,
-    product_id: item.productId,
-    qty: Number(item.qty || 0),
-    unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
-    line_total_usd: Number(item.lineTotalUsd || 0),
-    sku_snapshot: item.skuSnapshot,
-    product_name_snapshot: item.productNameSnapshot,
-notes:
-  item.editableDetailLines && item.editableDetailLines.length > 0
-    ? item.editableDetailLines.join('\n')
-    : null,
-  }));
+const itemsPayload = input.items.map((item) => ({
+  order_id: orderId,
+  product_id: item.productId,
+  qty: Number(item.qty || 0),
+  unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
+  line_total_usd: Number(item.lineTotalUsd || 0),
+  unit_price_bs_snapshot:
+    Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
+  line_total_bs_snapshot:
+    Number(item.lineTotalUsd || 0) * fxRateNumber,
+  sku_snapshot: item.skuSnapshot,
+  product_name_snapshot: item.productNameSnapshot,
+  notes:
+    item.editableDetailLines && item.editableDetailLines.length > 0
+      ? item.editableDetailLines.join('\n')
+      : null,
+}));
 
   const { error: itemsError } = await supabase
     .from('order_items')
@@ -1440,19 +1444,23 @@ const orderUpdatePayload: Record<string, any> = {
     throw new Error(deleteItemsError.message);
   }
 
-  const itemsPayload = input.items.map((item) => ({
-    order_id: orderId,
-    product_id: item.productId,
-    qty: Number(item.qty || 0),
-    unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
-    line_total_usd: Number(item.lineTotalUsd || 0),
-    sku_snapshot: item.skuSnapshot,
-    product_name_snapshot: item.productNameSnapshot,
-    notes:
-      item.editableDetailLines && item.editableDetailLines.length > 0
-        ? item.editableDetailLines.join('\n')
-        : null,
-  }));
+const itemsPayload = input.items.map((item) => ({
+  order_id: orderId,
+  product_id: item.productId,
+  qty: Number(item.qty || 0),
+  unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
+  line_total_usd: Number(item.lineTotalUsd || 0),
+  unit_price_bs_snapshot:
+    Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
+  line_total_bs_snapshot:
+    Number(item.lineTotalUsd || 0) * fxRateNumber,
+  sku_snapshot: item.skuSnapshot,
+  product_name_snapshot: item.productNameSnapshot,
+  notes:
+    item.editableDetailLines && item.editableDetailLines.length > 0
+      ? item.editableDetailLines.join('\n')
+      : null,
+}));
 
   const { error: insertItemsError } = await supabase
     .from('order_items')
