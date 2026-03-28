@@ -2932,15 +2932,17 @@ const handleCreateOrder = async () => {
       hasInvoice: createOrderHasInvoice,
       invoiceDataNote: createOrderInvoiceDataNote,
 
-      items: createOrderDraftItems.map((item) => ({
-        productId: item.productId,
-        skuSnapshot: item.skuSnapshot,
-        productNameSnapshot: item.productNameSnapshot,
-        qty: item.qty,
-        unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
-        lineTotalUsd: item.lineTotalUsd,
-        editableDetailLines: item.editableDetailLines,
-      })),
+items: createOrderDraftItems.map((item) => ({
+  productId: item.productId,
+  skuSnapshot: item.skuSnapshot,
+  productNameSnapshot: item.productNameSnapshot,
+  qty: item.qty,
+  sourcePriceCurrency: item.sourcePriceCurrency,
+  sourcePriceAmount: item.sourcePriceAmount,
+  unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
+  lineTotalUsd: item.lineTotalUsd,
+  editableDetailLines: item.editableDetailLines,
+})),
     });
 
     showToast('success', `Orden creada #${result.orderNumber}.`);
@@ -2998,15 +3000,17 @@ const handleUpdateOrder = async () => {
       hasInvoice: createOrderHasInvoice,
       invoiceDataNote: createOrderInvoiceDataNote,
 
-      items: createOrderDraftItems.map((item) => ({
-        productId: item.productId,
-        skuSnapshot: item.skuSnapshot,
-        productNameSnapshot: item.productNameSnapshot,
-        qty: item.qty,
-        unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
-        lineTotalUsd: item.lineTotalUsd,
-        editableDetailLines: item.editableDetailLines,
-      })),
+items: createOrderDraftItems.map((item) => ({
+  productId: item.productId,
+  skuSnapshot: item.skuSnapshot,
+  productNameSnapshot: item.productNameSnapshot,
+  qty: item.qty,
+  sourcePriceCurrency: item.sourcePriceCurrency,
+  sourcePriceAmount: item.sourcePriceAmount,
+  unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
+  lineTotalUsd: item.lineTotalUsd,
+  editableDetailLines: item.editableDetailLines,
+})),
     });
 
     showToast('success', `Orden actualizada #${editingOrderId}.`);
