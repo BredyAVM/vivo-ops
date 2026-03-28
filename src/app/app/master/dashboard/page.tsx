@@ -898,8 +898,8 @@ const draftItems = rowItems.map((item) => {
   const qty = toNumber(item.qty, 0);
   const unitPriceUsdSnapshot = toNumber(item.unit_price_usd_snapshot, 0);
   const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
-  const pricingOriginCurrency =
-    (item as any).pricing_origin_currency === 'VES' ? 'VES' : 'USD';
+const pricingOriginCurrency: 'VES' | 'USD' =
+  (item as any).pricing_origin_currency === 'VES' ? 'VES' : 'USD';
   const pricingOriginAmount = toNumber(
     (item as any).pricing_origin_amount,
     pricingOriginCurrency === 'VES'
