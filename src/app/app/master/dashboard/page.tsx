@@ -472,15 +472,19 @@ const { data: ordersData, error: ordersError } = await supabase
     internalDriverNameById.set(String(d.id), d.full_name ?? 'Driver');
   }
 
-const { data: orderItemsData, error: orderItemsError } = await supabase
+  const { data: orderItemsData, error: orderItemsError } = await supabase
   .from('order_items')
   .select(`
       id,
       order_id,
       product_id,
       qty,
+      pricing_origin_currency,
+      pricing_origin_amount,
       unit_price_usd_snapshot,
       line_total_usd,
+      unit_price_bs_snapshot,
+      line_total_bs_snapshot,
       product_name_snapshot,
       sku_snapshot,
       notes
@@ -894,24 +898,32 @@ const draftItems = rowItems.map((item) => {
   const qty = toNumber(item.qty, 0);
   const unitPriceUsdSnapshot = toNumber(item.unit_price_usd_snapshot, 0);
   const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
+  const pricingOriginCurrency =
+    (item as any).pricing_origin_currency === 'VES' ? 'VES' : 'USD';
+  const pricingOriginAmount = toNumber(
+    (item as any).pricing_origin_amount,
+    pricingOriginCurrency === 'VES'
+      ? toNumber((item as any).unit_price_bs_snapshot, 0)
+      : unitPriceUsdSnapshot
+  );
 
-return {
-  localId: `existing-${item.id}`,
-  productId: Number(item.product_id),
-  skuSnapshot: item.sku_snapshot ?? null,
-  productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
-  qty,
-  sourcePriceCurrency: 'USD' as const,
-  sourcePriceAmount: unitPriceUsdSnapshot,
-  unitPriceUsdSnapshot,
-  lineTotalUsd,
-  editableDetailLines: item.notes
-    ? item.notes
-        .split('\n')
-        .map((x) => x.trim())
-        .filter(Boolean)
-    : [],
-};
+  return {
+    localId: `existing-${item.id}`,
+    productId: Number(item.product_id),
+    skuSnapshot: item.sku_snapshot ?? null,
+    productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
+    qty,
+    sourcePriceCurrency: pricingOriginCurrency,
+    sourcePriceAmount: pricingOriginAmount,
+    unitPriceUsdSnapshot,
+    lineTotalUsd,
+    editableDetailLines: item.notes
+      ? item.notes
+          .split('\n')
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : [],
+  };
 });
 
 const lines = rowItems.map((item) => {
@@ -919,6 +931,10 @@ const lines = rowItems.map((item) => {
   const qty = toNumber(item.qty, 0);
   const unitsPerService = extractUnitsPerServiceFromName(productName);
   const unitPriceUsd = toNumber(item.unit_price_usd_snapshot, 0);
+  const unitPriceBs = toNumber(
+    (item as any).unit_price_bs_snapshot,
+    estimateBsFromUsd(unitPriceUsd, activeRateBsPerUsd)
+  );
 
   const isDelivery =
     productName.toLowerCase().startsWith('delivery') ||
@@ -928,7 +944,7 @@ const lines = rowItems.map((item) => {
     name: productName,
     qty,
     unitsPerService,
-    priceBs: estimateBsFromUsd(unitPriceUsd, activeRateBsPerUsd),
+    priceBs: unitPriceBs,
     isDelivery,
     editableDetailLines: item.notes
       ? item.notes

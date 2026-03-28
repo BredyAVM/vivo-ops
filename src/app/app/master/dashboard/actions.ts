@@ -955,6 +955,8 @@ items: Array<{
   skuSnapshot: string | null;
   productNameSnapshot: string;
   qty: number;
+  sourcePriceCurrency: 'VES' | 'USD';
+  sourcePriceAmount: number;
   unitPriceUsdSnapshot: number;
   lineTotalUsd: number;
   editableDetailLines: string[];
@@ -1152,12 +1154,18 @@ const itemsPayload = input.items.map((item) => ({
   order_id: orderId,
   product_id: item.productId,
   qty: Number(item.qty || 0),
+  pricing_origin_currency: item.sourcePriceCurrency,
+  pricing_origin_amount: Number(item.sourcePriceAmount || 0),
   unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
   line_total_usd: Number(item.lineTotalUsd || 0),
   unit_price_bs_snapshot:
-    Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0)
+      : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
   line_total_bs_snapshot:
-    Number(item.lineTotalUsd || 0) * fxRateNumber,
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+      : Number(item.lineTotalUsd || 0) * fxRateNumber,
   sku_snapshot: item.skuSnapshot,
   product_name_snapshot: item.productNameSnapshot,
   notes:
@@ -1214,15 +1222,17 @@ export async function updateOrderAction(input: {
   hasInvoice: boolean;
   invoiceDataNote: string;
 
-  items: Array<{
-    productId: number;
-    skuSnapshot: string | null;
-    productNameSnapshot: string;
-    qty: number;
-    unitPriceUsdSnapshot: number;
-    lineTotalUsd: number;
-    editableDetailLines: string[];
-  }>;
+items: Array<{
+  productId: number;
+  skuSnapshot: string | null;
+  productNameSnapshot: string;
+  qty: number;
+  sourcePriceCurrency: 'VES' | 'USD';
+  sourcePriceAmount: number;
+  unitPriceUsdSnapshot: number;
+  lineTotalUsd: number;
+  editableDetailLines: string[];
+}>;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
@@ -1448,12 +1458,18 @@ const itemsPayload = input.items.map((item) => ({
   order_id: orderId,
   product_id: item.productId,
   qty: Number(item.qty || 0),
+  pricing_origin_currency: item.sourcePriceCurrency,
+  pricing_origin_amount: Number(item.sourcePriceAmount || 0),
   unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
   line_total_usd: Number(item.lineTotalUsd || 0),
   unit_price_bs_snapshot:
-    Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0)
+      : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
   line_total_bs_snapshot:
-    Number(item.lineTotalUsd || 0) * fxRateNumber,
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+      : Number(item.lineTotalUsd || 0) * fxRateNumber,
   sku_snapshot: item.skuSnapshot,
   product_name_snapshot: item.productNameSnapshot,
   notes:
