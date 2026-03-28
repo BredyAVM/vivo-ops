@@ -2858,16 +2858,18 @@ const handleConfirmCreateOrderConfig = () => {
       detailLines.push(`${x.qty} ${x.componentName}`);
     });
 
-  const nextItem: DraftItem = {
-    localId: createOrderConfigEditingLocalId ?? `${Date.now()}-${Math.random()}`,
-    productId: createOrderConfigProductId,
-    skuSnapshot: createOrderConfigSku,
-    productNameSnapshot: createOrderConfigProductName,
-    qty: createOrderConfigQty,
-    unitPriceUsdSnapshot: createOrderConfigUnitPriceUsd,
-    lineTotalUsd: createOrderConfigUnitPriceUsd * createOrderConfigQty,
-    editableDetailLines: detailLines,
-  };
+const nextItem: DraftItem = {
+  localId: createOrderConfigEditingLocalId ?? `${Date.now()}-${Math.random()}`,
+  productId: createOrderConfigProductId,
+  skuSnapshot: createOrderConfigSku,
+  productNameSnapshot: createOrderConfigProductName,
+  qty: createOrderConfigQty,
+  sourcePriceCurrency: 'USD',
+  sourcePriceAmount: createOrderConfigUnitPriceUsd,
+  unitPriceUsdSnapshot: createOrderConfigUnitPriceUsd,
+  lineTotalUsd: createOrderConfigUnitPriceUsd * createOrderConfigQty,
+  editableDetailLines: detailLines,
+};
 
   setCreateOrderDraftItems((prev) => {
     if (createOrderConfigEditingLocalId) {
