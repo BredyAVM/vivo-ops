@@ -895,21 +895,23 @@ const draftItems = rowItems.map((item) => {
   const unitPriceUsdSnapshot = toNumber(item.unit_price_usd_snapshot, 0);
   const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
 
-  return {
-    localId: `existing-${item.id}`,
-    productId: Number(item.product_id),
-    skuSnapshot: item.sku_snapshot ?? null,
-    productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
-    qty,
-    unitPriceUsdSnapshot,
-    lineTotalUsd,
-    editableDetailLines: item.notes
-      ? item.notes
-          .split('\n')
-          .map((x) => x.trim())
-          .filter(Boolean)
-      : [],
-  };
+return {
+  localId: `existing-${item.id}`,
+  productId: Number(item.product_id),
+  skuSnapshot: item.sku_snapshot ?? null,
+  productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
+  qty,
+  sourcePriceCurrency: 'USD' as const,
+  sourcePriceAmount: unitPriceUsdSnapshot,
+  unitPriceUsdSnapshot,
+  lineTotalUsd,
+  editableDetailLines: item.notes
+    ? item.notes
+        .split('\n')
+        .map((x) => x.trim())
+        .filter(Boolean)
+    : [],
+};
 });
 
 const lines = rowItems.map((item) => {
