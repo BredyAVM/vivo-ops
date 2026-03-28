@@ -59,6 +59,8 @@ type DraftItem = {
   skuSnapshot: string | null;
   productNameSnapshot: string;
   qty: number;
+  sourcePriceCurrency: 'VES' | 'USD';
+  sourcePriceAmount: number;
   unitPriceUsdSnapshot: number;
   lineTotalUsd: number;
   editableDetailLines: string[];
@@ -2776,19 +2778,24 @@ const handleAddCreateOrderItem = () => {
     return;
   }
 
-  setCreateOrderDraftItems((prev) => [
-    ...prev,
-    {
-      localId: `${Date.now()}-${Math.random()}`,
-      productId: product.id,
-      skuSnapshot: product.sku || null,
-      productNameSnapshot: product.name,
-      qty: createOrderQty,
-      unitPriceUsdSnapshot: Number(product.basePriceUsd || 0),
-      lineTotalUsd: Number(product.basePriceUsd || 0) * createOrderQty,
-      editableDetailLines: [],
-    },
-  ]);
+setCreateOrderDraftItems((prev) => [
+  ...prev,
+  {
+    localId: `${Date.now()}-${Math.random()}`,
+    productId: product.id,
+    skuSnapshot: product.sku || null,
+    productNameSnapshot: product.name,
+    qty: createOrderQty,
+    sourcePriceCurrency: product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
+    sourcePriceAmount:
+      product.sourcePriceCurrency === 'VES'
+        ? Number(product.basePriceBs || 0)
+        : Number(product.basePriceUsd || 0),
+    unitPriceUsdSnapshot: Number(product.basePriceUsd || 0),
+    lineTotalUsd: Number(product.basePriceUsd || 0) * createOrderQty,
+    editableDetailLines: [],
+  },
+]);
 
   setCreateOrderProductSearch('');
   setCreateOrderProductActiveIndex(-1);
@@ -5647,10 +5654,13 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-medium text-[#F5F5F7]">
                 {item.name}
               </div>
-              <div className="mt-1 text-xs text-[#8A8A96]">
-                {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} · {fmtUSD(item.basePriceUsd)}
-                {item.sku ? ` · ${item.sku}` : ''}
-              </div>
+<div className="mt-1 text-xs text-[#8A8A96]">
+  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} ·{' '}
+  {item.sourcePriceCurrency === 'VES'
+    ? fmtBs(item.basePriceBs)
+    : fmtUSD(item.basePriceUsd)}
+  {item.sku ? ` · ${item.sku}` : ''}
+</div>
             </button>
           ))
         )}
@@ -5727,14 +5737,18 @@ deliveryAssignMode === 'external' ? (
 <div>
   <label className="mb-1 block text-xs text-[#8A8A96]">P/U</label>
   <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]">
-    {fmtBs(item.unitPriceUsdSnapshot * createOrderFxRateNumber)}
+    {item.sourcePriceCurrency === 'VES'
+      ? fmtBs(item.sourcePriceAmount)
+      : fmtUSD(item.sourcePriceAmount)}
   </div>
 </div>
 
 <div>
   <label className="mb-1 block text-xs text-[#8A8A96]">Total</label>
   <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]">
-    {fmtBs(item.lineTotalUsd * createOrderFxRateNumber)}
+    {item.sourcePriceCurrency === 'VES'
+      ? fmtBs(item.sourcePriceAmount * item.qty)
+      : fmtUSD(item.sourcePriceAmount * item.qty)}
   </div>
 </div>
 
