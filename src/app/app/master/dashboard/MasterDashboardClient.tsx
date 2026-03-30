@@ -343,6 +343,10 @@ const fmtRateBs = (n: number) => {
   return `Bs ${out}.${decPart}`;
 };
 
+const fmtMoneyByCurrency = (amount: number, currencyCode: 'USD' | 'VES') => {
+  return currencyCode === 'VES' ? fmtBs(amount) : fmtUSD(amount);
+};
+
 const fmtTimeAMPM = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleTimeString('es-VE', {
@@ -3314,17 +3318,37 @@ const selectedPaymentReportAccount =
   }, [accountSearch, moneyAccounts]);
 
   const accountStatsById = useMemo(() => {
-    const stats = new Map<number, { balanceUsd: number; periodInflowUsd: number; periodOutflowUsd: number }>();
+    const stats = new Map<
+      number,
+      {
+        balanceNative: number;
+        periodInflowNative: number;
+        periodOutflowNative: number;
+        balanceUsdRef: number;
+        periodInflowUsdRef: number;
+        periodOutflowUsdRef: number;
+      }
+    >();
 
     for (const account of moneyAccounts) {
-      stats.set(account.id, { balanceUsd: 0, periodInflowUsd: 0, periodOutflowUsd: 0 });
+      stats.set(account.id, {
+        balanceNative: 0,
+        periodInflowNative: 0,
+        periodOutflowNative: 0,
+        balanceUsdRef: 0,
+        periodInflowUsdRef: 0,
+        periodOutflowUsdRef: 0,
+      });
     }
 
     for (const movement of moneyMovements) {
       const current = stats.get(movement.moneyAccountId);
       if (!current) continue;
 
-      current.balanceUsd += movement.direction === 'inflow'
+      current.balanceNative += movement.direction === 'inflow'
+        ? movement.amount
+        : movement.amount * -1;
+      current.balanceUsdRef += movement.direction === 'inflow'
         ? movement.amountUsdEquivalent
         : movement.amountUsdEquivalent * -1;
     }
@@ -3333,8 +3357,13 @@ const selectedPaymentReportAccount =
       const current = stats.get(movement.moneyAccountId);
       if (!current) continue;
 
-      if (movement.direction === 'inflow') current.periodInflowUsd += movement.amountUsdEquivalent;
-      else current.periodOutflowUsd += movement.amountUsdEquivalent;
+      if (movement.direction === 'inflow') {
+        current.periodInflowNative += movement.amount;
+        current.periodInflowUsdRef += movement.amountUsdEquivalent;
+      } else {
+        current.periodOutflowNative += movement.amount;
+        current.periodOutflowUsdRef += movement.amountUsdEquivalent;
+      }
     }
 
     return stats;
@@ -3342,8 +3371,8 @@ const selectedPaymentReportAccount =
 
   const accountSummary = useMemo(() => {
     const base = {
-      USD: { activeCount: 0, balanceUsd: 0, inflowUsd: 0, outflowUsd: 0 },
-      VES: { activeCount: 0, balanceUsd: 0, inflowUsd: 0, outflowUsd: 0 },
+      USD: { activeCount: 0, balanceNative: 0, inflowNative: 0, outflowNative: 0, balanceUsdRef: 0 },
+      VES: { activeCount: 0, balanceNative: 0, inflowNative: 0, outflowNative: 0, balanceUsdRef: 0 },
     };
 
     for (const account of filteredAccounts) {
@@ -3351,9 +3380,10 @@ const selectedPaymentReportAccount =
       if (!stats) continue;
 
       if (account.isActive) base[account.currencyCode].activeCount += 1;
-      base[account.currencyCode].balanceUsd += stats.balanceUsd;
-      base[account.currencyCode].inflowUsd += stats.periodInflowUsd;
-      base[account.currencyCode].outflowUsd += stats.periodOutflowUsd;
+      base[account.currencyCode].balanceNative += stats.balanceNative;
+      base[account.currencyCode].inflowNative += stats.periodInflowNative;
+      base[account.currencyCode].outflowNative += stats.periodOutflowNative;
+      base[account.currencyCode].balanceUsdRef += stats.balanceUsdRef;
     }
 
     return base;
@@ -3363,6 +3393,10 @@ const selectedPaymentReportAccount =
     if (!selectedAccountId) return [];
     return filteredMoneyMovements.filter((movement) => movement.moneyAccountId === selectedAccountId);
   }, [filteredMoneyMovements, selectedAccountId]);
+
+  const orderLookupById = useMemo(() => {
+    return new Map(orders.map((order) => [order.id, order]));
+  }, [orders]);
 
 const createOrderCanSave =
   createOrderHasValidAdvisor &&
@@ -4086,9 +4120,26 @@ suppressHydrationWarning
           <div className="text-sm font-semibold text-[#F5F5F7]">Resumen {currency}</div>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <InfoCell label="Cuentas activas" value={String(accountSummary[currency].activeCount)} />
-            <InfoCell label="Balance actual ($)" value={fmtUSD(accountSummary[currency].balanceUsd)} />
-            <InfoCell label="Ingresos perÃ­odo ($)" value={fmtUSD(accountSummary[currency].inflowUsd)} />
-            <InfoCell label="Egresos perÃ­odo ($)" value={fmtUSD(accountSummary[currency].outflowUsd)} />
+            <InfoCell
+              label={`Balance actual (${currency})`}
+              value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
+            />
+            <InfoCell
+              label={`Ingresos perÃ­odo (${currency})`}
+              value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
+            />
+            <InfoCell
+              label={`Egresos perÃ­odo (${currency})`}
+              value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
+            />
+            <InfoCell
+              label={currency === 'VES' ? 'Referencia $' : 'Referencia Bs'}
+              value={
+                currency === 'VES'
+                  ? fmtUSD(accountSummary[currency].balanceUsdRef)
+                  : fmtBs(accountSummary[currency].balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))
+              }
+            />
           </div>
         </div>
       ))}
@@ -4117,9 +4168,9 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">InstituciÃ³n</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
-              <th className="px-3 py-3 text-left font-medium">Balance actual ($)</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo ($)</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo ($)</th>
+              <th className="px-3 py-3 text-left font-medium">Balance actual</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo</th>
               <th className="px-3 py-3 text-left font-medium">Acciones</th>
             </tr>
           </thead>
@@ -4134,9 +4185,12 @@ suppressHydrationWarning
               filteredAccounts.map((account, idx) => {
                 const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
                 const stats = accountStatsById.get(account.id) ?? {
-                  balanceUsd: 0,
-                  periodInflowUsd: 0,
-                  periodOutflowUsd: 0,
+                  balanceNative: 0,
+                  periodInflowNative: 0,
+                  periodOutflowNative: 0,
+                  balanceUsdRef: 0,
+                  periodInflowUsdRef: 0,
+                  periodOutflowUsdRef: 0,
                 };
 
                 return (
@@ -4158,9 +4212,30 @@ suppressHydrationWarning
                         <span className="text-[#8A8A96]">Inactiva</span>
                       )}
                     </td>
-                    <td className="px-3 py-3">{fmtUSD(stats.balanceUsd)}</td>
-                    <td className="px-3 py-3 text-emerald-400">{fmtUSD(stats.periodInflowUsd)}</td>
-                    <td className="px-3 py-3 text-red-400">{fmtUSD(stats.periodOutflowUsd)}</td>
+                    <td className="px-3 py-3">
+                      <div>{fmtMoneyByCurrency(stats.balanceNative, account.currencyCode)}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        {account.currencyCode === 'VES'
+                          ? fmtUSD(stats.balanceUsdRef)
+                          : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-emerald-400">
+                      <div>{fmtMoneyByCurrency(stats.periodInflowNative, account.currencyCode)}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        {account.currencyCode === 'VES'
+                          ? fmtUSD(stats.periodInflowUsdRef)
+                          : fmtBs(stats.periodInflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-red-400">
+                      <div>{fmtMoneyByCurrency(stats.periodOutflowNative, account.currencyCode)}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        {account.currencyCode === 'VES'
+                          ? fmtUSD(stats.periodOutflowUsdRef)
+                          : fmtBs(stats.periodOutflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -5758,6 +5833,34 @@ deliveryAssignMode === 'external' ? (
           <div className="text-sm text-[#B7B7C2]">Sin cuenta seleccionada.</div>
         ) : (
           <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-semibold text-[#F5F5F7]">{selectedAccount.name}</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Fecha: {accountDateTo || accountDateFrom || new Date().toISOString().slice(0, 10)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-[#8A8A96]">Acumulado</div>
+                  <div className="text-lg font-semibold text-[#F5F5F7]">
+                    {fmtMoneyByCurrency(
+                      accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
+                      selectedAccount.currencyCode
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    {selectedAccount.currencyCode === 'VES'
+                      ? fmtUSD(accountStatsById.get(selectedAccount.id)?.balanceUsdRef ?? 0)
+                      : fmtBs(
+                          (accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0) *
+                            (activeExchangeRate?.rateBsPerUsd ?? 0)
+                        )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
@@ -5767,30 +5870,59 @@ deliveryAssignMode === 'external' ? (
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 overflow-x-auto">
                 {selectedAccountMovements.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
-                  selectedAccountMovements.map((movement) => (
-                    <div key={movement.id} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-[#F5F5F7]">
-                            {movement.direction === 'inflow' ? 'Ingreso' : 'Egreso'} · {MOVEMENT_TYPE_LABEL[movement.movementType]}
-                          </div>
-                          <div className="mt-1 text-xs text-[#8A8A96]">
-                            {movement.movementDate} · {movement.referenceCode || 'Sin referencia'}
-                          </div>
-                        </div>
-                        <div className={movement.direction === 'inflow' ? 'text-emerald-400' : 'text-red-400'}>
-                          {movement.direction === 'inflow' ? '+' : '-'}{fmtUSD(movement.amountUsdEquivalent)}
-                        </div>
-                      </div>
-                      <div className="mt-2 text-xs text-[#B7B7C2]">
-                        {movement.description || movement.notes || movement.counterpartyName || 'Sin detalle adicional'}
-                      </div>
-                    </div>
-                  ))
+                  <table className="w-full text-[12px]">
+                    <thead className="border-b border-[#242433] text-[#B7B7C2]">
+                      <tr>
+                        <th className="px-2 py-2 text-left font-medium">Tipo</th>
+                        <th className="px-2 py-2 text-left font-medium">Monto</th>
+                        <th className="px-2 py-2 text-left font-medium">Cliente</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Orden</th>
+                        <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Control</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedAccountMovements.map((movement, idx) => {
+                        const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+                        const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                        const primaryAmount = fmtMoneyByCurrency(movement.amount, selectedAccount.currencyCode);
+                        const secondaryAmount =
+                          selectedAccount.currencyCode === 'VES'
+                            ? fmtUSD(movement.amountUsdEquivalent)
+                            : fmtBs(movement.amount * (activeExchangeRate?.rateBsPerUsd ?? 0));
+
+                        return (
+                          <tr key={movement.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                            <td className="px-2 py-2">
+                              {movement.direction === 'inflow' ? 'Ingreso' : 'Retiro'}
+                              <div className="mt-1 text-[11px] text-[#8A8A96]">
+                                {MOVEMENT_TYPE_LABEL[movement.movementType]}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className={movement.direction === 'inflow' ? 'text-emerald-400' : 'text-red-400'}>
+                                {movement.direction === 'inflow' ? '' : '-'}
+                                {primaryAmount}
+                              </div>
+                              <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
+                            </td>
+                            <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
+                            <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
+                            <td className="px-2 py-2">
+                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
+                            </td>
+                            <td className="px-2 py-2">
+                              {movement.referenceCode || movement.paymentReportId || movement.id}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 )}
               </div>
             </div>
