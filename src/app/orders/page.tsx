@@ -65,6 +65,17 @@ export default function OrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function logout() {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
+    router.push("/login");
+    router.refresh();
+  }
+
   return (
     <main style={{ padding: 24, fontFamily: "system-ui" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
@@ -91,6 +102,13 @@ export default function OrdersPage() {
           >
             + Nueva orden
           </Link>
+
+          <button
+            onClick={logout}
+            style={{ background: "#ef4444", padding: "10px 14px", borderRadius: 10, color: "white", fontWeight: 800 }}
+          >
+            Logout
+          </button>
         </div>
       </div>
 
