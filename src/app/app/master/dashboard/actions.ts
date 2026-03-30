@@ -115,7 +115,7 @@ export async function rejectPaymentReportAction(input: {
 export async function approveOrderAction(input: {
   orderId: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('approve_order', {
     p_order_id: input.orderId,
@@ -129,7 +129,7 @@ export async function reapproveQueuedOrderAction(input: {
   orderId: number;
   notes: string;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('reapprove_queued_order', {
     p_order_id: input.orderId,
@@ -143,7 +143,7 @@ export async function reapproveQueuedOrderAction(input: {
 export async function sendToKitchenAction(input: {
   orderId: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('send_to_kitchen', {
     p_order_id: input.orderId,
@@ -269,7 +269,7 @@ export async function assignInternalDriverAction(input: {
   orderId: number;
   driverUserId: string;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('assign_internal_driver', {
     p_order_id: input.orderId,
@@ -285,7 +285,7 @@ export async function assignExternalPartnerAction(input: {
   partnerId: number;
   reference: string | null;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('assign_external_partner', {
     p_order_id: input.orderId,
@@ -302,7 +302,7 @@ export async function reviewOrderChangesAction(input: {
   approved: boolean;
   notes: string;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('review_order_changes', {
     p_order_id: input.orderId,
@@ -318,7 +318,7 @@ export async function kitchenTakeAction(input: {
   orderId: number;
   etaMinutes: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('kitchen_take', {
     p_order_id: input.orderId,
@@ -332,7 +332,7 @@ export async function kitchenTakeAction(input: {
 export async function markReadyAction(input: {
   orderId: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('mark_ready', {
     p_order_id: input.orderId,
@@ -345,7 +345,7 @@ export async function markReadyAction(input: {
 export async function outForDeliveryAction(input: {
   orderId: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('out_for_delivery', {
     p_order_id: input.orderId,
@@ -358,7 +358,7 @@ export async function outForDeliveryAction(input: {
 export async function markDeliveredAction(input: {
   orderId: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('mark_delivered', {
     p_order_id: input.orderId,
@@ -604,6 +604,7 @@ export async function updateCatalogItemAction(input: {
 
   revalidatePath('/app/master/dashboard');
 }
+
 export async function updateExchangeRateAction(input: {
   rateBsPerUsd: number;
 }) {
@@ -643,32 +644,33 @@ export async function updateExchangeRateAction(input: {
     throw new Error(productsError.message);
   }
 
-for (const product of products ?? []) {
-  const sourceAmount = Number(product.source_price_amount || 0);
-  const sourceCurrency = String(product.source_price_currency || '');
+  for (const product of products ?? []) {
+    const sourceAmount = Number(product.source_price_amount || 0);
+    const sourceCurrency = String(product.source_price_currency || '');
 
-  if (sourceCurrency !== 'USD') {
-    continue;
+    if (sourceCurrency !== 'USD') {
+      continue;
+    }
+
+    const basePriceUsd = sourceAmount;
+    const basePriceBs = sourceAmount * rate;
+
+    const { error: updateProductError } = await supabase
+      .from('products')
+      .update({
+        base_price_usd: basePriceUsd,
+        base_price_bs: basePriceBs,
+      })
+      .eq('id', product.id);
+
+    if (updateProductError) {
+      throw new Error(updateProductError.message);
+    }
   }
-
-  const basePriceUsd = sourceAmount;
-  const basePriceBs = sourceAmount * rate;
-
-  const { error: updateProductError } = await supabase
-    .from('products')
-    .update({
-      base_price_usd: basePriceUsd,
-      base_price_bs: basePriceBs,
-    })
-    .eq('id', product.id);
-
-  if (updateProductError) {
-    throw new Error(updateProductError.message);
-  }
-}
 
   revalidatePath('/app/master/dashboard');
 }
+
 export async function createCatalogItemAction(input: {
   sku: string;
   name: string;
@@ -770,6 +772,7 @@ export async function createCatalogItemAction(input: {
   revalidatePath('/app/master/dashboard');
   return { id: Number(data.id) };
 }
+
 export async function toggleCatalogItemActiveAction(input: {
   productId: number;
   nextIsActive: boolean;
@@ -940,27 +943,27 @@ export async function createOrderAction(input: {
   discountPct: string;
   fxRate: string;
 
-paymentMethod: string;
-paymentCurrency: 'USD' | 'VES';
-paymentRequiresChange: boolean;
-paymentChangeFor: string;
-paymentChangeCurrency: 'USD' | 'VES';
-paymentNote: string;
-hasDeliveryNote: boolean;
-hasInvoice: boolean;
-invoiceDataNote: string;
+  paymentMethod: string;
+  paymentCurrency: 'USD' | 'VES';
+  paymentRequiresChange: boolean;
+  paymentChangeFor: string;
+  paymentChangeCurrency: 'USD' | 'VES';
+  paymentNote: string;
+  hasDeliveryNote: boolean;
+  hasInvoice: boolean;
+  invoiceDataNote: string;
 
-items: Array<{
-  productId: number;
-  skuSnapshot: string | null;
-  productNameSnapshot: string;
-  qty: number;
-  sourcePriceCurrency: 'VES' | 'USD';
-  sourcePriceAmount: number;
-  unitPriceUsdSnapshot: number;
-  lineTotalUsd: number;
-  editableDetailLines: string[];
-}>;
+  items: Array<{
+    productId: number;
+    skuSnapshot: string | null;
+    productNameSnapshot: string;
+    qty: number;
+    sourcePriceCurrency: 'VES' | 'USD';
+    sourcePriceAmount: number;
+    unitPriceUsdSnapshot: number;
+    lineTotalUsd: number;
+    editableDetailLines: string[];
+  }>;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
@@ -994,9 +997,9 @@ items: Array<{
   );
 
   const fxRate = Number(input.fxRate || 0);
-if (!Number.isFinite(fxRate) || fxRate <= 0) {
-  throw new Error('La tasa de la orden es inválida.');
-}
+  if (!Number.isFinite(fxRate) || fxRate <= 0) {
+    throw new Error('La tasa de la orden es inválida.');
+  }
 
   let clientId = input.selectedClientId;
 
@@ -1054,90 +1057,90 @@ if (!Number.isFinite(fxRate) || fxRate <= 0) {
     throw new Error('No se pudo resolver el asesor atribuido.');
   }
 
-const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
+  const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
 
-const subtotalBs = input.items.reduce((sum, item) => {
-  const lineBs =
-    item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-      : Number(item.lineTotalUsd || 0) * fxRateNumber;
+  const subtotalBs = input.items.reduce((sum, item) => {
+    const lineBs =
+      item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+        : Number(item.lineTotalUsd || 0) * fxRateNumber;
 
-  return sum + lineBs;
-}, 0);
+    return sum + lineBs;
+  }, 0);
 
-const subtotalUsd = input.items.reduce((sum, item) => {
-  const lineUsd =
-    item.sourcePriceCurrency === 'VES'
-      ? fxRateNumber > 0
-        ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
-        : 0
-      : Number(item.lineTotalUsd || 0);
+  const subtotalUsd = input.items.reduce((sum, item) => {
+    const lineUsd =
+      item.sourcePriceCurrency === 'VES'
+        ? fxRateNumber > 0
+          ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
+          : 0
+        : Number(item.lineTotalUsd || 0);
 
-  return sum + lineUsd;
-}, 0);
+    return sum + lineUsd;
+  }, 0);
 
-const discountPctNumber = Math.max(
-  0,
-  Math.min(100, Number(input.discountPct || 0))
-);
+  const discountPctNumber = Math.max(
+    0,
+    Math.min(100, Number(input.discountPct || 0))
+  );
 
-const discountAmountBs = input.discountEnabled
-  ? subtotalBs * (discountPctNumber / 100)
-  : 0;
+  const discountAmountBs = input.discountEnabled
+    ? subtotalBs * (discountPctNumber / 100)
+    : 0;
 
-const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+  const totalBs = Math.max(0, subtotalBs - discountAmountBs);
 
-const discountAmountUsd =
-  fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
+  const discountAmountUsd =
+    fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
 
-const totalUsd =
-  fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
+  const totalUsd =
+    fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
 
   const orderNumber = await generateUniqueOrderNumber(supabase);
 
-const extraFields = {
-  schedule: {
-    date: input.deliveryDate,
-    time_12: `${input.deliveryHour12}:${pad2(Number(input.deliveryMinute || 0))} ${input.deliveryAmPm}`,
-    time_24: deliveryTime24,
-  },
-  receiver: {
-    name: input.receiverName.trim() || null,
-    phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
-  },
-  delivery: {
-    address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
-  },
-payment: {
-  method: input.paymentMethod || null,
-  currency: input.paymentCurrency || null,
-  requires_change: !!input.paymentRequiresChange,
-  change_for: input.paymentChangeFor.trim()
-    ? Number(input.paymentChangeFor)
-    : null,
-  change_currency: input.paymentChangeCurrency || null,
-  notes: input.paymentNote.trim() || null,
-},
-documents: {
-  has_delivery_note: !!input.hasDeliveryNote,
-  has_invoice: !!input.hasInvoice,
-  invoice_data_note: input.invoiceDataNote.trim() || null,
-},
-pricing: {
-  fx_rate: fxRateNumber > 0 ? fxRateNumber : null,
-  discount_enabled: !!input.discountEnabled,
-  discount_pct: input.discountEnabled ? discountPctNumber : 0,
-  discount_amount_usd: input.discountEnabled ? discountAmountUsd : 0,
-  discount_amount_bs: input.discountEnabled ? discountAmountBs : 0,
-  subtotal_bs: subtotalBs,
-  total_bs: totalBs,
-},
+  const extraFields = {
+    schedule: {
+      date: input.deliveryDate,
+      time_12: `${input.deliveryHour12}:${pad2(Number(input.deliveryMinute || 0))} ${input.deliveryAmPm}`,
+      time_24: deliveryTime24,
+    },
+    receiver: {
+      name: input.receiverName.trim() || null,
+      phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
+    },
+    delivery: {
+      address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+    },
+    payment: {
+      method: input.paymentMethod || null,
+      currency: input.paymentCurrency || null,
+      requires_change: !!input.paymentRequiresChange,
+      change_for: input.paymentChangeFor.trim()
+        ? Number(input.paymentChangeFor)
+        : null,
+      change_currency: input.paymentChangeCurrency || null,
+      notes: input.paymentNote.trim() || null,
+    },
+    documents: {
+      has_delivery_note: !!input.hasDeliveryNote,
+      has_invoice: !!input.hasInvoice,
+      invoice_data_note: input.invoiceDataNote.trim() || null,
+    },
+    pricing: {
+      fx_rate: fxRateNumber > 0 ? fxRateNumber : null,
+      discount_enabled: !!input.discountEnabled,
+      discount_pct: input.discountEnabled ? discountPctNumber : 0,
+      discount_amount_usd: input.discountEnabled ? discountAmountUsd : 0,
+      discount_amount_bs: input.discountEnabled ? discountAmountBs : 0,
+      subtotal_bs: subtotalBs,
+      total_bs: totalBs,
+    },
+    note: input.note.trim() || null,
+    ui: {
+      quote_only: false,
+    },
+  };
 
-  note: input.note.trim() || null,
-  ui: {
-    quote_only: false,
-  },
-};
   const { data: createdOrder, error: orderError } = await supabase
     .from('orders')
     .insert({
@@ -1166,29 +1169,29 @@ pricing: {
 
   const orderId = Number(createdOrder.id);
 
-const itemsPayload = input.items.map((item) => ({
-  order_id: orderId,
-  product_id: item.productId,
-  qty: Number(item.qty || 0),
-  pricing_origin_currency: item.sourcePriceCurrency,
-  pricing_origin_amount: Number(item.sourcePriceAmount || 0),
-  unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
-  line_total_usd: Number(item.lineTotalUsd || 0),
-  unit_price_bs_snapshot:
-    item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0)
-      : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
-  line_total_bs_snapshot:
-    item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-      : Number(item.lineTotalUsd || 0) * fxRateNumber,
-  sku_snapshot: item.skuSnapshot,
-  product_name_snapshot: item.productNameSnapshot,
-  notes:
-    item.editableDetailLines && item.editableDetailLines.length > 0
-      ? item.editableDetailLines.join('\n')
-      : null,
-}));
+  const itemsPayload = input.items.map((item) => ({
+    order_id: orderId,
+    product_id: item.productId,
+    qty: Number(item.qty || 0),
+    pricing_origin_currency: item.sourcePriceCurrency,
+    pricing_origin_amount: Number(item.sourcePriceAmount || 0),
+    unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
+    line_total_usd: Number(item.lineTotalUsd || 0),
+    unit_price_bs_snapshot:
+      item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0)
+        : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
+    line_total_bs_snapshot:
+      item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+        : Number(item.lineTotalUsd || 0) * fxRateNumber,
+    sku_snapshot: item.skuSnapshot,
+    product_name_snapshot: item.productNameSnapshot,
+    notes:
+      item.editableDetailLines && item.editableDetailLines.length > 0
+        ? item.editableDetailLines.join('\n')
+        : null,
+  }));
 
   const { error: itemsError } = await supabase
     .from('order_items')
@@ -1238,17 +1241,17 @@ export async function updateOrderAction(input: {
   hasInvoice: boolean;
   invoiceDataNote: string;
 
-items: Array<{
-  productId: number;
-  skuSnapshot: string | null;
-  productNameSnapshot: string;
-  qty: number;
-  sourcePriceCurrency: 'VES' | 'USD';
-  sourcePriceAmount: number;
-  unitPriceUsdSnapshot: number;
-  lineTotalUsd: number;
-  editableDetailLines: string[];
-}>;
+  items: Array<{
+    productId: number;
+    skuSnapshot: string | null;
+    productNameSnapshot: string;
+    qty: number;
+    sourcePriceCurrency: 'VES' | 'USD';
+    sourcePriceAmount: number;
+    unitPriceUsdSnapshot: number;
+    lineTotalUsd: number;
+    editableDetailLines: string[];
+  }>;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
@@ -1356,44 +1359,44 @@ items: Array<{
     throw new Error('No se pudo resolver el asesor atribuido.');
   }
 
-const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
+  const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
 
-const subtotalBs = input.items.reduce((sum, item) => {
-  const lineBs =
-    item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-      : Number(item.lineTotalUsd || 0) * fxRateNumber;
+  const subtotalBs = input.items.reduce((sum, item) => {
+    const lineBs =
+      item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+        : Number(item.lineTotalUsd || 0) * fxRateNumber;
 
-  return sum + lineBs;
-}, 0);
+    return sum + lineBs;
+  }, 0);
 
-const subtotalUsd = input.items.reduce((sum, item) => {
-  const lineUsd =
-    item.sourcePriceCurrency === 'VES'
-      ? fxRateNumber > 0
-        ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
-        : 0
-      : Number(item.lineTotalUsd || 0);
+  const subtotalUsd = input.items.reduce((sum, item) => {
+    const lineUsd =
+      item.sourcePriceCurrency === 'VES'
+        ? fxRateNumber > 0
+          ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
+          : 0
+        : Number(item.lineTotalUsd || 0);
 
-  return sum + lineUsd;
-}, 0);
+    return sum + lineUsd;
+  }, 0);
 
-const discountPctNumber = Math.max(
-  0,
-  Math.min(100, Number(input.discountPct || 0))
-);
+  const discountPctNumber = Math.max(
+    0,
+    Math.min(100, Number(input.discountPct || 0))
+  );
 
-const discountAmountBs = input.discountEnabled
-  ? subtotalBs * (discountPctNumber / 100)
-  : 0;
+  const discountAmountBs = input.discountEnabled
+    ? subtotalBs * (discountPctNumber / 100)
+    : 0;
 
-const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+  const totalBs = Math.max(0, subtotalBs - discountAmountBs);
 
-const discountAmountUsd =
-  fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
+  const discountAmountUsd =
+    fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
 
-const totalUsd =
-  fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
+  const totalUsd =
+    fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
 
   const extraFields = {
     schedule: {
@@ -1440,21 +1443,21 @@ const totalUsd =
 
   const nowIso = new Date().toISOString();
 
-const orderUpdatePayload: Record<string, any> = {
-  client_id: clientId,
-  attributed_advisor_id: attributedAdvisorId,
-  source,
-  fulfillment,
-  total_usd: totalUsd,
-  total_bs_snapshot: totalBs,
-  delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
-  receiver_name: input.receiverName.trim() || null,
-  receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
-  notes: input.note.trim() || null,
-  extra_fields: extraFields,
-  last_modified_at: nowIso,
-  last_modified_by: user.id,
-};
+  const orderUpdatePayload: Record<string, any> = {
+    client_id: clientId,
+    attributed_advisor_id: attributedAdvisorId,
+    source,
+    fulfillment,
+    total_usd: totalUsd,
+    total_bs_snapshot: totalBs,
+    delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+    receiver_name: input.receiverName.trim() || null,
+    receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
+    notes: input.note.trim() || null,
+    extra_fields: extraFields,
+    last_modified_at: nowIso,
+    last_modified_by: user.id,
+  };
 
   if (currentOrder.status === 'queued') {
     orderUpdatePayload.queued_needs_reapproval = true;
@@ -1486,29 +1489,29 @@ const orderUpdatePayload: Record<string, any> = {
     throw new Error(deleteItemsError.message);
   }
 
-const itemsPayload = input.items.map((item) => ({
-  order_id: orderId,
-  product_id: item.productId,
-  qty: Number(item.qty || 0),
-  pricing_origin_currency: item.sourcePriceCurrency,
-  pricing_origin_amount: Number(item.sourcePriceAmount || 0),
-  unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
-  line_total_usd: Number(item.lineTotalUsd || 0),
-  unit_price_bs_snapshot:
-    item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0)
-      : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
-  line_total_bs_snapshot:
-    item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-      : Number(item.lineTotalUsd || 0) * fxRateNumber,
-  sku_snapshot: item.skuSnapshot,
-  product_name_snapshot: item.productNameSnapshot,
-  notes:
-    item.editableDetailLines && item.editableDetailLines.length > 0
-      ? item.editableDetailLines.join('\n')
-      : null,
-}));
+  const itemsPayload = input.items.map((item) => ({
+    order_id: orderId,
+    product_id: item.productId,
+    qty: Number(item.qty || 0),
+    pricing_origin_currency: item.sourcePriceCurrency,
+    pricing_origin_amount: Number(item.sourcePriceAmount || 0),
+    unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
+    line_total_usd: Number(item.lineTotalUsd || 0),
+    unit_price_bs_snapshot:
+      item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0)
+        : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
+    line_total_bs_snapshot:
+      item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+        : Number(item.lineTotalUsd || 0) * fxRateNumber,
+    sku_snapshot: item.skuSnapshot,
+    product_name_snapshot: item.productNameSnapshot,
+    notes:
+      item.editableDetailLines && item.editableDetailLines.length > 0
+        ? item.editableDetailLines.join('\n')
+        : null,
+  }));
 
   const { error: insertItemsError } = await supabase
     .from('order_items')
@@ -1522,7 +1525,6 @@ const itemsPayload = input.items.map((item) => ({
 
   return { id: orderId };
 }
-
 
 export async function logoutAction() {
   const supabase = await createSupabaseServer();
