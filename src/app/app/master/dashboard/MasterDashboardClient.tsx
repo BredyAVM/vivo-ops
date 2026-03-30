@@ -24,8 +24,11 @@ import {
   updateCatalogItemAction,
   updateExchangeRateAction,
   createCatalogItemAction,
+  createMoneyAccountAction,
   toggleCatalogItemActiveAction,
+  toggleMoneyAccountActiveAction,
   deleteCatalogItemAction,
+  updateMoneyAccountAction,
   createOrderAction,
   updateOrderAction,
   logoutAction,
@@ -76,8 +79,45 @@ type DraftEditableSelection = {
 type MoneyAccountOption = {
   id: number;
   name: string;
-  currencyCode: string;
-  accountKind: string;
+  currencyCode: 'USD' | 'VES';
+  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+  institutionName: string;
+  ownerName: string;
+  notes: string;
+  isActive: boolean;
+  createdAt: string;
+  createdByUserId: string | null;
+};
+
+type MoneyMovementItem = {
+  id: number;
+  movementDate: string;
+  createdAt: string;
+  createdByUserId: string;
+  confirmedAt: string | null;
+  confirmedByUserId: string | null;
+  direction: 'inflow' | 'outflow';
+  movementType:
+    | 'adjustment'
+    | 'cash_count_adjustment'
+    | 'change_given'
+    | 'expense_payment'
+    | 'fee_charge'
+    | 'order_payment'
+    | 'other_income'
+    | 'withdrawal';
+  moneyAccountId: number;
+  currencyCode: 'USD' | 'VES';
+  amount: number;
+  exchangeRateVesPerUsd: number | null;
+  amountUsdEquivalent: number;
+  referenceCode: string | null;
+  counterpartyName: string | null;
+  description: string | null;
+  notes: string | null;
+  orderId: number | null;
+  paymentReportId: number | null;
+  movementGroupId: string | null;
 };
 
 type DriverOption = {
@@ -189,7 +229,7 @@ type ToastState = {
   type: 'success' | 'error';
   message: string;
 } | null;
-type SettingsTab = 'catalog' | 'exchange_rate';
+type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts';
 
 type CatalogItem = {
   id: number;
@@ -230,6 +270,26 @@ type ExchangeRateInfo = {
   id: number;
   rateBsPerUsd: number;
   effectiveAt: string;
+};
+
+const MONEY_ACCOUNT_KIND_LABEL: Record<MoneyAccountOption['accountKind'], string> = {
+  bank: 'Banco',
+  cash: 'Caja',
+  fund: 'Fondo',
+  other: 'Otro',
+  pos: 'Punto',
+  wallet: 'Wallet',
+};
+
+const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
+  adjustment: 'Ajuste',
+  cash_count_adjustment: 'Ajuste de caja',
+  change_given: 'Cambio entregado',
+  expense_payment: 'Pago de gasto',
+  fee_charge: 'ComisiÃ³n',
+  order_payment: 'Pago de orden',
+  other_income: 'Otro ingreso',
+  withdrawal: 'Retiro',
 };
 
 type EditableComponentRow = {
@@ -1280,6 +1340,7 @@ export default function MasterDashboardClient({
   advisors = [],
   initialOrders,
   moneyAccounts,
+  moneyMovements = [],
   drivers = [],
   deliveryPartners = [],
   catalogItems = [],
@@ -1291,6 +1352,7 @@ export default function MasterDashboardClient({
   advisors?: AdvisorOption[];
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
+  moneyMovements?: MoneyMovementItem[];
   drivers?: DriverOption[];
   deliveryPartners?: DeliveryPartnerOption[];
   catalogItems?: CatalogItem[];
@@ -1305,6 +1367,21 @@ export default function MasterDashboardClient({
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountDateFrom, setAccountDateFrom] = useState('');
+  const [accountDateTo, setAccountDateTo] = useState('');
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [accountDetailOpen, setAccountDetailOpen] = useState(false);
+  const [accountEditOpen, setAccountEditOpen] = useState(false);
+  const [accountCreateOpen, setAccountCreateOpen] = useState(false);
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountFormName, setAccountFormName] = useState('');
+  const [accountFormCurrencyCode, setAccountFormCurrencyCode] = useState<'USD' | 'VES'>('VES');
+  const [accountFormKind, setAccountFormKind] = useState<MoneyAccountOption['accountKind']>('bank');
+  const [accountFormInstitutionName, setAccountFormInstitutionName] = useState('');
+  const [accountFormOwnerName, setAccountFormOwnerName] = useState('');
+  const [accountFormNotes, setAccountFormNotes] = useState('');
+  const [accountFormIsActive, setAccountFormIsActive] = useState(true);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<'all' | CatalogItem['type']>('all');
   const [selectedCatalogItemId, setSelectedCatalogItemId] = useState<number | null>(null);
@@ -2359,7 +2436,7 @@ const handleSaveCatalog = async () => {
   }
 };
 
-const handleUpdateExchangeRate = async () => {
+  const handleUpdateExchangeRate = async () => {
   try {
     const normalizedRate = String(exchangeRateInput || '').trim().replace(',', '.');
     const rate = Number(normalizedRate || 0);
@@ -2379,10 +2456,98 @@ const handleUpdateExchangeRate = async () => {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error actualizando la tasa.';
     showToast('error', message);
-  } finally {
-    setExchangeRateSaving(false);
-  }
-};
+    } finally {
+      setExchangeRateSaving(false);
+    }
+  };
+
+  const resetAccountForm = () => {
+    setAccountFormName('');
+    setAccountFormCurrencyCode('VES');
+    setAccountFormKind('bank');
+    setAccountFormInstitutionName('');
+    setAccountFormOwnerName('');
+    setAccountFormNotes('');
+    setAccountFormIsActive(true);
+  };
+
+  const openCreateAccount = () => {
+    resetAccountForm();
+    setAccountCreateOpen(true);
+  };
+
+  const openEditAccount = (account: MoneyAccountOption) => {
+    setSelectedAccountId(account.id);
+    setAccountFormName(account.name);
+    setAccountFormCurrencyCode(account.currencyCode);
+    setAccountFormKind(account.accountKind);
+    setAccountFormInstitutionName(account.institutionName);
+    setAccountFormOwnerName(account.ownerName);
+    setAccountFormNotes(account.notes);
+    setAccountFormIsActive(account.isActive);
+    setAccountEditOpen(true);
+  };
+
+  const handleCreateMoneyAccount = async () => {
+    try {
+      setAccountSaving(true);
+      await createMoneyAccountAction({
+        name: accountFormName,
+        currencyCode: accountFormCurrencyCode,
+        accountKind: accountFormKind,
+        institutionName: accountFormInstitutionName,
+        ownerName: accountFormOwnerName,
+        notes: accountFormNotes,
+        isActive: accountFormIsActive,
+      });
+      showToast('success', 'Cuenta creada.');
+      setAccountCreateOpen(false);
+      resetAccountForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo crear la cuenta.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleUpdateMoneyAccount = async () => {
+    if (!selectedAccount) return;
+
+    try {
+      setAccountSaving(true);
+      await updateMoneyAccountAction({
+        accountId: selectedAccount.id,
+        name: accountFormName,
+        currencyCode: accountFormCurrencyCode,
+        accountKind: accountFormKind,
+        institutionName: accountFormInstitutionName,
+        ownerName: accountFormOwnerName,
+        notes: accountFormNotes,
+        isActive: accountFormIsActive,
+      });
+      showToast('success', 'Cuenta actualizada.');
+      setAccountEditOpen(false);
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar la cuenta.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleToggleMoneyAccountActive = async (account: MoneyAccountOption) => {
+    try {
+      await toggleMoneyAccountActiveAction({
+        accountId: account.id,
+        nextIsActive: !account.isActive,
+      });
+      showToast('success', account.isActive ? 'Cuenta desactivada.' : 'Cuenta activada.');
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado.');
+    }
+  };
 
 const resetCreateCatalogForm = () => {
   setNewSku('');
@@ -3115,7 +3280,89 @@ const createOrderHasDeliveryAddress =
   createOrderFulfillment === 'pickup' || !!createOrderDeliveryAddress.trim();
 
 const selectedPaymentReportAccount =
-  moneyAccounts.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
+  moneyAccounts.filter((a) => a.isActive).find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
+
+  const selectedAccount = useMemo(
+    () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
+    [moneyAccounts, selectedAccountId]
+  );
+
+  const filteredMoneyMovements = useMemo(() => {
+    return moneyMovements.filter((movement) => {
+      if (accountDateFrom && movement.movementDate < accountDateFrom) return false;
+      if (accountDateTo && movement.movementDate > accountDateTo) return false;
+      return true;
+    });
+  }, [accountDateFrom, accountDateTo, moneyMovements]);
+
+  const filteredAccounts = useMemo(() => {
+    const query = accountSearch.trim().toLowerCase();
+
+    return moneyAccounts.filter((account) => {
+      if (!query) return true;
+
+      return [
+        account.name,
+        account.currencyCode,
+        account.accountKind,
+        account.institutionName,
+        account.ownerName,
+      ]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query));
+    });
+  }, [accountSearch, moneyAccounts]);
+
+  const accountStatsById = useMemo(() => {
+    const stats = new Map<number, { balanceUsd: number; periodInflowUsd: number; periodOutflowUsd: number }>();
+
+    for (const account of moneyAccounts) {
+      stats.set(account.id, { balanceUsd: 0, periodInflowUsd: 0, periodOutflowUsd: 0 });
+    }
+
+    for (const movement of moneyMovements) {
+      const current = stats.get(movement.moneyAccountId);
+      if (!current) continue;
+
+      current.balanceUsd += movement.direction === 'inflow'
+        ? movement.amountUsdEquivalent
+        : movement.amountUsdEquivalent * -1;
+    }
+
+    for (const movement of filteredMoneyMovements) {
+      const current = stats.get(movement.moneyAccountId);
+      if (!current) continue;
+
+      if (movement.direction === 'inflow') current.periodInflowUsd += movement.amountUsdEquivalent;
+      else current.periodOutflowUsd += movement.amountUsdEquivalent;
+    }
+
+    return stats;
+  }, [filteredMoneyMovements, moneyAccounts, moneyMovements]);
+
+  const accountSummary = useMemo(() => {
+    const base = {
+      USD: { activeCount: 0, balanceUsd: 0, inflowUsd: 0, outflowUsd: 0 },
+      VES: { activeCount: 0, balanceUsd: 0, inflowUsd: 0, outflowUsd: 0 },
+    };
+
+    for (const account of filteredAccounts) {
+      const stats = accountStatsById.get(account.id);
+      if (!stats) continue;
+
+      if (account.isActive) base[account.currencyCode].activeCount += 1;
+      base[account.currencyCode].balanceUsd += stats.balanceUsd;
+      base[account.currencyCode].inflowUsd += stats.periodInflowUsd;
+      base[account.currencyCode].outflowUsd += stats.periodOutflowUsd;
+    }
+
+    return base;
+  }, [accountStatsById, filteredAccounts]);
+
+  const selectedAccountMovements = useMemo(() => {
+    if (!selectedAccountId) return [];
+    return filteredMoneyMovements.filter((movement) => movement.moneyAccountId === selectedAccountId);
+  }, [filteredMoneyMovements, selectedAccountId]);
 
 const createOrderCanSave =
   createOrderHasValidAdvisor &&
@@ -3362,6 +3609,9 @@ suppressHydrationWarning
         </Chip>
         <Chip active={settingsTab === 'exchange_rate'} onClick={() => setSettingsTab('exchange_rate')}>
           Tasa
+        </Chip>
+        <Chip active={settingsTab === 'accounts'} onClick={() => setSettingsTab('accounts')}>
+          Cuentas
         </Chip>
       </div>
     </div>
@@ -3826,6 +4076,128 @@ suppressHydrationWarning
     </div>
   </div>
 </div>
+) : null}
+
+          {settingsTab === 'accounts' ? (
+  <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {(['USD', 'VES'] as const).map((currency) => (
+        <div key={currency} className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-sm font-semibold text-[#F5F5F7]">Resumen {currency}</div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <InfoCell label="Cuentas activas" value={String(accountSummary[currency].activeCount)} />
+            <InfoCell label="Balance actual ($)" value={fmtUSD(accountSummary[currency].balanceUsd)} />
+            <InfoCell label="Ingresos perÃ­odo ($)" value={fmtUSD(accountSummary[currency].inflowUsd)} />
+            <InfoCell label="Egresos perÃ­odo ($)" value={fmtUSD(accountSummary[currency].outflowUsd)} />
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-end md:justify-between">
+      <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+        <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
+        <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
+        <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
+      </div>
+
+      <div className="flex gap-2">
+        <Btn onClick={openCreateAccount}>Nueva cuenta</Btn>
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+            <tr>
+              <th className="px-3 py-3 text-left font-medium">Cuenta</th>
+              <th className="px-3 py-3 text-left font-medium">Moneda</th>
+              <th className="px-3 py-3 text-left font-medium">Tipo</th>
+              <th className="px-3 py-3 text-left font-medium">InstituciÃ³n</th>
+              <th className="px-3 py-3 text-left font-medium">Titular</th>
+              <th className="px-3 py-3 text-left font-medium">Estado</th>
+              <th className="px-3 py-3 text-left font-medium">Balance actual ($)</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo ($)</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo ($)</th>
+              <th className="px-3 py-3 text-left font-medium">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAccounts.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={10}>
+                  No hay cuentas que coincidan con el filtro.
+                </td>
+              </tr>
+            ) : (
+              filteredAccounts.map((account, idx) => {
+                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                const stats = accountStatsById.get(account.id) ?? {
+                  balanceUsd: 0,
+                  periodInflowUsd: 0,
+                  periodOutflowUsd: 0,
+                };
+
+                return (
+                  <tr key={account.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                    <td className="px-3 py-3">
+                      <div className="font-semibold text-[#F5F5F7]">{account.name}</div>
+                      {account.notes ? (
+                        <div className="mt-1 text-[11px] text-[#8A8A96]">{account.notes}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3">{account.currencyCode}</td>
+                    <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
+                    <td className="px-3 py-3">{account.institutionName || '—'}</td>
+                    <td className="px-3 py-3">{account.ownerName || '—'}</td>
+                    <td className="px-3 py-3">
+                      {account.isActive ? (
+                        <span className="text-emerald-400">Activa</span>
+                      ) : (
+                        <span className="text-[#8A8A96]">Inactiva</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">{fmtUSD(stats.balanceUsd)}</td>
+                    <td className="px-3 py-3 text-emerald-400">{fmtUSD(stats.periodInflowUsd)}</td>
+                    <td className="px-3 py-3 text-red-400">{fmtUSD(stats.periodOutflowUsd)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => {
+                            setSelectedAccountId(account.id);
+                            setAccountDetailOpen(true);
+                          }}
+                        >
+                          Ver
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => openEditAccount(account)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => handleToggleMoneyAccountActive(account)}
+                        >
+                          {account.isActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 ) : null}
         </div>
       )}
@@ -4874,10 +5246,10 @@ onClick={() => {
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
         <option value="">— cuenta —</option>
-        {moneyAccounts.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name} ({a.currencyCode})
-          </option>
+        {moneyAccounts.filter((a) => a.isActive).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name} ({a.currencyCode})
+            </option>
         ))}
       </select>
 
@@ -5375,8 +5747,204 @@ deliveryAssignMode === 'external' ? (
           </div>
         </div>
       </Drawer>
+
+      <Drawer
+        open={accountDetailOpen}
+        title={selectedAccount ? `Cuenta: ${selectedAccount.name}` : 'Cuenta'}
+        onClose={() => setAccountDetailOpen(false)}
+        widthClass="w-[760px]"
+      >
+        {!selectedAccount ? (
+          <div className="text-sm text-[#B7B7C2]">Sin cuenta seleccionada.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
+              <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
+              <InfoCell label="InstituciÃ³n" value={selectedAccount.institutionName || '—'} />
+              <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
+              <div className="mt-3 space-y-2">
+                {selectedAccountMovements.length === 0 ? (
+                  <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
+                ) : (
+                  selectedAccountMovements.map((movement) => (
+                    <div key={movement.id} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-[#F5F5F7]">
+                            {movement.direction === 'inflow' ? 'Ingreso' : 'Egreso'} · {MOVEMENT_TYPE_LABEL[movement.movementType]}
+                          </div>
+                          <div className="mt-1 text-xs text-[#8A8A96]">
+                            {movement.movementDate} · {movement.referenceCode || 'Sin referencia'}
+                          </div>
+                        </div>
+                        <div className={movement.direction === 'inflow' ? 'text-emerald-400' : 'text-red-400'}>
+                          {movement.direction === 'inflow' ? '+' : '-'}{fmtUSD(movement.amountUsdEquivalent)}
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs text-[#B7B7C2]">
+                        {movement.description || movement.notes || movement.counterpartyName || 'Sin detalle adicional'}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={accountCreateOpen}
+        title="Nueva cuenta"
+        onClose={() => setAccountCreateOpen(false)}
+        widthClass="w-[720px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FieldInput label="Nombre" value={accountFormName} onChange={setAccountFormName} />
+            <FieldSelect
+              label="Moneda"
+              value={accountFormCurrencyCode}
+              onChange={(value) => setAccountFormCurrencyCode(value as 'USD' | 'VES')}
+              options={[
+                { value: 'VES', label: 'VES' },
+                { value: 'USD', label: 'USD' },
+              ]}
+            />
+            <FieldSelect
+              label="Tipo"
+              value={accountFormKind}
+              onChange={(value) => setAccountFormKind(value as MoneyAccountOption['accountKind'])}
+              options={[
+                { value: 'bank', label: 'Banco' },
+                { value: 'cash', label: 'Caja' },
+                { value: 'fund', label: 'Fondo' },
+                { value: 'other', label: 'Otro' },
+                { value: 'pos', label: 'Punto' },
+                { value: 'wallet', label: 'Wallet' },
+              ]}
+            />
+            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+            <textarea
+              value={accountFormNotes}
+              onChange={(e) => setAccountFormNotes(e.target.value)}
+              rows={4}
+              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={accountFormIsActive}
+              onChange={(e) => setAccountFormIsActive(e.target.checked)}
+            />
+            Activa
+          </label>
+
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setAccountCreateOpen(false)}
+              disabled={accountSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateMoneyAccount}
+              disabled={accountSaving}
+            >
+              {accountSaving ? 'Guardando...' : 'Crear cuenta'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={accountEditOpen}
+        title={selectedAccount ? `Editar: ${selectedAccount.name}` : 'Editar cuenta'}
+        onClose={() => setAccountEditOpen(false)}
+        widthClass="w-[720px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FieldInput label="Nombre" value={accountFormName} onChange={setAccountFormName} />
+            <FieldSelect
+              label="Moneda"
+              value={accountFormCurrencyCode}
+              onChange={(value) => setAccountFormCurrencyCode(value as 'USD' | 'VES')}
+              options={[
+                { value: 'VES', label: 'VES' },
+                { value: 'USD', label: 'USD' },
+              ]}
+            />
+            <FieldSelect
+              label="Tipo"
+              value={accountFormKind}
+              onChange={(value) => setAccountFormKind(value as MoneyAccountOption['accountKind'])}
+              options={[
+                { value: 'bank', label: 'Banco' },
+                { value: 'cash', label: 'Caja' },
+                { value: 'fund', label: 'Fondo' },
+                { value: 'other', label: 'Otro' },
+                { value: 'pos', label: 'Punto' },
+                { value: 'wallet', label: 'Wallet' },
+              ]}
+            />
+            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+            <textarea
+              value={accountFormNotes}
+              onChange={(e) => setAccountFormNotes(e.target.value)}
+              rows={4}
+              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={accountFormIsActive}
+              onChange={(e) => setAccountFormIsActive(e.target.checked)}
+            />
+            Activa
+          </label>
+
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setAccountEditOpen(false)}
+              disabled={accountSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleUpdateMoneyAccount}
+              disabled={accountSaving}
+            >
+              {accountSaving ? 'Guardando...' : 'Guardar cuenta'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
 <Drawer
-  open={createOrderOpen}
+    open={createOrderOpen}
   title={orderEditorMode === 'edit' ? `Editar orden #${editingOrderId ?? ''}` : 'Nueva orden'}
   onClose={() => setCreateOrderOpen(false)}
   widthClass="w-[900px]"

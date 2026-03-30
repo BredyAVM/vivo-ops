@@ -82,7 +82,43 @@ type MoneyAccountRow = {
   name: string;
   currency_code: string;
   account_kind: string;
+  institution_name: string | null;
+  owner_name: string | null;
+  notes: string | null;
   is_active: boolean;
+  created_at: string;
+  created_by_user_id: string | null;
+};
+
+type RawMoneyMovementRow = {
+  id: number;
+  movement_date: string;
+  created_at: string;
+  created_by_user_id: string;
+  confirmed_at: string | null;
+  confirmed_by_user_id: string | null;
+  direction: 'inflow' | 'outflow';
+  movement_type:
+    | 'adjustment'
+    | 'cash_count_adjustment'
+    | 'change_given'
+    | 'expense_payment'
+    | 'fee_charge'
+    | 'order_payment'
+    | 'other_income'
+    | 'withdrawal';
+  money_account_id: number;
+  currency_code: 'USD' | 'VES';
+  amount: number | string;
+  exchange_rate_ves_per_usd: number | string | null;
+  amount_usd_equivalent: number | string;
+  reference_code: string | null;
+  counterparty_name: string | null;
+  description: string | null;
+  notes: string | null;
+  order_id: number | null;
+  payment_report_id: number | null;
+  movement_group_id: string | null;
 };
 
 type RawProductRow = {
@@ -527,17 +563,39 @@ const { data: ordersData, error: ordersError } = await supabase
     .in('order_id', orderIds.length > 0 ? orderIds : [-1])
     .order('created_at', { ascending: false });
 
-  const { data: movementsData } = await supabase
+  const { data: movementsData, error: movementsError } = await supabase
     .from('money_movements')
-    .select('order_id, amount_usd_equivalent')
-    .in('order_id', orderIds.length > 0 ? orderIds : [-1]);
+    .select(`
+      id,
+      movement_date,
+      created_at,
+      created_by_user_id,
+      confirmed_at,
+      confirmed_by_user_id,
+      direction,
+      movement_type,
+      money_account_id,
+      currency_code,
+      amount,
+      exchange_rate_ves_per_usd,
+      amount_usd_equivalent,
+      reference_code,
+      counterparty_name,
+      description,
+      notes,
+      order_id,
+      payment_report_id,
+      movement_group_id
+    `)
+    .order('movement_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1000);
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
 
   const { data: moneyAccountsData, error: moneyAccountsError } = await supabase
     .from('money_accounts')
-    .select('id, name, currency_code, account_kind, is_active')
-    .eq('is_active', true)
+    .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
     .order('id', { ascending: true });
 
   const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
@@ -596,11 +654,57 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
+  if (movementsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando movimientos</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los movimientos de cuentas.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {movementsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const moneyAccounts = ((moneyAccountsData ?? []) as MoneyAccountRow[]).map((a) => ({
     id: Number(a.id),
     name: a.name,
-    currencyCode: a.currency_code,
-    accountKind: a.account_kind,
+    currencyCode: a.currency_code as 'USD' | 'VES',
+    accountKind: a.account_kind as 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet',
+    institutionName: a.institution_name ?? '',
+    ownerName: a.owner_name ?? '',
+    notes: a.notes ?? '',
+    isActive: a.is_active,
+    createdAt: a.created_at,
+    createdByUserId: a.created_by_user_id,
+  }));
+
+  const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => ({
+    id: Number(mv.id),
+    movementDate: mv.movement_date,
+    createdAt: mv.created_at,
+    createdByUserId: mv.created_by_user_id,
+    confirmedAt: mv.confirmed_at,
+    confirmedByUserId: mv.confirmed_by_user_id,
+    direction: mv.direction,
+    movementType: mv.movement_type,
+    moneyAccountId: Number(mv.money_account_id),
+    currencyCode: mv.currency_code,
+    amount: toNumber(mv.amount, 0),
+    exchangeRateVesPerUsd:
+      mv.exchange_rate_ves_per_usd == null ? null : toNumber(mv.exchange_rate_ves_per_usd, 0),
+    amountUsdEquivalent: toNumber(mv.amount_usd_equivalent, 0),
+    referenceCode: mv.reference_code ?? null,
+    counterpartyName: mv.counterparty_name ?? null,
+    description: mv.description ?? null,
+    notes: mv.notes ?? null,
+    orderId: mv.order_id == null ? null : Number(mv.order_id),
+    paymentReportId: mv.payment_report_id == null ? null : Number(mv.payment_report_id),
+    movementGroupId: mv.movement_group_id ?? null,
   }));
 
   const moneyAccountNameById = new Map<number, string>();
@@ -1045,6 +1149,7 @@ currentUser={{
       deliveryPartners={deliveryPartnerOptions}
       initialOrders={initialOrders}
       moneyAccounts={moneyAccounts}
+      moneyMovements={moneyMovements}
       catalogItems={catalogItems}
       productComponents={productComponents}
       activeExchangeRate={

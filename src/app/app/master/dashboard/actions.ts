@@ -646,6 +646,92 @@ export async function updateExchangeRateAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createMoneyAccountAction(input: {
+  name: string;
+  currencyCode: 'USD' | 'VES';
+  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+  institutionName: string;
+  ownerName: string;
+  notes: string;
+  isActive: boolean;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
+
+  const { error } = await supabase.from('money_accounts').insert({
+    name,
+    currency_code: input.currencyCode,
+    account_kind: input.accountKind,
+    institution_name: input.institutionName.trim() || null,
+    owner_name: input.ownerName.trim() || null,
+    notes: input.notes.trim() || null,
+    is_active: input.isActive,
+    created_by_user_id: user.id,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateMoneyAccountAction(input: {
+  accountId: number;
+  name: string;
+  currencyCode: 'USD' | 'VES';
+  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+  institutionName: string;
+  ownerName: string;
+  notes: string;
+  isActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const accountId = Number(input.accountId);
+  if (!Number.isFinite(accountId) || accountId <= 0) {
+    throw new Error('Cuenta invÃ¡lida.');
+  }
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
+
+  const { error } = await supabase
+    .from('money_accounts')
+    .update({
+      name,
+      currency_code: input.currencyCode,
+      account_kind: input.accountKind,
+      institution_name: input.institutionName.trim() || null,
+      owner_name: input.ownerName.trim() || null,
+      notes: input.notes.trim() || null,
+      is_active: input.isActive,
+    })
+    .eq('id', accountId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function toggleMoneyAccountActiveAction(input: {
+  accountId: number;
+  nextIsActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const accountId = Number(input.accountId);
+  if (!Number.isFinite(accountId) || accountId <= 0) {
+    throw new Error('Cuenta invÃ¡lida.');
+  }
+
+  const { error } = await supabase
+    .from('money_accounts')
+    .update({ is_active: input.nextIsActive })
+    .eq('id', accountId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createCatalogItemAction(input: {
   sku: string;
   name: string;
