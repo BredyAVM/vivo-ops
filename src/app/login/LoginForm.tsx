@@ -28,7 +28,7 @@ export default function LoginForm() {
         return;
       }
 
-      router.push('/app/master/dashboard');
+      router.push('/');
       router.refresh();
     } finally {
       setLoading(false);

@@ -1,8 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 
 export async function middleware(req: NextRequest) {
-  let res = NextResponse.next();
+  const res = NextResponse.next();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,11 +25,10 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protege /orders/*
-  if (req.nextUrl.pathname.startsWith("/orders")) {
+  if (req.nextUrl.pathname.startsWith('/orders') || req.nextUrl.pathname.startsWith('/app')) {
     if (!user) {
       const url = req.nextUrl.clone();
-      url.pathname = "/login";
+      url.pathname = '/login';
       return NextResponse.redirect(url);
     }
   }
@@ -38,5 +37,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/orders/:path*"],
+  matcher: ['/orders/:path*', '/app/:path*'],
 };

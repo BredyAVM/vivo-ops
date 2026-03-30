@@ -3,35 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '@/lib/supabase/server';
+import { requireMasterOrAdminContext } from '@/lib/auth';
 
 async function requireMasterOrAdmin() {
-  const supabase = await createSupabaseServer();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    throw new Error('No autenticado.');
-  }
-
-  const { data: rolesData, error: rolesError } = await supabase.rpc('get_my_roles');
-  if (rolesError) {
-    throw new Error(rolesError.message);
-  }
-
-  const roles: string[] = Array.isArray(rolesData)
-    ? rolesData
-    : rolesData
-      ? [rolesData]
-      : [];
-
-  if (!roles.includes('master') && !roles.includes('admin')) {
-    throw new Error('No autorizado.');
-  }
-
-  return { supabase, user, roles };
+  return requireMasterOrAdminContext();
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {

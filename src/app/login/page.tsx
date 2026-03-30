@@ -1,16 +1,12 @@
 import { redirect } from 'next/navigation';
-import { createSupabaseServer } from '@/lib/supabase/server';
+import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import LoginForm from './LoginForm';
 
 export default async function LoginPage() {
-  const supabase = await createSupabaseServer();
+  const ctx = await getAuthContext();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-   redirect('/app/master/dashboard');
+  if (ctx) {
+    redirect(resolveHomePath(ctx.roles));
   }
 
   return <LoginForm />;
