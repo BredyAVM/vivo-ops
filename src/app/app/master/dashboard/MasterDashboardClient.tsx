@@ -3056,15 +3056,25 @@ const createOrderFilteredProducts = catalogItems
 
 const createOrderFxRateNumber = Math.max(0, Number(createOrderFxRate || 0));
 
-const createOrderDraftSubtotalUsd = createOrderDraftItems.reduce(
-  (sum, item) => sum + Number(item.lineTotalUsd || 0),
-  0
-);
+const createOrderDraftSubtotalUsd = createOrderDraftItems.reduce((sum, item) => {
+  const lineTotalUsd =
+    item.sourcePriceCurrency === 'VES'
+      ? createOrderFxRateNumber > 0
+        ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / createOrderFxRateNumber
+        : 0
+      : Number(item.lineTotalUsd || 0);
 
-const createOrderDraftSubtotalBs =
-  createOrderFxRateNumber > 0
-    ? createOrderDraftSubtotalUsd * createOrderFxRateNumber
-    : 0;
+  return sum + lineTotalUsd;
+}, 0);
+
+const createOrderDraftSubtotalBs = createOrderDraftItems.reduce((sum, item) => {
+  const lineTotalBs =
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+      : Number(item.lineTotalUsd || 0) * createOrderFxRateNumber;
+
+  return sum + lineTotalBs;
+}, 0);
 
 const createOrderDiscountPctNumber = Math.max(
   0,
@@ -3084,7 +3094,7 @@ const createOrderDraftTotalUsd =
   createOrderFxRateNumber > 0
     ? createOrderDraftTotalBs / createOrderFxRateNumber
     : 0;
-
+    
 const createOrderNeedsAdvisor =
   createOrderSource === 'advisor';
 

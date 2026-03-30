@@ -1054,28 +1054,44 @@ if (!Number.isFinite(fxRate) || fxRate <= 0) {
     throw new Error('No se pudo resolver el asesor atribuido.');
   }
 
-const subtotalUsd = input.items.reduce(
-  (sum, item) => sum + Number(item.lineTotalUsd || 0),
-  0
-);
+const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
+
+const subtotalBs = input.items.reduce((sum, item) => {
+  const lineBs =
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+      : Number(item.lineTotalUsd || 0) * fxRateNumber;
+
+  return sum + lineBs;
+}, 0);
+
+const subtotalUsd = input.items.reduce((sum, item) => {
+  const lineUsd =
+    item.sourcePriceCurrency === 'VES'
+      ? fxRateNumber > 0
+        ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
+        : 0
+      : Number(item.lineTotalUsd || 0);
+
+  return sum + lineUsd;
+}, 0);
 
 const discountPctNumber = Math.max(
   0,
   Math.min(100, Number(input.discountPct || 0))
 );
 
-const discountAmountUsd = input.discountEnabled
-  ? subtotalUsd * (discountPctNumber / 100)
-  : 0;
-
-const totalUsd = Math.max(0, subtotalUsd - discountAmountUsd);
-
-const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
-const subtotalBs = fxRateNumber > 0 ? subtotalUsd * fxRateNumber : 0;
 const discountAmountBs = input.discountEnabled
   ? subtotalBs * (discountPctNumber / 100)
   : 0;
+
 const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+
+const discountAmountUsd =
+  fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
+
+const totalUsd =
+  fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
 
   const orderNumber = await generateUniqueOrderNumber(supabase);
 
@@ -1340,28 +1356,44 @@ items: Array<{
     throw new Error('No se pudo resolver el asesor atribuido.');
   }
 
-  const subtotalUsd = input.items.reduce(
-    (sum, item) => sum + Number(item.lineTotalUsd || 0),
-    0
-  );
+const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
 
-  const discountPctNumber = Math.max(
-    0,
-    Math.min(100, Number(input.discountPct || 0))
-  );
+const subtotalBs = input.items.reduce((sum, item) => {
+  const lineBs =
+    item.sourcePriceCurrency === 'VES'
+      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
+      : Number(item.lineTotalUsd || 0) * fxRateNumber;
 
-  const discountAmountUsd = input.discountEnabled
-    ? subtotalUsd * (discountPctNumber / 100)
-    : 0;
+  return sum + lineBs;
+}, 0);
 
-  const totalUsd = Math.max(0, subtotalUsd - discountAmountUsd);
+const subtotalUsd = input.items.reduce((sum, item) => {
+  const lineUsd =
+    item.sourcePriceCurrency === 'VES'
+      ? fxRateNumber > 0
+        ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
+        : 0
+      : Number(item.lineTotalUsd || 0);
 
-  const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
-  const subtotalBs = fxRateNumber > 0 ? subtotalUsd * fxRateNumber : 0;
-  const discountAmountBs = input.discountEnabled
-    ? subtotalBs * (discountPctNumber / 100)
-    : 0;
-  const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+  return sum + lineUsd;
+}, 0);
+
+const discountPctNumber = Math.max(
+  0,
+  Math.min(100, Number(input.discountPct || 0))
+);
+
+const discountAmountBs = input.discountEnabled
+  ? subtotalBs * (discountPctNumber / 100)
+  : 0;
+
+const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+
+const discountAmountUsd =
+  fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
+
+const totalUsd =
+  fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
 
   const extraFields = {
     schedule: {
