@@ -27,9 +27,9 @@ type RawOrderRow = {
   external_driver_name: string | null;
   external_partner_id: number | null;
   internal_driver_user_id: string | null;
-client: { full_name: string | null; phone: string | null }[] | null;
-advisor: { full_name: string | null }[] | null;
-creator: { full_name: string | null }[] | null;
+client: { full_name: string | null; phone: string | null }[] | { full_name: string | null; phone: string | null } | null;
+advisor: { full_name: string | null }[] | { full_name: string | null } | null;
+creator: { full_name: string | null }[] | { full_name: string | null } | null;
 };
 
 type RawOrderItemRow = {
@@ -873,8 +873,12 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     else if (reportState.rejectedCount > 0) paymentVerify = 'rejected';
     else if (confirmedPaidUsd > 0.01 || reportState.confirmedCount > 0) paymentVerify = 'confirmed';
 
-const creatorName = row.creator?.[0]?.full_name?.trim() || 'Usuario';
-const advisorProfileName = row.advisor?.[0]?.full_name?.trim() || null;
+const creatorRow = Array.isArray(row.creator) ? row.creator[0] : row.creator;
+const advisorRow = Array.isArray(row.advisor) ? row.advisor[0] : row.advisor;
+const clientRow = Array.isArray(row.client) ? row.client[0] : row.client;
+
+const creatorName = creatorRow?.full_name?.trim() || 'Usuario';
+const advisorProfileName = advisorRow?.full_name?.trim() || null;
 
 const advisorName =
   row.source === 'master'
@@ -883,9 +887,8 @@ const advisorName =
       ? `Walk-in (${creatorName})`
       : advisorProfileName || creatorName || 'Sin asesor';
 
-
 const clientName =
-  row.client?.[0]?.full_name?.trim() ||
+  clientRow?.full_name?.trim() ||
   row.extra_fields?.receiver?.name?.trim() ||
   'Cliente sin nombre';
 
