@@ -858,6 +858,13 @@ function canReturnFromKitchenToQueue(o: Order) {
   return ['confirmed', 'in_kitchen', 'ready'].includes(o.status);
 }
 
+function canManageDeliveryAssignment(o: Order) {
+  return (
+    o.fulfillment === 'delivery' &&
+    ['queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status)
+  );
+}
+
 function getProcessSteps(o: Order) {
   const isPickup = o.fulfillment === 'pickup';
 
@@ -5858,10 +5865,7 @@ onClose={() => {
           <>
             <button
               className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-              onClick={() => {
-  setReviewActionMode('approve');
-  setReviewActionNotes('');
-}}
+              onClick={() => handleApprove(selectedOrder)}
             >
               Aprobar
             </button>
@@ -5932,7 +5936,7 @@ onClick={() => {
           </button>
         ) : null}
 
-{detailTab === 'entrega' && selectedOrder.fulfillment === 'delivery' ? (
+{canManageDeliveryAssignment(selectedOrder) ? (
   <>
     <button
       className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
@@ -6064,8 +6068,7 @@ onClick={() => {
   </div>
 ) : null}
 
-{detailTab === 'entrega' &&
-selectedOrder.fulfillment === 'delivery' &&
+{canManageDeliveryAssignment(selectedOrder) &&
 deliveryAssignMode === 'internal' ? (
   <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
     <div className="text-[10px] font-medium text-[#B7B7C2]">Asignar driver interno</div>
@@ -6103,8 +6106,7 @@ deliveryAssignMode === 'internal' ? (
   </div>
 ) : null}
 
-{detailTab === 'entrega' &&
-selectedOrder.fulfillment === 'delivery' &&
+{canManageDeliveryAssignment(selectedOrder) &&
 deliveryAssignMode === 'external' ? (
   <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
     <div className="text-[10px] font-medium text-[#B7B7C2]">Asignar partner externo</div>
