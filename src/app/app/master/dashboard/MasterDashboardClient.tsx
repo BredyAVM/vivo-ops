@@ -4010,17 +4010,16 @@ useEffect(() => {
   const interval = window.setInterval(() => {
     const hasBlockingOverlay =
       createOrderOpen ||
-      detailOpen ||
-      notifOpen ||
       accountCreateOpen ||
       accountEditOpen ||
       clientCreateOpen ||
       clientEditOpen ||
-      catalogDetailOpen ||
       createCatalogOpen ||
+      catalogEditMode ||
       paymentReportBoxOpen ||
       kitchenTakeBoxOpen ||
       deliveryEtaBoxOpen ||
+      reviewActionMode !== null ||
       returnToQueueBoxOpen ||
       cancelOrderBoxOpen;
 
@@ -4034,17 +4033,65 @@ useEffect(() => {
   isMounted,
   router,
   createOrderOpen,
-  detailOpen,
-  notifOpen,
   accountCreateOpen,
   accountEditOpen,
   clientCreateOpen,
   clientEditOpen,
-  catalogDetailOpen,
   createCatalogOpen,
+  catalogEditMode,
   paymentReportBoxOpen,
   kitchenTakeBoxOpen,
   deliveryEtaBoxOpen,
+  reviewActionMode,
+  returnToQueueBoxOpen,
+  cancelOrderBoxOpen,
+]);
+
+useEffect(() => {
+  if (!isMounted) return;
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) return;
+
+    const hasBlockingOverlay =
+      createOrderOpen ||
+      accountCreateOpen ||
+      accountEditOpen ||
+      clientCreateOpen ||
+      clientEditOpen ||
+      createCatalogOpen ||
+      catalogEditMode ||
+      paymentReportBoxOpen ||
+      kitchenTakeBoxOpen ||
+      deliveryEtaBoxOpen ||
+      reviewActionMode !== null ||
+      returnToQueueBoxOpen ||
+      cancelOrderBoxOpen;
+
+    if (hasBlockingOverlay) return;
+
+    router.refresh();
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+}, [
+  isMounted,
+  router,
+  createOrderOpen,
+  accountCreateOpen,
+  accountEditOpen,
+  clientCreateOpen,
+  clientEditOpen,
+  createCatalogOpen,
+  catalogEditMode,
+  paymentReportBoxOpen,
+  kitchenTakeBoxOpen,
+  deliveryEtaBoxOpen,
+  reviewActionMode,
   returnToQueueBoxOpen,
   cancelOrderBoxOpen,
 ]);
