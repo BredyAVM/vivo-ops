@@ -974,14 +974,14 @@ function ProcessTimeline({ order }: { order: Order }) {
 function NextActionCard({
   order,
   onSendToKitchen,
-  onKitchenTake,
+  onPrepareKitchenTake,
   onMarkReady,
   onOutForDelivery,
   onMarkDelivered,
 }: {
   order: Order;
   onSendToKitchen: () => void;
-  onKitchenTake: () => void;
+  onPrepareKitchenTake: () => void;
   onMarkReady: () => void;
   onOutForDelivery: () => void;
   onMarkDelivered: () => void;
@@ -996,7 +996,7 @@ function NextActionCard({
   if (canSendToKitchen(order)) {
     button = <button className={btnClass} onClick={onSendToKitchen}>Enviar a cocina</button>;
   } else if (canKitchenTake(order)) {
-    button = <button className={btnClass} onClick={onKitchenTake}>Tomar en cocina</button>;
+    button = <button className={btnClass} onClick={onPrepareKitchenTake}>Tomar en cocina</button>;
   } else if (canMarkReady(order)) {
     button = <button className={btnClass} onClick={onMarkReady}>Marcar preparada</button>;
   } else if (canOutForDelivery(order)) {
@@ -5457,7 +5457,10 @@ onClose={() => {
 <NextActionCard
   order={selectedOrder}
   onSendToKitchen={() => handleSendToKitchen(selectedOrder.id)}
-  onKitchenTake={() => handleKitchenTake(selectedOrder)}
+  onPrepareKitchenTake={() => {
+    setKitchenTakeBoxOpen(true);
+    setKitchenEtaMinutes('15');
+  }}
   onMarkReady={() => handleMarkReady(selectedOrder)}
   onOutForDelivery={() => handleOutForDelivery(selectedOrder)}
   onMarkDelivered={() => handleMarkDelivered(selectedOrder)}
