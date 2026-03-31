@@ -4477,7 +4477,7 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
               <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo</th>
               <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo</th>
-              <th className="px-3 py-3 text-left font-medium">Acciones</th>
+              <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
           <tbody>
@@ -4500,7 +4500,14 @@ suppressHydrationWarning
                 };
 
                 return (
-                  <tr key={account.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                  <tr
+                    key={account.id}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
+                    onClick={() => {
+                      setSelectedAccountId(account.id);
+                      setAccountDetailOpen(true);
+                    }}
+                  >
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{account.name}</div>
                       {account.notes ? (
@@ -4542,34 +4549,7 @@ suppressHydrationWarning
                           : fmtBs(stats.periodOutflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                       </div>
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => {
-                            setSelectedAccountId(account.id);
-                            setAccountDetailOpen(true);
-                          }}
-                        >
-                          Ver
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => openEditAccount(account)}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => handleToggleMoneyAccountActive(account)}
-                        >
-                          {account.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                      </div>
-                    </td>
+                    <td className="px-3 py-3 text-[#B7B7C2]">Abrir ficha</td>
                   </tr>
                 );
               })
@@ -4628,7 +4608,7 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Factura</th>
               <th className="px-3 py-3 text-left font-medium">Nota de entrega</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
-              <th className="px-3 py-3 text-left font-medium">Acciones</th>
+              <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
           <tbody>
@@ -4656,7 +4636,14 @@ suppressHydrationWarning
                 );
 
                 return (
-                  <tr key={client.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                  <tr
+                    key={client.id}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
+                    onClick={() => {
+                      setSelectedClientId(client.id);
+                      setClientDetailOpen(true);
+                    }}
+                  >
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{client.fullName}</div>
                       {client.notes ? (
@@ -4693,34 +4680,7 @@ suppressHydrationWarning
                         <span className="text-[#8A8A96]">Inactivo</span>
                       )}
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => {
-                            setSelectedClientId(client.id);
-                            setClientDetailOpen(true);
-                          }}
-                        >
-                          Ver
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => openEditClient(client)}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => handleToggleClientActive(client)}
-                        >
-                          {client.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                      </div>
-                    </td>
+                    <td className="px-3 py-3 text-[#B7B7C2]">Abrir ficha</td>
                   </tr>
                 );
               })
@@ -6298,21 +6258,39 @@ deliveryAssignMode === 'external' ? (
                     Fecha: {accountDateTo || accountDateFrom || new Date().toISOString().slice(0, 10)}
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-xs text-[#8A8A96]">Acumulado</div>
-                  <div className="text-lg font-semibold text-[#F5F5F7]">
-                    {fmtMoneyByCurrency(
-                      accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
-                      selectedAccount.currencyCode
-                    )}
+                <div className="flex items-start gap-3">
+                  <div className="text-right">
+                    <div className="text-xs text-[#8A8A96]">Acumulado</div>
+                    <div className="text-lg font-semibold text-[#F5F5F7]">
+                      {fmtMoneyByCurrency(
+                        accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
+                        selectedAccount.currencyCode
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      {selectedAccount.currencyCode === 'VES'
+                        ? fmtUSD(accountStatsById.get(selectedAccount.id)?.balanceUsdRef ?? 0)
+                        : fmtBs(
+                            (accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0) *
+                              (activeExchangeRate?.rateBsPerUsd ?? 0)
+                          )}
+                    </div>
                   </div>
-                  <div className="mt-1 text-xs text-[#8A8A96]">
-                    {selectedAccount.currencyCode === 'VES'
-                      ? fmtUSD(accountStatsById.get(selectedAccount.id)?.balanceUsdRef ?? 0)
-                      : fmtBs(
-                          (accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0) *
-                            (activeExchangeRate?.rateBsPerUsd ?? 0)
-                        )}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => openEditAccount(selectedAccount)}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => handleToggleMoneyAccountActive(selectedAccount)}
+                    >
+                      {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -6550,7 +6528,7 @@ deliveryAssignMode === 'external' ? (
                     Actualizado: {fmtDateTimeES(selectedClient.updatedAt)}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-start justify-end gap-2">
                   <SmallBadge
                     label={selectedClient.isActive ? 'Activo' : 'Inactivo'}
                     tone={selectedClient.isActive ? 'brand' : 'muted'}
@@ -6558,6 +6536,20 @@ deliveryAssignMode === 'external' ? (
                   {selectedClient.clientType ? (
                     <SmallBadge label={selectedClient.clientType} tone="muted" />
                   ) : null}
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                    onClick={() => openEditClient(selectedClient)}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                    onClick={() => handleToggleClientActive(selectedClient)}
+                  >
+                    {selectedClient.isActive ? 'Desactivar' : 'Activar'}
+                  </button>
                 </div>
               </div>
 
