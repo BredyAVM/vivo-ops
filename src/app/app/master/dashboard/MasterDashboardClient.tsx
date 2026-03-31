@@ -3991,6 +3991,51 @@ useEffect(() => {
 }, [toast]);
 
 useEffect(() => {
+  if (!isMounted) return;
+
+  const interval = window.setInterval(() => {
+    const hasBlockingOverlay =
+      createOrderOpen ||
+      detailOpen ||
+      notifOpen ||
+      accountCreateOpen ||
+      accountEditOpen ||
+      clientCreateOpen ||
+      clientEditOpen ||
+      catalogDetailOpen ||
+      createCatalogOpen ||
+      paymentReportBoxOpen ||
+      kitchenTakeBoxOpen ||
+      deliveryEtaBoxOpen ||
+      returnToQueueBoxOpen ||
+      cancelOrderBoxOpen;
+
+    if (document.hidden || hasBlockingOverlay) return;
+
+    router.refresh();
+  }, 20000);
+
+  return () => window.clearInterval(interval);
+}, [
+  isMounted,
+  router,
+  createOrderOpen,
+  detailOpen,
+  notifOpen,
+  accountCreateOpen,
+  accountEditOpen,
+  clientCreateOpen,
+  clientEditOpen,
+  catalogDetailOpen,
+  createCatalogOpen,
+  paymentReportBoxOpen,
+  kitchenTakeBoxOpen,
+  deliveryEtaBoxOpen,
+  returnToQueueBoxOpen,
+  cancelOrderBoxOpen,
+]);
+
+useEffect(() => {
   if (!createOrderOpen) return;
   if (orderEditorMode !== 'create') return;
 
