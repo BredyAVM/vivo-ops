@@ -732,6 +732,165 @@ export async function toggleMoneyAccountActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+function normalizeTagList(input: string[]) {
+  return Array.from(
+    new Set(
+      (input ?? [])
+        .map((tag) => String(tag || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeRecentAddresses(
+  input: Array<{ addressText: string; gpsUrl: string }>
+) {
+  return (input ?? [])
+    .map((row) => ({
+      address_text: String(row?.addressText || '').trim(),
+      gps_url: String(row?.gpsUrl || '').trim(),
+    }))
+    .filter((row) => row.address_text || row.gps_url)
+    .slice(0, 2);
+}
+
+export async function createClientAction(input: {
+  fullName: string;
+  phone: string;
+  notes: string;
+  primaryAdvisorId: string | null;
+  clientType: string;
+  isActive: boolean;
+  birthDate: string;
+  importantDate: string;
+  billingCompanyName: string;
+  billingTaxId: string;
+  billingAddress: string;
+  billingPhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
+  recentAddresses: Array<{ addressText: string; gpsUrl: string }>;
+  crmTags: string[];
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const fullName = String(input.fullName || '').trim();
+  if (!fullName) throw new Error('El nombre del cliente es obligatorio.');
+
+  const phone = normalizePhone(String(input.phone || ''));
+  const billingPhone = normalizePhone(String(input.billingPhone || ''));
+  const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
+
+  const { error } = await supabase.from('clients').insert({
+    full_name: fullName,
+    phone: phone || null,
+    notes: String(input.notes || '').trim() || null,
+    primary_advisor_id: input.primaryAdvisorId || null,
+    client_type: String(input.clientType || '').trim() || null,
+    is_active: !!input.isActive,
+    birth_date: String(input.birthDate || '').trim() || null,
+    important_date: String(input.importantDate || '').trim() || null,
+    billing_company_name: String(input.billingCompanyName || '').trim() || null,
+    billing_tax_id: String(input.billingTaxId || '').trim() || null,
+    billing_address: String(input.billingAddress || '').trim() || null,
+    billing_phone: billingPhone || null,
+    delivery_note_name: String(input.deliveryNoteName || '').trim() || null,
+    delivery_note_document_id: String(input.deliveryNoteDocumentId || '').trim() || null,
+    delivery_note_address: String(input.deliveryNoteAddress || '').trim() || null,
+    delivery_note_phone: deliveryNotePhone || null,
+    recent_addresses: normalizeRecentAddresses(input.recentAddresses),
+    crm_tags: normalizeTagList(input.crmTags),
+  });
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateClientAction(input: {
+  clientId: number;
+  fullName: string;
+  phone: string;
+  notes: string;
+  primaryAdvisorId: string | null;
+  clientType: string;
+  isActive: boolean;
+  birthDate: string;
+  importantDate: string;
+  billingCompanyName: string;
+  billingTaxId: string;
+  billingAddress: string;
+  billingPhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
+  recentAddresses: Array<{ addressText: string; gpsUrl: string }>;
+  crmTags: string[];
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const clientId = Number(input.clientId);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('Cliente inválido.');
+  }
+
+  const fullName = String(input.fullName || '').trim();
+  if (!fullName) throw new Error('El nombre del cliente es obligatorio.');
+
+  const phone = normalizePhone(String(input.phone || ''));
+  const billingPhone = normalizePhone(String(input.billingPhone || ''));
+  const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
+
+  const { error } = await supabase
+    .from('clients')
+    .update({
+      full_name: fullName,
+      phone: phone || null,
+      notes: String(input.notes || '').trim() || null,
+      primary_advisor_id: input.primaryAdvisorId || null,
+      client_type: String(input.clientType || '').trim() || null,
+      is_active: !!input.isActive,
+      birth_date: String(input.birthDate || '').trim() || null,
+      important_date: String(input.importantDate || '').trim() || null,
+      billing_company_name: String(input.billingCompanyName || '').trim() || null,
+      billing_tax_id: String(input.billingTaxId || '').trim() || null,
+      billing_address: String(input.billingAddress || '').trim() || null,
+      billing_phone: billingPhone || null,
+      delivery_note_name: String(input.deliveryNoteName || '').trim() || null,
+      delivery_note_document_id: String(input.deliveryNoteDocumentId || '').trim() || null,
+      delivery_note_address: String(input.deliveryNoteAddress || '').trim() || null,
+      delivery_note_phone: deliveryNotePhone || null,
+      recent_addresses: normalizeRecentAddresses(input.recentAddresses),
+      crm_tags: normalizeTagList(input.crmTags),
+    })
+    .eq('id', clientId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function toggleClientActiveAction(input: {
+  clientId: number;
+  nextIsActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const clientId = Number(input.clientId);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('Cliente inválido.');
+  }
+
+  const { error } = await supabase
+    .from('clients')
+    .update({ is_active: !!input.nextIsActive })
+    .eq('id', clientId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createCatalogItemAction(input: {
   sku: string;
   name: string;

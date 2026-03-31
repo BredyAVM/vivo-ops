@@ -24,10 +24,13 @@ import {
   updateCatalogItemAction,
   updateExchangeRateAction,
   createCatalogItemAction,
+  createClientAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
+  toggleClientActiveAction,
   toggleMoneyAccountActiveAction,
   deleteCatalogItemAction,
+  updateClientAction,
   updateMoneyAccountAction,
   createOrderAction,
   updateOrderAction,
@@ -118,6 +121,36 @@ type MoneyMovementItem = {
   orderId: number | null;
   paymentReportId: number | null;
   movementGroupId: string | null;
+};
+
+type ClientAddress = {
+  addressText: string;
+  gpsUrl: string;
+};
+
+type ClientItem = {
+  id: number;
+  fullName: string;
+  phone: string;
+  notes: string;
+  primaryAdvisorId: string | null;
+  createdAt: string;
+  clientType: string;
+  isActive: boolean;
+  birthDate: string;
+  importantDate: string;
+  billingCompanyName: string;
+  billingTaxId: string;
+  billingAddress: string;
+  billingPhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
+  recentAddresses: unknown[];
+  crmTags: unknown[];
+  extraFields: Record<string, unknown>;
+  updatedAt: string;
 };
 
 type DriverOption = {
@@ -229,7 +262,7 @@ type ToastState = {
   type: 'success' | 'error';
   message: string;
 } | null;
-type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts';
+type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
 
 type CatalogItem = {
   id: number;
@@ -346,6 +379,52 @@ const fmtRateBs = (n: number) => {
 const fmtMoneyByCurrency = (amount: number, currencyCode: 'USD' | 'VES') => {
   return currencyCode === 'VES' ? fmtBs(amount) : fmtUSD(amount);
 };
+
+function normalizeClientTags(tags: unknown[]) {
+  return Array.from(
+    new Set(
+      (Array.isArray(tags) ? tags : [])
+        .map((tag) => String(tag || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeClientAddresses(addresses: unknown[]): ClientAddress[] {
+  const rows = Array.isArray(addresses) ? addresses : [];
+
+  return rows
+    .map((row) => {
+      const data =
+        row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+      return {
+        addressText: String(
+          data.addressText ??
+            data.address_text ??
+            ''
+        ).trim(),
+        gpsUrl: String(data.gpsUrl ?? data.gps_url ?? '').trim(),
+      };
+    })
+    .filter((row) => row.addressText || row.gpsUrl)
+    .slice(0, 2);
+}
+
+function tagsToInputValue(tags: string[]) {
+  return tags.join(', ');
+}
+
+function parseTagsInput(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 const fmtTimeAMPM = (iso: string) => {
   const d = new Date(iso);
@@ -1345,6 +1424,7 @@ export default function MasterDashboardClient({
   initialOrders,
   moneyAccounts,
   moneyMovements = [],
+  clients = [],
   drivers = [],
   deliveryPartners = [],
   catalogItems = [],
@@ -1357,6 +1437,7 @@ export default function MasterDashboardClient({
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
   moneyMovements?: MoneyMovementItem[];
+  clients?: ClientItem[];
   drivers?: DriverOption[];
   deliveryPartners?: DeliveryPartnerOption[];
   catalogItems?: CatalogItem[];
@@ -1386,6 +1467,33 @@ export default function MasterDashboardClient({
   const [accountFormOwnerName, setAccountFormOwnerName] = useState('');
   const [accountFormNotes, setAccountFormNotes] = useState('');
   const [accountFormIsActive, setAccountFormIsActive] = useState(true);
+  const [clientSearch, setClientSearch] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [clientDetailOpen, setClientDetailOpen] = useState(false);
+  const [clientEditOpen, setClientEditOpen] = useState(false);
+  const [clientCreateOpen, setClientCreateOpen] = useState(false);
+  const [clientSaving, setClientSaving] = useState(false);
+  const [clientFormFullName, setClientFormFullName] = useState('');
+  const [clientFormPhone, setClientFormPhone] = useState('');
+  const [clientFormNotes, setClientFormNotes] = useState('');
+  const [clientFormPrimaryAdvisorId, setClientFormPrimaryAdvisorId] = useState('');
+  const [clientFormType, setClientFormType] = useState('');
+  const [clientFormIsActive, setClientFormIsActive] = useState(true);
+  const [clientFormBirthDate, setClientFormBirthDate] = useState('');
+  const [clientFormImportantDate, setClientFormImportantDate] = useState('');
+  const [clientFormTagsInput, setClientFormTagsInput] = useState('');
+  const [clientFormBillingCompanyName, setClientFormBillingCompanyName] = useState('');
+  const [clientFormBillingTaxId, setClientFormBillingTaxId] = useState('');
+  const [clientFormBillingAddress, setClientFormBillingAddress] = useState('');
+  const [clientFormBillingPhone, setClientFormBillingPhone] = useState('');
+  const [clientFormDeliveryNoteName, setClientFormDeliveryNoteName] = useState('');
+  const [clientFormDeliveryNoteDocumentId, setClientFormDeliveryNoteDocumentId] = useState('');
+  const [clientFormDeliveryNoteAddress, setClientFormDeliveryNoteAddress] = useState('');
+  const [clientFormDeliveryNotePhone, setClientFormDeliveryNotePhone] = useState('');
+  const [clientFormAddress1Text, setClientFormAddress1Text] = useState('');
+  const [clientFormAddress1Gps, setClientFormAddress1Gps] = useState('');
+  const [clientFormAddress2Text, setClientFormAddress2Text] = useState('');
+  const [clientFormAddress2Gps, setClientFormAddress2Gps] = useState('');
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<'all' | CatalogItem['type']>('all');
   const [selectedCatalogItemId, setSelectedCatalogItemId] = useState<number | null>(null);
@@ -2553,6 +2661,133 @@ const handleSaveCatalog = async () => {
     }
   };
 
+  const resetClientForm = () => {
+    setClientFormFullName('');
+    setClientFormPhone('');
+    setClientFormNotes('');
+    setClientFormPrimaryAdvisorId('');
+    setClientFormType('');
+    setClientFormIsActive(true);
+    setClientFormBirthDate('');
+    setClientFormImportantDate('');
+    setClientFormTagsInput('');
+    setClientFormBillingCompanyName('');
+    setClientFormBillingTaxId('');
+    setClientFormBillingAddress('');
+    setClientFormBillingPhone('');
+    setClientFormDeliveryNoteName('');
+    setClientFormDeliveryNoteDocumentId('');
+    setClientFormDeliveryNoteAddress('');
+    setClientFormDeliveryNotePhone('');
+    setClientFormAddress1Text('');
+    setClientFormAddress1Gps('');
+    setClientFormAddress2Text('');
+    setClientFormAddress2Gps('');
+  };
+
+  const openCreateClient = () => {
+    resetClientForm();
+    setClientCreateOpen(true);
+  };
+
+  const openEditClient = (client: ClientItem) => {
+    const addresses = normalizeClientAddresses(client.recentAddresses);
+    setSelectedClientId(client.id);
+    setClientFormFullName(client.fullName);
+    setClientFormPhone(client.phone);
+    setClientFormNotes(client.notes);
+    setClientFormPrimaryAdvisorId(client.primaryAdvisorId ?? '');
+    setClientFormType(client.clientType);
+    setClientFormIsActive(client.isActive);
+    setClientFormBirthDate(client.birthDate);
+    setClientFormImportantDate(client.importantDate);
+    setClientFormTagsInput(tagsToInputValue(normalizeClientTags(client.crmTags)));
+    setClientFormBillingCompanyName(client.billingCompanyName);
+    setClientFormBillingTaxId(client.billingTaxId);
+    setClientFormBillingAddress(client.billingAddress);
+    setClientFormBillingPhone(client.billingPhone);
+    setClientFormDeliveryNoteName(client.deliveryNoteName);
+    setClientFormDeliveryNoteDocumentId(client.deliveryNoteDocumentId);
+    setClientFormDeliveryNoteAddress(client.deliveryNoteAddress);
+    setClientFormDeliveryNotePhone(client.deliveryNotePhone);
+    setClientFormAddress1Text(addresses[0]?.addressText ?? '');
+    setClientFormAddress1Gps(addresses[0]?.gpsUrl ?? '');
+    setClientFormAddress2Text(addresses[1]?.addressText ?? '');
+    setClientFormAddress2Gps(addresses[1]?.gpsUrl ?? '');
+    setClientEditOpen(true);
+  };
+
+  const buildClientPayload = () => ({
+    fullName: clientFormFullName,
+    phone: clientFormPhone,
+    notes: clientFormNotes,
+    primaryAdvisorId: clientFormPrimaryAdvisorId || null,
+    clientType: clientFormType,
+    isActive: clientFormIsActive,
+    birthDate: clientFormBirthDate,
+    importantDate: clientFormImportantDate,
+    billingCompanyName: clientFormBillingCompanyName,
+    billingTaxId: clientFormBillingTaxId,
+    billingAddress: clientFormBillingAddress,
+    billingPhone: clientFormBillingPhone,
+    deliveryNoteName: clientFormDeliveryNoteName,
+    deliveryNoteDocumentId: clientFormDeliveryNoteDocumentId,
+    deliveryNoteAddress: clientFormDeliveryNoteAddress,
+    deliveryNotePhone: clientFormDeliveryNotePhone,
+    recentAddresses: [
+      { addressText: clientFormAddress1Text, gpsUrl: clientFormAddress1Gps },
+      { addressText: clientFormAddress2Text, gpsUrl: clientFormAddress2Gps },
+    ],
+    crmTags: parseTagsInput(clientFormTagsInput),
+  });
+
+  const handleCreateClient = async () => {
+    try {
+      setClientSaving(true);
+      await createClientAction(buildClientPayload());
+      showToast('success', 'Cliente creado.');
+      setClientCreateOpen(false);
+      resetClientForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo crear el cliente.');
+    } finally {
+      setClientSaving(false);
+    }
+  };
+
+  const handleUpdateClient = async () => {
+    if (!selectedClient) return;
+
+    try {
+      setClientSaving(true);
+      await updateClientAction({
+        clientId: selectedClient.id,
+        ...buildClientPayload(),
+      });
+      showToast('success', 'Cliente actualizado.');
+      setClientEditOpen(false);
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el cliente.');
+    } finally {
+      setClientSaving(false);
+    }
+  };
+
+  const handleToggleClientActive = async (client: ClientItem) => {
+    try {
+      await toggleClientActiveAction({
+        clientId: client.id,
+        nextIsActive: !client.isActive,
+      });
+      showToast('success', client.isActive ? 'Cliente desactivado.' : 'Cliente activado.');
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado del cliente.');
+    }
+  };
+
 const resetCreateCatalogForm = () => {
   setNewSku('');
   setNewName('');
@@ -3291,6 +3526,11 @@ const selectedPaymentReportAccount =
     [moneyAccounts, selectedAccountId]
   );
 
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === selectedClientId) ?? null,
+    [clients, selectedClientId]
+  );
+
   const filteredMoneyMovements = useMemo(() => {
     return moneyMovements.filter((movement) => {
       if (accountDateFrom && movement.movementDate < accountDateFrom) return false;
@@ -3316,6 +3556,30 @@ const selectedPaymentReportAccount =
         .some((value) => value.toLowerCase().includes(query));
     });
   }, [accountSearch, moneyAccounts]);
+
+  const filteredClients = useMemo(() => {
+    const query = clientSearch.trim().toLowerCase();
+
+    return clients.filter((client) => {
+      if (!query) return true;
+
+      const tags = normalizeClientTags(client.crmTags);
+      const addresses = normalizeClientAddresses(client.recentAddresses);
+
+      return [
+        client.fullName,
+        client.phone,
+        client.clientType,
+        client.billingCompanyName,
+        client.billingTaxId,
+        client.deliveryNoteName,
+        ...tags,
+        ...addresses.map((row) => row.addressText),
+      ]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query));
+    });
+  }, [clientSearch, clients]);
 
   const accountStatsById = useMemo(() => {
     const stats = new Map<
@@ -3393,6 +3657,45 @@ const selectedPaymentReportAccount =
     if (!selectedAccountId) return [];
     return filteredMoneyMovements.filter((movement) => movement.moneyAccountId === selectedAccountId);
   }, [filteredMoneyMovements, selectedAccountId]);
+
+  const clientStats = useMemo(() => {
+    const base = {
+      total: filteredClients.length,
+      active: 0,
+      withBilling: 0,
+      withDeliveryNote: 0,
+      withAddresses: 0,
+    };
+
+    for (const client of filteredClients) {
+      if (client.isActive) base.active += 1;
+      if (
+        client.billingCompanyName ||
+        client.billingTaxId ||
+        client.billingAddress ||
+        client.billingPhone
+      ) {
+        base.withBilling += 1;
+      }
+      if (
+        client.deliveryNoteName ||
+        client.deliveryNoteDocumentId ||
+        client.deliveryNoteAddress ||
+        client.deliveryNotePhone
+      ) {
+        base.withDeliveryNote += 1;
+      }
+      if (normalizeClientAddresses(client.recentAddresses).length > 0) {
+        base.withAddresses += 1;
+      }
+    }
+
+    return base;
+  }, [filteredClients]);
+
+  const advisorNameById = useMemo(() => {
+    return new Map(advisors.map((advisor) => [advisor.userId, advisor.fullName]));
+  }, [advisors]);
 
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
@@ -3646,6 +3949,9 @@ suppressHydrationWarning
         </Chip>
         <Chip active={settingsTab === 'accounts'} onClick={() => setSettingsTab('accounts')}>
           Cuentas
+        </Chip>
+        <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
+          Clientes
         </Chip>
       </div>
     </div>
@@ -4261,6 +4567,157 @@ suppressHydrationWarning
                           onClick={() => handleToggleMoneyAccountActive(account)}
                         >
                           {account.isActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+) : null}
+
+          {settingsTab === 'clients' ? (
+  <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Resumen clientes</div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <InfoCell label="Total" value={String(clientStats.total)} />
+          <InfoCell label="Activos" value={String(clientStats.active)} />
+          <InfoCell label="Con facturación" value={String(clientStats.withBilling)} />
+          <InfoCell label="Con nota de entrega" value={String(clientStats.withDeliveryNote)} />
+          <InfoCell label="Con direcciones" value={String(clientStats.withAddresses)} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo usarlo</div>
+        <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
+          <div>Guarda aquí la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
+          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorías que usan en la operación.</div>
+          <div>Las dos direcciones recientes guardan solo texto + GPS, como me pediste, para no complicar el flujo.</div>
+        </div>
+      </div>
+    </div>
+
+    <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-end md:justify-between">
+      <div className="flex-1">
+        <FieldInput label="Buscar cliente" value={clientSearch} onChange={setClientSearch} />
+      </div>
+
+      <div className="flex gap-2">
+        <Btn onClick={openCreateClient}>Nuevo cliente</Btn>
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+            <tr>
+              <th className="px-3 py-3 text-left font-medium">Cliente</th>
+              <th className="px-3 py-3 text-left font-medium">Teléfono</th>
+              <th className="px-3 py-3 text-left font-medium">Tipo</th>
+              <th className="px-3 py-3 text-left font-medium">Asesor principal</th>
+              <th className="px-3 py-3 text-left font-medium">Etiquetas</th>
+              <th className="px-3 py-3 text-left font-medium">Factura</th>
+              <th className="px-3 py-3 text-left font-medium">Nota de entrega</th>
+              <th className="px-3 py-3 text-left font-medium">Estado</th>
+              <th className="px-3 py-3 text-left font-medium">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredClients.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={9}>
+                  No hay clientes que coincidan con el filtro.
+                </td>
+              </tr>
+            ) : (
+              filteredClients.map((client, idx) => {
+                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                const tags = normalizeClientTags(client.crmTags);
+                const hasBilling = Boolean(
+                  client.billingCompanyName ||
+                    client.billingTaxId ||
+                    client.billingAddress ||
+                    client.billingPhone
+                );
+                const hasDeliveryNote = Boolean(
+                  client.deliveryNoteName ||
+                    client.deliveryNoteDocumentId ||
+                    client.deliveryNoteAddress ||
+                    client.deliveryNotePhone
+                );
+
+                return (
+                  <tr key={client.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                    <td className="px-3 py-3">
+                      <div className="font-semibold text-[#F5F5F7]">{client.fullName}</div>
+                      {client.notes ? (
+                        <div className="mt-1 text-[11px] text-[#8A8A96]">{client.notes}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3">{client.phone || '—'}</td>
+                    <td className="px-3 py-3">{client.clientType || '—'}</td>
+                    <td className="px-3 py-3">
+                      {client.primaryAdvisorId
+                        ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-3">
+                      {tags.length > 0 ? (
+                        <div className="flex max-w-[220px] flex-wrap gap-1">
+                          {tags.slice(0, 4).map((tag) => (
+                            <SmallBadge key={tag} label={tag} tone="muted" />
+                          ))}
+                          {tags.length > 4 ? (
+                            <span className="text-[11px] text-[#8A8A96]">+{tags.length - 4}</span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="px-3 py-3">{hasBilling ? 'Cargado' : 'Pendiente'}</td>
+                    <td className="px-3 py-3">{hasDeliveryNote ? 'Cargado' : 'Pendiente'}</td>
+                    <td className="px-3 py-3">
+                      {client.isActive ? (
+                        <span className="text-emerald-400">Activo</span>
+                      ) : (
+                        <span className="text-[#8A8A96]">Inactivo</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => {
+                            setSelectedClientId(client.id);
+                            setClientDetailOpen(true);
+                          }}
+                        >
+                          Ver
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => openEditClient(client)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => handleToggleClientActive(client)}
+                        >
+                          {client.isActive ? 'Desactivar' : 'Activar'}
                         </button>
                       </div>
                     </td>
@@ -6071,6 +6528,445 @@ deliveryAssignMode === 'external' ? (
               disabled={accountSaving}
             >
               {accountSaving ? 'Guardando...' : 'Guardar cuenta'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer
+        open={clientDetailOpen}
+        title={selectedClient ? `Cliente: ${selectedClient.fullName}` : 'Cliente'}
+        onClose={() => setClientDetailOpen(false)}
+        widthClass="w-[820px]"
+      >
+        {!selectedClient ? (
+          <div className="text-sm text-[#B7B7C2]">Sin cliente seleccionado.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-semibold text-[#F5F5F7]">{selectedClient.fullName}</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Actualizado: {fmtDateTimeES(selectedClient.updatedAt)}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <SmallBadge
+                    label={selectedClient.isActive ? 'Activo' : 'Inactivo'}
+                    tone={selectedClient.isActive ? 'brand' : 'muted'}
+                  />
+                  {selectedClient.clientType ? (
+                    <SmallBadge label={selectedClient.clientType} tone="muted" />
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell label="Teléfono" value={selectedClient.phone || '—'} />
+                <InfoCell
+                  label="Asesor principal"
+                  value={
+                    selectedClient.primaryAdvisorId
+                      ? advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor'
+                      : '—'
+                  }
+                />
+                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '—'} />
+                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '—'} />
+              </div>
+
+              {normalizeClientTags(selectedClient.crmTags).length > 0 ? (
+                <div className="mt-4">
+                  <div className="mb-2 text-xs text-[#8A8A96]">Etiquetas</div>
+                  <div className="flex flex-wrap gap-2">
+                    {normalizeClientTags(selectedClient.crmTags).map((tag) => (
+                      <SmallBadge key={tag} label={tag} tone="muted" />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedClient.notes ? (
+                <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+                  {selectedClient.notes}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
+                <div className="mt-4 grid grid-cols-1 gap-3">
+                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '—'} />
+                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '—'} />
+                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '—'} />
+                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '—'} />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
+                <div className="mt-4 grid grid-cols-1 gap-3">
+                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '—'} />
+                  <InfoCell
+                    label="Documento"
+                    value={selectedClient.deliveryNoteDocumentId || '—'}
+                  />
+                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '—'} />
+                  <InfoCell
+                    label="Dirección"
+                    value={selectedClient.deliveryNoteAddress || '—'}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Direcciones recientes</div>
+              <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                {normalizeClientAddresses(selectedClient.recentAddresses).length === 0 ? (
+                  <div className="text-sm text-[#B7B7C2]">No hay direcciones guardadas.</div>
+                ) : (
+                  normalizeClientAddresses(selectedClient.recentAddresses).map((address, idx) => (
+                    <div key={`${selectedClient.id}-${idx}`} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                      <div className="text-xs text-[#8A8A96]">Dirección {idx + 1}</div>
+                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '—'}</div>
+                      <div className="mt-3 text-xs text-[#8A8A96]">GPS</div>
+                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '—'}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={clientCreateOpen}
+        title="Nuevo cliente"
+        onClose={() => setClientCreateOpen(false)}
+        widthClass="w-[900px]"
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
+              <FieldSelect
+                label="Asesor principal"
+                value={clientFormPrimaryAdvisorId}
+                onChange={setClientFormPrimaryAdvisorId}
+                options={[
+                  { value: '', label: '— sin asesor principal —' },
+                  ...advisors.map((advisor) => ({
+                    value: advisor.userId,
+                    label: advisor.fullName,
+                  })),
+                ]}
+              />
+            </div>
+            <div className="mt-3">
+              <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+              <textarea
+                value={clientFormNotes}
+                onChange={(e) => setClientFormNotes(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              />
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={clientFormIsActive}
+                onChange={(e) => setClientFormIsActive(e.target.checked)}
+              />
+              Activo
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput
+                label="Fecha importante"
+                value={clientFormImportantDate}
+                onChange={setClientFormImportantDate}
+                type="date"
+              />
+            </div>
+            <div className="mt-3">
+              <FieldInput
+                label="Etiquetas (separadas por coma)"
+                value={clientFormTagsInput}
+                onChange={setClientFormTagsInput}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <FieldInput
+                  label="Razón social"
+                  value={clientFormBillingCompanyName}
+                  onChange={setClientFormBillingCompanyName}
+                />
+                <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
+                  <textarea
+                    value={clientFormBillingAddress}
+                    onChange={(e) => setClientFormBillingAddress(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <FieldInput label="Nombre" value={clientFormDeliveryNoteName} onChange={setClientFormDeliveryNoteName} />
+                <FieldInput
+                  label="Documento"
+                  value={clientFormDeliveryNoteDocumentId}
+                  onChange={setClientFormDeliveryNoteDocumentId}
+                />
+                <FieldInput
+                  label="Teléfono"
+                  value={clientFormDeliveryNotePhone}
+                  onChange={setClientFormDeliveryNotePhone}
+                />
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+                  <textarea
+                    value={clientFormDeliveryNoteAddress}
+                    onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="text-sm font-semibold text-[#F5F5F7]">Direcciones recientes</div>
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
+                  <textarea
+                    value={clientFormAddress1Text}
+                    onChange={(e) => setClientFormAddress1Text(e.target.value)}
+                    rows={4}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+                <FieldInput label="GPS 1" value={clientFormAddress1Gps} onChange={setClientFormAddress1Gps} />
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
+                  <textarea
+                    value={clientFormAddress2Text}
+                    onChange={(e) => setClientFormAddress2Text(e.target.value)}
+                    rows={4}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+                <FieldInput label="GPS 2" value={clientFormAddress2Gps} onChange={setClientFormAddress2Gps} />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setClientCreateOpen(false)}
+              disabled={clientSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateClient}
+              disabled={clientSaving}
+            >
+              {clientSaving ? 'Guardando...' : 'Crear cliente'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={clientEditOpen}
+        title={selectedClient ? `Editar: ${selectedClient.fullName}` : 'Editar cliente'}
+        onClose={() => setClientEditOpen(false)}
+        widthClass="w-[900px]"
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
+              <FieldSelect
+                label="Asesor principal"
+                value={clientFormPrimaryAdvisorId}
+                onChange={setClientFormPrimaryAdvisorId}
+                options={[
+                  { value: '', label: '— sin asesor principal —' },
+                  ...advisors.map((advisor) => ({
+                    value: advisor.userId,
+                    label: advisor.fullName,
+                  })),
+                ]}
+              />
+            </div>
+            <div className="mt-3">
+              <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+              <textarea
+                value={clientFormNotes}
+                onChange={(e) => setClientFormNotes(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              />
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={clientFormIsActive}
+                onChange={(e) => setClientFormIsActive(e.target.checked)}
+              />
+              Activo
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput
+                label="Fecha importante"
+                value={clientFormImportantDate}
+                onChange={setClientFormImportantDate}
+                type="date"
+              />
+            </div>
+            <div className="mt-3">
+              <FieldInput
+                label="Etiquetas (separadas por coma)"
+                value={clientFormTagsInput}
+                onChange={setClientFormTagsInput}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <FieldInput
+                  label="Razón social"
+                  value={clientFormBillingCompanyName}
+                  onChange={setClientFormBillingCompanyName}
+                />
+                <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
+                  <textarea
+                    value={clientFormBillingAddress}
+                    onChange={(e) => setClientFormBillingAddress(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <FieldInput label="Nombre" value={clientFormDeliveryNoteName} onChange={setClientFormDeliveryNoteName} />
+                <FieldInput
+                  label="Documento"
+                  value={clientFormDeliveryNoteDocumentId}
+                  onChange={setClientFormDeliveryNoteDocumentId}
+                />
+                <FieldInput
+                  label="Teléfono"
+                  value={clientFormDeliveryNotePhone}
+                  onChange={setClientFormDeliveryNotePhone}
+                />
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+                  <textarea
+                    value={clientFormDeliveryNoteAddress}
+                    onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="text-sm font-semibold text-[#F5F5F7]">Direcciones recientes</div>
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
+                  <textarea
+                    value={clientFormAddress1Text}
+                    onChange={(e) => setClientFormAddress1Text(e.target.value)}
+                    rows={4}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+                <FieldInput label="GPS 1" value={clientFormAddress1Gps} onChange={setClientFormAddress1Gps} />
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
+                  <textarea
+                    value={clientFormAddress2Text}
+                    onChange={(e) => setClientFormAddress2Text(e.target.value)}
+                    rows={4}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+                <FieldInput label="GPS 2" value={clientFormAddress2Gps} onChange={setClientFormAddress2Gps} />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setClientEditOpen(false)}
+              disabled={clientSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleUpdateClient}
+              disabled={clientSaving}
+            >
+              {clientSaving ? 'Guardando...' : 'Guardar cliente'}
             </button>
           </div>
         </div>

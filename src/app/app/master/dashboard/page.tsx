@@ -121,6 +121,31 @@ type RawMoneyMovementRow = {
   movement_group_id: string | null;
 };
 
+type RawClientRow = {
+  id: number;
+  full_name: string;
+  phone: string | null;
+  notes: string | null;
+  primary_advisor_id: string | null;
+  created_at: string;
+  client_type: string | null;
+  is_active: boolean;
+  birth_date: string | null;
+  important_date: string | null;
+  billing_company_name: string | null;
+  billing_tax_id: string | null;
+  billing_address: string | null;
+  billing_phone: string | null;
+  delivery_note_name: string | null;
+  delivery_note_document_id: string | null;
+  delivery_note_address: string | null;
+  delivery_note_phone: string | null;
+  recent_addresses: unknown;
+  crm_tags: unknown;
+  extra_fields: unknown;
+  updated_at: string;
+};
+
 type RawProductRow = {
   id: number;
   sku: string | null;
@@ -707,6 +732,77 @@ const { data: ordersData, error: ordersError } = await supabase
     movementGroupId: mv.movement_group_id ?? null,
   }));
 
+  const { data: clientsData, error: clientsError } = await supabase
+    .from('clients')
+    .select(`
+      id,
+      full_name,
+      phone,
+      notes,
+      primary_advisor_id,
+      created_at,
+      client_type,
+      is_active,
+      birth_date,
+      important_date,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone,
+      recent_addresses,
+      crm_tags,
+      extra_fields,
+      updated_at
+    `)
+    .order('updated_at', { ascending: false })
+    .limit(500);
+
+  if (clientsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando clientes</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener la ficha de clientes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {clientsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const clients = ((clientsData ?? []) as RawClientRow[]).map((client) => ({
+    id: Number(client.id),
+    fullName: client.full_name,
+    phone: client.phone ?? '',
+    notes: client.notes ?? '',
+    primaryAdvisorId: client.primary_advisor_id ?? null,
+    createdAt: client.created_at,
+    clientType: client.client_type ?? '',
+    isActive: client.is_active,
+    birthDate: client.birth_date ?? '',
+    importantDate: client.important_date ?? '',
+    billingCompanyName: client.billing_company_name ?? '',
+    billingTaxId: client.billing_tax_id ?? '',
+    billingAddress: client.billing_address ?? '',
+    billingPhone: client.billing_phone ?? '',
+    deliveryNoteName: client.delivery_note_name ?? '',
+    deliveryNoteDocumentId: client.delivery_note_document_id ?? '',
+    deliveryNoteAddress: client.delivery_note_address ?? '',
+    deliveryNotePhone: client.delivery_note_phone ?? '',
+    recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
+    crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
+    extraFields:
+      client.extra_fields && typeof client.extra_fields === 'object' ? client.extra_fields : {},
+    updatedAt: client.updated_at,
+  }));
+
   const moneyAccountNameById = new Map<number, string>();
   for (const a of moneyAccounts) {
     moneyAccountNameById.set(Number(a.id), a.name);
@@ -1150,6 +1246,7 @@ currentUser={{
       initialOrders={initialOrders}
       moneyAccounts={moneyAccounts}
       moneyMovements={moneyMovements}
+      clients={clients}
       catalogItems={catalogItems}
       productComponents={productComponents}
       activeExchangeRate={
