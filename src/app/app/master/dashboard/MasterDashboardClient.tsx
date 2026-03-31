@@ -1662,6 +1662,8 @@ const [createOrderDraftItems, setCreateOrderDraftItems] = useState<DraftItem[]>(
 const [createOrderConfigOpen, setCreateOrderConfigOpen] = useState(false);
 const [createOrderConfigProductId, setCreateOrderConfigProductId] = useState<number | null>(null);
 const [createOrderConfigProductName, setCreateOrderConfigProductName] = useState('');
+const [createOrderConfigSourcePriceCurrency, setCreateOrderConfigSourcePriceCurrency] = useState<'VES' | 'USD'>('VES');
+const [createOrderConfigSourcePriceAmount, setCreateOrderConfigSourcePriceAmount] = useState(0);
 const [createOrderConfigQty, setCreateOrderConfigQty] = useState(1);
 const [createOrderConfigUnitPriceUsd, setCreateOrderConfigUnitPriceUsd] = useState(0);
 const [createOrderConfigSku, setCreateOrderConfigSku] = useState<string | null>(null);
@@ -3195,6 +3197,12 @@ const handleCreateOrderClientNow = async () => {
 const openCreateOrderConfig = (product: CatalogItem, qty: number) => {
   setCreateOrderConfigProductId(product.id);
   setCreateOrderConfigProductName(product.name);
+  setCreateOrderConfigSourcePriceCurrency(product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD');
+  setCreateOrderConfigSourcePriceAmount(
+    product.sourcePriceCurrency === 'VES'
+      ? Number(product.basePriceBs || 0)
+      : Number(product.basePriceUsd || 0)
+  );
   setCreateOrderConfigQty(qty);
   setCreateOrderConfigUnitPriceUsd(Number(product.basePriceUsd || 0));
   setCreateOrderConfigSku(product.sku || null);
@@ -3242,6 +3250,10 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
   setCreateOrderConfigEditingLocalId(draftItem.localId);
   setCreateOrderConfigProductId(product.id);
   setCreateOrderConfigProductName(product.name);
+  setCreateOrderConfigSourcePriceCurrency(
+    draftItem.sourcePriceCurrency === 'VES' ? 'VES' : 'USD'
+  );
+  setCreateOrderConfigSourcePriceAmount(Number(draftItem.sourcePriceAmount || 0));
   setCreateOrderConfigQty(draftItem.qty);
   setCreateOrderConfigUnitPriceUsd(Number(draftItem.unitPriceUsdSnapshot || 0));
   setCreateOrderConfigSku(draftItem.skuSnapshot || null);
@@ -3255,6 +3267,8 @@ const closeCreateOrderConfig = () => {
   setCreateOrderConfigOpen(false);
   setCreateOrderConfigProductId(null);
   setCreateOrderConfigProductName('');
+  setCreateOrderConfigSourcePriceCurrency('VES');
+  setCreateOrderConfigSourcePriceAmount(0);
   setCreateOrderConfigQty(1);
   setCreateOrderConfigUnitPriceUsd(0);
   setCreateOrderConfigSku(null);
@@ -3383,8 +3397,8 @@ const nextItem: DraftItem = {
   skuSnapshot: createOrderConfigSku,
   productNameSnapshot: createOrderConfigProductName,
   qty: createOrderConfigQty,
-  sourcePriceCurrency: 'USD',
-  sourcePriceAmount: createOrderConfigUnitPriceUsd,
+  sourcePriceCurrency: createOrderConfigSourcePriceCurrency,
+  sourcePriceAmount: createOrderConfigSourcePriceAmount,
   unitPriceUsdSnapshot: createOrderConfigUnitPriceUsd,
   lineTotalUsd: createOrderConfigUnitPriceUsd * createOrderConfigQty,
   editableDetailLines: detailLines,
