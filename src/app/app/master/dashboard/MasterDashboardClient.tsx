@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createSupabaseBrowser } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   approveOrderAction,
@@ -2958,6 +2957,7 @@ const handleSearchCreateOrderClients = async () => {
   if (!q) {
     setCreateOrderClientResults([]);
     return;
+    if (false) {
   }
 
   try {
@@ -3110,7 +3110,7 @@ const handleCreateOrderClientNow = async () => {
         : 'Cliente creado.'
     );
     return;
-
+    /*
     const supabase = createSupabaseBrowser();
     const normalizedPhone = phone.replace(/[^\d+]/g, '');
 
@@ -3121,7 +3121,7 @@ const handleCreateOrderClientNow = async () => {
       .limit(1);
 
     if (existingError) {
-      throw new Error(existingError.message || 'Error buscando cliente existente.');
+      throw new Error(existingError?.message || 'Error buscando cliente existente.');
     }
 
     if ((existing ?? []).length > 0) {
@@ -3165,7 +3165,7 @@ const handleCreateOrderClientNow = async () => {
       .single();
 
     if (createError) {
-      throw new Error(createError.message || 'Error creando cliente.');
+      throw new Error(createError?.message || 'Error creando cliente.');
     }
 
     handleSelectCreateOrderClient({
@@ -3198,6 +3198,7 @@ const handleCreateOrderClientNow = async () => {
     setCreateOrderNewClientType('assigned');
 
     showToast('success', 'Cliente creado.');
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error creando cliente.';
     showToast('error', message);
