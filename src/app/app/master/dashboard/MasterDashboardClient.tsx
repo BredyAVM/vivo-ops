@@ -195,6 +195,7 @@ type OrderEditMeta = {
   attributedAdvisorUserId: string | null;
   receiverName: string | null;
   receiverPhone: string | null;
+  deliveryGpsUrl: string | null;
   paymentMethod: string | null;
   paymentCurrency: 'USD' | 'VES' | null;
   paymentRequiresChange: boolean;
@@ -204,6 +205,18 @@ type OrderEditMeta = {
   hasDeliveryNote: boolean;
   hasInvoice: boolean;
   invoiceDataNote: string | null;
+  invoiceSnapshot: {
+    companyName: string | null;
+    taxId: string | null;
+    address: string | null;
+    phone: string | null;
+  } | null;
+  deliveryNoteSnapshot: {
+    name: string | null;
+    documentId: string | null;
+    address: string | null;
+    phone: string | null;
+  } | null;
   fxRate: number | null;
   discountEnabled: boolean;
   discountPct: number | null;
@@ -1595,12 +1608,7 @@ const [createOrderAdvisorUserId, setCreateOrderAdvisorUserId] = useState('');
 const [createOrderFulfillment, setCreateOrderFulfillment] = useState<'pickup' | 'delivery'>('pickup');
 const [createOrderClientSearch, setCreateOrderClientSearch] = useState('');
 const [createOrderClientResults, setCreateOrderClientResults] = useState<
-  Array<{
-    id: number;
-    fullName: string;
-    phone: string | null;
-    clientType: string | null;
-  }>
+  ClientItem[]
 >([]);
 const [createOrderSelectedClientId, setCreateOrderSelectedClientId] = useState<number | null>(null);
 const [createOrderSelectedClientName, setCreateOrderSelectedClientName] = useState('');
@@ -1643,6 +1651,7 @@ const [createOrderReceiverIsDifferent, setCreateOrderReceiverIsDifferent] = useS
 const [createOrderReceiverName, setCreateOrderReceiverName] = useState('');
 const [createOrderReceiverPhone, setCreateOrderReceiverPhone] = useState('');
 const [createOrderDeliveryAddress, setCreateOrderDeliveryAddress] = useState('');
+const [createOrderDeliveryGpsUrl, setCreateOrderDeliveryGpsUrl] = useState('');
 const [createOrderNote, setCreateOrderNote] = useState('');
 
 const [createOrderPaymentMethod, setCreateOrderPaymentMethod] = useState('payment_mobile');
@@ -2022,6 +2031,7 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderReceiverPhone(receiverPhone);
 
   setCreateOrderDeliveryAddress(order.address ?? '');
+  setCreateOrderDeliveryGpsUrl(order.editMeta?.deliveryGpsUrl ?? '');
   setCreateOrderNote(order.notes ?? '');
 
   setCreateOrderPaymentMethod(order.editMeta?.paymentMethod ?? 'payment_mobile');
@@ -2033,7 +2043,17 @@ const loadOrderIntoCreateForm = (order: Order) => {
 
   setCreateOrderHasDeliveryNote(Boolean(order.editMeta?.hasDeliveryNote));
   setCreateOrderHasInvoice(Boolean(order.editMeta?.hasInvoice));
-  setCreateOrderInvoiceDataNote(order.editMeta?.invoiceDataNote ?? '');
+  setCreateOrderInvoiceDataNote(
+    order.editMeta?.invoiceDataNote ??
+      [
+        order.editMeta?.invoiceSnapshot?.companyName,
+        order.editMeta?.invoiceSnapshot?.taxId,
+        order.editMeta?.invoiceSnapshot?.address,
+        order.editMeta?.invoiceSnapshot?.phone,
+      ]
+        .filter(Boolean)
+        .join(' | ')
+  );
 
   setCreateOrderDiscountEnabled(Boolean(order.editMeta?.discountEnabled));
   setCreateOrderDiscountPct(
@@ -2925,35 +2945,24 @@ const handleSearchCreateOrderClients = async () => {
 
   try {
     setCreateOrderClientSearchLoading(true);
+    const query = q.toLowerCase();
+    const nextResults = clients
+      .filter((client) => {
+        const tags = normalizeClientTags(client.crmTags);
+        return [
+          client.fullName,
+          client.phone,
+          client.clientType,
+          client.billingCompanyName,
+          client.billingTaxId,
+          ...tags,
+        ]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(query));
+      })
+      .slice(0, 15);
 
-    const supabase = createSupabaseBrowser();
-
-    const { data, error } = await supabase
-      .from('clients')
-      .select('id, full_name, phone, client_type')
-      .or(`phone.ilike.%${q}%,full_name.ilike.%${q}%`)
-      .order('id', { ascending: false })
-      .limit(15);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    setCreateOrderClientResults(
-      (data ?? []).map((row: any) => ({
-        id: Number(row.id),
-        fullName: row.full_name ?? 'Sin nombre',
-        phone: row.phone ?? null,
-        clientType:
-          row.client_type === 'assigned'
-            ? 'Asignado'
-            : row.client_type === 'own'
-              ? 'Propio'
-              : row.client_type === 'legacy'
-                ? 'Antiguo'
-                : null,
-      }))
-    );
+    setCreateOrderClientResults(nextResults);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error buscando clientes.';
     showToast('error', message);
@@ -2962,18 +2971,40 @@ const handleSearchCreateOrderClients = async () => {
   }
 };
 
-const handleSelectCreateOrderClient = (client: {
-  id: number;
-  fullName: string;
-  phone: string | null;
-  clientType: string | null;
-}) => {
+const handleApplyClientAddress = (address: ClientAddress) => {
+  setCreateOrderFulfillment('delivery');
+  setCreateOrderDeliveryAddress(address.addressText);
+  setCreateOrderDeliveryGpsUrl(address.gpsUrl);
+};
+
+const handleSelectCreateOrderClient = (client: ClientItem) => {
+  const addresses = normalizeClientAddresses(client.recentAddresses);
   setCreateOrderSelectedClientId(client.id);
   setCreateOrderSelectedClientName(client.fullName);
   setCreateOrderSelectedClientPhone(client.phone ?? '');
   setCreateOrderSelectedClientType(client.clientType ?? null);
   setCreateOrderNewClientMode(false);
   setCreateOrderClientResults([]);
+
+  if (!createOrderReceiverName.trim()) {
+    setCreateOrderReceiverName(client.deliveryNoteName || '');
+  }
+
+  if (!createOrderReceiverPhone.trim()) {
+    setCreateOrderReceiverPhone(client.deliveryNotePhone || client.phone || '');
+  }
+
+  if (!createOrderDeliveryAddress.trim() && addresses[0]) {
+    handleApplyClientAddress(addresses[0]);
+  }
+
+  if (!createOrderHasInvoice && client.billingCompanyName) {
+    setCreateOrderHasInvoice(true);
+  }
+
+  if (!createOrderHasDeliveryNote && client.deliveryNoteName) {
+    setCreateOrderHasDeliveryNote(true);
+  }
 };
 
 const handleActivateCreateOrderNewClient = () => {
@@ -3018,20 +3049,29 @@ const handleCreateOrderClientNow = async () => {
     }
 
     if ((existing ?? []).length > 0) {
-      const client = existing![0] as any;
-
       handleSelectCreateOrderClient({
-        id: Number(client.id),
-        fullName: client.full_name ?? 'Sin nombre',
-        phone: client.phone ?? null,
-        clientType:
-          client.client_type === 'assigned'
-            ? 'Asignado'
-            : client.client_type === 'own'
-              ? 'Propio'
-              : client.client_type === 'legacy'
-                ? 'Antiguo'
-                : null,
+        id: Number(existing[0].id),
+        fullName: existing[0].full_name ?? 'Sin nombre',
+        phone: existing[0].phone ?? '',
+        notes: '',
+        primaryAdvisorId: null,
+        createdAt: '',
+        clientType: String(existing[0].client_type ?? ''),
+        isActive: true,
+        birthDate: '',
+        importantDate: '',
+        billingCompanyName: '',
+        billingTaxId: '',
+        billingAddress: '',
+        billingPhone: '',
+        deliveryNoteName: '',
+        deliveryNoteDocumentId: '',
+        deliveryNoteAddress: '',
+        deliveryNotePhone: '',
+        recentAddresses: [],
+        crmTags: [],
+        extraFields: {},
+        updatedAt: '',
       });
 
       showToast('success', 'Ese cliente ya existía y fue seleccionado.');
@@ -3055,15 +3095,26 @@ const handleCreateOrderClientNow = async () => {
     handleSelectCreateOrderClient({
       id: Number(created.id),
       fullName: created.full_name ?? 'Sin nombre',
-      phone: created.phone ?? null,
-      clientType:
-        created.client_type === 'assigned'
-          ? 'Asignado'
-          : created.client_type === 'own'
-            ? 'Propio'
-            : created.client_type === 'legacy'
-              ? 'Antiguo'
-              : null,
+      phone: created.phone ?? '',
+      notes: '',
+      primaryAdvisorId: null,
+      createdAt: '',
+      clientType: String(created.client_type ?? ''),
+      isActive: true,
+      birthDate: '',
+      importantDate: '',
+      billingCompanyName: '',
+      billingTaxId: '',
+      billingAddress: '',
+      billingPhone: '',
+      deliveryNoteName: '',
+      deliveryNoteDocumentId: '',
+      deliveryNoteAddress: '',
+      deliveryNotePhone: '',
+      recentAddresses: [],
+      crmTags: [],
+      extraFields: {},
+      updatedAt: '',
     });
 
     setCreateOrderNewClientName('');
@@ -3320,6 +3371,7 @@ const handleCreateOrder = async () => {
       receiverName: createOrderReceiverIsDifferent ? createOrderReceiverName : '',
       receiverPhone: createOrderReceiverIsDifferent ? createOrderReceiverPhone : '',
       deliveryAddress: createOrderDeliveryAddress,
+      deliveryGpsUrl: createOrderDeliveryGpsUrl,
       note: createOrderNote,
 
       discountEnabled: createOrderDiscountEnabled,
@@ -3388,6 +3440,7 @@ const handleUpdateOrder = async () => {
       receiverName: createOrderReceiverIsDifferent ? createOrderReceiverName : '',
       receiverPhone: createOrderReceiverIsDifferent ? createOrderReceiverPhone : '',
       deliveryAddress: createOrderDeliveryAddress,
+      deliveryGpsUrl: createOrderDeliveryGpsUrl,
       note: createOrderNote,
 
       discountEnabled: createOrderDiscountEnabled,
@@ -3529,6 +3582,11 @@ const selectedPaymentReportAccount =
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
+  );
+
+  const selectedCreateOrderClient = useMemo(
+    () => clients.find((client) => client.id === createOrderSelectedClientId) ?? null,
+    [clients, createOrderSelectedClientId]
   );
 
   const filteredMoneyMovements = useMemo(() => {
@@ -3782,6 +3840,7 @@ const resetCreateOrderForm = () => {
   setCreateOrderReceiverName('');
   setCreateOrderReceiverPhone('');
   setCreateOrderDeliveryAddress('');
+  setCreateOrderDeliveryGpsUrl('');
   setCreateOrderNote('');
 
   setCreateOrderPaymentMethod('payment_mobile');
@@ -5343,6 +5402,11 @@ onClose={() => {
             </div>
           );
         })()}
+        {selectedOrder.notes?.trim() ? (
+          <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+            <span className="text-[#F5F5F7]">Nota del pedido:</span> {selectedOrder.notes.trim()}
+          </div>
+        ) : null}
       </div>
     ) : null}
 
@@ -5414,6 +5478,42 @@ onClose={() => {
           <div className="mt-1 text-sm text-[#F5F5F7]">Retiro en tienda</div>
         </div>
       )}
+
+      {(selectedOrder.editMeta?.hasInvoice || selectedOrder.editMeta?.hasDeliveryNote) ? (
+        <div className="space-y-2">
+          {selectedOrder.editMeta?.hasInvoice ? (
+            <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+              <div className="text-[10px] text-[#8A8A96]">Factura</div>
+              <div className="mt-1 text-sm text-[#F5F5F7]">
+                {[
+                  selectedOrder.editMeta?.invoiceSnapshot?.companyName,
+                  selectedOrder.editMeta?.invoiceSnapshot?.taxId,
+                  selectedOrder.editMeta?.invoiceSnapshot?.address,
+                  selectedOrder.editMeta?.invoiceSnapshot?.phone,
+                ]
+                  .filter(Boolean)
+                  .join(' | ') || selectedOrder.editMeta?.invoiceDataNote || 'Solicitada sin datos guardados'}
+              </div>
+            </div>
+          ) : null}
+
+          {selectedOrder.editMeta?.hasDeliveryNote ? (
+            <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+              <div className="text-[10px] text-[#8A8A96]">Nota de entrega</div>
+              <div className="mt-1 text-sm text-[#F5F5F7]">
+                {[
+                  selectedOrder.editMeta?.deliveryNoteSnapshot?.name,
+                  selectedOrder.editMeta?.deliveryNoteSnapshot?.documentId,
+                  selectedOrder.editMeta?.deliveryNoteSnapshot?.address,
+                  selectedOrder.editMeta?.deliveryNoteSnapshot?.phone,
+                ]
+                  .filter(Boolean)
+                  .join(' | ') || 'Solicitada sin datos guardados'}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   </div>
 ) : null}
@@ -5484,6 +5584,32 @@ onClose={() => {
             </div>
           </div>
         ) : null}
+      </div>
+    ) : null}
+
+    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+        <div className="text-[10px] text-[#8A8A96]">Forma de pago</div>
+        <div className="mt-1 text-sm font-medium text-[#F5F5F7]">
+          {getPaymentMethodLabel(selectedOrder.editMeta?.paymentMethod || '')}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+        <div className="text-[10px] text-[#8A8A96]">Cambio</div>
+        <div className="mt-1 text-sm font-medium text-[#F5F5F7]">
+          {selectedOrder.editMeta?.paymentRequiresChange
+            ? selectedOrder.editMeta?.paymentChangeFor
+              ? `Para ${selectedOrder.editMeta.paymentChangeFor} ${selectedOrder.editMeta.paymentChangeCurrency || ''}`
+              : 'Sí'
+            : 'No'}
+        </div>
+      </div>
+    </div>
+
+    {selectedOrder.editMeta?.paymentNote ? (
+      <div className="mt-2 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+        <span className="text-[#F5F5F7]">Nota de pago:</span> {selectedOrder.editMeta.paymentNote}
       </div>
     ) : null}
 
@@ -7089,6 +7215,32 @@ deliveryAssignMode === 'external' ? (
             </div>
           ) : null}
 
+          {createOrderSelectedClientId && selectedCreateOrderClient ? (
+            <div className="mt-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+              {normalizeClientTags(selectedCreateOrderClient.crmTags).length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {normalizeClientTags(selectedCreateOrderClient.crmTags).slice(0, 5).map((tag) => (
+                    <SmallBadge key={tag} label={tag} tone="muted" />
+                  ))}
+                </div>
+              ) : null}
+              {normalizeClientAddresses(selectedCreateOrderClient.recentAddresses).length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {normalizeClientAddresses(selectedCreateOrderClient.recentAddresses).map((address, idx) => (
+                    <button
+                      key={`${selectedCreateOrderClient.id}-${idx}`}
+                      type="button"
+                      onClick={() => handleApplyClientAddress(address)}
+                      className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
+                    >
+                      Usar dirección {idx + 1}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {createOrderClientResults.length > 0 ? (
             <div className="max-h-[220px] space-y-2 overflow-y-auto">
               {createOrderClientResults.map((client) => (
@@ -7529,6 +7681,13 @@ deliveryAssignMode === 'external' ? (
             rows={3}
             className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
           />
+          <div className="mt-3">
+            <FieldInput
+              label="GPS URL"
+              value={createOrderDeliveryGpsUrl}
+              onChange={setCreateOrderDeliveryGpsUrl}
+            />
+          </div>
         </div>
       ) : null}
 
@@ -7643,6 +7802,38 @@ deliveryAssignMode === 'external' ? (
         rows={2}
         className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
       />
+    </div>
+  ) : null}
+
+  {selectedCreateOrderClient && (createOrderHasInvoice || createOrderHasDeliveryNote) ? (
+    <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+      {createOrderHasInvoice ? (
+        <div>
+          <span className="text-[#F5F5F7]">Factura:</span>{' '}
+          {[
+            selectedCreateOrderClient.billingCompanyName,
+            selectedCreateOrderClient.billingTaxId,
+            selectedCreateOrderClient.billingAddress,
+            selectedCreateOrderClient.billingPhone,
+          ]
+            .filter(Boolean)
+            .join(' | ') || 'Sin datos guardados'}
+        </div>
+      ) : null}
+
+      {createOrderHasDeliveryNote ? (
+        <div className={createOrderHasInvoice ? 'mt-2' : ''}>
+          <span className="text-[#F5F5F7]">Nota de entrega:</span>{' '}
+          {[
+            selectedCreateOrderClient.deliveryNoteName,
+            selectedCreateOrderClient.deliveryNoteDocumentId,
+            selectedCreateOrderClient.deliveryNoteAddress,
+            selectedCreateOrderClient.deliveryNotePhone,
+          ]
+            .filter(Boolean)
+            .join(' | ') || 'Sin datos guardados'}
+        </div>
+      ) : null}
     </div>
   ) : null}
 

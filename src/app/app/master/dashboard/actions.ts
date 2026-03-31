@@ -1157,6 +1157,7 @@ export async function createOrderAction(input: {
   receiverName: string;
   receiverPhone: string;
   deliveryAddress: string;
+  deliveryGpsUrl: string;
   note: string;
 
   discountEnabled: boolean;
@@ -1270,6 +1271,27 @@ export async function createOrderAction(input: {
     throw new Error('No se pudo resolver el cliente.');
   }
 
+  const { data: clientProfile, error: clientProfileError } = await supabase
+    .from('clients')
+    .select(`
+      full_name,
+      phone,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone
+    `)
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientProfileError) {
+    throw new Error(clientProfileError.message);
+  }
+
   const attributedAdvisorId =
     source === 'advisor' ? input.attributedAdvisorUserId : user.id;
 
@@ -1330,6 +1352,7 @@ export async function createOrderAction(input: {
     },
     delivery: {
       address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+      gps_url: fulfillment === 'delivery' ? String(input.deliveryGpsUrl || '').trim() || null : null,
     },
     payment: {
       method: input.paymentMethod || null,
@@ -1345,6 +1368,22 @@ export async function createOrderAction(input: {
       has_delivery_note: !!input.hasDeliveryNote,
       has_invoice: !!input.hasInvoice,
       invoice_data_note: input.invoiceDataNote.trim() || null,
+      invoice_snapshot: input.hasInvoice
+        ? {
+            company_name: clientProfile?.billing_company_name ?? null,
+            tax_id: clientProfile?.billing_tax_id ?? null,
+            address: clientProfile?.billing_address ?? null,
+            phone: clientProfile?.billing_phone ?? null,
+          }
+        : null,
+      delivery_note_snapshot: input.hasDeliveryNote
+        ? {
+            name: clientProfile?.delivery_note_name ?? null,
+            document_id: clientProfile?.delivery_note_document_id ?? null,
+            address: clientProfile?.delivery_note_address ?? null,
+            phone: clientProfile?.delivery_note_phone ?? null,
+          }
+        : null,
     },
     pricing: {
       fx_rate: fxRateNumber > 0 ? fxRateNumber : null,
@@ -1445,6 +1484,7 @@ export async function updateOrderAction(input: {
   receiverName: string;
   receiverPhone: string;
   deliveryAddress: string;
+  deliveryGpsUrl: string;
   note: string;
 
   discountEnabled: boolean;
@@ -1572,6 +1612,27 @@ export async function updateOrderAction(input: {
     throw new Error('No se pudo resolver el cliente.');
   }
 
+  const { data: clientProfile, error: clientProfileError } = await supabase
+    .from('clients')
+    .select(`
+      full_name,
+      phone,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone
+    `)
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientProfileError) {
+    throw new Error(clientProfileError.message);
+  }
+
   const attributedAdvisorId =
     source === 'advisor' ? input.attributedAdvisorUserId : user.id;
 
@@ -1630,6 +1691,7 @@ export async function updateOrderAction(input: {
     },
     delivery: {
       address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+      gps_url: fulfillment === 'delivery' ? String(input.deliveryGpsUrl || '').trim() || null : null,
     },
     payment: {
       method: input.paymentMethod || null,
@@ -1645,6 +1707,22 @@ export async function updateOrderAction(input: {
       has_delivery_note: !!input.hasDeliveryNote,
       has_invoice: !!input.hasInvoice,
       invoice_data_note: input.invoiceDataNote.trim() || null,
+      invoice_snapshot: input.hasInvoice
+        ? {
+            company_name: clientProfile?.billing_company_name ?? null,
+            tax_id: clientProfile?.billing_tax_id ?? null,
+            address: clientProfile?.billing_address ?? null,
+            phone: clientProfile?.billing_phone ?? null,
+          }
+        : null,
+      delivery_note_snapshot: input.hasDeliveryNote
+        ? {
+            name: clientProfile?.delivery_note_name ?? null,
+            document_id: clientProfile?.delivery_note_document_id ?? null,
+            address: clientProfile?.delivery_note_address ?? null,
+            phone: clientProfile?.delivery_note_phone ?? null,
+          }
+        : null,
     },
     pricing: {
       fx_rate: fxRateNumber > 0 ? fxRateNumber : null,

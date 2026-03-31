@@ -1198,6 +1198,7 @@ return {
         attributedAdvisorUserId: row.attributed_advisor_id ?? null,
         receiverName: row.extra_fields?.receiver?.name ?? null,
         receiverPhone: row.extra_fields?.receiver?.phone ?? null,
+        deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
         paymentMethod: row.extra_fields?.payment?.method ?? null,
         paymentCurrency: row.extra_fields?.payment?.currency ?? null,
         paymentRequiresChange: Boolean(row.extra_fields?.payment?.requires_change ?? false),
@@ -1210,6 +1211,22 @@ return {
         hasDeliveryNote: Boolean(row.extra_fields?.documents?.has_delivery_note ?? false),
         hasInvoice: Boolean(row.extra_fields?.documents?.has_invoice ?? false),
         invoiceDataNote: row.extra_fields?.documents?.invoice_data_note ?? null,
+        invoiceSnapshot: row.extra_fields?.documents?.invoice_snapshot
+          ? {
+              companyName: row.extra_fields.documents.invoice_snapshot.company_name ?? null,
+              taxId: row.extra_fields.documents.invoice_snapshot.tax_id ?? null,
+              address: row.extra_fields.documents.invoice_snapshot.address ?? null,
+              phone: row.extra_fields.documents.invoice_snapshot.phone ?? null,
+            }
+          : null,
+        deliveryNoteSnapshot: row.extra_fields?.documents?.delivery_note_snapshot
+          ? {
+              name: row.extra_fields.documents.delivery_note_snapshot.name ?? null,
+              documentId: row.extra_fields.documents.delivery_note_snapshot.document_id ?? null,
+              address: row.extra_fields.documents.delivery_note_snapshot.address ?? null,
+              phone: row.extra_fields.documents.delivery_note_snapshot.phone ?? null,
+            }
+          : null,
         fxRate:
           row.extra_fields?.pricing?.fx_rate != null
             ? toNumber(row.extra_fields.pricing.fx_rate, 0)
