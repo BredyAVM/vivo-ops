@@ -799,7 +799,9 @@ const { data: ordersData, error: ordersError } = await supabase
     recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
     crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
     extraFields:
-      client.extra_fields && typeof client.extra_fields === 'object' ? client.extra_fields : {},
+      client.extra_fields && typeof client.extra_fields === 'object'
+        ? (client.extra_fields as Record<string, unknown>)
+        : ({} as Record<string, unknown>),
     updatedAt: client.updated_at,
   }));
 
