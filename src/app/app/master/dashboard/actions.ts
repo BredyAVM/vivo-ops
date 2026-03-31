@@ -828,7 +828,7 @@ export async function createClientAction(input: {
   const billingPhone = normalizePhone(String(input.billingPhone || ''));
   const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
 
-  const { error } = await supabase.from('clients').insert({
+  const { data: createdClient, error } = await supabase.from('clients').insert({
     full_name: fullName,
     phone: phone || null,
     notes: String(input.notes || '').trim() || null,
@@ -847,10 +847,138 @@ export async function createClientAction(input: {
     delivery_note_phone: deliveryNotePhone || null,
     recent_addresses: normalizeRecentAddresses(input.recentAddresses),
     crm_tags: normalizeTagList(input.crmTags),
-  });
+  }).select(`
+    id,
+    full_name,
+    phone,
+    notes,
+    primary_advisor_id,
+    created_at,
+    client_type,
+    is_active,
+    birth_date,
+    important_date,
+    billing_company_name,
+    billing_tax_id,
+    billing_address,
+    billing_phone,
+    delivery_note_name,
+    delivery_note_document_id,
+    delivery_note_address,
+    delivery_note_phone,
+    recent_addresses,
+    crm_tags,
+    extra_fields,
+    updated_at
+  `).single();
 
   if (error) throw new Error(error.message);
   revalidatePath('/app/master/dashboard');
+
+  return createdClient;
+}
+
+export async function createOrderClientQuickAction(input: {
+  fullName: string;
+  phone: string;
+  clientType: 'assigned' | 'own' | 'legacy';
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const fullName = String(input.fullName || '').trim();
+  const phone = normalizePhone(String(input.phone || ''));
+
+  if (!fullName) {
+    throw new Error('Debes colocar el nombre del cliente.');
+  }
+
+  if (!phone) {
+    throw new Error('Debes colocar el teléfono del cliente.');
+  }
+
+  const { data: existingClient, error: existingClientError } = await supabase
+    .from('clients')
+    .select(`
+      id,
+      full_name,
+      phone,
+      notes,
+      primary_advisor_id,
+      created_at,
+      client_type,
+      is_active,
+      birth_date,
+      important_date,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone,
+      recent_addresses,
+      crm_tags,
+      extra_fields,
+      updated_at
+    `)
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (existingClientError) {
+    throw new Error(existingClientError.message);
+  }
+
+  if (existingClient) {
+    return { client: existingClient, alreadyExisted: true };
+  }
+
+  const { data: createdClient, error: createClientError } = await supabase
+    .from('clients')
+    .insert({
+      full_name: fullName,
+      phone,
+      client_type: input.clientType,
+    })
+    .select(`
+      id,
+      full_name,
+      phone,
+      notes,
+      primary_advisor_id,
+      created_at,
+      client_type,
+      is_active,
+      birth_date,
+      important_date,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone,
+      recent_addresses,
+      crm_tags,
+      extra_fields,
+      updated_at
+    `)
+    .single();
+
+  if (createClientError) {
+    console.error('createOrderClientQuickAction insert failed', {
+      fullName,
+      phone,
+      clientType: input.clientType,
+      message: createClientError.message,
+    });
+    throw new Error(createClientError.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+
+  return { client: createdClient, alreadyExisted: false };
 }
 
 export async function updateClientAction(input: {
@@ -1334,7 +1462,7 @@ export async function createOrderAction(input: {
     throw new Error(clientAddressError.message);
   }
 
-  const { error: updateClientProfileError } = await supabase
+  const { data: clientProfile, error: updateClientProfileError } = await supabase
     .from('clients')
     .update({
       billing_company_name: input.hasInvoice
@@ -1370,14 +1498,7 @@ export async function createOrderAction(input: {
             )
           : clientAddressData?.recent_addresses ?? [],
     })
-    .eq('id', clientId);
-
-  if (updateClientProfileError) {
-    throw new Error(updateClientProfileError.message);
-  }
-
-  const { data: clientProfile, error: clientProfileError } = await supabase
-    .from('clients')
+    .eq('id', clientId)
     .select(`
       full_name,
       phone,
@@ -1391,11 +1512,21 @@ export async function createOrderAction(input: {
       delivery_note_phone,
       recent_addresses
     `)
-    .eq('id', clientId)
-    .maybeSingle();
+    .single();
 
-  if (clientProfileError) {
-    throw new Error(clientProfileError.message);
+  if (updateClientProfileError) {
+    console.error('createOrderAction client sync failed', {
+      clientId,
+      hasInvoice: input.hasInvoice,
+      hasDeliveryNote: input.hasDeliveryNote,
+      fulfillment,
+      message: updateClientProfileError.message,
+    });
+    throw new Error(updateClientProfileError.message);
+  }
+
+  if (!clientProfile) {
+    throw new Error('No se pudo confirmar la actualización del cliente.');
   }
 
   const attributedAdvisorId =
@@ -1736,7 +1867,7 @@ export async function updateOrderAction(input: {
     throw new Error(clientAddressError.message);
   }
 
-  const { error: updateClientProfileError } = await supabase
+  const { data: clientProfile, error: updateClientProfileError } = await supabase
     .from('clients')
     .update({
       billing_company_name: input.hasInvoice
@@ -1772,14 +1903,7 @@ export async function updateOrderAction(input: {
             )
           : clientAddressData?.recent_addresses ?? [],
     })
-    .eq('id', clientId);
-
-  if (updateClientProfileError) {
-    throw new Error(updateClientProfileError.message);
-  }
-
-  const { data: clientProfile, error: clientProfileError } = await supabase
-    .from('clients')
+    .eq('id', clientId)
     .select(`
       full_name,
       phone,
@@ -1793,11 +1917,22 @@ export async function updateOrderAction(input: {
       delivery_note_phone,
       recent_addresses
     `)
-    .eq('id', clientId)
-    .maybeSingle();
+    .single();
 
-  if (clientProfileError) {
-    throw new Error(clientProfileError.message);
+  if (updateClientProfileError) {
+    console.error('updateOrderAction client sync failed', {
+      orderId,
+      clientId,
+      hasInvoice: input.hasInvoice,
+      hasDeliveryNote: input.hasDeliveryNote,
+      fulfillment,
+      message: updateClientProfileError.message,
+    });
+    throw new Error(updateClientProfileError.message);
+  }
+
+  if (!clientProfile) {
+    throw new Error('No se pudo confirmar la actualización del cliente.');
   }
 
   const attributedAdvisorId =

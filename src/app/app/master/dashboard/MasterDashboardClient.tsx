@@ -25,6 +25,7 @@ import {
   updateExchangeRateAction,
   createCatalogItemAction,
   createClientAction,
+  createOrderClientQuickAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
@@ -3058,6 +3059,57 @@ const handleCreateOrderClientNow = async () => {
       showToast('error', 'Debes colocar el teléfono del cliente.');
       return;
     }
+
+    const quickClient = await createOrderClientQuickAction({
+      fullName,
+      phone,
+      clientType: createOrderNewClientType,
+    });
+
+    handleSelectCreateOrderClient({
+      id: Number(quickClient.client.id),
+      fullName: quickClient.client.full_name ?? 'Sin nombre',
+      phone: quickClient.client.phone ?? '',
+      notes: quickClient.client.notes ?? '',
+      primaryAdvisorId: quickClient.client.primary_advisor_id ?? null,
+      createdAt: quickClient.client.created_at ?? '',
+      clientType: String(quickClient.client.client_type ?? ''),
+      isActive: Boolean(quickClient.client.is_active ?? true),
+      birthDate: quickClient.client.birth_date ?? '',
+      importantDate: quickClient.client.important_date ?? '',
+      billingCompanyName: quickClient.client.billing_company_name ?? '',
+      billingTaxId: quickClient.client.billing_tax_id ?? '',
+      billingAddress: quickClient.client.billing_address ?? '',
+      billingPhone: quickClient.client.billing_phone ?? '',
+      deliveryNoteName: quickClient.client.delivery_note_name ?? '',
+      deliveryNoteDocumentId: quickClient.client.delivery_note_document_id ?? '',
+      deliveryNoteAddress: quickClient.client.delivery_note_address ?? '',
+      deliveryNotePhone: quickClient.client.delivery_note_phone ?? '',
+      recentAddresses: Array.isArray(quickClient.client.recent_addresses)
+        ? quickClient.client.recent_addresses
+        : [],
+      crmTags: Array.isArray(quickClient.client.crm_tags)
+        ? quickClient.client.crm_tags
+        : [],
+      extraFields:
+        quickClient.client.extra_fields &&
+        typeof quickClient.client.extra_fields === 'object'
+          ? (quickClient.client.extra_fields as Record<string, unknown>)
+          : {},
+      updatedAt: quickClient.client.updated_at ?? '',
+    });
+
+    setCreateOrderNewClientName('');
+    setCreateOrderNewClientPhone('');
+    setCreateOrderNewClientType('assigned');
+
+    showToast(
+      'success',
+      quickClient.alreadyExisted
+        ? 'Ese cliente ya existía y fue seleccionado.'
+        : 'Cliente creado.'
+    );
+    return;
 
     const supabase = createSupabaseBrowser();
 
