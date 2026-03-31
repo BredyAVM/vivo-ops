@@ -1058,7 +1058,10 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
   .filter((row) => row.parentProductId && row.componentProductId);
   const initialOrders = rawOrders.map((row) => {
     const confirmedPaidUsd = confirmedPaidByOrder.get(row.id) ?? 0;
-    const totalUsd = toNumber(row.total_usd, 0);
+    const totalUsd = toNumber(
+      row.extra_fields?.pricing?.total_usd,
+      toNumber(row.total_usd, 0)
+    );
     const balanceUsd = Math.max(0, totalUsd - confirmedPaidUsd);
 
     const reportState = reportsByOrder.get(row.id) ?? {

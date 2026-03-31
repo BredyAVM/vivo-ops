@@ -1653,6 +1653,7 @@ export async function createOrderAction(input: {
       subtotal_bs: subtotalBs,
       subtotal_after_discount_usd: subtotalAfterDiscountUsd,
       subtotal_after_discount_bs: subtotalAfterDiscountBs,
+      total_usd: totalUsd,
       total_bs: totalBs,
     },
     note: input.note.trim() || null,
@@ -1719,6 +1720,19 @@ export async function createOrderAction(input: {
 
   if (itemsError) {
     throw new Error(itemsError.message);
+  }
+
+  const { error: finalizeTotalsError } = await supabase
+    .from('orders')
+    .update({
+      total_usd: totalUsd,
+      total_bs_snapshot: totalBs,
+      extra_fields: extraFields,
+    })
+    .eq('id', orderId);
+
+  if (finalizeTotalsError) {
+    throw new Error(finalizeTotalsError.message);
   }
 
   revalidatePath('/app/master/dashboard');
@@ -2075,6 +2089,7 @@ export async function updateOrderAction(input: {
       subtotal_bs: subtotalBs,
       subtotal_after_discount_usd: subtotalAfterDiscountUsd,
       subtotal_after_discount_bs: subtotalAfterDiscountBs,
+      total_usd: totalUsd,
       total_bs: totalBs,
     },
     note: input.note.trim() || null,
@@ -2161,6 +2176,21 @@ export async function updateOrderAction(input: {
 
   if (insertItemsError) {
     throw new Error(insertItemsError.message);
+  }
+
+  const { error: finalizeTotalsError } = await supabase
+    .from('orders')
+    .update({
+      total_usd: totalUsd,
+      total_bs_snapshot: totalBs,
+      extra_fields: extraFields,
+      last_modified_at: nowIso,
+      last_modified_by: user.id,
+    })
+    .eq('id', orderId);
+
+  if (finalizeTotalsError) {
+    throw new Error(finalizeTotalsError.message);
   }
 
   revalidatePath('/app/master/dashboard');
