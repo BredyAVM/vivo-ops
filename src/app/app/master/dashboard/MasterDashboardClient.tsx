@@ -3935,6 +3935,52 @@ useEffect(() => {
   resetCreateOrderForm();
 }, [createOrderOpen, orderEditorMode, activeExchangeRate]);
 
+useEffect(() => {
+  if (!createOrderOpen) return;
+  if (!selectedCreateOrderClient) return;
+
+  if (
+    createOrderHasInvoice &&
+    !createOrderInvoiceCompanyName &&
+    !createOrderInvoiceTaxId &&
+    !createOrderInvoiceAddress &&
+    !createOrderInvoicePhone
+  ) {
+    setCreateOrderInvoiceCompanyName(selectedCreateOrderClient.billingCompanyName || '');
+    setCreateOrderInvoiceTaxId(selectedCreateOrderClient.billingTaxId || '');
+    setCreateOrderInvoiceAddress(selectedCreateOrderClient.billingAddress || '');
+    setCreateOrderInvoicePhone(selectedCreateOrderClient.billingPhone || '');
+  }
+
+  if (
+    createOrderHasDeliveryNote &&
+    !createOrderDeliveryNoteName &&
+    !createOrderDeliveryNoteDocumentId &&
+    !createOrderDeliveryNoteAddress &&
+    !createOrderDeliveryNotePhone
+  ) {
+    setCreateOrderDeliveryNoteName(selectedCreateOrderClient.deliveryNoteName || '');
+    setCreateOrderDeliveryNoteDocumentId(selectedCreateOrderClient.deliveryNoteDocumentId || '');
+    setCreateOrderDeliveryNoteAddress(selectedCreateOrderClient.deliveryNoteAddress || '');
+    setCreateOrderDeliveryNotePhone(
+      selectedCreateOrderClient.deliveryNotePhone || selectedCreateOrderClient.phone || ''
+    );
+  }
+}, [
+  createOrderOpen,
+  selectedCreateOrderClient,
+  createOrderHasInvoice,
+  createOrderHasDeliveryNote,
+  createOrderInvoiceCompanyName,
+  createOrderInvoiceTaxId,
+  createOrderInvoiceAddress,
+  createOrderInvoicePhone,
+  createOrderDeliveryNoteName,
+  createOrderDeliveryNoteDocumentId,
+  createOrderDeliveryNoteAddress,
+  createOrderDeliveryNotePhone,
+]);
+
 
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
