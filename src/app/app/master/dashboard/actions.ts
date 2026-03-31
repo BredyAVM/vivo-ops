@@ -526,7 +526,7 @@ export async function updateCatalogItemAction(input: {
     }
   }
 
-  const { error: updateProductError } = await supabase
+  const { data: updatedProduct, error: updateProductError } = await supabase
     .from('products')
     .update({
       source_price_amount: sourcePriceAmount,
@@ -541,10 +541,16 @@ export async function updateCatalogItemAction(input: {
       is_temporary: input.isTemporary,
       is_combo_component_selectable: input.isComboComponentSelectable,
     })
-    .eq('id', input.productId);
+    .eq('id', input.productId)
+    .select('id')
+    .maybeSingle();
 
   if (updateProductError) {
     throw new Error(updateProductError.message);
+  }
+
+  if (!updatedProduct) {
+    throw new Error('No se pudo actualizar el producto. Revisa los permisos de update sobre products.');
   }
 
   const { error: deleteComponentsError } = await supabase
