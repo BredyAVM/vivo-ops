@@ -3112,7 +3112,6 @@ const handleCreateOrderClientNow = async () => {
     return;
 
     const supabase = createSupabaseBrowser();
-
     const normalizedPhone = phone.replace(/[^\d+]/g, '');
 
     const { data: existing, error: existingError } = await supabase
@@ -3122,7 +3121,7 @@ const handleCreateOrderClientNow = async () => {
       .limit(1);
 
     if (existingError) {
-      throw new Error(existingError.message);
+      throw new Error(existingError.message || 'Error buscando cliente existente.');
     }
 
     if ((existing ?? []).length > 0) {
@@ -3166,7 +3165,7 @@ const handleCreateOrderClientNow = async () => {
       .single();
 
     if (createError) {
-      throw new Error(createError.message);
+      throw new Error(createError.message || 'Error creando cliente.');
     }
 
     handleSelectCreateOrderClient({
