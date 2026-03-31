@@ -5502,41 +5502,51 @@ onClose={() => {
           const discountEnabled = !!pricing?.discountEnabled;
           const discountPct = Number(pricing?.discountPct || 0);
           const subtotalUsd = pricing?.subtotalUsd ?? selectedOrder.totalUsd;
+          const subtotalBs = pricing?.subtotalBs ?? selectedOrder.totalBs;
           const subtotalAfterDiscountUsd =
             pricing?.subtotalAfterDiscountUsd ?? selectedOrder.totalUsd;
+          const subtotalAfterDiscountBs =
+            pricing?.subtotalAfterDiscountBs ?? selectedOrder.totalBs;
           const discountUsd = Math.max(0, subtotalUsd - subtotalAfterDiscountUsd);
+          const discountBs = Math.max(0, subtotalBs - subtotalAfterDiscountBs);
           const invoiceTaxPct = Number(pricing?.invoiceTaxPct || 0);
           const invoiceTaxUsd = Number(pricing?.invoiceTaxAmountUsd || 0);
+          const invoiceTaxBs = Number(pricing?.invoiceTaxAmountBs || 0);
+          const showNetSubtotal =
+            (discountEnabled && discountPct > 0) ||
+            (pricing?.hasInvoice && invoiceTaxPct > 0);
 
           return (
             <div className="mt-3 space-y-1 border-t border-[#1D1D28] pt-3 text-xs">
               <div className="flex items-center justify-between text-[#B7B7C2]">
                 <span>Subtotal</span>
-                <span>{fmtUSD(subtotalUsd)}</span>
+                <span>{fmtBs(subtotalBs)} / {fmtUSD(subtotalUsd)}</span>
               </div>
 
               {discountEnabled && discountPct > 0 ? (
                 <div className="flex items-center justify-between text-orange-400">
                   <span>Descuento ({discountPct}%)</span>
-                  <span>-{fmtUSD(discountUsd)}</span>
+                  <span>-{fmtBs(discountBs)} / -{fmtUSD(discountUsd)}</span>
+                </div>
+              ) : null}
+
+              {showNetSubtotal ? (
+                <div className="flex items-center justify-between text-[#B7B7C2]">
+                  <span>Subtotal con descuento</span>
+                  <span>{fmtBs(subtotalAfterDiscountBs)} / {fmtUSD(subtotalAfterDiscountUsd)}</span>
                 </div>
               ) : null}
 
               {pricing?.hasInvoice && invoiceTaxPct > 0 ? (
                 <div className="flex items-center justify-between text-sky-300">
                   <span>IVA ({invoiceTaxPct}%)</span>
-                  <span>+{fmtUSD(invoiceTaxUsd)}</span>
+                  <span>+{fmtBs(invoiceTaxBs)} / +{fmtUSD(invoiceTaxUsd)}</span>
                 </div>
               ) : null}
 
               <div className="flex items-center justify-between text-sm font-semibold text-[#F5F5F7]">
                 <span>Total</span>
-                <span>{fmtUSD(selectedOrder.totalUsd)}</span>
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-[#8A8A96]">
-                <span>Total Bs</span>
-                <span>{fmtBs(selectedOrder.totalBs)}</span>
+                <span>{fmtBs(selectedOrder.totalBs)} / {fmtUSD(selectedOrder.totalUsd)}</span>
               </div>
             </div>
           );
