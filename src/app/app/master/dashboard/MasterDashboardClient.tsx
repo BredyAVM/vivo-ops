@@ -2549,10 +2549,18 @@ const handleSaveCatalog = async () => {
 
   try {
     setCatalogSaving(true);
+    const normalizedSourcePriceAmount = Number(
+      String(editSourcePriceAmount || '').trim().replace(',', '.')
+    );
+
+    if (!Number.isFinite(normalizedSourcePriceAmount) || normalizedSourcePriceAmount < 0) {
+      showToast('error', 'El monto fuente no es válido.');
+      return;
+    }
 
     await updateCatalogItemAction({
       productId: selectedCatalogItem.id,
-      sourcePriceAmount: Number(editSourcePriceAmount || 0),
+      sourcePriceAmount: normalizedSourcePriceAmount,
       sourcePriceCurrency: editSourcePriceCurrency,
       isActive: editIsActive,
       unitsPerService: Number(editUnitsPerService || 0),
@@ -5112,7 +5120,7 @@ suppressHydrationWarning
                       label="Monto fuente"
                       value={editSourcePriceAmount}
                       onChange={setEditSourcePriceAmount}
-                      type="number"
+                      type="text"
                     />
                     <FieldInput
                       label="Und/servicio"
