@@ -742,6 +742,51 @@ function normalizeTagList(input: string[]) {
   );
 }
 
+function normalizeRecentAddressesForClient(input: unknown) {
+  if (!Array.isArray(input)) return [] as Array<{ address_text: string; gps_url: string | null }>;
+
+  return input
+    .map((row) => {
+      const data =
+        row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+      return {
+        address_text: String(data.address_text ?? data.addressText ?? '').trim(),
+        gps_url: String(data.gps_url ?? data.gpsUrl ?? '').trim() || null,
+      };
+    })
+    .filter((row) => row.address_text || row.gps_url);
+}
+
+function mergeRecentAddresses(
+  currentValue: unknown,
+  nextAddressText: string,
+  nextGpsUrl: string
+) {
+  const current = normalizeRecentAddressesForClient(currentValue);
+  const normalizedAddressText = String(nextAddressText || '').trim();
+  const normalizedGpsUrl = String(nextGpsUrl || '').trim() || null;
+
+  if (!normalizedAddressText && !normalizedGpsUrl) {
+    return current.slice(0, 2);
+  }
+
+  const nextEntry = {
+    address_text: normalizedAddressText,
+    gps_url: normalizedGpsUrl,
+  };
+
+  const deduped = current.filter(
+    (row) =>
+      !(
+        row.address_text === nextEntry.address_text &&
+        (row.gps_url ?? null) === (nextEntry.gps_url ?? null)
+      )
+  );
+
+  return [nextEntry, ...deduped].slice(0, 2);
+}
+
 function normalizeRecentAddresses(
   input: Array<{ addressText: string; gpsUrl: string }>
 ) {
@@ -1279,6 +1324,16 @@ export async function createOrderAction(input: {
     throw new Error('No se pudo resolver el cliente.');
   }
 
+  const { data: clientAddressData, error: clientAddressError } = await supabase
+    .from('clients')
+    .select('recent_addresses')
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientAddressError) {
+    throw new Error(clientAddressError.message);
+  }
+
   const { error: updateClientProfileError } = await supabase
     .from('clients')
     .update({
@@ -1306,6 +1361,14 @@ export async function createOrderAction(input: {
       delivery_note_phone: input.hasDeliveryNote
         ? normalizePhone(String(input.deliveryNotePhone || '')) || null
         : null,
+      recent_addresses:
+        fulfillment === 'delivery'
+          ? mergeRecentAddresses(
+              clientAddressData?.recent_addresses,
+              input.deliveryAddress,
+              input.deliveryGpsUrl
+            )
+          : clientAddressData?.recent_addresses ?? [],
     })
     .eq('id', clientId);
 
@@ -1325,7 +1388,8 @@ export async function createOrderAction(input: {
       delivery_note_name,
       delivery_note_document_id,
       delivery_note_address,
-      delivery_note_phone
+      delivery_note_phone,
+      recent_addresses
     `)
     .eq('id', clientId)
     .maybeSingle();
@@ -1662,6 +1726,16 @@ export async function updateOrderAction(input: {
     throw new Error('No se pudo resolver el cliente.');
   }
 
+  const { data: clientAddressData, error: clientAddressError } = await supabase
+    .from('clients')
+    .select('recent_addresses')
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientAddressError) {
+    throw new Error(clientAddressError.message);
+  }
+
   const { error: updateClientProfileError } = await supabase
     .from('clients')
     .update({
@@ -1689,6 +1763,14 @@ export async function updateOrderAction(input: {
       delivery_note_phone: input.hasDeliveryNote
         ? normalizePhone(String(input.deliveryNotePhone || '')) || null
         : null,
+      recent_addresses:
+        fulfillment === 'delivery'
+          ? mergeRecentAddresses(
+              clientAddressData?.recent_addresses,
+              input.deliveryAddress,
+              input.deliveryGpsUrl
+            )
+          : clientAddressData?.recent_addresses ?? [],
     })
     .eq('id', clientId);
 
@@ -1708,7 +1790,8 @@ export async function updateOrderAction(input: {
       delivery_note_name,
       delivery_note_document_id,
       delivery_note_address,
-      delivery_note_phone
+      delivery_note_phone,
+      recent_addresses
     `)
     .eq('id', clientId)
     .maybeSingle();
