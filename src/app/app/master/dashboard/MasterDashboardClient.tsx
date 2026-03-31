@@ -1758,7 +1758,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const tableOrders = useMemo(
     () => trayOrders
       .slice()
-      .sort((a, b) => new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime()),
+      .sort((a, b) => new Date(b.deliveryAtISO).getTime() - new Date(a.deliveryAtISO).getTime()),
     [trayOrders]
   );
 
