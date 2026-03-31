@@ -1236,6 +1236,34 @@ return {
           row.extra_fields?.pricing?.discount_pct != null
             ? toNumber(row.extra_fields.pricing.discount_pct, 0)
             : null,
+        invoiceTaxPct:
+          row.extra_fields?.pricing?.invoice_tax_pct != null
+            ? toNumber(row.extra_fields.pricing.invoice_tax_pct, 0)
+            : null,
+        invoiceTaxAmountUsd:
+          row.extra_fields?.pricing?.invoice_tax_amount_usd != null
+            ? toNumber(row.extra_fields.pricing.invoice_tax_amount_usd, 0)
+            : null,
+        invoiceTaxAmountBs:
+          row.extra_fields?.pricing?.invoice_tax_amount_bs != null
+            ? toNumber(row.extra_fields.pricing.invoice_tax_amount_bs, 0)
+            : null,
+        subtotalBs:
+          row.extra_fields?.pricing?.subtotal_bs != null
+            ? toNumber(row.extra_fields.pricing.subtotal_bs, 0)
+            : null,
+        subtotalUsd:
+          row.extra_fields?.pricing?.subtotal_usd != null
+            ? toNumber(row.extra_fields.pricing.subtotal_usd, 0)
+            : null,
+        subtotalAfterDiscountBs:
+          row.extra_fields?.pricing?.subtotal_after_discount_bs != null
+            ? toNumber(row.extra_fields.pricing.subtotal_after_discount_bs, 0)
+            : null,
+        subtotalAfterDiscountUsd:
+          row.extra_fields?.pricing?.subtotal_after_discount_usd != null
+            ? toNumber(row.extra_fields.pricing.subtotal_after_discount_usd, 0)
+            : null,
       },
       draftItems,
       paymentReports,

@@ -220,6 +220,13 @@ type OrderEditMeta = {
   fxRate: number | null;
   discountEnabled: boolean;
   discountPct: number | null;
+  invoiceTaxPct: number | null;
+  invoiceTaxAmountUsd: number | null;
+  invoiceTaxAmountBs: number | null;
+  subtotalBs: number | null;
+  subtotalUsd: number | null;
+  subtotalAfterDiscountBs: number | null;
+  subtotalAfterDiscountUsd: number | null;
 };
 
 type Order = {
@@ -1625,6 +1632,7 @@ const [createOrderSelectedProductId, setCreateOrderSelectedProductId] = useState
 const [createOrderQty, setCreateOrderQty] = useState<number>(1);
 const [createOrderDiscountEnabled, setCreateOrderDiscountEnabled] = useState(false);
 const [createOrderDiscountPct, setCreateOrderDiscountPct] = useState('0');
+const [createOrderInvoiceTaxPct, setCreateOrderInvoiceTaxPct] = useState('16');
 const [createOrderFxRate, setCreateOrderFxRate] = useState(
   activeExchangeRate ? String(activeExchangeRate.rateBsPerUsd) : '0'
 );
@@ -2074,6 +2082,9 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderDiscountEnabled(Boolean(order.editMeta?.discountEnabled));
   setCreateOrderDiscountPct(
     order.editMeta?.discountPct != null ? String(order.editMeta.discountPct) : '0'
+  );
+  setCreateOrderInvoiceTaxPct(
+    order.editMeta?.invoiceTaxPct != null ? String(order.editMeta.invoiceTaxPct) : '16'
   );
 
   setCreateOrderFxRate(
@@ -3372,6 +3383,7 @@ const handleCreateOrder = async () => {
 
       discountEnabled: createOrderDiscountEnabled,
       discountPct: createOrderDiscountPct,
+      invoiceTaxPct: createOrderInvoiceTaxPct,
       fxRate: createOrderFxRate,
 
       paymentMethod: createOrderPaymentMethod,
@@ -3456,6 +3468,7 @@ const handleUpdateOrder = async () => {
 
       discountEnabled: createOrderDiscountEnabled,
       discountPct: createOrderDiscountPct,
+      invoiceTaxPct: createOrderInvoiceTaxPct,
       fxRate: createOrderFxRate,
 
       paymentMethod: createOrderPaymentMethod,
@@ -3564,14 +3577,33 @@ const createOrderDiscountPctNumber = Math.max(
   Math.min(100, Number(createOrderDiscountPct || 0))
 );
 
+const createOrderInvoiceTaxPctNumber = createOrderHasInvoice
+  ? Math.max(0, Number(String(createOrderInvoiceTaxPct || '0').replace(',', '.')) || 0)
+  : 0;
+
 const createOrderDiscountAmountBs = createOrderDiscountEnabled
   ? createOrderDraftSubtotalBs * (createOrderDiscountPctNumber / 100)
   : 0;
 
-const createOrderDraftTotalBs = Math.max(
+const createOrderDraftSubtotalAfterDiscountBs = Math.max(
   0,
   createOrderDraftSubtotalBs - createOrderDiscountAmountBs
 );
+
+const createOrderInvoiceTaxAmountBs = createOrderHasInvoice
+  ? createOrderDraftSubtotalAfterDiscountBs * (createOrderInvoiceTaxPctNumber / 100)
+  : 0;
+
+const createOrderDraftTotalBs = createOrderDraftSubtotalAfterDiscountBs + createOrderInvoiceTaxAmountBs;
+
+const createOrderDiscountAmountUsd =
+  createOrderFxRateNumber > 0 ? createOrderDiscountAmountBs / createOrderFxRateNumber : 0;
+
+const createOrderDraftSubtotalAfterDiscountUsd =
+  createOrderFxRateNumber > 0 ? createOrderDraftSubtotalAfterDiscountBs / createOrderFxRateNumber : 0;
+
+const createOrderInvoiceTaxAmountUsd =
+  createOrderFxRateNumber > 0 ? createOrderInvoiceTaxAmountBs / createOrderFxRateNumber : 0;
 
 const createOrderDraftTotalUsd =
   createOrderFxRateNumber > 0
@@ -3830,6 +3862,7 @@ const resetCreateOrderForm = () => {
   setCreateOrderDraftItems([]);
   setCreateOrderDiscountEnabled(false);
   setCreateOrderDiscountPct('0');
+  setCreateOrderInvoiceTaxPct('16');
   setCreateOrderFxRate(activeExchangeRate ? String(activeExchangeRate.rateBsPerUsd) : '0');
 
   const now = new Date();
@@ -3883,6 +3916,7 @@ const resetCreateOrderForm = () => {
   setCreateOrderInvoiceTaxId('');
   setCreateOrderInvoiceAddress('');
   setCreateOrderInvoicePhone('');
+  setCreateOrderInvoiceTaxPct('16');
   setCreateOrderDeliveryNoteName('');
   setCreateOrderDeliveryNoteDocumentId('');
   setCreateOrderDeliveryNoteAddress('');
@@ -5445,16 +5479,12 @@ onClose={() => {
           const pricing = selectedOrder?.editMeta;
           const discountEnabled = !!pricing?.discountEnabled;
           const discountPct = Number(pricing?.discountPct || 0);
-
-          const subtotalUsd =
-            discountEnabled && discountPct > 0
-              ? selectedOrder.totalUsd / (1 - discountPct / 100)
-              : selectedOrder.totalUsd;
-
-          const discountUsd =
-            discountEnabled && discountPct > 0
-              ? subtotalUsd - selectedOrder.totalUsd
-              : 0;
+          const subtotalUsd = pricing?.subtotalUsd ?? selectedOrder.totalUsd;
+          const subtotalAfterDiscountUsd =
+            pricing?.subtotalAfterDiscountUsd ?? selectedOrder.totalUsd;
+          const discountUsd = Math.max(0, subtotalUsd - subtotalAfterDiscountUsd);
+          const invoiceTaxPct = Number(pricing?.invoiceTaxPct || 0);
+          const invoiceTaxUsd = Number(pricing?.invoiceTaxAmountUsd || 0);
 
           return (
             <div className="mt-3 space-y-1 border-t border-[#1D1D28] pt-3 text-xs">
@@ -5467,6 +5497,13 @@ onClose={() => {
                 <div className="flex items-center justify-between text-orange-400">
                   <span>Descuento ({discountPct}%)</span>
                   <span>-{fmtUSD(discountUsd)}</span>
+                </div>
+              ) : null}
+
+              {pricing?.hasInvoice && invoiceTaxPct > 0 ? (
+                <div className="flex items-center justify-between text-sky-300">
+                  <span>IVA ({invoiceTaxPct}%)</span>
+                  <span>+{fmtUSD(invoiceTaxUsd)}</span>
                 </div>
               ) : null}
 
@@ -5574,6 +5611,11 @@ onClose={() => {
                   .filter(Boolean)
                   .join(' | ') || selectedOrder.editMeta?.invoiceDataNote || 'Solicitada sin datos guardados'}
               </div>
+              {selectedOrder.editMeta?.invoiceTaxPct ? (
+                <div className="mt-2 text-xs text-sky-300">
+                  IVA: {selectedOrder.editMeta.invoiceTaxPct}% ({fmtBs(selectedOrder.editMeta.invoiceTaxAmountBs ?? 0)} / {fmtUSD(selectedOrder.editMeta.invoiceTaxAmountUsd ?? 0)})
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -7657,6 +7699,11 @@ deliveryAssignMode === 'external' ? (
       Descuento: -{fmtBs(createOrderDiscountAmountBs)}
     </div>
   ) : null}
+  {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
+    <div className="mt-1 text-sky-300">
+      IVA ({createOrderInvoiceTaxPctNumber}%): +{fmtBs(createOrderInvoiceTaxAmountBs)}
+    </div>
+  ) : null}
   <div className="mt-1 font-semibold">
     Total: {fmtBs(createOrderDraftTotalBs)} / {fmtUSD(createOrderDraftTotalUsd)}
   </div>
@@ -7853,12 +7900,16 @@ deliveryAssignMode === 'external' ? (
       checked={createOrderHasInvoice}
       onChange={(value) => {
         setCreateOrderHasInvoice(value);
+        if (value && !String(createOrderInvoiceTaxPct || '').trim()) {
+          setCreateOrderInvoiceTaxPct('16');
+        }
         if (!value) {
           setCreateOrderInvoiceDataNote('');
           setCreateOrderInvoiceCompanyName('');
           setCreateOrderInvoiceTaxId('');
           setCreateOrderInvoiceAddress('');
           setCreateOrderInvoicePhone('');
+          setCreateOrderInvoiceTaxPct('16');
         }
       }}
     />
@@ -7901,6 +7952,12 @@ deliveryAssignMode === 'external' ? (
         label="Teléfono"
         value={createOrderInvoicePhone}
         onChange={setCreateOrderInvoicePhone}
+      />
+      <FieldInput
+        label="% IVA"
+        value={createOrderInvoiceTaxPct}
+        onChange={setCreateOrderInvoiceTaxPct}
+        type="text"
       />
       <div className="md:col-span-2">
         <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
@@ -8067,6 +8124,13 @@ deliveryAssignMode === 'external' ? (
         <InfoCell
           label="Descuento"
           value={`${createOrderDiscountPctNumber}% · -${fmtBs(createOrderDiscountAmountBs)}`}
+        />
+      ) : null}
+
+      {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
+        <InfoCell
+          label="IVA"
+          value={`${createOrderInvoiceTaxPctNumber}% · +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
         />
       ) : null}
     </div>

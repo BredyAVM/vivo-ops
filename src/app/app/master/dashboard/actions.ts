@@ -1341,6 +1341,7 @@ export async function createOrderAction(input: {
 
   discountEnabled: boolean;
   discountPct: string;
+  invoiceTaxPct: string;
   fxRate: string;
 
   paymentMethod: string;
@@ -1573,10 +1574,21 @@ export async function createOrderAction(input: {
     ? subtotalBs * (discountPctNumber / 100)
     : 0;
 
-  const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+  const subtotalAfterDiscountBs = Math.max(0, subtotalBs - discountAmountBs);
+  const invoiceTaxPctNumber = input.hasInvoice
+    ? Math.max(0, Number(String(input.invoiceTaxPct || '16').replace(',', '.')) || 0)
+    : 0;
+  const invoiceTaxAmountBs = input.hasInvoice
+    ? subtotalAfterDiscountBs * (invoiceTaxPctNumber / 100)
+    : 0;
+  const totalBs = subtotalAfterDiscountBs + invoiceTaxAmountBs;
 
   const discountAmountUsd =
     fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
+  const subtotalAfterDiscountUsd =
+    fxRateNumber > 0 ? subtotalAfterDiscountBs / fxRateNumber : 0;
+  const invoiceTaxAmountUsd =
+    fxRateNumber > 0 ? invoiceTaxAmountBs / fxRateNumber : 0;
 
   const totalUsd =
     fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
@@ -1634,7 +1646,13 @@ export async function createOrderAction(input: {
       discount_pct: input.discountEnabled ? discountPctNumber : 0,
       discount_amount_usd: input.discountEnabled ? discountAmountUsd : 0,
       discount_amount_bs: input.discountEnabled ? discountAmountBs : 0,
+      invoice_tax_pct: input.hasInvoice ? invoiceTaxPctNumber : 0,
+      invoice_tax_amount_usd: input.hasInvoice ? invoiceTaxAmountUsd : 0,
+      invoice_tax_amount_bs: input.hasInvoice ? invoiceTaxAmountBs : 0,
+      subtotal_usd: subtotalUsd,
       subtotal_bs: subtotalBs,
+      subtotal_after_discount_usd: subtotalAfterDiscountUsd,
+      subtotal_after_discount_bs: subtotalAfterDiscountBs,
       total_bs: totalBs,
     },
     note: input.note.trim() || null,
@@ -1654,7 +1672,7 @@ export async function createOrderAction(input: {
       fulfillment,
       status: 'created',
       total_usd: totalUsd,
-      total_bs_snapshot: totalUsd * fxRate,
+      total_bs_snapshot: totalBs,
       is_price_locked: false,
       delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
       receiver_name: input.receiverName.trim() || null,
@@ -1732,6 +1750,7 @@ export async function updateOrderAction(input: {
 
   discountEnabled: boolean;
   discountPct: string;
+  invoiceTaxPct: string;
   fxRate: string;
 
   paymentMethod: string;
@@ -1979,10 +1998,21 @@ export async function updateOrderAction(input: {
     ? subtotalBs * (discountPctNumber / 100)
     : 0;
 
-  const totalBs = Math.max(0, subtotalBs - discountAmountBs);
+  const subtotalAfterDiscountBs = Math.max(0, subtotalBs - discountAmountBs);
+  const invoiceTaxPctNumber = input.hasInvoice
+    ? Math.max(0, Number(String(input.invoiceTaxPct || '16').replace(',', '.')) || 0)
+    : 0;
+  const invoiceTaxAmountBs = input.hasInvoice
+    ? subtotalAfterDiscountBs * (invoiceTaxPctNumber / 100)
+    : 0;
+  const totalBs = subtotalAfterDiscountBs + invoiceTaxAmountBs;
 
   const discountAmountUsd =
     fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
+  const subtotalAfterDiscountUsd =
+    fxRateNumber > 0 ? subtotalAfterDiscountBs / fxRateNumber : 0;
+  const invoiceTaxAmountUsd =
+    fxRateNumber > 0 ? invoiceTaxAmountBs / fxRateNumber : 0;
 
   const totalUsd =
     fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
@@ -2038,7 +2068,13 @@ export async function updateOrderAction(input: {
       discount_pct: input.discountEnabled ? discountPctNumber : 0,
       discount_amount_usd: input.discountEnabled ? discountAmountUsd : 0,
       discount_amount_bs: input.discountEnabled ? discountAmountBs : 0,
+      invoice_tax_pct: input.hasInvoice ? invoiceTaxPctNumber : 0,
+      invoice_tax_amount_usd: input.hasInvoice ? invoiceTaxAmountUsd : 0,
+      invoice_tax_amount_bs: input.hasInvoice ? invoiceTaxAmountBs : 0,
+      subtotal_usd: subtotalUsd,
       subtotal_bs: subtotalBs,
+      subtotal_after_discount_usd: subtotalAfterDiscountUsd,
+      subtotal_after_discount_bs: subtotalAfterDiscountBs,
       total_bs: totalBs,
     },
     note: input.note.trim() || null,
