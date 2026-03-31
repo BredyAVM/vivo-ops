@@ -319,14 +319,68 @@ export async function markReadyAction(input: {
 
 export async function outForDeliveryAction(input: {
   orderId: number;
+  etaMinutes?: number | null;
 }) {
   const { supabase } = await requireMasterOrAdmin();
+  const normalizedEta =
+    input.etaMinutes != null && Number.isFinite(input.etaMinutes) && input.etaMinutes > 0
+      ? Math.round(input.etaMinutes)
+      : null;
+
+  let existingExtraFields: Record<string, unknown> = {};
+
+  if (normalizedEta != null) {
+    const { data: orderRow, error: orderError } = await supabase
+      .from('orders')
+      .select('extra_fields')
+      .eq('id', input.orderId)
+      .single();
+
+    if (orderError) throw new Error(orderError.message);
+
+    if (
+      orderRow?.extra_fields &&
+      typeof orderRow.extra_fields === 'object' &&
+      !Array.isArray(orderRow.extra_fields)
+    ) {
+      existingExtraFields = orderRow.extra_fields as Record<string, unknown>;
+    }
+  }
 
   const { error } = await supabase.rpc('out_for_delivery', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+
+  if (normalizedEta != null) {
+    const currentDelivery =
+      existingExtraFields.delivery &&
+      typeof existingExtraFields.delivery === 'object' &&
+      !Array.isArray(existingExtraFields.delivery)
+        ? (existingExtraFields.delivery as Record<string, unknown>)
+        : {};
+
+    const nextExtraFields = {
+      ...existingExtraFields,
+      delivery: {
+        ...currentDelivery,
+        eta_minutes: normalizedEta,
+        eta_recorded_at: new Date().toISOString(),
+      },
+    };
+
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({
+        eta_minutes: normalizedEta,
+        extra_fields: nextExtraFields,
+      })
+      .eq('id', input.orderId);
+
+    if (updateError) throw new Error(updateError.message);
+  }
+
   revalidatePath('/app/master/dashboard');
 }
 

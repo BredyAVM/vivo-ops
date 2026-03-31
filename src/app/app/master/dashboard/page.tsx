@@ -27,6 +27,7 @@ type RawOrderRow = {
   external_driver_name: string | null;
   external_partner_id: number | null;
   internal_driver_user_id: string | null;
+  eta_minutes: number | string | null;
 client: { full_name: string | null; phone: string | null }[] | { full_name: string | null; phone: string | null } | null;
 advisor: { full_name: string | null }[] | { full_name: string | null } | null;
 creator: { full_name: string | null }[] | { full_name: string | null } | null;
@@ -461,6 +462,7 @@ const { data: ordersData, error: ordersError } = await supabase
       external_driver_name,
       external_partner_id,
       internal_driver_user_id,
+      eta_minutes,
       client:clients!orders_client_id_fkey (
         full_name,
         phone
@@ -1202,6 +1204,12 @@ return {
         receiverName: row.extra_fields?.receiver?.name ?? null,
         receiverPhone: row.extra_fields?.receiver?.phone ?? null,
         deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
+        deliveryEtaMinutes:
+          row.extra_fields?.delivery?.eta_minutes != null
+            ? toNumber(row.extra_fields.delivery.eta_minutes, 0)
+            : row.eta_minutes != null
+              ? toNumber(row.eta_minutes, 0)
+              : null,
         paymentMethod: row.extra_fields?.payment?.method ?? null,
         paymentCurrency: row.extra_fields?.payment?.currency ?? null,
         paymentRequiresChange: Boolean(row.extra_fields?.payment?.requires_change ?? false),

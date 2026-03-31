@@ -196,6 +196,7 @@ type OrderEditMeta = {
   receiverName: string | null;
   receiverPhone: string | null;
   deliveryGpsUrl: string | null;
+  deliveryEtaMinutes: number | null;
   paymentMethod: string | null;
   paymentCurrency: 'USD' | 'VES' | null;
   paymentRequiresChange: boolean;
@@ -1707,6 +1708,8 @@ const [createOrderDeliveryNotePhone, setCreateOrderDeliveryNotePhone] = useState
 
 const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
 const [kitchenEtaMinutes, setKitchenEtaMinutes] = useState('15');
+const [deliveryEtaBoxOpen, setDeliveryEtaBoxOpen] = useState(false);
+const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState('25');
 
 const [returnToQueueBoxOpen, setReturnToQueueBoxOpen] = useState(false);
 const [returnToQueueReason, setReturnToQueueReason] = useState('');
@@ -2186,6 +2189,11 @@ const resetKitchenTakeBox = () => {
   setKitchenEtaMinutes('15');
 };
 
+const resetDeliveryEtaBox = () => {
+  setDeliveryEtaBoxOpen(false);
+  setDeliveryEtaMinutes('25');
+};
+
 const resetCancelOrderBox = () => {
   setCancelOrderBoxOpen(false);
   setCancelOrderReason('');
@@ -2468,16 +2476,46 @@ const handleMarkReady = async (o: Order) => {
 
 const handleOutForDelivery = async (o: Order) => {
   try {
+    const etaMinutes =
+      o.fulfillment === 'delivery' ? Number(deliveryEtaMinutes || 0) : null;
+
+    if (
+      o.fulfillment === 'delivery' &&
+      (!Number.isFinite(etaMinutes) || etaMinutes == null || etaMinutes <= 0)
+    ) {
+      showToast('error', 'Tiempo estimado inválido.');
+      return;
+    }
+
     await outForDeliveryAction({
       orderId: o.id,
+      etaMinutes,
     });
 
     showToast('success', 'Pedido marcado en camino.');
+    resetDeliveryEtaBox();
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error enviando a delivery.';
     showToast('error', message);
   }
+};
+
+const openDeliveryEtaBox = (o: Order) => {
+  if (o.fulfillment === 'pickup') {
+    void handleOutForDelivery(o);
+    return;
+  }
+
+  const suggestedEta =
+    o.editMeta?.deliveryEtaMinutes != null && o.editMeta.deliveryEtaMinutes > 0
+      ? String(o.editMeta.deliveryEtaMinutes)
+      : o.externalPartner
+        ? '35'
+        : '25';
+
+  setDeliveryEtaMinutes(suggestedEta);
+  setDeliveryEtaBoxOpen(true);
 };
 
 const handleMarkDelivered = async (o: Order) => {
@@ -5409,6 +5447,7 @@ onClose={() => {
   resetPaymentReportBox();
   resetReviewActionBox();
   resetKitchenTakeBox();
+  resetDeliveryEtaBox();
   resetCancelOrderBox();
   resetReturnToQueueBox();
 }}
@@ -5462,7 +5501,7 @@ onClose={() => {
     setKitchenEtaMinutes('15');
   }}
   onMarkReady={() => handleMarkReady(selectedOrder)}
-  onOutForDelivery={() => handleOutForDelivery(selectedOrder)}
+  onOutForDelivery={() => openDeliveryEtaBox(selectedOrder)}
   onMarkDelivered={() => handleMarkDelivered(selectedOrder)}
 />
             <div className="flex gap-1 items-center overflow-x-auto">
@@ -5600,6 +5639,15 @@ onClose={() => {
           </div>
         </div>
       </div>
+
+      {selectedOrder.fulfillment === 'delivery' && selectedOrder.editMeta?.deliveryEtaMinutes ? (
+        <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+          <div className="text-[10px] text-[#8A8A96]">Tiempo estimado</div>
+          <div className="mt-1 text-sm text-[#F5F5F7]">
+            {selectedOrder.editMeta.deliveryEtaMinutes} min
+          </div>
+        </div>
+      ) : null}
 
       {selectedOrder.fulfillment === 'delivery' ? (
         <>
@@ -6297,6 +6345,62 @@ deliveryAssignMode === 'external' ? (
         <button
           className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
           onClick={resetKitchenTakeBox}
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
+
+{deliveryEtaBoxOpen && selectedOrder.fulfillment === 'delivery' ? (
+  <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
+    <div className="text-[10px] font-medium text-[#B7B7C2]">Marcar en camino</div>
+    <div className="mt-1 text-[10px] text-[#8A8A96]">
+      {selectedOrder.riderName
+        ? `Interno: ${selectedOrder.riderName}`
+        : selectedOrder.externalPartner
+          ? `Externo: ${selectedOrder.externalPartner}`
+          : 'Sin asignación visible'}
+    </div>
+
+    <div className="mt-2 space-y-2">
+      <div>
+        <label className="mb-1 block text-[10px] text-[#8A8A96]">
+          Tiempo aproximado de entrega (minutos)
+        </label>
+        <input
+          value={deliveryEtaMinutes}
+          onChange={(e) => setDeliveryEtaMinutes(e.target.value)}
+          type="number"
+          min={1}
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+        />
+      </div>
+
+      <div className="grid grid-cols-3 gap-1">
+        {[20, 25, 35].map((m) => (
+          <button
+            key={m}
+            className="rounded-md border border-[#2A2A38] bg-[#121218] px-2 py-1 text-[10px] text-[#F5F5F7]"
+            onClick={() => setDeliveryEtaMinutes(String(m))}
+          >
+            {m} min
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <button
+          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
+          onClick={() => handleOutForDelivery(selectedOrder)}
+        >
+          Confirmar salida
+        </button>
+
+        <button
+          className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+          onClick={resetDeliveryEtaBox}
         >
           Cancelar
         </button>
