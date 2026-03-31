@@ -230,7 +230,7 @@ function buildDeliveryISO(extraFields: any, fallbackISO: string) {
   const time24 = schedule?.time_24;
 
   if (typeof date === 'string' && typeof time24 === 'string') {
-    const candidate = new Date(`${date}T${time24}:00`);
+    const candidate = new Date(`${date}T${time24}:00-04:00`);
     if (!Number.isNaN(candidate.getTime())) {
       return candidate.toISOString();
     }

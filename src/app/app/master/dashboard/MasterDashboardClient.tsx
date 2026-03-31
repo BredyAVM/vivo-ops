@@ -526,12 +526,24 @@ function splitISOToDeliveryFields(iso: string) {
     };
   }
 
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
 
-  let hour24 = d.getHours();
-  const minute = String(d.getMinutes()).padStart(2, '0');
+  const getPart = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+
+  const year = getPart('year');
+  const month = getPart('month');
+  const day = getPart('day');
+
+  let hour24 = Number(getPart('hour'));
+  const minute = getPart('minute');
   const ampm: 'AM' | 'PM' = hour24 >= 12 ? 'PM' : 'AM';
 
   let hour12 = hour24 % 12;
