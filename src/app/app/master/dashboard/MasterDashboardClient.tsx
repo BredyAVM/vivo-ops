@@ -1669,6 +1669,14 @@ const [toast, setToast] = useState<ToastState>(null);
 const [createOrderHasDeliveryNote, setCreateOrderHasDeliveryNote] = useState(false);
 const [createOrderHasInvoice, setCreateOrderHasInvoice] = useState(false);
 const [createOrderInvoiceDataNote, setCreateOrderInvoiceDataNote] = useState('');
+const [createOrderInvoiceCompanyName, setCreateOrderInvoiceCompanyName] = useState('');
+const [createOrderInvoiceTaxId, setCreateOrderInvoiceTaxId] = useState('');
+const [createOrderInvoiceAddress, setCreateOrderInvoiceAddress] = useState('');
+const [createOrderInvoicePhone, setCreateOrderInvoicePhone] = useState('');
+const [createOrderDeliveryNoteName, setCreateOrderDeliveryNoteName] = useState('');
+const [createOrderDeliveryNoteDocumentId, setCreateOrderDeliveryNoteDocumentId] = useState('');
+const [createOrderDeliveryNoteAddress, setCreateOrderDeliveryNoteAddress] = useState('');
+const [createOrderDeliveryNotePhone, setCreateOrderDeliveryNotePhone] = useState('');
 
 const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
 const [kitchenEtaMinutes, setKitchenEtaMinutes] = useState('15');
@@ -2043,6 +2051,14 @@ const loadOrderIntoCreateForm = (order: Order) => {
 
   setCreateOrderHasDeliveryNote(Boolean(order.editMeta?.hasDeliveryNote));
   setCreateOrderHasInvoice(Boolean(order.editMeta?.hasInvoice));
+  setCreateOrderInvoiceCompanyName(order.editMeta?.invoiceSnapshot?.companyName ?? '');
+  setCreateOrderInvoiceTaxId(order.editMeta?.invoiceSnapshot?.taxId ?? '');
+  setCreateOrderInvoiceAddress(order.editMeta?.invoiceSnapshot?.address ?? '');
+  setCreateOrderInvoicePhone(order.editMeta?.invoiceSnapshot?.phone ?? '');
+  setCreateOrderDeliveryNoteName(order.editMeta?.deliveryNoteSnapshot?.name ?? '');
+  setCreateOrderDeliveryNoteDocumentId(order.editMeta?.deliveryNoteSnapshot?.documentId ?? '');
+  setCreateOrderDeliveryNoteAddress(order.editMeta?.deliveryNoteSnapshot?.address ?? '');
+  setCreateOrderDeliveryNotePhone(order.editMeta?.deliveryNoteSnapshot?.phone ?? '');
   setCreateOrderInvoiceDataNote(
     order.editMeta?.invoiceDataNote ??
       [
@@ -3005,6 +3021,15 @@ const handleSelectCreateOrderClient = (client: ClientItem) => {
   if (!createOrderHasDeliveryNote && client.deliveryNoteName) {
     setCreateOrderHasDeliveryNote(true);
   }
+
+  setCreateOrderInvoiceCompanyName(client.billingCompanyName || '');
+  setCreateOrderInvoiceTaxId(client.billingTaxId || '');
+  setCreateOrderInvoiceAddress(client.billingAddress || '');
+  setCreateOrderInvoicePhone(client.billingPhone || '');
+  setCreateOrderDeliveryNoteName(client.deliveryNoteName || '');
+  setCreateOrderDeliveryNoteDocumentId(client.deliveryNoteDocumentId || '');
+  setCreateOrderDeliveryNoteAddress(client.deliveryNoteAddress || '');
+  setCreateOrderDeliveryNotePhone(client.deliveryNotePhone || client.phone || '');
 };
 
 const handleActivateCreateOrderNewClient = () => {
@@ -3386,7 +3411,22 @@ const handleCreateOrder = async () => {
       paymentNote: createOrderPaymentNote,
       hasDeliveryNote: createOrderHasDeliveryNote,
       hasInvoice: createOrderHasInvoice,
-      invoiceDataNote: createOrderInvoiceDataNote,
+      invoiceDataNote: [
+        createOrderInvoiceCompanyName,
+        createOrderInvoiceTaxId,
+        createOrderInvoiceAddress,
+        createOrderInvoicePhone,
+      ]
+        .filter(Boolean)
+        .join(' | '),
+      invoiceCompanyName: createOrderInvoiceCompanyName,
+      invoiceTaxId: createOrderInvoiceTaxId,
+      invoiceAddress: createOrderInvoiceAddress,
+      invoicePhone: createOrderInvoicePhone,
+      deliveryNoteName: createOrderDeliveryNoteName,
+      deliveryNoteDocumentId: createOrderDeliveryNoteDocumentId,
+      deliveryNoteAddress: createOrderDeliveryNoteAddress,
+      deliveryNotePhone: createOrderDeliveryNotePhone,
 
 items: createOrderDraftItems.map((item) => ({
   productId: item.productId,
@@ -3455,7 +3495,22 @@ const handleUpdateOrder = async () => {
       paymentNote: createOrderPaymentNote,
       hasDeliveryNote: createOrderHasDeliveryNote,
       hasInvoice: createOrderHasInvoice,
-      invoiceDataNote: createOrderInvoiceDataNote,
+      invoiceDataNote: [
+        createOrderInvoiceCompanyName,
+        createOrderInvoiceTaxId,
+        createOrderInvoiceAddress,
+        createOrderInvoicePhone,
+      ]
+        .filter(Boolean)
+        .join(' | '),
+      invoiceCompanyName: createOrderInvoiceCompanyName,
+      invoiceTaxId: createOrderInvoiceTaxId,
+      invoiceAddress: createOrderInvoiceAddress,
+      invoicePhone: createOrderInvoicePhone,
+      deliveryNoteName: createOrderDeliveryNoteName,
+      deliveryNoteDocumentId: createOrderDeliveryNoteDocumentId,
+      deliveryNoteAddress: createOrderDeliveryNoteAddress,
+      deliveryNotePhone: createOrderDeliveryNotePhone,
 
 items: createOrderDraftItems.map((item) => ({
   productId: item.productId,
@@ -3853,6 +3908,14 @@ const resetCreateOrderForm = () => {
   setCreateOrderHasDeliveryNote(false);
   setCreateOrderHasInvoice(false);
   setCreateOrderInvoiceDataNote('');
+  setCreateOrderInvoiceCompanyName('');
+  setCreateOrderInvoiceTaxId('');
+  setCreateOrderInvoiceAddress('');
+  setCreateOrderInvoicePhone('');
+  setCreateOrderDeliveryNoteName('');
+  setCreateOrderDeliveryNoteDocumentId('');
+  setCreateOrderDeliveryNoteAddress('');
+  setCreateOrderDeliveryNotePhone('');
 };
 
 useEffect(() => {
@@ -7757,7 +7820,15 @@ deliveryAssignMode === 'external' ? (
     <FieldCheckbox
       label="Lleva nota de entrega"
       checked={createOrderHasDeliveryNote}
-      onChange={setCreateOrderHasDeliveryNote}
+      onChange={(value) => {
+        setCreateOrderHasDeliveryNote(value);
+        if (!value) {
+          setCreateOrderDeliveryNoteName('');
+          setCreateOrderDeliveryNoteDocumentId('');
+          setCreateOrderDeliveryNoteAddress('');
+          setCreateOrderDeliveryNotePhone('');
+        }
+      }}
     />
 
     <FieldCheckbox
@@ -7767,6 +7838,10 @@ deliveryAssignMode === 'external' ? (
         setCreateOrderHasInvoice(value);
         if (!value) {
           setCreateOrderInvoiceDataNote('');
+          setCreateOrderInvoiceCompanyName('');
+          setCreateOrderInvoiceTaxId('');
+          setCreateOrderInvoiceAddress('');
+          setCreateOrderInvoicePhone('');
         }
       }}
     />
@@ -7794,14 +7869,60 @@ deliveryAssignMode === 'external' ? (
   ) : null}
 
   {createOrderHasInvoice ? (
-    <div className="mt-3">
-      <label className="mb-1 block text-xs text-[#8A8A96]">Datos para facturar</label>
-      <textarea
-        value={createOrderInvoiceDataNote}
-        onChange={(e) => setCreateOrderInvoiceDataNote(e.target.value)}
-        rows={2}
-        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+    <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
+      <FieldInput
+        label="Nombre / razón social"
+        value={createOrderInvoiceCompanyName}
+        onChange={setCreateOrderInvoiceCompanyName}
       />
+      <FieldInput
+        label="RIF / documento"
+        value={createOrderInvoiceTaxId}
+        onChange={setCreateOrderInvoiceTaxId}
+      />
+      <FieldInput
+        label="Teléfono"
+        value={createOrderInvoicePhone}
+        onChange={setCreateOrderInvoicePhone}
+      />
+      <div className="md:col-span-2">
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
+        <textarea
+          value={createOrderInvoiceAddress}
+          onChange={(e) => setCreateOrderInvoiceAddress(e.target.value)}
+          rows={2}
+          className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
+        />
+      </div>
+    </div>
+  ) : null}
+
+  {createOrderHasDeliveryNote ? (
+    <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
+      <FieldInput
+        label="Nombre"
+        value={createOrderDeliveryNoteName}
+        onChange={setCreateOrderDeliveryNoteName}
+      />
+      <FieldInput
+        label="Documento"
+        value={createOrderDeliveryNoteDocumentId}
+        onChange={setCreateOrderDeliveryNoteDocumentId}
+      />
+      <FieldInput
+        label="Teléfono"
+        value={createOrderDeliveryNotePhone}
+        onChange={setCreateOrderDeliveryNotePhone}
+      />
+      <div className="md:col-span-2">
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+        <textarea
+          value={createOrderDeliveryNoteAddress}
+          onChange={(e) => setCreateOrderDeliveryNoteAddress(e.target.value)}
+          rows={2}
+          className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
+        />
+      </div>
     </div>
   ) : null}
 
@@ -7811,10 +7932,10 @@ deliveryAssignMode === 'external' ? (
         <div>
           <span className="text-[#F5F5F7]">Factura:</span>{' '}
           {[
-            selectedCreateOrderClient.billingCompanyName,
-            selectedCreateOrderClient.billingTaxId,
-            selectedCreateOrderClient.billingAddress,
-            selectedCreateOrderClient.billingPhone,
+            createOrderInvoiceCompanyName,
+            createOrderInvoiceTaxId,
+            createOrderInvoiceAddress,
+            createOrderInvoicePhone,
           ]
             .filter(Boolean)
             .join(' | ') || 'Sin datos guardados'}
@@ -7825,10 +7946,10 @@ deliveryAssignMode === 'external' ? (
         <div className={createOrderHasInvoice ? 'mt-2' : ''}>
           <span className="text-[#F5F5F7]">Nota de entrega:</span>{' '}
           {[
-            selectedCreateOrderClient.deliveryNoteName,
-            selectedCreateOrderClient.deliveryNoteDocumentId,
-            selectedCreateOrderClient.deliveryNoteAddress,
-            selectedCreateOrderClient.deliveryNotePhone,
+            createOrderDeliveryNoteName,
+            createOrderDeliveryNoteDocumentId,
+            createOrderDeliveryNoteAddress,
+            createOrderDeliveryNotePhone,
           ]
             .filter(Boolean)
             .join(' | ') || 'Sin datos guardados'}
@@ -7933,7 +8054,20 @@ deliveryAssignMode === 'external' ? (
       ) : null}
     </div>
 
-    {createOrderPaymentNote.trim() || (createOrderHasInvoice && createOrderInvoiceDataNote.trim()) ? (
+    {createOrderPaymentNote.trim() ||
+    (createOrderHasInvoice &&
+      [createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
+        .filter(Boolean)
+        .length > 0) ||
+    (createOrderHasDeliveryNote &&
+      [
+        createOrderDeliveryNoteName,
+        createOrderDeliveryNoteDocumentId,
+        createOrderDeliveryNoteAddress,
+        createOrderDeliveryNotePhone,
+      ]
+        .filter(Boolean)
+        .length > 0) ? (
       <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
         {createOrderPaymentNote.trim() ? (
           <div>
@@ -7941,9 +8075,26 @@ deliveryAssignMode === 'external' ? (
           </div>
         ) : null}
 
-        {createOrderHasInvoice && createOrderInvoiceDataNote.trim() ? (
+        {createOrderHasInvoice ? (
           <div className={createOrderPaymentNote.trim() ? 'mt-2' : ''}>
-            <span className="text-[#F5F5F7]">Datos factura:</span> {createOrderInvoiceDataNote.trim()}
+            <span className="text-[#F5F5F7]">Datos factura:</span>{' '}
+            {[createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
+              .filter(Boolean)
+              .join(' | ') || '—'}
+          </div>
+        ) : null}
+
+        {createOrderHasDeliveryNote ? (
+          <div className={createOrderPaymentNote.trim() || createOrderHasInvoice ? 'mt-2' : ''}>
+            <span className="text-[#F5F5F7]">Datos nota de entrega:</span>{' '}
+            {[
+              createOrderDeliveryNoteName,
+              createOrderDeliveryNoteDocumentId,
+              createOrderDeliveryNoteAddress,
+              createOrderDeliveryNotePhone,
+            ]
+              .filter(Boolean)
+              .join(' | ') || '—'}
           </div>
         ) : null}
       </div>

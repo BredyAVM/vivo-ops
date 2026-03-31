@@ -1173,6 +1173,14 @@ export async function createOrderAction(input: {
   hasDeliveryNote: boolean;
   hasInvoice: boolean;
   invoiceDataNote: string;
+  invoiceCompanyName: string;
+  invoiceTaxId: string;
+  invoiceAddress: string;
+  invoicePhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
 
   items: Array<{
     productId: number;
@@ -1269,6 +1277,40 @@ export async function createOrderAction(input: {
 
   if (!clientId) {
     throw new Error('No se pudo resolver el cliente.');
+  }
+
+  const { error: updateClientProfileError } = await supabase
+    .from('clients')
+    .update({
+      billing_company_name: input.hasInvoice
+        ? String(input.invoiceCompanyName || '').trim() || null
+        : null,
+      billing_tax_id: input.hasInvoice
+        ? String(input.invoiceTaxId || '').trim() || null
+        : null,
+      billing_address: input.hasInvoice
+        ? String(input.invoiceAddress || '').trim() || null
+        : null,
+      billing_phone: input.hasInvoice
+        ? normalizePhone(String(input.invoicePhone || '')) || null
+        : null,
+      delivery_note_name: input.hasDeliveryNote
+        ? String(input.deliveryNoteName || '').trim() || null
+        : null,
+      delivery_note_document_id: input.hasDeliveryNote
+        ? String(input.deliveryNoteDocumentId || '').trim() || null
+        : null,
+      delivery_note_address: input.hasDeliveryNote
+        ? String(input.deliveryNoteAddress || '').trim() || null
+        : null,
+      delivery_note_phone: input.hasDeliveryNote
+        ? normalizePhone(String(input.deliveryNotePhone || '')) || null
+        : null,
+    })
+    .eq('id', clientId);
+
+  if (updateClientProfileError) {
+    throw new Error(updateClientProfileError.message);
   }
 
   const { data: clientProfile, error: clientProfileError } = await supabase
@@ -1500,6 +1542,14 @@ export async function updateOrderAction(input: {
   hasDeliveryNote: boolean;
   hasInvoice: boolean;
   invoiceDataNote: string;
+  invoiceCompanyName: string;
+  invoiceTaxId: string;
+  invoiceAddress: string;
+  invoicePhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
 
   items: Array<{
     productId: number;
@@ -1610,6 +1660,40 @@ export async function updateOrderAction(input: {
 
   if (!clientId) {
     throw new Error('No se pudo resolver el cliente.');
+  }
+
+  const { error: updateClientProfileError } = await supabase
+    .from('clients')
+    .update({
+      billing_company_name: input.hasInvoice
+        ? String(input.invoiceCompanyName || '').trim() || null
+        : null,
+      billing_tax_id: input.hasInvoice
+        ? String(input.invoiceTaxId || '').trim() || null
+        : null,
+      billing_address: input.hasInvoice
+        ? String(input.invoiceAddress || '').trim() || null
+        : null,
+      billing_phone: input.hasInvoice
+        ? normalizePhone(String(input.invoicePhone || '')) || null
+        : null,
+      delivery_note_name: input.hasDeliveryNote
+        ? String(input.deliveryNoteName || '').trim() || null
+        : null,
+      delivery_note_document_id: input.hasDeliveryNote
+        ? String(input.deliveryNoteDocumentId || '').trim() || null
+        : null,
+      delivery_note_address: input.hasDeliveryNote
+        ? String(input.deliveryNoteAddress || '').trim() || null
+        : null,
+      delivery_note_phone: input.hasDeliveryNote
+        ? normalizePhone(String(input.deliveryNotePhone || '')) || null
+        : null,
+    })
+    .eq('id', clientId);
+
+  if (updateClientProfileError) {
+    throw new Error(updateClientProfileError.message);
   }
 
   const { data: clientProfile, error: clientProfileError } = await supabase
