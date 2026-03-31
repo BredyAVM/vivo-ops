@@ -2957,7 +2957,6 @@ const handleSearchCreateOrderClients = async () => {
   if (!q) {
     setCreateOrderClientResults([]);
     return;
-    if (false) {
   }
 
   try {
@@ -3111,7 +3110,6 @@ const handleCreateOrderClientNow = async () => {
     );
     return;
 
-      showToast('success', 'Ese cliente ya existía y fue seleccionado.');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error creando cliente.';
     showToast('error', message);
