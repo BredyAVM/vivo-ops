@@ -528,6 +528,10 @@ function toDateInputValue(d: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function fmtShortOrderLabel(orderId: number) {
+  return `Orden ${String(orderId).padStart(2, '0')}`;
+}
+
 function splitISOToDeliveryFields(iso: string) {
   const d = new Date(iso);
 
@@ -4984,7 +4988,7 @@ suppressHydrationWarning
                               key={order.id}
                               className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                             >
-                              <td className="px-3 py-2">{order.orderNumber || order.id}</td>
+                              <td className="px-3 py-2">{fmtShortOrderLabel(order.id)}</td>
                               <td className="px-3 py-2">{order.clientName}</td>
                               <td className="px-3 py-2">
                                 {order.source === 'advisor'
@@ -5039,7 +5043,7 @@ suppressHydrationWarning
                               key={order.id}
                               className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                             >
-                              <td className="px-3 py-2">{order.orderNumber || order.id}</td>
+                              <td className="px-3 py-2">{fmtShortOrderLabel(order.id)}</td>
                               <td className="px-3 py-2">{order.clientName}</td>
                               <td className="px-3 py-2 text-right">{fmtUSD(order.balanceUsd)}</td>
                             </tr>
@@ -5116,7 +5120,7 @@ suppressHydrationWarning
                               >
                                 <td className="px-3 py-2">{typeLabel}</td>
                                 <td className="px-3 py-2">{order.clientName}</td>
-                                <td className="px-3 py-2">{order.orderNumber || order.id}</td>
+                                <td className="px-3 py-2">{fmtShortOrderLabel(order.id)}</td>
                                 <td className="px-3 py-2 text-right">1</td>
                               </tr>
                             );
