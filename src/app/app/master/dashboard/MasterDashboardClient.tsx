@@ -4917,9 +4917,9 @@ suppressHydrationWarning
                 </Card>
 
                 <Card title="Clientes Nuevos" className="p-3">
-                  <StatRow label="Total" value={advisorCalculatedData.clientesNuevos} />
                   <StatRow label="Propios" value={advisorCalculatedData.nuevosPropios} />
                   <StatRow label="Asignados" value={advisorCalculatedData.nuevosAsignados} />
+                  <StatRow label="Total" value={advisorCalculatedData.nuevosPropios + advisorCalculatedData.nuevosAsignados} />
                 </Card>
 
                 <Card title="Pagos Pendientes" className="p-3">
