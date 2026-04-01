@@ -1517,6 +1517,7 @@ export default function MasterDashboardClient({
   const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState('');
   const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>('');
   const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState('');
+  const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState('8');
   const [accountSearch, setAccountSearch] = useState('');
   const [accountDateFrom, setAccountDateFrom] = useState('');
   const [accountDateTo, setAccountDateTo] = useState('');
@@ -4010,6 +4011,10 @@ const selectedPaymentReportAccount =
     return new Map(clients.map((client) => [client.id, client]));
   }, [clients]);
 
+  const catalogItemById = useMemo(() => {
+    return new Map(catalogItems.map((item) => [item.id, item]));
+  }, [catalogItems]);
+
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
@@ -4068,6 +4073,7 @@ const selectedPaymentReportAccount =
     const { start, end } = advisorCalcRange;
     const selectedSource = advisorCalcSource || null;
     const selectedAdvisorId = advisorCalcAdvisorId || null;
+    const baseCommissionPct = Math.max(0, Number(String(advisorCalcBasePct || '0').replace(',', '.')) || 0);
 
     const filteredDeliveredOrders = deliveredOrders.filter((order) => {
       if (selectedSource && order.source !== selectedSource) return false;
@@ -4147,6 +4153,55 @@ const selectedPaymentReportAccount =
       { advisor: 0, master: 0, walkIn: 0 }
     );
 
+    const commissionOrders = filteredDeliveredOrders.map((order) => {
+      const items = order.draftItems ?? [];
+      const fixedOrderItems = items
+        .map((item) => ({
+          item,
+          product: catalogItemById.get(item.productId),
+        }))
+        .filter((row) => row.product?.commissionMode === 'fixed_order' && row.product.commissionValue != null);
+
+      if (fixedOrderItems.length > 0) {
+        const selectedRule = fixedOrderItems.reduce((best, current) =>
+          (Number(current.product?.commissionValue || 0) > Number(best.product?.commissionValue || 0) ? current : best)
+        );
+        const pct = Number(selectedRule.product?.commissionValue || 0);
+        return {
+          orderId: order.id,
+          commissionUsd: order.totalUsd * (pct / 100),
+          mode: 'fixed_order' as const,
+          appliedPct: pct,
+        };
+      }
+
+      let fixedItemCommissionUsd = 0;
+      let defaultBaseUsd = 0;
+
+      for (const item of items) {
+        const product = catalogItemById.get(item.productId);
+        if (product?.commissionMode === 'fixed_item' && product.commissionValue != null) {
+          fixedItemCommissionUsd += item.lineTotalUsd * (Number(product.commissionValue) / 100);
+        } else {
+          defaultBaseUsd += item.lineTotalUsd;
+        }
+      }
+
+      if (items.length === 0) {
+        defaultBaseUsd = order.totalUsd;
+      }
+
+      return {
+        orderId: order.id,
+        commissionUsd: fixedItemCommissionUsd + defaultBaseUsd * (baseCommissionPct / 100),
+        mode: fixedItemCommissionUsd > 0 ? ('mixed' as const) : ('default' as const),
+        appliedPct: baseCommissionPct,
+      };
+    });
+
+    const commissionByOrderId = new Map(commissionOrders.map((row) => [row.orderId, row]));
+    const commissionTotalUsd = commissionOrders.reduce((sum, row) => sum + row.commissionUsd, 0);
+
     return {
       filteredDeliveredOrders,
       facturacion,
@@ -4161,11 +4216,17 @@ const selectedPaymentReportAccount =
       nuevosAsignados,
       newClientOrders,
       sourceCounts,
+      commissionBasePct: baseCommissionPct,
+      commissionOrders,
+      commissionByOrderId,
+      commissionTotalUsd,
     };
   }, [
+    advisorCalcBasePct,
     advisorCalcSource,
     advisorCalcAdvisorId,
     advisorCalcRange,
+    catalogItemById,
     clientById,
     deliveredOrderMovementsByOrderId,
     deliveredOrders,
@@ -4894,7 +4955,7 @@ suppressHydrationWarning
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px_110px]">
                     <FieldInput
                       label="Desde"
                       value={advisorCalcDateFrom}
@@ -4931,6 +4992,12 @@ suppressHydrationWarning
                         })),
                       ]}
                     />
+                    <FieldInput
+                      label="% base"
+                      value={advisorCalcBasePct}
+                      onChange={setAdvisorCalcBasePct}
+                      type="text"
+                    />
                   </div>
 
                 </div>
@@ -4941,6 +5008,7 @@ suppressHydrationWarning
                   <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
+                  <StatRow label="Comisión estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
                   <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
@@ -5006,13 +5074,14 @@ suppressHydrationWarning
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
                           <th className="px-3 py-2 text-left font-medium">Origen</th>
+                          <th className="px-3 py-2 text-right font-medium">Comisión</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                         </tr>
                       </thead>
                       <tbody>
                         {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
                               Sin cierres entregados en el período.
                             </td>
                           </tr>
@@ -5030,6 +5099,9 @@ suppressHydrationWarning
                                   : order.source === 'master'
                                     ? 'Master'
                                     : 'Walk-in'}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {fmtUSD(advisorCalculatedData.commissionByOrderId.get(order.id)?.commissionUsd ?? 0)}
                               </td>
                               <td className="px-3 py-2 text-right">{fmtUSD(order.totalUsd)}</td>
                             </tr>
