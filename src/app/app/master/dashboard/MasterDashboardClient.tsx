@@ -21,6 +21,7 @@ import {
   returnFromKitchenToQueueAction,
   cancelOrderAction,
   updateCatalogItemAction,
+  updateCatalogPricesQuickAction,
   updateExchangeRateAction,
   createCatalogItemAction,
   createClientAction,
@@ -284,6 +285,15 @@ type ToastState = {
   message: string;
 } | null;
 type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
+
+type QuickCatalogPriceRow = {
+  productId: number;
+  name: string;
+  sku: string;
+  sourcePriceCurrency: 'VES' | 'USD';
+  originalAmount: string;
+  nextAmount: string;
+};
 
 type CatalogItem = {
   id: number;
@@ -1541,6 +1551,9 @@ export default function MasterDashboardClient({
   const [catalogEditMode, setCatalogEditMode] = useState(false);
   const [catalogSaving, setCatalogSaving] = useState(false);
   const [createCatalogOpen, setCreateCatalogOpen] = useState(false);
+const [quickCatalogOpen, setQuickCatalogOpen] = useState(false);
+const [quickCatalogSaving, setQuickCatalogSaving] = useState(false);
+const [quickCatalogRows, setQuickCatalogRows] = useState<QuickCatalogPriceRow[]>([]);
 const [createCatalogSaving, setCreateCatalogSaving] = useState(false);
 
 const [newSku, setNewSku] = useState('');
@@ -2659,6 +2672,70 @@ const handleSaveCatalog = async () => {
     showToast('error', message);
   } finally {
     setCatalogSaving(false);
+  }
+};
+
+const openQuickCatalog = () => {
+  setQuickCatalogRows(
+    filteredCatalogItems.map((item) => ({
+      productId: item.id,
+      name: item.name,
+      sku: item.sku,
+      sourcePriceCurrency: item.sourcePriceCurrency,
+      originalAmount: String(item.sourcePriceAmount ?? 0),
+      nextAmount: String(item.sourcePriceAmount ?? 0),
+    }))
+  );
+  setQuickCatalogOpen(true);
+};
+
+const handleQuickCatalogRowChange = (productId: number, value: string) => {
+  setQuickCatalogRows((prev) =>
+    prev.map((row) => (row.productId === productId ? { ...row, nextAmount: value } : row))
+  );
+};
+
+const handleSaveQuickCatalog = async () => {
+  try {
+    const changedItems = quickCatalogRows
+      .map((row) => {
+        const normalized = Number(String(row.nextAmount || '').replace(',', '.'));
+        const original = Number(String(row.originalAmount || '').replace(',', '.'));
+
+        return {
+          productId: row.productId,
+          normalized,
+          original,
+        };
+      })
+      .filter(
+        (row) =>
+          Number.isFinite(row.normalized) &&
+          row.normalized >= 0 &&
+          Math.abs(row.normalized - row.original) > 0.000001
+      )
+      .map((row) => ({
+        productId: row.productId,
+        sourcePriceAmount: row.normalized,
+      }));
+
+    if (changedItems.length === 0) {
+      showToast('error', 'No hay cambios de precio para guardar.');
+      return;
+    }
+
+    setQuickCatalogSaving(true);
+    await updateCatalogPricesQuickAction({
+      items: changedItems,
+    });
+    showToast('success', `Catálogo actualizado por bloque (${changedItems.length}).`);
+    setQuickCatalogOpen(false);
+    router.refresh();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error actualizando precios rápidos.';
+    showToast('error', message);
+  } finally {
+    setQuickCatalogSaving(false);
   }
 };
 
@@ -4015,6 +4092,7 @@ useEffect(() => {
       clientCreateOpen ||
       clientEditOpen ||
       createCatalogOpen ||
+      quickCatalogOpen ||
       catalogEditMode ||
       paymentReportBoxOpen ||
       kitchenTakeBoxOpen ||
@@ -4038,6 +4116,7 @@ useEffect(() => {
   clientCreateOpen,
   clientEditOpen,
   createCatalogOpen,
+  quickCatalogOpen,
   catalogEditMode,
   paymentReportBoxOpen,
   kitchenTakeBoxOpen,
@@ -4060,6 +4139,7 @@ useEffect(() => {
       clientCreateOpen ||
       clientEditOpen ||
       createCatalogOpen ||
+      quickCatalogOpen ||
       catalogEditMode ||
       paymentReportBoxOpen ||
       kitchenTakeBoxOpen ||
@@ -4087,6 +4167,7 @@ useEffect(() => {
   clientCreateOpen,
   clientEditOpen,
   createCatalogOpen,
+  quickCatalogOpen,
   catalogEditMode,
   paymentReportBoxOpen,
   kitchenTakeBoxOpen,
@@ -4588,6 +4669,12 @@ suppressHydrationWarning
     </Btn>
   </div>
 </div>
+
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Btn onClick={openQuickCatalog}>
+                  Actualizar precios
+                </Btn>
+              </div>
 
               <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
                 <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
@@ -6611,6 +6698,88 @@ deliveryAssignMode === 'external' ? (
           </div>
         )}
       </Drawer>
+
+        <Drawer
+  open={quickCatalogOpen}
+  title="Actualización rápida de catálogo"
+  onClose={() => setQuickCatalogOpen(false)}
+  widthClass="w-[820px]"
+>
+  <div className="space-y-4">
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">
+            Montos fuente por bloque
+          </div>
+          <div className="mt-1 text-sm text-[#B7B7C2]">
+            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rápido de un ítem al siguiente.
+          </div>
+        </div>
+
+        <SmallBadge label={`${quickCatalogRows.length} ítems`} tone="muted" />
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
+        <div className="max-h-[62vh] overflow-y-auto">
+          <table className="w-full table-fixed text-[12px]">
+            <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#121218] text-[#B7B7C2]">
+              <tr>
+                <th className="w-[84px] px-3 py-3 text-left font-medium">SKU</th>
+                <th className="px-3 py-3 text-left font-medium">Ítem</th>
+                <th className="w-[78px] px-3 py-3 text-left font-medium">Moneda</th>
+                <th className="w-[170px] px-3 py-3 text-left font-medium">Monto fuente</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quickCatalogRows.map((row, idx) => (
+                <tr
+                  key={row.productId}
+                  className={`${idx % 2 === 0 ? 'bg-[#0F0F14]' : 'bg-[#13131A]'} border-b border-[#242433]`}
+                >
+                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || '—'}</td>
+                  <td className="px-3 py-2 text-[#F5F5F7]">{row.name}</td>
+                  <td className="px-3 py-2 text-[#F5F5F7]">{row.sourcePriceCurrency}</td>
+                  <td className="px-3 py-2">
+                    <input
+                      value={row.nextAmount}
+                      onChange={(e) => handleQuickCatalogRowChange(row.productId, e.target.value)}
+                      inputMode="decimal"
+                      className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="text-xs text-[#8A8A96]">
+          Se respetan la moneda de origen y la tasa activa al guardar.
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+            onClick={() => setQuickCatalogOpen(false)}
+            disabled={quickCatalogSaving}
+          >
+            Cancelar
+          </button>
+          <button
+            className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+            onClick={handleSaveQuickCatalog}
+            disabled={quickCatalogSaving}
+          >
+            {quickCatalogSaving ? 'Guardando...' : 'Guardar bloque'}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+        </Drawer>
 
         <Drawer
   open={createCatalogOpen}

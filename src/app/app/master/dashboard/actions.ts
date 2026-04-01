@@ -706,6 +706,99 @@ export async function updateExchangeRateAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function updateCatalogPricesQuickAction(input: {
+  items: Array<{
+    productId: number;
+    sourcePriceAmount: number;
+  }>;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const items = (input.items ?? [])
+    .map((row) => ({
+      productId: toSafeNumber(row.productId, 0),
+      sourcePriceAmount: toSafeNumber(row.sourcePriceAmount, NaN),
+    }))
+    .filter(
+      (row) =>
+        Number.isFinite(row.productId) &&
+        row.productId > 0 &&
+        Number.isFinite(row.sourcePriceAmount) &&
+        row.sourcePriceAmount >= 0
+    );
+
+  if (items.length === 0) {
+    throw new Error('No hay precios válidos para actualizar.');
+  }
+
+  const productIds = items.map((row) => row.productId);
+
+  const { data: products, error: productsError } = await supabase
+    .from('products')
+    .select('id, source_price_currency')
+    .in('id', productIds);
+
+  if (productsError) throw new Error(productsError.message);
+
+  const { data: exchangeRateData, error: exchangeRateError } = await supabase
+    .from('exchange_rates')
+    .select('id, rate_bs_per_usd')
+    .eq('is_active', true)
+    .order('effective_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (exchangeRateError) throw new Error(exchangeRateError.message);
+
+  const rateBsPerUsd = toSafeNumber(exchangeRateData?.rate_bs_per_usd, 0);
+
+  if (rateBsPerUsd <= 0) {
+    throw new Error('No hay una tasa activa válida.');
+  }
+
+  const productCurrencyById = new Map<number, 'VES' | 'USD'>();
+  for (const product of products ?? []) {
+    productCurrencyById.set(
+      Number(product.id),
+      product.source_price_currency === 'VES' ? 'VES' : 'USD'
+    );
+  }
+
+  for (const item of items) {
+    const sourcePriceCurrency = productCurrencyById.get(item.productId);
+
+    if (!sourcePriceCurrency) {
+      throw new Error(`No se pudo cargar el producto ${item.productId}.`);
+    }
+
+    let basePriceUsd = 0;
+    let basePriceBs = 0;
+
+    if (sourcePriceCurrency === 'USD') {
+      basePriceUsd = item.sourcePriceAmount;
+      basePriceBs = item.sourcePriceAmount * rateBsPerUsd;
+    } else {
+      basePriceBs = item.sourcePriceAmount;
+      basePriceUsd = item.sourcePriceAmount / rateBsPerUsd;
+    }
+
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({
+        source_price_amount: item.sourcePriceAmount,
+        base_price_usd: basePriceUsd,
+        base_price_bs: basePriceBs,
+      })
+      .eq('id', item.productId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  }
+
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createMoneyAccountAction(input: {
   name: string;
   currencyCode: 'USD' | 'VES';
