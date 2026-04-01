@@ -287,6 +287,7 @@ type ToastState = {
 } | null;
 type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
 type CalculationsTab = 'advisors';
+type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
 
 type QuickCatalogPriceRow = {
   productId: number;
@@ -1507,6 +1508,7 @@ export default function MasterDashboardClient({
   const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('advisors');
   const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState('');
   const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState('');
+  const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>('');
   const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState('');
   const [accountSearch, setAccountSearch] = useState('');
   const [accountDateFrom, setAccountDateFrom] = useState('');
@@ -4027,11 +4029,13 @@ const selectedPaymentReportAccount =
 
   const advisorCalculatedData = useMemo(() => {
     const { start, end } = advisorCalcRange;
+    const selectedSource = advisorCalcSource || null;
     const selectedAdvisorId = advisorCalcAdvisorId || null;
 
     const filteredDeliveredOrders = deliveredOrders.filter((order) => {
-      if (!order.attributedAdvisorUserId) return false;
+      if (selectedSource && order.source !== selectedSource) return false;
       if (selectedAdvisorId && order.attributedAdvisorUserId !== selectedAdvisorId) return false;
+      if (selectedSource === 'advisor' && !order.attributedAdvisorUserId) return false;
 
       const deliveryTime = new Date(order.deliveryAtISO).getTime();
       if (start && deliveryTime < start.getTime()) return false;
@@ -4096,6 +4100,16 @@ const selectedPaymentReportAccount =
       else if (type === 'assigned' || type === 'asignado') nuevosAsignados += 1;
     }
 
+    const sourceCounts = filteredDeliveredOrders.reduce(
+      (acc, order) => {
+        if (order.source === 'advisor') acc.advisor += 1;
+        else if (order.source === 'master') acc.master += 1;
+        else if (order.source === 'walk_in') acc.walkIn += 1;
+        return acc;
+      },
+      { advisor: 0, master: 0, walkIn: 0 }
+    );
+
     return {
       filteredDeliveredOrders,
       facturacion,
@@ -4109,8 +4123,10 @@ const selectedPaymentReportAccount =
       nuevosPropios,
       nuevosAsignados,
       newClientOrders,
+      sourceCounts,
     };
   }, [
+    advisorCalcSource,
     advisorCalcAdvisorId,
     advisorCalcRange,
     clientById,
@@ -4338,13 +4354,19 @@ useEffect(() => {
   resetCreateOrderForm();
 }, [createOrderOpen, orderEditorMode, activeExchangeRate]);
 
-useEffect(() => {
-  if (!selectedDay) return;
+  useEffect(() => {
+    if (!selectedDay) return;
 
-  const dateValue = toDateInputValue(selectedDay);
-  setAdvisorCalcDateFrom((prev) => (prev ? prev : dateValue));
-  setAdvisorCalcDateTo((prev) => (prev ? prev : dateValue));
-}, [selectedDay]);
+    const dateValue = toDateInputValue(selectedDay);
+    setAdvisorCalcDateFrom((prev) => (prev ? prev : dateValue));
+    setAdvisorCalcDateTo((prev) => (prev ? prev : dateValue));
+  }, [selectedDay]);
+
+  useEffect(() => {
+    if (advisorCalcSource === 'advisor') return;
+    if (!advisorCalcAdvisorId) return;
+    setAdvisorCalcAdvisorId('');
+  }, [advisorCalcSource, advisorCalcAdvisorId]);
 
 useEffect(() => {
   if (!createOrderOpen) return;
@@ -4827,7 +4849,7 @@ suppressHydrationWarning
           {calculationsTab === 'advisors' ? (
             <div className="space-y-5">
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div className="flex flex-col gap-3">
                   <div>
                     <div className="text-sm font-semibold text-[#F5F5F7]">Análisis de asesores</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
@@ -4835,7 +4857,7 @@ suppressHydrationWarning
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[170px_170px_240px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px]">
                     <FieldInput
                       label="Desde"
                       value={advisorCalcDateFrom}
@@ -4849,9 +4871,21 @@ suppressHydrationWarning
                       type="date"
                     />
                     <FieldSelect
+                      label="Origen"
+                      value={advisorCalcSource}
+                      onChange={(value) => setAdvisorCalcSource(value as CalculationsSource)}
+                      options={[
+                        { value: '', label: 'Todos' },
+                        { value: 'advisor', label: 'Advisor' },
+                        { value: 'master', label: 'Master' },
+                        { value: 'walk_in', label: 'Walk-in' },
+                      ]}
+                    />
+                    <FieldSelect
                       label="Asesor"
                       value={advisorCalcAdvisorId}
                       onChange={setAdvisorCalcAdvisorId}
+                      disabled={advisorCalcSource !== '' && advisorCalcSource !== 'advisor'}
                       options={[
                         { value: '', label: 'Todos los asesores' },
                         ...advisors.map((advisor) => ({
@@ -4864,8 +4898,8 @@ suppressHydrationWarning
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <Card title="Resumen" className="xl:col-span-1">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
+                <Card title="Resumen General">
                   <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
@@ -4874,22 +4908,20 @@ suppressHydrationWarning
                     value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)}
                     highlight
                   />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
-                <Card title="Estado de Pagos" className="xl:col-span-1">
+                <Card title="Pago y Clientes">
                   <StatRow label="Pago puntual" value={advisorCalculatedData.pagoPuntual} />
                   <StatRow label="Pago impuntual" value={advisorCalculatedData.pagoImpuntual} />
+                  <StatRow label="Clientes nuevos" value={advisorCalculatedData.clientesNuevos} />
+                  <StatRow label="Propios" value={advisorCalculatedData.nuevosPropios} />
+                  <StatRow label="Asignados" value={advisorCalculatedData.nuevosAsignados} />
                   <StatRow
                     label="Pendientes"
                     value={advisorCalculatedData.pendingOrders.length}
                     highlightTone="warn"
                   />
-                </Card>
-
-                <Card title="Clientes Nuevos" className="xl:col-span-1">
-                  <StatRow label="Total" value={advisorCalculatedData.clientesNuevos} />
-                  <StatRow label="Propios" value={advisorCalculatedData.nuevosPropios} />
-                  <StatRow label="Asignados" value={advisorCalculatedData.nuevosAsignados} />
                 </Card>
 
                 <Card title="Período" className="xl:col-span-1">
@@ -4903,6 +4935,24 @@ suppressHydrationWarning
                         : 'Todos'
                     }
                   />
+                  <StatRow
+                    label="Origen"
+                    value={
+                      advisorCalcSource === 'advisor'
+                        ? 'Advisor'
+                        : advisorCalcSource === 'master'
+                          ? 'Master'
+                          : advisorCalcSource === 'walk_in'
+                            ? 'Walk-in'
+                            : 'Todos'
+                    }
+                  />
+                </Card>
+
+                <Card title="Origen de Ventas">
+                  <StatRow label="Advisor" value={advisorCalculatedData.sourceCounts.advisor} />
+                  <StatRow label="Master" value={advisorCalculatedData.sourceCounts.master} />
+                  <StatRow label="Walk-in" value={advisorCalculatedData.sourceCounts.walkIn} />
                 </Card>
               </div>
 
@@ -4911,19 +4961,20 @@ suppressHydrationWarning
                   <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
                     Facturación
                   </div>
-                  <div className="max-h-[380px] overflow-auto">
-                    <table className="w-full text-[12px]">
+                  <div className="max-h-[360px] overflow-auto">
+                    <table className="w-full text-[11px]">
                       <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                          <th className="px-3 py-2 text-left font-medium">Origen</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                         </tr>
                       </thead>
                       <tbody>
                         {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
                               Sin cierres entregados en el período.
                             </td>
                           </tr>
@@ -4935,6 +4986,13 @@ suppressHydrationWarning
                             >
                               <td className="px-3 py-2">{order.orderNumber || order.id}</td>
                               <td className="px-3 py-2">{order.clientName}</td>
+                              <td className="px-3 py-2">
+                                {order.source === 'advisor'
+                                  ? 'Advisor'
+                                  : order.source === 'master'
+                                    ? 'Master'
+                                    : 'Walk-in'}
+                              </td>
                               <td className="px-3 py-2 text-right">{fmtUSD(order.totalUsd)}</td>
                             </tr>
                           ))
@@ -4948,8 +5006,8 @@ suppressHydrationWarning
                   <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
                     Pendientes por Cobrar
                   </div>
-                  <div className="max-h-[380px] overflow-auto">
-                    <table className="w-full text-[12px]">
+                  <div className="max-h-[360px] overflow-auto">
+                    <table className="w-full text-[11px]">
                       <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
@@ -4960,7 +5018,7 @@ suppressHydrationWarning
                       <tbody>
                         {advisorCalculatedData.pendingOrders.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
                               Sin pendientes por cobrar.
                             </td>
                           </tr>
@@ -4982,8 +5040,8 @@ suppressHydrationWarning
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-1">
+                <div className="hidden rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="text-sm font-semibold text-[#F5F5F7]">Estado Pagos</div>
                   <div className="mt-4 space-y-3 text-sm">
                     <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-3">
@@ -5002,18 +5060,19 @@ suppressHydrationWarning
                     Clientes Nuevos
                   </div>
                   <div className="max-h-[320px] overflow-auto">
-                    <table className="w-full text-[12px]">
+                    <table className="w-full text-[11px]">
                       <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Tipo</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                          <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-right font-medium">Cant.</th>
                         </tr>
                       </thead>
                       <tbody>
                         {advisorCalculatedData.newClientOrders.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
                               Sin clientes nuevos en el período.
                             </td>
                           </tr>
@@ -5035,6 +5094,7 @@ suppressHydrationWarning
                               >
                                 <td className="px-3 py-2">{typeLabel}</td>
                                 <td className="px-3 py-2">{order.clientName}</td>
+                                <td className="px-3 py-2">{order.orderNumber || order.id}</td>
                                 <td className="px-3 py-2 text-right">1</td>
                               </tr>
                             );
