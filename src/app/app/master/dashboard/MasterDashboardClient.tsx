@@ -286,7 +286,7 @@ type ToastState = {
   message: string;
 } | null;
 type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
-type CalculationsTab = 'advisors';
+type CalculationsTab = 'general' | 'commissions';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
 
 type QuickCatalogPriceRow = {
@@ -533,6 +533,32 @@ function toDateInputValue(d: Date) {
 
 function fmtShortOrderLabel(orderId: number) {
   return String(orderId).padStart(2, '0');
+}
+
+function getOrderCommissionableSubtotalUsd(order: Order) {
+  if (order.editMeta.subtotalAfterDiscountUsd != null) {
+    return Math.max(0, Number(order.editMeta.subtotalAfterDiscountUsd || 0));
+  }
+
+  if (order.editMeta.subtotalUsd != null) {
+    const discountPct = order.editMeta.discountEnabled ? Number(order.editMeta.discountPct || 0) : 0;
+    return Math.max(0, Number(order.editMeta.subtotalUsd || 0) * (1 - discountPct / 100));
+  }
+
+  const invoiceTaxUsd = Number(order.editMeta.invoiceTaxAmountUsd || 0);
+  return Math.max(0, Number(order.totalUsd || 0) - invoiceTaxUsd);
+}
+
+function getOrderDiscountFactor(order: Order) {
+  const subtotalUsd = Number(order.editMeta.subtotalUsd || 0);
+  const subtotalAfterDiscountUsd = Number(order.editMeta.subtotalAfterDiscountUsd || 0);
+
+  if (subtotalUsd > 0 && subtotalAfterDiscountUsd >= 0) {
+    return Math.max(0, Math.min(1, subtotalAfterDiscountUsd / subtotalUsd));
+  }
+
+  const discountPct = order.editMeta.discountEnabled ? Number(order.editMeta.discountPct || 0) : 0;
+  return Math.max(0, Math.min(1, 1 - discountPct / 100));
 }
 
 function splitISOToDeliveryFields(iso: string) {
@@ -1512,7 +1538,7 @@ export default function MasterDashboardClient({
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
-  const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('advisors');
+  const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('general');
   const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState('');
   const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState('');
   const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>('');
@@ -4155,6 +4181,8 @@ const selectedPaymentReportAccount =
 
     const commissionOrders = filteredDeliveredOrders.map((order) => {
       const items = order.draftItems ?? [];
+      const commissionableSubtotalUsd = getOrderCommissionableSubtotalUsd(order);
+      const discountFactor = getOrderDiscountFactor(order);
       const fixedOrderItems = items
         .map((item) => ({
           item,
@@ -4169,31 +4197,42 @@ const selectedPaymentReportAccount =
         const pct = Number(selectedRule.product?.commissionValue || 0);
         return {
           orderId: order.id,
-          commissionUsd: order.totalUsd * (pct / 100),
+          commissionableSubtotalUsd,
+          commissionUsd: commissionableSubtotalUsd * (pct / 100),
+          fixedItemBaseUsd: 0,
+          fixedOrderBaseUsd: commissionableSubtotalUsd,
+          defaultBaseUsd: 0,
           mode: 'fixed_order' as const,
           appliedPct: pct,
         };
       }
 
       let fixedItemCommissionUsd = 0;
+      let fixedItemBaseUsd = 0;
       let defaultBaseUsd = 0;
 
       for (const item of items) {
         const product = catalogItemById.get(item.productId);
+        const itemBaseUsd = Math.max(0, Number(item.lineTotalUsd || 0) * discountFactor);
         if (product?.commissionMode === 'fixed_item' && product.commissionValue != null) {
-          fixedItemCommissionUsd += item.lineTotalUsd * (Number(product.commissionValue) / 100);
+          fixedItemBaseUsd += itemBaseUsd;
+          fixedItemCommissionUsd += itemBaseUsd * (Number(product.commissionValue) / 100);
         } else {
-          defaultBaseUsd += item.lineTotalUsd;
+          defaultBaseUsd += itemBaseUsd;
         }
       }
 
       if (items.length === 0) {
-        defaultBaseUsd = order.totalUsd;
+        defaultBaseUsd = commissionableSubtotalUsd;
       }
 
       return {
         orderId: order.id,
+        commissionableSubtotalUsd,
         commissionUsd: fixedItemCommissionUsd + defaultBaseUsd * (baseCommissionPct / 100),
+        fixedItemBaseUsd,
+        fixedOrderBaseUsd: 0,
+        defaultBaseUsd,
         mode: fixedItemCommissionUsd > 0 ? ('mixed' as const) : ('default' as const),
         appliedPct: baseCommissionPct,
       };
@@ -4231,6 +4270,113 @@ const selectedPaymentReportAccount =
     deliveredOrderMovementsByOrderId,
     deliveredOrders,
     firstDeliveredOrderByClientId,
+  ]);
+
+  const commissionCalculatedData = useMemo(() => {
+    const { start, end } = advisorCalcRange;
+    const selectedAdvisorId = advisorCalcAdvisorId || null;
+    const baseCommissionPct = Math.max(0, Number(String(advisorCalcBasePct || '0').replace(',', '.')) || 0);
+
+    const filteredAdvisorOrders = deliveredOrders.filter((order) => {
+      if (order.source !== 'advisor') return false;
+      if (!order.attributedAdvisorUserId) return false;
+      if (selectedAdvisorId && order.attributedAdvisorUserId !== selectedAdvisorId) return false;
+
+      const deliveryTime = new Date(order.deliveryAtISO).getTime();
+      if (start && deliveryTime < start.getTime()) return false;
+      if (end && deliveryTime > end.getTime()) return false;
+      return true;
+    });
+
+    const rows = filteredAdvisorOrders.map((order) => {
+      const items = order.draftItems ?? [];
+      const commissionableSubtotalUsd = getOrderCommissionableSubtotalUsd(order);
+      const discountFactor = getOrderDiscountFactor(order);
+      const fixedOrderItems = items
+        .map((item) => ({
+          item,
+          product: catalogItemById.get(item.productId),
+        }))
+        .filter((row) => row.product?.commissionMode === 'fixed_order' && row.product.commissionValue != null);
+
+      if (fixedOrderItems.length > 0) {
+        const selectedRule = fixedOrderItems.reduce((best, current) =>
+          (Number(current.product?.commissionValue || 0) > Number(best.product?.commissionValue || 0) ? current : best)
+        );
+        const pct = Number(selectedRule.product?.commissionValue || 0);
+
+        return {
+          order,
+          commissionableSubtotalUsd,
+          regularBaseUsd: 0,
+          fixedItemBaseUsd: 0,
+          fixedOrderBaseUsd: commissionableSubtotalUsd,
+          fixedItemCommissionUsd: 0,
+          fixedOrderCommissionUsd: commissionableSubtotalUsd * (pct / 100),
+          baseCommissionUsd: 0,
+          totalCommissionUsd: commissionableSubtotalUsd * (pct / 100),
+          fixedOrderPct: pct,
+          mode: 'fixed_order' as const,
+        };
+      }
+
+      let fixedItemBaseUsd = 0;
+      let fixedItemCommissionUsd = 0;
+      let regularBaseUsd = 0;
+
+      for (const item of items) {
+        const product = catalogItemById.get(item.productId);
+        const itemBaseUsd = Math.max(0, Number(item.lineTotalUsd || 0) * discountFactor);
+        if (product?.commissionMode === 'fixed_item' && product.commissionValue != null) {
+          fixedItemBaseUsd += itemBaseUsd;
+          fixedItemCommissionUsd += itemBaseUsd * (Number(product.commissionValue) / 100);
+        } else {
+          regularBaseUsd += itemBaseUsd;
+        }
+      }
+
+      if (items.length === 0) {
+        regularBaseUsd = commissionableSubtotalUsd;
+      }
+
+      const baseCommissionUsd = regularBaseUsd * (baseCommissionPct / 100);
+
+      return {
+        order,
+        commissionableSubtotalUsd,
+        regularBaseUsd,
+        fixedItemBaseUsd,
+        fixedOrderBaseUsd: 0,
+        fixedItemCommissionUsd,
+        fixedOrderCommissionUsd: 0,
+        baseCommissionUsd,
+        totalCommissionUsd: baseCommissionUsd + fixedItemCommissionUsd,
+        fixedOrderPct: null,
+        mode: fixedItemBaseUsd > 0 ? ('mixed' as const) : ('default' as const),
+      };
+    });
+
+    const facturadoTotalUsd = rows.reduce((sum, row) => sum + row.commissionableSubtotalUsd, 0);
+    const facturadoItemEspecialUsd = rows.reduce((sum, row) => sum + row.fixedItemBaseUsd, 0);
+    const facturadoOrdenEspecialUsd = rows.reduce((sum, row) => sum + row.fixedOrderBaseUsd, 0);
+    const facturadoBaseUsd = Math.max(0, facturadoTotalUsd - facturadoItemEspecialUsd - facturadoOrdenEspecialUsd);
+    const commissionTotalUsd = rows.reduce((sum, row) => sum + row.totalCommissionUsd, 0);
+
+    return {
+      rows,
+      facturadoTotalUsd,
+      facturadoBaseUsd,
+      facturadoItemEspecialUsd,
+      facturadoOrdenEspecialUsd,
+      commissionTotalUsd,
+      baseCommissionPct,
+    };
+  }, [
+    advisorCalcAdvisorId,
+    advisorCalcBasePct,
+    advisorCalcRange,
+    catalogItemById,
+    deliveredOrders,
   ]);
 
 const createOrderCanSave =
@@ -4675,8 +4821,11 @@ suppressHydrationWarning
   <div className="border-b border-[#242433] bg-[#0B0B0D]">
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
-        <Chip active={calculationsTab === 'advisors'} onClick={() => setCalculationsTab('advisors')}>
-          Asesores
+        <Chip active={calculationsTab === 'general'} onClick={() => setCalculationsTab('general')}>
+          General
+        </Chip>
+        <Chip active={calculationsTab === 'commissions'} onClick={() => setCalculationsTab('commissions')}>
+          Comisiones
         </Chip>
       </div>
     </div>
@@ -4944,7 +5093,7 @@ suppressHydrationWarning
         </div>
       ) : viewMode === 'calculations' && isAdmin ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
-          {calculationsTab === 'advisors' ? (
+          {calculationsTab === 'general' ? (
             <div className="space-y-5">
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-3">
@@ -4955,7 +5104,7 @@ suppressHydrationWarning
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px_110px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px]">
                     <FieldInput
                       label="Desde"
                       value={advisorCalcDateFrom}
@@ -4991,12 +5140,6 @@ suppressHydrationWarning
                           label: advisor.fullName,
                         })),
                       ]}
-                    />
-                    <FieldInput
-                      label="% base"
-                      value={advisorCalcBasePct}
-                      onChange={setAdvisorCalcBasePct}
-                      type="text"
                     />
                   </div>
 
@@ -5215,6 +5358,113 @@ suppressHydrationWarning
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            </div>
+          ) : calculationsTab === 'commissions' ? (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Calculo de comisiones</div>
+                    <div className="mt-1 text-sm text-[#B7B7C2]">
+                      Base comisionable: total despues del descuento y antes del IVA.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_220px_120px]">
+                    <FieldInput label="Desde" value={advisorCalcDateFrom} onChange={setAdvisorCalcDateFrom} type="date" />
+                    <FieldInput label="Hasta" value={advisorCalcDateTo} onChange={setAdvisorCalcDateTo} type="date" />
+                    <FieldSelect
+                      label="Asesor"
+                      value={advisorCalcAdvisorId}
+                      onChange={setAdvisorCalcAdvisorId}
+                      options={[
+                        { value: '', label: 'Todos los asesores' },
+                        ...advisors.map((advisor) => ({
+                          value: advisor.userId,
+                          label: advisor.fullName,
+                        })),
+                      ]}
+                    />
+                    <FieldInput label="% base" value={advisorCalcBasePct} onChange={setAdvisorCalcBasePct} type="text" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Card title="Facturado Total" className="p-3">
+                  <StatRow label="Total" value={fmtUSD(commissionCalculatedData.facturadoTotalUsd)} />
+                  <StatRow label="Base" value={`${commissionCalculatedData.baseCommissionPct.toFixed(2)}%`} />
+                </Card>
+
+                <Card title="Items Especiales" className="p-3">
+                  <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoItemEspecialUsd)} />
+                  <StatRow label="Regla" value="% por item" />
+                </Card>
+
+                <Card title="Ordenes Especiales" className="p-3">
+                  <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoOrdenEspecialUsd)} />
+                  <StatRow label="Regla" value="% fijo por orden" />
+                </Card>
+
+                <Card title="Comision Estimada" className="p-3">
+                  <StatRow label="Base normal" value={fmtUSD(commissionCalculatedData.facturadoBaseUsd)} />
+                  <StatRow label="Comision" value={fmtUSD(commissionCalculatedData.commissionTotalUsd)} highlightTone="brand" />
+                </Card>
+              </div>
+
+              <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Detalle de comisiones</div>
+                  <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(commissionCalculatedData.commissionTotalUsd)}</div>
+                </div>
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
+                        <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                        <th className="px-3 py-2 text-right font-medium">Facturado</th>
+                        <th className="px-3 py-2 text-right font-medium">Base</th>
+                        <th className="px-3 py-2 text-right font-medium">Items esp.</th>
+                        <th className="px-3 py-2 text-right font-medium">Orden esp.</th>
+                        <th className="px-3 py-2 text-left font-medium">Regla</th>
+                        <th className="px-3 py-2 text-right font-medium">Comision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commissionCalculatedData.rows.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
+                            Sin cierres de advisor para este periodo.
+                          </td>
+                        </tr>
+                      ) : (
+                        commissionCalculatedData.rows.map((row, idx) => (
+                          <tr
+                            key={row.order.id}
+                            className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                          >
+                            <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
+                            <td className="px-3 py-2">{row.order.clientName}</td>
+                            <td className="px-3 py-2 text-right">{fmtUSD(row.commissionableSubtotalUsd)}</td>
+                            <td className="px-3 py-2 text-right">{fmtUSD(row.regularBaseUsd)}</td>
+                            <td className="px-3 py-2 text-right">{fmtUSD(row.fixedItemBaseUsd)}</td>
+                            <td className="px-3 py-2 text-right">{fmtUSD(row.fixedOrderBaseUsd)}</td>
+                            <td className="px-3 py-2">
+                              {row.mode === 'fixed_order'
+                                ? `Orden fija ${row.fixedOrderPct?.toFixed(2) ?? '0.00'}%`
+                                : row.mode === 'mixed'
+                                  ? `Base ${commissionCalculatedData.baseCommissionPct.toFixed(2)}% + items`
+                                  : `Base ${commissionCalculatedData.baseCommissionPct.toFixed(2)}%`}
+                            </td>
+                            <td className="px-3 py-2 text-right">{fmtUSD(row.totalCommissionUsd)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
