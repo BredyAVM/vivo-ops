@@ -5452,18 +5452,14 @@ suppressHydrationWarning
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-3 py-2 text-right font-medium">Facturado</th>
-                        <th className="px-3 py-2 text-right font-medium">Default</th>
-                        <th className="px-3 py-2 text-right font-medium">Item esp.</th>
-                        <th className="px-3 py-2 text-right font-medium">Orden fija</th>
-                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                        <th className="px-3 py-2 text-left font-medium">Detalle</th>
                         <th className="px-3 py-2 text-right font-medium">Comision</th>
                       </tr>
                     </thead>
                     <tbody>
                       {commissionCalculatedData.rows.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
+                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
                             Sin cierres de advisor para este periodo.
                           </td>
                         </tr>
@@ -5475,23 +5471,29 @@ suppressHydrationWarning
                           >
                             <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
                             <td className="px-3 py-2">{row.order.clientName}</td>
-                            <td className="px-3 py-2 text-right">{fmtUSD(row.commissionableSubtotalUsd)}</td>
-                            <td className="px-3 py-2 text-right">{fmtUSD(row.regularBaseUsd)}</td>
-                            <td className="px-3 py-2 text-right">{fmtUSD(row.fixedItemBaseUsd)}</td>
-                            <td className="px-3 py-2 text-right">{fmtUSD(row.fixedOrderBaseUsd)}</td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 leading-5">
+                              <div className="text-[#F5F5F7]">
+                                Total orden {fmtUSD(row.commissionableSubtotalUsd)}
+                              </div>
                               {row.mode === 'fixed_order' ? (
-                                <span className="inline-flex rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
-                                  Orden fija {row.fixedOrderPct?.toFixed(2) ?? '0.00'}%
-                                </span>
-                              ) : row.mode === 'mixed' ? (
-                                <span className="inline-flex rounded-full bg-[#FEEF00] px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
-                                  Item especial + base
-                                </span>
+                                <div className="text-orange-400">
+                                  Orden fija {fmtUSD(row.fixedOrderBaseUsd)} {row.fixedOrderPct?.toFixed(2) ?? '0.00'}%
+                                </div>
                               ) : (
-                                <span className="inline-flex rounded-full bg-[#191926] px-2 py-0.5 text-[10px] font-semibold text-[#B7B7C2]">
-                                  Default {commissionCalculatedData.baseCommissionPct.toFixed(2)}%
-                                </span>
+                                <>
+                                  <div className="text-[#B7B7C2]">
+                                    Default {fmtUSD(row.regularBaseUsd)} {commissionCalculatedData.baseCommissionPct.toFixed(2)}%
+                                  </div>
+                                  {row.fixedItemBaseUsd > 0 ? (
+                                    <div className="text-[#FEEF00]">
+                                      Fixed item {fmtUSD(row.fixedItemBaseUsd)}{' '}
+                                      {row.fixedItemBaseUsd > 0
+                                        ? ((row.fixedItemCommissionUsd / row.fixedItemBaseUsd) * 100).toFixed(2)
+                                        : '0.00'}
+                                      %
+                                    </div>
+                                  ) : null}
+                                </>
                               )}
                             </td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.totalCommissionUsd)}</td>
