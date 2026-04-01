@@ -233,6 +233,7 @@ type OrderEditMeta = {
 
 type Order = {
   id: number;
+  orderNumber: string;
   createdAtISO: string;
   deliveryAtISO: string;
   source: 'advisor' | 'master' | 'walk_in';
@@ -279,12 +280,13 @@ type MasterNotification = {
   advisorName: string;
 };
 
-type ViewMode = 'operations' | 'settings';
+ type ViewMode = 'operations' | 'settings' | 'calculations';
 type ToastState = {
   type: 'success' | 'error';
   message: string;
 } | null;
 type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
+type CalculationsTab = 'advisors';
 
 type QuickCatalogPriceRow = {
   productId: number;
@@ -1502,6 +1504,10 @@ export default function MasterDashboardClient({
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
+  const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('advisors');
+  const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState('');
+  const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState('');
+  const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState('');
   const [accountSearch, setAccountSearch] = useState('');
   const [accountDateFrom, setAccountDateFrom] = useState('');
   const [accountDateTo, setAccountDateTo] = useState('');
@@ -3961,9 +3967,157 @@ const selectedPaymentReportAccount =
     return new Map(advisors.map((advisor) => [advisor.userId, advisor.fullName]));
   }, [advisors]);
 
+  const clientById = useMemo(() => {
+    return new Map(clients.map((client) => [client.id, client]));
+  }, [clients]);
+
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
+
+  const deliveredOrders = useMemo(
+    () => orders.filter((order) => order.status === 'delivered'),
+    [orders]
+  );
+
+  const advisorCalcRange = useMemo(() => {
+    const start = advisorCalcDateFrom ? new Date(`${advisorCalcDateFrom}T00:00:00`) : null;
+    const end = advisorCalcDateTo ? new Date(`${advisorCalcDateTo}T23:59:59`) : null;
+
+    if (start && Number.isNaN(start.getTime())) return { start: null, end: null };
+    if (end && Number.isNaN(end.getTime())) return { start: null, end: null };
+
+    return { start, end };
+  }, [advisorCalcDateFrom, advisorCalcDateTo]);
+
+  const deliveredOrderMovementsByOrderId = useMemo(() => {
+    const grouped = new Map<number, MoneyMovementItem[]>();
+
+    for (const movement of moneyMovements) {
+      if (!movement.orderId || movement.direction !== 'inflow') continue;
+      const arr = grouped.get(movement.orderId) ?? [];
+      arr.push(movement);
+      grouped.set(movement.orderId, arr);
+    }
+
+    for (const arr of grouped.values()) {
+      arr.sort((a, b) => {
+        const aDate = new Date(a.confirmedAt || a.createdAt).getTime();
+        const bDate = new Date(b.confirmedAt || b.createdAt).getTime();
+        return aDate - bDate;
+      });
+    }
+
+    return grouped;
+  }, [moneyMovements]);
+
+  const firstDeliveredOrderByClientId = useMemo(() => {
+    const map = new Map<number, Order>();
+
+    for (const order of deliveredOrders) {
+      if (!order.clientId) continue;
+      const current = map.get(order.clientId);
+      if (!current || new Date(order.deliveryAtISO).getTime() < new Date(current.deliveryAtISO).getTime()) {
+        map.set(order.clientId, order);
+      }
+    }
+
+    return map;
+  }, [deliveredOrders]);
+
+  const advisorCalculatedData = useMemo(() => {
+    const { start, end } = advisorCalcRange;
+    const selectedAdvisorId = advisorCalcAdvisorId || null;
+
+    const filteredDeliveredOrders = deliveredOrders.filter((order) => {
+      if (!order.attributedAdvisorUserId) return false;
+      if (selectedAdvisorId && order.attributedAdvisorUserId !== selectedAdvisorId) return false;
+
+      const deliveryTime = new Date(order.deliveryAtISO).getTime();
+      if (start && deliveryTime < start.getTime()) return false;
+      if (end && deliveryTime > end.getTime()) return false;
+      return true;
+    });
+
+    const facturacion = filteredDeliveredOrders.reduce((sum, order) => sum + order.totalUsd, 0);
+    const cierres = filteredDeliveredOrders.length;
+    const cierrePromedio = cierres > 0 ? facturacion / cierres : 0;
+
+    const pendingOrders = filteredDeliveredOrders
+      .filter((order) => order.balanceUsd > 0.01)
+      .sort((a, b) => new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime());
+
+    let pagoPuntual = 0;
+    let pagoImpuntual = 0;
+
+    for (const order of filteredDeliveredOrders) {
+      if (order.balanceUsd > 0.01) continue;
+
+      const movements = deliveredOrderMovementsByOrderId.get(order.id) ?? [];
+      let accumulated = 0;
+      let fullyPaidAt: string | null = null;
+
+      for (const movement of movements) {
+        accumulated += Number(movement.amountUsdEquivalent || 0);
+        if (accumulated + 0.000001 >= order.totalUsd) {
+          fullyPaidAt = movement.confirmedAt || movement.createdAt;
+          break;
+        }
+      }
+
+      if (!fullyPaidAt) continue;
+
+      const deliveredAt = new Date(order.deliveryAtISO);
+      const endOfDeliveryDay = new Date(deliveredAt);
+      endOfDeliveryDay.setHours(23, 59, 59, 999);
+
+      if (new Date(fullyPaidAt).getTime() <= endOfDeliveryDay.getTime()) {
+        pagoPuntual += 1;
+      } else {
+        pagoImpuntual += 1;
+      }
+    }
+
+    const newClientOrders = filteredDeliveredOrders.filter((order) => {
+      if (!order.clientId) return false;
+      const firstOrder = firstDeliveredOrderByClientId.get(order.clientId);
+      return firstOrder?.id === order.id;
+    });
+
+    const clientesNuevos = newClientOrders.length;
+    let nuevosPropios = 0;
+    let nuevosAsignados = 0;
+
+    for (const order of newClientOrders) {
+      if (!order.clientId) continue;
+      const client = clientById.get(order.clientId);
+      const type = String(client?.clientType || '').trim().toLowerCase();
+      if (type === 'own' || type === 'propio') nuevosPropios += 1;
+      else if (type === 'assigned' || type === 'asignado') nuevosAsignados += 1;
+    }
+
+    return {
+      filteredDeliveredOrders,
+      facturacion,
+      cierres,
+      cierrePromedio,
+      pagoPuntual,
+      pagoImpuntual,
+      pendingOrders,
+      pendientesPorCobrarTotal: pendingOrders.reduce((sum, order) => sum + order.balanceUsd, 0),
+      clientesNuevos,
+      nuevosPropios,
+      nuevosAsignados,
+      newClientOrders,
+    };
+  }, [
+    advisorCalcAdvisorId,
+    advisorCalcRange,
+    clientById,
+    deliveredOrderMovementsByOrderId,
+    deliveredOrders,
+    firstDeliveredOrderByClientId,
+  ]);
 
 const createOrderCanSave =
   createOrderHasValidAdvisor &&
@@ -4185,6 +4339,14 @@ useEffect(() => {
 }, [createOrderOpen, orderEditorMode, activeExchangeRate]);
 
 useEffect(() => {
+  if (!selectedDay) return;
+
+  const dateValue = toDateInputValue(selectedDay);
+  setAdvisorCalcDateFrom((prev) => (prev ? prev : dateValue));
+  setAdvisorCalcDateTo((prev) => (prev ? prev : dateValue));
+}, [selectedDay]);
+
+useEffect(() => {
   if (!createOrderOpen) return;
   if (!selectedCreateOrderClient) return;
 
@@ -4313,6 +4475,20 @@ suppressHydrationWarning
       Configuración
     </button>
 
+    {isAdmin ? (
+      <button
+        className={[
+          'rounded-2xl border px-4 py-2 text-sm',
+          viewMode === 'calculations'
+            ? 'border-[#FEEF00] bg-[#121218] text-[#F5F5F7]'
+            : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
+        ].join(' ')}
+        onClick={() => setViewMode('calculations')}
+      >
+        Cálculos
+      </button>
+    ) : null}
+
     <button
       className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-sm text-[#F5F5F7]"
       onClick={() => setNotifOpen(true)}
@@ -4354,7 +4530,7 @@ suppressHydrationWarning
         </div>
       </div>
 
-      {viewMode === 'settings' ? (
+{viewMode === 'settings' ? (
   <div className="border-b border-[#242433] bg-[#0B0B0D]">
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
@@ -4369,6 +4545,18 @@ suppressHydrationWarning
         </Chip>
         <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
           Clientes
+        </Chip>
+      </div>
+    </div>
+  </div>
+) : null}
+
+{viewMode === 'calculations' && isAdmin ? (
+  <div className="border-b border-[#242433] bg-[#0B0B0D]">
+    <div className="mx-auto max-w-[1400px] px-5 py-2">
+      <div className="flex gap-2 overflow-x-auto">
+        <Chip active={calculationsTab === 'advisors'} onClick={() => setCalculationsTab('advisors')}>
+          Asesores
         </Chip>
       </div>
     </div>
@@ -4633,6 +4821,232 @@ suppressHydrationWarning
               </table>
             </div>
           </div>
+        </div>
+      ) : viewMode === 'calculations' && isAdmin ? (
+        <div className="mx-auto max-w-[1400px] px-5 py-5">
+          {calculationsTab === 'advisors' ? (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Análisis de asesores</div>
+                    <div className="mt-1 text-sm text-[#B7B7C2]">
+                      Revisa cierres, facturación, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[170px_170px_240px]">
+                    <FieldInput
+                      label="Desde"
+                      value={advisorCalcDateFrom}
+                      onChange={setAdvisorCalcDateFrom}
+                      type="date"
+                    />
+                    <FieldInput
+                      label="Hasta"
+                      value={advisorCalcDateTo}
+                      onChange={setAdvisorCalcDateTo}
+                      type="date"
+                    />
+                    <FieldSelect
+                      label="Asesor"
+                      value={advisorCalcAdvisorId}
+                      onChange={setAdvisorCalcAdvisorId}
+                      options={[
+                        { value: '', label: 'Todos los asesores' },
+                        ...advisors.map((advisor) => ({
+                          value: advisor.userId,
+                          label: advisor.fullName,
+                        })),
+                      ]}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <Card title="Resumen" className="xl:col-span-1">
+                  <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
+                  <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
+                  <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
+                  <StatRow
+                    label="Pendiente por cobrar"
+                    value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)}
+                    highlight
+                  />
+                </Card>
+
+                <Card title="Estado de Pagos" className="xl:col-span-1">
+                  <StatRow label="Pago puntual" value={advisorCalculatedData.pagoPuntual} />
+                  <StatRow label="Pago impuntual" value={advisorCalculatedData.pagoImpuntual} />
+                  <StatRow
+                    label="Pendientes"
+                    value={advisorCalculatedData.pendingOrders.length}
+                    highlightTone="warn"
+                  />
+                </Card>
+
+                <Card title="Clientes Nuevos" className="xl:col-span-1">
+                  <StatRow label="Total" value={advisorCalculatedData.clientesNuevos} />
+                  <StatRow label="Propios" value={advisorCalculatedData.nuevosPropios} />
+                  <StatRow label="Asignados" value={advisorCalculatedData.nuevosAsignados} />
+                </Card>
+
+                <Card title="Período" className="xl:col-span-1">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
+                  <StatRow
+                    label="Asesor"
+                    value={
+                      advisorCalcAdvisorId
+                        ? advisorNameById.get(advisorCalcAdvisorId) ?? 'Asesor'
+                        : 'Todos'
+                    }
+                  />
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                  <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
+                    Facturación
+                  </div>
+                  <div className="max-h-[380px] overflow-auto">
+                    <table className="w-full text-[12px]">
+                      <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
+                          <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                          <th className="px-3 py-2 text-right font-medium">Facturado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                              Sin cierres entregados en el período.
+                            </td>
+                          </tr>
+                        ) : (
+                          advisorCalculatedData.filteredDeliveredOrders.map((order, idx) => (
+                            <tr
+                              key={order.id}
+                              className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                            >
+                              <td className="px-3 py-2">{order.orderNumber || order.id}</td>
+                              <td className="px-3 py-2">{order.clientName}</td>
+                              <td className="px-3 py-2 text-right">{fmtUSD(order.totalUsd)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                  <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
+                    Pendientes por Cobrar
+                  </div>
+                  <div className="max-h-[380px] overflow-auto">
+                    <table className="w-full text-[12px]">
+                      <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
+                          <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                          <th className="px-3 py-2 text-right font-medium">Pendiente</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {advisorCalculatedData.pendingOrders.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                              Sin pendientes por cobrar.
+                            </td>
+                          </tr>
+                        ) : (
+                          advisorCalculatedData.pendingOrders.map((order, idx) => (
+                            <tr
+                              key={order.id}
+                              className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                            >
+                              <td className="px-3 py-2">{order.orderNumber || order.id}</td>
+                              <td className="px-3 py-2">{order.clientName}</td>
+                              <td className="px-3 py-2 text-right">{fmtUSD(order.balanceUsd)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Estado Pagos</div>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-3">
+                      <span className="text-[#F5F5F7]">Puntual</span>
+                      <span className="text-lg font-semibold text-emerald-400">{advisorCalculatedData.pagoPuntual}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-3">
+                      <span className="text-[#F5F5F7]">Impuntual</span>
+                      <span className="text-lg font-semibold text-orange-400">{advisorCalculatedData.pagoImpuntual}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                  <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
+                    Clientes Nuevos
+                  </div>
+                  <div className="max-h-[320px] overflow-auto">
+                    <table className="w-full text-[12px]">
+                      <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                          <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                          <th className="px-3 py-2 text-right font-medium">Cant.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {advisorCalculatedData.newClientOrders.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                              Sin clientes nuevos en el período.
+                            </td>
+                          </tr>
+                        ) : (
+                          advisorCalculatedData.newClientOrders.map((order, idx) => {
+                            const client = order.clientId ? clientById.get(order.clientId) : null;
+                            const typeRaw = String(client?.clientType || '').trim().toLowerCase();
+                            const typeLabel =
+                              typeRaw === 'own' || typeRaw === 'propio'
+                                ? 'Propio'
+                                : typeRaw === 'assigned' || typeRaw === 'asignado'
+                                  ? 'Asignado'
+                                  : 'Otro';
+
+                            return (
+                              <tr
+                                key={order.id}
+                                className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                              >
+                                <td className="px-3 py-2">{typeLabel}</td>
+                                <td className="px-3 py-2">{order.clientName}</td>
+                                <td className="px-3 py-2 text-right">1</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mx-auto max-w-[1400px] px-5 py-5">

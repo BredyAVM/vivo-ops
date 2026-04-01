@@ -1167,6 +1167,7 @@ const lines = rowItems.map((item) => {
 
 return {
   id: row.id,
+  orderNumber: row.order_number,
   createdAtISO: row.created_at,
   deliveryAtISO,
   source: row.source,
