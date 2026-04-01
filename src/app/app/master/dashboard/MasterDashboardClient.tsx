@@ -4361,6 +4361,9 @@ const selectedPaymentReportAccount =
     const facturadoOrdenEspecialUsd = rows.reduce((sum, row) => sum + row.fixedOrderBaseUsd, 0);
     const facturadoBaseUsd = Math.max(0, facturadoTotalUsd - facturadoItemEspecialUsd - facturadoOrdenEspecialUsd);
     const commissionTotalUsd = rows.reduce((sum, row) => sum + row.totalCommissionUsd, 0);
+    const defaultOrdersCount = rows.filter((row) => row.mode === 'default').length;
+    const mixedOrdersCount = rows.filter((row) => row.mode === 'mixed').length;
+    const fixedOrdersCount = rows.filter((row) => row.mode === 'fixed_order').length;
 
     return {
       rows,
@@ -4370,6 +4373,9 @@ const selectedPaymentReportAccount =
       facturadoOrdenEspecialUsd,
       commissionTotalUsd,
       baseCommissionPct,
+      defaultOrdersCount,
+      mixedOrdersCount,
+      fixedOrdersCount,
     };
   }, [
     advisorCalcAdvisorId,
@@ -5392,18 +5398,25 @@ suppressHydrationWarning
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <Card title="Facturado Total" className="p-3">
                   <StatRow label="Total" value={fmtUSD(commissionCalculatedData.facturadoTotalUsd)} />
                   <StatRow label="Base" value={`${commissionCalculatedData.baseCommissionPct.toFixed(2)}%`} />
                 </Card>
 
-                <Card title="Items Especiales" className="p-3">
+                <Card title="Ordenes Default" className="p-3">
+                  <StatRow label="Ordenes" value={commissionCalculatedData.defaultOrdersCount} />
+                  <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoBaseUsd)} />
+                </Card>
+
+                <Card title="Con Item Especial" className="p-3">
+                  <StatRow label="Ordenes" value={commissionCalculatedData.mixedOrdersCount} />
                   <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoItemEspecialUsd)} />
                   <StatRow label="Regla" value="% por item" />
                 </Card>
 
-                <Card title="Ordenes Especiales" className="p-3">
+                <Card title="Con Orden Fija" className="p-3">
+                  <StatRow label="Ordenes" value={commissionCalculatedData.fixedOrdersCount} />
                   <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoOrdenEspecialUsd)} />
                   <StatRow label="Regla" value="% fijo por orden" />
                 </Card>
@@ -5419,6 +5432,20 @@ suppressHydrationWarning
                   <div className="text-sm font-semibold text-[#F5F5F7]">Detalle de comisiones</div>
                   <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(commissionCalculatedData.commissionTotalUsd)}</div>
                 </div>
+                <div className="grid grid-cols-1 gap-2 border-b border-[#242433] bg-[#0F0F14] px-4 py-3 text-[11px] text-[#B7B7C2] md:grid-cols-3">
+                  <div>
+                    <span className="inline-flex rounded-full bg-[#191926] px-2 py-0.5 font-semibold text-[#B7B7C2]">Default</span>
+                    <span className="ml-2">usa el % base sobre la parte normal</span>
+                  </div>
+                  <div>
+                    <span className="inline-flex rounded-full bg-[#FEEF00] px-2 py-0.5 font-semibold text-[#0B0B0D]">Item especial</span>
+                    <span className="ml-2">solo cambia los items marcados</span>
+                  </div>
+                  <div>
+                    <span className="inline-flex rounded-full bg-orange-500 px-2 py-0.5 font-semibold text-[#0B0B0D]">Orden fija</span>
+                    <span className="ml-2">toda la orden usa ese % fijo</span>
+                  </div>
+                </div>
                 <div className="max-h-[420px] overflow-auto">
                   <table className="w-full text-[11px]">
                     <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
@@ -5426,10 +5453,10 @@ suppressHydrationWarning
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
                         <th className="px-3 py-2 text-right font-medium">Facturado</th>
-                        <th className="px-3 py-2 text-right font-medium">Base</th>
-                        <th className="px-3 py-2 text-right font-medium">Items esp.</th>
-                        <th className="px-3 py-2 text-right font-medium">Orden esp.</th>
-                        <th className="px-3 py-2 text-left font-medium">Regla</th>
+                        <th className="px-3 py-2 text-right font-medium">Default</th>
+                        <th className="px-3 py-2 text-right font-medium">Item esp.</th>
+                        <th className="px-3 py-2 text-right font-medium">Orden fija</th>
+                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
                         <th className="px-3 py-2 text-right font-medium">Comision</th>
                       </tr>
                     </thead>
@@ -5453,11 +5480,19 @@ suppressHydrationWarning
                             <td className="px-3 py-2 text-right">{fmtUSD(row.fixedItemBaseUsd)}</td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.fixedOrderBaseUsd)}</td>
                             <td className="px-3 py-2">
-                              {row.mode === 'fixed_order'
-                                ? `Orden fija ${row.fixedOrderPct?.toFixed(2) ?? '0.00'}%`
-                                : row.mode === 'mixed'
-                                  ? `Base ${commissionCalculatedData.baseCommissionPct.toFixed(2)}% + items`
-                                  : `Base ${commissionCalculatedData.baseCommissionPct.toFixed(2)}%`}
+                              {row.mode === 'fixed_order' ? (
+                                <span className="inline-flex rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
+                                  Orden fija {row.fixedOrderPct?.toFixed(2) ?? '0.00'}%
+                                </span>
+                              ) : row.mode === 'mixed' ? (
+                                <span className="inline-flex rounded-full bg-[#FEEF00] px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
+                                  Item especial + base
+                                </span>
+                              ) : (
+                                <span className="inline-flex rounded-full bg-[#191926] px-2 py-0.5 text-[10px] font-semibold text-[#B7B7C2]">
+                                  Default {commissionCalculatedData.baseCommissionPct.toFixed(2)}%
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.totalCommissionUsd)}</td>
                           </tr>
