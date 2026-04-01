@@ -4898,33 +4898,32 @@ suppressHydrationWarning
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
-                <Card title="Resumen General">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+                <Card title="Resumen General" className="p-3">
                   <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
-                  <StatRow
-                    label="Pendiente por cobrar"
-                    value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)}
-                    highlight
-                  />
                   <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
-                <Card title="Pago y Clientes">
+                <Card title="Pagos" className="p-3">
                   <StatRow label="Pago puntual" value={advisorCalculatedData.pagoPuntual} />
                   <StatRow label="Pago impuntual" value={advisorCalculatedData.pagoImpuntual} />
-                  <StatRow label="Clientes nuevos" value={advisorCalculatedData.clientesNuevos} />
-                  <StatRow label="Propios" value={advisorCalculatedData.nuevosPropios} />
-                  <StatRow label="Asignados" value={advisorCalculatedData.nuevosAsignados} />
-                  <StatRow
-                    label="Pendientes"
-                    value={advisorCalculatedData.pendingOrders.length}
-                    highlightTone="warn"
-                  />
+                  <StatRow label="Pendientes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
                 </Card>
 
-                <Card title="Período" className="xl:col-span-1">
+                <Card title="Clientes Nuevos" className="p-3">
+                  <StatRow label="Total" value={advisorCalculatedData.clientesNuevos} />
+                  <StatRow label="Propios" value={advisorCalculatedData.nuevosPropios} />
+                  <StatRow label="Asignados" value={advisorCalculatedData.nuevosAsignados} />
+                </Card>
+
+                <Card title="Pagos Pendientes" className="p-3">
+                  <StatRow label="Total" value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)} highlightTone="warn" />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
+                </Card>
+
+                <Card title="Período" className="p-3">
                   <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
                   <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                   <StatRow
@@ -4949,7 +4948,7 @@ suppressHydrationWarning
                   />
                 </Card>
 
-                <Card title="Origen de Ventas">
+                <Card title="Origen de Ventas" className="p-3">
                   <StatRow label="Advisor" value={advisorCalculatedData.sourceCounts.advisor} />
                   <StatRow label="Master" value={advisorCalculatedData.sourceCounts.master} />
                   <StatRow label="Walk-in" value={advisorCalculatedData.sourceCounts.walkIn} />
@@ -4958,8 +4957,9 @@ suppressHydrationWarning
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
-                  <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
-                    Facturación
+                  <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación</div>
+                    <div className="text-sm font-semibold text-emerald-400">{fmtUSD(advisorCalculatedData.facturacion)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">
                     <table className="w-full text-[11px]">
@@ -4998,13 +4998,24 @@ suppressHydrationWarning
                           ))
                         )}
                       </tbody>
+                      <tfoot className="bg-[#0B0B0D] text-[#F5F5F7]">
+                        <tr>
+                          <td className="px-3 py-2 font-semibold" colSpan={3}>
+                            Total general
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">
+                            {fmtUSD(advisorCalculatedData.facturacion)}
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
-                  <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
-                    Pendientes por Cobrar
+                  <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Pendientes por Cobrar</div>
+                    <div className="text-sm font-semibold text-orange-400">{fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">
                     <table className="w-full text-[11px]">
@@ -5035,6 +5046,16 @@ suppressHydrationWarning
                           ))
                         )}
                       </tbody>
+                      <tfoot className="bg-[#0B0B0D] text-[#F5F5F7]">
+                        <tr>
+                          <td className="px-3 py-2 font-semibold" colSpan={2}>
+                            Total por cobrar
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">
+                            {fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)}
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>
@@ -5056,8 +5077,9 @@ suppressHydrationWarning
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
-                  <div className="border-b border-[#242433] px-4 py-3 text-sm font-semibold text-[#F5F5F7]">
-                    Clientes Nuevos
+                  <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Clientes Nuevos</div>
+                    <div className="text-sm font-semibold text-emerald-400">{advisorCalculatedData.clientesNuevos}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
                     <table className="w-full text-[11px]">
@@ -5101,6 +5123,16 @@ suppressHydrationWarning
                           })
                         )}
                       </tbody>
+                      <tfoot className="bg-[#0B0B0D] text-[#F5F5F7]">
+                        <tr>
+                          <td className="px-3 py-2 font-semibold" colSpan={3}>
+                            Total general
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">
+                            {advisorCalculatedData.clientesNuevos}
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>
