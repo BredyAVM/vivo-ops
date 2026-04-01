@@ -529,7 +529,7 @@ function toDateInputValue(d: Date) {
 }
 
 function fmtShortOrderLabel(orderId: number) {
-  return `Orden ${String(orderId).padStart(2, '0')}`;
+  return String(orderId).padStart(2, '0');
 }
 
 function splitISOToDeliveryFields(iso: string) {
@@ -5002,16 +5002,6 @@ suppressHydrationWarning
                           ))
                         )}
                       </tbody>
-                      <tfoot className="bg-[#0B0B0D] text-[#F5F5F7]">
-                        <tr>
-                          <td className="px-3 py-2 font-semibold" colSpan={3}>
-                            Total general
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold">
-                            {fmtUSD(advisorCalculatedData.facturacion)}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
                 </div>
@@ -5050,16 +5040,6 @@ suppressHydrationWarning
                           ))
                         )}
                       </tbody>
-                      <tfoot className="bg-[#0B0B0D] text-[#F5F5F7]">
-                        <tr>
-                          <td className="px-3 py-2 font-semibold" colSpan={2}>
-                            Total por cobrar
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold">
-                            {fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
                 </div>
@@ -5127,16 +5107,6 @@ suppressHydrationWarning
                           })
                         )}
                       </tbody>
-                      <tfoot className="bg-[#0B0B0D] text-[#F5F5F7]">
-                        <tr>
-                          <td className="px-3 py-2 font-semibold" colSpan={3}>
-                            Total general
-                          </td>
-                          <td className="px-3 py-2 text-right font-semibold">
-                            {advisorCalculatedData.clientesNuevos}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
                 </div>
