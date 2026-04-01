@@ -484,6 +484,9 @@ export async function updateCatalogItemAction(input: {
   isInventoryItem: boolean;
   isTemporary: boolean;
   isComboComponentSelectable: boolean;
+  commissionMode: 'default' | 'fixed_item' | 'fixed_order';
+  commissionValue: number | null;
+  commissionNotes: string | null;
   components: Array<{
     componentProductId: number;
     componentMode: 'fixed' | 'selectable';
@@ -504,8 +507,15 @@ export async function updateCatalogItemAction(input: {
   const unitsPerService = Math.max(0, toSafeNumber(input.unitsPerService, 0));
   const detailUnitsLimit = Math.max(0, toSafeNumber(input.detailUnitsLimit, 0));
 
+  if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
+    throw new Error('Modo de comisión inválido.');
+  }
   if (!['VES', 'USD'].includes(input.sourcePriceCurrency)) {
     throw new Error('Moneda inválida.');
+  }
+
+  if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
+    throw new Error('Modo de comisión inválido.');
   }
 
   const { data: currentProduct, error: productError } = await supabase
@@ -594,6 +604,9 @@ export async function updateCatalogItemAction(input: {
       is_inventory_item: input.isInventoryItem,
       is_temporary: input.isTemporary,
       is_combo_component_selectable: input.isComboComponentSelectable,
+      commission_mode: input.commissionMode,
+      commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
+      commission_notes: input.commissionNotes,
     })
     .eq('id', input.productId)
     .select('id')
@@ -1230,6 +1243,9 @@ export async function createCatalogItemAction(input: {
   isInventoryItem: boolean;
   isTemporary: boolean;
   isComboComponentSelectable: boolean;
+  commissionMode: 'default' | 'fixed_item' | 'fixed_order';
+  commissionValue: number | null;
+  commissionNotes: string | null;
 }) {
   const supabase = await createSupabaseServer();
 
@@ -1309,6 +1325,9 @@ export async function createCatalogItemAction(input: {
       is_inventory_item: input.isInventoryItem,
       is_temporary: input.isTemporary,
       is_combo_component_selectable: input.isComboComponentSelectable,
+      commission_mode: input.commissionMode,
+      commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
+      commission_notes: input.commissionNotes,
     })
     .select('id')
     .single();

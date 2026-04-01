@@ -163,6 +163,9 @@ type RawProductRow = {
   is_inventory_item: boolean;
   is_temporary: boolean;
   is_combo_component_selectable: boolean;
+  commission_mode: 'default' | 'fixed_item' | 'fixed_order' | null;
+  commission_value: number | string | null;
+  commission_notes: string | null;
 };
 
 type RawExchangeRateRow = {
@@ -948,7 +951,10 @@ const { data: ordersData, error: ordersError } = await supabase
       detail_units_limit,
       is_inventory_item,
       is_temporary,
-      is_combo_component_selectable
+      is_combo_component_selectable,
+      commission_mode,
+      commission_value,
+      commission_notes
     `)
     .order('id', { ascending: true });
 
@@ -1028,6 +1034,14 @@ const { data: ordersData, error: ordersError } = await supabase
     isInventoryItem: p.is_inventory_item,
     isTemporary: p.is_temporary,
     isComboComponentSelectable: p.is_combo_component_selectable,
+    commissionMode:
+      p.commission_mode === 'fixed_item'
+        ? ('fixed_item' as const)
+        : p.commission_mode === 'fixed_order'
+          ? ('fixed_order' as const)
+          : ('default' as const),
+    commissionValue: p.commission_value == null ? null : toNumber(p.commission_value, 0),
+    commissionNotes: p.commission_notes ?? null,
   }));
 
 const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])

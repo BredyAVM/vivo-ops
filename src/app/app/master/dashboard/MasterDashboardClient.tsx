@@ -314,6 +314,9 @@ type CatalogItem = {
   isInventoryItem: boolean;
   isTemporary: boolean;
   isComboComponentSelectable: boolean;
+  commissionMode: 'default' | 'fixed_item' | 'fixed_order';
+  commissionValue: number | null;
+  commissionNotes: string | null;
 };
 
 type ProductComponent = {
@@ -1580,6 +1583,9 @@ const [newDetailUnitsLimit, setNewDetailUnitsLimit] = useState('0');
 const [newIsInventoryItem, setNewIsInventoryItem] = useState(true);
 const [newIsTemporary, setNewIsTemporary] = useState(false);
 const [newIsComboComponentSelectable, setNewIsComboComponentSelectable] = useState(false);
+const [newCommissionMode, setNewCommissionMode] = useState<'default' | 'fixed_item' | 'fixed_order'>('default');
+const [newCommissionValue, setNewCommissionValue] = useState('');
+const [newCommissionNotes, setNewCommissionNotes] = useState('');
 
   const [editIsActive, setEditIsActive] = useState(true);
   const [editSourcePriceCurrency, setEditSourcePriceCurrency] = useState<'VES' | 'USD'>('VES');
@@ -1590,6 +1596,9 @@ const [newIsComboComponentSelectable, setNewIsComboComponentSelectable] = useSta
   const [editIsInventoryItem, setEditIsInventoryItem] = useState(true);
   const [editIsTemporary, setEditIsTemporary] = useState(false);
   const [editIsComboComponentSelectable, setEditIsComboComponentSelectable] = useState(false);
+  const [editCommissionMode, setEditCommissionMode] = useState<'default' | 'fixed_item' | 'fixed_order'>('default');
+  const [editCommissionValue, setEditCommissionValue] = useState('');
+  const [editCommissionNotes, setEditCommissionNotes] = useState('');
   const [editComponents, setEditComponents] = useState<EditableComponentRow[]>([]);
 
   useEffect(() => {
@@ -2009,6 +2018,11 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
     setEditIsInventoryItem(selectedCatalogItem.isInventoryItem);
     setEditIsTemporary(selectedCatalogItem.isTemporary);
     setEditIsComboComponentSelectable(selectedCatalogItem.isComboComponentSelectable);
+    setEditCommissionMode(selectedCatalogItem.commissionMode);
+    setEditCommissionValue(
+      selectedCatalogItem.commissionValue == null ? '' : String(selectedCatalogItem.commissionValue)
+    );
+    setEditCommissionNotes(selectedCatalogItem.commissionNotes || '');
 
     setEditComponents(
       selectedCatalogComponents.map((pc, idx) => ({
@@ -2664,6 +2678,14 @@ const handleSaveCatalog = async () => {
       isInventoryItem: editIsInventoryItem,
       isTemporary: editIsTemporary,
       isComboComponentSelectable: editIsComboComponentSelectable,
+      commissionMode: editCommissionMode,
+      commissionValue:
+        editCommissionMode === 'default'
+          ? null
+          : editCommissionValue.trim()
+            ? Number(String(editCommissionValue).trim().replace(',', '.'))
+            : null,
+      commissionNotes: editCommissionNotes.trim() || null,
       components: editComponents.map((row, idx) => ({
         componentProductId: Number(row.componentProductId),
         componentMode: row.componentMode,
@@ -3004,6 +3026,9 @@ const resetCreateCatalogForm = () => {
   setNewIsInventoryItem(true);
   setNewIsTemporary(false);
   setNewIsComboComponentSelectable(false);
+  setNewCommissionMode('default');
+  setNewCommissionValue('');
+  setNewCommissionNotes('');
 };
 
 const handleCreateCatalogItem = async () => {
@@ -3023,6 +3048,14 @@ const handleCreateCatalogItem = async () => {
       isInventoryItem: newIsInventoryItem,
       isTemporary: newIsTemporary,
       isComboComponentSelectable: newIsComboComponentSelectable,
+      commissionMode: newCommissionMode,
+      commissionValue:
+        newCommissionMode === 'default'
+          ? null
+          : newCommissionValue.trim()
+            ? Number(String(newCommissionValue).trim().replace(',', '.'))
+            : null,
+      commissionNotes: newCommissionNotes.trim() || null,
     });
 
     showToast('success', 'Ítem creado.');
@@ -4899,6 +4932,7 @@ suppressHydrationWarning
                       ]}
                     />
                   </div>
+
                 </div>
               </div>
 
@@ -5897,6 +5931,35 @@ suppressHydrationWarning
                       value={editDetailUnitsLimit}
                       onChange={setEditDetailUnitsLimit}
                       type="number"
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión</div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <FieldSelect
+                      label="Regla comisión"
+                      value={editCommissionMode}
+                      onChange={(v) => setEditCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
+                      options={[
+                        { value: 'default', label: 'Default' },
+                        { value: 'fixed_item', label: 'Fija por ítem' },
+                        { value: 'fixed_order', label: 'Fija por orden' },
+                      ]}
+                    />
+                    <FieldInput
+                      label="Valor comisión"
+                      value={editCommissionValue}
+                      onChange={setEditCommissionValue}
+                      type="text"
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <FieldInput
+                      label="Notas comisión"
+                      value={editCommissionNotes}
+                      onChange={setEditCommissionNotes}
                     />
                   </div>
                 </div>
@@ -7305,6 +7368,30 @@ deliveryAssignMode === 'external' ? (
           onChange={setNewDetailUnitsLimit}
           type="number"
         />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <FieldSelect
+          label="Regla comisión"
+          value={newCommissionMode}
+          onChange={(v) => setNewCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
+          options={[
+            { value: 'default', label: 'Default' },
+            { value: 'fixed_item', label: 'Fija por ítem' },
+            { value: 'fixed_order', label: 'Fija por orden' },
+          ]}
+        />
+
+        <FieldInput
+          label="Valor comisión"
+          value={newCommissionValue}
+          onChange={setNewCommissionValue}
+          type="text"
+        />
+      </div>
+
+      <div className="mt-3">
+        <FieldInput label="Notas comisión" value={newCommissionNotes} onChange={setNewCommissionNotes} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
