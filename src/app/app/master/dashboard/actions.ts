@@ -982,15 +982,26 @@ export async function createDeliveryPartnerAction(input: {
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre del partner es obligatorio.');
+  const partnerType =
+    String(input.partnerType || '').trim() === 'direct_driver'
+      ? 'direct_driver'
+      : 'company_dispatch';
 
-  const { error } = await supabase.from('delivery_partners').insert({
-    name,
-    partner_type: String(input.partnerType || '').trim() || 'external',
-    whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
-    is_active: !!input.isActive,
-  });
+  const { data, error } = await supabase
+    .from('delivery_partners')
+    .insert({
+      name,
+      partner_type: partnerType,
+      whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
+      is_active: !!input.isActive,
+    })
+    .select('id')
+    .single();
 
   if (error) throw new Error(error.message);
+  if (!data?.id) {
+    throw new Error('No se pudo crear el partner externo.');
+  }
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1010,18 +1021,27 @@ export async function updateDeliveryPartnerAction(input: {
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre del partner es obligatorio.');
+  const partnerType =
+    String(input.partnerType || '').trim() === 'direct_driver'
+      ? 'direct_driver'
+      : 'company_dispatch';
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('delivery_partners')
     .update({
       name,
-      partner_type: String(input.partnerType || '').trim() || 'external',
+      partner_type: partnerType,
       whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
       is_active: !!input.isActive,
     })
-    .eq('id', partnerId);
+    .eq('id', partnerId)
+    .select('id')
+    .single();
 
   if (error) throw new Error(error.message);
+  if (!data?.id) {
+    throw new Error('No se pudo actualizar el partner externo.');
+  }
   revalidatePath('/app/master/dashboard');
 }
 
