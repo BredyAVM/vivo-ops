@@ -173,6 +173,17 @@ type DeliveryPartnerOption = {
   partnerType: string;
   whatsappPhone: string | null;
   isActive?: boolean;
+  rates: DeliveryPartnerRate[];
+};
+
+type DeliveryPartnerRate = {
+  id: number;
+  partnerId: number;
+  kmFrom: number;
+  kmTo: number | null;
+  priceUsd: number;
+  isActive: boolean;
+  createdAt: string;
 };
 
 type PaymentReportItem = {
@@ -598,6 +609,25 @@ function getOrderDeliveryChargeLabel(order: Order, catalogItemById: Map<number, 
   return deliveryItems
     .map((item) => `${item.productNameSnapshot}${Number(item.qty || 0) > 1 ? ` x${Number(item.qty || 0)}` : ''}`)
     .join(' + ');
+}
+
+function findDeliveryPartnerRate(
+  partner: DeliveryPartnerOption | null | undefined,
+  distanceKm: number
+) {
+  if (!partner || !Number.isFinite(distanceKm) || distanceKm <= 0) return null;
+
+  const activeRates = (partner.rates ?? [])
+    .filter((rate) => rate.isActive)
+    .sort((a, b) => a.kmFrom - b.kmFrom);
+
+  return (
+    activeRates.find(
+      (rate) =>
+        distanceKm >= rate.kmFrom &&
+        (rate.kmTo == null || distanceKm <= rate.kmTo)
+    ) ?? null
+  );
 }
 
 function splitISOToDeliveryFields(iso: string) {
@@ -1595,6 +1625,14 @@ export default function MasterDashboardClient({
   const [deliveryPartnerFormType, setDeliveryPartnerFormType] = useState<'company_dispatch' | 'direct_driver'>('company_dispatch');
   const [deliveryPartnerFormWhatsapp, setDeliveryPartnerFormWhatsapp] = useState('');
   const [deliveryPartnerFormIsActive, setDeliveryPartnerFormIsActive] = useState(true);
+  const [selectedDeliveryPartnerRateId, setSelectedDeliveryPartnerRateId] = useState<number | null>(null);
+  const [deliveryPartnerRateEditOpen, setDeliveryPartnerRateEditOpen] = useState(false);
+  const [deliveryPartnerRateCreateOpen, setDeliveryPartnerRateCreateOpen] = useState(false);
+  const [deliveryPartnerRateSaving, setDeliveryPartnerRateSaving] = useState(false);
+  const [deliveryPartnerRateKmFrom, setDeliveryPartnerRateKmFrom] = useState('');
+  const [deliveryPartnerRateKmTo, setDeliveryPartnerRateKmTo] = useState('');
+  const [deliveryPartnerRatePriceUsd, setDeliveryPartnerRatePriceUsd] = useState('');
+  const [deliveryPartnerRateIsActive, setDeliveryPartnerRateIsActive] = useState(true);
   const [accountSearch, setAccountSearch] = useState('');
   const [accountDateFrom, setAccountDateFrom] = useState('');
   const [accountDateTo, setAccountDateTo] = useState('');
@@ -1726,6 +1764,7 @@ const [deliveryAssignPartnerId, setDeliveryAssignPartnerId] = useState('');
 const [deliveryAssignReference, setDeliveryAssignReference] = useState('');
 const [deliveryAssignDistanceKm, setDeliveryAssignDistanceKm] = useState('');
 const [deliveryAssignCostUsd, setDeliveryAssignCostUsd] = useState('');
+const [deliveryAssignCostManuallyEdited, setDeliveryAssignCostManuallyEdited] = useState(false);
 
 const [paymentReportBoxOpen, setPaymentReportBoxOpen] = useState(false);
 const [paymentReportMoneyAccountId, setPaymentReportMoneyAccountId] = useState('');
@@ -2295,6 +2334,7 @@ const resetDeliveryAssignBox = () => {
   setDeliveryAssignReference('');
   setDeliveryAssignDistanceKm('');
   setDeliveryAssignCostUsd('');
+  setDeliveryAssignCostManuallyEdited(false);
 };
 
 const resetPaymentReportBox = () => {
@@ -3128,8 +3168,31 @@ const handleSaveQuickCatalog = async () => {
     setDeliveryPartnerFormIsActive(true);
   };
 
+  const resetDeliveryPartnerRateForm = () => {
+    setSelectedDeliveryPartnerRateId(null);
+    setDeliveryPartnerRateKmFrom('');
+    setDeliveryPartnerRateKmTo('');
+    setDeliveryPartnerRatePriceUsd('');
+    setDeliveryPartnerRateIsActive(true);
+  };
+
   const normalizeDeliveryPartnerPhone = (raw: string) =>
     String(raw || '').replace(/[^\d+]/g, '');
+
+  const handleDeliveryAssignPartnerChange = (value: string) => {
+    setDeliveryAssignPartnerId(value);
+    setDeliveryAssignCostManuallyEdited(false);
+  };
+
+  const handleDeliveryAssignDistanceChange = (value: string) => {
+    setDeliveryAssignDistanceKm(value);
+    setDeliveryAssignCostManuallyEdited(false);
+  };
+
+  const handleDeliveryAssignCostChange = (value: string) => {
+    setDeliveryAssignCostUsd(value);
+    setDeliveryAssignCostManuallyEdited(true);
+  };
 
   const handleCreateDeliveryPartner = async () => {
     try {
@@ -3228,6 +3291,122 @@ const handleSaveQuickCatalog = async () => {
       router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado del partner.');
+    }
+  };
+
+  const handleCreateDeliveryPartnerRate = async () => {
+    if (!selectedDeliveryPartner) return;
+
+    try {
+      setDeliveryPartnerRateSaving(true);
+
+      const kmFrom = Number(String(deliveryPartnerRateKmFrom || '').replace(',', '.'));
+      const kmToRaw = String(deliveryPartnerRateKmTo || '').trim();
+      const kmTo = kmToRaw ? Number(kmToRaw.replace(',', '.')) : null;
+      const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
+
+      if (!Number.isFinite(kmFrom) || kmFrom < 0) {
+        throw new Error('Km desde inválido.');
+      }
+      if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
+        throw new Error('Km hasta inválido.');
+      }
+      if (!Number.isFinite(priceUsd) || priceUsd < 0) {
+        throw new Error('Tarifa inválida.');
+      }
+
+      const supabase = createSupabaseBrowser();
+      const { data, error } = await supabase
+        .from('delivery_partner_rates')
+        .insert({
+          partner_id: selectedDeliveryPartner.id,
+          km_from: kmFrom,
+          km_to: kmTo,
+          price_usd: priceUsd,
+          is_active: !!deliveryPartnerRateIsActive,
+        })
+        .select('id')
+        .single();
+
+      if (error) throw new Error(error.message);
+      if (!data?.id) throw new Error('No se pudo crear la tarifa.');
+
+      showToast('success', 'Tarifa creada.');
+      setDeliveryPartnerRateCreateOpen(false);
+      resetDeliveryPartnerRateForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo crear la tarifa.');
+    } finally {
+      setDeliveryPartnerRateSaving(false);
+    }
+  };
+
+  const handleUpdateDeliveryPartnerRate = async () => {
+    if (!selectedDeliveryPartnerRate) return;
+
+    try {
+      setDeliveryPartnerRateSaving(true);
+
+      const kmFrom = Number(String(deliveryPartnerRateKmFrom || '').replace(',', '.'));
+      const kmToRaw = String(deliveryPartnerRateKmTo || '').trim();
+      const kmTo = kmToRaw ? Number(kmToRaw.replace(',', '.')) : null;
+      const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
+
+      if (!Number.isFinite(kmFrom) || kmFrom < 0) {
+        throw new Error('Km desde inválido.');
+      }
+      if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
+        throw new Error('Km hasta inválido.');
+      }
+      if (!Number.isFinite(priceUsd) || priceUsd < 0) {
+        throw new Error('Tarifa inválida.');
+      }
+
+      const supabase = createSupabaseBrowser();
+      const { data, error } = await supabase
+        .from('delivery_partner_rates')
+        .update({
+          km_from: kmFrom,
+          km_to: kmTo,
+          price_usd: priceUsd,
+          is_active: !!deliveryPartnerRateIsActive,
+        })
+        .eq('id', selectedDeliveryPartnerRate.id)
+        .select('id')
+        .single();
+
+      if (error) throw new Error(error.message);
+      if (!data?.id) throw new Error('No se pudo actualizar la tarifa.');
+
+      showToast('success', 'Tarifa actualizada.');
+      setDeliveryPartnerRateEditOpen(false);
+      resetDeliveryPartnerRateForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar la tarifa.');
+    } finally {
+      setDeliveryPartnerRateSaving(false);
+    }
+  };
+
+  const handleToggleDeliveryPartnerRateActive = async (rate: DeliveryPartnerRate) => {
+    try {
+      const supabase = createSupabaseBrowser();
+      const { data, error } = await supabase
+        .from('delivery_partner_rates')
+        .update({ is_active: !rate.isActive })
+        .eq('id', rate.id)
+        .select('id')
+        .single();
+
+      if (error) throw new Error(error.message);
+      if (!data?.id) throw new Error('No se pudo cambiar el estado de la tarifa.');
+
+      showToast('success', rate.isActive ? 'Tarifa desactivada.' : 'Tarifa activada.');
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado de la tarifa.');
     }
   };
 
@@ -4063,6 +4242,37 @@ const selectedPaymentReportAccount =
     () => deliveryPartners.find((partner) => partner.id === selectedDeliveryPartnerId) ?? null,
     [deliveryPartners, selectedDeliveryPartnerId]
   );
+
+  const selectedDeliveryPartnerRate = useMemo(
+    () =>
+      selectedDeliveryPartner?.rates.find((rate) => rate.id === selectedDeliveryPartnerRateId) ??
+      null,
+    [selectedDeliveryPartner, selectedDeliveryPartnerRateId]
+  );
+
+  const selectedAssignDeliveryPartner = useMemo(
+    () =>
+      deliveryPartners.find((partner) => partner.id === Number(deliveryAssignPartnerId || 0)) ??
+      null,
+    [deliveryAssignPartnerId, deliveryPartners]
+  );
+
+  const deliveryAssignSuggestedRate = useMemo(() => {
+    const distanceKm = Number(String(deliveryAssignDistanceKm || '').replace(',', '.'));
+    return findDeliveryPartnerRate(selectedAssignDeliveryPartner, distanceKm);
+  }, [deliveryAssignDistanceKm, selectedAssignDeliveryPartner]);
+
+  useEffect(() => {
+    if (deliveryAssignMode !== 'external') return;
+    if (deliveryAssignCostManuallyEdited) return;
+
+    if (deliveryAssignSuggestedRate) {
+      setDeliveryAssignCostUsd(String(deliveryAssignSuggestedRate.priceUsd));
+      return;
+    }
+
+    setDeliveryAssignCostUsd('');
+  }, [deliveryAssignCostManuallyEdited, deliveryAssignMode, deliveryAssignSuggestedRate]);
 
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) ?? null,
@@ -6360,13 +6570,14 @@ suppressHydrationWarning
                             <th className="px-3 py-2 text-left font-medium">Nombre</th>
                             <th className="px-3 py-2 text-left font-medium">Tipo</th>
                             <th className="px-3 py-2 text-left font-medium">WhatsApp</th>
+                            <th className="px-3 py-2 text-left font-medium">Tarifas</th>
                             <th className="px-3 py-2 text-left font-medium">Estado</th>
                           </tr>
                         </thead>
                         <tbody>
                           {deliveryPartners.length === 0 ? (
                             <tr>
-                              <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
+                              <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
                                 Sin partners externos cargados.
                               </td>
                             </tr>
@@ -6383,6 +6594,9 @@ suppressHydrationWarning
                                 <td className="px-3 py-2">{partner.name}</td>
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
                                 <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
+                                <td className="px-3 py-2">
+                                  {(partner.rates ?? []).filter((rate) => rate.isActive).length}
+                                </td>
                                 <td className="px-3 py-2">{partner.isActive ? 'Activo' : 'Inactivo'}</td>
                               </tr>
                             ))
@@ -8203,11 +8417,11 @@ deliveryAssignMode === 'external' ? (
     <div className="mt-2">
       <select
         value={deliveryAssignPartnerId}
-        onChange={(e) => setDeliveryAssignPartnerId(e.target.value)}
+        onChange={(e) => handleDeliveryAssignPartnerChange(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
         <option value="">— seleccionar —</option>
-        {deliveryPartners.map((p) => (
+        {deliveryPartners.filter((p) => p.isActive).map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
           </option>
@@ -8218,16 +8432,30 @@ deliveryAssignMode === 'external' ? (
     <div className="mt-2">
       <input
         value={deliveryAssignDistanceKm}
-        onChange={(e) => setDeliveryAssignDistanceKm(e.target.value)}
+        onChange={(e) => handleDeliveryAssignDistanceChange(e.target.value)}
         placeholder="Distancia en km"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
 
+    <div className="mt-2 rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
+      {deliveryAssignSuggestedRate ? (
+        <>
+          Tarifa sugerida: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(deliveryAssignSuggestedRate.priceUsd)}</span>
+          <span className="ml-1 text-[#8A8A96]">
+            ({deliveryAssignSuggestedRate.kmFrom}
+            {deliveryAssignSuggestedRate.kmTo != null ? ` a ${deliveryAssignSuggestedRate.kmTo}` : '+'} km)
+          </span>
+        </>
+      ) : (
+        'Sin tarifa automática para esa distancia.'
+      )}
+    </div>
+
     <div className="mt-2">
       <input
         value={deliveryAssignCostUsd}
-        onChange={(e) => setDeliveryAssignCostUsd(e.target.value)}
+        onChange={(e) => handleDeliveryAssignCostChange(e.target.value)}
         placeholder="Costo del delivery en USD"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
@@ -9100,6 +9328,86 @@ deliveryAssignMode === 'external' ? (
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '—'} />
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
+                <InfoCell
+                  label="Tarifas activas"
+                  value={String((selectedDeliveryPartner.rates ?? []).filter((rate) => rate.isActive).length)}
+                />
+                <InfoCell
+                  label="Tarifas totales"
+                  value={String((selectedDeliveryPartner.rates ?? []).length)}
+                />
+              </div>
+
+              <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Tarifas por km</div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm"
+                    onClick={() => {
+                      resetDeliveryPartnerRateForm();
+                      setDeliveryPartnerRateCreateOpen(true);
+                    }}
+                  >
+                    Nueva tarifa
+                  </button>
+                </div>
+
+                <div className="mt-3 overflow-x-auto">
+                  {(selectedDeliveryPartner.rates ?? []).length === 0 ? (
+                    <div className="text-sm text-[#B7B7C2]">Sin tarifas cargadas.</div>
+                  ) : (
+                    <table className="w-full text-[12px]">
+                      <thead className="border-b border-[#242433] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-medium">Desde km</th>
+                          <th className="px-2 py-2 text-left font-medium">Hasta km</th>
+                          <th className="px-2 py-2 text-left font-medium">Tarifa</th>
+                          <th className="px-2 py-2 text-left font-medium">Estado</th>
+                          <th className="px-2 py-2 text-right font-medium">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedDeliveryPartner.rates.map((rate, idx) => (
+                          <tr
+                            key={rate.id}
+                            className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                          >
+                            <td className="px-2 py-2">{rate.kmFrom}</td>
+                            <td className="px-2 py-2">{rate.kmTo != null ? rate.kmTo : 'Abierto'}</td>
+                            <td className="px-2 py-2">{fmtUSD(rate.priceUsd)}</td>
+                            <td className="px-2 py-2">{rate.isActive ? 'Activa' : 'Inactiva'}</td>
+                            <td className="px-2 py-2">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px]"
+                                  onClick={() => {
+                                    setSelectedDeliveryPartnerRateId(rate.id);
+                                    setDeliveryPartnerRateKmFrom(String(rate.kmFrom));
+                                    setDeliveryPartnerRateKmTo(rate.kmTo != null ? String(rate.kmTo) : '');
+                                    setDeliveryPartnerRatePriceUsd(String(rate.priceUsd));
+                                    setDeliveryPartnerRateIsActive(Boolean(rate.isActive));
+                                    setDeliveryPartnerRateEditOpen(true);
+                                  }}
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px]"
+                                  onClick={() => handleToggleDeliveryPartnerRateActive(rate)}
+                                >
+                                  {rate.isActive ? 'Desactivar' : 'Activar'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -9195,6 +9503,82 @@ deliveryAssignMode === 'external' ? (
               disabled={deliveryPartnerSaving}
             >
               {deliveryPartnerSaving ? 'Guardando...' : 'Guardar partner'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer
+        open={deliveryPartnerRateCreateOpen}
+        title={selectedDeliveryPartner ? `Nueva tarifa: ${selectedDeliveryPartner.name}` : 'Nueva tarifa'}
+        onClose={() => setDeliveryPartnerRateCreateOpen(false)}
+        widthClass="w-[620px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <FieldInput label="Km desde" value={deliveryPartnerRateKmFrom} onChange={setDeliveryPartnerRateKmFrom} type="text" />
+            <FieldInput label="Km hasta" value={deliveryPartnerRateKmTo} onChange={setDeliveryPartnerRateKmTo} type="text" />
+            <FieldInput label="Tarifa USD" value={deliveryPartnerRatePriceUsd} onChange={setDeliveryPartnerRatePriceUsd} type="text" />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={deliveryPartnerRateIsActive}
+              onChange={(e) => setDeliveryPartnerRateIsActive(e.target.checked)}
+            />
+            Activa
+          </label>
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setDeliveryPartnerRateCreateOpen(false)}
+              disabled={deliveryPartnerRateSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateDeliveryPartnerRate}
+              disabled={deliveryPartnerRateSaving}
+            >
+              {deliveryPartnerRateSaving ? 'Guardando...' : 'Crear tarifa'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer
+        open={deliveryPartnerRateEditOpen}
+        title="Editar tarifa"
+        onClose={() => setDeliveryPartnerRateEditOpen(false)}
+        widthClass="w-[620px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <FieldInput label="Km desde" value={deliveryPartnerRateKmFrom} onChange={setDeliveryPartnerRateKmFrom} type="text" />
+            <FieldInput label="Km hasta" value={deliveryPartnerRateKmTo} onChange={setDeliveryPartnerRateKmTo} type="text" />
+            <FieldInput label="Tarifa USD" value={deliveryPartnerRatePriceUsd} onChange={setDeliveryPartnerRatePriceUsd} type="text" />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={deliveryPartnerRateIsActive}
+              onChange={(e) => setDeliveryPartnerRateIsActive(e.target.checked)}
+            />
+            Activa
+          </label>
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setDeliveryPartnerRateEditOpen(false)}
+              disabled={deliveryPartnerRateSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleUpdateDeliveryPartnerRate}
+              disabled={deliveryPartnerRateSaving}
+            >
+              {deliveryPartnerRateSaving ? 'Guardando...' : 'Guardar tarifa'}
             </button>
           </div>
         </div>

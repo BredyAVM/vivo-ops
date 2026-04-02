@@ -176,6 +176,16 @@ type RawExchangeRateRow = {
   is_active: boolean;
 };
 
+type RawDeliveryPartnerRateRow = {
+  id: number;
+  partner_id: number;
+  km_from: number | string;
+  km_to: number | string | null;
+  price_usd: number | string;
+  is_active: boolean;
+  created_at: string;
+};
+
 type RawAdvisorRow = {
   id: string;
   full_name: string | null;
@@ -324,7 +334,6 @@ if (currentProfileError) {
 const { data: deliveryPartnersData, error: deliveryPartnersError } = await supabase
   .from('delivery_partners')
   .select('id, name, partner_type, whatsapp_phone, is_active')
-  .eq('is_active', true)
   .order('name', { ascending: true });
 
 if (deliveryPartnersError) {
@@ -355,7 +364,67 @@ const deliveryPartnerOptions = ((deliveryPartnersData ?? []) as Array<{
   partnerType: row.partner_type,
   whatsappPhone: row.whatsapp_phone ?? null,
   isActive: row.is_active,
+  rates: [] as Array<{
+    id: number;
+    partnerId: number;
+    kmFrom: number;
+    kmTo: number | null;
+    priceUsd: number;
+    isActive: boolean;
+    createdAt: string;
+  }>,
 }));
+
+const { data: deliveryPartnerRatesData, error: deliveryPartnerRatesError } = await supabase
+  .from('delivery_partner_rates')
+  .select('id, partner_id, km_from, km_to, price_usd, is_active, created_at')
+  .order('partner_id', { ascending: true })
+  .order('km_from', { ascending: true });
+
+if (deliveryPartnerRatesError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando tarifas de delivery</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener las tarifas por partner externo.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {deliveryPartnerRatesError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const partnerRatesById = new Map<number, Array<{
+  id: number;
+  partnerId: number;
+  kmFrom: number;
+  kmTo: number | null;
+  priceUsd: number;
+  isActive: boolean;
+  createdAt: string;
+}>>();
+
+for (const row of (deliveryPartnerRatesData ?? []) as RawDeliveryPartnerRateRow[]) {
+  const partnerId = Number(row.partner_id);
+  const current = partnerRatesById.get(partnerId) ?? [];
+  current.push({
+    id: Number(row.id),
+    partnerId,
+    kmFrom: toNumber(row.km_from, 0),
+    kmTo: row.km_to == null ? null : toNumber(row.km_to, 0),
+    priceUsd: toNumber(row.price_usd, 0),
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+  });
+  partnerRatesById.set(partnerId, current);
+}
+
+for (const partner of deliveryPartnerOptions) {
+  partner.rates = (partnerRatesById.get(partner.id) ?? []).sort((a, b) => a.kmFrom - b.kmFrom);
+}
 
 const deliveryPartnerNameById = new Map<number, string>(
   deliveryPartnerOptions.map((partner) => [partner.id, partner.name])
