@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   approveOrderAction,
   assignExternalPartnerAction,
@@ -25,16 +26,13 @@ import {
   updateExchangeRateAction,
   createCatalogItemAction,
   createClientAction,
-  createDeliveryPartnerAction,
   createOrderClientQuickAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
   toggleMoneyAccountActiveAction,
   deleteCatalogItemAction,
-  toggleDeliveryPartnerActiveAction,
   updateClientAction,
-  updateDeliveryPartnerAction,
   updateMoneyAccountAction,
   createOrderAction,
   updateOrderAction,
@@ -1594,7 +1592,7 @@ export default function MasterDashboardClient({
   const [deliveryPartnerCreateOpen, setDeliveryPartnerCreateOpen] = useState(false);
   const [deliveryPartnerSaving, setDeliveryPartnerSaving] = useState(false);
   const [deliveryPartnerFormName, setDeliveryPartnerFormName] = useState('');
-  const [deliveryPartnerFormType, setDeliveryPartnerFormType] = useState('external');
+  const [deliveryPartnerFormType, setDeliveryPartnerFormType] = useState<'company_dispatch' | 'direct_driver'>('company_dispatch');
   const [deliveryPartnerFormWhatsapp, setDeliveryPartnerFormWhatsapp] = useState('');
   const [deliveryPartnerFormIsActive, setDeliveryPartnerFormIsActive] = useState(true);
   const [accountSearch, setAccountSearch] = useState('');
@@ -3125,20 +3123,40 @@ const handleSaveQuickCatalog = async () => {
 
   const resetDeliveryPartnerForm = () => {
     setDeliveryPartnerFormName('');
-    setDeliveryPartnerFormType('external');
+    setDeliveryPartnerFormType('company_dispatch');
     setDeliveryPartnerFormWhatsapp('');
     setDeliveryPartnerFormIsActive(true);
   };
 
+  const normalizeDeliveryPartnerPhone = (raw: string) =>
+    String(raw || '').replace(/[^\d+]/g, '');
+
   const handleCreateDeliveryPartner = async () => {
     try {
       setDeliveryPartnerSaving(true);
-      await createDeliveryPartnerAction({
-        name: deliveryPartnerFormName,
-        partnerType: deliveryPartnerFormType,
-        whatsappPhone: deliveryPartnerFormWhatsapp,
-        isActive: deliveryPartnerFormIsActive,
-      });
+      const supabase = createSupabaseBrowser();
+      const { data, error } = await supabase
+        .from('delivery_partners')
+        .insert({
+          name: String(deliveryPartnerFormName || '').trim(),
+          partner_type:
+            deliveryPartnerFormType === 'direct_driver'
+              ? 'direct_driver'
+              : 'company_dispatch',
+          whatsapp_phone:
+            normalizeDeliveryPartnerPhone(deliveryPartnerFormWhatsapp) || null,
+          is_active: !!deliveryPartnerFormIsActive,
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      if (!data?.id) {
+        throw new Error('No se pudo crear el partner externo.');
+      }
+
       showToast('success', 'Partner externo creado.');
       setDeliveryPartnerCreateOpen(false);
       resetDeliveryPartnerForm();
@@ -3155,13 +3173,30 @@ const handleSaveQuickCatalog = async () => {
 
     try {
       setDeliveryPartnerSaving(true);
-      await updateDeliveryPartnerAction({
-        partnerId: selectedDeliveryPartner.id,
-        name: deliveryPartnerFormName,
-        partnerType: deliveryPartnerFormType,
-        whatsappPhone: deliveryPartnerFormWhatsapp,
-        isActive: deliveryPartnerFormIsActive,
-      });
+      const supabase = createSupabaseBrowser();
+      const { data, error } = await supabase
+        .from('delivery_partners')
+        .update({
+          name: String(deliveryPartnerFormName || '').trim(),
+          partner_type:
+            deliveryPartnerFormType === 'direct_driver'
+              ? 'direct_driver'
+              : 'company_dispatch',
+          whatsapp_phone:
+            normalizeDeliveryPartnerPhone(deliveryPartnerFormWhatsapp) || null,
+          is_active: !!deliveryPartnerFormIsActive,
+        })
+        .eq('id', selectedDeliveryPartner.id)
+        .select('id')
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      if (!data?.id) {
+        throw new Error('No se pudo actualizar el partner externo.');
+      }
+
       showToast('success', 'Partner externo actualizado.');
       setDeliveryPartnerEditOpen(false);
       router.refresh();
@@ -3174,10 +3209,21 @@ const handleSaveQuickCatalog = async () => {
 
   const handleToggleDeliveryPartnerActive = async (partner: DeliveryPartnerOption) => {
     try {
-      await toggleDeliveryPartnerActiveAction({
-        partnerId: partner.id,
-        nextIsActive: !partner.isActive,
-      });
+      const supabase = createSupabaseBrowser();
+      const { data, error } = await supabase
+        .from('delivery_partners')
+        .update({ is_active: !partner.isActive })
+        .eq('id', partner.id)
+        .select('id')
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      if (!data?.id) {
+        throw new Error('No se pudo cambiar el estado del partner externo.');
+      }
+
       showToast('success', partner.isActive ? 'Partner desactivado.' : 'Partner activado.');
       router.refresh();
     } catch (err) {
@@ -6335,7 +6381,7 @@ suppressHydrationWarning
                                 }}
                               >
                                 <td className="px-3 py-2">{partner.name}</td>
-                                <td className="px-3 py-2">{partner.partnerType || 'external'}</td>
+                                <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
                                 <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
                                 <td className="px-3 py-2">{partner.isActive ? 'Activo' : 'Inactivo'}</td>
                               </tr>
@@ -9017,7 +9063,7 @@ deliveryAssignMode === 'external' ? (
                 <div>
                   <div className="text-lg font-semibold text-[#F5F5F7]">{selectedDeliveryPartner.name}</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Tipo: {selectedDeliveryPartner.partnerType || 'external'}
+                    Tipo: {selectedDeliveryPartner.partnerType || 'company_dispatch'}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -9031,7 +9077,9 @@ deliveryAssignMode === 'external' ? (
                     onClick={() => {
                       setSelectedDeliveryPartnerId(selectedDeliveryPartner.id);
                       setDeliveryPartnerFormName(selectedDeliveryPartner.name);
-                      setDeliveryPartnerFormType(selectedDeliveryPartner.partnerType || 'external');
+                      setDeliveryPartnerFormType(
+                        selectedDeliveryPartner.partnerType === 'direct_driver' ? 'direct_driver' : 'company_dispatch'
+                      );
                       setDeliveryPartnerFormWhatsapp(selectedDeliveryPartner.whatsappPhone || '');
                       setDeliveryPartnerFormIsActive(Boolean(selectedDeliveryPartner.isActive));
                       setDeliveryPartnerEditOpen(true);
@@ -9067,7 +9115,15 @@ deliveryAssignMode === 'external' ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <FieldInput label="Nombre" value={deliveryPartnerFormName} onChange={setDeliveryPartnerFormName} />
-            <FieldInput label="Tipo" value={deliveryPartnerFormType} onChange={setDeliveryPartnerFormType} />
+            <FieldSelect
+              label="Tipo"
+              value={deliveryPartnerFormType}
+              onChange={(value) => setDeliveryPartnerFormType(value as 'company_dispatch' | 'direct_driver')}
+              options={[
+                { value: 'company_dispatch', label: 'company_dispatch' },
+                { value: 'direct_driver', label: 'direct_driver' },
+              ]}
+            />
             <FieldInput label="WhatsApp" value={deliveryPartnerFormWhatsapp} onChange={setDeliveryPartnerFormWhatsapp} />
           </div>
           <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
@@ -9106,7 +9162,15 @@ deliveryAssignMode === 'external' ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <FieldInput label="Nombre" value={deliveryPartnerFormName} onChange={setDeliveryPartnerFormName} />
-            <FieldInput label="Tipo" value={deliveryPartnerFormType} onChange={setDeliveryPartnerFormType} />
+            <FieldSelect
+              label="Tipo"
+              value={deliveryPartnerFormType}
+              onChange={(value) => setDeliveryPartnerFormType(value as 'company_dispatch' | 'direct_driver')}
+              options={[
+                { value: 'company_dispatch', label: 'company_dispatch' },
+                { value: 'direct_driver', label: 'direct_driver' },
+              ]}
+            />
             <FieldInput label="WhatsApp" value={deliveryPartnerFormWhatsapp} onChange={setDeliveryPartnerFormWhatsapp} />
           </div>
           <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
