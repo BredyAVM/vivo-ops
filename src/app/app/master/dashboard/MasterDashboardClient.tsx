@@ -4047,7 +4047,7 @@ const createOrderHasDeliveryAddress =
 const createOrderHasDeliveryChargeItem =
   createOrderFulfillment === 'pickup' ||
   createOrderDraftItems.some((item) => {
-    const product = catalogItemById.get(item.productId);
+    const product = catalogItems.find((catalogItem) => catalogItem.id === item.productId);
     return isDeliveryCatalogItem(product) || String(item.productNameSnapshot || '').trim().toLowerCase().includes('delivery');
   });
 
