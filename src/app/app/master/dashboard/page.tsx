@@ -354,6 +354,7 @@ const deliveryPartnerOptions = ((deliveryPartnersData ?? []) as Array<{
   name: row.name,
   partnerType: row.partner_type,
   whatsappPhone: row.whatsapp_phone ?? null,
+  isActive: row.is_active,
 }));
 
 const deliveryPartnerNameById = new Map<number, string>(

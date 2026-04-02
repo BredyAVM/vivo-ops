@@ -25,13 +25,16 @@ import {
   updateExchangeRateAction,
   createCatalogItemAction,
   createClientAction,
+  createDeliveryPartnerAction,
   createOrderClientQuickAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
   toggleMoneyAccountActiveAction,
   deleteCatalogItemAction,
+  toggleDeliveryPartnerActiveAction,
   updateClientAction,
+  updateDeliveryPartnerAction,
   updateMoneyAccountAction,
   createOrderAction,
   updateOrderAction,
@@ -171,6 +174,7 @@ type DeliveryPartnerOption = {
   name: string;
   partnerType: string;
   whatsappPhone: string | null;
+  isActive?: boolean;
 };
 
 type PaymentReportItem = {
@@ -292,6 +296,7 @@ type ToastState = {
 } | null;
 type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
 type CalculationsTab = 'general' | 'commissions' | 'deliveries';
+type DeliveriesTab = 'overview' | 'internal' | 'external' | 'partners';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
 
 type QuickCatalogPriceRow = {
@@ -573,6 +578,28 @@ function getInternalDeliveryPayUsd(order: Order, catalogItemById: Map<number, Ca
     const payUsd = Number(product?.internalRiderPayUsd || 0);
     return payUsd > 0 ? sum + payUsd * Number(item.qty || 0) : sum;
   }, 0);
+}
+
+function isDeliveryCatalogItem(item: Pick<CatalogItem, 'name' | 'internalRiderPayUsd'> | null | undefined) {
+  if (!item) return false;
+  return Number(item.internalRiderPayUsd || 0) > 0 || String(item.name || '').trim().toLowerCase().includes('delivery');
+}
+
+function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, CatalogItem>) {
+  return (order.draftItems ?? []).filter((item) => {
+    const product = catalogItemById.get(item.productId);
+    if (isDeliveryCatalogItem(product)) return true;
+    return String(item.productNameSnapshot || '').trim().toLowerCase().includes('delivery');
+  });
+}
+
+function getOrderDeliveryChargeLabel(order: Order, catalogItemById: Map<number, CatalogItem>) {
+  const deliveryItems = getOrderDeliveryItems(order, catalogItemById);
+  if (deliveryItems.length === 0) return 'Sin ítem delivery';
+
+  return deliveryItems
+    .map((item) => `${item.productNameSnapshot}${Number(item.qty || 0) > 1 ? ` x${Number(item.qty || 0)}` : ''}`)
+    .join(' + ');
 }
 
 function splitISOToDeliveryFields(iso: string) {
@@ -1553,11 +1580,23 @@ export default function MasterDashboardClient({
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
   const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('general');
+  const [deliveriesTab, setDeliveriesTab] = useState<DeliveriesTab>('overview');
   const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState('');
   const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState('');
   const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>('');
   const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState('');
   const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState('8');
+  const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
+  const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
+  const [selectedDeliveryPartnerId, setSelectedDeliveryPartnerId] = useState<number | null>(null);
+  const [deliveryPartnerDetailOpen, setDeliveryPartnerDetailOpen] = useState(false);
+  const [deliveryPartnerEditOpen, setDeliveryPartnerEditOpen] = useState(false);
+  const [deliveryPartnerCreateOpen, setDeliveryPartnerCreateOpen] = useState(false);
+  const [deliveryPartnerSaving, setDeliveryPartnerSaving] = useState(false);
+  const [deliveryPartnerFormName, setDeliveryPartnerFormName] = useState('');
+  const [deliveryPartnerFormType, setDeliveryPartnerFormType] = useState('external');
+  const [deliveryPartnerFormWhatsapp, setDeliveryPartnerFormWhatsapp] = useState('');
+  const [deliveryPartnerFormIsActive, setDeliveryPartnerFormIsActive] = useState(true);
   const [accountSearch, setAccountSearch] = useState('');
   const [accountDateFrom, setAccountDateFrom] = useState('');
   const [accountDateTo, setAccountDateTo] = useState('');
@@ -3084,6 +3123,68 @@ const handleSaveQuickCatalog = async () => {
     }
   };
 
+  const resetDeliveryPartnerForm = () => {
+    setDeliveryPartnerFormName('');
+    setDeliveryPartnerFormType('external');
+    setDeliveryPartnerFormWhatsapp('');
+    setDeliveryPartnerFormIsActive(true);
+  };
+
+  const handleCreateDeliveryPartner = async () => {
+    try {
+      setDeliveryPartnerSaving(true);
+      await createDeliveryPartnerAction({
+        name: deliveryPartnerFormName,
+        partnerType: deliveryPartnerFormType,
+        whatsappPhone: deliveryPartnerFormWhatsapp,
+        isActive: deliveryPartnerFormIsActive,
+      });
+      showToast('success', 'Partner externo creado.');
+      setDeliveryPartnerCreateOpen(false);
+      resetDeliveryPartnerForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo crear el partner.');
+    } finally {
+      setDeliveryPartnerSaving(false);
+    }
+  };
+
+  const handleUpdateDeliveryPartner = async () => {
+    if (!selectedDeliveryPartner) return;
+
+    try {
+      setDeliveryPartnerSaving(true);
+      await updateDeliveryPartnerAction({
+        partnerId: selectedDeliveryPartner.id,
+        name: deliveryPartnerFormName,
+        partnerType: deliveryPartnerFormType,
+        whatsappPhone: deliveryPartnerFormWhatsapp,
+        isActive: deliveryPartnerFormIsActive,
+      });
+      showToast('success', 'Partner externo actualizado.');
+      setDeliveryPartnerEditOpen(false);
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el partner.');
+    } finally {
+      setDeliveryPartnerSaving(false);
+    }
+  };
+
+  const handleToggleDeliveryPartnerActive = async (partner: DeliveryPartnerOption) => {
+    try {
+      await toggleDeliveryPartnerActiveAction({
+        partnerId: partner.id,
+        nextIsActive: !partner.isActive,
+      });
+      showToast('success', partner.isActive ? 'Partner desactivado.' : 'Partner activado.');
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado del partner.');
+    }
+  };
+
 const resetCreateCatalogForm = () => {
   setNewSku('');
   setNewName('');
@@ -3897,12 +3998,24 @@ const createOrderHasItems = createOrderDraftItems.length > 0;
 const createOrderHasDeliveryAddress =
   createOrderFulfillment === 'pickup' || !!createOrderDeliveryAddress.trim();
 
+const createOrderHasDeliveryChargeItem =
+  createOrderFulfillment === 'pickup' ||
+  createOrderDraftItems.some((item) => {
+    const product = catalogItemById.get(item.productId);
+    return isDeliveryCatalogItem(product) || String(item.productNameSnapshot || '').trim().toLowerCase().includes('delivery');
+  });
+
 const selectedPaymentReportAccount =
   moneyAccounts.filter((a) => a.isActive).find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
 
   const selectedAccount = useMemo(
     () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
     [moneyAccounts, selectedAccountId]
+  );
+
+  const selectedDeliveryPartner = useMemo(
+    () => deliveryPartners.find((partner) => partner.id === selectedDeliveryPartnerId) ?? null,
+    [deliveryPartners, selectedDeliveryPartnerId]
   );
 
   const selectedClient = useMemo(
@@ -4489,6 +4602,7 @@ const selectedPaymentReportAccount =
         mode,
         costUsd: Math.max(0, Number(costUsd || 0)),
         distanceKm,
+        deliveryChargeLabel: getOrderDeliveryChargeLabel(order, catalogItemById),
         internalDriverName,
         externalPartnerName,
         costSource: order.editMeta?.deliveryCostSource || null,
@@ -4574,11 +4688,46 @@ const selectedPaymentReportAccount =
     driverNameById,
   ]);
 
+  const filteredInternalDeliverySummary = useMemo(() => {
+    return deliveryCalculatedData.internalSummary.filter((row) => {
+      if (!deliveryInternalDriverFilter) return true;
+      return row.key === deliveryInternalDriverFilter;
+    });
+  }, [deliveryCalculatedData.internalSummary, deliveryInternalDriverFilter]);
+
+  const filteredExternalDeliverySummary = useMemo(() => {
+    return deliveryCalculatedData.externalSummary.filter((row) => {
+      if (!deliveryExternalPartnerFilter) return true;
+      return row.key === deliveryExternalPartnerFilter;
+    });
+  }, [deliveryCalculatedData.externalSummary, deliveryExternalPartnerFilter]);
+
+  const filteredDeliveryRows = useMemo(() => {
+    return deliveryCalculatedData.rows.filter((row) => {
+      if (deliveriesTab === 'internal' && row.mode !== 'internal') return false;
+      if (deliveriesTab === 'external' && row.mode !== 'external') return false;
+      if (deliveryInternalDriverFilter && row.mode === 'internal') {
+        return (row.order.internalDriverUserId || row.internalDriverName) === deliveryInternalDriverFilter;
+      }
+      if (deliveryExternalPartnerFilter && row.mode === 'external') {
+        return String(row.order.externalPartnerId ?? row.externalPartnerName) === deliveryExternalPartnerFilter;
+      }
+      return true;
+    });
+  }, [
+    deliveredOrders,
+    deliveriesTab,
+    deliveryCalculatedData.rows,
+    deliveryExternalPartnerFilter,
+    deliveryInternalDriverFilter,
+  ]);
+
 const createOrderCanSave =
   createOrderHasValidAdvisor &&
   createOrderHasClient &&
   createOrderHasItems &&
-  createOrderHasDeliveryAddress;
+  createOrderHasDeliveryAddress &&
+  createOrderHasDeliveryChargeItem;
 
 useEffect(() => {
   if (!createOrderConfigOpen) return;
@@ -5720,9 +5869,26 @@ suppressHydrationWarning
                       <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{deliveryCalculatedData.externalCount}</div>
                     </div>
                   </div>
+
+                  <div className="flex gap-2 overflow-x-auto">
+                    <Chip active={deliveriesTab === 'overview'} onClick={() => setDeliveriesTab('overview')}>
+                      Resumen
+                    </Chip>
+                    <Chip active={deliveriesTab === 'internal'} onClick={() => setDeliveriesTab('internal')}>
+                      Internos
+                    </Chip>
+                    <Chip active={deliveriesTab === 'external'} onClick={() => setDeliveriesTab('external')}>
+                      Externos
+                    </Chip>
+                    <Chip active={deliveriesTab === 'partners'} onClick={() => setDeliveriesTab('partners')}>
+                      Partners
+                    </Chip>
+                  </div>
                 </div>
               </div>
 
+              {deliveriesTab === 'overview' ? (
+                <>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <Card title="Total Deliveries" className="p-3">
                   <StatRow label="Total" value={deliveryCalculatedData.totalDeliveries} />
@@ -5845,6 +6011,7 @@ suppressHydrationWarning
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                        <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                         <th className="px-3 py-2 text-left font-medium">Tipo</th>
                         <th className="px-3 py-2 text-left font-medium">Asignación</th>
                         <th className="px-3 py-2 text-right font-medium">Km</th>
@@ -5854,7 +6021,7 @@ suppressHydrationWarning
                     <tbody>
                       {deliveryCalculatedData.rows.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={6}>
+                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
                             Sin deliveries entregados en el período.
                           </td>
                         </tr>
@@ -5863,12 +6030,13 @@ suppressHydrationWarning
                           <tr
                             key={row.order.id}
                             className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
-                          >
-                            <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
-                            <td className="px-3 py-2">{row.order.clientName}</td>
-                            <td className="px-3 py-2">
-                              {row.mode === 'internal'
-                                ? 'Interno'
+                              >
+                                <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
+                                <td className="px-3 py-2">{row.order.clientName}</td>
+                                <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
+                                <td className="px-3 py-2">
+                                  {row.mode === 'internal'
+                                    ? 'Interno'
                                 : row.mode === 'external'
                                   ? 'Externo'
                                   : 'Sin asignar'}
@@ -5892,6 +6060,293 @@ suppressHydrationWarning
                   </table>
                 </div>
               </div>
+                </>
+              ) : null}
+
+              {deliveriesTab === 'internal' ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[260px_180px_180px]">
+                      <FieldSelect
+                        label="Motorizado interno"
+                        value={deliveryInternalDriverFilter}
+                        onChange={setDeliveryInternalDriverFilter}
+                        options={[
+                          { value: '', label: 'Todos los motorizados' },
+                          ...deliveryCalculatedData.internalSummary.map((row) => ({
+                            value: row.key,
+                            label: row.driverName,
+                          })),
+                        ]}
+                      />
+                      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Deliveries</div>
+                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                          {filteredInternalDeliverySummary.reduce((sum, row) => sum + row.deliveries, 0)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Total a pagar</div>
+                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                          {fmtUSD(filteredInternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                      <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación por motorizado</div>
+                        <div className="text-sm font-semibold text-[#FEEF00]">
+                          {fmtUSD(filteredInternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
+                        </div>
+                      </div>
+                      <div className="max-h-[320px] overflow-auto">
+                        <table className="w-full text-[11px]">
+                          <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">Motorizado</th>
+                              <th className="px-3 py-2 text-right font-medium">Deliveries</th>
+                              <th className="px-3 py-2 text-right font-medium">Pago</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredInternalDeliverySummary.length === 0 ? (
+                              <tr>
+                                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                                  Sin resultados para ese motorizado.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredInternalDeliverySummary.map((row, idx) => (
+                                <tr key={row.key} className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}>
+                                  <td className="px-3 py-2">{row.driverName}</td>
+                                  <td className="px-3 py-2 text-right">{row.deliveries}</td>
+                                  <td className="px-3 py-2 text-right">{fmtUSD(row.totalCostUsd)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                      <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Detalle interno</div>
+                        <div className="text-sm font-semibold text-[#FEEF00]">
+                          {filteredDeliveryRows.filter((row) => row.mode === 'internal').length}
+                        </div>
+                      </div>
+                      <div className="max-h-[320px] overflow-auto">
+                        <table className="w-full text-[11px]">
+                          <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
+                              <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
+                              <th className="px-3 py-2 text-right font-medium">Pago</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredDeliveryRows.filter((row) => row.mode === 'internal').length === 0 ? (
+                              <tr>
+                                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
+                                  Sin deliveries internos en el período.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredDeliveryRows.filter((row) => row.mode === 'internal').map((row, idx) => (
+                                <tr key={row.order.id} className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}>
+                                  <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
+                                  <td className="px-3 py-2">{row.order.clientName}</td>
+                                  <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
+                                  <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {deliveriesTab === 'external' ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[260px_180px_180px]">
+                      <FieldSelect
+                        label="Empresa externa"
+                        value={deliveryExternalPartnerFilter}
+                        onChange={setDeliveryExternalPartnerFilter}
+                        options={[
+                          { value: '', label: 'Todas las empresas' },
+                          ...deliveryCalculatedData.externalSummary.map((row) => ({
+                            value: row.key,
+                            label: row.partnerName,
+                          })),
+                        ]}
+                      />
+                      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Deliveries</div>
+                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                          {filteredExternalDeliverySummary.reduce((sum, row) => sum + row.deliveries, 0)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Total a pagar</div>
+                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                          {fmtUSD(filteredExternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                      <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría por empresa</div>
+                        <div className="text-sm font-semibold text-[#FEEF00]">
+                          {fmtUSD(filteredExternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
+                        </div>
+                      </div>
+                      <div className="max-h-[320px] overflow-auto">
+                        <table className="w-full text-[11px]">
+                          <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">Empresa</th>
+                              <th className="px-3 py-2 text-right font-medium">Deliveries</th>
+                              <th className="px-3 py-2 text-right font-medium">Km</th>
+                              <th className="px-3 py-2 text-right font-medium">Costo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredExternalDeliverySummary.length === 0 ? (
+                              <tr>
+                                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
+                                  Sin resultados para esa empresa.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredExternalDeliverySummary.map((row, idx) => (
+                                <tr key={row.key} className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}>
+                                  <td className="px-3 py-2">{row.partnerName}</td>
+                                  <td className="px-3 py-2 text-right">{row.deliveries}</td>
+                                  <td className="px-3 py-2 text-right">{row.totalDistanceKm.toFixed(1)}</td>
+                                  <td className="px-3 py-2 text-right">{fmtUSD(row.totalCostUsd)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                      <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Detalle externo</div>
+                        <div className="text-sm font-semibold text-[#FEEF00]">
+                          {filteredDeliveryRows.filter((row) => row.mode === 'external').length}
+                        </div>
+                      </div>
+                      <div className="max-h-[320px] overflow-auto">
+                        <table className="w-full text-[11px]">
+                          <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
+                              <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
+                              <th className="px-3 py-2 text-right font-medium">Km</th>
+                              <th className="px-3 py-2 text-right font-medium">Costo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredDeliveryRows.filter((row) => row.mode === 'external').length === 0 ? (
+                              <tr>
+                                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
+                                  Sin deliveries externos en el período.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredDeliveryRows.filter((row) => row.mode === 'external').map((row, idx) => (
+                                <tr key={row.order.id} className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}>
+                                  <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
+                                  <td className="px-3 py-2">{row.order.clientName}</td>
+                                  <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
+                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : '—'}</td>
+                                  <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {deliveriesTab === 'partners' ? (
+                <div className="space-y-4">
+                  <div className="flex justify-end">
+                    <Btn
+                      onClick={() => {
+                        resetDeliveryPartnerForm();
+                        setDeliveryPartnerCreateOpen(true);
+                      }}
+                    >
+                      Nuevo partner externo
+                    </Btn>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                    <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Partners externos</div>
+                      <div className="text-sm font-semibold text-[#FEEF00]">{deliveryPartners.length}</div>
+                    </div>
+                    <div className="max-h-[420px] overflow-auto">
+                      <table className="w-full text-[11px]">
+                        <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-medium">Nombre</th>
+                            <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                            <th className="px-3 py-2 text-left font-medium">WhatsApp</th>
+                            <th className="px-3 py-2 text-left font-medium">Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deliveryPartners.length === 0 ? (
+                            <tr>
+                              <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
+                                Sin partners externos cargados.
+                              </td>
+                            </tr>
+                          ) : (
+                            deliveryPartners.map((partner, idx) => (
+                              <tr
+                                key={partner.id}
+                                className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} cursor-pointer border-b border-[#242433] hover:bg-[#191926]`}
+                                onClick={() => {
+                                  setSelectedDeliveryPartnerId(partner.id);
+                                  setDeliveryPartnerDetailOpen(true);
+                                }}
+                              >
+                                <td className="px-3 py-2">{partner.name}</td>
+                                <td className="px-3 py-2">{partner.partnerType || 'external'}</td>
+                                <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
+                                <td className="px-3 py-2">{partner.isActive ? 'Activo' : 'Inactivo'}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -8548,6 +9003,139 @@ deliveryAssignMode === 'external' ? (
         </div>
       </Drawer>
       <Drawer
+        open={deliveryPartnerDetailOpen}
+        title={selectedDeliveryPartner ? `Partner: ${selectedDeliveryPartner.name}` : 'Partner externo'}
+        onClose={() => setDeliveryPartnerDetailOpen(false)}
+        widthClass="w-[720px]"
+      >
+        {!selectedDeliveryPartner ? (
+          <div className="text-sm text-[#B7B7C2]">Sin partner seleccionado.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-semibold text-[#F5F5F7]">{selectedDeliveryPartner.name}</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Tipo: {selectedDeliveryPartner.partnerType || 'external'}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <SmallBadge
+                    label={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'}
+                    tone={selectedDeliveryPartner.isActive ? 'brand' : 'muted'}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                    onClick={() => {
+                      setSelectedDeliveryPartnerId(selectedDeliveryPartner.id);
+                      setDeliveryPartnerFormName(selectedDeliveryPartner.name);
+                      setDeliveryPartnerFormType(selectedDeliveryPartner.partnerType || 'external');
+                      setDeliveryPartnerFormWhatsapp(selectedDeliveryPartner.whatsappPhone || '');
+                      setDeliveryPartnerFormIsActive(Boolean(selectedDeliveryPartner.isActive));
+                      setDeliveryPartnerEditOpen(true);
+                    }}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                    onClick={() => handleToggleDeliveryPartnerActive(selectedDeliveryPartner)}
+                  >
+                    {selectedDeliveryPartner.isActive ? 'Desactivar' : 'Activar'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '—'} />
+                <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={deliveryPartnerCreateOpen}
+        title="Nuevo partner externo"
+        onClose={() => setDeliveryPartnerCreateOpen(false)}
+        widthClass="w-[720px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FieldInput label="Nombre" value={deliveryPartnerFormName} onChange={setDeliveryPartnerFormName} />
+            <FieldInput label="Tipo" value={deliveryPartnerFormType} onChange={setDeliveryPartnerFormType} />
+            <FieldInput label="WhatsApp" value={deliveryPartnerFormWhatsapp} onChange={setDeliveryPartnerFormWhatsapp} />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={deliveryPartnerFormIsActive}
+              onChange={(e) => setDeliveryPartnerFormIsActive(e.target.checked)}
+            />
+            Activo
+          </label>
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setDeliveryPartnerCreateOpen(false)}
+              disabled={deliveryPartnerSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateDeliveryPartner}
+              disabled={deliveryPartnerSaving}
+            >
+              {deliveryPartnerSaving ? 'Guardando...' : 'Crear partner'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={deliveryPartnerEditOpen}
+        title={selectedDeliveryPartner ? `Editar: ${selectedDeliveryPartner.name}` : 'Editar partner externo'}
+        onClose={() => setDeliveryPartnerEditOpen(false)}
+        widthClass="w-[720px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FieldInput label="Nombre" value={deliveryPartnerFormName} onChange={setDeliveryPartnerFormName} />
+            <FieldInput label="Tipo" value={deliveryPartnerFormType} onChange={setDeliveryPartnerFormType} />
+            <FieldInput label="WhatsApp" value={deliveryPartnerFormWhatsapp} onChange={setDeliveryPartnerFormWhatsapp} />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={deliveryPartnerFormIsActive}
+              onChange={(e) => setDeliveryPartnerFormIsActive(e.target.checked)}
+            />
+            Activo
+          </label>
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => setDeliveryPartnerEditOpen(false)}
+              disabled={deliveryPartnerSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleUpdateDeliveryPartner}
+              disabled={deliveryPartnerSaving}
+            >
+              {deliveryPartnerSaving ? 'Guardando...' : 'Guardar partner'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer
         open={clientDetailOpen}
         title={selectedClient ? `Cliente: ${selectedClient.fullName}` : 'Cliente'}
         onClose={() => setClientDetailOpen(false)}
@@ -9985,6 +10573,9 @@ deliveryAssignMode === 'external' ? (
 
       <div className={createOrderHasDeliveryAddress ? 'text-emerald-400' : 'text-red-400'}>
         {createOrderHasDeliveryAddress ? '✅ Entrega válida' : '❌ Falta dirección de delivery'}
+      </div>
+      <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
+        {createOrderHasDeliveryChargeItem ? '✅ Ítem de delivery cargado' : '❌ Falta producto de delivery'}
       </div>
     </div>
 

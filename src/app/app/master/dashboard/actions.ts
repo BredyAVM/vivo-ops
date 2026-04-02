@@ -972,6 +972,79 @@ export async function toggleMoneyAccountActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createDeliveryPartnerAction(input: {
+  name: string;
+  partnerType: string;
+  whatsappPhone: string;
+  isActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre del partner es obligatorio.');
+
+  const { error } = await supabase.from('delivery_partners').insert({
+    name,
+    partner_type: String(input.partnerType || '').trim() || 'external',
+    whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
+    is_active: !!input.isActive,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateDeliveryPartnerAction(input: {
+  partnerId: number;
+  name: string;
+  partnerType: string;
+  whatsappPhone: string;
+  isActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const partnerId = Number(input.partnerId);
+  if (!Number.isFinite(partnerId) || partnerId <= 0) {
+    throw new Error('Partner inválido.');
+  }
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre del partner es obligatorio.');
+
+  const { error } = await supabase
+    .from('delivery_partners')
+    .update({
+      name,
+      partner_type: String(input.partnerType || '').trim() || 'external',
+      whatsapp_phone: normalizePhone(String(input.whatsappPhone || '')) || null,
+      is_active: !!input.isActive,
+    })
+    .eq('id', partnerId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function toggleDeliveryPartnerActiveAction(input: {
+  partnerId: number;
+  nextIsActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const partnerId = Number(input.partnerId);
+  if (!Number.isFinite(partnerId) || partnerId <= 0) {
+    throw new Error('Partner inválido.');
+  }
+
+  const { error } = await supabase
+    .from('delivery_partners')
+    .update({ is_active: !!input.nextIsActive })
+    .eq('id', partnerId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
 function normalizeTagList(input: string[]) {
   return Array.from(
     new Set(
@@ -1037,6 +1110,39 @@ function normalizeRecentAddresses(
     }))
     .filter((row) => row.address_text || row.gps_url)
     .slice(0, 2);
+}
+
+async function assertDeliveryItemForOrder(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  items: Array<{ productId: number; productNameSnapshot?: string | null }>
+) {
+  const productIds = Array.from(
+    new Set(
+      (items ?? [])
+        .map((item) => Number(item.productId))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+
+  if (productIds.length === 0) {
+    throw new Error('Debes agregar un ítem de delivery.');
+  }
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, name, internal_rider_pay_usd')
+    .in('id', productIds);
+
+  if (error) throw new Error(error.message);
+
+  const hasDeliveryItem = (data ?? []).some((product) => {
+    const name = String(product.name || '').trim().toLowerCase();
+    return Number(product.internal_rider_pay_usd || 0) > 0 || name.includes('delivery');
+  });
+
+  if (!hasDeliveryItem) {
+    throw new Error('Una orden delivery debe incluir un producto de delivery.');
+  }
 }
 
 export async function createClientAction(input: {
@@ -1643,6 +1749,10 @@ export async function createOrderAction(input: {
     throw new Error('La dirección es obligatoria para delivery.');
   }
 
+  if (fulfillment === 'delivery') {
+    await assertDeliveryItemForOrder(supabase, input.items);
+  }
+
   const deliveryTime24 = from12hTo24h(
     input.deliveryHour12,
     input.deliveryMinute,
@@ -2069,6 +2179,10 @@ export async function updateOrderAction(input: {
 
   if (fulfillment === 'delivery' && !input.deliveryAddress.trim()) {
     throw new Error('La dirección es obligatoria para delivery.');
+  }
+
+  if (fulfillment === 'delivery') {
+    await assertDeliveryItemForOrder(supabase, input.items);
   }
 
   const { data: currentOrder, error: currentOrderError } = await supabase
