@@ -198,6 +198,9 @@ type OrderEditMeta = {
   receiverPhone: string | null;
   deliveryGpsUrl: string | null;
   deliveryEtaMinutes: number | null;
+  deliveryDistanceKm: number | null;
+  deliveryCostUsd: number | null;
+  deliveryCostSource: string | null;
   paymentMethod: string | null;
   paymentCurrency: 'USD' | 'VES' | null;
   paymentRequiresChange: boolean;
@@ -317,6 +320,7 @@ type CatalogItem = {
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
+  internalRiderPayUsd: number | null;
 };
 
 type ProductComponent = {
@@ -559,6 +563,14 @@ function getOrderDiscountFactor(order: Order) {
 
   const discountPct = order.editMeta.discountEnabled ? Number(order.editMeta.discountPct || 0) : 0;
   return Math.max(0, Math.min(1, 1 - discountPct / 100));
+}
+
+function getInternalDeliveryPayUsd(order: Order, catalogItemById: Map<number, CatalogItem>) {
+  return (order.draftItems ?? []).reduce((sum, item) => {
+    const product = catalogItemById.get(item.productId);
+    const payUsd = Number(product?.internalRiderPayUsd || 0);
+    return payUsd > 0 ? sum + payUsd * Number(item.qty || 0) : sum;
+  }, 0);
 }
 
 function splitISOToDeliveryFields(iso: string) {
@@ -1613,6 +1625,7 @@ const [newIsComboComponentSelectable, setNewIsComboComponentSelectable] = useSta
 const [newCommissionMode, setNewCommissionMode] = useState<'default' | 'fixed_item' | 'fixed_order'>('default');
 const [newCommissionValue, setNewCommissionValue] = useState('');
 const [newCommissionNotes, setNewCommissionNotes] = useState('');
+const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
 
   const [editIsActive, setEditIsActive] = useState(true);
   const [editSourcePriceCurrency, setEditSourcePriceCurrency] = useState<'VES' | 'USD'>('VES');
@@ -1626,6 +1639,7 @@ const [newCommissionNotes, setNewCommissionNotes] = useState('');
   const [editCommissionMode, setEditCommissionMode] = useState<'default' | 'fixed_item' | 'fixed_order'>('default');
   const [editCommissionValue, setEditCommissionValue] = useState('');
   const [editCommissionNotes, setEditCommissionNotes] = useState('');
+  const [editInternalRiderPayUsd, setEditInternalRiderPayUsd] = useState('');
   const [editComponents, setEditComponents] = useState<EditableComponentRow[]>([]);
 
   useEffect(() => {
@@ -1671,6 +1685,8 @@ const [deliveryAssignMode, setDeliveryAssignMode] = useState<null | 'internal' |
 const [deliveryAssignDriverId, setDeliveryAssignDriverId] = useState('');
 const [deliveryAssignPartnerId, setDeliveryAssignPartnerId] = useState('');
 const [deliveryAssignReference, setDeliveryAssignReference] = useState('');
+const [deliveryAssignDistanceKm, setDeliveryAssignDistanceKm] = useState('');
+const [deliveryAssignCostUsd, setDeliveryAssignCostUsd] = useState('');
 
 const [paymentReportBoxOpen, setPaymentReportBoxOpen] = useState(false);
 const [paymentReportMoneyAccountId, setPaymentReportMoneyAccountId] = useState('');
@@ -2050,6 +2066,9 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
       selectedCatalogItem.commissionValue == null ? '' : String(selectedCatalogItem.commissionValue)
     );
     setEditCommissionNotes(selectedCatalogItem.commissionNotes || '');
+    setEditInternalRiderPayUsd(
+      selectedCatalogItem.internalRiderPayUsd == null ? '' : String(selectedCatalogItem.internalRiderPayUsd)
+    );
 
     setEditComponents(
       selectedCatalogComponents.map((pc, idx) => ({
@@ -2235,6 +2254,8 @@ const resetDeliveryAssignBox = () => {
   setDeliveryAssignDriverId('');
   setDeliveryAssignPartnerId('');
   setDeliveryAssignReference('');
+  setDeliveryAssignDistanceKm('');
+  setDeliveryAssignCostUsd('');
 };
 
 const resetPaymentReportBox = () => {
@@ -2294,9 +2315,12 @@ const handleAssignInternal = async (o: Order) => {
       return;
     }
 
+    const inferredCostUsd = getInternalDeliveryPayUsd(o, catalogItemById);
+
     await assignInternalDriverAction({
       orderId: o.id,
       driverUserId: deliveryAssignDriverId,
+      costUsd: inferredCostUsd > 0 ? inferredCostUsd : null,
     });
 
     showToast('success', 'Driver interno asignado.');
@@ -2315,10 +2339,25 @@ const handleAssignExternal = async (o: Order) => {
       return;
     }
 
+    const distanceKm = Number(String(deliveryAssignDistanceKm || '').replace(',', '.'));
+    const costUsd = Number(String(deliveryAssignCostUsd || '').replace(',', '.'));
+
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+      showToast('error', 'Debes indicar la distancia en km.');
+      return;
+    }
+
+    if (!Number.isFinite(costUsd) || costUsd < 0) {
+      showToast('error', 'Debes indicar el costo del delivery.');
+      return;
+    }
+
     await assignExternalPartnerAction({
       orderId: o.id,
       partnerId: Number(deliveryAssignPartnerId),
       reference: deliveryAssignReference.trim() || null,
+      distanceKm,
+      costUsd,
     });
 
     showToast('success', 'Partner externo asignado.');
@@ -2713,6 +2752,9 @@ const handleSaveCatalog = async () => {
             ? Number(String(editCommissionValue).trim().replace(',', '.'))
             : null,
       commissionNotes: editCommissionNotes.trim() || null,
+      internalRiderPayUsd: editInternalRiderPayUsd.trim()
+        ? Number(String(editInternalRiderPayUsd).trim().replace(',', '.'))
+        : null,
       components: editComponents.map((row, idx) => ({
         componentProductId: Number(row.componentProductId),
         componentMode: row.componentMode,
@@ -3056,6 +3098,7 @@ const resetCreateCatalogForm = () => {
   setNewCommissionMode('default');
   setNewCommissionValue('');
   setNewCommissionNotes('');
+  setNewInternalRiderPayUsd('');
 };
 
 const handleCreateCatalogItem = async () => {
@@ -3083,6 +3126,9 @@ const handleCreateCatalogItem = async () => {
             ? Number(String(newCommissionValue).trim().replace(',', '.'))
             : null,
       commissionNotes: newCommissionNotes.trim() || null,
+      internalRiderPayUsd: newInternalRiderPayUsd.trim()
+        ? Number(String(newInternalRiderPayUsd).trim().replace(',', '.'))
+        : null,
     });
 
     showToast('success', 'Ítem creado.');
@@ -6286,6 +6332,12 @@ suppressHydrationWarning
                       type="number"
                     />
                     <FieldInput
+                      label="Pago rider interno ($)"
+                      value={editInternalRiderPayUsd}
+                      onChange={setEditInternalRiderPayUsd}
+                      type="text"
+                    />
+                    <FieldInput
                       label="Límite detalle"
                       value={editDetailUnitsLimit}
                       onChange={setEditDetailUnitsLimit}
@@ -6744,6 +6796,32 @@ onClose={() => {
         </div>
       ) : null}
 
+      {selectedOrder.fulfillment === 'delivery' &&
+      (selectedOrder.editMeta?.deliveryDistanceKm != null || selectedOrder.editMeta?.deliveryCostUsd != null) ? (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+            <div className="text-[10px] text-[#8A8A96]">Distancia</div>
+            <div className="mt-1 text-sm text-[#F5F5F7]">
+              {selectedOrder.editMeta?.deliveryDistanceKm != null
+                ? `${selectedOrder.editMeta.deliveryDistanceKm} km`
+                : '—'}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+            <div className="text-[10px] text-[#8A8A96]">Costo delivery</div>
+            <div className="mt-1 text-sm text-[#F5F5F7]">
+              {selectedOrder.editMeta?.deliveryCostUsd != null
+                ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
+                : '—'}
+            </div>
+            {selectedOrder.editMeta?.deliveryCostSource ? (
+              <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {selectedOrder.fulfillment === 'delivery' ? (
         <>
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
@@ -7100,6 +7178,8 @@ onClick={() => {
         setDeliveryAssignMode('internal');
         setDeliveryAssignPartnerId('');
         setDeliveryAssignReference('');
+        setDeliveryAssignDistanceKm('');
+        setDeliveryAssignCostUsd(String(getInternalDeliveryPayUsd(selectedOrder, catalogItemById) || ''));
       }}
     >
       Asignar interno
@@ -7110,6 +7190,12 @@ onClick={() => {
       onClick={() => {
         setDeliveryAssignMode('external');
         setDeliveryAssignDriverId('');
+        setDeliveryAssignDistanceKm(
+          selectedOrder.editMeta?.deliveryDistanceKm != null ? String(selectedOrder.editMeta.deliveryDistanceKm) : ''
+        );
+        setDeliveryAssignCostUsd(
+          selectedOrder.editMeta?.deliveryCostUsd != null ? String(selectedOrder.editMeta.deliveryCostUsd) : ''
+        );
       }}
     >
       Asignar externo
@@ -7244,6 +7330,10 @@ deliveryAssignMode === 'internal' ? (
       </select>
     </div>
 
+    <div className="mt-2 rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
+      Pago interno aplicado: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(getInternalDeliveryPayUsd(selectedOrder, catalogItemById))}</span>
+    </div>
+
     <div className="mt-2 flex flex-col gap-1.5">
       <button
         className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
@@ -7280,6 +7370,24 @@ deliveryAssignMode === 'external' ? (
           </option>
         ))}
       </select>
+    </div>
+
+    <div className="mt-2">
+      <input
+        value={deliveryAssignDistanceKm}
+        onChange={(e) => setDeliveryAssignDistanceKm(e.target.value)}
+        placeholder="Distancia en km"
+        className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+      />
+    </div>
+
+    <div className="mt-2">
+      <input
+        value={deliveryAssignCostUsd}
+        onChange={(e) => setDeliveryAssignCostUsd(e.target.value)}
+        placeholder="Costo del delivery en USD"
+        className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+      />
     </div>
 
     <div className="mt-2">
@@ -7719,6 +7827,13 @@ deliveryAssignMode === 'external' ? (
           value={newUnitsPerService}
           onChange={setNewUnitsPerService}
           type="number"
+        />
+
+        <FieldInput
+          label="Pago rider interno ($)"
+          value={newInternalRiderPayUsd}
+          onChange={setNewInternalRiderPayUsd}
+          type="text"
         />
 
         <FieldInput
@@ -9709,3 +9824,7 @@ return (
     </div>
   );
 }
+
+
+
+

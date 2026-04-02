@@ -166,6 +166,7 @@ type RawProductRow = {
   commission_mode: 'default' | 'fixed_item' | 'fixed_order' | null;
   commission_value: number | string | null;
   commission_notes: string | null;
+  internal_rider_pay_usd: number | string | null;
 };
 
 type RawExchangeRateRow = {
@@ -954,7 +955,8 @@ const { data: ordersData, error: ordersError } = await supabase
       is_combo_component_selectable,
       commission_mode,
       commission_value,
-      commission_notes
+      commission_notes,
+      internal_rider_pay_usd
     `)
     .order('id', { ascending: true });
 
@@ -1042,6 +1044,7 @@ const { data: ordersData, error: ordersError } = await supabase
           : ('default' as const),
     commissionValue: p.commission_value == null ? null : toNumber(p.commission_value, 0),
     commissionNotes: p.commission_notes ?? null,
+    internalRiderPayUsd: p.internal_rider_pay_usd == null ? null : toNumber(p.internal_rider_pay_usd, 0),
   }));
 
 const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
@@ -1225,6 +1228,18 @@ return {
             : row.eta_minutes != null
               ? toNumber(row.eta_minutes, 0)
               : null,
+        deliveryDistanceKm:
+          row.extra_fields?.delivery?.distance_km != null
+            ? toNumber(row.extra_fields.delivery.distance_km, 0)
+            : null,
+        deliveryCostUsd:
+          row.extra_fields?.delivery?.cost_usd != null
+            ? toNumber(row.extra_fields.delivery.cost_usd, 0)
+            : null,
+        deliveryCostSource:
+          row.extra_fields?.delivery?.cost_source != null
+            ? String(row.extra_fields.delivery.cost_source)
+            : null,
         paymentMethod: row.extra_fields?.payment?.method ?? null,
         paymentCurrency: row.extra_fields?.payment?.currency ?? null,
         paymentRequiresChange: Boolean(row.extra_fields?.payment?.requires_change ?? false),

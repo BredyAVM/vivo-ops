@@ -243,6 +243,7 @@ export async function cancelOrderAction(input: {
 export async function assignInternalDriverAction(input: {
   orderId: number;
   driverUserId: string;
+  costUsd?: number | null;
 }) {
   const { supabase } = await requireMasterOrAdmin();
 
@@ -252,6 +253,39 @@ export async function assignInternalDriverAction(input: {
   });
 
   if (error) throw new Error(error.message);
+
+  const { data: orderRow, error: orderFetchError } = await supabase
+    .from('orders')
+    .select('extra_fields')
+    .eq('id', input.orderId)
+    .single();
+
+  if (orderFetchError) throw new Error(orderFetchError.message);
+
+  const extraFields =
+    orderRow?.extra_fields && typeof orderRow.extra_fields === 'object' && !Array.isArray(orderRow.extra_fields)
+      ? (orderRow.extra_fields as Record<string, unknown>)
+      : {};
+  const currentDelivery =
+    extraFields.delivery && typeof extraFields.delivery === 'object' && !Array.isArray(extraFields.delivery)
+      ? (extraFields.delivery as Record<string, unknown>)
+      : {};
+
+  const { error: snapshotError } = await supabase
+    .from('orders')
+    .update({
+      extra_fields: {
+        ...extraFields,
+        delivery: {
+          ...currentDelivery,
+          cost_usd: input.costUsd != null ? Math.max(0, Number(input.costUsd || 0)) : currentDelivery.cost_usd ?? null,
+          cost_source: 'internal_product',
+        },
+      },
+    })
+    .eq('id', input.orderId);
+
+  if (snapshotError) throw new Error(snapshotError.message);
   revalidatePath('/app/master/dashboard');
 }
 
@@ -259,6 +293,8 @@ export async function assignExternalPartnerAction(input: {
   orderId: number;
   partnerId: number;
   reference: string | null;
+  distanceKm?: number | null;
+  costUsd?: number | null;
 }) {
   const { supabase } = await requireMasterOrAdmin();
 
@@ -269,6 +305,40 @@ export async function assignExternalPartnerAction(input: {
   });
 
   if (error) throw new Error(error.message);
+  const { data: orderRow, error: orderFetchError } = await supabase
+    .from('orders')
+    .select('extra_fields')
+    .eq('id', input.orderId)
+    .single();
+
+  if (orderFetchError) throw new Error(orderFetchError.message);
+
+  const extraFields =
+    orderRow?.extra_fields && typeof orderRow.extra_fields === 'object' && !Array.isArray(orderRow.extra_fields)
+      ? (orderRow.extra_fields as Record<string, unknown>)
+      : {};
+  const currentDelivery =
+    extraFields.delivery && typeof extraFields.delivery === 'object' && !Array.isArray(extraFields.delivery)
+      ? (extraFields.delivery as Record<string, unknown>)
+      : {};
+
+  const { error: snapshotError } = await supabase
+    .from('orders')
+    .update({
+      extra_fields: {
+        ...extraFields,
+        delivery: {
+          ...currentDelivery,
+          distance_km:
+            input.distanceKm != null ? Math.max(0, Number(input.distanceKm || 0)) : currentDelivery.distance_km ?? null,
+          cost_usd: input.costUsd != null ? Math.max(0, Number(input.costUsd || 0)) : currentDelivery.cost_usd ?? null,
+          cost_source: 'external_partner_manual',
+        },
+      },
+    })
+    .eq('id', input.orderId);
+
+  if (snapshotError) throw new Error(snapshotError.message);
   revalidatePath('/app/master/dashboard');
 }
 
@@ -487,6 +557,7 @@ export async function updateCatalogItemAction(input: {
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
+  internalRiderPayUsd: number | null;
   components: Array<{
     componentProductId: number;
     componentMode: 'fixed' | 'selectable';
@@ -506,6 +577,8 @@ export async function updateCatalogItemAction(input: {
   const sourcePriceAmount = toSafeNumber(input.sourcePriceAmount, 0);
   const unitsPerService = Math.max(0, toSafeNumber(input.unitsPerService, 0));
   const detailUnitsLimit = Math.max(0, toSafeNumber(input.detailUnitsLimit, 0));
+  const internalRiderPayUsd =
+    input.internalRiderPayUsd == null ? null : Math.max(0, toSafeNumber(input.internalRiderPayUsd, 0));
 
   if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
     throw new Error('Modo de comisión inválido.');
@@ -607,6 +680,7 @@ export async function updateCatalogItemAction(input: {
       commission_mode: input.commissionMode,
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
+      internal_rider_pay_usd: internalRiderPayUsd,
     })
     .eq('id', input.productId)
     .select('id')
@@ -1246,6 +1320,7 @@ export async function createCatalogItemAction(input: {
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
+  internalRiderPayUsd: number | null;
 }) {
   const supabase = await createSupabaseServer();
 
@@ -1254,6 +1329,8 @@ export async function createCatalogItemAction(input: {
   const sourcePriceAmount = Number(input.sourcePriceAmount || 0);
   const unitsPerService = Number(input.unitsPerService || 0);
   const detailUnitsLimit = Number(input.detailUnitsLimit || 0);
+  const internalRiderPayUsd =
+    input.internalRiderPayUsd == null ? null : Math.max(0, Number(input.internalRiderPayUsd || 0));
 
   if (!sku) throw new Error('El SKU es obligatorio.');
   if (!name) throw new Error('El nombre es obligatorio.');
@@ -1328,6 +1405,7 @@ export async function createCatalogItemAction(input: {
       commission_mode: input.commissionMode,
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
+      internal_rider_pay_usd: internalRiderPayUsd,
     })
     .select('id')
     .single();
