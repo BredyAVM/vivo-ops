@@ -260,6 +260,8 @@ type Order = {
   draftItems: DraftItem[];
   editMeta: OrderEditMeta;
   paymentReports: PaymentReportItem[];
+  internalDriverUserId?: string | null;
+  externalPartnerId?: number | null;
   riderName?: string;
   externalPartner?: string;
 };
@@ -289,7 +291,7 @@ type ToastState = {
   message: string;
 } | null;
 type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
-type CalculationsTab = 'general' | 'commissions';
+type CalculationsTab = 'general' | 'commissions' | 'deliveries';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
 
 type QuickCatalogPriceRow = {
@@ -4079,6 +4081,14 @@ const selectedPaymentReportAccount =
     return new Map(advisors.map((advisor) => [advisor.userId, advisor.fullName]));
   }, [advisors]);
 
+  const driverNameById = useMemo(() => {
+    return new Map(drivers.map((driver) => [driver.id, driver.fullName]));
+  }, [drivers]);
+
+  const deliveryPartnerNameById = useMemo(() => {
+    return new Map(deliveryPartners.map((partner) => [partner.id, partner.name]));
+  }, [deliveryPartners]);
+
   const clientById = useMemo(() => {
     return new Map(clients.map((client) => [client.id, client]));
   }, [clients]);
@@ -4429,6 +4439,139 @@ const selectedPaymentReportAccount =
     advisorCalcRange,
     catalogItemById,
     deliveredOrders,
+  ]);
+
+  const deliveryCalculatedData = useMemo(() => {
+    const { start, end } = advisorCalcRange;
+
+    const filteredDeliveryOrders = deliveredOrders.filter((order) => {
+      if (order.fulfillment !== 'delivery') return false;
+      const deliveryTime = new Date(order.deliveryAtISO).getTime();
+      if (start && deliveryTime < start.getTime()) return false;
+      if (end && deliveryTime > end.getTime()) return false;
+      return true;
+    });
+
+    const rows = filteredDeliveryOrders.map((order) => {
+      const mode =
+        order.externalPartnerId != null || !!order.externalPartner
+          ? ('external' as const)
+          : order.internalDriverUserId || order.riderName
+            ? ('internal' as const)
+            : ('unassigned' as const);
+
+      const internalPayFallback =
+        mode === 'internal' ? getInternalDeliveryPayUsd(order, catalogItemById) : 0;
+      const costUsd =
+        order.editMeta?.deliveryCostUsd != null
+          ? Number(order.editMeta.deliveryCostUsd || 0)
+          : internalPayFallback;
+
+      const distanceKm =
+        order.editMeta?.deliveryDistanceKm != null
+          ? Number(order.editMeta.deliveryDistanceKm || 0)
+          : null;
+
+      const internalDriverName =
+        (order.internalDriverUserId ? driverNameById.get(order.internalDriverUserId) : null) ||
+        order.riderName ||
+        'Sin asignar';
+
+      const externalPartnerName =
+        (order.externalPartnerId != null
+          ? deliveryPartnerNameById.get(order.externalPartnerId)
+          : null) ||
+        order.externalPartner ||
+        'Partner externo';
+
+      return {
+        order,
+        mode,
+        costUsd: Math.max(0, Number(costUsd || 0)),
+        distanceKm,
+        internalDriverName,
+        externalPartnerName,
+        costSource: order.editMeta?.deliveryCostSource || null,
+      };
+    });
+
+    const totalCostUsd = rows.reduce((sum, row) => sum + row.costUsd, 0);
+    const internalRows = rows.filter((row) => row.mode === 'internal');
+    const externalRows = rows.filter((row) => row.mode === 'external');
+
+    const internalSummary = Array.from(
+      internalRows.reduce((map, row) => {
+        const key = row.order.internalDriverUserId || row.internalDriverName;
+        const current = map.get(key) ?? {
+          key,
+          driverName: row.internalDriverName,
+          deliveries: 0,
+          totalCostUsd: 0,
+          orders: [] as typeof internalRows,
+        };
+        current.deliveries += 1;
+        current.totalCostUsd += row.costUsd;
+        current.orders.push(row);
+        map.set(key, current);
+        return map;
+      }, new Map<string, {
+        key: string;
+        driverName: string;
+        deliveries: number;
+        totalCostUsd: number;
+        orders: typeof internalRows;
+      }>())
+    )
+      .map(([, value]) => value)
+      .sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+
+    const externalSummary = Array.from(
+      externalRows.reduce((map, row) => {
+        const key = String(row.order.externalPartnerId ?? row.externalPartnerName);
+        const current = map.get(key) ?? {
+          key,
+          partnerName: row.externalPartnerName,
+          deliveries: 0,
+          totalCostUsd: 0,
+          totalDistanceKm: 0,
+          orders: [] as typeof externalRows,
+        };
+        current.deliveries += 1;
+        current.totalCostUsd += row.costUsd;
+        current.totalDistanceKm += Number(row.distanceKm || 0);
+        current.orders.push(row);
+        map.set(key, current);
+        return map;
+      }, new Map<string, {
+        key: string;
+        partnerName: string;
+        deliveries: number;
+        totalCostUsd: number;
+        totalDistanceKm: number;
+        orders: typeof externalRows;
+      }>())
+    )
+      .map(([, value]) => value)
+      .sort((a, b) => b.totalCostUsd - a.totalCostUsd);
+
+    return {
+      rows,
+      totalDeliveries: rows.length,
+      totalCostUsd,
+      internalCount: internalRows.length,
+      internalCostUsd: internalRows.reduce((sum, row) => sum + row.costUsd, 0),
+      externalCount: externalRows.length,
+      externalCostUsd: externalRows.reduce((sum, row) => sum + row.costUsd, 0),
+      unassignedCount: rows.filter((row) => row.mode === 'unassigned').length,
+      internalSummary,
+      externalSummary,
+    };
+  }, [
+    advisorCalcRange,
+    catalogItemById,
+    deliveredOrders,
+    deliveryPartnerNameById,
+    driverNameById,
   ]);
 
 const createOrderCanSave =
@@ -4878,6 +5021,9 @@ suppressHydrationWarning
         </Chip>
         <Chip active={calculationsTab === 'commissions'} onClick={() => setCalculationsTab('commissions')}>
           Comisiones
+        </Chip>
+        <Chip active={calculationsTab === 'deliveries'} onClick={() => setCalculationsTab('deliveries')}>
+          Deliveries
         </Chip>
       </div>
     </div>
@@ -5543,6 +5689,202 @@ suppressHydrationWarning
                               )}
                             </td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.totalCommissionUsd)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : calculationsTab === 'deliveries' ? (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Control de deliveries</div>
+                    <div className="mt-1 text-sm text-[#B7B7C2]">
+                      Revisa cantidad de deliveries, costo total, liquidación de internos y auditoría de externos.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_180px]">
+                    <FieldInput label="Desde" value={advisorCalcDateFrom} onChange={setAdvisorCalcDateFrom} type="date" />
+                    <FieldInput label="Hasta" value={advisorCalcDateTo} onChange={setAdvisorCalcDateTo} type="date" />
+                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Internos</div>
+                      <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{deliveryCalculatedData.internalCount}</div>
+                    </div>
+                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Externos</div>
+                      <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{deliveryCalculatedData.externalCount}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <Card title="Total Deliveries" className="p-3">
+                  <StatRow label="Total" value={deliveryCalculatedData.totalDeliveries} />
+                  <StatRow label="Costo" value={fmtUSD(deliveryCalculatedData.totalCostUsd)} highlightTone="brand" />
+                </Card>
+
+                <Card title="Internos" className="p-3">
+                  <StatRow label="Deliveries" value={deliveryCalculatedData.internalCount} />
+                  <StatRow label="Pago" value={fmtUSD(deliveryCalculatedData.internalCostUsd)} />
+                </Card>
+
+                <Card title="Externos" className="p-3">
+                  <StatRow label="Deliveries" value={deliveryCalculatedData.externalCount} />
+                  <StatRow label="Costo" value={fmtUSD(deliveryCalculatedData.externalCostUsd)} />
+                </Card>
+
+                <Card title="Sin snapshot" className="p-3">
+                  <StatRow
+                    label="Órdenes"
+                    value={deliveryCalculatedData.rows.filter((row) => row.costUsd <= 0).length}
+                    highlightTone="warn"
+                  />
+                  <StatRow label="Sin asignar" value={deliveryCalculatedData.unassignedCount} highlightTone="warn" />
+                </Card>
+
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                  <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación Internos</div>
+                    <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.internalCostUsd)}</div>
+                  </div>
+                  <div className="max-h-[320px] overflow-auto">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Motorizado</th>
+                          <th className="px-3 py-2 text-right font-medium">Deliveries</th>
+                          <th className="px-3 py-2 text-right font-medium">Pago</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deliveryCalculatedData.internalSummary.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
+                              Sin deliveries internos en el período.
+                            </td>
+                          </tr>
+                        ) : (
+                          deliveryCalculatedData.internalSummary.map((row, idx) => (
+                            <tr
+                              key={row.key}
+                              className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                            >
+                              <td className="px-3 py-2">{row.driverName}</td>
+                              <td className="px-3 py-2 text-right">{row.deliveries}</td>
+                              <td className="px-3 py-2 text-right">{fmtUSD(row.totalCostUsd)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                  <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría Externos</div>
+                    <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.externalCostUsd)}</div>
+                  </div>
+                  <div className="max-h-[320px] overflow-auto">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Empresa</th>
+                          <th className="px-3 py-2 text-right font-medium">Deliveries</th>
+                          <th className="px-3 py-2 text-right font-medium">Km</th>
+                          <th className="px-3 py-2 text-right font-medium">Costo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deliveryCalculatedData.externalSummary.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
+                              Sin deliveries externos en el período.
+                            </td>
+                          </tr>
+                        ) : (
+                          deliveryCalculatedData.externalSummary.map((row, idx) => (
+                            <tr
+                              key={row.key}
+                              className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                            >
+                              <td className="px-3 py-2">{row.partnerName}</td>
+                              <td className="px-3 py-2 text-right">{row.deliveries}</td>
+                              <td className="px-3 py-2 text-right">{row.totalDistanceKm.toFixed(1)}</td>
+                              <td className="px-3 py-2 text-right">{fmtUSD(row.totalCostUsd)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[#242433] bg-[#121218]">
+                <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Detalle de deliveries</div>
+                  <div className="text-sm font-semibold text-[#FEEF00]">{deliveryCalculatedData.totalDeliveries}</div>
+                </div>
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
+                        <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                        <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                        <th className="px-3 py-2 text-left font-medium">Asignación</th>
+                        <th className="px-3 py-2 text-right font-medium">Km</th>
+                        <th className="px-3 py-2 text-right font-medium">Costo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deliveryCalculatedData.rows.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={6}>
+                            Sin deliveries entregados en el período.
+                          </td>
+                        </tr>
+                      ) : (
+                        deliveryCalculatedData.rows.map((row, idx) => (
+                          <tr
+                            key={row.order.id}
+                            className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                          >
+                            <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
+                            <td className="px-3 py-2">{row.order.clientName}</td>
+                            <td className="px-3 py-2">
+                              {row.mode === 'internal'
+                                ? 'Interno'
+                                : row.mode === 'external'
+                                  ? 'Externo'
+                                  : 'Sin asignar'}
+                            </td>
+                            <td className="px-3 py-2 leading-4">
+                              <div className="text-[#F5F5F7]">
+                                {row.mode === 'external' ? row.externalPartnerName : row.internalDriverName}
+                              </div>
+                              {row.costSource ? (
+                                <div className="text-[#8A8A96]">{row.costSource}</div>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                           </tr>
                         ))
                       )}

@@ -356,6 +356,10 @@ const deliveryPartnerOptions = ((deliveryPartnersData ?? []) as Array<{
   whatsappPhone: row.whatsapp_phone ?? null,
 }));
 
+const deliveryPartnerNameById = new Map<number, string>(
+  deliveryPartnerOptions.map((partner) => [partner.id, partner.name])
+);
+
 const { data: advisorsRpcData, error: advisorsRpcError } = await supabase.rpc(
   'get_advisor_profiles'
 );
@@ -1308,13 +1312,18 @@ return {
       },
       draftItems,
       paymentReports,
+      internalDriverUserId: row.internal_driver_user_id ?? null,
+      externalPartnerId: row.external_partner_id ?? null,
       riderName:
         (row.internal_driver_user_id
           ? internalDriverNameById.get(row.internal_driver_user_id)
           : null) ||
         row.external_driver_name ||
         undefined,
-      externalPartner: row.external_partner_id ? `Partner #${row.external_partner_id}` : undefined,
+      externalPartner: row.external_partner_id
+        ? deliveryPartnerNameById.get(Number(row.external_partner_id)) ||
+          `Partner #${row.external_partner_id}`
+        : undefined,
     };
   });
 
