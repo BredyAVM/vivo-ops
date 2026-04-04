@@ -2384,6 +2384,7 @@ export async function updateOrderAction(input: {
     adminPriceOverrideReason: string | null;
     editableDetailLines: string[];
   }>;
+  adminEditReason?: string | null;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
@@ -2428,7 +2429,7 @@ export async function updateOrderAction(input: {
 
   const { data: currentOrder, error: currentOrderError } = await supabase
     .from('orders')
-    .select('id, status')
+    .select('id, status, client_id, attributed_advisor_id, source, fulfillment, delivery_address, receiver_name, receiver_phone, notes, total_usd, total_bs_snapshot, extra_fields')
     .eq('id', orderId)
     .single();
 
@@ -2436,8 +2437,15 @@ export async function updateOrderAction(input: {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
   }
 
-  if (!['created', 'queued'].includes(currentOrder.status)) {
+  const isAdvancedAdminEdit =
+    roles.includes('admin') && !['created', 'queued'].includes(currentOrder.status);
+
+  if (!['created', 'queued'].includes(currentOrder.status) && !roles.includes('admin')) {
     throw new Error('Solo se pueden editar órdenes en estado created o queued.');
+  }
+
+  if (isAdvancedAdminEdit && !String(input.adminEditReason || '').trim()) {
+    throw new Error('Debes indicar el motivo de la modificación administrativa.');
   }
 
   const deliveryTime24 = from12hTo24h(
@@ -2841,6 +2849,57 @@ export async function updateOrderAction(input: {
 
   if (finalizeTotalsError) {
     throw new Error(finalizeTotalsError.message);
+  }
+
+  if (isAdvancedAdminEdit) {
+    const beforeExtraFields =
+      currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object' && !Array.isArray(currentOrder.extra_fields)
+        ? currentOrder.extra_fields
+        : {};
+
+    const { error: createAuditError } = await supabase
+      .from('order_admin_adjustments')
+      .insert({
+        order_id: orderId,
+        order_item_id: null,
+        adjustment_type: 'other',
+        reason: String(input.adminEditReason || '').trim(),
+        notes: null,
+        payload: {
+          kind: 'admin_full_edit',
+          before: {
+            source: currentOrder.source ?? null,
+            fulfillment: currentOrder.fulfillment ?? null,
+            client_id: currentOrder.client_id ?? null,
+            attributed_advisor_id: currentOrder.attributed_advisor_id ?? null,
+            delivery_address: currentOrder.delivery_address ?? null,
+            receiver_name: currentOrder.receiver_name ?? null,
+            receiver_phone: currentOrder.receiver_phone ?? null,
+            notes: currentOrder.notes ?? null,
+            total_usd: Number(currentOrder.total_usd ?? 0),
+            total_bs_snapshot: Number(currentOrder.total_bs_snapshot ?? 0),
+            extra_fields: beforeExtraFields,
+          },
+          after: {
+            source,
+            fulfillment,
+            client_id: clientId,
+            attributed_advisor_id: attributedAdvisorId,
+            delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+            receiver_name: input.receiverName.trim() || null,
+            receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
+            notes: input.note.trim() || null,
+            total_usd: totalUsd,
+            total_bs_snapshot: totalBs,
+            extra_fields: extraFields,
+          },
+        },
+        created_by_user_id: user.id,
+      });
+
+    if (createAuditError) {
+      throw new Error(createAuditError.message);
+    }
   }
 
   revalidatePath('/app/master/dashboard');
