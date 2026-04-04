@@ -391,7 +391,7 @@ const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   cash_count_adjustment: 'Ajuste de caja',
   change_given: 'Cambio entregado',
   expense_payment: 'Pago de gasto',
-  fee_charge: 'ComisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n',
+  fee_charge: 'Comisión',
   order_payment: 'Pago de orden',
   other_income: 'Otro ingreso',
   withdrawal: 'Retiro',
@@ -412,7 +412,7 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   created: 'Creada',
   queued: 'En cola',
   confirmed: 'Enviado a cocina',
-  in_kitchen: 'En preparaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n',
+  in_kitchen: 'En preparación',
   ready: 'Preparada',
   out_for_delivery: 'En camino',
   delivered: 'Entregado / Retirado',
@@ -433,7 +433,7 @@ const fmtBs = (n: number) => {
 };
 
 const fmtRateBs = (n: number) => {
-  if (!Number.isFinite(n)) return 'Bs ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â';
+  if (!Number.isFinite(n)) return 'Bs —';
 
   const fixed = n.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
@@ -534,14 +534,14 @@ const fmtDeliveryTextES = (iso: string) => {
   });
 
   const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
-  return `${cap} ${dd}/${mm} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${time}`;
+  return `${cap} ${dd}/${mm} · ${time}`;
 };
 
 function fmtDateTimeES(iso: string | null) {
-  if (!iso) return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â';
+  if (!iso) return '—';
 
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â';
+  if (Number.isNaN(d.getTime())) return '—';
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -556,7 +556,7 @@ function fmtDateTimeES(iso: string | null) {
 
   const yy = String(year).slice(-2);
 
-  return `${day}/${month}/${yy} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${hour}:${minute} ${ampm}`;
+  return `${day}/${month}/${yy} · ${hour}:${minute} ${ampm}`;
 }
 
 function toDateInputValue(d: Date) {
@@ -619,7 +619,7 @@ function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, Catalo
 
 function getOrderDeliveryChargeLabel(order: Order, catalogItemById: Map<number, CatalogItem>) {
   const deliveryItems = getOrderDeliveryItems(order, catalogItemById);
-  if (deliveryItems.length === 0) return 'Sin ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem delivery';
+  if (deliveryItems.length === 0) return 'Sin ítem delivery';
 
   return deliveryItems
     .map((item) => `${item.productNameSnapshot}${Number(item.qty || 0) > 1 ? ` x${Number(item.qty || 0)}` : ''}`)
@@ -689,15 +689,15 @@ function splitISOToDeliveryFields(iso: string) {
 }
 
 const pillLabel = (f: Fulfillment) => (f === 'delivery' ? 'Delivery' : 'Pickup');
-const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦' : `ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Pendiente: ${fmtUSD(balanceUsd)}`);
+const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado ✅' : `● Pendiente: ${fmtUSD(balanceUsd)}`);
 const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
 
 function splitTwoWordsCompact(full: string) {
   const parts = (full || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â';
+  const first = parts[0] ?? '—';
   const second = parts[1] ?? '';
   const hasMore = parts.length > 2;
-  const line2 = second ? (hasMore ? `${second}ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦` : second) : '';
+  const line2 = second ? (hasMore ? `${second}…` : second) : '';
   return { line1: first, line2 };
 }
 
@@ -720,13 +720,13 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
 
 function getPaymentMethodLabel(method: string) {
   if (method === 'pending') return 'Pendiente';
-  if (method === 'payment_mobile') return 'Pago mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³vil';
+  if (method === 'payment_mobile') return 'Pago móvil';
   if (method === 'transfer') return 'Transferencia';
   if (method === 'cash_usd') return 'Efectivo USD';
   if (method === 'cash_ves') return 'Efectivo Bs';
   if (method === 'zelle') return 'Zelle';
   if (method === 'mixed') return 'Mixto';
-  return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â';
+  return '—';
 }
 
 function getCurrentOperatorLabel(
@@ -736,7 +736,7 @@ function getCurrentOperatorLabel(
   const name = currentUser.fullName?.trim() || currentUser.email || 'Usuario';
 
   if (roles.includes('admin')) return `Admin (${name})`;
-  if (roles.includes('master')) return `MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ster (${name})`;
+  if (roles.includes('master')) return `Máster (${name})`;
 
   return name;
 }
@@ -789,14 +789,14 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   const bs = fmtBs(line.qty * line.priceBs);
   const isDelivery = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
 
-  if (isDelivery) return `ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ${line.qty} ${line.name}: ${bs}`;
+  if (isDelivery) return `▪️ ${line.qty} ${line.name}: ${bs}`;
 
   if (units !== null) {
     const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    return `ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    return `▪️ ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
   }
 
-  return `ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ${line.qty} ${line.name}: ${bs}`;
+  return `▪️ ${line.qty} ${line.name}: ${bs}`;
 }
 
 function buildWhatsAppOrderSummary(order: Order) {
@@ -806,16 +806,16 @@ function buildWhatsAppOrderSummary(order: Order) {
 
   parts.push(`*Resumen de Pedido*`);
   parts.push('');
-  parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *Orden:* ${order.id}`);
-  parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *Asesor:* ${order.advisorName}`);
-  parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *Cliente:* ${order.clientName}`);
+  parts.push(`✅ *Orden:* ${order.id}`);
+  parts.push(`✅ *Asesor:* ${order.advisorName}`);
+  parts.push(`✅ *Cliente:* ${order.clientName}`);
 
   parts.push('');
-  parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *Pedido:*`);
+  parts.push(`✅ *Pedido:*`);
   parts.push('');
 
   if (lines.length === 0) {
-    parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂªÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Sin ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tems cargados`);
+    parts.push(`▪️ Sin ítems cargados`);
   } else {
     for (const line of lines) {
       parts.push(lineTextWhatsAppStyle(line));
@@ -832,16 +832,16 @@ function buildWhatsAppOrderSummary(order: Order) {
   parts.push(`*TOTAL:* ${fmtBs(order.totalBs)} / ${fmtUSD(order.totalUsd)}`);
 
   parts.push('');
-  parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
+  parts.push(`✅ *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
+  parts.push(`✅ *Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
 
   if (order.fulfillment === 'delivery' && order.address?.trim()) {
-    parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n:* ${order.address.trim()}`);
+    parts.push(`✅ *Dirección:* ${order.address.trim()}`);
   }
 
   if (order.notes?.trim()) {
     parts.push('');
-    parts.push(`ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ *Nota:* ${order.notes.trim()}`);
+    parts.push(`✅ *Nota:* ${order.notes.trim()}`);
   }
 
   return parts.join('\n');
@@ -890,7 +890,7 @@ function fmtWeekRangeES(d: Date) {
   const mm1 = String(s.getMonth() + 1).padStart(2, '0');
   const dd2 = String(e.getDate()).padStart(2, '0');
   const mm2 = String(e.getMonth() + 1).padStart(2, '0');
-  return `Semana: Lun ${dd1}/${mm1} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ Dom ${dd2}/${mm2}`;
+  return `Semana: Lun ${dd1}/${mm1} – Dom ${dd2}/${mm2}`;
 }
 
 function withinDay(dISO: string, day: Date) {
@@ -945,12 +945,12 @@ function canMarkDelivered(o: Order) {
 }
 
 function kitchenTooltip(o: Order) {
-  if (o.status === 'created') return 'Pendiente de aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n';
+  if (o.status === 'created') return 'Pendiente de aprobación';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobación';
   if (o.status === 'queued') return 'Listo para enviar a cocina';
   if (o.status === 'cancelled') return 'Pedido cancelado';
   if (o.status === 'delivered') return 'Pedido finalizado';
-  return 'Ya estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ en proceso';
+  return 'Ya está en proceso';
 }
 function riderEnabled(o: Order) {
   return (
@@ -961,16 +961,16 @@ function riderEnabled(o: Order) {
 function riderTooltip(o: Order) {
   if (o.fulfillment === 'pickup') return 'No aplica (PickUp)';
   if (!['confirmed', 'in_kitchen', 'ready'].includes(o.status)) {
-    return 'Solo puedes asignar driver cuando la orden estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ confirmada, en cocina o preparada';
+    return 'Solo puedes asignar driver cuando la orden está confirmada, en cocina o preparada';
   }
   return 'Asignar delivery';
 }
 
 function payIcon(p: PaymentVerify) {
-  if (p === 'pending') return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ';
-  if (p === 'confirmed') return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦';
-  if (p === 'rejected') return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢';
-  return 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â';
+  if (p === 'pending') return '🟠';
+  if (p === 'confirmed') return '✅';
+  if (p === 'rejected') return '❌';
+  return '—';
 }
 function payIconTooltip(p: PaymentVerify) {
   if (p === 'pending') return 'Por confirmar';
@@ -1042,9 +1042,9 @@ function getNextPrimaryActionLabel(o: Order) {
   if (canMarkDelivered(o)) return o.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado';
   if (o.status === 'cancelled') return 'Orden cancelada';
   if (o.status === 'delivered') return 'Ciclo completado';
-  if (o.status === 'created') return 'Pendiente de aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n';
-  return 'Sin acciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n principal';
+  if (o.status === 'created') return 'Pendiente de aprobación';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobación';
+  return 'Sin acción principal';
 }
 
 function ProcessTimeline({ order }: { order: Order }) {
@@ -1148,12 +1148,12 @@ function NextActionCard({
     <div className="rounded-lg border border-[#1D1D28] bg-[#101014] px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] text-[#8A8A96]">PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³xima acciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</div>
+          <div className="text-[10px] text-[#8A8A96]">Próxima acción</div>
           <div className="truncate text-[11px] text-[#F5F5F7]">{label}</div>
         </div>
 
         <div className="shrink-0">
-          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</div>}
+          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acción</div>}
         </div>
       </div>
     </div>
@@ -1184,7 +1184,7 @@ function Drawer({
             className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
             onClick={onClose}
           >
-            ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢
+            ✕
           </button>
         </div>
         <div className="h-[calc(100%-52px)] overflow-y-auto px-4 py-4">{children}</div>
@@ -1236,7 +1236,7 @@ function productCompositionKind(item: CatalogItem | null, sku: string | undefine
     return 'Plato configurable';
   }
   if (components.length > 0) return 'Combo fijo';
-  return 'Sin composiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n';
+  return 'Sin composición';
 }
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -1310,10 +1310,10 @@ function ComponentCard({
     {pc.componentName}
   </div>
   <div className="mt-1 text-xs text-[#8A8A96]">
-    {pc.componentSku ? `${pc.componentSku} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ` : ''}
+    {pc.componentSku ? `${pc.componentSku} · ` : ''}
     {catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService
       ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
-      : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+      : '—'}
   </div>
 </div>
 
@@ -1334,19 +1334,19 @@ function ComponentCard({
             <div className="mt-1 text-[#F5F5F7]">{pc.quantity}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">Cuenta lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite</div>
+            <div className="text-[#8A8A96]">Cuenta límite</div>
             <div className="mt-1 text-[#F5F5F7]">
-              {pc.countsTowardDetailLimit ? 'SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­' : 'No'}
+              {pc.countsTowardDetailLimit ? 'Sí' : 'No'}
             </div>
           </div>
           <div>
             <div className="text-[#8A8A96]">Requerido</div>
-            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­' : 'No'}</div>
+            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'Sí' : 'No'}</div>
           </div>
         </div>
       ) : (
         <div className="mt-3 text-xs text-[#B7B7C2]">
-          OpciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n habilitada para selecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n dentro del lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite del plato.
+          Opción habilitada para selección dentro del límite del plato.
         </div>
       )}
 
@@ -1488,7 +1488,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'unknown',
       label: 'Sin definir',
-      summary: 'Sin informaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n',
+      summary: 'Sin información',
     };
   }
 
@@ -1499,7 +1499,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'mix',
       label: 'Mixto fijo',
-      summary: 'ComposiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n cerrada con cantidades exactas por componente.',
+      summary: 'Composición cerrada con cantidades exactas por componente.',
     };
   }
 
@@ -1509,7 +1509,7 @@ function getCatalogOperationalModel(
         kind: 'configurable_with_fixed',
         label: 'Plato configurable con extras fijos',
         summary:
-          'El cliente puede escoger piezas seleccionables dentro del lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite. AdemÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡s puede incluir componentes fijos u opcionales.',
+          'El cliente puede escoger piezas seleccionables dentro del límite. Además puede incluir componentes fijos u opcionales.',
       };
     }
 
@@ -1517,7 +1517,7 @@ function getCatalogOperationalModel(
       kind: 'configurable',
       label: 'Plato configurable',
       summary:
-        'El cliente puede escoger piezas seleccionables dentro del lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite permitido.',
+        'El cliente puede escoger piezas seleccionables dentro del límite permitido.',
     };
   }
 
@@ -1531,8 +1531,8 @@ function getCatalogOperationalModel(
 
   return {
     kind: 'simple',
-    label: 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem simple',
-    summary: 'Producto sin composiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n cargada.',
+    label: 'Ítem simple',
+    summary: 'Producto sin composición cargada.',
   };
 }
 
@@ -1545,7 +1545,7 @@ function validateCatalogBeforeSave(params: {
   const { item, editIsDetailEditable, editDetailUnitsLimit, editComponents } = params;
 
   if (!item) {
-    return 'Producto invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.';
+    return 'Producto inválido.';
   }
 
   const normalized = editComponents.map((row) => ({
@@ -1556,7 +1556,7 @@ function validateCatalogBeforeSave(params: {
   }));
 
   if (normalized.some((row) => row.componentProductId <= 0)) {
-    return 'Todos los componentes deben tener un producto vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.';
+    return 'Todos los componentes deben tener un producto válido.';
   }
 
   if (normalized.some((row) => row.componentMode === 'fixed' && row.quantity <= 0)) {
@@ -1567,7 +1567,7 @@ function validateCatalogBeforeSave(params: {
   for (const row of normalized) {
     const key = `${row.componentProductId}::${row.componentMode}`;
     if (seen.has(key)) {
-      return 'No repitas el mismo componente con el mismo modo. EdÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­talo en una sola fila.';
+      return 'No repitas el mismo componente con el mismo modo. Edítalo en una sola fila.';
     }
     seen.add(key);
   }
@@ -1580,7 +1580,7 @@ function validateCatalogBeforeSave(params: {
 
     const detailLimit = Number(editDetailUnitsLimit || 0);
     if (detailLimit <= 0) {
-      return 'El lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite de detalle debe ser mayor a 0 para un plato editable.';
+      return 'El límite de detalle debe ser mayor a 0 para un plato editable.';
     }
   }
 
@@ -1934,7 +1934,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 7)
       .map((o) => ({
         id: o.id,
-        label: `${o.id} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${o.clientName}`,
+        label: `${o.id} · ${o.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.deliveryAtISO)}`,
       }));
   }, [orders, search]);
@@ -2007,7 +2007,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
           orderId: o.id,
-          label: `${o.id} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${o.clientName}`,
+          label: `${o.id} · ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2017,7 +2017,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-re-${o.id}`,
           type: 'RE-APROBAR',
           orderId: o.id,
-          label: `${o.id} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${o.clientName}`,
+          label: `${o.id} · ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2027,7 +2027,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-pay-${o.id}`,
           type: 'CONFIRMAR PAGO',
           orderId: o.id,
-          label: `${o.id} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${o.clientName}`,
+          label: `${o.id} · ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2349,7 +2349,7 @@ const handleLogout = async () => {
   try {
     await logoutAction();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cerrando sesiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n.';
+    const message = err instanceof Error ? err.message : 'Error cerrando sesión.';
     showToast('error', message);
   }
 };
@@ -2503,7 +2503,7 @@ const handleApprove = async (o: Order) => {
       return;
     }
 
-    showToast('error', 'Esta orden no requiere aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n.');
+    showToast('error', 'Esta orden no requiere aprobación.');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando la orden.';
     showToast('error', message);
@@ -2522,7 +2522,7 @@ const handleReturn = async (o: Order) => {
       reason: reviewActionNotes.trim(),
     });
 
-    showToast('success', 'Pedido devuelto a revisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n.');
+    showToast('success', 'Pedido devuelto a revisión.');
     resetReviewActionBox();
     router.refresh();
   } catch (err) {
@@ -2548,13 +2548,13 @@ const handleCreatePaymentReport = async (o: Order) => {
     );
 
     if (!selectedAccount) {
-      showToast('error', 'Cuenta invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lida.');
+      showToast('error', 'Cuenta inválida.');
       return;
     }
 
     const reportedAmount = Number(paymentReportAmount || 0);
     if (!Number.isFinite(reportedAmount) || reportedAmount <= 0) {
-      showToast('error', 'Monto invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+      showToast('error', 'Monto inválido.');
       return;
     }
 
@@ -2563,7 +2563,7 @@ const handleCreatePaymentReport = async (o: Order) => {
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(paymentReportExchangeRate || 0);
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-        showToast('error', 'Debes indicar una tasa vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lida para pagos en VES.');
+        showToast('error', 'Debes indicar una tasa válida para pagos en VES.');
         return;
       }
     }
@@ -2590,7 +2590,7 @@ const handleCreatePaymentReport = async (o: Order) => {
 
 const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
   try {
-    const reviewNotes = window.prompt('Notas de confirmaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n (opcional):', '') ?? '';
+    const reviewNotes = window.prompt('Notas de confirmación (opcional):', '') ?? '';
     const today = new Date().toISOString().slice(0, 10);
 
     await confirmPaymentReportAction({
@@ -2603,7 +2603,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       reviewNotes,
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
-      description: `Pago confirmado desde Master Dashboard ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· orden ${o.id} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· reporte ${rp.id}`,
+      description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -2662,7 +2662,7 @@ const handleKitchenTake = async (o: Order) => {
     const etaMinutes = Number(kitchenEtaMinutes || 0);
 
     if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
-      showToast('error', 'ETA invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+      showToast('error', 'ETA inválido.');
       return;
     }
 
@@ -2703,7 +2703,7 @@ const handleOutForDelivery = async (o: Order) => {
       o.fulfillment === 'delivery' &&
       (!Number.isFinite(etaMinutes) || etaMinutes == null || etaMinutes <= 0)
     ) {
-      showToast('error', 'Tiempo estimado invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+      showToast('error', 'Tiempo estimado inválido.');
       return;
     }
 
@@ -2804,18 +2804,18 @@ const handleCancelOrder = async (o: Order) => {
 const handleClearDeliveryAssignment = async (o: Order) => {
   try {
     const notes =
-      window.prompt('Motivo para quitar la asignaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n (opcional):', '') ?? '';
+      window.prompt('Motivo para quitar la asignación (opcional):', '') ?? '';
 
     await clearDeliveryAssignmentAction({
       orderId: o.id,
       notes,
     });
 
-    showToast('success', 'AsignaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n de delivery quitada.');
+    showToast('success', 'Asignación de delivery quitada.');
     router.refresh();
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Error quitando la asignaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n.';
+      err instanceof Error ? err.message : 'Error quitando la asignación.';
     showToast('error', message);
   }
 };
@@ -2842,7 +2842,7 @@ const handleSaveCatalog = async () => {
     );
 
     if (!Number.isFinite(normalizedSourcePriceAmount) || normalizedSourcePriceAmount < 0) {
-      showToast('error', 'El monto fuente no es vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+      showToast('error', 'El monto fuente no es válido.');
       return;
     }
 
@@ -2880,11 +2880,11 @@ const handleSaveCatalog = async () => {
       })),
     });
 
-    showToast('success', 'CatÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo actualizado.');
+    showToast('success', 'Catálogo actualizado.');
     setCatalogEditMode(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error guardando catÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo.';
+    const message = err instanceof Error ? err.message : 'Error guardando catálogo.';
     showToast('error', message);
   } finally {
     setCatalogSaving(false);
@@ -2944,11 +2944,11 @@ const handleSaveQuickCatalog = async () => {
     await updateCatalogPricesQuickAction({
       items: changedItems,
     });
-    showToast('success', `CatÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo actualizado por bloque (${changedItems.length}).`);
+    showToast('success', `Catálogo actualizado por bloque (${changedItems.length}).`);
     setQuickCatalogOpen(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error actualizando precios rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡pidos.';
+    const message = err instanceof Error ? err.message : 'Error actualizando precios rápidos.';
     showToast('error', message);
   } finally {
     setQuickCatalogSaving(false);
@@ -3340,13 +3340,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+        throw new Error('Km desde inválido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+        throw new Error('Km hasta inválido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lida.');
+        throw new Error('Tarifa inválida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -3388,13 +3388,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+        throw new Error('Km desde inválido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+        throw new Error('Km hasta inválido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lida.');
+        throw new Error('Tarifa inválida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -3493,7 +3493,7 @@ const handleCreateCatalogItem = async () => {
         : null,
     });
 
-    showToast('success', 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem creado.');
+    showToast('success', 'Ítem creado.');
     setCreateCatalogOpen(false);
     resetCreateCatalogForm();
     router.refresh();
@@ -3504,7 +3504,7 @@ const handleCreateCatalogItem = async () => {
       setCatalogEditMode(true);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error creando ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem.';
+    const message = err instanceof Error ? err.message : 'Error creando ítem.';
     showToast('error', message);
   } finally {
     setCreateCatalogSaving(false);
@@ -3522,10 +3522,10 @@ const handleToggleCatalogItemActive = async () => {
       nextIsActive,
     });
 
-    showToast('success', nextIsActive ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem activado.' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem desactivado.');
+    showToast('success', nextIsActive ? 'Ítem activado.' : 'Ítem desactivado.');
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cambiando estado del ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem.';
+    const message = err instanceof Error ? err.message : 'Error cambiando estado del ítem.';
     showToast('error', message);
   }
 };
@@ -3534,7 +3534,7 @@ const handleDeleteCatalogItem = async () => {
   if (!selectedCatalogItem) return;
 
   const confirmed = window.confirm(
-    `ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionarÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ si no tiene uso ni dependencias.`
+    `¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionará si no tiene uso ni dependencias.`
   );
 
   if (!confirmed) return;
@@ -3544,12 +3544,12 @@ const handleDeleteCatalogItem = async () => {
       productId: selectedCatalogItem.id,
     });
 
-    showToast('success', 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem eliminado.');
+    showToast('success', 'Ítem eliminado.');
     setCatalogDetailOpen(false);
     setSelectedCatalogItemId(null);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error eliminando ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem.';
+    const message = err instanceof Error ? err.message : 'Error eliminando ítem.';
     showToast('error', message);
   }
 };
@@ -3690,7 +3690,7 @@ const handleCreateOrderClientNow = async () => {
     }
 
     if (!phone) {
-      showToast('error', 'Debes colocar el telÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono del cliente.');
+      showToast('error', 'Debes colocar el teléfono del cliente.');
       return;
     }
 
@@ -3740,7 +3740,7 @@ const handleCreateOrderClientNow = async () => {
     showToast(
       'success',
       quickClient.alreadyExisted
-        ? 'Ese cliente ya existÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a y fue seleccionado.'
+        ? 'Ese cliente ya existía y fue seleccionado.'
         : 'Cliente creado.'
     );
     return;
@@ -3773,7 +3773,7 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
   const product = catalogItems.find((item) => item.id === draftItem.productId);
 
   if (!product) {
-    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem.');
+    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este ítem.');
     return;
   }
 
@@ -4100,11 +4100,11 @@ const handleUpdateOrder = async () => {
 
     const isAdvancedAdminEdit =
       isAdmin &&
-      selectedOrder != null &&
+      !!selectedOrder &&
       !['created', 'queued'].includes(selectedOrder.status);
 
     if (isAdvancedAdminEdit && !adminEditReason.trim()) {
-      showToast('error', 'Debes indicar el motivo de la modificaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n administrativa.');
+      showToast('error', 'Debes indicar el motivo de la modificación administrativa.');
       return;
     }
 
@@ -4168,9 +4168,9 @@ items: createOrderDraftItems.map((item) => ({
   sourcePriceAmount: item.sourcePriceAmount,
   unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
   lineTotalUsd: item.lineTotalUsd,
-  editableDetailLines: item.editableDetailLines,
-  adminPriceOverrideUsd: item.adminPriceOverrideUsd,
-  adminPriceOverrideReason: item.adminPriceOverrideReason,
+      editableDetailLines: item.editableDetailLines,
+      adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+      adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
       adminEditReason: isAdvancedAdminEdit ? adminEditReason.trim() : null,
     });
@@ -4224,7 +4224,7 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
 
   const nextUnitUsd = Number(String(priceAdjustValue || '').replace(',', '.'));
   if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
-    showToast('error', 'El precio ajustado es invÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido.');
+    showToast('error', 'El precio ajustado es inválido.');
     return;
   }
 
@@ -4607,110 +4607,6 @@ const selectedPaymentReportAccount =
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
 
-  const getAdjustmentPresentation = (adjustment: Order['adminAdjustments'][number]) => {
-    const payload = adjustment.payload ?? {};
-    const payloadKind =
-      typeof payload.kind === 'string' && payload.kind.trim()
-        ? payload.kind.trim()
-        : adjustment.adjustmentType;
-
-    if (adjustment.adjustmentType === 'item_price_override' || payloadKind === 'item_price_override') {
-      const deltaUsd = Number(payload.delta_usd ?? 0);
-      const originalUnitUsd = Number(payload.original_unit_price_usd ?? 0);
-      const overrideUnitUsd = Number(payload.override_unit_price_usd ?? 0);
-      const qty = Number(payload.qty ?? 0);
-      const productName =
-        typeof payload.product_name === 'string' && payload.product_name.trim()
-          ? payload.product_name
-          : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem';
-
-      return {
-        filterType: 'item_price_override',
-        title: 'Ajuste de precio',
-        detailPrimary: productName,
-        detailSecondary: `${fmtUSD(originalUnitUsd)} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ ${fmtUSD(overrideUnitUsd)}${qty > 0 ? ` ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· x${qty}` : ''}`,
-        deltaUsd,
-        originalUnitUsd,
-        overrideUnitUsd,
-        qty,
-      };
-    }
-
-    if (payloadKind === 'advisor_change') {
-      const previousAdvisorId =
-        typeof payload.previous_advisor_user_id === 'string'
-          ? payload.previous_advisor_user_id
-          : '';
-      const nextAdvisorId =
-        typeof payload.next_advisor_user_id === 'string'
-          ? payload.next_advisor_user_id
-          : '';
-
-      return {
-        filterType: 'advisor_change',
-        title: 'Cambio de asesor',
-        detailPrimary: `${advisorNameById.get(previousAdvisorId) || 'Sin asesor'} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ ${advisorNameById.get(nextAdvisorId) || 'Sin asesor'}`,
-        detailSecondary: 'CorrecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n administrativa del asesor atribuido.',
-        deltaUsd: 0,
-        originalUnitUsd: 0,
-        overrideUnitUsd: 0,
-        qty: 0,
-      };
-    }
-
-    if (payloadKind === 'client_change') {
-      const previousClientId = Number(payload.previous_client_id ?? 0);
-      const nextClientId = Number(payload.next_client_id ?? 0);
-
-      return {
-        filterType: 'client_change',
-        title: 'Cambio de cliente',
-        detailPrimary: `${clientById.get(previousClientId)?.fullName || 'Sin cliente'} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ ${clientById.get(nextClientId)?.fullName || 'Sin cliente'}`,
-        detailSecondary: 'CorrecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n administrativa del cliente cargado.',
-        deltaUsd: 0,
-        originalUnitUsd: 0,
-        overrideUnitUsd: 0,
-        qty: 0,
-      };
-    }
-
-    if (payloadKind === 'schedule_change') {
-      const previousSchedule =
-        payload.previous_schedule && typeof payload.previous_schedule === 'object'
-          ? (payload.previous_schedule as Record<string, unknown>)
-          : {};
-      const nextSchedule =
-        payload.next_schedule && typeof payload.next_schedule === 'object'
-          ? (payload.next_schedule as Record<string, unknown>)
-          : {};
-
-      const previousLabel = `${String(previousSchedule.date || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${String(previousSchedule.time_12 || previousSchedule.time_24 || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')}`;
-      const nextLabel = `${String(nextSchedule.date || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${String(nextSchedule.time_12 || nextSchedule.time_24 || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')}`;
-
-      return {
-        filterType: 'schedule_change',
-        title: 'Cambio de fecha/hora',
-        detailPrimary: `${previousLabel} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ ${nextLabel}`,
-        detailSecondary: 'CorrecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n administrativa de agenda.',
-        deltaUsd: 0,
-        originalUnitUsd: 0,
-        overrideUnitUsd: 0,
-        qty: 0,
-      };
-    }
-
-    return {
-      filterType: adjustment.adjustmentType || 'other',
-      title: adjustment.adjustmentType || 'Ajuste',
-      detailPrimary: 'Ajuste administrativo',
-      detailSecondary: adjustment.notes || 'Sin detalle adicional.',
-      deltaUsd: 0,
-      originalUnitUsd: 0,
-      overrideUnitUsd: 0,
-      qty: 0,
-    };
-  };
-
   const deliveredOrders = useMemo(
     () => orders.filter((order) => order.status === 'delivered'),
     [orders]
@@ -4728,7 +4624,7 @@ const selectedPaymentReportAccount =
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
-              : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem';
+              : 'Ítem';
 
           return {
             id: adjustment.id,
@@ -5416,6 +5312,7 @@ const resetCreateOrderForm = () => {
   setCreateOrderDeliveryNoteDocumentId('');
   setCreateOrderDeliveryNoteAddress('');
   setCreateOrderDeliveryNotePhone('');
+  setAdminEditReason('');
 };
 
 useEffect(() => {
@@ -5619,14 +5516,14 @@ useEffect(() => {
     <button
       className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-left"
       onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
-      title="Seleccionar dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a"
+      title="Seleccionar día"
       type="button"
     >
       <div className="text-sm font-medium">
         {isMounted && selectedDay ? fmtDeliveryTextES(selectedDay.toISOString()) : 'Cargando fecha...'}
       </div>
       <div className="text-xs text-[#B7B7C2]">
-        {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+        {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : '—'}
       </div>
     </button>
   </div>
@@ -5642,7 +5539,7 @@ suppressHydrationWarning
   >
     <div className="text-xs text-[#B7B7C2]">Tasa</div>
     <div className="text-sm font-medium text-[#F5F5F7]">
-      {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+      {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
     </div>
   </div>
 </div>
@@ -5659,7 +5556,7 @@ suppressHydrationWarning
       ].join(' ')}
       onClick={() => setViewMode('operations')}
     >
-      OperaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+      Operación
     </button>
 
     <button
@@ -5671,7 +5568,7 @@ suppressHydrationWarning
       ].join(' ')}
       onClick={() => setViewMode('settings')}
     >
-      ConfiguraciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+      Configuración
     </button>
 
     {isAdmin ? (
@@ -5684,7 +5581,7 @@ suppressHydrationWarning
         ].join(' ')}
         onClick={() => setViewMode('calculations')}
       >
-        CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lculos
+        Cálculos
       </button>
     ) : null}
 
@@ -5693,7 +5590,7 @@ suppressHydrationWarning
       onClick={() => setNotifOpen(true)}
       title="Notificaciones"
     >
-      ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Notificaciones ({notifications.length})
+      🔔 Notificaciones ({notifications.length})
     </button>
   </div>
 
@@ -5706,7 +5603,7 @@ suppressHydrationWarning
 
       <div className="mt-0.5 text-xs text-[#B7B7C2]">
         {roles.length > 0
-          ? ` ${roles.map((r) => r.toUpperCase()).join(' ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ')}`
+          ? ` ${roles.map((r) => r.toUpperCase()).join(' · ')}`
           : 'Sin roles'}
       </div>
     </div>
@@ -5715,7 +5612,7 @@ suppressHydrationWarning
       className="shrink-0 rounded-xl border border-red-500/40 bg-[#0B0B0D] px-2 py-2.5 text-xs text-red-400"
       onClick={handleLogout}
       type="button"
-      title="Cerrar sesiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
+      title="Cerrar sesión"
     >
       Salir
     </button>
@@ -5734,7 +5631,7 @@ suppressHydrationWarning
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
         <Chip active={settingsTab === 'catalog'} onClick={() => setSettingsTab('catalog')}>
-          CatÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo
+          Catálogo
         </Chip>
         <Chip active={settingsTab === 'exchange_rate'} onClick={() => setSettingsTab('exchange_rate')}>
           Tasa
@@ -5777,16 +5674,16 @@ suppressHydrationWarning
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           <div className="grid grid-cols-12 gap-4">
-            <Card title="Estado del dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Estado del día" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={dayStats.cierres} />
-              <StatRow label="FacturaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={fmtUSD(dayStats.fact)} />
+              <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
             </Card>
 
             <Card title="Estado de la semana" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={weekStats.cierres} />
-              <StatRow label="FacturaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={fmtUSD(weekStats.fact)} />
+              <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
@@ -5829,7 +5726,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡s ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¾
+                    Ver más ▾
                   </button>
                 </div>
               </div>
@@ -5841,7 +5738,7 @@ suppressHydrationWarning
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por #orden o clienteÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦"
+                placeholder="Buscar por #orden o cliente…"
                 className="w-full rounded-2xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               {searchResults.length > 0 ? (
@@ -5865,13 +5762,13 @@ suppressHydrationWarning
 
 <div className="flex flex-wrap gap-2">
   <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-  <Btn onClick={() => showToast('error', 'Editar pedido por nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºmero aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºn estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ en demo.')}>
+  <Btn onClick={() => showToast('error', 'Editar pedido por número aún está en demo.')}>
     Editar pedido
   </Btn>
-  <Btn onClick={() => showToast('error', 'Registrar pago por nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºmero aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºn estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ en demo.')}>
+  <Btn onClick={() => showToast('error', 'Registrar pago por número aún está en demo.')}>
     Registrar pago
   </Btn>
-  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºn estÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ en demo.')}>
+  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aún está en demo.')}>
     Confirmar pagos
   </Btn>
   <Btn onClick={() => setMovementOpen(true)}>Movimiento</Btn>
@@ -5881,7 +5778,7 @@ suppressHydrationWarning
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             <Chip active={tray === 'all'} onClick={() => setTray('all')}>Todos</Chip>
             <Chip active={tray === 'pending_created'} onClick={() => setTray('pending_created')}>Pendientes</Chip>
-            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</Chip>
+            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobación</Chip>
             <Chip active={tray === 'queued'} onClick={() => setTray('queued')}>En cola</Chip>
             <Chip active={tray === 'kitchen'} onClick={() => setTray('kitchen')}>Cocina</Chip>
             <Chip active={tray === 'delivery'} onClick={() => setTray('delivery')}>Delivery</Chip>
@@ -5914,7 +5811,7 @@ suppressHydrationWarning
                   {tableOrders.length === 0 ? (
                     <tr>
                       <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={14}>
-                        Sin pedidos para este dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a/filtro.
+                        Sin pedidos para este día/filtro.
                       </td>
                     </tr>
                   ) : (
@@ -5934,7 +5831,7 @@ suppressHydrationWarning
 
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â');
+                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '—');
 
                       return (
                         <tr
@@ -5978,7 +5875,7 @@ suppressHydrationWarning
                                 </span>
                               </div>
                             ) : (
-                              <div className="mt-1 text-[#8A8A96]">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â</div>
+                              <div className="mt-1 text-[#8A8A96]">—</div>
                             )}
                           </td>
                           <td className="px-2 py-2 leading-4">
@@ -5987,10 +5884,10 @@ suppressHydrationWarning
                           </td>
                           <td className="px-2 py-2">{deliveryLabel}</td>
                           <td className="px-2 py-2" title={o.fulfillment === 'delivery' ? (o.address || '') : ''}>
-                            {o.fulfillment === 'delivery' && (o.address?.trim() ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â')}
+                            {o.fulfillment === 'delivery' && (o.address?.trim() ? '📍' : '—')}
                           </td>
                           <td className="px-2 py-2" title={o.notes?.trim() ? o.notes : ''}>
-                            {o.notes?.trim() ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                            {o.notes?.trim() ? '📝' : '—'}
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -6039,9 +5936,9 @@ suppressHydrationWarning
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[#F5F5F7]">AnÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lisis de asesores</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Análisis de asesores</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cierres, facturaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
+                      Revisa cierres, facturación, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
                     </div>
                   </div>
 
@@ -6089,11 +5986,11 @@ suppressHydrationWarning
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <Card title="Resumen General" className="p-3">
-                  <StatRow label="FacturaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={fmtUSD(advisorCalculatedData.facturacion)} />
+                  <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
-                  <StatRow label="ComisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
-                  <StatRow label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œrdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
+                  <StatRow label="Comisión estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
                 <Card title="Pagos" className="p-3">
@@ -6110,12 +6007,12 @@ suppressHydrationWarning
 
                 <Card title="Pagos Pendientes" className="p-3">
                   <StatRow label="Total" value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)} highlightTone="warn" />
-                  <StatRow label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œrdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
                 </Card>
 
-                <Card title="PerÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                   <StatRow
                     label="Asesor"
                     value={
@@ -6148,7 +6045,7 @@ suppressHydrationWarning
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">FacturaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación</div>
                     <div className="text-sm font-semibold text-emerald-400">{fmtUSD(advisorCalculatedData.facturacion)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">
@@ -6158,7 +6055,7 @@ suppressHydrationWarning
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
                           <th className="px-3 py-2 text-left font-medium">Origen</th>
-                          <th className="px-3 py-2 text-right font-medium">ComisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</th>
+                          <th className="px-3 py-2 text-right font-medium">Comisión</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                         </tr>
                       </thead>
@@ -6166,7 +6063,7 @@ suppressHydrationWarning
                         {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                              Sin cierres entregados en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                              Sin cierres entregados en el período.
                             </td>
                           </tr>
                         ) : (
@@ -6269,7 +6166,7 @@ suppressHydrationWarning
                         {advisorCalculatedData.newClientOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin clientes nuevos en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                              Sin clientes nuevos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -6447,7 +6344,7 @@ suppressHydrationWarning
                   <div>
                     <div className="text-sm font-semibold text-[#F5F5F7]">Control de deliveries</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cantidad de deliveries, costo total, liquidaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n de internos y auditorÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a de externos.
+                      Revisa cantidad de deliveries, costo total, liquidación de internos y auditoría de externos.
                     </div>
                   </div>
 
@@ -6501,23 +6398,23 @@ suppressHydrationWarning
 
                 <Card title="Sin snapshot" className="p-3">
                   <StatRow
-                    label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œrdenes"
+                    label="Órdenes"
                     value={deliveryCalculatedData.rows.filter((row) => row.costUsd <= 0).length}
                     highlightTone="warn"
                   />
                   <StatRow label="Sin asignar" value={deliveryCalculatedData.unassignedCount} highlightTone="warn" />
                 </Card>
 
-                <Card title="PerÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n Internos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación Internos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.internalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -6533,7 +6430,7 @@ suppressHydrationWarning
                         {deliveryCalculatedData.internalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
-                              Sin deliveries internos en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                              Sin deliveries internos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -6555,7 +6452,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a Externos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría Externos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.externalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -6572,7 +6469,7 @@ suppressHydrationWarning
                         {deliveryCalculatedData.externalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin deliveries externos en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                              Sin deliveries externos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -6605,9 +6502,9 @@ suppressHydrationWarning
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-3 py-2 text-left font-medium">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem delivery</th>
+                        <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                         <th className="px-3 py-2 text-left font-medium">Tipo</th>
-                        <th className="px-3 py-2 text-left font-medium">AsignaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</th>
+                        <th className="px-3 py-2 text-left font-medium">Asignación</th>
                         <th className="px-3 py-2 text-right font-medium">Km</th>
                         <th className="px-3 py-2 text-right font-medium">Costo</th>
                       </tr>
@@ -6616,7 +6513,7 @@ suppressHydrationWarning
                       {deliveryCalculatedData.rows.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
-                            Sin deliveries entregados en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                            Sin deliveries entregados en el período.
                           </td>
                         </tr>
                       ) : (
@@ -6644,7 +6541,7 @@ suppressHydrationWarning
                               ) : null}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : '—'}
                             </td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                           </tr>
@@ -6691,7 +6588,7 @@ suppressHydrationWarning
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n por motorizado</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación por motorizado</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredInternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -6739,7 +6636,7 @@ suppressHydrationWarning
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Pago</th>
                             </tr>
                           </thead>
@@ -6747,7 +6644,7 @@ suppressHydrationWarning
                             {filteredDeliveryRows.filter((row) => row.mode === 'internal').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                                  Sin deliveries internos en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                                  Sin deliveries internos en el período.
                                 </td>
                               </tr>
                             ) : (
@@ -6802,7 +6699,7 @@ suppressHydrationWarning
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a por empresa</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría por empresa</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredExternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -6852,7 +6749,7 @@ suppressHydrationWarning
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Km</th>
                               <th className="px-3 py-2 text-right font-medium">Costo</th>
                             </tr>
@@ -6861,7 +6758,7 @@ suppressHydrationWarning
                             {filteredDeliveryRows.filter((row) => row.mode === 'external').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                                  Sin deliveries externos en el perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo.
+                                  Sin deliveries externos en el período.
                                 </td>
                               </tr>
                             ) : (
@@ -6870,7 +6767,7 @@ suppressHydrationWarning
                                   <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
                                   <td className="px-3 py-2">{row.order.clientName}</td>
                                   <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
-                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
+                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : '—'}</td>
                                   <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                                 </tr>
                               ))
@@ -6931,7 +6828,7 @@ suppressHydrationWarning
                               >
                                 <td className="px-3 py-2">{partner.name}</td>
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
-                                <td className="px-3 py-2">{partner.whatsappPhone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
+                                <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
                                 <td className="px-3 py-2">
                                   {(partner.rates ?? []).filter((rate) => rate.isActive).length}
                                 </td>
@@ -6959,7 +6856,7 @@ suppressHydrationWarning
     <input
       value={catalogSearch}
       onChange={(e) => setCatalogSearch(e.target.value)}
-      placeholder="Buscar nombre o SKUÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦"
+      placeholder="Buscar nombre o SKU…"
       className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96] md:max-w-[280px]"
     />
 
@@ -6979,7 +6876,7 @@ suppressHydrationWarning
 
   <div className="flex flex-wrap gap-2">
     <Btn onClick={() => setCreateCatalogOpen(true)}>
-      Nuevo ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem
+      Nuevo ítem
     </Btn>
   </div>
 </div>
@@ -7005,7 +6902,7 @@ suppressHydrationWarning
                         <th className="w-[86px] px-2 py-3 text-left text-[11px] font-medium">Precio $</th>
                         <th className="w-[70px] px-2 py-3 text-left text-[11px] font-medium">Und/serv.</th>
                         <th className="w-[58px] px-2 py-3 text-left text-[11px] font-medium">Detalle</th>
-                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite</th>
+                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">Límite</th>
                         <th className="w-[74px] px-2 py-3 text-left text-[11px] font-medium">Comp. combo</th>
                       </tr>
                     </thead>
@@ -7014,7 +6911,7 @@ suppressHydrationWarning
                       {filteredCatalogItems.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={12}>
-                            Sin datos de catÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo cargados aÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºn.
+                            Sin datos de catálogo cargados aún.
                           </td>
                         </tr>
                       ) : (
@@ -7045,7 +6942,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isActive ? (
-                                  <span className="text-emerald-400">SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­</span>
+                                  <span className="text-emerald-400">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7081,7 +6978,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isDetailEditable ? (
-                                  <span className="text-[#FEEF00]">SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­</span>
+                                  <span className="text-[#FEEF00]">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7093,7 +6990,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isComboComponentSelectable ? (
-                                  <span className="text-emerald-400">SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­</span>
+                                  <span className="text-emerald-400">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7117,11 +7014,11 @@ suppressHydrationWarning
     <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="VES por USD"
-        value={activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+        value={activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
       />
       <InfoCell
         label="Vigente desde"
-        value={activeExchangeRate ? fmtDateTimeES(activeExchangeRate.effectiveAt) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+        value={activeExchangeRate ? fmtDateTimeES(activeExchangeRate.effectiveAt) : '—'}
       />
     </div>
   </div>
@@ -7130,7 +7027,7 @@ suppressHydrationWarning
     <div className="text-sm font-semibold text-[#F5F5F7]">Actualizar tasa</div>
 
     <div className="mt-2 text-sm text-[#B7B7C2]">
-      Esta tasa recalcula precios base en el catÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo segÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âºn la lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³gica actual.
+      Esta tasa recalcula precios base en el catálogo según la lógica actual.
     </div>
 
     <div className="mt-4 max-w-sm">
@@ -7168,11 +7065,11 @@ suppressHydrationWarning
               value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
             />
             <InfoCell
-              label={`Ingresos perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo (${currency})`}
+              label={`Ingresos período (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
             />
             <InfoCell
-              label={`Egresos perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo (${currency})`}
+              label={`Egresos período (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
             />
             <InfoCell
@@ -7208,12 +7105,12 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Cuenta</th>
               <th className="px-3 py-3 text-left font-medium">Moneda</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">InstituciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</th>
+              <th className="px-3 py-3 text-left font-medium">Institución</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos perÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos período</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos período</th>
               <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
@@ -7253,8 +7150,8 @@ suppressHydrationWarning
                     </td>
                     <td className="px-3 py-3">{account.currencyCode}</td>
                     <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
-                    <td className="px-3 py-3">{account.institutionName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
-                    <td className="px-3 py-3">{account.ownerName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
+                    <td className="px-3 py-3">{account.institutionName || '—'}</td>
+                    <td className="px-3 py-3">{account.ownerName || '—'}</td>
                     <td className="px-3 py-3">
                       {account.isActive ? (
                         <span className="text-emerald-400">Activa</span>
@@ -7306,17 +7203,17 @@ suppressHydrationWarning
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoCell label="Total" value={String(clientStats.total)} />
           <InfoCell label="Activos" value={String(clientStats.active)} />
-          <InfoCell label="Con facturaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={String(clientStats.withBilling)} />
+          <InfoCell label="Con facturación" value={String(clientStats.withBilling)} />
           <InfoCell label="Con nota de entrega" value={String(clientStats.withDeliveryNote)} />
           <InfoCell label="Con direcciones" value={String(clientStats.withAddresses)} />
         </div>
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³mo usarlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo usarlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>Guarda aquÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
-          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­as que usan en la operaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n.</div>
+          <div>Guarda aquí la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
+          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorías que usan en la operación.</div>
           <div>Las dos direcciones recientes guardan solo texto + GPS, como me pediste, para no complicar el flujo.</div>
         </div>
       </div>
@@ -7338,7 +7235,7 @@ suppressHydrationWarning
           <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
             <tr>
               <th className="px-3 py-3 text-left font-medium">Cliente</th>
-              <th className="px-3 py-3 text-left font-medium">TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono</th>
+              <th className="px-3 py-3 text-left font-medium">Teléfono</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Asesor principal</th>
               <th className="px-3 py-3 text-left font-medium">Etiquetas</th>
@@ -7387,12 +7284,12 @@ suppressHydrationWarning
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{client.notes}</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{client.phone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
-                    <td className="px-3 py-3">{client.clientType || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
+                    <td className="px-3 py-3">{client.phone || '—'}</td>
+                    <td className="px-3 py-3">{client.clientType || '—'}</td>
                     <td className="px-3 py-3">
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
-                        : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                        : '—'}
                     </td>
                     <td className="px-3 py-3">
                       {tags.length > 0 ? (
@@ -7405,7 +7302,7 @@ suppressHydrationWarning
                           ) : null}
                         </div>
                       ) : (
-                        'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'
+                        '—'
                       )}
                     </td>
                     <td className="px-3 py-3">{hasBilling ? 'Cargado' : 'Pendiente'}</td>
@@ -7443,10 +7340,10 @@ suppressHydrationWarning
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">CÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³mo leerlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>AquÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ ves todos los ajustes administrativos registrados en las ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³rdenes cargadas en el dashboard.</div>
-          <div>Un impacto negativo significa que la empresa asumiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³ un descuento o cortesÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a.</div>
+          <div>Aquí ves todos los ajustes administrativos registrados en las órdenes cargadas en el dashboard.</div>
+          <div>Un impacto negativo significa que la empresa asumió un descuento o cortesía.</div>
           <div>Un impacto positivo significa un recargo o aumento sobre el valor original.</div>
         </div>
       </div>
@@ -7473,7 +7370,7 @@ suppressHydrationWarning
             { value: '', label: 'Todos' },
             ...adjustmentTypeOptions.map((value) => ({
               value,
-              label: value === 'item_price_override' ? 'Ajuste de precio por ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem' : value,
+              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
             })),
           ]}
         />
@@ -7524,12 +7421,12 @@ suppressHydrationWarning
                     <td className="px-3 py-3">
                       <div className="text-[#F5F5F7]">{row.productName}</div>
                       <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {fmtUSD(row.originalUnitUsd)} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ {fmtUSD(row.overrideUnitUsd)}
-                        {row.qty > 0 ? ` ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· x${row.qty}` : ''}
+                        {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
+                        {row.qty > 0 ? ` · x${row.qty}` : ''}
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</div>
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
                       {row.notes ? (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
                       ) : null}
@@ -7549,7 +7446,6 @@ suppressHydrationWarning
     </div>
   </div>
 ) : null}
-
         </div>
       )}
 
@@ -7622,7 +7518,7 @@ suppressHydrationWarning
                     <div>
                       <div className="text-lg font-semibold text-[#F5F5F7]">{selectedCatalogItem.name}</div>
                       <div className="mt-1 text-xs text-[#8A8A96]" title={selectedCatalogItem.sku}>
-                        SKU: {selectedCatalogItem.sku || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                        SKU: {selectedCatalogItem.sku || '—'}
                       </div>
                     </div>
 
@@ -7659,7 +7555,7 @@ suppressHydrationWarning
 
                         {editIsDetailEditable ? (
                             <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-3 text-sm text-[#B7B7C2]">
-                            <span className="text-[#F5F5F7]">LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite actual:</span>{' '}
+                            <span className="text-[#F5F5F7]">Límite actual:</span>{' '}
                             {editDetailUnitsLimit || '0'} piezas seleccionables
                             </div>
                         ) : null}
@@ -7678,11 +7574,11 @@ suppressHydrationWarning
                     <InfoCell label="Precio Bs" value={fmtBs(selectedCatalogItem.basePriceBs)} />
                     <InfoCell label="Precio $" value={fmtUSD(selectedCatalogItem.basePriceUsd)} />
                     <InfoCell label="Und/servicio" value={String(selectedCatalogItem.unitsPerService)} />
-                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­' : 'No'} />
-                    <InfoCell label="LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
+                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
+                    <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
                     <InfoCell
                       label="Puede ser comp. combo"
-                      value={selectedCatalogItem.isComboComponentSelectable ? 'SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­' : 'No'}
+                      value={selectedCatalogItem.isComboComponentSelectable ? 'Sí' : 'No'}
                     />
                   </div>
                 </div>
@@ -7719,30 +7615,30 @@ suppressHydrationWarning
     {selectedCatalogItem.isDetailEditable ? (
       <>
         <div>
-          Este ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
+          Este ítem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
         </div>
         <div>
-          El asesor puede cargar piezas seleccionables sin superar el lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ximo de{' '}
+          El asesor puede cargar piezas seleccionables sin superar el límite máximo de{' '}
           <span className="text-[#F5F5F7]">{selectedCatalogItem.detailUnitsLimit}</span>.
         </div>
         {selectedFixedComponents.length > 0 ? (
           <div>
-            AdemÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡s, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
+            Además, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
           </div>
         ) : null}
       </>
     ) : selectedCatalogItem.sku.startsWith('MIX_') ? (
       <div>
-        Este ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
+        Este ítem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
       </div>
     ) : selectedCatalogComponents.length > 0 ? (
       <div>
-        Este ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
+        Este ítem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
         Su receta debe descontar exactamente los componentes definidos abajo.
       </div>
     ) : (
       <div>
-        Este ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem no tiene composiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n cargada todavÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­a.
+        Este ítem no tiene composición cargada todavía.
       </div>
     )}
   </div>
@@ -7780,7 +7676,7 @@ suppressHydrationWarning
               <>
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catálogo</div>
                     <div className="flex gap-2">
                       <button
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -7855,7 +7751,7 @@ suppressHydrationWarning
                       type="text"
                     />
                     <FieldInput
-                      label="LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite detalle"
+                      label="Límite detalle"
                       value={editDetailUnitsLimit}
                       onChange={setEditDetailUnitsLimit}
                       type="number"
@@ -7864,20 +7760,20 @@ suppressHydrationWarning
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">ComisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión</div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldSelect
-                      label="Regla comisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
+                      label="Regla comisión"
                       value={editCommissionMode}
                       onChange={(v) => setEditCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
                       options={[
                         { value: 'default', label: 'Default' },
-                        { value: 'fixed_item', label: 'Fija por ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem' },
+                        { value: 'fixed_item', label: 'Fija por ítem' },
                         { value: 'fixed_order', label: 'Fija por orden' },
                       ]}
                     />
                     <FieldInput
-                      label="Valor comisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
+                      label="Valor comisión"
                       value={editCommissionValue}
                       onChange={setEditCommissionValue}
                       type="text"
@@ -7885,7 +7781,7 @@ suppressHydrationWarning
                   </div>
                   <div className="mt-3">
                     <FieldInput
-                      label="Notas comisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
+                      label="Notas comisión"
                       value={editCommissionNotes}
                       onChange={setEditCommissionNotes}
                     />
@@ -7894,7 +7790,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
                     <button
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
                       onClick={addEditComponent}
@@ -7979,7 +7875,7 @@ suppressHydrationWarning
 
                 
                 <FieldCheckbox
-                  label="Cuenta para lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite"
+                  label="Cuenta para límite"
                   checked={row.countsTowardDetailLimit}
                   onChange={(v) =>
                     updateEditComponent(row.localId, {
@@ -8104,7 +8000,7 @@ suppressHydrationWarning
 
       <Drawer
         open={detailOpen}
-        title={selectedOrder ? `${selectedOrder.id} Ã‚Â· ${selectedOrder.clientName}` : 'Detalle'}
+        title={selectedOrder ? `${selectedOrder.id} · ${selectedOrder.clientName}` : 'Detalle'}
 onClose={() => {
   setDetailOpen(false);
   resetDeliveryAssignBox();
@@ -8125,8 +8021,8 @@ onClose={() => {
   <div className="flex items-start justify-between gap-3">
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#F5F5F7]">
-        <span>Orden #{selectedOrder.id} Ã‚Â· {selectedOrder.clientName}</span>
-        <span className="text-[#8A8A96]">Ã‚Â·</span>
+        <span>Orden #{selectedOrder.id} · {selectedOrder.clientName}</span>
+        <span className="text-[#8A8A96]">·</span>
         <span>{fmtUSD(selectedOrder.totalUsd)}</span>
         <span className={paymentToneClass(selectedOrder.balanceUsd)}>
           {paymentLabel(selectedOrder.balanceUsd)}
@@ -8135,7 +8031,7 @@ onClose={() => {
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-[#8A8A96]">
         <span>{selectedOrder.advisorName}</span>
-        <span>Ã‚Â·</span>
+        <span>·</span>
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
@@ -8186,7 +8082,7 @@ onClose={() => {
 
         <div className="mt-2 space-y-2 text-sm">
           {orderMainLinesForPreview(selectedOrder.lines).length === 0 ? (
-            <div className="text-[#B7B7C2]">Sin ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tems cargados.</div>
+            <div className="text-[#B7B7C2]">Sin ítems cargados.</div>
           ) : (
             orderMainLinesForPreview(selectedOrder.lines).map((line, idx) => (
               <div key={idx} className="leading-5">
@@ -8194,7 +8090,7 @@ onClose={() => {
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 10).map((t, i) => (
-                      <div key={i}>ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ {t}</div>
+                      <div key={i}>• {t}</div>
                     ))}
                   </div>
                 ) : null}
@@ -8324,7 +8220,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryDistanceKm != null
                 ? `${selectedOrder.editMeta.deliveryDistanceKm} km`
-                : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                : '—'}
             </div>
           </div>
 
@@ -8333,7 +8229,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryCostUsd != null
                 ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
-                : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                : '—'}
             </div>
             {selectedOrder.editMeta?.deliveryCostSource ? (
               <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
@@ -8345,20 +8241,20 @@ onClose={() => {
       {selectedOrder.fulfillment === 'delivery' ? (
         <>
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">DirecciÃƒÂ³n</div>
+            <div className="text-[10px] text-[#8A8A96]">Dirección</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
-              {selectedOrder.address || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+              {selectedOrder.address || '—'}
             </div>
           </div>
 
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">AsignaciÃƒÂ³n actual</div>
+            <div className="text-[10px] text-[#8A8A96]">Asignación actual</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.riderName
                 ? `Interno: ${selectedOrder.riderName}`
                 : selectedOrder.externalPartner
                   ? `Externo: ${selectedOrder.externalPartner}`
-                  : 'Sin asignaciÃƒÂ³n'}
+                  : 'Sin asignación'}
             </div>
           </div>
         </>
@@ -8496,7 +8392,7 @@ onClose={() => {
           {selectedOrder.editMeta?.paymentRequiresChange
             ? selectedOrder.editMeta?.paymentChangeFor
               ? `Para ${selectedOrder.editMeta.paymentChangeFor} ${selectedOrder.editMeta.paymentChangeCurrency || ''}`
-              : 'SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­'
+              : 'Sí'
             : 'No'}
         </div>
       </div>
@@ -8522,10 +8418,10 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {rp.currencyCode} {rp.amount.toFixed(2)} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {fmtUSD(rp.usdEquivalent)}
+                    {rp.currencyCode} {rp.amount.toFixed(2)} · {fmtUSD(rp.usdEquivalent)}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {rp.moneyAccountName} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {fmtDateTimeES(rp.createdAt)}
+                    {rp.moneyAccountName} · {fmtDateTimeES(rp.createdAt)}
                   </div>
                 </div>
 
@@ -8555,17 +8451,17 @@ onClose={() => {
 
                 <div>
                   <span className="text-[#8A8A96]">Referencia:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.referenceCode || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</span>
+                  <span className="text-[#F5F5F7]">{rp.referenceCode || '—'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Pagador:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.payerName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</span>
+                  <span className="text-[#F5F5F7]">{rp.payerName || '—'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Tasa:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</span>
+                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '—'}</span>
                 </div>
               </div>
 
@@ -8604,7 +8500,7 @@ onClose={() => {
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
     <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-      {selectedOrder.notes?.trim() ? selectedOrder.notes : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+      {selectedOrder.notes?.trim() ? selectedOrder.notes : '—'}
     </div>
   </div>
 ) : null}
@@ -8612,12 +8508,7 @@ onClose={() => {
 {detailTab === 'ajustes' && isAdmin ? (
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="flex items-center justify-between gap-2">
-      <div>
-        <div className="text-sm font-semibold text-[#F5F5F7]">Ajustes</div>
-        <div className="mt-1 text-[11px] text-[#8A8A96]">
-          Solo admin puede corregir datos ya establecidos en una orden avanzada o cerrada.
-        </div>
-      </div>
+      <div className="text-sm font-semibold text-[#F5F5F7]">Ajustes</div>
       <SmallBadge
         label={`${selectedOrder.adminAdjustments.length} evento${selectedOrder.adminAdjustments.length === 1 ? '' : 's'}`}
         tone={selectedOrder.adminAdjustments.length > 0 ? 'warn' : 'muted'}
@@ -8631,8 +8522,15 @@ onClose={() => {
     ) : (
       <div className="mt-3 space-y-2">
         {selectedOrder.adminAdjustments.map((adjustment) => {
-          const presentation = getAdjustmentPresentation(adjustment);
-          const deltaUsd = presentation.deltaUsd;
+          const payload = adjustment.payload ?? {};
+          const originalUnit = Number(payload.original_unit_price_usd ?? 0);
+          const overrideUnit = Number(payload.override_unit_price_usd ?? 0);
+          const deltaUsd = Number(payload.delta_usd ?? 0);
+          const productName =
+            typeof payload.product_name === 'string' && payload.product_name.trim()
+              ? payload.product_name
+              : 'Ítem';
+          const qty = Number(payload.qty ?? 0);
 
           return (
             <div
@@ -8641,9 +8539,13 @@ onClose={() => {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-[#F5F5F7]">{presentation.title}</div>
+                  <div className="text-sm font-medium text-[#F5F5F7]">
+                    {adjustment.adjustmentType === 'item_price_override'
+                      ? 'Ajuste de precio por ítem'
+                      : adjustment.adjustmentType}
+                  </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {fmtDateTimeES(adjustment.createdAt)} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {adjustment.createdByName}
+                    {fmtDateTimeES(adjustment.createdAt)} · {adjustment.createdByUserId}
                   </div>
                 </div>
 
@@ -8656,34 +8558,36 @@ onClose={() => {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
                   <div className="text-[10px] text-[#8A8A96]">Motivo</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || 'ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â'}</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || '—'}</div>
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Detalle</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{presentation.detailPrimary}</div>
-                  <div className="mt-1 text-[11px] text-[#8A8A96]">{presentation.detailSecondary}</div>
+                  <div className="text-[10px] text-[#8A8A96]">Ítem</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">
+                    {productName}
+                    {qty > 0 ? ` · x${qty}` : ''}
+                  </div>
                 </div>
               </div>
 
-              {adjustment.adjustmentType === 'item_price_override' ? (
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                    <div className="text-[10px] text-[#8A8A96]">Precio original</div>
-                    <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(presentation.originalUnitUsd)}</div>
-                  </div>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Precio original</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(originalUnit)}</div>
+                </div>
 
-                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                    <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
-                    <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(presentation.overrideUnitUsd)}</div>
-                  </div>
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(overrideUnit)}</div>
+                </div>
 
-                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                    <div className="text-[10px] text-[#8A8A96]">Impacto</div>
-                    <div className="mt-1 text-sm text-[#F5F5F7]">{deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}</div>
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Impacto</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">
+                    {deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}
                   </div>
                 </div>
-              ) : null}
+              </div>
 
               {adjustment.notes ? (
                 <div className="mt-2 text-[11px] text-[#B7B7C2]">
@@ -8814,7 +8718,7 @@ onClick={() => {
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleClearDeliveryAssignment(selectedOrder)}
       >
-        Quitar asignaciÃ³n
+        Quitar asignación
       </button>
     ) : null}
   </>
@@ -8852,7 +8756,7 @@ onClick={() => {
         }}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â cuenta ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â</option>
+        <option value="">— cuenta —</option>
         {moneyAccounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name} ({a.currencyCode})
@@ -8930,7 +8834,7 @@ deliveryAssignMode === 'internal' ? (
         onChange={(e) => setDeliveryAssignDriverId(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â seleccionar ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â</option>
+        <option value="">— seleccionar —</option>
         {drivers.map((d) => (
           <option key={d.id} value={d.id}>
             {d.fullName}
@@ -8972,7 +8876,7 @@ deliveryAssignMode === 'external' ? (
         onChange={(e) => handleDeliveryAssignPartnerChange(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â seleccionar ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â</option>
+        <option value="">— seleccionar —</option>
         {deliveryPartners.filter((p) => p.isActive).map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -9000,7 +8904,7 @@ deliveryAssignMode === 'external' ? (
           </span>
         </>
       ) : (
-        'Sin tarifa automÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡tica para esa distancia.'
+        'Sin tarifa automática para esa distancia.'
       )}
     </div>
 
@@ -9070,7 +8974,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+          Confirmar aprobación
         </button>
       ) : null}
 
@@ -9079,7 +8983,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar re-aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+          Confirmar re-aprobación
         </button>
       ) : null}
 
@@ -9088,7 +8992,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReturn(selectedOrder)}
         >
-          Enviar devoluciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+          Enviar devolución
         </button>
       ) : null}
 
@@ -9097,7 +9001,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReviewChanges(selectedOrder, true)}
         >
-          Confirmar aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+          Confirmar aprobación
         </button>
       ) : null}
 
@@ -9187,7 +9091,7 @@ deliveryAssignMode === 'external' ? (
         ? `Interno: ${selectedOrder.riderName}`
         : selectedOrder.externalPartner
           ? `Externo: ${selectedOrder.externalPartner}`
-          : 'Sin asignaciÃƒÂ³n visible'}
+          : 'Sin asignación visible'}
     </div>
 
     <div className="mt-2 space-y-2">
@@ -9300,7 +9204,7 @@ deliveryAssignMode === 'external' ? (
         value={cancelOrderReason}
         onChange={(e) => setCancelOrderReason(e.target.value)}
         rows={3}
-        placeholder="Motivo de cancelaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n (obligatorio)"
+        placeholder="Motivo de cancelación (obligatorio)"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
@@ -9310,7 +9214,7 @@ deliveryAssignMode === 'external' ? (
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleCancelOrder(selectedOrder)}
       >
-        Confirmar cancelaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n
+        Confirmar cancelación
       </button>
 
       <button
@@ -9334,7 +9238,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={quickCatalogOpen}
-  title="ActualizaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡pida de catÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo"
+  title="Actualización rápida de catálogo"
   onClose={() => setQuickCatalogOpen(false)}
   widthClass="w-[820px]"
 >
@@ -9346,11 +9250,11 @@ deliveryAssignMode === 'external' ? (
             Montos fuente por bloque
           </div>
           <div className="mt-1 text-sm text-[#B7B7C2]">
-            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡pido de un ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem al siguiente.
+            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rápido de un ítem al siguiente.
           </div>
         </div>
 
-        <SmallBadge label={`${quickCatalogRows.length} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tems`} tone="muted" />
+        <SmallBadge label={`${quickCatalogRows.length} ítems`} tone="muted" />
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
@@ -9359,7 +9263,7 @@ deliveryAssignMode === 'external' ? (
             <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#121218] text-[#B7B7C2]">
               <tr>
                 <th className="w-[84px] px-3 py-3 text-left font-medium">SKU</th>
-                <th className="px-3 py-3 text-left font-medium">ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem</th>
+                <th className="px-3 py-3 text-left font-medium">Ítem</th>
                 <th className="w-[78px] px-3 py-3 text-left font-medium">Moneda</th>
                 <th className="w-[170px] px-3 py-3 text-left font-medium">Monto fuente</th>
               </tr>
@@ -9370,7 +9274,7 @@ deliveryAssignMode === 'external' ? (
                   key={row.productId}
                   className={`${idx % 2 === 0 ? 'bg-[#0F0F14]' : 'bg-[#13131A]'} border-b border-[#242433]`}
                 >
-                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
+                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || '—'}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.name}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.sourcePriceCurrency}</td>
                   <td className="px-3 py-2">
@@ -9416,7 +9320,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={createCatalogOpen}
-  title="Nuevo ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem de catÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡logo"
+  title="Nuevo ítem de catálogo"
   onClose={() => setCreateCatalogOpen(false)}
   widthClass="w-[720px]"
 >
@@ -9460,7 +9364,7 @@ deliveryAssignMode === 'external' ? (
         />
 
         <FieldInput
-          label="LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite detalle"
+          label="Límite detalle"
           value={newDetailUnitsLimit}
           onChange={setNewDetailUnitsLimit}
           type="number"
@@ -9469,18 +9373,18 @@ deliveryAssignMode === 'external' ? (
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <FieldSelect
-          label="Regla comisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
+          label="Regla comisión"
           value={newCommissionMode}
           onChange={(v) => setNewCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
           options={[
             { value: 'default', label: 'Default' },
-            { value: 'fixed_item', label: 'Fija por ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem' },
+            { value: 'fixed_item', label: 'Fija por ítem' },
             { value: 'fixed_order', label: 'Fija por orden' },
           ]}
         />
 
         <FieldInput
-          label="Valor comisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
+          label="Valor comisión"
           value={newCommissionValue}
           onChange={setNewCommissionValue}
           type="text"
@@ -9488,7 +9392,7 @@ deliveryAssignMode === 'external' ? (
       </div>
 
       <div className="mt-3">
-        <FieldInput label="Notas comisiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={newCommissionNotes} onChange={setNewCommissionNotes} />
+        <FieldInput label="Notas comisión" value={newCommissionNotes} onChange={setNewCommissionNotes} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -9517,7 +9421,7 @@ deliveryAssignMode === 'external' ? (
         onClick={handleCreateCatalogItem}
         disabled={createCatalogSaving}
       >
-        {createCatalogSaving ? 'Creando...' : 'Crear ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem'}
+        {createCatalogSaving ? 'Creando...' : 'Crear ítem'}
       </button>
     </div>
   </div>
@@ -9547,7 +9451,7 @@ deliveryAssignMode === 'external' ? (
 
           <div className="space-y-2 rounded-2xl border border-[#242433] bg-[#121218] p-3">
             <div className="text-sm font-semibold">{movementType}</div>
-            <div className="text-sm text-[#B7B7C2]">(Demo) AquÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­ irÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­an: cuenta(s), moneda, monto, fecha, referencia.</div>
+            <div className="text-sm text-[#B7B7C2]">(Demo) Aquí irían: cuenta(s), moneda, monto, fecha, referencia.</div>
             <button
   className="w-full rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={() => showToast('success', 'Guardar movimiento (demo).')}
@@ -9617,8 +9521,8 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
-              <InfoCell label="InstituciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={selectedAccount.institutionName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-              <InfoCell label="Titular" value={selectedAccount.ownerName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+              <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
+              <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -9633,9 +9537,9 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-2 py-2 text-left font-medium">NÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Orden</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
-                        <th className="px-2 py-2 text-left font-medium">NÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â° Control</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Control</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -9663,10 +9567,10 @@ deliveryAssignMode === 'external' ? (
                               </div>
                               <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
                             </td>
-                            <td className="px-2 py-2">{linkedOrder?.clientName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
-                            <td className="px-2 py-2">{movement.orderId ?? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</td>
+                            <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
+                            <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
                             <td className="px-2 py-2">
-                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
                             </td>
                             <td className="px-2 py-2">
                               {movement.referenceCode || movement.paymentReportId || movement.id}
@@ -9714,7 +9618,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -9787,7 +9691,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -9878,7 +9782,7 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '—'} />
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
@@ -10179,17 +10083,17 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={selectedClient.phone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                <InfoCell label="Teléfono" value={selectedClient.phone || '—'} />
                 <InfoCell
                   label="Asesor principal"
                   value={
                     selectedClient.primaryAdvisorId
                       ? advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor'
-                      : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'
+                      : '—'
                   }
                 />
-                <InfoCell label="CumpleaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±os" value={selectedClient.birthDate || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-                <InfoCell label="Fecha importante" value={selectedClient.importantDate || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '—'} />
+                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '—'} />
               </div>
 
               {normalizeClientTags(selectedClient.crmTags).length > 0 ? (
@@ -10214,25 +10118,25 @@ deliveryAssignMode === 'external' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="RazÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n social" value={selectedClient.billingCompanyName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-                  <InfoCell label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={selectedClient.billingPhone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
-                  <InfoCell label="DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n fiscal" value={selectedClient.billingAddress || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '—'} />
+                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '—'} />
+                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '—'} />
+                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '—'} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '—'} />
                   <InfoCell
                     label="Documento"
-                    value={selectedClient.deliveryNoteDocumentId || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                    value={selectedClient.deliveryNoteDocumentId || '—'}
                   />
-                  <InfoCell label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={selectedClient.deliveryNotePhone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '—'} />
                   <InfoCell
-                    label="DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n"
-                    value={selectedClient.deliveryNoteAddress || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                    label="Dirección"
+                    value={selectedClient.deliveryNoteAddress || '—'}
                   />
                 </div>
               </div>
@@ -10246,10 +10150,10 @@ deliveryAssignMode === 'external' ? (
                 ) : (
                   normalizeClientAddresses(selectedClient.recentAddresses).map((address, idx) => (
                     <div key={`${selectedClient.id}-${idx}`} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-                      <div className="text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n {idx + 1}</div>
-                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</div>
+                      <div className="text-xs text-[#8A8A96]">Dirección {idx + 1}</div>
+                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '—'}</div>
                       <div className="mt-3 text-xs text-[#8A8A96]">GPS</div>
-                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</div>
+                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '—'}</div>
                     </div>
                   ))
                 )}
@@ -10267,17 +10171,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡sicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â sin asesor principal ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â' },
+                  { value: '', label: '— sin asesor principal —' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -10307,7 +10211,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="CumpleaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -10329,14 +10233,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="RazÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n social"
+                  label="Razón social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -10357,12 +10261,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono"
+                  label="Teléfono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -10379,7 +10283,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -10392,7 +10296,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -10432,17 +10336,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡sicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â sin asesor principal ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â' },
+                  { value: '', label: '— sin asesor principal —' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -10472,7 +10376,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="CumpleaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -10494,14 +10398,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="RazÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n social"
+                  label="Razón social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -10522,12 +10426,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono"
+                  label="Teléfono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -10544,7 +10448,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -10557,7 +10461,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -10598,8 +10502,8 @@ deliveryAssignMode === 'external' ? (
     <div className="flex items-center justify-between rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3">
       <div className="text-sm text-[#B7B7C2]">
         {orderEditorMode === 'edit'
-          ? 'EstÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡s modificando una orden existente.'
-          : 'EstÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡s creando una orden nueva.'}
+          ? 'Estás modificando una orden existente.'
+          : 'Estás creando una orden nueva.'}
       </div>
 
       <span
@@ -10638,7 +10542,7 @@ deliveryAssignMode === 'external' ? (
       value={createOrderAdvisorUserId}
       onChange={setCreateOrderAdvisorUserId}
       options={[
-        { value: '', label: 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â seleccionar ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â' },
+        { value: '', label: '— seleccionar —' },
         ...advisors.map((advisor) => ({
           value: advisor.userId,
           label: advisor.isActive
@@ -10678,7 +10582,7 @@ deliveryAssignMode === 'external' ? (
   <input
     value={createOrderClientSearch}
     onChange={(e) => setCreateOrderClientSearch(e.target.value)}
-    placeholder="Buscar por nombre o telÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fonoÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦"
+    placeholder="Buscar por nombre o teléfono…"
     className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
   />
 
@@ -10706,10 +10610,10 @@ deliveryAssignMode === 'external' ? (
                 {createOrderSelectedClientName}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tel: {createOrderSelectedClientPhone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                Tel: {createOrderSelectedClientPhone || '—'}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tipo: {createOrderSelectedClientType || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                Tipo: {createOrderSelectedClientType || '—'}
               </div>
             </div>
           ) : null}
@@ -10732,7 +10636,7 @@ deliveryAssignMode === 'external' ? (
                       onClick={() => handleApplyClientAddress(address)}
                       className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
                     >
-                      Usar direcciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n {idx + 1}
+                      Usar dirección {idx + 1}
                     </button>
                   ))}
                 </div>
@@ -10753,7 +10657,7 @@ deliveryAssignMode === 'external' ? (
                     {client.fullName}
                   </div>
                   <div className="mt-1 text-xs text-[#B7B7C2]">
-                    Tel: {client.phone || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Tipo: {client.clientType || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+                    Tel: {client.phone || '—'} · Tipo: {client.clientType || '—'}
                   </div>
                 </button>
               ))}
@@ -10769,7 +10673,7 @@ deliveryAssignMode === 'external' ? (
     />
 
     <FieldInput
-      label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono"
+      label="Teléfono"
       value={createOrderNewClientPhone}
       onChange={setCreateOrderNewClientPhone}
     />
@@ -10910,11 +10814,11 @@ deliveryAssignMode === 'external' ? (
                 {item.name}
               </div>
 <div className="mt-1 text-xs text-[#8A8A96]">
-  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·{' '}
+  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} ·{' '}
   {item.sourcePriceCurrency === 'VES'
     ? fmtBs(item.basePriceBs)
     : fmtUSD(item.basePriceUsd)}
-  {item.sku ? ` ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${item.sku}` : ''}
+  {item.sku ? ` · ${item.sku}` : ''}
 </div>
             </button>
           ))
@@ -10953,7 +10857,7 @@ deliveryAssignMode === 'external' ? (
 
         {createOrderDraftItems.length === 0 ? (
           <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-            Sin ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tems cargados.
+            Sin ítems cargados.
           </div>
         ) : (
           <div className="mt-4 space-y-2">
@@ -10966,12 +10870,12 @@ deliveryAssignMode === 'external' ? (
 
 <div>
   <div className="text-sm font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
-  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}</div>
+  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || '—'}</div>
 
   {item.editableDetailLines.length > 0 ? (
     <div className="mt-2 space-y-1 text-xs text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
-        <div key={detailIdx}>ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ {detail}</div>
+        <div key={detailIdx}>• {detail}</div>
       ))}
     </div>
   ) : null}
@@ -11191,13 +11095,13 @@ deliveryAssignMode === 'external' ? (
       {createOrderReceiverIsDifferent ? (
         <div className="grid grid-cols-2 gap-3">
           <FieldInput
-            label="QuiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©n recibe"
+            label="Quién recibe"
             value={createOrderReceiverName}
             onChange={setCreateOrderReceiverName}
           />
 
           <FieldInput
-            label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono recibe"
+            label="Teléfono recibe"
             value={createOrderReceiverPhone}
             onChange={setCreateOrderReceiverPhone}
           />
@@ -11208,7 +11112,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 min-w-0">
       {createOrderFulfillment === 'delivery' ? (
         <div className="min-w-0">
-          <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</label>
+          <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
           <textarea
             value={createOrderDeliveryAddress}
             onChange={(e) => setCreateOrderDeliveryAddress(e.target.value)}
@@ -11239,7 +11143,7 @@ deliveryAssignMode === 'external' ? (
 </div>
 
 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 md:col-span-2">
-  <div className="text-sm font-semibold text-[#F5F5F7]">E. CondiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n de pago</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">E. Condición de pago</div>
 
   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 
@@ -11249,7 +11153,7 @@ deliveryAssignMode === 'external' ? (
   onChange={setCreateOrderPaymentMethod}
   options={[
 { value: 'pending', label: 'Pendiente' },
-{ value: 'payment_mobile', label: 'Pago mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³vil' },
+{ value: 'payment_mobile', label: 'Pago móvil' },
 { value: 'transfer', label: 'Transferencia' },
 { value: 'cash_usd', label: 'Efectivo USD' },
 { value: 'cash_ves', label: 'Efectivo Bs' },
@@ -11346,7 +11250,7 @@ deliveryAssignMode === 'external' ? (
   {createOrderHasInvoice ? (
     <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
       <FieldInput
-        label="Nombre / razÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n social"
+        label="Nombre / razón social"
         value={createOrderInvoiceCompanyName}
         onChange={setCreateOrderInvoiceCompanyName}
       />
@@ -11356,7 +11260,7 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderInvoiceTaxId}
       />
       <FieldInput
-        label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono"
+        label="Teléfono"
         value={createOrderInvoicePhone}
         onChange={setCreateOrderInvoicePhone}
       />
@@ -11367,7 +11271,7 @@ deliveryAssignMode === 'external' ? (
         type="text"
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n fiscal</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
         <textarea
           value={createOrderInvoiceAddress}
           onChange={(e) => setCreateOrderInvoiceAddress(e.target.value)}
@@ -11391,12 +11295,12 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderDeliveryNoteDocumentId}
       />
       <FieldInput
-        label="TelÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fono"
+        label="Teléfono"
         value={createOrderDeliveryNotePhone}
         onChange={setCreateOrderDeliveryNotePhone}
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
         <textarea
           value={createOrderDeliveryNoteAddress}
           onChange={(e) => setCreateOrderDeliveryNoteAddress(e.target.value)}
@@ -11440,7 +11344,7 @@ deliveryAssignMode === 'external' ? (
   ) : null}
 
   <div className="mt-3">
-    <label className="mb-1 block text-xs text-[#8A8A96]">ObservaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n de pago</label>
+    <label className="mb-1 block text-xs text-[#8A8A96]">Observación de pago</label>
     <textarea
       value={createOrderPaymentNote}
       onChange={(e) => setCreateOrderPaymentNote(e.target.value)}
@@ -11457,7 +11361,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="Cliente"
-        value={createOrderSelectedClientName || createOrderNewClientName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+        value={createOrderSelectedClientName || createOrderNewClientName || '—'}
       />
 
       <InfoCell label="Tipo" value={createOrderFulfillment} />
@@ -11468,16 +11372,16 @@ deliveryAssignMode === 'external' ? (
         label="Asesor"
         value={
           createOrderSource === 'advisor'
-            ? advisors.find((advisor) => advisor.userId === createOrderAdvisorUserId)?.fullName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'
+            ? advisors.find((advisor) => advisor.userId === createOrderAdvisorUserId)?.fullName || '—'
             : currentOperatorLabel
         }
       />
 
-      <InfoCell label="ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtems" value={String(createOrderDraftItems.length)} />
+      <InfoCell label="Ítems" value={String(createOrderDraftItems.length)} />
 
       <InfoCell
         label="Tasa"
-        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : '—'}
       />
 
       <InfoCell
@@ -11508,7 +11412,7 @@ deliveryAssignMode === 'external' ? (
           value={
             createOrderPaymentChangeFor
               ? `Para ${createOrderPaymentChangeFor} ${createOrderPaymentChangeCurrency === 'USD' ? 'USD' : 'Bs'}`
-              : 'SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­'
+              : 'Sí'
           }
         />
       ) : null}
@@ -11516,28 +11420,28 @@ deliveryAssignMode === 'external' ? (
       {createOrderHasDeliveryNote ? (
         <InfoCell
           label="Nota de entrega"
-          value="SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­"
+          value="Sí"
         />
       ) : null}
 
       {createOrderHasInvoice ? (
         <InfoCell
           label="Factura"
-          value="SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­"
+          value="Sí"
         />
       ) : null}
 
       {createOrderDiscountEnabled && createOrderDiscountPctNumber > 0 ? (
         <InfoCell
           label="Descuento"
-          value={`${createOrderDiscountPctNumber}% ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· -${fmtBs(createOrderDiscountAmountBs)}`}
+          value={`${createOrderDiscountPctNumber}% · -${fmtBs(createOrderDiscountAmountBs)}`}
         />
       ) : null}
 
       {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
         <InfoCell
           label="IVA"
-          value={`${createOrderInvoiceTaxPctNumber}% ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
+          value={`${createOrderInvoiceTaxPctNumber}% · +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
         />
       ) : null}
     </div>
@@ -11568,7 +11472,7 @@ deliveryAssignMode === 'external' ? (
             <span className="text-[#F5F5F7]">Datos factura:</span>{' '}
             {[createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
               .filter(Boolean)
-              .join(' | ') || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+              .join(' | ') || '—'}
           </div>
         ) : null}
 
@@ -11582,7 +11486,7 @@ deliveryAssignMode === 'external' ? (
               createOrderDeliveryNotePhone,
             ]
               .filter(Boolean)
-              .join(' | ') || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+              .join(' | ') || '—'}
           </div>
         ) : null}
       </div>
@@ -11590,39 +11494,39 @@ deliveryAssignMode === 'external' ? (
 
     <div className="space-y-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
       <div className={createOrderHasClient ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasClient ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ Cliente listo' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Falta cliente'}
+        {createOrderHasClient ? '✅ Cliente listo' : '❌ Falta cliente'}
       </div>
 
       <div className={createOrderHasItems ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasItems ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ Pedido con ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tems' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Falta agregar ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tems'}
+        {createOrderHasItems ? '✅ Pedido con ítems' : '❌ Falta agregar ítems'}
       </div>
 
       <div className={createOrderHasValidAdvisor ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasValidAdvisor ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ Asesor vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lido' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Debes seleccionar asesor'}
+        {createOrderHasValidAdvisor ? '✅ Asesor válido' : '❌ Debes seleccionar asesor'}
       </div>
 
       <div className={createOrderHasDeliveryAddress ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryAddress ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ Entrega vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡lida' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Falta direcciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n de delivery'}
+        {createOrderHasDeliveryAddress ? '✅ Entrega válida' : '❌ Falta dirección de delivery'}
       </div>
       <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryChargeItem ? 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âtem de delivery cargado' : 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Falta producto de delivery'}
+        {createOrderHasDeliveryChargeItem ? '✅ Ítem de delivery cargado' : '❌ Falta producto de delivery'}
       </div>
     </div>
 
 {orderEditorMode === 'edit' && selectedOrder?.status === 'queued' ? (
   <div className="rounded-xl border border-orange-500/40 bg-[#0B0B0D] p-3 text-sm text-orange-400">
-    Esta ediciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n marcarÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ la orden para <span className="font-semibold">re-aprobaciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</span>.
+    Esta edición marcará la orden para <span className="font-semibold">re-aprobación</span>.
   </div>
 ) : null}
 
 {orderEditorMode === 'edit' && isAdmin && selectedOrder && !['created', 'queued'].includes(selectedOrder.status) ? (
   <div className="rounded-xl border border-sky-500/30 bg-[#0B0B0D] p-3 text-sm text-sky-200">
-    <div className="font-semibold text-sky-300">ModificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n administrativa</div>
+    <div className="font-semibold text-sky-300">Modificación administrativa</div>
     <div className="mt-1">
-      EstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡s editando una orden avanzada o cerrada. El cambio quedarÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ auditado y requiere motivo obligatorio.
+      Estás editando una orden avanzada o cerrada. El cambio quedará auditado y requiere motivo obligatorio.
     </div>
     <div className="mt-3">
-      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificaciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n</label>
+      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificación</label>
       <textarea
         value={adminEditReason}
         onChange={(e) => setAdminEditReason(e.target.value)}
@@ -11632,7 +11536,6 @@ deliveryAssignMode === 'external' ? (
     </div>
   </div>
 ) : null}
-
 
     <div className="flex justify-end gap-2">
       <button
@@ -11704,7 +11607,6 @@ deliveryAssignMode === 'external' ? (
   </div>
 </Drawer>
 
-
 <Drawer
   open={createOrderConfigOpen}
   title={createOrderConfigProductName || 'Configurar producto'}
@@ -11714,9 +11616,9 @@ deliveryAssignMode === 'external' ? (
   <div className="space-y-4">
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="grid grid-cols-3 gap-3">
-        <InfoCell label="Producto" value={createOrderConfigProductName || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'} />
+        <InfoCell label="Producto" value={createOrderConfigProductName || '—'} />
         <InfoCell label="Cant." value={String(createOrderConfigQty)} />
-        <InfoCell label="LÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­mite" value={String(createOrderConfigLimit || 0)} />
+        <InfoCell label="Límite" value={String(createOrderConfigLimit || 0)} />
       </div>
 
       <div className="mt-3 grid grid-cols-[1fr_120px] gap-3">
@@ -11747,7 +11649,7 @@ deliveryAssignMode === 'external' ? (
     </div>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â³n</div>
+      <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
 
       {createOrderConfigSelectableOptions.length === 0 ? (
         <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
@@ -11769,7 +11671,7 @@ return (
         {option.name}
       </div>
       <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
-        {option.sku || 'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â'}
+        {option.sku || '—'}
       </div>
     </div>
 
@@ -11822,7 +11724,7 @@ return (
   className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={handleConfirmCreateOrderConfig}
 >
-  {createOrderConfigEditingLocalId ? 'Guardar ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â­tem' : 'Confirmar'}
+  {createOrderConfigEditingLocalId ? 'Guardar ítem' : 'Confirmar'}
 </button>
     </div>
   </div>
@@ -11848,7 +11750,6 @@ return (
     </div>
   );
 }
-
 
 
 
