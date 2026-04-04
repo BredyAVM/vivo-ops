@@ -9,6 +9,20 @@ async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
 }
 
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
+}
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -2857,6 +2871,40 @@ export async function updateOrderAction(input: {
         ? currentOrder.extra_fields
         : {};
 
+    const beforeSnapshot = {
+      source: currentOrder.source ?? null,
+      fulfillment: currentOrder.fulfillment ?? null,
+      client_id: currentOrder.client_id ?? null,
+      attributed_advisor_id: currentOrder.attributed_advisor_id ?? null,
+      delivery_address: currentOrder.delivery_address ?? null,
+      receiver_name: currentOrder.receiver_name ?? null,
+      receiver_phone: currentOrder.receiver_phone ?? null,
+      notes: currentOrder.notes ?? null,
+      total_usd: Number(currentOrder.total_usd ?? 0),
+      total_bs_snapshot: Number(currentOrder.total_bs_snapshot ?? 0),
+      extra_fields: beforeExtraFields,
+    };
+
+    const afterSnapshot = {
+      source,
+      fulfillment,
+      client_id: clientId,
+      attributed_advisor_id: attributedAdvisorId,
+      delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+      receiver_name: input.receiverName.trim() || null,
+      receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
+      notes: input.note.trim() || null,
+      total_usd: totalUsd,
+      total_bs_snapshot: totalBs,
+      extra_fields: extraFields,
+    };
+
+    const changedFields = Object.keys(afterSnapshot).filter((key) => {
+      const beforeValue = beforeSnapshot[key as keyof typeof beforeSnapshot];
+      const afterValue = afterSnapshot[key as keyof typeof afterSnapshot];
+      return stableStringify(beforeValue) !== stableStringify(afterValue);
+    });
+
     const { error: createAuditError } = await supabase
       .from('order_admin_adjustments')
       .insert({
@@ -2867,32 +2915,9 @@ export async function updateOrderAction(input: {
         notes: null,
         payload: {
           kind: 'admin_full_edit',
-          before: {
-            source: currentOrder.source ?? null,
-            fulfillment: currentOrder.fulfillment ?? null,
-            client_id: currentOrder.client_id ?? null,
-            attributed_advisor_id: currentOrder.attributed_advisor_id ?? null,
-            delivery_address: currentOrder.delivery_address ?? null,
-            receiver_name: currentOrder.receiver_name ?? null,
-            receiver_phone: currentOrder.receiver_phone ?? null,
-            notes: currentOrder.notes ?? null,
-            total_usd: Number(currentOrder.total_usd ?? 0),
-            total_bs_snapshot: Number(currentOrder.total_bs_snapshot ?? 0),
-            extra_fields: beforeExtraFields,
-          },
-          after: {
-            source,
-            fulfillment,
-            client_id: clientId,
-            attributed_advisor_id: attributedAdvisorId,
-            delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
-            receiver_name: input.receiverName.trim() || null,
-            receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
-            notes: input.note.trim() || null,
-            total_usd: totalUsd,
-            total_bs_snapshot: totalBs,
-            extra_fields: extraFields,
-          },
+          changed_fields: changedFields,
+          before: beforeSnapshot,
+          after: afterSnapshot,
         },
         created_by_user_id: user.id,
       });

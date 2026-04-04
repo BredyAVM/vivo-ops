@@ -391,7 +391,7 @@ const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   cash_count_adjustment: 'Ajuste de caja',
   change_given: 'Cambio entregado',
   expense_payment: 'Pago de gasto',
-  fee_charge: 'Comisión',
+  fee_charge: 'ComisiÃ³n',
   order_payment: 'Pago de orden',
   other_income: 'Otro ingreso',
   withdrawal: 'Retiro',
@@ -568,6 +568,45 @@ function toDateInputValue(d: Date) {
 
 function fmtShortOrderLabel(orderId: number) {
   return String(orderId).padStart(2, '0');
+}
+
+function mapAdjustmentFieldLabel(field: string) {
+  const labels: Record<string, string> = {
+    source: 'Origen',
+    fulfillment: 'Tipo de entrega',
+    client_id: 'Cliente',
+    attributed_advisor_id: 'Asesor',
+    delivery_address: 'Dirección',
+    receiver_name: 'Recibe',
+    receiver_phone: 'Teléfono receptor',
+    notes: 'Notas',
+    total_usd: 'Total USD',
+    total_bs_snapshot: 'Total Bs',
+    extra_fields: 'Snapshots',
+  };
+
+  return labels[field] || field;
+}
+
+function getAdjustmentChangedFields(payload: Record<string, unknown>) {
+  const explicit = Array.isArray(payload.changed_fields)
+    ? payload.changed_fields.map((value) => String(value)).filter(Boolean)
+    : [];
+
+  if (explicit.length > 0) return explicit;
+
+  const before =
+    payload.before && typeof payload.before === 'object' && !Array.isArray(payload.before)
+      ? (payload.before as Record<string, unknown>)
+      : null;
+  const after =
+    payload.after && typeof payload.after === 'object' && !Array.isArray(payload.after)
+      ? (payload.after as Record<string, unknown>)
+      : null;
+
+  if (!before || !after) return [];
+
+  return Object.keys(after).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 }
 
 function getOrderCommissionableSubtotalUsd(order: Order) {
@@ -4168,9 +4207,9 @@ items: createOrderDraftItems.map((item) => ({
   sourcePriceAmount: item.sourcePriceAmount,
   unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
   lineTotalUsd: item.lineTotalUsd,
-      editableDetailLines: item.editableDetailLines,
-      adminPriceOverrideUsd: item.adminPriceOverrideUsd,
-      adminPriceOverrideReason: item.adminPriceOverrideReason,
+  editableDetailLines: item.editableDetailLines,
+  adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+  adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
       adminEditReason: isAdvancedAdminEdit ? adminEditReason.trim() : null,
     });
@@ -4625,11 +4664,13 @@ const selectedPaymentReportAccount =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
               : 'Ítem';
+          const changedFields = getAdjustmentChangedFields(payload);
+          const changedFieldLabels = changedFields.map(mapAdjustmentFieldLabel);
 
           return {
             id: adjustment.id,
             orderId: order.id,
-            orderNumber: order.orderNumber,
+            orderNumber: fmtShortOrderLabel(order.id),
             clientName: order.clientName,
             createdAt: adjustment.createdAt,
             createdByUserId: adjustment.createdByUserId,
@@ -4642,6 +4683,9 @@ const selectedPaymentReportAccount =
             overrideUnitUsd,
             qty,
             productName,
+            changedFields,
+            changedFieldLabels,
+            adjustmentKind: typeof payload.kind === 'string' ? payload.kind : '',
           };
         })
       )
@@ -7065,11 +7109,11 @@ suppressHydrationWarning
               value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
             />
             <InfoCell
-              label={`Ingresos período (${currency})`}
+              label={`Ingresos perÃ­odo (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
             />
             <InfoCell
-              label={`Egresos período (${currency})`}
+              label={`Egresos perÃ­odo (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
             />
             <InfoCell
@@ -7105,12 +7149,12 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Cuenta</th>
               <th className="px-3 py-3 text-left font-medium">Moneda</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">Institución</th>
+              <th className="px-3 py-3 text-left font-medium">InstituciÃ³n</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos período</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos período</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo</th>
               <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
@@ -7414,16 +7458,26 @@ suppressHydrationWarning
                     <td className="px-3 py-3">{row.orderNumber}</td>
                     <td className="px-3 py-3">{row.clientName}</td>
                     <td className="px-3 py-3">
-                      {row.adjustmentType === 'item_price_override'
-                        ? 'Ajuste de precio'
-                        : row.adjustmentType}
+                      {row.adjustmentKind === 'admin_full_edit'
+                        ? 'Modificación admin'
+                        : row.adjustmentType === 'item_price_override'
+                          ? 'Ajuste de precio'
+                          : row.adjustmentType}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="text-[#F5F5F7]">{row.productName}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
-                        {row.qty > 0 ? ` · x${row.qty}` : ''}
+                      <div className="text-[#F5F5F7]">
+                        {row.adjustmentKind === 'admin_full_edit'
+                          ? row.changedFieldLabels.length > 0
+                            ? row.changedFieldLabels.join(', ')
+                            : 'Modificación auditada'
+                          : row.productName}
                       </div>
+                      {row.adjustmentKind === 'admin_full_edit' ? null : (
+                        <div className="mt-1 text-[11px] text-[#8A8A96]">
+                          {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
+                          {row.qty > 0 ? ` · x${row.qty}` : ''}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3">
                       <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
@@ -8531,6 +8585,8 @@ onClose={() => {
               ? payload.product_name
               : 'Ítem';
           const qty = Number(payload.qty ?? 0);
+          const changedFieldLabels = getAdjustmentChangedFields(payload).map(mapAdjustmentFieldLabel);
+          const isAdminFullEdit = payload.kind === 'admin_full_edit';
 
           return (
             <div
@@ -8540,7 +8596,9 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {adjustment.adjustmentType === 'item_price_override'
+                    {isAdminFullEdit
+                      ? 'Modificación administrativa'
+                      : adjustment.adjustmentType === 'item_price_override'
                       ? 'Ajuste de precio por ítem'
                       : adjustment.adjustmentType}
                   </div>
@@ -8562,32 +8620,38 @@ onClose={() => {
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Ítem</div>
+                  <div className="text-[10px] text-[#8A8A96]">{isAdminFullEdit ? 'Cambios detectados' : 'Ítem'}</div>
                   <div className="mt-1 text-sm text-[#F5F5F7]">
-                    {productName}
-                    {qty > 0 ? ` · x${qty}` : ''}
+                    {isAdminFullEdit
+                      ? changedFieldLabels.length > 0
+                        ? changedFieldLabels.join(', ')
+                        : 'Modificación auditada'
+                      : productName}
+                    {!isAdminFullEdit && qty > 0 ? ` · x${qty}` : ''}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Precio original</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(originalUnit)}</div>
-                </div>
+              {isAdminFullEdit ? null : (
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                    <div className="text-[10px] text-[#8A8A96]">Precio original</div>
+                    <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(originalUnit)}</div>
+                  </div>
 
-                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(overrideUnit)}</div>
-                </div>
+                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                    <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
+                    <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(overrideUnit)}</div>
+                  </div>
 
-                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Impacto</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">
-                    {deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}
+                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                    <div className="text-[10px] text-[#8A8A96]">Impacto</div>
+                    <div className="mt-1 text-sm text-[#F5F5F7]">
+                      {deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {adjustment.notes ? (
                 <div className="mt-2 text-[11px] text-[#B7B7C2]">
@@ -9521,7 +9585,7 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
-              <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
+              <InfoCell label="InstituciÃ³n" value={selectedAccount.institutionName || '—'} />
               <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
             </div>
 
@@ -9618,7 +9682,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -9691,7 +9755,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
