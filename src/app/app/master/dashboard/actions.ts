@@ -1,4 +1,4 @@
-'use server';
+﻿'use server';
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -177,7 +177,7 @@ export async function returnToCreatedAction(input: {
   }
 
   if (currentOrder.status !== 'queued') {
-    throw new Error('Solo se puede devolver una orden que esté en cola.');
+    throw new Error('Solo se puede devolver una orden que estÃ© en cola.');
   }
 
   const nextNotes = [
@@ -218,11 +218,11 @@ export async function cancelOrderAction(input: {
   const reason = String(input.reason || '').trim();
 
   if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden inválida.');
+    throw new Error('Orden invÃ¡lida.');
   }
 
   if (!reason) {
-    throw new Error('Debes indicar un motivo de cancelación.');
+    throw new Error('Debes indicar un motivo de cancelaciÃ³n.');
   }
 
   const { data: currentOrder, error: currentOrderError } = await supabase
@@ -236,7 +236,7 @@ export async function cancelOrderAction(input: {
   }
 
   if (currentOrder.status === 'cancelled') {
-    throw new Error('La orden ya está cancelada.');
+    throw new Error('La orden ya estÃ¡ cancelada.');
   }
 
   const nextNotes = [
@@ -531,7 +531,7 @@ export async function returnFromKitchenToQueueAction(input: {
   }
 
   if (!['confirmed', 'in_kitchen', 'ready'].includes(currentOrder.status)) {
-    throw new Error('Solo se puede devolver a cola una orden que esté en cocina/preparación/lista.');
+    throw new Error('Solo se puede devolver a cola una orden que estÃ© en cocina/preparaciÃ³n/lista.');
   }
 
   const nextNotes = [
@@ -585,6 +585,13 @@ export async function updateCatalogItemAction(input: {
   commissionValue: number | null;
   commissionNotes: string | null;
   internalRiderPayUsd: number | null;
+  inventoryEnabled: boolean;
+  inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+  inventoryUnitName: string;
+  packagingName: string | null;
+  packagingSize: number | null;
+  currentStockUnits: number | null;
+  lowStockThreshold: number | null;
   components: Array<{
     componentProductId: number;
     componentMode: 'fixed' | 'selectable';
@@ -598,7 +605,7 @@ export async function updateCatalogItemAction(input: {
   const { supabase } = await requireMasterOrAdmin();
 
   if (!Number.isFinite(input.productId) || input.productId <= 0) {
-    throw new Error('Producto inválido.');
+    throw new Error('Producto invÃ¡lido.');
   }
 
   const sourcePriceAmount = toSafeNumber(input.sourcePriceAmount, 0);
@@ -606,16 +613,25 @@ export async function updateCatalogItemAction(input: {
   const detailUnitsLimit = Math.max(0, toSafeNumber(input.detailUnitsLimit, 0));
   const internalRiderPayUsd =
     input.internalRiderPayUsd == null ? null : Math.max(0, toSafeNumber(input.internalRiderPayUsd, 0));
+  const packagingSize =
+    input.packagingSize == null ? null : Math.max(0, toSafeNumber(input.packagingSize, 0));
+  const currentStockUnits =
+    input.currentStockUnits == null ? null : Math.max(0, toSafeNumber(input.currentStockUnits, 0));
+  const lowStockThreshold =
+    input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0));
 
   if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
-    throw new Error('Modo de comisión inválido.');
+    throw new Error('Modo de comisiÃ³n invÃ¡lido.');
+  if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
+    throw new Error('Tipo de inventario inválido.');
+  }
   }
   if (!['VES', 'USD'].includes(input.sourcePriceCurrency)) {
-    throw new Error('Moneda inválida.');
+    throw new Error('Moneda invÃ¡lida.');
   }
 
   if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
-    throw new Error('Modo de comisión inválido.');
+    throw new Error('Modo de comisiÃ³n invÃ¡lido.');
   }
 
   const { data: currentProduct, error: productError } = await supabase
@@ -643,7 +659,7 @@ export async function updateCatalogItemAction(input: {
   const rateBsPerUsd = toSafeNumber(exchangeRateData?.rate_bs_per_usd, 0);
 
   if (rateBsPerUsd <= 0) {
-    throw new Error('No hay una tasa activa válida.');
+    throw new Error('No hay una tasa activa vÃ¡lida.');
   }
 
   let basePriceUsd = 0;
@@ -686,7 +702,7 @@ export async function updateCatalogItemAction(input: {
     const foundIds = new Set((componentProducts ?? []).map((row) => Number(row.id)));
     const missing = componentIds.filter((id) => !foundIds.has(id));
     if (missing.length > 0) {
-      throw new Error(`Hay componentes inválidos: ${missing.join(', ')}`);
+      throw new Error(`Hay componentes invÃ¡lidos: ${missing.join(', ')}`);
     }
   }
 
@@ -708,6 +724,13 @@ export async function updateCatalogItemAction(input: {
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
       internal_rider_pay_usd: internalRiderPayUsd,
+      inventory_enabled: input.inventoryEnabled,
+      inventory_kind: input.inventoryKind,
+      inventory_unit_name: String(input.inventoryUnitName || 'pieza').trim() || 'pieza',
+      packaging_name: input.packagingName?.trim() ? input.packagingName.trim() : null,
+      packaging_size: packagingSize,
+      current_stock_units: currentStockUnits ?? 0,
+      low_stock_threshold: lowStockThreshold,
     })
     .eq('id', input.productId)
     .select('id')
@@ -842,7 +865,7 @@ export async function updateCatalogPricesQuickAction(input: {
     );
 
   if (items.length === 0) {
-    throw new Error('No hay precios válidos para actualizar.');
+    throw new Error('No hay precios vÃ¡lidos para actualizar.');
   }
 
   const productIds = items.map((row) => row.productId);
@@ -867,7 +890,7 @@ export async function updateCatalogPricesQuickAction(input: {
   const rateBsPerUsd = toSafeNumber(exchangeRateData?.rate_bs_per_usd, 0);
 
   if (rateBsPerUsd <= 0) {
-    throw new Error('No hay una tasa activa válida.');
+    throw new Error('No hay una tasa activa vÃ¡lida.');
   }
 
   const productCurrencyById = new Map<number, 'VES' | 'USD'>();
@@ -956,7 +979,7 @@ export async function updateMoneyAccountAction(input: {
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta invÃ¡lida.');
+    throw new Error('Cuenta invÃƒÂ¡lida.');
   }
 
   const name = String(input.name || '').trim();
@@ -987,7 +1010,7 @@ export async function toggleMoneyAccountActiveAction(input: {
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta invÃ¡lida.');
+    throw new Error('Cuenta invÃƒÂ¡lida.');
   }
 
   const { error } = await supabase
@@ -1043,7 +1066,7 @@ export async function updateDeliveryPartnerAction(input: {
 
   const partnerId = Number(input.partnerId);
   if (!Number.isFinite(partnerId) || partnerId <= 0) {
-    throw new Error('Partner inválido.');
+    throw new Error('Partner invÃ¡lido.');
   }
 
   const name = String(input.name || '').trim();
@@ -1080,7 +1103,7 @@ export async function toggleDeliveryPartnerActiveAction(input: {
 
   const partnerId = Number(input.partnerId);
   if (!Number.isFinite(partnerId) || partnerId <= 0) {
-    throw new Error('Partner inválido.');
+    throw new Error('Partner invÃ¡lido.');
   }
 
   const { error } = await supabase
@@ -1112,12 +1135,12 @@ export async function createOrderAdminAdjustmentAction(input: {
 
   const orderId = Number(input.orderId);
   if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden inválida.');
+    throw new Error('Orden invÃ¡lida.');
   }
 
   const kind = String(input.kind || '').trim();
   if (!['advisor_change', 'client_change', 'schedule_change'].includes(kind)) {
-    throw new Error('Tipo de ajuste inválido.');
+    throw new Error('Tipo de ajuste invÃ¡lido.');
   }
 
   const reason = String(input.reason || '').trim();
@@ -1309,7 +1332,7 @@ async function assertDeliveryItemForOrder(
   );
 
   if (productIds.length === 0) {
-    throw new Error('Debes agregar un ítem de delivery.');
+    throw new Error('Debes agregar un Ã­tem de delivery.');
   }
 
   const { data, error } = await supabase
@@ -1423,7 +1446,7 @@ export async function createOrderClientQuickAction(input: {
   }
 
   if (!phone) {
-    throw new Error('Debes colocar el teléfono del cliente.');
+    throw new Error('Debes colocar el telÃ©fono del cliente.');
   }
 
   const { data: existingClient, error: existingClientError } = await supabase
@@ -1536,7 +1559,7 @@ export async function updateClientAction(input: {
 
   const clientId = Number(input.clientId);
   if (!Number.isFinite(clientId) || clientId <= 0) {
-    throw new Error('Cliente inválido.');
+    throw new Error('Cliente invÃ¡lido.');
   }
 
   const fullName = String(input.fullName || '').trim();
@@ -1582,7 +1605,7 @@ export async function toggleClientActiveAction(input: {
 
   const clientId = Number(input.clientId);
   if (!Number.isFinite(clientId) || clientId <= 0) {
-    throw new Error('Cliente inválido.');
+    throw new Error('Cliente invÃ¡lido.');
   }
 
   const { error } = await supabase
@@ -1611,6 +1634,13 @@ export async function createCatalogItemAction(input: {
   commissionValue: number | null;
   commissionNotes: string | null;
   internalRiderPayUsd: number | null;
+  inventoryEnabled: boolean;
+  inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+  inventoryUnitName: string;
+  packagingName: string | null;
+  packagingSize: number | null;
+  currentStockUnits: number | null;
+  lowStockThreshold: number | null;
 }) {
   const supabase = await createSupabaseServer();
 
@@ -1621,23 +1651,32 @@ export async function createCatalogItemAction(input: {
   const detailUnitsLimit = Number(input.detailUnitsLimit || 0);
   const internalRiderPayUsd =
     input.internalRiderPayUsd == null ? null : Math.max(0, Number(input.internalRiderPayUsd || 0));
+  const packagingSize =
+    input.packagingSize == null ? null : Math.max(0, Number(input.packagingSize || 0));
+  const currentStockUnits =
+    input.currentStockUnits == null ? null : Math.max(0, Number(input.currentStockUnits || 0));
+  const lowStockThreshold =
+    input.lowStockThreshold == null ? null : Math.max(0, Number(input.lowStockThreshold || 0));
 
   if (!sku) throw new Error('El SKU es obligatorio.');
   if (!name) throw new Error('El nombre es obligatorio.');
   if (!['product', 'combo', 'service', 'promo', 'gambit'].includes(input.type)) {
-    throw new Error('Tipo inválido.');
+    throw new Error('Tipo invÃ¡lido.');
   }
   if (!['VES', 'USD'].includes(input.sourcePriceCurrency)) {
-    throw new Error('Moneda inválida.');
+    throw new Error('Moneda invÃ¡lida.');
+  }
+  if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
+    throw new Error('Tipo de inventario invÃ¡lido.');
   }
   if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
-    throw new Error('El monto fuente es inválido.');
+    throw new Error('El monto fuente es invÃ¡lido.');
   }
   if (!Number.isFinite(unitsPerService) || unitsPerService < 0) {
-    throw new Error('Und/servicio inválido.');
+    throw new Error('Und/servicio invÃ¡lido.');
   }
   if (!Number.isFinite(detailUnitsLimit) || detailUnitsLimit < 0) {
-    throw new Error('Límite de detalle inválido.');
+    throw new Error('LÃ­mite de detalle invÃ¡lido.');
   }
 
   const { data: existingSku, error: existingSkuError } = await supabase
@@ -1661,7 +1700,7 @@ export async function createCatalogItemAction(input: {
 
   const rate = Number(activeRate?.rate_bs_per_usd || 0);
   if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error('No hay una tasa activa válida.');
+    throw new Error('No hay una tasa activa vÃ¡lida.');
   }
 
   let basePriceUsd = 0;
@@ -1696,6 +1735,13 @@ export async function createCatalogItemAction(input: {
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
       internal_rider_pay_usd: internalRiderPayUsd,
+      inventory_enabled: input.inventoryEnabled,
+      inventory_kind: input.inventoryKind,
+      inventory_unit_name: String(input.inventoryUnitName || 'pieza').trim() || 'pieza',
+      packaging_name: input.packagingName?.trim() ? input.packagingName.trim() : null,
+      packaging_size: packagingSize,
+      current_stock_units: currentStockUnits ?? 0,
+      low_stock_threshold: lowStockThreshold,
     })
     .select('id')
     .single();
@@ -1726,6 +1772,88 @@ export async function toggleCatalogItemActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createInventoryMovementAction(input: {
+  productId: number;
+  movementType:
+    | 'inbound'
+    | 'damage'
+    | 'waste'
+    | 'manual_adjustment'
+    | 'stock_count';
+  packagingQuantity: number | null;
+  unitQuantityExtra: number | null;
+  quantityUnits: number;
+  reasonCode: string | null;
+  notes: string | null;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const productId = toSafeNumber(input.productId, 0);
+  const quantityUnits = toSafeNumber(input.quantityUnits, 0);
+  const packagingQuantity =
+    input.packagingQuantity == null ? null : Math.max(0, toSafeNumber(input.packagingQuantity, 0));
+  const unitQuantityExtra =
+    input.unitQuantityExtra == null ? null : Math.max(0, toSafeNumber(input.unitQuantityExtra, 0));
+
+  if (productId <= 0) throw new Error('Producto inválido.');
+  if (!['inbound', 'damage', 'waste', 'manual_adjustment', 'stock_count'].includes(input.movementType)) {
+    throw new Error('Movimiento inválido.');
+  }
+  if (!Number.isFinite(quantityUnits) || quantityUnits < 0) {
+    throw new Error('Cantidad inválida.');
+  }
+
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .select('id, current_stock_units')
+    .eq('id', productId)
+    .single();
+
+  if (productError || !product) {
+    throw new Error(productError?.message || 'No se pudo cargar el producto.');
+  }
+
+  const currentStock = toSafeNumber(product.current_stock_units, 0);
+  const signedDelta =
+    input.movementType === 'inbound'
+      ? quantityUnits
+      : input.movementType === 'stock_count'
+        ? quantityUnits - currentStock
+        : -quantityUnits;
+
+  const nextStock = currentStock + signedDelta;
+  if (nextStock < 0) {
+    throw new Error('El movimiento dejaría el inventario en negativo.');
+  }
+
+  const { error: movementError } = await supabase
+    .from('inventory_movements')
+    .insert({
+      product_id: productId,
+      movement_type: input.movementType,
+      quantity_units: quantityUnits,
+      packaging_quantity: packagingQuantity,
+      unit_quantity_extra: unitQuantityExtra,
+      reason_code: input.reasonCode?.trim() ? input.reasonCode.trim() : null,
+      notes: input.notes?.trim() ? input.notes.trim() : null,
+      order_id: null,
+      created_by_user_id: user.id,
+    });
+
+  if (movementError) throw new Error(movementError.message);
+
+  const { error: stockError } = await supabase
+    .from('products')
+    .update({
+      current_stock_units: nextStock,
+    })
+    .eq('id', productId);
+
+  if (stockError) throw new Error(stockError.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function deleteCatalogItemAction(input: {
   productId: number;
 }) {
@@ -1733,7 +1861,7 @@ export async function deleteCatalogItemAction(input: {
 
   const productId = Number(input.productId);
   if (!Number.isFinite(productId) || productId <= 0) {
-    throw new Error('Producto inválido.');
+    throw new Error('Producto invÃ¡lido.');
   }
 
   const { data: orderUse, error: orderUseError } = await supabase
@@ -1747,7 +1875,7 @@ export async function deleteCatalogItemAction(input: {
   }
 
   if ((orderUse ?? []).length > 0) {
-    throw new Error('No se puede eliminar: el producto ya fue usado en órdenes.');
+    throw new Error('No se puede eliminar: el producto ya fue usado en Ã³rdenes.');
   }
 
   const { data: parentUse, error: parentUseError } = await supabase
@@ -1761,7 +1889,7 @@ export async function deleteCatalogItemAction(input: {
   }
 
   if ((parentUse ?? []).length > 0) {
-    throw new Error('No se puede eliminar: el producto tiene composición cargada.');
+    throw new Error('No se puede eliminar: el producto tiene composiciÃ³n cargada.');
   }
 
   const { data: componentUse, error: componentUseError } = await supabase
@@ -1775,7 +1903,7 @@ export async function deleteCatalogItemAction(input: {
   }
 
   if ((componentUse ?? []).length > 0) {
-    throw new Error('No se puede eliminar: el producto está siendo usado como componente de otro.');
+    throw new Error('No se puede eliminar: el producto estÃ¡ siendo usado como componente de otro.');
   }
 
   const { error } = await supabase
@@ -1840,11 +1968,11 @@ function from12hTo24h(hour12: string, minute: string, ampm: 'AM' | 'PM') {
   let m = Number(minute);
 
   if (!Number.isFinite(h) || h < 1 || h > 12) {
-    throw new Error('Hora inválida (1–12).');
+    throw new Error('Hora invÃ¡lida (1â€“12).');
   }
 
   if (!Number.isFinite(m) || m < 0 || m > 59) {
-    throw new Error('Minutos inválidos (0–59).');
+    throw new Error('Minutos invÃ¡lidos (0â€“59).');
   }
 
   if (ampm === 'AM') {
@@ -1875,7 +2003,7 @@ async function generateUniqueOrderNumber(supabase: Awaited<ReturnType<typeof cre
     }
   }
 
-  throw new Error('No se pudo generar un número de orden único.');
+  throw new Error('No se pudo generar un nÃºmero de orden Ãºnico.');
 }
 
 export async function createOrderAction(input: {
@@ -1941,15 +2069,15 @@ export async function createOrderAction(input: {
   const fulfillment = input.fulfillment;
 
   if (!['advisor', 'master', 'walk_in'].includes(source)) {
-    throw new Error('Source inválido.');
+    throw new Error('Source invÃ¡lido.');
   }
 
   if (!['pickup', 'delivery'].includes(fulfillment)) {
-    throw new Error('Fulfillment inválido.');
+    throw new Error('Fulfillment invÃ¡lido.');
   }
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
-    throw new Error('Debes agregar al menos un ítem.');
+    throw new Error('Debes agregar al menos un Ã­tem.');
   }
 
   if (
@@ -1964,7 +2092,7 @@ export async function createOrderAction(input: {
   }
 
   if (fulfillment === 'delivery' && !input.deliveryAddress.trim()) {
-    throw new Error('La dirección es obligatoria para delivery.');
+    throw new Error('La direcciÃ³n es obligatoria para delivery.');
   }
 
   if (fulfillment === 'delivery') {
@@ -1979,7 +2107,7 @@ export async function createOrderAction(input: {
 
   const fxRate = Number(input.fxRate || 0);
   if (!Number.isFinite(fxRate) || fxRate <= 0) {
-    throw new Error('La tasa de la orden es inválida.');
+    throw new Error('La tasa de la orden es invÃ¡lida.');
   }
 
   let clientId = input.selectedClientId;
@@ -1993,7 +2121,7 @@ export async function createOrderAction(input: {
     }
 
     if (!phone) {
-      throw new Error('Teléfono del cliente es obligatorio.');
+      throw new Error('TelÃ©fono del cliente es obligatorio.');
     }
 
     const { data: existingClient, error: existingClientError } = await supabase
@@ -2105,7 +2233,7 @@ export async function createOrderAction(input: {
   }
 
   if (!clientProfile) {
-    throw new Error('No se pudo confirmar la actualización del cliente.');
+    throw new Error('No se pudo confirmar la actualizaciÃ³n del cliente.');
   }
 
   const attributedAdvisorId =
@@ -2417,22 +2545,22 @@ export async function updateOrderAction(input: {
 
   const orderId = Number(input.orderId);
   if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden inválida.');
+    throw new Error('Orden invÃ¡lida.');
   }
 
   const source = input.source;
   const fulfillment = input.fulfillment;
 
   if (!['advisor', 'master', 'walk_in'].includes(source)) {
-    throw new Error('Source inválido.');
+    throw new Error('Source invÃ¡lido.');
   }
 
   if (!['pickup', 'delivery'].includes(fulfillment)) {
-    throw new Error('Fulfillment inválido.');
+    throw new Error('Fulfillment invÃ¡lido.');
   }
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
-    throw new Error('Debes agregar al menos un ítem.');
+    throw new Error('Debes agregar al menos un Ã­tem.');
   }
 
   if (
@@ -2447,7 +2575,7 @@ export async function updateOrderAction(input: {
   }
 
   if (fulfillment === 'delivery' && !input.deliveryAddress.trim()) {
-    throw new Error('La dirección es obligatoria para delivery.');
+    throw new Error('La direcciÃ³n es obligatoria para delivery.');
   }
 
   if (fulfillment === 'delivery') {
@@ -2468,11 +2596,11 @@ export async function updateOrderAction(input: {
     roles.includes('admin') && !['created', 'queued'].includes(currentOrder.status);
 
   if (!['created', 'queued'].includes(currentOrder.status) && !roles.includes('admin')) {
-    throw new Error('Solo se pueden editar órdenes en estado created o queued.');
+    throw new Error('Solo se pueden editar Ã³rdenes en estado created o queued.');
   }
 
   if (isAdvancedAdminEdit && !String(input.adminEditReason || '').trim()) {
-    throw new Error('Debes indicar el motivo de la modificación administrativa.');
+    throw new Error('Debes indicar el motivo de la modificaciÃ³n administrativa.');
   }
 
   const deliveryTime24 = from12hTo24h(
@@ -2492,7 +2620,7 @@ export async function updateOrderAction(input: {
     }
 
     if (!phone) {
-      throw new Error('Teléfono del cliente es obligatorio.');
+      throw new Error('TelÃ©fono del cliente es obligatorio.');
     }
 
     const { data: existingClient, error: existingClientError } = await supabase
@@ -2605,7 +2733,7 @@ export async function updateOrderAction(input: {
   }
 
   if (!clientProfile) {
-    throw new Error('No se pudo confirmar la actualización del cliente.');
+    throw new Error('No se pudo confirmar la actualizaciÃ³n del cliente.');
   }
 
   const attributedAdvisorId =

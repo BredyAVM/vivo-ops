@@ -184,6 +184,37 @@ type RawProductRow = {
   commission_value: number | string | null;
   commission_notes: string | null;
   internal_rider_pay_usd: number | string | null;
+  inventory_enabled: boolean;
+  inventory_kind: 'raw_material' | 'prepared_base' | 'finished_good' | null;
+  inventory_unit_name: string | null;
+  packaging_name: string | null;
+  packaging_size: number | string | null;
+  current_stock_units: number | string | null;
+  low_stock_threshold: number | string | null;
+};
+
+type RawInventoryMovementRow = {
+  id: number;
+  product_id: number;
+  movement_type:
+    | 'inbound'
+    | 'sale_out'
+    | 'damage'
+    | 'waste'
+    | 'manual_adjustment'
+    | 'stock_count'
+    | 'production_out'
+    | 'production_in'
+    | 'pack_out'
+    | 'pack_in';
+  quantity_units: number | string;
+  packaging_quantity: number | string | null;
+  unit_quantity_extra: number | string | null;
+  reason_code: string | null;
+  notes: string | null;
+  order_id: number | null;
+  created_at: string;
+  created_by_user_id: string;
 };
 
 type RawExchangeRateRow = {
@@ -1110,9 +1141,34 @@ const { data: ordersData, error: ordersError } = await supabase
       commission_mode,
       commission_value,
       commission_notes,
-      internal_rider_pay_usd
+      internal_rider_pay_usd,
+      inventory_enabled,
+      inventory_kind,
+      inventory_unit_name,
+      packaging_name,
+      packaging_size,
+      current_stock_units,
+      low_stock_threshold
     `)
     .order('id', { ascending: true });
+
+  const { data: inventoryMovementsData, error: inventoryMovementsError } = await supabase
+    .from('inventory_movements')
+    .select(`
+      id,
+      product_id,
+      movement_type,
+      quantity_units,
+      packaging_quantity,
+      unit_quantity_extra,
+      reason_code,
+      notes,
+      order_id,
+      created_at,
+      created_by_user_id
+    `)
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   if (productsError) {
     return (
@@ -1124,6 +1180,22 @@ const { data: ordersData, error: ordersError } = await supabase
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {productsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (inventoryMovementsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los movimientos de inventario.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryMovementsError.message}
           </pre>
         </div>
       </div>
@@ -1199,6 +1271,32 @@ const { data: ordersData, error: ordersError } = await supabase
     commissionValue: p.commission_value == null ? null : toNumber(p.commission_value, 0),
     commissionNotes: p.commission_notes ?? null,
     internalRiderPayUsd: p.internal_rider_pay_usd == null ? null : toNumber(p.internal_rider_pay_usd, 0),
+    inventoryEnabled: p.inventory_enabled,
+    inventoryKind:
+      p.inventory_kind === 'raw_material'
+        ? ('raw_material' as const)
+        : p.inventory_kind === 'prepared_base'
+          ? ('prepared_base' as const)
+          : ('finished_good' as const),
+    inventoryUnitName: p.inventory_unit_name ?? 'pieza',
+    packagingName: p.packaging_name ?? null,
+    packagingSize: p.packaging_size == null ? null : toNumber(p.packaging_size, 0),
+    currentStockUnits: toNumber(p.current_stock_units, 0),
+    lowStockThreshold: p.low_stock_threshold == null ? null : toNumber(p.low_stock_threshold, 0),
+  }));
+
+  const inventoryMovements = ((inventoryMovementsData ?? []) as RawInventoryMovementRow[]).map((row) => ({
+    id: Number(row.id),
+    productId: Number(row.product_id),
+    movementType: row.movement_type,
+    quantityUnits: toNumber(row.quantity_units, 0),
+    packagingQuantity: row.packaging_quantity == null ? null : toNumber(row.packaging_quantity, 0),
+    unitQuantityExtra: row.unit_quantity_extra == null ? null : toNumber(row.unit_quantity_extra, 0),
+    reasonCode: row.reason_code ?? null,
+    notes: row.notes ?? null,
+    orderId: row.order_id == null ? null : Number(row.order_id),
+    createdAt: row.created_at,
+    createdByUserId: row.created_by_user_id,
   }));
 
 const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
@@ -1515,6 +1613,7 @@ currentUser={{
       initialOrders={initialOrders}
       moneyAccounts={moneyAccounts}
       moneyMovements={moneyMovements}
+      inventoryMovements={inventoryMovements}
       clients={clients}
       catalogItems={catalogItems}
       productComponents={productComponents}

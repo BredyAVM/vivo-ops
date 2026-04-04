@@ -23,6 +23,7 @@ import {
   cancelOrderAction,
   updateCatalogItemAction,
   updateCatalogPricesQuickAction,
+  createInventoryMovementAction,
   updateExchangeRateAction,
   createCatalogItemAction,
   createClientAction,
@@ -318,7 +319,7 @@ type ToastState = {
   type: 'success' | 'error';
   message: string;
 } | null;
-type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients' | 'adjustments';
+type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'adjustments';
 type CalculationsTab = 'general' | 'commissions' | 'deliveries';
 type DeliveriesTab = 'overview' | 'internal' | 'external' | 'partners';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
@@ -352,6 +353,37 @@ type CatalogItem = {
   commissionValue: number | null;
   commissionNotes: string | null;
   internalRiderPayUsd: number | null;
+  inventoryEnabled: boolean;
+  inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+  inventoryUnitName: string;
+  packagingName: string | null;
+  packagingSize: number | null;
+  currentStockUnits: number;
+  lowStockThreshold: number | null;
+};
+
+type InventoryMovementItem = {
+  id: number;
+  productId: number;
+  movementType:
+    | 'inbound'
+    | 'sale_out'
+    | 'damage'
+    | 'waste'
+    | 'manual_adjustment'
+    | 'stock_count'
+    | 'production_out'
+    | 'production_in'
+    | 'pack_out'
+    | 'pack_in';
+  quantityUnits: number;
+  packagingQuantity: number | null;
+  unitQuantityExtra: number | null;
+  reasonCode: string | null;
+  notes: string | null;
+  orderId: number | null;
+  createdAt: string;
+  createdByUserId: string;
 };
 
 type ProductComponent = {
@@ -568,6 +600,34 @@ function toDateInputValue(d: Date) {
 
 function fmtShortOrderLabel(orderId: number) {
   return String(orderId).padStart(2, '0');
+}
+
+function fmtInventoryUnits(
+  units: number,
+  packagingName: string | null,
+  packagingSize: number | null,
+  unitName: string
+) {
+  const total = Math.max(0, Number(units || 0));
+  const baseUnitName = unitName || 'pieza';
+
+  if (!packagingName || !packagingSize || packagingSize <= 0) {
+    return `${total} ${baseUnitName}${total === 1 ? '' : 's'}`;
+  }
+
+  const packs = Math.floor(total / packagingSize);
+  const loose = total - packs * packagingSize;
+  const parts: string[] = [];
+
+  if (packs > 0) {
+    parts.push(`${packs} ${packagingName}${packs === 1 ? '' : 's'}`);
+  }
+
+  if (loose > 0 || parts.length === 0) {
+    parts.push(`${loose} ${baseUnitName}${loose === 1 ? '' : 's'}`);
+  }
+
+  return parts.join(' + ');
 }
 
 function mapAdjustmentFieldLabel(field: string) {
@@ -1633,6 +1693,7 @@ export default function MasterDashboardClient({
   initialOrders,
   moneyAccounts,
   moneyMovements = [],
+  inventoryMovements = [],
   clients = [],
   drivers = [],
   deliveryPartners = [],
@@ -1646,6 +1707,7 @@ export default function MasterDashboardClient({
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
   moneyMovements?: MoneyMovementItem[];
+  inventoryMovements?: InventoryMovementItem[];
   clients?: ClientItem[];
   drivers?: DriverOption[];
   deliveryPartners?: DeliveryPartnerOption[];
@@ -1661,6 +1723,15 @@ export default function MasterDashboardClient({
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<number | null>(null);
+  const [inventoryMovementOpen, setInventoryMovementOpen] = useState(false);
+  const [inventoryMovementSaving, setInventoryMovementSaving] = useState(false);
+  const [inventoryMovementType, setInventoryMovementType] = useState<'inbound' | 'damage' | 'waste' | 'manual_adjustment' | 'stock_count'>('inbound');
+  const [inventoryMovementPackagingQty, setInventoryMovementPackagingQty] = useState('0');
+  const [inventoryMovementUnitQty, setInventoryMovementUnitQty] = useState('0');
+  const [inventoryMovementReasonCode, setInventoryMovementReasonCode] = useState('');
+  const [inventoryMovementNotes, setInventoryMovementNotes] = useState('');
   const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('general');
   const [deliveriesTab, setDeliveriesTab] = useState<DeliveriesTab>('overview');
   const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState('');
@@ -1761,6 +1832,13 @@ const [newCommissionMode, setNewCommissionMode] = useState<'default' | 'fixed_it
 const [newCommissionValue, setNewCommissionValue] = useState('');
 const [newCommissionNotes, setNewCommissionNotes] = useState('');
 const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
+const [newInventoryEnabled, setNewInventoryEnabled] = useState(false);
+const [newInventoryKind, setNewInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
+const [newInventoryUnitName, setNewInventoryUnitName] = useState('pieza');
+const [newPackagingName, setNewPackagingName] = useState('');
+const [newPackagingSize, setNewPackagingSize] = useState('');
+const [newCurrentStockUnits, setNewCurrentStockUnits] = useState('0');
+const [newLowStockThreshold, setNewLowStockThreshold] = useState('');
 
   const [editIsActive, setEditIsActive] = useState(true);
   const [editSourcePriceCurrency, setEditSourcePriceCurrency] = useState<'VES' | 'USD'>('VES');
@@ -1775,6 +1853,13 @@ const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
   const [editCommissionValue, setEditCommissionValue] = useState('');
   const [editCommissionNotes, setEditCommissionNotes] = useState('');
   const [editInternalRiderPayUsd, setEditInternalRiderPayUsd] = useState('');
+  const [editInventoryEnabled, setEditInventoryEnabled] = useState(false);
+  const [editInventoryKind, setEditInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
+  const [editInventoryUnitName, setEditInventoryUnitName] = useState('pieza');
+  const [editPackagingName, setEditPackagingName] = useState('');
+  const [editPackagingSize, setEditPackagingSize] = useState('');
+  const [editCurrentStockUnits, setEditCurrentStockUnits] = useState('0');
+  const [editLowStockThreshold, setEditLowStockThreshold] = useState('');
   const [editComponents, setEditComponents] = useState<EditableComponentRow[]>([]);
 
   useEffect(() => {
@@ -2209,6 +2294,15 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
     setEditCommissionNotes(selectedCatalogItem.commissionNotes || '');
     setEditInternalRiderPayUsd(
       selectedCatalogItem.internalRiderPayUsd == null ? '' : String(selectedCatalogItem.internalRiderPayUsd)
+    );
+    setEditInventoryEnabled(selectedCatalogItem.inventoryEnabled);
+    setEditInventoryKind(selectedCatalogItem.inventoryKind);
+    setEditInventoryUnitName(selectedCatalogItem.inventoryUnitName || 'pieza');
+    setEditPackagingName(selectedCatalogItem.packagingName || '');
+    setEditPackagingSize(selectedCatalogItem.packagingSize == null ? '' : String(selectedCatalogItem.packagingSize));
+    setEditCurrentStockUnits(String(selectedCatalogItem.currentStockUnits ?? 0));
+    setEditLowStockThreshold(
+      selectedCatalogItem.lowStockThreshold == null ? '' : String(selectedCatalogItem.lowStockThreshold)
     );
 
     setEditComponents(
@@ -2907,6 +3001,19 @@ const handleSaveCatalog = async () => {
       internalRiderPayUsd: editInternalRiderPayUsd.trim()
         ? Number(String(editInternalRiderPayUsd).trim().replace(',', '.'))
         : null,
+      inventoryEnabled: editInventoryEnabled,
+      inventoryKind: editInventoryKind,
+      inventoryUnitName: editInventoryUnitName.trim() || 'pieza',
+      packagingName: editPackagingName.trim() || null,
+      packagingSize: editPackagingSize.trim()
+        ? Number(String(editPackagingSize).trim().replace(',', '.'))
+        : null,
+      currentStockUnits: editCurrentStockUnits.trim()
+        ? Number(String(editCurrentStockUnits).trim().replace(',', '.'))
+        : 0,
+      lowStockThreshold: editLowStockThreshold.trim()
+        ? Number(String(editLowStockThreshold).trim().replace(',', '.'))
+        : null,
       components: editComponents.map((row, idx) => ({
         componentProductId: Number(row.componentProductId),
         componentMode: row.componentMode,
@@ -3500,6 +3607,70 @@ const resetCreateCatalogForm = () => {
   setNewCommissionValue('');
   setNewCommissionNotes('');
   setNewInternalRiderPayUsd('');
+  setNewInventoryEnabled(false);
+  setNewInventoryKind('finished_good');
+  setNewInventoryUnitName('pieza');
+  setNewPackagingName('');
+  setNewPackagingSize('');
+  setNewCurrentStockUnits('0');
+  setNewLowStockThreshold('');
+};
+
+const resetInventoryMovementForm = () => {
+  setSelectedInventoryProductId(null);
+  setInventoryMovementType('inbound');
+  setInventoryMovementPackagingQty('0');
+  setInventoryMovementUnitQty('0');
+  setInventoryMovementReasonCode('');
+  setInventoryMovementNotes('');
+};
+
+const openInventoryMovementDrawer = (productId: number) => {
+  setInventoryMovementType('inbound');
+  setInventoryMovementPackagingQty('0');
+  setInventoryMovementUnitQty('0');
+  setInventoryMovementReasonCode('');
+  setInventoryMovementNotes('');
+  setSelectedInventoryProductId(productId);
+  setInventoryMovementOpen(true);
+};
+
+const handleCreateInventoryMovement = async () => {
+  if (!selectedInventoryProduct) return;
+
+  try {
+    setInventoryMovementSaving(true);
+
+    const packagingQty = Number(String(inventoryMovementPackagingQty || '').trim().replace(',', '.'));
+    const unitQty = Number(String(inventoryMovementUnitQty || '').trim().replace(',', '.'));
+    const safePackagingQty = Number.isFinite(packagingQty) ? Math.max(0, packagingQty) : 0;
+    const safeUnitQty = Number.isFinite(unitQty) ? Math.max(0, unitQty) : 0;
+    const quantityUnits =
+      safePackagingQty * Number(selectedInventoryProduct.packagingSize || 0) + safeUnitQty;
+
+    if (!Number.isFinite(quantityUnits) || quantityUnits < 0) {
+      throw new Error('Cantidad inválida.');
+    }
+
+    await createInventoryMovementAction({
+      productId: selectedInventoryProduct.id,
+      movementType: inventoryMovementType,
+      packagingQuantity: safePackagingQty,
+      unitQuantityExtra: safeUnitQty,
+      quantityUnits,
+      reasonCode: inventoryMovementReasonCode.trim() || null,
+      notes: inventoryMovementNotes.trim() || null,
+    });
+
+    showToast('success', 'Movimiento de inventario guardado.');
+    setInventoryMovementOpen(false);
+    resetInventoryMovementForm();
+    router.refresh();
+  } catch (err) {
+    showToast('error', err instanceof Error ? err.message : 'No se pudo guardar el movimiento.');
+  } finally {
+    setInventoryMovementSaving(false);
+  }
 };
 
 const handleCreateCatalogItem = async () => {
@@ -3529,6 +3700,19 @@ const handleCreateCatalogItem = async () => {
       commissionNotes: newCommissionNotes.trim() || null,
       internalRiderPayUsd: newInternalRiderPayUsd.trim()
         ? Number(String(newInternalRiderPayUsd).trim().replace(',', '.'))
+        : null,
+      inventoryEnabled: newInventoryEnabled,
+      inventoryKind: newInventoryKind,
+      inventoryUnitName: newInventoryUnitName.trim() || 'pieza',
+      packagingName: newPackagingName.trim() || null,
+      packagingSize: newPackagingSize.trim()
+        ? Number(String(newPackagingSize).trim().replace(',', '.'))
+        : null,
+      currentStockUnits: newCurrentStockUnits.trim()
+        ? Number(String(newCurrentStockUnits).trim().replace(',', '.'))
+        : 0,
+      lowStockThreshold: newLowStockThreshold.trim()
+        ? Number(String(newLowStockThreshold).trim().replace(',', '.'))
         : null,
     });
 
@@ -4642,6 +4826,48 @@ const selectedPaymentReportAccount =
     return new Map(catalogItems.map((item) => [item.id, item]));
   }, [catalogItems]);
 
+  const inventoryItems = useMemo(
+    () => catalogItems.filter((item) => item.inventoryEnabled || item.isInventoryItem),
+    [catalogItems]
+  );
+
+  const filteredInventoryItems = useMemo(() => {
+    const term = inventorySearch.trim().toLowerCase();
+    if (!term) return inventoryItems;
+    return inventoryItems.filter(
+      (item) =>
+        item.name.toLowerCase().includes(term) ||
+        item.sku.toLowerCase().includes(term) ||
+        item.inventoryKind.toLowerCase().includes(term)
+    );
+  }, [inventoryItems, inventorySearch]);
+
+  const selectedInventoryProduct = useMemo(
+    () => inventoryItems.find((item) => item.id === selectedInventoryProductId) ?? null,
+    [inventoryItems, selectedInventoryProductId]
+  );
+
+  const inventoryMovementsByProductId = useMemo(() => {
+    const map = new Map<number, InventoryMovementItem[]>();
+    for (const movement of inventoryMovements) {
+      const list = map.get(movement.productId) ?? [];
+      list.push(movement);
+      map.set(movement.productId, list);
+    }
+    return map;
+  }, [inventoryMovements]);
+
+  const inventorySummary = useMemo(() => {
+    return {
+      totalItems: inventoryItems.length,
+      lowStock: inventoryItems.filter(
+        (item) => item.lowStockThreshold != null && item.currentStockUnits <= item.lowStockThreshold
+      ).length,
+      raw: inventoryItems.filter((item) => item.inventoryKind === 'raw_material').length,
+      bases: inventoryItems.filter((item) => item.inventoryKind === 'prepared_base').length,
+    };
+  }, [inventoryItems]);
+
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
@@ -5676,6 +5902,9 @@ suppressHydrationWarning
       <div className="flex gap-2 overflow-x-auto">
         <Chip active={settingsTab === 'catalog'} onClick={() => setSettingsTab('catalog')}>
           Catálogo
+        </Chip>
+        <Chip active={settingsTab === 'inventory'} onClick={() => setSettingsTab('inventory')}>
+          Inventario
         </Chip>
         <Chip active={settingsTab === 'exchange_rate'} onClick={() => setSettingsTab('exchange_rate')}>
           Tasa
@@ -7050,6 +7279,144 @@ suppressHydrationWarning
             </div>
           ) : null}
 
+          {settingsTab === 'inventory' ? (
+  <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Items inventariables</div>
+        <div className="mt-3 text-2xl font-semibold text-[#F5F5F7]">{inventorySummary.totalItems}</div>
+        <div className="mt-1 text-xs text-[#8A8A96]">Productos con inventario activo</div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Bajo stock</div>
+        <div className="mt-3 text-2xl font-semibold text-[#FEEF00]">{inventorySummary.lowStock}</div>
+        <div className="mt-1 text-xs text-[#8A8A96]">Por debajo del mínimo configurado</div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Materias primas</div>
+        <div className="mt-3 text-2xl font-semibold text-[#F5F5F7]">{inventorySummary.raw}</div>
+        <div className="mt-1 text-xs text-[#8A8A96]">Tipo `raw_material`</div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Bases preparadas</div>
+        <div className="mt-3 text-2xl font-semibold text-[#F5F5F7]">{inventorySummary.bases}</div>
+        <div className="mt-1 text-xs text-[#8A8A96]">Tipo `prepared_base`</div>
+      </div>
+    </div>
+
+    <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-end md:justify-between">
+      <div className="flex-1">
+        <FieldInput
+          label="Buscar item de inventario"
+          value={inventorySearch}
+          onChange={setInventorySearch}
+        />
+      </div>
+
+      <div className="text-xs text-[#8A8A96] md:max-w-[280px]">
+        El stock se guarda en unidades base y se muestra usando el empaque configurado del producto.
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+            <tr>
+              <th className="px-3 py-3 text-left font-medium">SKU</th>
+              <th className="px-3 py-3 text-left font-medium">Producto</th>
+              <th className="px-3 py-3 text-left font-medium">Tipo</th>
+              <th className="px-3 py-3 text-left font-medium">Empaque</th>
+              <th className="px-3 py-3 text-left font-medium">Stock actual</th>
+              <th className="px-3 py-3 text-left font-medium">Mínimo</th>
+              <th className="px-3 py-3 text-left font-medium">Último movimiento</th>
+              <th className="px-3 py-3 text-left font-medium">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredInventoryItems.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
+                  No hay items de inventario que coincidan con el filtro.
+                </td>
+              </tr>
+            ) : (
+              filteredInventoryItems.map((item, idx) => {
+                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                const latestMovement = (inventoryMovementsByProductId.get(item.id) ?? [])[0] ?? null;
+                const isLow =
+                  item.lowStockThreshold != null &&
+                  item.currentStockUnits <= item.lowStockThreshold;
+
+                return (
+                  <tr key={item.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                    <td className="px-3 py-3 text-[#8A8A96]">{item.sku || '—'}</td>
+                    <td className="px-3 py-3">
+                      <div className="font-semibold text-[#F5F5F7]">{item.name}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">{item.inventoryUnitName}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <SmallBadge label={item.inventoryKind} tone="muted" />
+                    </td>
+                    <td className="px-3 py-3 text-[#B7B7C2]">
+                      {item.packagingName && item.packagingSize
+                        ? `${item.packagingName} x ${item.packagingSize}`
+                        : 'Sin empaque'}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className={`font-medium ${isLow ? 'text-[#FEEF00]' : 'text-[#F5F5F7]'}`}>
+                        {fmtInventoryUnits(
+                          item.currentStockUnits,
+                          item.packagingName,
+                          item.packagingSize,
+                          item.inventoryUnitName
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-[#B7B7C2]">
+                      {item.lowStockThreshold != null
+                        ? fmtInventoryUnits(
+                            item.lowStockThreshold,
+                            item.packagingName,
+                            item.packagingSize,
+                            item.inventoryUnitName
+                          )
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-3 text-[#B7B7C2]">
+                      {latestMovement ? (
+                        <div>
+                          <div className="text-[#F5F5F7]">{latestMovement.movementType}</div>
+                          <div className="mt-1 text-[11px] text-[#8A8A96]">
+                            {fmtDateTimeES(latestMovement.createdAt)}
+                          </div>
+                        </div>
+                      ) : (
+                        'Sin movimientos'
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      <button
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                        onClick={() => openInventoryMovementDrawer(item.id)}
+                      >
+                        Movimiento
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+) : null}
+
           {settingsTab === 'exchange_rate' ? (
   <div className="max-w-[760px] space-y-4">
   <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 md:col-span-2">
@@ -7728,6 +8095,63 @@ suppressHydrationWarning
               </>
             ) : (
               <>
+                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Inventario</div>
+                  <div className="mt-4 space-y-4">
+                    <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+                      <input
+                        type="checkbox"
+                        checked={editInventoryEnabled}
+                        onChange={(e) => setEditInventoryEnabled(e.target.checked)}
+                      />
+                      Inventario activo
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <FieldSelect
+                        label="Tipo inventario"
+                        value={editInventoryKind}
+                        onChange={(v) =>
+                          setEditInventoryKind(v as 'raw_material' | 'prepared_base' | 'finished_good')
+                        }
+                        options={[
+                          { value: 'finished_good', label: 'Producto final' },
+                          { value: 'prepared_base', label: 'Base preparada' },
+                          { value: 'raw_material', label: 'Materia prima' },
+                        ]}
+                      />
+                      <FieldInput
+                        label="Unidad base"
+                        value={editInventoryUnitName}
+                        onChange={setEditInventoryUnitName}
+                      />
+                      <FieldInput
+                        label="Empaque"
+                        value={editPackagingName}
+                        onChange={setEditPackagingName}
+                      />
+                      <FieldInput
+                        label="Tamaño empaque"
+                        value={editPackagingSize}
+                        onChange={setEditPackagingSize}
+                        type="text"
+                      />
+                      <FieldInput
+                        label="Stock actual"
+                        value={editCurrentStockUnits}
+                        onChange={setEditCurrentStockUnits}
+                        type="text"
+                      />
+                      <FieldInput
+                        label="Stock mínimo"
+                        value={editLowStockThreshold}
+                        onChange={setEditLowStockThreshold}
+                        type="text"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-[#F5F5F7]">Editar catálogo</div>
@@ -9459,6 +9883,33 @@ deliveryAssignMode === 'external' ? (
         <FieldInput label="Notas comisión" value={newCommissionNotes} onChange={setNewCommissionNotes} />
       </div>
 
+      <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Inventario</div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <FieldCheckbox label="Inventario activo" checked={newInventoryEnabled} onChange={setNewInventoryEnabled} />
+          <FieldSelect
+            label="Tipo inventario"
+            value={newInventoryKind}
+            onChange={(v) => setNewInventoryKind(v as 'raw_material' | 'prepared_base' | 'finished_good')}
+            options={[
+              { value: 'finished_good', label: 'Producto final' },
+              { value: 'prepared_base', label: 'Base preparada' },
+              { value: 'raw_material', label: 'Materia prima' },
+            ]}
+          />
+          <FieldInput label="Unidad base" value={newInventoryUnitName} onChange={setNewInventoryUnitName} />
+          <FieldInput label="Empaque" value={newPackagingName} onChange={setNewPackagingName} />
+          <FieldInput label="Tamaño empaque" value={newPackagingSize} onChange={setNewPackagingSize} type="text" />
+          <FieldInput label="Stock actual" value={newCurrentStockUnits} onChange={setNewCurrentStockUnits} type="text" />
+          <FieldInput
+            label="Stock mínimo"
+            value={newLowStockThreshold}
+            onChange={setNewLowStockThreshold}
+            type="text"
+          />
+        </div>
+      </div>
+
       <div className="mt-4 grid grid-cols-2 gap-3">
         <FieldCheckbox label="Activo" checked={newIsActive} onChange={setNewIsActive} />
         <FieldCheckbox label="Inventariable" checked={newIsInventoryItem} onChange={setNewIsInventoryItem} />
@@ -10102,6 +10553,147 @@ deliveryAssignMode === 'external' ? (
             </button>
           </div>
         </div>
+      </Drawer>
+      <Drawer
+        open={inventoryMovementOpen}
+        title={selectedInventoryProduct ? `Movimiento: ${selectedInventoryProduct.name}` : 'Movimiento de inventario'}
+        onClose={() => {
+          setInventoryMovementOpen(false);
+          resetInventoryMovementForm();
+        }}
+        widthClass="w-[620px]"
+      >
+        {!selectedInventoryProduct ? (
+          <div className="text-sm text-[#B7B7C2]">Sin producto seleccionado.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell label="SKU" value={selectedInventoryProduct.sku || '—'} />
+                <InfoCell
+                  label="Stock actual"
+                  value={fmtInventoryUnits(
+                    selectedInventoryProduct.currentStockUnits,
+                    selectedInventoryProduct.packagingName,
+                    selectedInventoryProduct.packagingSize,
+                    selectedInventoryProduct.inventoryUnitName
+                  )}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <FieldSelect
+                  label="Tipo de movimiento"
+                  value={inventoryMovementType}
+                  onChange={(value) =>
+                    setInventoryMovementType(
+                      value as 'inbound' | 'damage' | 'waste' | 'manual_adjustment' | 'stock_count'
+                    )
+                  }
+                  options={[
+                    { value: 'inbound', label: 'Entrada' },
+                    { value: 'damage', label: 'Avería' },
+                    { value: 'waste', label: 'Merma' },
+                    { value: 'manual_adjustment', label: 'Ajuste manual' },
+                    { value: 'stock_count', label: 'Conteo físico' },
+                  ]}
+                />
+                <FieldInput
+                  label="Motivo"
+                  value={inventoryMovementReasonCode}
+                  onChange={setInventoryMovementReasonCode}
+                />
+                <FieldInput
+                  label={selectedInventoryProduct.packagingName ? selectedInventoryProduct.packagingName : 'Empaques'}
+                  value={inventoryMovementPackagingQty}
+                  onChange={setInventoryMovementPackagingQty}
+                  type="text"
+                />
+                <FieldInput
+                  label={selectedInventoryProduct.inventoryUnitName || 'Unidades'}
+                  value={inventoryMovementUnitQty}
+                  onChange={setInventoryMovementUnitQty}
+                  type="text"
+                />
+              </div>
+
+              <div className="mt-3">
+                <FieldInput
+                  label="Notas"
+                  value={inventoryMovementNotes}
+                  onChange={setInventoryMovementNotes}
+                />
+              </div>
+
+              <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+                Total del movimiento:{' '}
+                <span className="font-semibold text-[#F5F5F7]">
+                  {fmtInventoryUnits(
+                    (Number(String(inventoryMovementPackagingQty || '0').replace(',', '.')) || 0) *
+                      Number(selectedInventoryProduct.packagingSize || 0) +
+                      (Number(String(inventoryMovementUnitQty || '0').replace(',', '.')) || 0),
+                    selectedInventoryProduct.packagingName,
+                    selectedInventoryProduct.packagingSize,
+                    selectedInventoryProduct.inventoryUnitName
+                  )}
+                </span>
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+                  onClick={() => {
+                    setInventoryMovementOpen(false);
+                    resetInventoryMovementForm();
+                  }}
+                  disabled={inventoryMovementSaving}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+                  onClick={handleCreateInventoryMovement}
+                  disabled={inventoryMovementSaving}
+                >
+                  {inventoryMovementSaving ? 'Guardando...' : 'Guardar movimiento'}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Últimos movimientos</div>
+              <div className="mt-3 space-y-2">
+                {(inventoryMovementsByProductId.get(selectedInventoryProduct.id) ?? [])
+                  .slice(0, 8)
+                  .map((movement) => (
+                    <div
+                      key={movement.id}
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-medium text-[#F5F5F7]">{movement.movementType}</div>
+                        <div className="text-xs text-[#8A8A96]">{fmtDateTimeES(movement.createdAt)}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-[#B7B7C2]">
+                        {fmtInventoryUnits(
+                          movement.quantityUnits,
+                          selectedInventoryProduct.packagingName,
+                          selectedInventoryProduct.packagingSize,
+                          selectedInventoryProduct.inventoryUnitName
+                        )}
+                        {movement.reasonCode ? ` · ${movement.reasonCode}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                {(inventoryMovementsByProductId.get(selectedInventoryProduct.id) ?? []).length === 0 ? (
+                  <div className="text-sm text-[#B7B7C2]">Sin movimientos registrados.</div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
       </Drawer>
       <Drawer
         open={clientDetailOpen}
