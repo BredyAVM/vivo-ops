@@ -217,6 +217,24 @@ type RawInventoryMovementRow = {
   created_by_user_id: string;
 };
 
+type RawInventoryRecipeRow = {
+  id: number;
+  output_product_id: number;
+  recipe_kind: 'production' | 'packaging';
+  output_quantity_units: number | string;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+type RawInventoryRecipeComponentRow = {
+  id: number;
+  recipe_id: number;
+  input_product_id: number;
+  quantity_units: number | string;
+  sort_order: number | string;
+};
+
 type RawExchangeRateRow = {
   id: number;
   rate_bs_per_usd: number | string;
@@ -1202,6 +1220,63 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
+  const { data: inventoryRecipesData, error: inventoryRecipesError } = await supabase
+    .from('inventory_recipes')
+    .select(`
+      id,
+      output_product_id,
+      recipe_kind,
+      output_quantity_units,
+      notes,
+      is_active,
+      created_at
+    `)
+    .order('created_at', { ascending: false });
+
+  if (inventoryRecipesError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando recetas de inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las recetas de producción/empaque.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryRecipesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const { data: inventoryRecipeComponentsData, error: inventoryRecipeComponentsError } = await supabase
+    .from('inventory_recipe_components')
+    .select(`
+      id,
+      recipe_id,
+      input_product_id,
+      quantity_units,
+      sort_order
+    `)
+    .order('recipe_id', { ascending: true })
+    .order('sort_order', { ascending: true });
+
+  if (inventoryRecipeComponentsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando componentes de recetas</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los componentes de producción/empaque.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryRecipeComponentsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const { data: productComponentsData, error: productComponentsError } = await supabase
     .from('product_components')
     .select(`
@@ -1297,6 +1372,24 @@ const { data: ordersData, error: ordersError } = await supabase
     orderId: row.order_id == null ? null : Number(row.order_id),
     createdAt: row.created_at,
     createdByUserId: row.created_by_user_id,
+  }));
+
+  const inventoryRecipes = ((inventoryRecipesData ?? []) as RawInventoryRecipeRow[]).map((row) => ({
+    id: Number(row.id),
+    outputProductId: Number(row.output_product_id),
+    recipeKind: row.recipe_kind,
+    outputQuantityUnits: toNumber(row.output_quantity_units, 0),
+    notes: row.notes ?? null,
+    isActive: row.is_active,
+    createdAt: row.created_at,
+  }));
+
+  const inventoryRecipeComponents = ((inventoryRecipeComponentsData ?? []) as RawInventoryRecipeComponentRow[]).map((row) => ({
+    id: Number(row.id),
+    recipeId: Number(row.recipe_id),
+    inputProductId: Number(row.input_product_id),
+    quantityUnits: toNumber(row.quantity_units, 0),
+    sortOrder: toNumber(row.sort_order, 0),
   }));
 
 const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
@@ -1614,6 +1707,8 @@ currentUser={{
       moneyAccounts={moneyAccounts}
       moneyMovements={moneyMovements}
       inventoryMovements={inventoryMovements}
+      inventoryRecipes={inventoryRecipes}
+      inventoryRecipeComponents={inventoryRecipeComponents}
       clients={clients}
       catalogItems={catalogItems}
       productComponents={productComponents}

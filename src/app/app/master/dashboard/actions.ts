@@ -1854,6 +1854,159 @@ export async function createInventoryMovementAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createInventoryProductionAction(input: {
+  recipeId: number;
+  batchMultiplier: number;
+  notes: string | null;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const recipeId = toSafeNumber(input.recipeId, 0);
+  const batchMultiplier = toSafeNumber(input.batchMultiplier, 0);
+
+  if (recipeId <= 0) throw new Error('Receta inválida.');
+  if (!Number.isFinite(batchMultiplier) || batchMultiplier <= 0) {
+    throw new Error('La cantidad a producir es inválida.');
+  }
+
+  const { data: recipe, error: recipeError } = await supabase
+    .from('inventory_recipes')
+    .select('id, output_product_id, recipe_kind, output_quantity_units, notes, is_active')
+    .eq('id', recipeId)
+    .single();
+
+  if (recipeError || !recipe) {
+    throw new Error(recipeError?.message || 'No se pudo cargar la receta.');
+  }
+
+  if (!recipe.is_active) {
+    throw new Error('La receta está inactiva.');
+  }
+
+  const { data: components, error: componentsError } = await supabase
+    .from('inventory_recipe_components')
+    .select('id, input_product_id, quantity_units, sort_order')
+    .eq('recipe_id', recipeId)
+    .order('sort_order', { ascending: true });
+
+  if (componentsError) {
+    throw new Error(componentsError.message);
+  }
+
+  if ((components ?? []).length === 0) {
+    throw new Error('La receta no tiene componentes cargados.');
+  }
+
+  const inputProductIds = Array.from(
+    new Set((components ?? []).map((component) => Number(component.input_product_id)).filter((id) => id > 0))
+  );
+
+  const allProductIds = Array.from(new Set([...inputProductIds, Number(recipe.output_product_id)]));
+
+  const { data: products, error: productsError } = await supabase
+    .from('products')
+    .select('id, name, current_stock_units')
+    .in('id', allProductIds);
+
+  if (productsError) {
+    throw new Error(productsError.message);
+  }
+
+  const productById = new Map((products ?? []).map((product) => [Number(product.id), product]));
+  const outputProduct = productById.get(Number(recipe.output_product_id));
+
+  if (!outputProduct) {
+    throw new Error('No se pudo cargar el producto resultante.');
+  }
+
+  const componentRows = (components ?? []).map((component) => {
+    const inputProductId = Number(component.input_product_id);
+    const inputProduct = productById.get(inputProductId);
+    const baseQuantity = toSafeNumber(component.quantity_units, 0);
+    const quantityUnits = baseQuantity * batchMultiplier;
+
+    if (!inputProduct) {
+      throw new Error('No se pudo cargar un insumo de la receta.');
+    }
+
+    const currentStock = toSafeNumber(inputProduct.current_stock_units, 0);
+    if (currentStock < quantityUnits) {
+      throw new Error(`Stock insuficiente en ${inputProduct.name}.`);
+    }
+
+    return {
+      productId: inputProductId,
+      productName: String(inputProduct.name || 'Insumo'),
+      quantityUnits,
+      nextStock: currentStock - quantityUnits,
+    };
+  });
+
+  const outputQuantityUnits = toSafeNumber(recipe.output_quantity_units, 0) * batchMultiplier;
+  if (!Number.isFinite(outputQuantityUnits) || outputQuantityUnits <= 0) {
+    throw new Error('La receta tiene una salida inválida.');
+  }
+
+  const outputCurrentStock = toSafeNumber(outputProduct.current_stock_units, 0);
+  const outputNextStock = outputCurrentStock + outputQuantityUnits;
+  const notes = input.notes?.trim() || null;
+  const recipeLabel = recipe.recipe_kind === 'packaging' ? 'Empaque' : 'Producción';
+
+  for (const component of componentRows) {
+    const { error: movementError } = await supabase
+      .from('inventory_movements')
+      .insert({
+        product_id: component.productId,
+        movement_type: recipe.recipe_kind === 'packaging' ? 'pack_out' : 'production_out',
+        quantity_units: component.quantityUnits,
+        packaging_quantity: null,
+        unit_quantity_extra: null,
+        reason_code: 'recipe_output',
+        notes:
+          notes ??
+          `${recipeLabel}: ${outputProduct.name}`,
+        order_id: null,
+        created_by_user_id: user.id,
+      });
+
+    if (movementError) throw new Error(movementError.message);
+
+    const { error: stockError } = await supabase
+      .from('products')
+      .update({ current_stock_units: component.nextStock })
+      .eq('id', component.productId);
+
+    if (stockError) throw new Error(stockError.message);
+  }
+
+  const { error: outputMovementError } = await supabase
+    .from('inventory_movements')
+    .insert({
+      product_id: Number(recipe.output_product_id),
+      movement_type: recipe.recipe_kind === 'packaging' ? 'pack_in' : 'production_in',
+      quantity_units: outputQuantityUnits,
+      packaging_quantity: null,
+      unit_quantity_extra: null,
+      reason_code: 'recipe_output',
+      notes:
+        notes ??
+        `${recipeLabel}: ${outputProduct.name}`,
+      order_id: null,
+      created_by_user_id: user.id,
+    });
+
+  if (outputMovementError) throw new Error(outputMovementError.message);
+
+  const { error: outputStockError } = await supabase
+    .from('products')
+    .update({ current_stock_units: outputNextStock })
+    .eq('id', Number(recipe.output_product_id));
+
+  if (outputStockError) throw new Error(outputStockError.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function deleteCatalogItemAction(input: {
   productId: number;
 }) {
