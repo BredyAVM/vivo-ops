@@ -1630,6 +1630,31 @@ function pad2(n: number) {
   return String(n).padStart(2, '0');
 }
 
+function buildOrderItemOverrideAuditPayload(item: {
+  productNameSnapshot: string;
+  unitPriceUsdSnapshot: number;
+  adminPriceOverrideUsd: number | null;
+  qty: number;
+  lineTotalUsd: number;
+}) {
+  const originalUnitPriceUsd = Number(item.unitPriceUsdSnapshot || 0);
+  const overrideUnitPriceUsd = Number(item.adminPriceOverrideUsd || 0);
+  const qty = Number(item.qty || 0);
+  const originalLineTotalUsd = originalUnitPriceUsd * qty;
+  const overrideLineTotalUsd = Number(item.lineTotalUsd || 0);
+
+  return {
+    kind: 'item_price_override',
+    product_name: item.productNameSnapshot,
+    qty,
+    original_unit_price_usd: originalUnitPriceUsd,
+    override_unit_price_usd: overrideUnitPriceUsd,
+    original_line_total_usd: originalLineTotalUsd,
+    override_line_total_usd: overrideLineTotalUsd,
+    delta_usd: overrideLineTotalUsd - originalLineTotalUsd,
+  };
+}
+
 function pad4(n: number) {
   return String(n).padStart(4, '0');
 }
@@ -1741,6 +1766,8 @@ export async function createOrderAction(input: {
     sourcePriceAmount: number;
     unitPriceUsdSnapshot: number;
     lineTotalUsd: number;
+    adminPriceOverrideUsd: number | null;
+    adminPriceOverrideReason: string | null;
     editableDetailLines: string[];
   }>;
 }) {
@@ -1759,6 +1786,13 @@ export async function createOrderAction(input: {
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
     throw new Error('Debes agregar al menos un ítem.');
+  }
+
+  if (
+    input.items.some((item) => item.adminPriceOverrideUsd != null) &&
+    !roles.includes('admin')
+  ) {
+    throw new Error('Solo admin puede ajustar precios manualmente.');
   }
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
@@ -1921,7 +1955,9 @@ export async function createOrderAction(input: {
 
   const subtotalBs = input.items.reduce((sum, item) => {
     const lineBs =
-      item.sourcePriceCurrency === 'VES'
+      item.adminPriceOverrideUsd != null
+        ? Number(item.lineTotalUsd || 0) * fxRateNumber
+        : item.sourcePriceCurrency === 'VES'
         ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
         : Number(item.lineTotalUsd || 0) * fxRateNumber;
 
@@ -1929,12 +1965,7 @@ export async function createOrderAction(input: {
   }, 0);
 
   const subtotalUsd = input.items.reduce((sum, item) => {
-    const lineUsd =
-      item.sourcePriceCurrency === 'VES'
-        ? fxRateNumber > 0
-          ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
-          : 0
-        : Number(item.lineTotalUsd || 0);
+    const lineUsd = Number(item.lineTotalUsd || 0);
 
     return sum + lineUsd;
   }, 0);
@@ -2064,6 +2095,8 @@ export async function createOrderAction(input: {
 
   const orderId = Number(createdOrder.id);
 
+  const adminOverrideTimestamp = new Date().toISOString();
+
   const itemsPayload = input.items.map((item) => ({
     order_id: orderId,
     product_id: item.productId,
@@ -2073,13 +2106,26 @@ export async function createOrderAction(input: {
     unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
     line_total_usd: Number(item.lineTotalUsd || 0),
     unit_price_bs_snapshot:
-      item.sourcePriceCurrency === 'VES'
+      item.adminPriceOverrideUsd != null
+        ? Number(item.adminPriceOverrideUsd || 0) * fxRateNumber
+        : item.sourcePriceCurrency === 'VES'
         ? Number(item.sourcePriceAmount || 0)
         : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
     line_total_bs_snapshot:
-      item.sourcePriceCurrency === 'VES'
+      item.adminPriceOverrideUsd != null
+        ? Number(item.lineTotalUsd || 0) * fxRateNumber
+        : item.sourcePriceCurrency === 'VES'
         ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
         : Number(item.lineTotalUsd || 0) * fxRateNumber,
+    admin_price_override_usd:
+      item.adminPriceOverrideUsd != null
+        ? Number(item.adminPriceOverrideUsd || 0)
+        : null,
+    admin_price_override_reason: item.adminPriceOverrideReason || null,
+    admin_price_override_by_user_id:
+      item.adminPriceOverrideUsd != null ? user.id : null,
+    admin_price_override_at:
+      item.adminPriceOverrideUsd != null ? adminOverrideTimestamp : null,
     sku_snapshot: item.skuSnapshot,
     product_name_snapshot: item.productNameSnapshot,
     notes:
@@ -2088,12 +2134,41 @@ export async function createOrderAction(input: {
         : null,
   }));
 
-  const { error: itemsError } = await supabase
+  const { data: insertedItems, error: itemsError } = await supabase
     .from('order_items')
-    .insert(itemsPayload);
+    .insert(itemsPayload)
+    .select('id');
 
   if (itemsError) {
     throw new Error(itemsError.message);
+  }
+
+  const createAdjustmentRows = input.items
+    .map((item, idx) => {
+      if (item.adminPriceOverrideUsd == null) return null;
+
+      return {
+        order_id: orderId,
+        order_item_id: Number(insertedItems?.[idx]?.id || 0) || null,
+        adjustment_type: 'item_price_override',
+        reason:
+          String(item.adminPriceOverrideReason || '').trim() ||
+          'Ajuste administrativo de precio',
+        notes: null,
+        payload: buildOrderItemOverrideAuditPayload(item),
+        created_by_user_id: user.id,
+      };
+    })
+    .filter(Boolean);
+
+  if (createAdjustmentRows.length > 0) {
+    const { error: createAdjustmentsError } = await supabase
+      .from('order_admin_adjustments')
+      .insert(createAdjustmentRows);
+
+    if (createAdjustmentsError) {
+      throw new Error(createAdjustmentsError.message);
+    }
   }
 
   const { error: finalizeTotalsError } = await supabase
@@ -2168,10 +2243,12 @@ export async function updateOrderAction(input: {
     sourcePriceAmount: number;
     unitPriceUsdSnapshot: number;
     lineTotalUsd: number;
+    adminPriceOverrideUsd: number | null;
+    adminPriceOverrideReason: string | null;
     editableDetailLines: string[];
   }>;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
 
   const orderId = Number(input.orderId);
   if (!Number.isFinite(orderId) || orderId <= 0) {
@@ -2191,6 +2268,13 @@ export async function updateOrderAction(input: {
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
     throw new Error('Debes agregar al menos un ítem.');
+  }
+
+  if (
+    input.items.some((item) => item.adminPriceOverrideUsd != null) &&
+    !roles.includes('admin')
+  ) {
+    throw new Error('Solo admin puede ajustar precios manualmente.');
   }
 
   if (source === 'advisor' && !input.attributedAdvisorUserId) {
@@ -2363,7 +2447,9 @@ export async function updateOrderAction(input: {
 
   const subtotalBs = input.items.reduce((sum, item) => {
     const lineBs =
-      item.sourcePriceCurrency === 'VES'
+      item.adminPriceOverrideUsd != null
+        ? Number(item.lineTotalUsd || 0) * fxRateNumber
+        : item.sourcePriceCurrency === 'VES'
         ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
         : Number(item.lineTotalUsd || 0) * fxRateNumber;
 
@@ -2371,12 +2457,7 @@ export async function updateOrderAction(input: {
   }, 0);
 
   const subtotalUsd = input.items.reduce((sum, item) => {
-    const lineUsd =
-      item.sourcePriceCurrency === 'VES'
-        ? fxRateNumber > 0
-          ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / fxRateNumber
-          : 0
-        : Number(item.lineTotalUsd || 0);
+    const lineUsd = Number(item.lineTotalUsd || 0);
 
     return sum + lineUsd;
   }, 0);
@@ -2524,6 +2605,8 @@ export async function updateOrderAction(input: {
     throw new Error(deleteItemsError.message);
   }
 
+  const adminOverrideTimestamp = new Date().toISOString();
+
   const itemsPayload = input.items.map((item) => ({
     order_id: orderId,
     product_id: item.productId,
@@ -2533,13 +2616,26 @@ export async function updateOrderAction(input: {
     unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
     line_total_usd: Number(item.lineTotalUsd || 0),
     unit_price_bs_snapshot:
-      item.sourcePriceCurrency === 'VES'
+      item.adminPriceOverrideUsd != null
+        ? Number(item.adminPriceOverrideUsd || 0) * fxRateNumber
+        : item.sourcePriceCurrency === 'VES'
         ? Number(item.sourcePriceAmount || 0)
         : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
     line_total_bs_snapshot:
-      item.sourcePriceCurrency === 'VES'
+      item.adminPriceOverrideUsd != null
+        ? Number(item.lineTotalUsd || 0) * fxRateNumber
+        : item.sourcePriceCurrency === 'VES'
         ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
         : Number(item.lineTotalUsd || 0) * fxRateNumber,
+    admin_price_override_usd:
+      item.adminPriceOverrideUsd != null
+        ? Number(item.adminPriceOverrideUsd || 0)
+        : null,
+    admin_price_override_reason: item.adminPriceOverrideReason || null,
+    admin_price_override_by_user_id:
+      item.adminPriceOverrideUsd != null ? user.id : null,
+    admin_price_override_at:
+      item.adminPriceOverrideUsd != null ? adminOverrideTimestamp : null,
     sku_snapshot: item.skuSnapshot,
     product_name_snapshot: item.productNameSnapshot,
     notes:
@@ -2548,12 +2644,51 @@ export async function updateOrderAction(input: {
         : null,
   }));
 
-  const { error: insertItemsError } = await supabase
+  const { data: insertedItems, error: insertItemsError } = await supabase
     .from('order_items')
-    .insert(itemsPayload);
+    .insert(itemsPayload)
+    .select('id');
 
   if (insertItemsError) {
     throw new Error(insertItemsError.message);
+  }
+
+  const { error: deleteOldAdjustmentsError } = await supabase
+    .from('order_admin_adjustments')
+    .delete()
+    .eq('order_id', orderId)
+    .eq('adjustment_type', 'item_price_override');
+
+  if (deleteOldAdjustmentsError) {
+    throw new Error(deleteOldAdjustmentsError.message);
+  }
+
+  const updateAdjustmentRows = input.items
+    .map((item, idx) => {
+      if (item.adminPriceOverrideUsd == null) return null;
+
+      return {
+        order_id: orderId,
+        order_item_id: Number(insertedItems?.[idx]?.id || 0) || null,
+        adjustment_type: 'item_price_override',
+        reason:
+          String(item.adminPriceOverrideReason || '').trim() ||
+          'Ajuste administrativo de precio',
+        notes: null,
+        payload: buildOrderItemOverrideAuditPayload(item),
+        created_by_user_id: user.id,
+      };
+    })
+    .filter(Boolean);
+
+  if (updateAdjustmentRows.length > 0) {
+    const { error: updateAdjustmentsError } = await supabase
+      .from('order_admin_adjustments')
+      .insert(updateAdjustmentRows);
+
+    if (updateAdjustmentsError) {
+      throw new Error(updateAdjustmentsError.message);
+    }
   }
 
   const { error: finalizeTotalsError } = await supabase

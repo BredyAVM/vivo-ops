@@ -72,6 +72,10 @@ type DraftItem = {
   unitPriceUsdSnapshot: number;
   lineTotalUsd: number;
   editableDetailLines: string[];
+  adminPriceOverrideUsd: number | null;
+  adminPriceOverrideReason: string | null;
+  adminPriceOverrideByUserId?: string | null;
+  adminPriceOverrideAt?: string | null;
 };
 
 type DraftEditableSelection = {
@@ -1862,6 +1866,10 @@ const [createOrderDeliveryNoteName, setCreateOrderDeliveryNoteName] = useState('
 const [createOrderDeliveryNoteDocumentId, setCreateOrderDeliveryNoteDocumentId] = useState('');
 const [createOrderDeliveryNoteAddress, setCreateOrderDeliveryNoteAddress] = useState('');
 const [createOrderDeliveryNotePhone, setCreateOrderDeliveryNotePhone] = useState('');
+const [priceAdjustOpen, setPriceAdjustOpen] = useState(false);
+const [priceAdjustItemLocalId, setPriceAdjustItemLocalId] = useState<string | null>(null);
+const [priceAdjustValue, setPriceAdjustValue] = useState('');
+const [priceAdjustReason, setPriceAdjustReason] = useState('');
 
 const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
 const [kitchenEtaMinutes, setKitchenEtaMinutes] = useState('15');
@@ -2219,6 +2227,7 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderQty(1);
 
   setCreateOrderDraftItems(order.draftItems ?? []);
+  resetPriceAdjustBox();
 
   setCreateOrderDeliveryDate(deliveryFields.date);
   setCreateOrderDeliveryHour12(deliveryFields.hour12);
@@ -2335,6 +2344,13 @@ const resetDeliveryAssignBox = () => {
   setDeliveryAssignDistanceKm('');
   setDeliveryAssignCostUsd('');
   setDeliveryAssignCostManuallyEdited(false);
+};
+
+const resetPriceAdjustBox = () => {
+  setPriceAdjustOpen(false);
+  setPriceAdjustItemLocalId(null);
+  setPriceAdjustValue('');
+  setPriceAdjustReason('');
 };
 
 const resetPaymentReportBox = () => {
@@ -3850,6 +3866,10 @@ setCreateOrderDraftItems((prev) => [
     unitPriceUsdSnapshot: Number(product.basePriceUsd || 0),
     lineTotalUsd: Number(product.basePriceUsd || 0) * createOrderQty,
     editableDetailLines: [],
+    adminPriceOverrideUsd: null,
+    adminPriceOverrideReason: null,
+    adminPriceOverrideByUserId: null,
+    adminPriceOverrideAt: null,
   },
 ]);
 
@@ -3925,7 +3945,26 @@ const nextItem: DraftItem = {
   unitPriceUsdSnapshot: createOrderConfigUnitPriceUsd,
   lineTotalUsd: createOrderConfigUnitPriceUsd * createOrderConfigQty,
   editableDetailLines: detailLines,
+  adminPriceOverrideUsd: null,
+  adminPriceOverrideReason: null,
+  adminPriceOverrideByUserId: null,
+  adminPriceOverrideAt: null,
 };
+
+  const existingEditingItem = createOrderConfigEditingLocalId
+    ? createOrderDraftItems.find((item) => item.localId === createOrderConfigEditingLocalId) ?? null
+    : null;
+
+  if (existingEditingItem) {
+    nextItem.adminPriceOverrideUsd = existingEditingItem.adminPriceOverrideUsd;
+    nextItem.adminPriceOverrideReason = existingEditingItem.adminPriceOverrideReason;
+    nextItem.adminPriceOverrideByUserId = existingEditingItem.adminPriceOverrideByUserId ?? null;
+    nextItem.adminPriceOverrideAt = existingEditingItem.adminPriceOverrideAt ?? null;
+    nextItem.lineTotalUsd =
+      (existingEditingItem.adminPriceOverrideUsd != null
+        ? existingEditingItem.adminPriceOverrideUsd
+        : createOrderConfigUnitPriceUsd) * createOrderConfigQty;
+  }
 
   setCreateOrderDraftItems((prev) => {
     if (createOrderConfigEditingLocalId) {
@@ -4015,6 +4054,8 @@ items: createOrderDraftItems.map((item) => ({
   unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
   lineTotalUsd: item.lineTotalUsd,
   editableDetailLines: item.editableDetailLines,
+  adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+  adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
     });
 
@@ -4100,6 +4141,8 @@ items: createOrderDraftItems.map((item) => ({
   unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
   lineTotalUsd: item.lineTotalUsd,
   editableDetailLines: item.editableDetailLines,
+  adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+  adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
     });
 
@@ -4123,7 +4166,74 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
         ? {
             ...item,
             qty: nextQty,
-            lineTotalUsd: item.unitPriceUsdSnapshot * nextQty,
+            lineTotalUsd:
+              (item.adminPriceOverrideUsd != null
+                ? item.adminPriceOverrideUsd
+                : item.unitPriceUsdSnapshot) * nextQty,
+          }
+        : item
+    )
+  );
+};
+
+const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
+  if (!isAdmin) return;
+
+  setPriceAdjustItemLocalId(item.localId);
+  setPriceAdjustValue(
+    item.adminPriceOverrideUsd != null
+      ? String(item.adminPriceOverrideUsd)
+      : String(item.unitPriceUsdSnapshot)
+  );
+  setPriceAdjustReason(item.adminPriceOverrideReason || '');
+  setPriceAdjustOpen(true);
+};
+
+const handleSaveAdjustedCreateOrderItemPrice = () => {
+  if (!isAdmin || !priceAdjustItemLocalId) return;
+
+  const nextUnitUsd = Number(String(priceAdjustValue || '').replace(',', '.'));
+  if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
+    showToast('error', 'El precio ajustado es inválido.');
+    return;
+  }
+
+  if (!priceAdjustReason.trim()) {
+    showToast('error', 'Debes indicar el motivo del ajuste.');
+    return;
+  }
+
+  setCreateOrderDraftItems((prev) =>
+    prev.map((item) =>
+      item.localId === priceAdjustItemLocalId
+        ? {
+            ...item,
+            adminPriceOverrideUsd: nextUnitUsd,
+            adminPriceOverrideReason: priceAdjustReason.trim(),
+            adminPriceOverrideByUserId: currentUser.id,
+            adminPriceOverrideAt: new Date().toISOString(),
+            lineTotalUsd: nextUnitUsd * Number(item.qty || 0),
+          }
+        : item
+    )
+  );
+
+  resetPriceAdjustBox();
+};
+
+const handleClearAdjustedCreateOrderItemPrice = (localId: string) => {
+  if (!isAdmin) return;
+
+  setCreateOrderDraftItems((prev) =>
+    prev.map((item) =>
+      item.localId === localId
+        ? {
+            ...item,
+            adminPriceOverrideUsd: null,
+            adminPriceOverrideReason: null,
+            adminPriceOverrideByUserId: null,
+            adminPriceOverrideAt: null,
+            lineTotalUsd: item.unitPriceUsdSnapshot * Number(item.qty || 0),
           }
         : item
     )
@@ -4147,19 +4257,16 @@ const createOrderFilteredProducts = catalogItems
 const createOrderFxRateNumber = Math.max(0, Number(createOrderFxRate || 0));
 
 const createOrderDraftSubtotalUsd = createOrderDraftItems.reduce((sum, item) => {
-  const lineTotalUsd =
-    item.sourcePriceCurrency === 'VES'
-      ? createOrderFxRateNumber > 0
-        ? (Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)) / createOrderFxRateNumber
-        : 0
-      : Number(item.lineTotalUsd || 0);
+  const lineTotalUsd = Number(item.lineTotalUsd || 0);
 
   return sum + lineTotalUsd;
 }, 0);
 
 const createOrderDraftSubtotalBs = createOrderDraftItems.reduce((sum, item) => {
   const lineTotalBs =
-    item.sourcePriceCurrency === 'VES'
+    item.adminPriceOverrideUsd != null
+      ? Number(item.lineTotalUsd || 0) * createOrderFxRateNumber
+      : item.sourcePriceCurrency === 'VES'
       ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
       : Number(item.lineTotalUsd || 0) * createOrderFxRateNumber;
 
@@ -5022,6 +5129,7 @@ const resetCreateOrderForm = () => {
   setCreateOrderSelectedProductId('');
   setCreateOrderQty(1);
   setCreateOrderDraftItems([]);
+  resetPriceAdjustBox();
   setCreateOrderDiscountEnabled(false);
   setCreateOrderDiscountPct('0');
   setCreateOrderInvoiceTaxPct('16');
@@ -10440,7 +10548,14 @@ deliveryAssignMode === 'external' ? (
 <div>
   <label className="mb-1 block text-xs text-[#8A8A96]">P/U</label>
   <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]">
-    {item.sourcePriceCurrency === 'VES'
+    {item.adminPriceOverrideUsd != null ? (
+      <div>
+        <div>{fmtUSD(item.adminPriceOverrideUsd)}</div>
+        <div className="mt-1 text-[11px] text-orange-400">
+          Orig: {item.sourcePriceCurrency === 'VES' ? fmtBs(item.sourcePriceAmount) : fmtUSD(item.sourcePriceAmount)}
+        </div>
+      </div>
+    ) : item.sourcePriceCurrency === 'VES'
       ? fmtBs(item.sourcePriceAmount)
       : fmtUSD(item.sourcePriceAmount)}
   </div>
@@ -10449,9 +10564,7 @@ deliveryAssignMode === 'external' ? (
 <div>
   <label className="mb-1 block text-xs text-[#8A8A96]">Total</label>
   <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]">
-    {item.sourcePriceCurrency === 'VES'
-      ? fmtBs(item.sourcePriceAmount * item.qty)
-      : fmtUSD(item.sourcePriceAmount * item.qty)}
+    {fmtUSD(item.lineTotalUsd)}
   </div>
 </div>
 
@@ -10467,6 +10580,26 @@ deliveryAssignMode === 'external' ? (
       </button>
     ) : null}
 
+    {isAdmin ? (
+      <button
+        type="button"
+        onClick={() => openAdjustCreateOrderItemPrice(item)}
+        className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
+      >
+        {item.adminPriceOverrideUsd != null ? 'Ajuste admin' : 'Ajustar precio'}
+      </button>
+    ) : null}
+
+    {isAdmin && item.adminPriceOverrideUsd != null ? (
+      <button
+        type="button"
+        onClick={() => handleClearAdjustedCreateOrderItemPrice(item.localId)}
+        className="w-full rounded-xl border border-orange-500 bg-[#0B0B0D] px-3 py-2 text-sm text-orange-400"
+      >
+        Limpiar ajuste
+      </button>
+    ) : null}
+
     <button
       type="button"
       onClick={() => handleRemoveCreateOrderItem(item.localId)}
@@ -10476,6 +10609,11 @@ deliveryAssignMode === 'external' ? (
     </button>
   </div>
 </div>
+{item.adminPriceOverrideUsd != null && item.adminPriceOverrideReason ? (
+  <div className="md:col-span-full rounded-xl border border-orange-500/30 bg-[#121218] px-3 py-2 text-xs text-orange-300">
+    Ajuste admin: {item.adminPriceOverrideReason}
+  </div>
+) : null}
               </div>
             ))}
 
@@ -11058,6 +11196,47 @@ deliveryAssignMode === 'external' ? (
     </div>
   </div>
 </div>
+    </div>
+  </div>
+</Drawer>
+
+<Drawer
+  open={priceAdjustOpen}
+  title="Ajuste administrativo de precio"
+  onClose={resetPriceAdjustBox}
+  widthClass="w-[520px]"
+>
+  <div className="space-y-4">
+    <FieldInput
+      label="Precio unitario ajustado (USD)"
+      value={priceAdjustValue}
+      onChange={setPriceAdjustValue}
+      type="text"
+    />
+    <div>
+      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo</label>
+      <textarea
+        value={priceAdjustReason}
+        onChange={(e) => setPriceAdjustReason(e.target.value)}
+        rows={4}
+        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+      />
+    </div>
+    <div className="flex gap-2">
+      <button
+        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+        onClick={resetPriceAdjustBox}
+        type="button"
+      >
+        Cancelar
+      </button>
+      <button
+        className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+        onClick={handleSaveAdjustedCreateOrderItemPrice}
+        type="button"
+      >
+        Guardar ajuste
+      </button>
     </div>
   </div>
 </Drawer>
