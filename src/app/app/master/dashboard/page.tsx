@@ -50,6 +50,18 @@ type RawOrderItemRow = {
   admin_price_override_at: string | null;
 };
 
+type RawOrderAdjustmentRow = {
+  id: number;
+  order_id: number;
+  order_item_id: number | null;
+  adjustment_type: string;
+  reason: string;
+  notes: string | null;
+  payload: any;
+  created_at: string;
+  created_by_user_id: string;
+};
+
 type RawPaymentReportRow = {
   id: number;
   order_id: number;
@@ -707,6 +719,25 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
 
+  const { data: orderAdjustmentsData, error: orderAdjustmentsError } = await supabase
+    .from('order_admin_adjustments')
+    .select(
+      'id, order_id, order_item_id, adjustment_type, reason, notes, payload, created_at, created_by_user_id'
+    )
+    .in('order_id', orderIds)
+    .order('created_at', { ascending: false });
+
+  if (orderAdjustmentsError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h1>Error cargando ajustes administrativos</h1>
+        <pre>{orderAdjustmentsError.message}</pre>
+      </div>
+    );
+  }
+
+  const rawOrderAdjustments = (orderAdjustmentsData ?? []) as RawOrderAdjustmentRow[];
+
   const { data: moneyAccountsData, error: moneyAccountsError } = await supabase
     .from('money_accounts')
     .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
@@ -905,6 +936,14 @@ const { data: ordersData, error: ordersError } = await supabase
     const arr = itemsByOrder.get(orderId) ?? [];
     arr.push(item);
     itemsByOrder.set(orderId, arr);
+  }
+
+  const adjustmentsByOrder = new Map<number, RawOrderAdjustmentRow[]>();
+  for (const adjustment of rawOrderAdjustments) {
+    const orderId = Number(adjustment.order_id);
+    const arr = adjustmentsByOrder.get(orderId) ?? [];
+    arr.push(adjustment);
+    adjustmentsByOrder.set(orderId, arr);
   }
 
   const paymentReportsByOrder = new Map<number, PaymentReportDetail[]>();
@@ -1203,6 +1242,17 @@ const clientName =
 
     const rowItems = itemsByOrder.get(row.id) ?? [];
     const paymentReports = paymentReportsByOrder.get(row.id) ?? [];
+    const adminAdjustments = (adjustmentsByOrder.get(row.id) ?? []).map((adjustment) => ({
+      id: Number(adjustment.id),
+      orderItemId:
+        adjustment.order_item_id == null ? null : Number(adjustment.order_item_id),
+      adjustmentType: String(adjustment.adjustment_type || ''),
+      reason: String(adjustment.reason || '').trim(),
+      notes: adjustment.notes ?? null,
+      payload: adjustment.payload ?? {},
+      createdAt: adjustment.created_at,
+      createdByUserId: adjustment.created_by_user_id,
+    }));
 
 const draftItems = rowItems.map((item) => {
   const qty = toNumber(item.qty, 0);
@@ -1398,6 +1448,7 @@ return {
       },
       draftItems,
       paymentReports,
+      adminAdjustments,
       internalDriverUserId: row.internal_driver_user_id ?? null,
       externalPartnerId: row.external_partner_id ?? null,
       riderName:

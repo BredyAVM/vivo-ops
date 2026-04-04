@@ -277,6 +277,16 @@ type Order = {
   draftItems: DraftItem[];
   editMeta: OrderEditMeta;
   paymentReports: PaymentReportItem[];
+  adminAdjustments: Array<{
+    id: number;
+    orderItemId: number | null;
+    adjustmentType: string;
+    reason: string;
+    notes: string | null;
+    payload: Record<string, unknown>;
+    createdAt: string;
+    createdByUserId: string;
+  }>;
   internalDriverUserId?: string | null;
   externalPartnerId?: number | null;
   riderName?: string;
@@ -1757,7 +1767,7 @@ const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<'detalle' | 'entrega' | 'pagos' | 'notas'>('detalle');
+  const [detailTab, setDetailTab] = useState<'detalle' | 'entrega' | 'pagos' | 'notas' | 'ajustes'>('detalle');
 
   const [returnMode, setReturnMode] = useState(false);
   const [returnReason, setReturnReason] = useState('');
@@ -7821,6 +7831,9 @@ onClose={() => {
               <Chip active={detailTab === 'entrega'} onClick={() => setDetailTab('entrega')}>Entrega</Chip>
               <Chip active={detailTab === 'pagos'} onClick={() => setDetailTab('pagos')}>Pagos</Chip>
               <Chip active={detailTab === 'notas'} onClick={() => setDetailTab('notas')}>Notas</Chip>
+              {isAdmin ? (
+                <Chip active={detailTab === 'ajustes'} onClick={() => setDetailTab('ajustes')}>Ajustes</Chip>
+              ) : null}
             </div>
 
 <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_190px] lg:items-start">
@@ -8251,6 +8264,103 @@ onClose={() => {
     <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
       {selectedOrder.notes?.trim() ? selectedOrder.notes : '—'}
     </div>
+  </div>
+) : null}
+
+{detailTab === 'ajustes' && isAdmin ? (
+  <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
+    <div className="flex items-center justify-between gap-2">
+      <div className="text-sm font-semibold text-[#F5F5F7]">Ajustes</div>
+      <SmallBadge
+        label={`${selectedOrder.adminAdjustments.length} evento${selectedOrder.adminAdjustments.length === 1 ? '' : 's'}`}
+        tone={selectedOrder.adminAdjustments.length > 0 ? 'warn' : 'muted'}
+      />
+    </div>
+
+    {selectedOrder.adminAdjustments.length === 0 ? (
+      <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+        Sin ajustes administrativos registrados.
+      </div>
+    ) : (
+      <div className="mt-3 space-y-2">
+        {selectedOrder.adminAdjustments.map((adjustment) => {
+          const payload = adjustment.payload ?? {};
+          const originalUnit = Number(payload.original_unit_price_usd ?? 0);
+          const overrideUnit = Number(payload.override_unit_price_usd ?? 0);
+          const deltaUsd = Number(payload.delta_usd ?? 0);
+          const productName =
+            typeof payload.product_name === 'string' && payload.product_name.trim()
+              ? payload.product_name
+              : 'Ítem';
+          const qty = Number(payload.qty ?? 0);
+
+          return (
+            <div
+              key={adjustment.id}
+              className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[#F5F5F7]">
+                    {adjustment.adjustmentType === 'item_price_override'
+                      ? 'Ajuste de precio por ítem'
+                      : adjustment.adjustmentType}
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#8A8A96]">
+                    {fmtDateTimeES(adjustment.createdAt)} · {adjustment.createdByUserId}
+                  </div>
+                </div>
+
+                <SmallBadge
+                  label={deltaUsd !== 0 ? `${deltaUsd > 0 ? '+' : ''}${fmtUSD(deltaUsd)}` : 'Sin delta'}
+                  tone={deltaUsd < 0 ? 'brand' : deltaUsd > 0 ? 'warn' : 'muted'}
+                />
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Motivo</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || '—'}</div>
+                </div>
+
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Ítem</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">
+                    {productName}
+                    {qty > 0 ? ` · x${qty}` : ''}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Precio original</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(originalUnit)}</div>
+                </div>
+
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(overrideUnit)}</div>
+                </div>
+
+                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                  <div className="text-[10px] text-[#8A8A96]">Impacto</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">
+                    {deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}
+                  </div>
+                </div>
+              </div>
+
+              {adjustment.notes ? (
+                <div className="mt-2 text-[11px] text-[#B7B7C2]">
+                  <span className="text-[#8A8A96]">Notas:</span> {adjustment.notes}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    )}
   </div>
 ) : null}
   </div>
