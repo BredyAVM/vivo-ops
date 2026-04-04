@@ -35,6 +35,7 @@ import {
   updateClientAction,
   updateMoneyAccountAction,
   createOrderAction,
+  createOrderAdminAdjustmentAction,
   updateOrderAction,
   logoutAction,
 } from './actions';
@@ -391,7 +392,7 @@ const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   cash_count_adjustment: 'Ajuste de caja',
   change_given: 'Cambio entregado',
   expense_payment: 'Pago de gasto',
-  fee_charge: 'ComisiÃ³n',
+  fee_charge: 'ComisiÃƒÂ³n',
   order_payment: 'Pago de orden',
   other_income: 'Otro ingreso',
   withdrawal: 'Retiro',
@@ -412,7 +413,7 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   created: 'Creada',
   queued: 'En cola',
   confirmed: 'Enviado a cocina',
-  in_kitchen: 'En preparación',
+  in_kitchen: 'En preparaciÃ³n',
   ready: 'Preparada',
   out_for_delivery: 'En camino',
   delivered: 'Entregado / Retirado',
@@ -433,7 +434,7 @@ const fmtBs = (n: number) => {
 };
 
 const fmtRateBs = (n: number) => {
-  if (!Number.isFinite(n)) return 'Bs —';
+  if (!Number.isFinite(n)) return 'Bs â€”';
 
   const fixed = n.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
@@ -534,14 +535,14 @@ const fmtDeliveryTextES = (iso: string) => {
   });
 
   const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
-  return `${cap} ${dd}/${mm} · ${time}`;
+  return `${cap} ${dd}/${mm} Â· ${time}`;
 };
 
 function fmtDateTimeES(iso: string | null) {
-  if (!iso) return '—';
+  if (!iso) return 'â€”';
 
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return 'â€”';
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -556,7 +557,7 @@ function fmtDateTimeES(iso: string | null) {
 
   const yy = String(year).slice(-2);
 
-  return `${day}/${month}/${yy} · ${hour}:${minute} ${ampm}`;
+  return `${day}/${month}/${yy} Â· ${hour}:${minute} ${ampm}`;
 }
 
 function toDateInputValue(d: Date) {
@@ -619,7 +620,7 @@ function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, Catalo
 
 function getOrderDeliveryChargeLabel(order: Order, catalogItemById: Map<number, CatalogItem>) {
   const deliveryItems = getOrderDeliveryItems(order, catalogItemById);
-  if (deliveryItems.length === 0) return 'Sin ítem delivery';
+  if (deliveryItems.length === 0) return 'Sin Ã­tem delivery';
 
   return deliveryItems
     .map((item) => `${item.productNameSnapshot}${Number(item.qty || 0) > 1 ? ` x${Number(item.qty || 0)}` : ''}`)
@@ -689,15 +690,15 @@ function splitISOToDeliveryFields(iso: string) {
 }
 
 const pillLabel = (f: Fulfillment) => (f === 'delivery' ? 'Delivery' : 'Pickup');
-const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado ✅' : `● Pendiente: ${fmtUSD(balanceUsd)}`);
+const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado âœ…' : `â— Pendiente: ${fmtUSD(balanceUsd)}`);
 const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
 
 function splitTwoWordsCompact(full: string) {
   const parts = (full || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? '—';
+  const first = parts[0] ?? 'â€”';
   const second = parts[1] ?? '';
   const hasMore = parts.length > 2;
-  const line2 = second ? (hasMore ? `${second}…` : second) : '';
+  const line2 = second ? (hasMore ? `${second}â€¦` : second) : '';
   return { line1: first, line2 };
 }
 
@@ -720,13 +721,13 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
 
 function getPaymentMethodLabel(method: string) {
   if (method === 'pending') return 'Pendiente';
-  if (method === 'payment_mobile') return 'Pago móvil';
+  if (method === 'payment_mobile') return 'Pago mÃ³vil';
   if (method === 'transfer') return 'Transferencia';
   if (method === 'cash_usd') return 'Efectivo USD';
   if (method === 'cash_ves') return 'Efectivo Bs';
   if (method === 'zelle') return 'Zelle';
   if (method === 'mixed') return 'Mixto';
-  return '—';
+  return 'â€”';
 }
 
 function getCurrentOperatorLabel(
@@ -736,7 +737,7 @@ function getCurrentOperatorLabel(
   const name = currentUser.fullName?.trim() || currentUser.email || 'Usuario';
 
   if (roles.includes('admin')) return `Admin (${name})`;
-  if (roles.includes('master')) return `Máster (${name})`;
+  if (roles.includes('master')) return `MÃ¡ster (${name})`;
 
   return name;
 }
@@ -789,14 +790,14 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   const bs = fmtBs(line.qty * line.priceBs);
   const isDelivery = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
 
-  if (isDelivery) return `▪️ ${line.qty} ${line.name}: ${bs}`;
+  if (isDelivery) return `â–ªï¸ ${line.qty} ${line.name}: ${bs}`;
 
   if (units !== null) {
     const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    return `▪️ ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    return `â–ªï¸ ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
   }
 
-  return `▪️ ${line.qty} ${line.name}: ${bs}`;
+  return `â–ªï¸ ${line.qty} ${line.name}: ${bs}`;
 }
 
 function buildWhatsAppOrderSummary(order: Order) {
@@ -806,16 +807,16 @@ function buildWhatsAppOrderSummary(order: Order) {
 
   parts.push(`*Resumen de Pedido*`);
   parts.push('');
-  parts.push(`✅ *Orden:* ${order.id}`);
-  parts.push(`✅ *Asesor:* ${order.advisorName}`);
-  parts.push(`✅ *Cliente:* ${order.clientName}`);
+  parts.push(`âœ… *Orden:* ${order.id}`);
+  parts.push(`âœ… *Asesor:* ${order.advisorName}`);
+  parts.push(`âœ… *Cliente:* ${order.clientName}`);
 
   parts.push('');
-  parts.push(`✅ *Pedido:*`);
+  parts.push(`âœ… *Pedido:*`);
   parts.push('');
 
   if (lines.length === 0) {
-    parts.push(`▪️ Sin ítems cargados`);
+    parts.push(`â–ªï¸ Sin Ã­tems cargados`);
   } else {
     for (const line of lines) {
       parts.push(lineTextWhatsAppStyle(line));
@@ -832,16 +833,16 @@ function buildWhatsAppOrderSummary(order: Order) {
   parts.push(`*TOTAL:* ${fmtBs(order.totalBs)} / ${fmtUSD(order.totalUsd)}`);
 
   parts.push('');
-  parts.push(`✅ *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`✅ *Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
+  parts.push(`âœ… *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
+  parts.push(`âœ… *DÃ­a de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
 
   if (order.fulfillment === 'delivery' && order.address?.trim()) {
-    parts.push(`✅ *Dirección:* ${order.address.trim()}`);
+    parts.push(`âœ… *DirecciÃ³n:* ${order.address.trim()}`);
   }
 
   if (order.notes?.trim()) {
     parts.push('');
-    parts.push(`✅ *Nota:* ${order.notes.trim()}`);
+    parts.push(`âœ… *Nota:* ${order.notes.trim()}`);
   }
 
   return parts.join('\n');
@@ -890,7 +891,7 @@ function fmtWeekRangeES(d: Date) {
   const mm1 = String(s.getMonth() + 1).padStart(2, '0');
   const dd2 = String(e.getDate()).padStart(2, '0');
   const mm2 = String(e.getMonth() + 1).padStart(2, '0');
-  return `Semana: Lun ${dd1}/${mm1} – Dom ${dd2}/${mm2}`;
+  return `Semana: Lun ${dd1}/${mm1} â€“ Dom ${dd2}/${mm2}`;
 }
 
 function withinDay(dISO: string, day: Date) {
@@ -945,12 +946,12 @@ function canMarkDelivered(o: Order) {
 }
 
 function kitchenTooltip(o: Order) {
-  if (o.status === 'created') return 'Pendiente de aprobación';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobación';
+  if (o.status === 'created') return 'Pendiente de aprobaciÃ³n';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobaciÃ³n';
   if (o.status === 'queued') return 'Listo para enviar a cocina';
   if (o.status === 'cancelled') return 'Pedido cancelado';
   if (o.status === 'delivered') return 'Pedido finalizado';
-  return 'Ya está en proceso';
+  return 'Ya estÃ¡ en proceso';
 }
 function riderEnabled(o: Order) {
   return (
@@ -961,16 +962,16 @@ function riderEnabled(o: Order) {
 function riderTooltip(o: Order) {
   if (o.fulfillment === 'pickup') return 'No aplica (PickUp)';
   if (!['confirmed', 'in_kitchen', 'ready'].includes(o.status)) {
-    return 'Solo puedes asignar driver cuando la orden está confirmada, en cocina o preparada';
+    return 'Solo puedes asignar driver cuando la orden estÃ¡ confirmada, en cocina o preparada';
   }
   return 'Asignar delivery';
 }
 
 function payIcon(p: PaymentVerify) {
-  if (p === 'pending') return '🟠';
-  if (p === 'confirmed') return '✅';
-  if (p === 'rejected') return '❌';
-  return '—';
+  if (p === 'pending') return 'ðŸŸ ';
+  if (p === 'confirmed') return 'âœ…';
+  if (p === 'rejected') return 'âŒ';
+  return 'â€”';
 }
 function payIconTooltip(p: PaymentVerify) {
   if (p === 'pending') return 'Por confirmar';
@@ -1042,9 +1043,9 @@ function getNextPrimaryActionLabel(o: Order) {
   if (canMarkDelivered(o)) return o.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado';
   if (o.status === 'cancelled') return 'Orden cancelada';
   if (o.status === 'delivered') return 'Ciclo completado';
-  if (o.status === 'created') return 'Pendiente de aprobación';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobación';
-  return 'Sin acción principal';
+  if (o.status === 'created') return 'Pendiente de aprobaciÃ³n';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobaciÃ³n';
+  return 'Sin acciÃ³n principal';
 }
 
 function ProcessTimeline({ order }: { order: Order }) {
@@ -1148,12 +1149,12 @@ function NextActionCard({
     <div className="rounded-lg border border-[#1D1D28] bg-[#101014] px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] text-[#8A8A96]">Próxima acción</div>
+          <div className="text-[10px] text-[#8A8A96]">PrÃ³xima acciÃ³n</div>
           <div className="truncate text-[11px] text-[#F5F5F7]">{label}</div>
         </div>
 
         <div className="shrink-0">
-          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acción</div>}
+          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acciÃ³n</div>}
         </div>
       </div>
     </div>
@@ -1184,7 +1185,7 @@ function Drawer({
             className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
             onClick={onClose}
           >
-            ✕
+            âœ•
           </button>
         </div>
         <div className="h-[calc(100%-52px)] overflow-y-auto px-4 py-4">{children}</div>
@@ -1236,7 +1237,7 @@ function productCompositionKind(item: CatalogItem | null, sku: string | undefine
     return 'Plato configurable';
   }
   if (components.length > 0) return 'Combo fijo';
-  return 'Sin composición';
+  return 'Sin composiciÃ³n';
 }
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -1310,10 +1311,10 @@ function ComponentCard({
     {pc.componentName}
   </div>
   <div className="mt-1 text-xs text-[#8A8A96]">
-    {pc.componentSku ? `${pc.componentSku} · ` : ''}
+    {pc.componentSku ? `${pc.componentSku} Â· ` : ''}
     {catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService
       ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
-      : '—'}
+      : 'â€”'}
   </div>
 </div>
 
@@ -1334,19 +1335,19 @@ function ComponentCard({
             <div className="mt-1 text-[#F5F5F7]">{pc.quantity}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">Cuenta límite</div>
+            <div className="text-[#8A8A96]">Cuenta lÃ­mite</div>
             <div className="mt-1 text-[#F5F5F7]">
-              {pc.countsTowardDetailLimit ? 'Sí' : 'No'}
+              {pc.countsTowardDetailLimit ? 'SÃ­' : 'No'}
             </div>
           </div>
           <div>
             <div className="text-[#8A8A96]">Requerido</div>
-            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'Sí' : 'No'}</div>
+            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'SÃ­' : 'No'}</div>
           </div>
         </div>
       ) : (
         <div className="mt-3 text-xs text-[#B7B7C2]">
-          Opción habilitada para selección dentro del límite del plato.
+          OpciÃ³n habilitada para selecciÃ³n dentro del lÃ­mite del plato.
         </div>
       )}
 
@@ -1488,7 +1489,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'unknown',
       label: 'Sin definir',
-      summary: 'Sin información',
+      summary: 'Sin informaciÃ³n',
     };
   }
 
@@ -1499,7 +1500,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'mix',
       label: 'Mixto fijo',
-      summary: 'Composición cerrada con cantidades exactas por componente.',
+      summary: 'ComposiciÃ³n cerrada con cantidades exactas por componente.',
     };
   }
 
@@ -1509,7 +1510,7 @@ function getCatalogOperationalModel(
         kind: 'configurable_with_fixed',
         label: 'Plato configurable con extras fijos',
         summary:
-          'El cliente puede escoger piezas seleccionables dentro del límite. Además puede incluir componentes fijos u opcionales.',
+          'El cliente puede escoger piezas seleccionables dentro del lÃ­mite. AdemÃ¡s puede incluir componentes fijos u opcionales.',
       };
     }
 
@@ -1517,7 +1518,7 @@ function getCatalogOperationalModel(
       kind: 'configurable',
       label: 'Plato configurable',
       summary:
-        'El cliente puede escoger piezas seleccionables dentro del límite permitido.',
+        'El cliente puede escoger piezas seleccionables dentro del lÃ­mite permitido.',
     };
   }
 
@@ -1531,8 +1532,8 @@ function getCatalogOperationalModel(
 
   return {
     kind: 'simple',
-    label: 'Ítem simple',
-    summary: 'Producto sin composición cargada.',
+    label: 'Ãtem simple',
+    summary: 'Producto sin composiciÃ³n cargada.',
   };
 }
 
@@ -1545,7 +1546,7 @@ function validateCatalogBeforeSave(params: {
   const { item, editIsDetailEditable, editDetailUnitsLimit, editComponents } = params;
 
   if (!item) {
-    return 'Producto inválido.';
+    return 'Producto invÃ¡lido.';
   }
 
   const normalized = editComponents.map((row) => ({
@@ -1556,7 +1557,7 @@ function validateCatalogBeforeSave(params: {
   }));
 
   if (normalized.some((row) => row.componentProductId <= 0)) {
-    return 'Todos los componentes deben tener un producto válido.';
+    return 'Todos los componentes deben tener un producto vÃ¡lido.';
   }
 
   if (normalized.some((row) => row.componentMode === 'fixed' && row.quantity <= 0)) {
@@ -1567,7 +1568,7 @@ function validateCatalogBeforeSave(params: {
   for (const row of normalized) {
     const key = `${row.componentProductId}::${row.componentMode}`;
     if (seen.has(key)) {
-      return 'No repitas el mismo componente con el mismo modo. Edítalo en una sola fila.';
+      return 'No repitas el mismo componente con el mismo modo. EdÃ­talo en una sola fila.';
     }
     seen.add(key);
   }
@@ -1580,7 +1581,7 @@ function validateCatalogBeforeSave(params: {
 
     const detailLimit = Number(editDetailUnitsLimit || 0);
     if (detailLimit <= 0) {
-      return 'El límite de detalle debe ser mayor a 0 para un plato editable.';
+      return 'El lÃ­mite de detalle debe ser mayor a 0 para un plato editable.';
     }
   }
 
@@ -1885,6 +1886,17 @@ const [priceAdjustOpen, setPriceAdjustOpen] = useState(false);
 const [priceAdjustItemLocalId, setPriceAdjustItemLocalId] = useState<string | null>(null);
 const [priceAdjustValue, setPriceAdjustValue] = useState('');
 const [priceAdjustReason, setPriceAdjustReason] = useState('');
+const [orderAdjustmentOpen, setOrderAdjustmentOpen] = useState(false);
+const [orderAdjustmentSaving, setOrderAdjustmentSaving] = useState(false);
+const [orderAdjustmentKind, setOrderAdjustmentKind] = useState<'advisor_change' | 'client_change' | 'schedule_change'>('advisor_change');
+const [orderAdjustmentReason, setOrderAdjustmentReason] = useState('');
+const [orderAdjustmentNotes, setOrderAdjustmentNotes] = useState('');
+const [orderAdjustmentAdvisorUserId, setOrderAdjustmentAdvisorUserId] = useState('');
+const [orderAdjustmentClientId, setOrderAdjustmentClientId] = useState('');
+const [orderAdjustmentDate, setOrderAdjustmentDate] = useState('');
+const [orderAdjustmentHour12, setOrderAdjustmentHour12] = useState('');
+const [orderAdjustmentMinute, setOrderAdjustmentMinute] = useState('');
+const [orderAdjustmentAmPm, setOrderAdjustmentAmPm] = useState<'AM' | 'PM'>('AM');
 
 const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
 const [kitchenEtaMinutes, setKitchenEtaMinutes] = useState('15');
@@ -1933,7 +1945,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 7)
       .map((o) => ({
         id: o.id,
-        label: `${o.id} · ${o.clientName}`,
+        label: `${o.id} Â· ${o.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.deliveryAtISO)}`,
       }));
   }, [orders, search]);
@@ -2006,7 +2018,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
           orderId: o.id,
-          label: `${o.id} · ${o.clientName}`,
+          label: `${o.id} Â· ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2016,7 +2028,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-re-${o.id}`,
           type: 'RE-APROBAR',
           orderId: o.id,
-          label: `${o.id} · ${o.clientName}`,
+          label: `${o.id} Â· ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2026,7 +2038,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-pay-${o.id}`,
           type: 'CONFIRMAR PAGO',
           orderId: o.id,
-          label: `${o.id} · ${o.clientName}`,
+          label: `${o.id} Â· ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2206,6 +2218,7 @@ const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
   resetKitchenTakeBox();
   resetCancelOrderBox();
   resetReturnToQueueBox();
+  resetOrderAdjustmentBox();
   setDetailOpen(true);
 };
 
@@ -2346,7 +2359,7 @@ const handleLogout = async () => {
   try {
     await logoutAction();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cerrando sesión.';
+    const message = err instanceof Error ? err.message : 'Error cerrando sesiÃ³n.';
     showToast('error', message);
   }
 };
@@ -2366,6 +2379,41 @@ const resetPriceAdjustBox = () => {
   setPriceAdjustItemLocalId(null);
   setPriceAdjustValue('');
   setPriceAdjustReason('');
+};
+
+const resetOrderAdjustmentBox = () => {
+  setOrderAdjustmentOpen(false);
+  setOrderAdjustmentSaving(false);
+  setOrderAdjustmentKind('advisor_change');
+  setOrderAdjustmentReason('');
+  setOrderAdjustmentNotes('');
+  setOrderAdjustmentAdvisorUserId('');
+  setOrderAdjustmentClientId('');
+  setOrderAdjustmentDate('');
+  setOrderAdjustmentHour12('');
+  setOrderAdjustmentMinute('');
+  setOrderAdjustmentAmPm('AM');
+};
+
+const openOrderAdjustmentDrawer = (
+  kind: 'advisor_change' | 'client_change' | 'schedule_change'
+) => {
+  if (!isAdmin || !selectedOrder) return;
+
+  const deliveryFields = splitISOToDeliveryFields(selectedOrder.deliveryAtISO);
+
+  setOrderAdjustmentKind(kind);
+  setOrderAdjustmentReason('');
+  setOrderAdjustmentNotes('');
+  setOrderAdjustmentAdvisorUserId(selectedOrder.attributedAdvisorUserId ?? '');
+  setOrderAdjustmentClientId(
+    selectedOrder.clientId != null ? String(selectedOrder.clientId) : ''
+  );
+  setOrderAdjustmentDate(deliveryFields.date);
+  setOrderAdjustmentHour12(deliveryFields.hour12);
+  setOrderAdjustmentMinute(deliveryFields.minute);
+  setOrderAdjustmentAmPm(deliveryFields.ampm);
+  setOrderAdjustmentOpen(true);
 };
 
 const resetPaymentReportBox = () => {
@@ -2500,7 +2548,7 @@ const handleApprove = async (o: Order) => {
       return;
     }
 
-    showToast('error', 'Esta orden no requiere aprobación.');
+    showToast('error', 'Esta orden no requiere aprobaciÃ³n.');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando la orden.';
     showToast('error', message);
@@ -2519,7 +2567,7 @@ const handleReturn = async (o: Order) => {
       reason: reviewActionNotes.trim(),
     });
 
-    showToast('success', 'Pedido devuelto a revisión.');
+    showToast('success', 'Pedido devuelto a revisiÃ³n.');
     resetReviewActionBox();
     router.refresh();
   } catch (err) {
@@ -2545,13 +2593,13 @@ const handleCreatePaymentReport = async (o: Order) => {
     );
 
     if (!selectedAccount) {
-      showToast('error', 'Cuenta inválida.');
+      showToast('error', 'Cuenta invÃ¡lida.');
       return;
     }
 
     const reportedAmount = Number(paymentReportAmount || 0);
     if (!Number.isFinite(reportedAmount) || reportedAmount <= 0) {
-      showToast('error', 'Monto inválido.');
+      showToast('error', 'Monto invÃ¡lido.');
       return;
     }
 
@@ -2560,7 +2608,7 @@ const handleCreatePaymentReport = async (o: Order) => {
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(paymentReportExchangeRate || 0);
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-        showToast('error', 'Debes indicar una tasa válida para pagos en VES.');
+        showToast('error', 'Debes indicar una tasa vÃ¡lida para pagos en VES.');
         return;
       }
     }
@@ -2587,7 +2635,7 @@ const handleCreatePaymentReport = async (o: Order) => {
 
 const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
   try {
-    const reviewNotes = window.prompt('Notas de confirmación (opcional):', '') ?? '';
+    const reviewNotes = window.prompt('Notas de confirmaciÃ³n (opcional):', '') ?? '';
     const today = new Date().toISOString().slice(0, 10);
 
     await confirmPaymentReportAction({
@@ -2600,7 +2648,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       reviewNotes,
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
-      description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
+      description: `Pago confirmado desde Master Dashboard Â· orden ${o.id} Â· reporte ${rp.id}`,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -2659,7 +2707,7 @@ const handleKitchenTake = async (o: Order) => {
     const etaMinutes = Number(kitchenEtaMinutes || 0);
 
     if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
-      showToast('error', 'ETA inválido.');
+      showToast('error', 'ETA invÃ¡lido.');
       return;
     }
 
@@ -2700,7 +2748,7 @@ const handleOutForDelivery = async (o: Order) => {
       o.fulfillment === 'delivery' &&
       (!Number.isFinite(etaMinutes) || etaMinutes == null || etaMinutes <= 0)
     ) {
-      showToast('error', 'Tiempo estimado inválido.');
+      showToast('error', 'Tiempo estimado invÃ¡lido.');
       return;
     }
 
@@ -2801,18 +2849,18 @@ const handleCancelOrder = async (o: Order) => {
 const handleClearDeliveryAssignment = async (o: Order) => {
   try {
     const notes =
-      window.prompt('Motivo para quitar la asignación (opcional):', '') ?? '';
+      window.prompt('Motivo para quitar la asignaciÃ³n (opcional):', '') ?? '';
 
     await clearDeliveryAssignmentAction({
       orderId: o.id,
       notes,
     });
 
-    showToast('success', 'Asignación de delivery quitada.');
+    showToast('success', 'AsignaciÃ³n de delivery quitada.');
     router.refresh();
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Error quitando la asignación.';
+      err instanceof Error ? err.message : 'Error quitando la asignaciÃ³n.';
     showToast('error', message);
   }
 };
@@ -2839,7 +2887,7 @@ const handleSaveCatalog = async () => {
     );
 
     if (!Number.isFinite(normalizedSourcePriceAmount) || normalizedSourcePriceAmount < 0) {
-      showToast('error', 'El monto fuente no es válido.');
+      showToast('error', 'El monto fuente no es vÃ¡lido.');
       return;
     }
 
@@ -2877,11 +2925,11 @@ const handleSaveCatalog = async () => {
       })),
     });
 
-    showToast('success', 'Catálogo actualizado.');
+    showToast('success', 'CatÃ¡logo actualizado.');
     setCatalogEditMode(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error guardando catálogo.';
+    const message = err instanceof Error ? err.message : 'Error guardando catÃ¡logo.';
     showToast('error', message);
   } finally {
     setCatalogSaving(false);
@@ -2941,11 +2989,11 @@ const handleSaveQuickCatalog = async () => {
     await updateCatalogPricesQuickAction({
       items: changedItems,
     });
-    showToast('success', `Catálogo actualizado por bloque (${changedItems.length}).`);
+    showToast('success', `CatÃ¡logo actualizado por bloque (${changedItems.length}).`);
     setQuickCatalogOpen(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error actualizando precios rápidos.';
+    const message = err instanceof Error ? err.message : 'Error actualizando precios rÃ¡pidos.';
     showToast('error', message);
   } finally {
     setQuickCatalogSaving(false);
@@ -3337,13 +3385,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde inválido.');
+        throw new Error('Km desde invÃ¡lido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta inválido.');
+        throw new Error('Km hasta invÃ¡lido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa inválida.');
+        throw new Error('Tarifa invÃ¡lida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -3385,13 +3433,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde inválido.');
+        throw new Error('Km desde invÃ¡lido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta inválido.');
+        throw new Error('Km hasta invÃ¡lido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa inválida.');
+        throw new Error('Tarifa invÃ¡lida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -3490,7 +3538,7 @@ const handleCreateCatalogItem = async () => {
         : null,
     });
 
-    showToast('success', 'Ítem creado.');
+    showToast('success', 'Ãtem creado.');
     setCreateCatalogOpen(false);
     resetCreateCatalogForm();
     router.refresh();
@@ -3501,7 +3549,7 @@ const handleCreateCatalogItem = async () => {
       setCatalogEditMode(true);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error creando ítem.';
+    const message = err instanceof Error ? err.message : 'Error creando Ã­tem.';
     showToast('error', message);
   } finally {
     setCreateCatalogSaving(false);
@@ -3519,10 +3567,10 @@ const handleToggleCatalogItemActive = async () => {
       nextIsActive,
     });
 
-    showToast('success', nextIsActive ? 'Ítem activado.' : 'Ítem desactivado.');
+    showToast('success', nextIsActive ? 'Ãtem activado.' : 'Ãtem desactivado.');
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cambiando estado del ítem.';
+    const message = err instanceof Error ? err.message : 'Error cambiando estado del Ã­tem.';
     showToast('error', message);
   }
 };
@@ -3531,7 +3579,7 @@ const handleDeleteCatalogItem = async () => {
   if (!selectedCatalogItem) return;
 
   const confirmed = window.confirm(
-    `¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionará si no tiene uso ni dependencias.`
+    `Â¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionarÃ¡ si no tiene uso ni dependencias.`
   );
 
   if (!confirmed) return;
@@ -3541,12 +3589,12 @@ const handleDeleteCatalogItem = async () => {
       productId: selectedCatalogItem.id,
     });
 
-    showToast('success', 'Ítem eliminado.');
+    showToast('success', 'Ãtem eliminado.');
     setCatalogDetailOpen(false);
     setSelectedCatalogItemId(null);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error eliminando ítem.';
+    const message = err instanceof Error ? err.message : 'Error eliminando Ã­tem.';
     showToast('error', message);
   }
 };
@@ -3687,7 +3735,7 @@ const handleCreateOrderClientNow = async () => {
     }
 
     if (!phone) {
-      showToast('error', 'Debes colocar el teléfono del cliente.');
+      showToast('error', 'Debes colocar el telÃ©fono del cliente.');
       return;
     }
 
@@ -3737,7 +3785,7 @@ const handleCreateOrderClientNow = async () => {
     showToast(
       'success',
       quickClient.alreadyExisted
-        ? 'Ese cliente ya existía y fue seleccionado.'
+        ? 'Ese cliente ya existÃ­a y fue seleccionado.'
         : 'Cliente creado.'
     );
     return;
@@ -3770,7 +3818,7 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
   const product = catalogItems.find((item) => item.id === draftItem.productId);
 
   if (!product) {
-    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este ítem.');
+    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este Ã­tem.');
     return;
   }
 
@@ -4209,7 +4257,7 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
 
   const nextUnitUsd = Number(String(priceAdjustValue || '').replace(',', '.'));
   if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
-    showToast('error', 'El precio ajustado es inválido.');
+    showToast('error', 'El precio ajustado es invÃ¡lido.');
     return;
   }
 
@@ -4253,6 +4301,49 @@ const handleClearAdjustedCreateOrderItemPrice = (localId: string) => {
         : item
     )
   );
+};
+
+const handleCreateOrderAdminAdjustment = async () => {
+  if (!isAdmin || !selectedOrder) return;
+
+  try {
+    setOrderAdjustmentSaving(true);
+
+    await createOrderAdminAdjustmentAction({
+      orderId: selectedOrder.id,
+      kind: orderAdjustmentKind,
+      reason: orderAdjustmentReason,
+      notes: orderAdjustmentNotes || null,
+      nextAdvisorUserId:
+        orderAdjustmentKind === 'advisor_change'
+          ? orderAdjustmentAdvisorUserId || null
+          : null,
+      nextClientId:
+        orderAdjustmentKind === 'client_change'
+          ? Number(orderAdjustmentClientId || 0) || null
+          : null,
+      nextDeliveryDate:
+        orderAdjustmentKind === 'schedule_change' ? orderAdjustmentDate : null,
+      nextDeliveryHour12:
+        orderAdjustmentKind === 'schedule_change' ? orderAdjustmentHour12 : null,
+      nextDeliveryMinute:
+        orderAdjustmentKind === 'schedule_change' ? orderAdjustmentMinute : null,
+      nextDeliveryAmPm:
+        orderAdjustmentKind === 'schedule_change' ? orderAdjustmentAmPm : null,
+    });
+
+    showToast('success', 'Ajuste administrativo guardado.');
+    setDetailTab('ajustes');
+    resetOrderAdjustmentBox();
+    router.refresh();
+  } catch (err) {
+    showToast(
+      'error',
+      err instanceof Error ? err.message : 'No se pudo guardar el ajuste.'
+    );
+  } finally {
+    setOrderAdjustmentSaving(false);
+  }
 };
 
 const createOrderFilteredProducts = catalogItems
@@ -4592,6 +4683,110 @@ const selectedPaymentReportAccount =
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
 
+  const getAdjustmentPresentation = (adjustment: Order['adminAdjustments'][number]) => {
+    const payload = adjustment.payload ?? {};
+    const payloadKind =
+      typeof payload.kind === 'string' && payload.kind.trim()
+        ? payload.kind.trim()
+        : adjustment.adjustmentType;
+
+    if (adjustment.adjustmentType === 'item_price_override' || payloadKind === 'item_price_override') {
+      const deltaUsd = Number(payload.delta_usd ?? 0);
+      const originalUnitUsd = Number(payload.original_unit_price_usd ?? 0);
+      const overrideUnitUsd = Number(payload.override_unit_price_usd ?? 0);
+      const qty = Number(payload.qty ?? 0);
+      const productName =
+        typeof payload.product_name === 'string' && payload.product_name.trim()
+          ? payload.product_name
+          : 'Ãtem';
+
+      return {
+        filterType: 'item_price_override',
+        title: 'Ajuste de precio',
+        detailPrimary: productName,
+        detailSecondary: `${fmtUSD(originalUnitUsd)} â†’ ${fmtUSD(overrideUnitUsd)}${qty > 0 ? ` Â· x${qty}` : ''}`,
+        deltaUsd,
+        originalUnitUsd,
+        overrideUnitUsd,
+        qty,
+      };
+    }
+
+    if (payloadKind === 'advisor_change') {
+      const previousAdvisorId =
+        typeof payload.previous_advisor_user_id === 'string'
+          ? payload.previous_advisor_user_id
+          : '';
+      const nextAdvisorId =
+        typeof payload.next_advisor_user_id === 'string'
+          ? payload.next_advisor_user_id
+          : '';
+
+      return {
+        filterType: 'advisor_change',
+        title: 'Cambio de asesor',
+        detailPrimary: `${advisorNameById.get(previousAdvisorId) || 'Sin asesor'} â†’ ${advisorNameById.get(nextAdvisorId) || 'Sin asesor'}`,
+        detailSecondary: 'CorrecciÃ³n administrativa del asesor atribuido.',
+        deltaUsd: 0,
+        originalUnitUsd: 0,
+        overrideUnitUsd: 0,
+        qty: 0,
+      };
+    }
+
+    if (payloadKind === 'client_change') {
+      const previousClientId = Number(payload.previous_client_id ?? 0);
+      const nextClientId = Number(payload.next_client_id ?? 0);
+
+      return {
+        filterType: 'client_change',
+        title: 'Cambio de cliente',
+        detailPrimary: `${clientById.get(previousClientId)?.fullName || 'Sin cliente'} â†’ ${clientById.get(nextClientId)?.fullName || 'Sin cliente'}`,
+        detailSecondary: 'CorrecciÃ³n administrativa del cliente cargado.',
+        deltaUsd: 0,
+        originalUnitUsd: 0,
+        overrideUnitUsd: 0,
+        qty: 0,
+      };
+    }
+
+    if (payloadKind === 'schedule_change') {
+      const previousSchedule =
+        payload.previous_schedule && typeof payload.previous_schedule === 'object'
+          ? (payload.previous_schedule as Record<string, unknown>)
+          : {};
+      const nextSchedule =
+        payload.next_schedule && typeof payload.next_schedule === 'object'
+          ? (payload.next_schedule as Record<string, unknown>)
+          : {};
+
+      const previousLabel = `${String(previousSchedule.date || 'â€”')} Â· ${String(previousSchedule.time_12 || previousSchedule.time_24 || 'â€”')}`;
+      const nextLabel = `${String(nextSchedule.date || 'â€”')} Â· ${String(nextSchedule.time_12 || nextSchedule.time_24 || 'â€”')}`;
+
+      return {
+        filterType: 'schedule_change',
+        title: 'Cambio de fecha/hora',
+        detailPrimary: `${previousLabel} â†’ ${nextLabel}`,
+        detailSecondary: 'CorrecciÃ³n administrativa de agenda.',
+        deltaUsd: 0,
+        originalUnitUsd: 0,
+        overrideUnitUsd: 0,
+        qty: 0,
+      };
+    }
+
+    return {
+      filterType: adjustment.adjustmentType || 'other',
+      title: adjustment.adjustmentType || 'Ajuste',
+      detailPrimary: 'Ajuste administrativo',
+      detailSecondary: adjustment.notes || 'Sin detalle adicional.',
+      deltaUsd: 0,
+      originalUnitUsd: 0,
+      overrideUnitUsd: 0,
+      qty: 0,
+    };
+  };
+
   const deliveredOrders = useMemo(
     () => orders.filter((order) => order.status === 'delivered'),
     [orders]
@@ -4609,7 +4804,7 @@ const selectedPaymentReportAccount =
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
-              : 'Ítem';
+              : 'Ãtem';
 
           return {
             id: adjustment.id,
@@ -5500,14 +5695,14 @@ useEffect(() => {
     <button
       className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-left"
       onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
-      title="Seleccionar día"
+      title="Seleccionar dÃ­a"
       type="button"
     >
       <div className="text-sm font-medium">
         {isMounted && selectedDay ? fmtDeliveryTextES(selectedDay.toISOString()) : 'Cargando fecha...'}
       </div>
       <div className="text-xs text-[#B7B7C2]">
-        {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : '—'}
+        {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : 'â€”'}
       </div>
     </button>
   </div>
@@ -5523,7 +5718,7 @@ suppressHydrationWarning
   >
     <div className="text-xs text-[#B7B7C2]">Tasa</div>
     <div className="text-sm font-medium text-[#F5F5F7]">
-      {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
+      {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : 'â€”'}
     </div>
   </div>
 </div>
@@ -5540,7 +5735,7 @@ suppressHydrationWarning
       ].join(' ')}
       onClick={() => setViewMode('operations')}
     >
-      Operación
+      OperaciÃ³n
     </button>
 
     <button
@@ -5552,7 +5747,7 @@ suppressHydrationWarning
       ].join(' ')}
       onClick={() => setViewMode('settings')}
     >
-      Configuración
+      ConfiguraciÃ³n
     </button>
 
     {isAdmin ? (
@@ -5565,7 +5760,7 @@ suppressHydrationWarning
         ].join(' ')}
         onClick={() => setViewMode('calculations')}
       >
-        Cálculos
+        CÃ¡lculos
       </button>
     ) : null}
 
@@ -5574,7 +5769,7 @@ suppressHydrationWarning
       onClick={() => setNotifOpen(true)}
       title="Notificaciones"
     >
-      🔔 Notificaciones ({notifications.length})
+      ðŸ”” Notificaciones ({notifications.length})
     </button>
   </div>
 
@@ -5587,7 +5782,7 @@ suppressHydrationWarning
 
       <div className="mt-0.5 text-xs text-[#B7B7C2]">
         {roles.length > 0
-          ? ` ${roles.map((r) => r.toUpperCase()).join(' · ')}`
+          ? ` ${roles.map((r) => r.toUpperCase()).join(' Â· ')}`
           : 'Sin roles'}
       </div>
     </div>
@@ -5596,7 +5791,7 @@ suppressHydrationWarning
       className="shrink-0 rounded-xl border border-red-500/40 bg-[#0B0B0D] px-2 py-2.5 text-xs text-red-400"
       onClick={handleLogout}
       type="button"
-      title="Cerrar sesión"
+      title="Cerrar sesiÃ³n"
     >
       Salir
     </button>
@@ -5615,7 +5810,7 @@ suppressHydrationWarning
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
         <Chip active={settingsTab === 'catalog'} onClick={() => setSettingsTab('catalog')}>
-          Catálogo
+          CatÃ¡logo
         </Chip>
         <Chip active={settingsTab === 'exchange_rate'} onClick={() => setSettingsTab('exchange_rate')}>
           Tasa
@@ -5658,16 +5853,16 @@ suppressHydrationWarning
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           <div className="grid grid-cols-12 gap-4">
-            <Card title="Estado del día" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Estado del dÃ­a" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={dayStats.cierres} />
-              <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
+              <StatRow label="FacturaciÃ³n" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
             </Card>
 
             <Card title="Estado de la semana" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={weekStats.cierres} />
-              <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
+              <StatRow label="FacturaciÃ³n" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
@@ -5710,7 +5905,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver más ▾
+                    Ver mÃ¡s â–¾
                   </button>
                 </div>
               </div>
@@ -5722,7 +5917,7 @@ suppressHydrationWarning
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por #orden o cliente…"
+                placeholder="Buscar por #orden o clienteâ€¦"
                 className="w-full rounded-2xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               {searchResults.length > 0 ? (
@@ -5746,13 +5941,13 @@ suppressHydrationWarning
 
 <div className="flex flex-wrap gap-2">
   <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-  <Btn onClick={() => showToast('error', 'Editar pedido por número aún está en demo.')}>
+  <Btn onClick={() => showToast('error', 'Editar pedido por nÃºmero aÃºn estÃ¡ en demo.')}>
     Editar pedido
   </Btn>
-  <Btn onClick={() => showToast('error', 'Registrar pago por número aún está en demo.')}>
+  <Btn onClick={() => showToast('error', 'Registrar pago por nÃºmero aÃºn estÃ¡ en demo.')}>
     Registrar pago
   </Btn>
-  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aún está en demo.')}>
+  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aÃºn estÃ¡ en demo.')}>
     Confirmar pagos
   </Btn>
   <Btn onClick={() => setMovementOpen(true)}>Movimiento</Btn>
@@ -5762,7 +5957,7 @@ suppressHydrationWarning
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             <Chip active={tray === 'all'} onClick={() => setTray('all')}>Todos</Chip>
             <Chip active={tray === 'pending_created'} onClick={() => setTray('pending_created')}>Pendientes</Chip>
-            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobación</Chip>
+            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobaciÃ³n</Chip>
             <Chip active={tray === 'queued'} onClick={() => setTray('queued')}>En cola</Chip>
             <Chip active={tray === 'kitchen'} onClick={() => setTray('kitchen')}>Cocina</Chip>
             <Chip active={tray === 'delivery'} onClick={() => setTray('delivery')}>Delivery</Chip>
@@ -5795,7 +5990,7 @@ suppressHydrationWarning
                   {tableOrders.length === 0 ? (
                     <tr>
                       <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={14}>
-                        Sin pedidos para este día/filtro.
+                        Sin pedidos para este dÃ­a/filtro.
                       </td>
                     </tr>
                   ) : (
@@ -5815,7 +6010,7 @@ suppressHydrationWarning
 
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '—');
+                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || 'â€”');
 
                       return (
                         <tr
@@ -5859,7 +6054,7 @@ suppressHydrationWarning
                                 </span>
                               </div>
                             ) : (
-                              <div className="mt-1 text-[#8A8A96]">—</div>
+                              <div className="mt-1 text-[#8A8A96]">â€”</div>
                             )}
                           </td>
                           <td className="px-2 py-2 leading-4">
@@ -5868,10 +6063,10 @@ suppressHydrationWarning
                           </td>
                           <td className="px-2 py-2">{deliveryLabel}</td>
                           <td className="px-2 py-2" title={o.fulfillment === 'delivery' ? (o.address || '') : ''}>
-                            {o.fulfillment === 'delivery' && (o.address?.trim() ? '📍' : '—')}
+                            {o.fulfillment === 'delivery' && (o.address?.trim() ? 'ðŸ“' : 'â€”')}
                           </td>
                           <td className="px-2 py-2" title={o.notes?.trim() ? o.notes : ''}>
-                            {o.notes?.trim() ? '📝' : '—'}
+                            {o.notes?.trim() ? 'ðŸ“' : 'â€”'}
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -5920,9 +6115,9 @@ suppressHydrationWarning
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Análisis de asesores</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">AnÃ¡lisis de asesores</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cierres, facturación, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
+                      Revisa cierres, facturaciÃ³n, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
                     </div>
                   </div>
 
@@ -5970,11 +6165,11 @@ suppressHydrationWarning
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <Card title="Resumen General" className="p-3">
-                  <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
+                  <StatRow label="FacturaciÃ³n" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
-                  <StatRow label="Comisión estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
-                  <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
+                  <StatRow label="ComisiÃ³n estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
+                  <StatRow label="Ã“rdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
                 <Card title="Pagos" className="p-3">
@@ -5991,12 +6186,12 @@ suppressHydrationWarning
 
                 <Card title="Pagos Pendientes" className="p-3">
                   <StatRow label="Total" value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)} highlightTone="warn" />
-                  <StatRow label="Órdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
+                  <StatRow label="Ã“rdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
                 </Card>
 
-                <Card title="Período" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
+                <Card title="PerÃ­odo" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || 'â€”'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || 'â€”'} />
                   <StatRow
                     label="Asesor"
                     value={
@@ -6029,7 +6224,7 @@ suppressHydrationWarning
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">FacturaciÃ³n</div>
                     <div className="text-sm font-semibold text-emerald-400">{fmtUSD(advisorCalculatedData.facturacion)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">
@@ -6039,7 +6234,7 @@ suppressHydrationWarning
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
                           <th className="px-3 py-2 text-left font-medium">Origen</th>
-                          <th className="px-3 py-2 text-right font-medium">Comisión</th>
+                          <th className="px-3 py-2 text-right font-medium">ComisiÃ³n</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                         </tr>
                       </thead>
@@ -6047,7 +6242,7 @@ suppressHydrationWarning
                         {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                              Sin cierres entregados en el período.
+                              Sin cierres entregados en el perÃ­odo.
                             </td>
                           </tr>
                         ) : (
@@ -6150,7 +6345,7 @@ suppressHydrationWarning
                         {advisorCalculatedData.newClientOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin clientes nuevos en el período.
+                              Sin clientes nuevos en el perÃ­odo.
                             </td>
                           </tr>
                         ) : (
@@ -6328,7 +6523,7 @@ suppressHydrationWarning
                   <div>
                     <div className="text-sm font-semibold text-[#F5F5F7]">Control de deliveries</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cantidad de deliveries, costo total, liquidación de internos y auditoría de externos.
+                      Revisa cantidad de deliveries, costo total, liquidaciÃ³n de internos y auditorÃ­a de externos.
                     </div>
                   </div>
 
@@ -6382,23 +6577,23 @@ suppressHydrationWarning
 
                 <Card title="Sin snapshot" className="p-3">
                   <StatRow
-                    label="Órdenes"
+                    label="Ã“rdenes"
                     value={deliveryCalculatedData.rows.filter((row) => row.costUsd <= 0).length}
                     highlightTone="warn"
                   />
                   <StatRow label="Sin asignar" value={deliveryCalculatedData.unassignedCount} highlightTone="warn" />
                 </Card>
 
-                <Card title="Período" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
+                <Card title="PerÃ­odo" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || 'â€”'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || 'â€”'} />
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación Internos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃ³n Internos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.internalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -6414,7 +6609,7 @@ suppressHydrationWarning
                         {deliveryCalculatedData.internalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
-                              Sin deliveries internos en el período.
+                              Sin deliveries internos en el perÃ­odo.
                             </td>
                           </tr>
                         ) : (
@@ -6436,7 +6631,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría Externos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃ­a Externos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.externalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -6453,7 +6648,7 @@ suppressHydrationWarning
                         {deliveryCalculatedData.externalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin deliveries externos en el período.
+                              Sin deliveries externos en el perÃ­odo.
                             </td>
                           </tr>
                         ) : (
@@ -6486,9 +6681,9 @@ suppressHydrationWarning
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
+                        <th className="px-3 py-2 text-left font-medium">Ãtem delivery</th>
                         <th className="px-3 py-2 text-left font-medium">Tipo</th>
-                        <th className="px-3 py-2 text-left font-medium">Asignación</th>
+                        <th className="px-3 py-2 text-left font-medium">AsignaciÃ³n</th>
                         <th className="px-3 py-2 text-right font-medium">Km</th>
                         <th className="px-3 py-2 text-right font-medium">Costo</th>
                       </tr>
@@ -6497,7 +6692,7 @@ suppressHydrationWarning
                       {deliveryCalculatedData.rows.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
-                            Sin deliveries entregados en el período.
+                            Sin deliveries entregados en el perÃ­odo.
                           </td>
                         </tr>
                       ) : (
@@ -6525,7 +6720,7 @@ suppressHydrationWarning
                               ) : null}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : '—'}
+                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : 'â€”'}
                             </td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                           </tr>
@@ -6572,7 +6767,7 @@ suppressHydrationWarning
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación por motorizado</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃ³n por motorizado</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredInternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -6620,7 +6815,7 @@ suppressHydrationWarning
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">Ãtem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Pago</th>
                             </tr>
                           </thead>
@@ -6628,7 +6823,7 @@ suppressHydrationWarning
                             {filteredDeliveryRows.filter((row) => row.mode === 'internal').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                                  Sin deliveries internos en el período.
+                                  Sin deliveries internos en el perÃ­odo.
                                 </td>
                               </tr>
                             ) : (
@@ -6683,7 +6878,7 @@ suppressHydrationWarning
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría por empresa</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃ­a por empresa</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredExternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -6733,7 +6928,7 @@ suppressHydrationWarning
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">Ãtem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Km</th>
                               <th className="px-3 py-2 text-right font-medium">Costo</th>
                             </tr>
@@ -6742,7 +6937,7 @@ suppressHydrationWarning
                             {filteredDeliveryRows.filter((row) => row.mode === 'external').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                                  Sin deliveries externos en el período.
+                                  Sin deliveries externos en el perÃ­odo.
                                 </td>
                               </tr>
                             ) : (
@@ -6751,7 +6946,7 @@ suppressHydrationWarning
                                   <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
                                   <td className="px-3 py-2">{row.order.clientName}</td>
                                   <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
-                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : '—'}</td>
+                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : 'â€”'}</td>
                                   <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                                 </tr>
                               ))
@@ -6812,7 +7007,7 @@ suppressHydrationWarning
                               >
                                 <td className="px-3 py-2">{partner.name}</td>
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
-                                <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
+                                <td className="px-3 py-2">{partner.whatsappPhone || 'â€”'}</td>
                                 <td className="px-3 py-2">
                                   {(partner.rates ?? []).filter((rate) => rate.isActive).length}
                                 </td>
@@ -6840,7 +7035,7 @@ suppressHydrationWarning
     <input
       value={catalogSearch}
       onChange={(e) => setCatalogSearch(e.target.value)}
-      placeholder="Buscar nombre o SKU…"
+      placeholder="Buscar nombre o SKUâ€¦"
       className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96] md:max-w-[280px]"
     />
 
@@ -6860,7 +7055,7 @@ suppressHydrationWarning
 
   <div className="flex flex-wrap gap-2">
     <Btn onClick={() => setCreateCatalogOpen(true)}>
-      Nuevo ítem
+      Nuevo Ã­tem
     </Btn>
   </div>
 </div>
@@ -6886,7 +7081,7 @@ suppressHydrationWarning
                         <th className="w-[86px] px-2 py-3 text-left text-[11px] font-medium">Precio $</th>
                         <th className="w-[70px] px-2 py-3 text-left text-[11px] font-medium">Und/serv.</th>
                         <th className="w-[58px] px-2 py-3 text-left text-[11px] font-medium">Detalle</th>
-                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">Límite</th>
+                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">LÃ­mite</th>
                         <th className="w-[74px] px-2 py-3 text-left text-[11px] font-medium">Comp. combo</th>
                       </tr>
                     </thead>
@@ -6895,7 +7090,7 @@ suppressHydrationWarning
                       {filteredCatalogItems.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={12}>
-                            Sin datos de catálogo cargados aún.
+                            Sin datos de catÃ¡logo cargados aÃºn.
                           </td>
                         </tr>
                       ) : (
@@ -6926,7 +7121,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isActive ? (
-                                  <span className="text-emerald-400">Sí</span>
+                                  <span className="text-emerald-400">SÃ­</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -6962,7 +7157,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isDetailEditable ? (
-                                  <span className="text-[#FEEF00]">Sí</span>
+                                  <span className="text-[#FEEF00]">SÃ­</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -6974,7 +7169,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isComboComponentSelectable ? (
-                                  <span className="text-emerald-400">Sí</span>
+                                  <span className="text-emerald-400">SÃ­</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -6998,11 +7193,11 @@ suppressHydrationWarning
     <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="VES por USD"
-        value={activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
+        value={activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : 'â€”'}
       />
       <InfoCell
         label="Vigente desde"
-        value={activeExchangeRate ? fmtDateTimeES(activeExchangeRate.effectiveAt) : '—'}
+        value={activeExchangeRate ? fmtDateTimeES(activeExchangeRate.effectiveAt) : 'â€”'}
       />
     </div>
   </div>
@@ -7011,7 +7206,7 @@ suppressHydrationWarning
     <div className="text-sm font-semibold text-[#F5F5F7]">Actualizar tasa</div>
 
     <div className="mt-2 text-sm text-[#B7B7C2]">
-      Esta tasa recalcula precios base en el catálogo según la lógica actual.
+      Esta tasa recalcula precios base en el catÃ¡logo segÃºn la lÃ³gica actual.
     </div>
 
     <div className="mt-4 max-w-sm">
@@ -7049,11 +7244,11 @@ suppressHydrationWarning
               value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
             />
             <InfoCell
-              label={`Ingresos perÃ­odo (${currency})`}
+              label={`Ingresos perÃƒÂ­odo (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
             />
             <InfoCell
-              label={`Egresos perÃ­odo (${currency})`}
+              label={`Egresos perÃƒÂ­odo (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
             />
             <InfoCell
@@ -7089,12 +7284,12 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Cuenta</th>
               <th className="px-3 py-3 text-left font-medium">Moneda</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">InstituciÃ³n</th>
+              <th className="px-3 py-3 text-left font-medium">InstituciÃƒÂ³n</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos perÃƒÂ­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos perÃƒÂ­odo</th>
               <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
@@ -7134,8 +7329,8 @@ suppressHydrationWarning
                     </td>
                     <td className="px-3 py-3">{account.currencyCode}</td>
                     <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
-                    <td className="px-3 py-3">{account.institutionName || '—'}</td>
-                    <td className="px-3 py-3">{account.ownerName || '—'}</td>
+                    <td className="px-3 py-3">{account.institutionName || 'â€”'}</td>
+                    <td className="px-3 py-3">{account.ownerName || 'â€”'}</td>
                     <td className="px-3 py-3">
                       {account.isActive ? (
                         <span className="text-emerald-400">Activa</span>
@@ -7187,17 +7382,17 @@ suppressHydrationWarning
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoCell label="Total" value={String(clientStats.total)} />
           <InfoCell label="Activos" value={String(clientStats.active)} />
-          <InfoCell label="Con facturación" value={String(clientStats.withBilling)} />
+          <InfoCell label="Con facturaciÃ³n" value={String(clientStats.withBilling)} />
           <InfoCell label="Con nota de entrega" value={String(clientStats.withDeliveryNote)} />
           <InfoCell label="Con direcciones" value={String(clientStats.withAddresses)} />
         </div>
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo usarlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo usarlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>Guarda aquí la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
-          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorías que usan en la operación.</div>
+          <div>Guarda aquÃ­ la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
+          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorÃ­as que usan en la operaciÃ³n.</div>
           <div>Las dos direcciones recientes guardan solo texto + GPS, como me pediste, para no complicar el flujo.</div>
         </div>
       </div>
@@ -7219,7 +7414,7 @@ suppressHydrationWarning
           <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
             <tr>
               <th className="px-3 py-3 text-left font-medium">Cliente</th>
-              <th className="px-3 py-3 text-left font-medium">Teléfono</th>
+              <th className="px-3 py-3 text-left font-medium">TelÃ©fono</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Asesor principal</th>
               <th className="px-3 py-3 text-left font-medium">Etiquetas</th>
@@ -7268,12 +7463,12 @@ suppressHydrationWarning
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{client.notes}</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{client.phone || '—'}</td>
-                    <td className="px-3 py-3">{client.clientType || '—'}</td>
+                    <td className="px-3 py-3">{client.phone || 'â€”'}</td>
+                    <td className="px-3 py-3">{client.clientType || 'â€”'}</td>
                     <td className="px-3 py-3">
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
-                        : '—'}
+                        : 'â€”'}
                     </td>
                     <td className="px-3 py-3">
                       {tags.length > 0 ? (
@@ -7286,7 +7481,7 @@ suppressHydrationWarning
                           ) : null}
                         </div>
                       ) : (
-                        '—'
+                        'â€”'
                       )}
                     </td>
                     <td className="px-3 py-3">{hasBilling ? 'Cargado' : 'Pendiente'}</td>
@@ -7324,10 +7519,10 @@ suppressHydrationWarning
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo leerlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>Aquí ves todos los ajustes administrativos registrados en las órdenes cargadas en el dashboard.</div>
-          <div>Un impacto negativo significa que la empresa asumió un descuento o cortesía.</div>
+          <div>AquÃ­ ves todos los ajustes administrativos registrados en las Ã³rdenes cargadas en el dashboard.</div>
+          <div>Un impacto negativo significa que la empresa asumiÃ³ un descuento o cortesÃ­a.</div>
           <div>Un impacto positivo significa un recargo o aumento sobre el valor original.</div>
         </div>
       </div>
@@ -7354,7 +7549,7 @@ suppressHydrationWarning
             { value: '', label: 'Todos' },
             ...adjustmentTypeOptions.map((value) => ({
               value,
-              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
+              label: value === 'item_price_override' ? 'Ajuste de precio por Ã­tem' : value,
             })),
           ]}
         />
@@ -7405,12 +7600,12 @@ suppressHydrationWarning
                     <td className="px-3 py-3">
                       <div className="text-[#F5F5F7]">{row.productName}</div>
                       <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
-                        {row.qty > 0 ? ` · x${row.qty}` : ''}
+                        {fmtUSD(row.originalUnitUsd)} â†’ {fmtUSD(row.overrideUnitUsd)}
+                        {row.qty > 0 ? ` Â· x${row.qty}` : ''}
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || 'â€”'}</div>
                       {row.notes ? (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
                       ) : null}
@@ -7431,126 +7626,6 @@ suppressHydrationWarning
   </div>
 ) : null}
 
-          {settingsTab === 'adjustments' && isAdmin ? (
-  <div className="space-y-5">
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">Resumen ajustes</div>
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <InfoCell label="Eventos" value={String(adjustmentsSummary.total)} />
-          <InfoCell label="Overrides" value={String(adjustmentsSummary.priceOverrides)} />
-          <InfoCell label="Impacto neto" value={fmtUSD(adjustmentsSummary.netUsd)} />
-          <InfoCell label="Costo asumido" value={fmtUSD(adjustmentsSummary.negativeUsd)} />
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
-        <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>Muestra todos los ajustes administrativos que están cargados en las órdenes visibles del dashboard.</div>
-          <div>Impacto negativo significa descuento, cortesía o menor ingreso respecto al valor original.</div>
-          <div>Impacto positivo significa recargo o aumento sobre el valor base.</div>
-        </div>
-      </div>
-    </div>
-
-    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <FieldInput label="Desde" value={adjustmentsDateFrom} onChange={setAdjustmentsDateFrom} type="date" />
-        <FieldInput label="Hasta" value={adjustmentsDateTo} onChange={setAdjustmentsDateTo} type="date" />
-        <FieldSelect
-          label="Admin"
-          value={adjustmentsAdminFilter}
-          onChange={setAdjustmentsAdminFilter}
-          options={[
-            { value: '', label: 'Todos' },
-            ...adjustmentAdminOptions,
-          ]}
-        />
-        <FieldSelect
-          label="Tipo"
-          value={adjustmentsTypeFilter}
-          onChange={setAdjustmentsTypeFilter}
-          options={[
-            { value: '', label: 'Todos' },
-            ...adjustmentTypeOptions.map((value) => ({
-              value,
-              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
-            })),
-          ]}
-        />
-      </div>
-    </div>
-
-    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
-      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
-        <table className="w-full text-[12px]">
-          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
-            <tr>
-              <th className="px-3 py-3 text-left font-medium">Fecha</th>
-              <th className="px-3 py-3 text-left font-medium">Admin</th>
-              <th className="px-3 py-3 text-left font-medium">Nro# Orden</th>
-              <th className="px-3 py-3 text-left font-medium">Cliente</th>
-              <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">Detalle</th>
-              <th className="px-3 py-3 text-left font-medium">Motivo</th>
-              <th className="px-3 py-3 text-left font-medium">Impacto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredSettingsAdjustments.length === 0 ? (
-              <tr>
-                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
-                  No hay ajustes que coincidan con el filtro.
-                </td>
-              </tr>
-            ) : (
-              filteredSettingsAdjustments.map((row, idx) => {
-                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-
-                return (
-                  <tr
-                    key={row.id}
-                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
-                    onClick={() => openOrderPanel(row.orderId, 'ajustes')}
-                  >
-                    <td className="px-3 py-3">{fmtDateTimeES(row.createdAt)}</td>
-                    <td className="px-3 py-3">{row.createdByName}</td>
-                    <td className="px-3 py-3">{row.orderNumber}</td>
-                    <td className="px-3 py-3">{row.clientName}</td>
-                    <td className="px-3 py-3">
-                      {row.adjustmentType === 'item_price_override'
-                        ? 'Ajuste de precio'
-                        : row.adjustmentType}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="text-[#F5F5F7]">{row.productName}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
-                        {row.qty > 0 ? ` · x${row.qty}` : ''}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
-                      {row.notes ? (
-                        <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className={row.deltaUsd < 0 ? 'text-orange-400' : row.deltaUsd > 0 ? 'text-emerald-400' : 'text-[#B7B7C2]'}>
-                        {row.deltaUsd > 0 ? '+' : ''}{fmtUSD(row.deltaUsd)}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-) : null}
         </div>
       )}
 
@@ -7623,7 +7698,7 @@ suppressHydrationWarning
                     <div>
                       <div className="text-lg font-semibold text-[#F5F5F7]">{selectedCatalogItem.name}</div>
                       <div className="mt-1 text-xs text-[#8A8A96]" title={selectedCatalogItem.sku}>
-                        SKU: {selectedCatalogItem.sku || '—'}
+                        SKU: {selectedCatalogItem.sku || 'â€”'}
                       </div>
                     </div>
 
@@ -7660,7 +7735,7 @@ suppressHydrationWarning
 
                         {editIsDetailEditable ? (
                             <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-3 text-sm text-[#B7B7C2]">
-                            <span className="text-[#F5F5F7]">Límite actual:</span>{' '}
+                            <span className="text-[#F5F5F7]">LÃ­mite actual:</span>{' '}
                             {editDetailUnitsLimit || '0'} piezas seleccionables
                             </div>
                         ) : null}
@@ -7679,11 +7754,11 @@ suppressHydrationWarning
                     <InfoCell label="Precio Bs" value={fmtBs(selectedCatalogItem.basePriceBs)} />
                     <InfoCell label="Precio $" value={fmtUSD(selectedCatalogItem.basePriceUsd)} />
                     <InfoCell label="Und/servicio" value={String(selectedCatalogItem.unitsPerService)} />
-                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
-                    <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
+                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'SÃ­' : 'No'} />
+                    <InfoCell label="LÃ­mite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
                     <InfoCell
                       label="Puede ser comp. combo"
-                      value={selectedCatalogItem.isComboComponentSelectable ? 'Sí' : 'No'}
+                      value={selectedCatalogItem.isComboComponentSelectable ? 'SÃ­' : 'No'}
                     />
                   </div>
                 </div>
@@ -7720,30 +7795,30 @@ suppressHydrationWarning
     {selectedCatalogItem.isDetailEditable ? (
       <>
         <div>
-          Este ítem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
+          Este Ã­tem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
         </div>
         <div>
-          El asesor puede cargar piezas seleccionables sin superar el límite máximo de{' '}
+          El asesor puede cargar piezas seleccionables sin superar el lÃ­mite mÃ¡ximo de{' '}
           <span className="text-[#F5F5F7]">{selectedCatalogItem.detailUnitsLimit}</span>.
         </div>
         {selectedFixedComponents.length > 0 ? (
           <div>
-            Además, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
+            AdemÃ¡s, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
           </div>
         ) : null}
       </>
     ) : selectedCatalogItem.sku.startsWith('MIX_') ? (
       <div>
-        Este ítem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
+        Este Ã­tem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
       </div>
     ) : selectedCatalogComponents.length > 0 ? (
       <div>
-        Este ítem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
+        Este Ã­tem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
         Su receta debe descontar exactamente los componentes definidos abajo.
       </div>
     ) : (
       <div>
-        Este ítem no tiene composición cargada todavía.
+        Este Ã­tem no tiene composiciÃ³n cargada todavÃ­a.
       </div>
     )}
   </div>
@@ -7781,7 +7856,7 @@ suppressHydrationWarning
               <>
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catálogo</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catÃ¡logo</div>
                     <div className="flex gap-2">
                       <button
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -7856,7 +7931,7 @@ suppressHydrationWarning
                       type="text"
                     />
                     <FieldInput
-                      label="Límite detalle"
+                      label="LÃ­mite detalle"
                       value={editDetailUnitsLimit}
                       onChange={setEditDetailUnitsLimit}
                       type="number"
@@ -7865,20 +7940,20 @@ suppressHydrationWarning
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">ComisiÃ³n</div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldSelect
-                      label="Regla comisión"
+                      label="Regla comisiÃ³n"
                       value={editCommissionMode}
                       onChange={(v) => setEditCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
                       options={[
                         { value: 'default', label: 'Default' },
-                        { value: 'fixed_item', label: 'Fija por ítem' },
+                        { value: 'fixed_item', label: 'Fija por Ã­tem' },
                         { value: 'fixed_order', label: 'Fija por orden' },
                       ]}
                     />
                     <FieldInput
-                      label="Valor comisión"
+                      label="Valor comisiÃ³n"
                       value={editCommissionValue}
                       onChange={setEditCommissionValue}
                       type="text"
@@ -7886,7 +7961,7 @@ suppressHydrationWarning
                   </div>
                   <div className="mt-3">
                     <FieldInput
-                      label="Notas comisión"
+                      label="Notas comisiÃ³n"
                       value={editCommissionNotes}
                       onChange={setEditCommissionNotes}
                     />
@@ -7895,7 +7970,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃ³n</div>
                     <button
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
                       onClick={addEditComponent}
@@ -7980,7 +8055,7 @@ suppressHydrationWarning
 
                 
                 <FieldCheckbox
-                  label="Cuenta para límite"
+                  label="Cuenta para lÃ­mite"
                   checked={row.countsTowardDetailLimit}
                   onChange={(v) =>
                     updateEditComponent(row.localId, {
@@ -8105,7 +8180,7 @@ suppressHydrationWarning
 
       <Drawer
         open={detailOpen}
-        title={selectedOrder ? `${selectedOrder.id} · ${selectedOrder.clientName}` : 'Detalle'}
+        title={selectedOrder ? `${selectedOrder.id} Â· ${selectedOrder.clientName}` : 'Detalle'}
 onClose={() => {
   setDetailOpen(false);
   resetDeliveryAssignBox();
@@ -8126,8 +8201,8 @@ onClose={() => {
   <div className="flex items-start justify-between gap-3">
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#F5F5F7]">
-        <span>Orden #{selectedOrder.id} · {selectedOrder.clientName}</span>
-        <span className="text-[#8A8A96]">·</span>
+        <span>Orden #{selectedOrder.id} Â· {selectedOrder.clientName}</span>
+        <span className="text-[#8A8A96]">Â·</span>
         <span>{fmtUSD(selectedOrder.totalUsd)}</span>
         <span className={paymentToneClass(selectedOrder.balanceUsd)}>
           {paymentLabel(selectedOrder.balanceUsd)}
@@ -8136,7 +8211,7 @@ onClose={() => {
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-[#8A8A96]">
         <span>{selectedOrder.advisorName}</span>
-        <span>·</span>
+        <span>Â·</span>
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
@@ -8187,7 +8262,7 @@ onClose={() => {
 
         <div className="mt-2 space-y-2 text-sm">
           {orderMainLinesForPreview(selectedOrder.lines).length === 0 ? (
-            <div className="text-[#B7B7C2]">Sin ítems cargados.</div>
+            <div className="text-[#B7B7C2]">Sin Ã­tems cargados.</div>
           ) : (
             orderMainLinesForPreview(selectedOrder.lines).map((line, idx) => (
               <div key={idx} className="leading-5">
@@ -8195,7 +8270,7 @@ onClose={() => {
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 10).map((t, i) => (
-                      <div key={i}>• {t}</div>
+                      <div key={i}>â€¢ {t}</div>
                     ))}
                   </div>
                 ) : null}
@@ -8325,7 +8400,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryDistanceKm != null
                 ? `${selectedOrder.editMeta.deliveryDistanceKm} km`
-                : '—'}
+                : 'â€”'}
             </div>
           </div>
 
@@ -8334,7 +8409,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryCostUsd != null
                 ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
-                : '—'}
+                : 'â€”'}
             </div>
             {selectedOrder.editMeta?.deliveryCostSource ? (
               <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
@@ -8346,20 +8421,20 @@ onClose={() => {
       {selectedOrder.fulfillment === 'delivery' ? (
         <>
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">Dirección</div>
+            <div className="text-[10px] text-[#8A8A96]">DirecciÃ³n</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
-              {selectedOrder.address || '—'}
+              {selectedOrder.address || 'â€”'}
             </div>
           </div>
 
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">Asignación actual</div>
+            <div className="text-[10px] text-[#8A8A96]">AsignaciÃ³n actual</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.riderName
                 ? `Interno: ${selectedOrder.riderName}`
                 : selectedOrder.externalPartner
                   ? `Externo: ${selectedOrder.externalPartner}`
-                  : 'Sin asignación'}
+                  : 'Sin asignaciÃ³n'}
             </div>
           </div>
         </>
@@ -8497,7 +8572,7 @@ onClose={() => {
           {selectedOrder.editMeta?.paymentRequiresChange
             ? selectedOrder.editMeta?.paymentChangeFor
               ? `Para ${selectedOrder.editMeta.paymentChangeFor} ${selectedOrder.editMeta.paymentChangeCurrency || ''}`
-              : 'Sí'
+              : 'SÃ­'
             : 'No'}
         </div>
       </div>
@@ -8523,10 +8598,10 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {rp.currencyCode} {rp.amount.toFixed(2)} · {fmtUSD(rp.usdEquivalent)}
+                    {rp.currencyCode} {rp.amount.toFixed(2)} Â· {fmtUSD(rp.usdEquivalent)}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {rp.moneyAccountName} · {fmtDateTimeES(rp.createdAt)}
+                    {rp.moneyAccountName} Â· {fmtDateTimeES(rp.createdAt)}
                   </div>
                 </div>
 
@@ -8556,17 +8631,17 @@ onClose={() => {
 
                 <div>
                   <span className="text-[#8A8A96]">Referencia:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.referenceCode || '—'}</span>
+                  <span className="text-[#F5F5F7]">{rp.referenceCode || 'â€”'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Pagador:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.payerName || '—'}</span>
+                  <span className="text-[#F5F5F7]">{rp.payerName || 'â€”'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Tasa:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '—'}</span>
+                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : 'â€”'}</span>
                 </div>
               </div>
 
@@ -8605,7 +8680,7 @@ onClose={() => {
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
     <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-      {selectedOrder.notes?.trim() ? selectedOrder.notes : '—'}
+      {selectedOrder.notes?.trim() ? selectedOrder.notes : 'â€”'}
     </div>
   </div>
 ) : null}
@@ -8613,11 +8688,40 @@ onClose={() => {
 {detailTab === 'ajustes' && isAdmin ? (
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="flex items-center justify-between gap-2">
-      <div className="text-sm font-semibold text-[#F5F5F7]">Ajustes</div>
+      <div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Ajustes</div>
+        <div className="mt-1 text-[11px] text-[#8A8A96]">
+          Solo admin puede corregir datos ya establecidos en una orden avanzada o cerrada.
+        </div>
+      </div>
       <SmallBadge
         label={`${selectedOrder.adminAdjustments.length} evento${selectedOrder.adminAdjustments.length === 1 ? '' : 's'}`}
         tone={selectedOrder.adminAdjustments.length > 0 ? 'warn' : 'muted'}
       />
+    </div>
+
+    <div className="mt-3 flex flex-wrap gap-2">
+      <button
+        type="button"
+        className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
+        onClick={() => openOrderAdjustmentDrawer('advisor_change')}
+      >
+        Cambiar asesor
+      </button>
+      <button
+        type="button"
+        className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
+        onClick={() => openOrderAdjustmentDrawer('client_change')}
+      >
+        Cambiar cliente
+      </button>
+      <button
+        type="button"
+        className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
+        onClick={() => openOrderAdjustmentDrawer('schedule_change')}
+      >
+        Cambiar fecha/hora
+      </button>
     </div>
 
     {selectedOrder.adminAdjustments.length === 0 ? (
@@ -8627,15 +8731,8 @@ onClose={() => {
     ) : (
       <div className="mt-3 space-y-2">
         {selectedOrder.adminAdjustments.map((adjustment) => {
-          const payload = adjustment.payload ?? {};
-          const originalUnit = Number(payload.original_unit_price_usd ?? 0);
-          const overrideUnit = Number(payload.override_unit_price_usd ?? 0);
-          const deltaUsd = Number(payload.delta_usd ?? 0);
-          const productName =
-            typeof payload.product_name === 'string' && payload.product_name.trim()
-              ? payload.product_name
-              : 'Ítem';
-          const qty = Number(payload.qty ?? 0);
+          const presentation = getAdjustmentPresentation(adjustment);
+          const deltaUsd = presentation.deltaUsd;
 
           return (
             <div
@@ -8644,13 +8741,9 @@ onClose={() => {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-[#F5F5F7]">
-                    {adjustment.adjustmentType === 'item_price_override'
-                      ? 'Ajuste de precio por ítem'
-                      : adjustment.adjustmentType}
-                  </div>
+                  <div className="text-sm font-medium text-[#F5F5F7]">{presentation.title}</div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {fmtDateTimeES(adjustment.createdAt)} · {adjustment.createdByUserId}
+                    {fmtDateTimeES(adjustment.createdAt)} · {adjustment.createdByName}
                   </div>
                 </div>
 
@@ -8667,32 +8760,30 @@ onClose={() => {
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Ítem</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">
-                    {productName}
-                    {qty > 0 ? ` · x${qty}` : ''}
-                  </div>
+                  <div className="text-[10px] text-[#8A8A96]">Detalle</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{presentation.detailPrimary}</div>
+                  <div className="mt-1 text-[11px] text-[#8A8A96]">{presentation.detailSecondary}</div>
                 </div>
               </div>
 
-              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Precio original</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(originalUnit)}</div>
-                </div>
+              {adjustment.adjustmentType === 'item_price_override' ? (
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                    <div className="text-[10px] text-[#8A8A96]">Precio original</div>
+                    <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(presentation.originalUnitUsd)}</div>
+                  </div>
 
-                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(overrideUnit)}</div>
-                </div>
+                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                    <div className="text-[10px] text-[#8A8A96]">Precio ajustado</div>
+                    <div className="mt-1 text-sm text-[#F5F5F7]">{fmtUSD(presentation.overrideUnitUsd)}</div>
+                  </div>
 
-                <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">Impacto</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">
-                    {deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}
+                  <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
+                    <div className="text-[10px] text-[#8A8A96]">Impacto</div>
+                    <div className="mt-1 text-sm text-[#F5F5F7]">{deltaUsd > 0 ? '+' : ''}{fmtUSD(deltaUsd)}</div>
                   </div>
                 </div>
-              </div>
+              ) : null}
 
               {adjustment.notes ? (
                 <div className="mt-2 text-[11px] text-[#B7B7C2]">
@@ -8788,6 +8879,18 @@ onClick={() => {
           </button>
         ) : null}
 
+        {isAdmin ? (
+          <button
+            className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+            onClick={() => {
+              setDetailTab('ajustes');
+              openOrderAdjustmentDrawer('advisor_change');
+            }}
+          >
+            Nuevo ajuste admin
+          </button>
+        ) : null}
+
 {canManageDeliveryAssignment(selectedOrder) ? (
   <>
     <button
@@ -8823,7 +8926,7 @@ onClick={() => {
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleClearDeliveryAssignment(selectedOrder)}
       >
-        Quitar asignación
+        Quitar asignaciÃ³n
       </button>
     ) : null}
   </>
@@ -8861,7 +8964,7 @@ onClick={() => {
         }}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">— cuenta —</option>
+        <option value="">â€” cuenta â€”</option>
         {moneyAccounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name} ({a.currencyCode})
@@ -8939,7 +9042,7 @@ deliveryAssignMode === 'internal' ? (
         onChange={(e) => setDeliveryAssignDriverId(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">— seleccionar —</option>
+        <option value="">â€” seleccionar â€”</option>
         {drivers.map((d) => (
           <option key={d.id} value={d.id}>
             {d.fullName}
@@ -8981,7 +9084,7 @@ deliveryAssignMode === 'external' ? (
         onChange={(e) => handleDeliveryAssignPartnerChange(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">— seleccionar —</option>
+        <option value="">â€” seleccionar â€”</option>
         {deliveryPartners.filter((p) => p.isActive).map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -9009,7 +9112,7 @@ deliveryAssignMode === 'external' ? (
           </span>
         </>
       ) : (
-        'Sin tarifa automática para esa distancia.'
+        'Sin tarifa automÃ¡tica para esa distancia.'
       )}
     </div>
 
@@ -9079,7 +9182,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar aprobación
+          Confirmar aprobaciÃ³n
         </button>
       ) : null}
 
@@ -9088,7 +9191,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar re-aprobación
+          Confirmar re-aprobaciÃ³n
         </button>
       ) : null}
 
@@ -9097,7 +9200,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReturn(selectedOrder)}
         >
-          Enviar devolución
+          Enviar devoluciÃ³n
         </button>
       ) : null}
 
@@ -9106,7 +9209,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReviewChanges(selectedOrder, true)}
         >
-          Confirmar aprobación
+          Confirmar aprobaciÃ³n
         </button>
       ) : null}
 
@@ -9196,7 +9299,7 @@ deliveryAssignMode === 'external' ? (
         ? `Interno: ${selectedOrder.riderName}`
         : selectedOrder.externalPartner
           ? `Externo: ${selectedOrder.externalPartner}`
-          : 'Sin asignación visible'}
+          : 'Sin asignaciÃ³n visible'}
     </div>
 
     <div className="mt-2 space-y-2">
@@ -9309,7 +9412,7 @@ deliveryAssignMode === 'external' ? (
         value={cancelOrderReason}
         onChange={(e) => setCancelOrderReason(e.target.value)}
         rows={3}
-        placeholder="Motivo de cancelación (obligatorio)"
+        placeholder="Motivo de cancelaciÃ³n (obligatorio)"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
@@ -9319,7 +9422,7 @@ deliveryAssignMode === 'external' ? (
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleCancelOrder(selectedOrder)}
       >
-        Confirmar cancelación
+        Confirmar cancelaciÃ³n
       </button>
 
       <button
@@ -9343,7 +9446,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={quickCatalogOpen}
-  title="Actualización rápida de catálogo"
+  title="ActualizaciÃ³n rÃ¡pida de catÃ¡logo"
   onClose={() => setQuickCatalogOpen(false)}
   widthClass="w-[820px]"
 >
@@ -9355,11 +9458,11 @@ deliveryAssignMode === 'external' ? (
             Montos fuente por bloque
           </div>
           <div className="mt-1 text-sm text-[#B7B7C2]">
-            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rápido de un ítem al siguiente.
+            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rÃ¡pido de un Ã­tem al siguiente.
           </div>
         </div>
 
-        <SmallBadge label={`${quickCatalogRows.length} ítems`} tone="muted" />
+        <SmallBadge label={`${quickCatalogRows.length} Ã­tems`} tone="muted" />
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
@@ -9368,7 +9471,7 @@ deliveryAssignMode === 'external' ? (
             <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#121218] text-[#B7B7C2]">
               <tr>
                 <th className="w-[84px] px-3 py-3 text-left font-medium">SKU</th>
-                <th className="px-3 py-3 text-left font-medium">Ítem</th>
+                <th className="px-3 py-3 text-left font-medium">Ãtem</th>
                 <th className="w-[78px] px-3 py-3 text-left font-medium">Moneda</th>
                 <th className="w-[170px] px-3 py-3 text-left font-medium">Monto fuente</th>
               </tr>
@@ -9379,7 +9482,7 @@ deliveryAssignMode === 'external' ? (
                   key={row.productId}
                   className={`${idx % 2 === 0 ? 'bg-[#0F0F14]' : 'bg-[#13131A]'} border-b border-[#242433]`}
                 >
-                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || '—'}</td>
+                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || 'â€”'}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.name}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.sourcePriceCurrency}</td>
                   <td className="px-3 py-2">
@@ -9425,7 +9528,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={createCatalogOpen}
-  title="Nuevo ítem de catálogo"
+  title="Nuevo Ã­tem de catÃ¡logo"
   onClose={() => setCreateCatalogOpen(false)}
   widthClass="w-[720px]"
 >
@@ -9469,7 +9572,7 @@ deliveryAssignMode === 'external' ? (
         />
 
         <FieldInput
-          label="Límite detalle"
+          label="LÃ­mite detalle"
           value={newDetailUnitsLimit}
           onChange={setNewDetailUnitsLimit}
           type="number"
@@ -9478,18 +9581,18 @@ deliveryAssignMode === 'external' ? (
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <FieldSelect
-          label="Regla comisión"
+          label="Regla comisiÃ³n"
           value={newCommissionMode}
           onChange={(v) => setNewCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
           options={[
             { value: 'default', label: 'Default' },
-            { value: 'fixed_item', label: 'Fija por ítem' },
+            { value: 'fixed_item', label: 'Fija por Ã­tem' },
             { value: 'fixed_order', label: 'Fija por orden' },
           ]}
         />
 
         <FieldInput
-          label="Valor comisión"
+          label="Valor comisiÃ³n"
           value={newCommissionValue}
           onChange={setNewCommissionValue}
           type="text"
@@ -9497,7 +9600,7 @@ deliveryAssignMode === 'external' ? (
       </div>
 
       <div className="mt-3">
-        <FieldInput label="Notas comisión" value={newCommissionNotes} onChange={setNewCommissionNotes} />
+        <FieldInput label="Notas comisiÃ³n" value={newCommissionNotes} onChange={setNewCommissionNotes} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -9526,7 +9629,7 @@ deliveryAssignMode === 'external' ? (
         onClick={handleCreateCatalogItem}
         disabled={createCatalogSaving}
       >
-        {createCatalogSaving ? 'Creando...' : 'Crear ítem'}
+        {createCatalogSaving ? 'Creando...' : 'Crear Ã­tem'}
       </button>
     </div>
   </div>
@@ -9556,7 +9659,7 @@ deliveryAssignMode === 'external' ? (
 
           <div className="space-y-2 rounded-2xl border border-[#242433] bg-[#121218] p-3">
             <div className="text-sm font-semibold">{movementType}</div>
-            <div className="text-sm text-[#B7B7C2]">(Demo) Aquí irían: cuenta(s), moneda, monto, fecha, referencia.</div>
+            <div className="text-sm text-[#B7B7C2]">(Demo) AquÃ­ irÃ­an: cuenta(s), moneda, monto, fecha, referencia.</div>
             <button
   className="w-full rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={() => showToast('success', 'Guardar movimiento (demo).')}
@@ -9626,8 +9729,8 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
-              <InfoCell label="InstituciÃ³n" value={selectedAccount.institutionName || '—'} />
-              <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
+              <InfoCell label="InstituciÃƒÂ³n" value={selectedAccount.institutionName || 'â€”'} />
+              <InfoCell label="Titular" value={selectedAccount.ownerName || 'â€”'} />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -9642,9 +9745,9 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-2 py-2 text-left font-medium">N° Orden</th>
+                        <th className="px-2 py-2 text-left font-medium">NÂ° Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
-                        <th className="px-2 py-2 text-left font-medium">N° Control</th>
+                        <th className="px-2 py-2 text-left font-medium">NÂ° Control</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -9672,10 +9775,10 @@ deliveryAssignMode === 'external' ? (
                               </div>
                               <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
                             </td>
-                            <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
-                            <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
+                            <td className="px-2 py-2">{linkedOrder?.clientName || 'â€”'}</td>
+                            <td className="px-2 py-2">{movement.orderId ?? 'â€”'}</td>
                             <td className="px-2 py-2">
-                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
+                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || 'â€”'}
                             </td>
                             <td className="px-2 py-2">
                               {movement.referenceCode || movement.paymentReportId || movement.id}
@@ -9723,7 +9826,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="InstituciÃƒÂ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -9796,7 +9899,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="InstituciÃƒÂ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -9887,7 +9990,7 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '—'} />
+                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || 'â€”'} />
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
@@ -10188,17 +10291,17 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="Teléfono" value={selectedClient.phone || '—'} />
+                <InfoCell label="TelÃ©fono" value={selectedClient.phone || 'â€”'} />
                 <InfoCell
                   label="Asesor principal"
                   value={
                     selectedClient.primaryAdvisorId
                       ? advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor'
-                      : '—'
+                      : 'â€”'
                   }
                 />
-                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '—'} />
-                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '—'} />
+                <InfoCell label="CumpleaÃ±os" value={selectedClient.birthDate || 'â€”'} />
+                <InfoCell label="Fecha importante" value={selectedClient.importantDate || 'â€”'} />
               </div>
 
               {normalizeClientTags(selectedClient.crmTags).length > 0 ? (
@@ -10223,25 +10326,25 @@ deliveryAssignMode === 'external' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '—'} />
-                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '—'} />
-                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '—'} />
-                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '—'} />
+                  <InfoCell label="RazÃ³n social" value={selectedClient.billingCompanyName || 'â€”'} />
+                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || 'â€”'} />
+                  <InfoCell label="TelÃ©fono" value={selectedClient.billingPhone || 'â€”'} />
+                  <InfoCell label="DirecciÃ³n fiscal" value={selectedClient.billingAddress || 'â€”'} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '—'} />
+                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || 'â€”'} />
                   <InfoCell
                     label="Documento"
-                    value={selectedClient.deliveryNoteDocumentId || '—'}
+                    value={selectedClient.deliveryNoteDocumentId || 'â€”'}
                   />
-                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '—'} />
+                  <InfoCell label="TelÃ©fono" value={selectedClient.deliveryNotePhone || 'â€”'} />
                   <InfoCell
-                    label="Dirección"
-                    value={selectedClient.deliveryNoteAddress || '—'}
+                    label="DirecciÃ³n"
+                    value={selectedClient.deliveryNoteAddress || 'â€”'}
                   />
                 </div>
               </div>
@@ -10255,10 +10358,10 @@ deliveryAssignMode === 'external' ? (
                 ) : (
                   normalizeClientAddresses(selectedClient.recentAddresses).map((address, idx) => (
                     <div key={`${selectedClient.id}-${idx}`} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-                      <div className="text-xs text-[#8A8A96]">Dirección {idx + 1}</div>
-                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '—'}</div>
+                      <div className="text-xs text-[#8A8A96]">DirecciÃ³n {idx + 1}</div>
+                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || 'â€”'}</div>
                       <div className="mt-3 text-xs text-[#8A8A96]">GPS</div>
-                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '—'}</div>
+                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || 'â€”'}</div>
                     </div>
                   ))
                 )}
@@ -10276,17 +10379,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃ¡sicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="TelÃ©fono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: '— sin asesor principal —' },
+                  { value: '', label: 'â€” sin asesor principal â€”' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -10316,7 +10419,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="CumpleaÃ±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -10338,14 +10441,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="Razón social"
+                  label="RazÃ³n social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="TelÃ©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -10366,12 +10469,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="Teléfono"
+                  label="TelÃ©fono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -10388,7 +10491,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -10401,7 +10504,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -10441,17 +10544,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃ¡sicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="TelÃ©fono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: '— sin asesor principal —' },
+                  { value: '', label: 'â€” sin asesor principal â€”' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -10481,7 +10584,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="CumpleaÃ±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -10503,14 +10606,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="Razón social"
+                  label="RazÃ³n social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="TelÃ©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -10531,12 +10634,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="Teléfono"
+                  label="TelÃ©fono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -10553,7 +10656,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -10566,7 +10669,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -10607,8 +10710,8 @@ deliveryAssignMode === 'external' ? (
     <div className="flex items-center justify-between rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3">
       <div className="text-sm text-[#B7B7C2]">
         {orderEditorMode === 'edit'
-          ? 'Estás modificando una orden existente.'
-          : 'Estás creando una orden nueva.'}
+          ? 'EstÃ¡s modificando una orden existente.'
+          : 'EstÃ¡s creando una orden nueva.'}
       </div>
 
       <span
@@ -10647,7 +10750,7 @@ deliveryAssignMode === 'external' ? (
       value={createOrderAdvisorUserId}
       onChange={setCreateOrderAdvisorUserId}
       options={[
-        { value: '', label: '— seleccionar —' },
+        { value: '', label: 'â€” seleccionar â€”' },
         ...advisors.map((advisor) => ({
           value: advisor.userId,
           label: advisor.isActive
@@ -10687,7 +10790,7 @@ deliveryAssignMode === 'external' ? (
   <input
     value={createOrderClientSearch}
     onChange={(e) => setCreateOrderClientSearch(e.target.value)}
-    placeholder="Buscar por nombre o teléfono…"
+    placeholder="Buscar por nombre o telÃ©fonoâ€¦"
     className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
   />
 
@@ -10715,10 +10818,10 @@ deliveryAssignMode === 'external' ? (
                 {createOrderSelectedClientName}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tel: {createOrderSelectedClientPhone || '—'}
+                Tel: {createOrderSelectedClientPhone || 'â€”'}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tipo: {createOrderSelectedClientType || '—'}
+                Tipo: {createOrderSelectedClientType || 'â€”'}
               </div>
             </div>
           ) : null}
@@ -10741,7 +10844,7 @@ deliveryAssignMode === 'external' ? (
                       onClick={() => handleApplyClientAddress(address)}
                       className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
                     >
-                      Usar dirección {idx + 1}
+                      Usar direcciÃ³n {idx + 1}
                     </button>
                   ))}
                 </div>
@@ -10762,7 +10865,7 @@ deliveryAssignMode === 'external' ? (
                     {client.fullName}
                   </div>
                   <div className="mt-1 text-xs text-[#B7B7C2]">
-                    Tel: {client.phone || '—'} · Tipo: {client.clientType || '—'}
+                    Tel: {client.phone || 'â€”'} Â· Tipo: {client.clientType || 'â€”'}
                   </div>
                 </button>
               ))}
@@ -10778,7 +10881,7 @@ deliveryAssignMode === 'external' ? (
     />
 
     <FieldInput
-      label="Teléfono"
+      label="TelÃ©fono"
       value={createOrderNewClientPhone}
       onChange={setCreateOrderNewClientPhone}
     />
@@ -10919,11 +11022,11 @@ deliveryAssignMode === 'external' ? (
                 {item.name}
               </div>
 <div className="mt-1 text-xs text-[#8A8A96]">
-  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} ·{' '}
+  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : 'â€”'} Â·{' '}
   {item.sourcePriceCurrency === 'VES'
     ? fmtBs(item.basePriceBs)
     : fmtUSD(item.basePriceUsd)}
-  {item.sku ? ` · ${item.sku}` : ''}
+  {item.sku ? ` Â· ${item.sku}` : ''}
 </div>
             </button>
           ))
@@ -10962,7 +11065,7 @@ deliveryAssignMode === 'external' ? (
 
         {createOrderDraftItems.length === 0 ? (
           <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-            Sin ítems cargados.
+            Sin Ã­tems cargados.
           </div>
         ) : (
           <div className="mt-4 space-y-2">
@@ -10975,12 +11078,12 @@ deliveryAssignMode === 'external' ? (
 
 <div>
   <div className="text-sm font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
-  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || '—'}</div>
+  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || 'â€”'}</div>
 
   {item.editableDetailLines.length > 0 ? (
     <div className="mt-2 space-y-1 text-xs text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
-        <div key={detailIdx}>• {detail}</div>
+        <div key={detailIdx}>â€¢ {detail}</div>
       ))}
     </div>
   ) : null}
@@ -11200,13 +11303,13 @@ deliveryAssignMode === 'external' ? (
       {createOrderReceiverIsDifferent ? (
         <div className="grid grid-cols-2 gap-3">
           <FieldInput
-            label="Quién recibe"
+            label="QuiÃ©n recibe"
             value={createOrderReceiverName}
             onChange={setCreateOrderReceiverName}
           />
 
           <FieldInput
-            label="Teléfono recibe"
+            label="TelÃ©fono recibe"
             value={createOrderReceiverPhone}
             onChange={setCreateOrderReceiverPhone}
           />
@@ -11217,7 +11320,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 min-w-0">
       {createOrderFulfillment === 'delivery' ? (
         <div className="min-w-0">
-          <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+          <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
           <textarea
             value={createOrderDeliveryAddress}
             onChange={(e) => setCreateOrderDeliveryAddress(e.target.value)}
@@ -11248,7 +11351,7 @@ deliveryAssignMode === 'external' ? (
 </div>
 
 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 md:col-span-2">
-  <div className="text-sm font-semibold text-[#F5F5F7]">E. Condición de pago</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">E. CondiciÃ³n de pago</div>
 
   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 
@@ -11258,7 +11361,7 @@ deliveryAssignMode === 'external' ? (
   onChange={setCreateOrderPaymentMethod}
   options={[
 { value: 'pending', label: 'Pendiente' },
-{ value: 'payment_mobile', label: 'Pago móvil' },
+{ value: 'payment_mobile', label: 'Pago mÃ³vil' },
 { value: 'transfer', label: 'Transferencia' },
 { value: 'cash_usd', label: 'Efectivo USD' },
 { value: 'cash_ves', label: 'Efectivo Bs' },
@@ -11355,7 +11458,7 @@ deliveryAssignMode === 'external' ? (
   {createOrderHasInvoice ? (
     <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
       <FieldInput
-        label="Nombre / razón social"
+        label="Nombre / razÃ³n social"
         value={createOrderInvoiceCompanyName}
         onChange={setCreateOrderInvoiceCompanyName}
       />
@@ -11365,7 +11468,7 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderInvoiceTaxId}
       />
       <FieldInput
-        label="Teléfono"
+        label="TelÃ©fono"
         value={createOrderInvoicePhone}
         onChange={setCreateOrderInvoicePhone}
       />
@@ -11376,7 +11479,7 @@ deliveryAssignMode === 'external' ? (
         type="text"
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
         <textarea
           value={createOrderInvoiceAddress}
           onChange={(e) => setCreateOrderInvoiceAddress(e.target.value)}
@@ -11400,12 +11503,12 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderDeliveryNoteDocumentId}
       />
       <FieldInput
-        label="Teléfono"
+        label="TelÃ©fono"
         value={createOrderDeliveryNotePhone}
         onChange={setCreateOrderDeliveryNotePhone}
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
         <textarea
           value={createOrderDeliveryNoteAddress}
           onChange={(e) => setCreateOrderDeliveryNoteAddress(e.target.value)}
@@ -11449,7 +11552,7 @@ deliveryAssignMode === 'external' ? (
   ) : null}
 
   <div className="mt-3">
-    <label className="mb-1 block text-xs text-[#8A8A96]">Observación de pago</label>
+    <label className="mb-1 block text-xs text-[#8A8A96]">ObservaciÃ³n de pago</label>
     <textarea
       value={createOrderPaymentNote}
       onChange={(e) => setCreateOrderPaymentNote(e.target.value)}
@@ -11466,7 +11569,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="Cliente"
-        value={createOrderSelectedClientName || createOrderNewClientName || '—'}
+        value={createOrderSelectedClientName || createOrderNewClientName || 'â€”'}
       />
 
       <InfoCell label="Tipo" value={createOrderFulfillment} />
@@ -11477,16 +11580,16 @@ deliveryAssignMode === 'external' ? (
         label="Asesor"
         value={
           createOrderSource === 'advisor'
-            ? advisors.find((advisor) => advisor.userId === createOrderAdvisorUserId)?.fullName || '—'
+            ? advisors.find((advisor) => advisor.userId === createOrderAdvisorUserId)?.fullName || 'â€”'
             : currentOperatorLabel
         }
       />
 
-      <InfoCell label="Ítems" value={String(createOrderDraftItems.length)} />
+      <InfoCell label="Ãtems" value={String(createOrderDraftItems.length)} />
 
       <InfoCell
         label="Tasa"
-        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : '—'}
+        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : 'â€”'}
       />
 
       <InfoCell
@@ -11517,7 +11620,7 @@ deliveryAssignMode === 'external' ? (
           value={
             createOrderPaymentChangeFor
               ? `Para ${createOrderPaymentChangeFor} ${createOrderPaymentChangeCurrency === 'USD' ? 'USD' : 'Bs'}`
-              : 'Sí'
+              : 'SÃ­'
           }
         />
       ) : null}
@@ -11525,28 +11628,28 @@ deliveryAssignMode === 'external' ? (
       {createOrderHasDeliveryNote ? (
         <InfoCell
           label="Nota de entrega"
-          value="Sí"
+          value="SÃ­"
         />
       ) : null}
 
       {createOrderHasInvoice ? (
         <InfoCell
           label="Factura"
-          value="Sí"
+          value="SÃ­"
         />
       ) : null}
 
       {createOrderDiscountEnabled && createOrderDiscountPctNumber > 0 ? (
         <InfoCell
           label="Descuento"
-          value={`${createOrderDiscountPctNumber}% · -${fmtBs(createOrderDiscountAmountBs)}`}
+          value={`${createOrderDiscountPctNumber}% Â· -${fmtBs(createOrderDiscountAmountBs)}`}
         />
       ) : null}
 
       {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
         <InfoCell
           label="IVA"
-          value={`${createOrderInvoiceTaxPctNumber}% · +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
+          value={`${createOrderInvoiceTaxPctNumber}% Â· +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
         />
       ) : null}
     </div>
@@ -11577,7 +11680,7 @@ deliveryAssignMode === 'external' ? (
             <span className="text-[#F5F5F7]">Datos factura:</span>{' '}
             {[createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
               .filter(Boolean)
-              .join(' | ') || '—'}
+              .join(' | ') || 'â€”'}
           </div>
         ) : null}
 
@@ -11591,7 +11694,7 @@ deliveryAssignMode === 'external' ? (
               createOrderDeliveryNotePhone,
             ]
               .filter(Boolean)
-              .join(' | ') || '—'}
+              .join(' | ') || 'â€”'}
           </div>
         ) : null}
       </div>
@@ -11599,28 +11702,28 @@ deliveryAssignMode === 'external' ? (
 
     <div className="space-y-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
       <div className={createOrderHasClient ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasClient ? '✅ Cliente listo' : '❌ Falta cliente'}
+        {createOrderHasClient ? 'âœ… Cliente listo' : 'âŒ Falta cliente'}
       </div>
 
       <div className={createOrderHasItems ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasItems ? '✅ Pedido con ítems' : '❌ Falta agregar ítems'}
+        {createOrderHasItems ? 'âœ… Pedido con Ã­tems' : 'âŒ Falta agregar Ã­tems'}
       </div>
 
       <div className={createOrderHasValidAdvisor ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasValidAdvisor ? '✅ Asesor válido' : '❌ Debes seleccionar asesor'}
+        {createOrderHasValidAdvisor ? 'âœ… Asesor vÃ¡lido' : 'âŒ Debes seleccionar asesor'}
       </div>
 
       <div className={createOrderHasDeliveryAddress ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryAddress ? '✅ Entrega válida' : '❌ Falta dirección de delivery'}
+        {createOrderHasDeliveryAddress ? 'âœ… Entrega vÃ¡lida' : 'âŒ Falta direcciÃ³n de delivery'}
       </div>
       <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryChargeItem ? '✅ Ítem de delivery cargado' : '❌ Falta producto de delivery'}
+        {createOrderHasDeliveryChargeItem ? 'âœ… Ãtem de delivery cargado' : 'âŒ Falta producto de delivery'}
       </div>
     </div>
 
 {orderEditorMode === 'edit' && selectedOrder?.status === 'queued' ? (
   <div className="rounded-xl border border-orange-500/40 bg-[#0B0B0D] p-3 text-sm text-orange-400">
-    Esta edición marcará la orden para <span className="font-semibold">re-aprobación</span>.
+    Esta ediciÃ³n marcarÃ¡ la orden para <span className="font-semibold">re-aprobaciÃ³n</span>.
   </div>
 ) : null}
 
@@ -11695,6 +11798,132 @@ deliveryAssignMode === 'external' ? (
 </Drawer>
 
 <Drawer
+  open={orderAdjustmentOpen}
+  title="Nuevo ajuste administrativo"
+  onClose={resetOrderAdjustmentBox}
+  widthClass="w-[620px]"
+>
+  <div className="space-y-4">
+    <FieldSelect
+      label="Tipo de ajuste"
+      value={orderAdjustmentKind}
+      onChange={(value) =>
+        setOrderAdjustmentKind(value as 'advisor_change' | 'client_change' | 'schedule_change')
+      }
+      options={[
+        { value: 'advisor_change', label: 'Cambio de asesor' },
+        { value: 'client_change', label: 'Cambio de cliente' },
+        { value: 'schedule_change', label: 'Cambio de fecha/hora' },
+      ]}
+    />
+
+    {orderAdjustmentKind === 'advisor_change' ? (
+      <FieldSelect
+        label="Nuevo asesor"
+        value={orderAdjustmentAdvisorUserId}
+        onChange={setOrderAdjustmentAdvisorUserId}
+        options={[
+          { value: '', label: 'Selecciona un asesor' },
+          ...advisors.map((advisor) => ({
+            value: advisor.userId,
+            label: advisor.fullName,
+          })),
+        ]}
+      />
+    ) : null}
+
+    {orderAdjustmentKind === 'client_change' ? (
+      <FieldSelect
+        label="Nuevo cliente"
+        value={orderAdjustmentClientId}
+        onChange={setOrderAdjustmentClientId}
+        options={[
+          { value: '', label: 'Selecciona un cliente' },
+          ...clients
+            .slice()
+            .sort((a, b) => a.fullName.localeCompare(b.fullName))
+            .map((client) => ({
+              value: String(client.id),
+              label: `${client.fullName}${client.phone ? ` · ${client.phone}` : ''}`,
+            })),
+        ]}
+      />
+    ) : null}
+
+    {orderAdjustmentKind === 'schedule_change' ? (
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_76px_76px_96px]">
+        <FieldInput
+          label="Nueva fecha"
+          value={orderAdjustmentDate}
+          onChange={setOrderAdjustmentDate}
+          type="date"
+        />
+        <FieldInput
+          label="Hora"
+          value={orderAdjustmentHour12}
+          onChange={setOrderAdjustmentHour12}
+          type="number"
+        />
+        <FieldInput
+          label="Min"
+          value={orderAdjustmentMinute}
+          onChange={setOrderAdjustmentMinute}
+          type="number"
+        />
+        <FieldSelect
+          label="AM/PM"
+          value={orderAdjustmentAmPm}
+          onChange={(value) => setOrderAdjustmentAmPm(value as 'AM' | 'PM')}
+          options={[
+            { value: 'AM', label: 'AM' },
+            { value: 'PM', label: 'PM' },
+          ]}
+        />
+      </div>
+    ) : null}
+
+    <div>
+      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo</label>
+      <textarea
+        value={orderAdjustmentReason}
+        onChange={(e) => setOrderAdjustmentReason(e.target.value)}
+        rows={3}
+        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+      />
+    </div>
+
+    <div>
+      <label className="mb-1 block text-xs text-[#8A8A96]">Notas adicionales</label>
+      <textarea
+        value={orderAdjustmentNotes}
+        onChange={(e) => setOrderAdjustmentNotes(e.target.value)}
+        rows={3}
+        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+      />
+    </div>
+
+    <div className="flex gap-2">
+      <button
+        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+        onClick={resetOrderAdjustmentBox}
+        type="button"
+        disabled={orderAdjustmentSaving}
+      >
+        Cancelar
+      </button>
+      <button
+        className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+        onClick={handleCreateOrderAdminAdjustment}
+        type="button"
+        disabled={orderAdjustmentSaving}
+      >
+        {orderAdjustmentSaving ? 'Guardando...' : 'Guardar ajuste'}
+      </button>
+    </div>
+  </div>
+</Drawer>
+
+<Drawer
   open={createOrderConfigOpen}
   title={createOrderConfigProductName || 'Configurar producto'}
   onClose={closeCreateOrderConfig}
@@ -11703,9 +11932,9 @@ deliveryAssignMode === 'external' ? (
   <div className="space-y-4">
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="grid grid-cols-3 gap-3">
-        <InfoCell label="Producto" value={createOrderConfigProductName || '—'} />
+        <InfoCell label="Producto" value={createOrderConfigProductName || 'â€”'} />
         <InfoCell label="Cant." value={String(createOrderConfigQty)} />
-        <InfoCell label="Límite" value={String(createOrderConfigLimit || 0)} />
+        <InfoCell label="LÃ­mite" value={String(createOrderConfigLimit || 0)} />
       </div>
 
       <div className="mt-3 grid grid-cols-[1fr_120px] gap-3">
@@ -11736,7 +11965,7 @@ deliveryAssignMode === 'external' ? (
     </div>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
+      <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃ³n</div>
 
       {createOrderConfigSelectableOptions.length === 0 ? (
         <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
@@ -11758,7 +11987,7 @@ return (
         {option.name}
       </div>
       <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
-        {option.sku || '—'}
+        {option.sku || 'â€”'}
       </div>
     </div>
 
@@ -11811,7 +12040,7 @@ return (
   className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={handleConfirmCreateOrderConfig}
 >
-  {createOrderConfigEditingLocalId ? 'Guardar ítem' : 'Confirmar'}
+  {createOrderConfigEditingLocalId ? 'Guardar Ã­tem' : 'Confirmar'}
 </button>
     </div>
   </div>
@@ -11837,6 +12066,7 @@ return (
     </div>
   );
 }
+
 
 
 

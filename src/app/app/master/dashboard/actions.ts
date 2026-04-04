@@ -1065,6 +1065,143 @@ export async function toggleDeliveryPartnerActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createOrderAdminAdjustmentAction(input: {
+  orderId: number;
+  kind: 'advisor_change' | 'client_change' | 'schedule_change';
+  reason: string;
+  notes?: string | null;
+  nextAdvisorUserId?: string | null;
+  nextClientId?: number | null;
+  nextDeliveryDate?: string | null;
+  nextDeliveryHour12?: string | null;
+  nextDeliveryMinute?: string | null;
+  nextDeliveryAmPm?: 'AM' | 'PM' | null;
+}) {
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+
+  if (!roles.includes('admin')) {
+    throw new Error('Solo admin puede crear ajustes administrativos.');
+  }
+
+  const orderId = Number(input.orderId);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden inválida.');
+  }
+
+  const kind = String(input.kind || '').trim();
+  if (!['advisor_change', 'client_change', 'schedule_change'].includes(kind)) {
+    throw new Error('Tipo de ajuste inválido.');
+  }
+
+  const reason = String(input.reason || '').trim();
+  if (!reason) {
+    throw new Error('Debes indicar el motivo del ajuste.');
+  }
+
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from('orders')
+    .select('id, client_id, attributed_advisor_id, extra_fields')
+    .eq('id', orderId)
+    .single();
+
+  if (currentOrderError || !currentOrder) {
+    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const payload: Record<string, unknown> = { kind };
+  const updatePayload: Record<string, unknown> = {
+    last_modified_at: nowIso,
+    last_modified_by: user.id,
+  };
+
+  if (kind === 'advisor_change') {
+    const nextAdvisorUserId = String(input.nextAdvisorUserId || '').trim();
+    if (!nextAdvisorUserId) {
+      throw new Error('Debes seleccionar el nuevo asesor.');
+    }
+
+    updatePayload.attributed_advisor_id = nextAdvisorUserId;
+    payload.previous_advisor_user_id = currentOrder.attributed_advisor_id ?? null;
+    payload.next_advisor_user_id = nextAdvisorUserId;
+  }
+
+  if (kind === 'client_change') {
+    const nextClientId = Number(input.nextClientId || 0);
+    if (!Number.isFinite(nextClientId) || nextClientId <= 0) {
+      throw new Error('Debes seleccionar el nuevo cliente.');
+    }
+
+    updatePayload.client_id = nextClientId;
+    payload.previous_client_id = currentOrder.client_id ?? null;
+    payload.next_client_id = nextClientId;
+  }
+
+  if (kind === 'schedule_change') {
+    const nextDate = String(input.nextDeliveryDate || '').trim();
+    const nextHour12 = String(input.nextDeliveryHour12 || '').trim();
+    const nextMinute = String(input.nextDeliveryMinute || '').trim();
+    const nextAmPm = input.nextDeliveryAmPm;
+
+    if (!nextDate || !nextHour12 || !nextMinute || (nextAmPm !== 'AM' && nextAmPm !== 'PM')) {
+      throw new Error('Debes completar la nueva fecha y hora.');
+    }
+
+    const nextTime24 = from12hTo24h(nextHour12, nextMinute, nextAmPm);
+    const currentExtraFields =
+      currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object' && !Array.isArray(currentOrder.extra_fields)
+        ? (currentOrder.extra_fields as Record<string, unknown>)
+        : {};
+
+    updatePayload.extra_fields = {
+      ...currentExtraFields,
+      schedule: {
+        date: nextDate,
+        time_12: `${nextHour12}:${pad2(Number(nextMinute || 0))} ${nextAmPm}`,
+        time_24: nextTime24,
+      },
+    };
+
+    payload.previous_schedule =
+      currentExtraFields.schedule && typeof currentExtraFields.schedule === 'object'
+        ? currentExtraFields.schedule
+        : null;
+    payload.next_schedule = {
+      date: nextDate,
+      time_12: `${nextHour12}:${pad2(Number(nextMinute || 0))} ${nextAmPm}`,
+      time_24: nextTime24,
+    };
+  }
+
+  const { error: updateOrderError } = await supabase
+    .from('orders')
+    .update(updatePayload)
+    .eq('id', orderId);
+
+  if (updateOrderError) {
+    throw new Error(updateOrderError.message);
+  }
+
+  const { error: adjustmentError } = await supabase
+    .from('order_admin_adjustments')
+    .insert({
+      order_id: orderId,
+      order_item_id: null,
+      adjustment_type: 'other',
+      reason,
+      notes: String(input.notes || '').trim() || null,
+      payload,
+      created_by_user_id: user.id,
+    });
+
+  if (adjustmentError) {
+    throw new Error(adjustmentError.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+  return { id: orderId };
+}
+
 function normalizeTagList(input: string[]) {
   return Array.from(
     new Set(
