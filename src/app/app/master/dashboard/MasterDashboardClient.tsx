@@ -7430,6 +7430,127 @@ suppressHydrationWarning
     </div>
   </div>
 ) : null}
+
+          {settingsTab === 'adjustments' && isAdmin ? (
+  <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Resumen ajustes</div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <InfoCell label="Eventos" value={String(adjustmentsSummary.total)} />
+          <InfoCell label="Overrides" value={String(adjustmentsSummary.priceOverrides)} />
+          <InfoCell label="Impacto neto" value={fmtUSD(adjustmentsSummary.netUsd)} />
+          <InfoCell label="Costo asumido" value={fmtUSD(adjustmentsSummary.negativeUsd)} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
+        <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
+          <div>Muestra todos los ajustes administrativos que están cargados en las órdenes visibles del dashboard.</div>
+          <div>Impacto negativo significa descuento, cortesía o menor ingreso respecto al valor original.</div>
+          <div>Impacto positivo significa recargo o aumento sobre el valor base.</div>
+        </div>
+      </div>
+    </div>
+
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <FieldInput label="Desde" value={adjustmentsDateFrom} onChange={setAdjustmentsDateFrom} type="date" />
+        <FieldInput label="Hasta" value={adjustmentsDateTo} onChange={setAdjustmentsDateTo} type="date" />
+        <FieldSelect
+          label="Admin"
+          value={adjustmentsAdminFilter}
+          onChange={setAdjustmentsAdminFilter}
+          options={[
+            { value: '', label: 'Todos' },
+            ...adjustmentAdminOptions,
+          ]}
+        />
+        <FieldSelect
+          label="Tipo"
+          value={adjustmentsTypeFilter}
+          onChange={setAdjustmentsTypeFilter}
+          options={[
+            { value: '', label: 'Todos' },
+            ...adjustmentTypeOptions.map((value) => ({
+              value,
+              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
+            })),
+          ]}
+        />
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+            <tr>
+              <th className="px-3 py-3 text-left font-medium">Fecha</th>
+              <th className="px-3 py-3 text-left font-medium">Admin</th>
+              <th className="px-3 py-3 text-left font-medium">Nro# Orden</th>
+              <th className="px-3 py-3 text-left font-medium">Cliente</th>
+              <th className="px-3 py-3 text-left font-medium">Tipo</th>
+              <th className="px-3 py-3 text-left font-medium">Detalle</th>
+              <th className="px-3 py-3 text-left font-medium">Motivo</th>
+              <th className="px-3 py-3 text-left font-medium">Impacto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredSettingsAdjustments.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
+                  No hay ajustes que coincidan con el filtro.
+                </td>
+              </tr>
+            ) : (
+              filteredSettingsAdjustments.map((row, idx) => {
+                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+
+                return (
+                  <tr
+                    key={row.id}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
+                    onClick={() => openOrderPanel(row.orderId, 'ajustes')}
+                  >
+                    <td className="px-3 py-3">{fmtDateTimeES(row.createdAt)}</td>
+                    <td className="px-3 py-3">{row.createdByName}</td>
+                    <td className="px-3 py-3">{row.orderNumber}</td>
+                    <td className="px-3 py-3">{row.clientName}</td>
+                    <td className="px-3 py-3">
+                      {row.adjustmentType === 'item_price_override'
+                        ? 'Ajuste de precio'
+                        : row.adjustmentType}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="text-[#F5F5F7]">{row.productName}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
+                        {row.qty > 0 ? ` · x${row.qty}` : ''}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
+                      {row.notes ? (
+                        <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={row.deltaUsd < 0 ? 'text-orange-400' : row.deltaUsd > 0 ? 'text-emerald-400' : 'text-[#B7B7C2]'}>
+                        {row.deltaUsd > 0 ? '+' : ''}{fmtUSD(row.deltaUsd)}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+) : null}
         </div>
       )}
 
