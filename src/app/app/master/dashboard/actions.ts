@@ -23,6 +23,19 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
 }
 
+function valuesEquivalent(field: string, beforeValue: unknown, afterValue: unknown): boolean {
+  if (field === 'total_usd' || field === 'total_bs_snapshot') {
+    const beforeNumber = Number(beforeValue ?? 0);
+    const afterNumber = Number(afterValue ?? 0);
+
+    if (Number.isFinite(beforeNumber) && Number.isFinite(afterNumber)) {
+      return Math.abs(beforeNumber - afterNumber) < 0.005;
+    }
+  }
+
+  return stableStringify(beforeValue) === stableStringify(afterValue);
+}
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -2902,7 +2915,7 @@ export async function updateOrderAction(input: {
     const changedFields = Object.keys(afterSnapshot).filter((key) => {
       const beforeValue = beforeSnapshot[key as keyof typeof beforeSnapshot];
       const afterValue = afterSnapshot[key as keyof typeof afterSnapshot];
-      return stableStringify(beforeValue) !== stableStringify(afterValue);
+      return !valuesEquivalent(key, beforeValue, afterValue);
     });
 
     const { error: createAuditError } = await supabase
