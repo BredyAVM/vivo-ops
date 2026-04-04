@@ -286,6 +286,7 @@ type Order = {
     payload: Record<string, unknown>;
     createdAt: string;
     createdByUserId: string;
+    createdByName: string;
   }>;
   internalDriverUserId?: string | null;
   externalPartnerId?: number | null;
@@ -317,7 +318,7 @@ type ToastState = {
   type: 'success' | 'error';
   message: string;
 } | null;
-type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients';
+type SettingsTab = 'catalog' | 'exchange_rate' | 'accounts' | 'clients' | 'adjustments';
 type CalculationsTab = 'general' | 'commissions' | 'deliveries';
 type DeliveriesTab = 'overview' | 'internal' | 'external' | 'partners';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
@@ -1690,6 +1691,10 @@ export default function MasterDashboardClient({
   const [clientFormAddress2Text, setClientFormAddress2Text] = useState('');
   const [clientFormAddress2Gps, setClientFormAddress2Gps] = useState('');
   const [catalogSearch, setCatalogSearch] = useState('');
+  const [adjustmentsDateFrom, setAdjustmentsDateFrom] = useState('');
+  const [adjustmentsDateTo, setAdjustmentsDateTo] = useState('');
+  const [adjustmentsAdminFilter, setAdjustmentsAdminFilter] = useState('');
+  const [adjustmentsTypeFilter, setAdjustmentsTypeFilter] = useState('');
   const [catalogTypeFilter, setCatalogTypeFilter] = useState<'all' | CatalogItem['type']>('all');
   const [selectedCatalogItemId, setSelectedCatalogItemId] = useState<number | null>(null);
   const [catalogDetailOpen, setCatalogDetailOpen] = useState(false);
@@ -4592,6 +4597,97 @@ const selectedPaymentReportAccount =
     [orders]
   );
 
+  const settingsAdjustmentsRows = useMemo(() => {
+    return orders
+      .flatMap((order) =>
+        (order.adminAdjustments ?? []).map((adjustment) => {
+          const payload = adjustment.payload ?? {};
+          const deltaUsd = Number(payload.delta_usd ?? 0);
+          const originalUnitUsd = Number(payload.original_unit_price_usd ?? 0);
+          const overrideUnitUsd = Number(payload.override_unit_price_usd ?? 0);
+          const qty = Number(payload.qty ?? 0);
+          const productName =
+            typeof payload.product_name === 'string' && payload.product_name.trim()
+              ? payload.product_name
+              : 'Ítem';
+
+          return {
+            id: adjustment.id,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            clientName: order.clientName,
+            createdAt: adjustment.createdAt,
+            createdByUserId: adjustment.createdByUserId,
+            createdByName: adjustment.createdByName,
+            adjustmentType: adjustment.adjustmentType,
+            reason: adjustment.reason,
+            notes: adjustment.notes,
+            deltaUsd,
+            originalUnitUsd,
+            overrideUnitUsd,
+            qty,
+            productName,
+          };
+        })
+      )
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  }, [orders]);
+
+  const adjustmentAdminOptions = useMemo(() => {
+    return Array.from(
+      new Map(
+        settingsAdjustmentsRows.map((row) => [
+          row.createdByUserId,
+          row.createdByName || row.createdByUserId,
+        ])
+      ).entries()
+    ).map(([value, label]) => ({ value, label }));
+  }, [settingsAdjustmentsRows]);
+
+  const adjustmentTypeOptions = useMemo(() => {
+    return Array.from(new Set(settingsAdjustmentsRows.map((row) => row.adjustmentType)))
+      .filter(Boolean)
+      .sort();
+  }, [settingsAdjustmentsRows]);
+
+  const filteredSettingsAdjustments = useMemo(() => {
+    return settingsAdjustmentsRows.filter((row) => {
+      const day = String(row.createdAt || '').slice(0, 10);
+
+      if (adjustmentsDateFrom && day < adjustmentsDateFrom) return false;
+      if (adjustmentsDateTo && day > adjustmentsDateTo) return false;
+      if (adjustmentsAdminFilter && row.createdByUserId !== adjustmentsAdminFilter) return false;
+      if (adjustmentsTypeFilter && row.adjustmentType !== adjustmentsTypeFilter) return false;
+
+      return true;
+    });
+  }, [
+    settingsAdjustmentsRows,
+    adjustmentsDateFrom,
+    adjustmentsDateTo,
+    adjustmentsAdminFilter,
+    adjustmentsTypeFilter,
+  ]);
+
+  const adjustmentsSummary = useMemo(() => {
+    const summary = {
+      total: filteredSettingsAdjustments.length,
+      netUsd: 0,
+      negativeUsd: 0,
+      positiveUsd: 0,
+      priceOverrides: 0,
+    };
+
+    for (const row of filteredSettingsAdjustments) {
+      summary.netUsd += row.deltaUsd;
+      if (row.deltaUsd < 0) summary.negativeUsd += Math.abs(row.deltaUsd);
+      if (row.deltaUsd > 0) summary.positiveUsd += row.deltaUsd;
+      if (row.adjustmentType === 'item_price_override') summary.priceOverrides += 1;
+    }
+
+    return summary;
+  }, [filteredSettingsAdjustments]);
+
   const advisorCalcRange = useMemo(() => {
     const start = advisorCalcDateFrom ? new Date(`${advisorCalcDateFrom}T00:00:00`) : null;
     const end = advisorCalcDateTo ? new Date(`${advisorCalcDateTo}T23:59:59`) : null;
@@ -5530,6 +5626,11 @@ suppressHydrationWarning
         <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
           Clientes
         </Chip>
+        {isAdmin ? (
+          <Chip active={settingsTab === 'adjustments'} onClick={() => setSettingsTab('adjustments')}>
+            Ajustes
+          </Chip>
+        ) : null}
       </div>
     </div>
   </div>
@@ -7198,6 +7299,127 @@ suppressHydrationWarning
                       )}
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">Abrir ficha</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+) : null}
+
+          {settingsTab === 'adjustments' && isAdmin ? (
+  <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-4">
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Resumen ajustes</div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <InfoCell label="Eventos" value={String(adjustmentsSummary.total)} />
+          <InfoCell label="Overrides" value={String(adjustmentsSummary.priceOverrides)} />
+          <InfoCell label="Impacto neto" value={fmtUSD(adjustmentsSummary.netUsd)} />
+          <InfoCell label="Costo asumido" value={fmtUSD(adjustmentsSummary.negativeUsd)} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
+        <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
+          <div>Aquí ves todos los ajustes administrativos registrados en las órdenes cargadas en el dashboard.</div>
+          <div>Un impacto negativo significa que la empresa asumió un descuento o cortesía.</div>
+          <div>Un impacto positivo significa un recargo o aumento sobre el valor original.</div>
+        </div>
+      </div>
+    </div>
+
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <FieldInput label="Desde" value={adjustmentsDateFrom} onChange={setAdjustmentsDateFrom} type="date" />
+        <FieldInput label="Hasta" value={adjustmentsDateTo} onChange={setAdjustmentsDateTo} type="date" />
+        <FieldSelect
+          label="Admin"
+          value={adjustmentsAdminFilter}
+          onChange={setAdjustmentsAdminFilter}
+          options={[
+            { value: '', label: 'Todos' },
+            ...adjustmentAdminOptions,
+          ]}
+        />
+        <FieldSelect
+          label="Tipo"
+          value={adjustmentsTypeFilter}
+          onChange={setAdjustmentsTypeFilter}
+          options={[
+            { value: '', label: 'Todos' },
+            ...adjustmentTypeOptions.map((value) => ({
+              value,
+              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
+            })),
+          ]}
+        />
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+            <tr>
+              <th className="px-3 py-3 text-left font-medium">Fecha</th>
+              <th className="px-3 py-3 text-left font-medium">Admin</th>
+              <th className="px-3 py-3 text-left font-medium">Nro# Orden</th>
+              <th className="px-3 py-3 text-left font-medium">Cliente</th>
+              <th className="px-3 py-3 text-left font-medium">Tipo</th>
+              <th className="px-3 py-3 text-left font-medium">Detalle</th>
+              <th className="px-3 py-3 text-left font-medium">Motivo</th>
+              <th className="px-3 py-3 text-left font-medium">Impacto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredSettingsAdjustments.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
+                  No hay ajustes que coincidan con el filtro.
+                </td>
+              </tr>
+            ) : (
+              filteredSettingsAdjustments.map((row, idx) => {
+                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+
+                return (
+                  <tr
+                    key={row.id}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
+                    onClick={() => openOrderPanel(row.orderId, 'ajustes')}
+                  >
+                    <td className="px-3 py-3">{fmtDateTimeES(row.createdAt)}</td>
+                    <td className="px-3 py-3">{row.createdByName}</td>
+                    <td className="px-3 py-3">{row.orderNumber}</td>
+                    <td className="px-3 py-3">{row.clientName}</td>
+                    <td className="px-3 py-3">
+                      {row.adjustmentType === 'item_price_override'
+                        ? 'Ajuste de precio'
+                        : row.adjustmentType}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="text-[#F5F5F7]">{row.productName}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        {fmtUSD(row.originalUnitUsd)} → {fmtUSD(row.overrideUnitUsd)}
+                        {row.qty > 0 ? ` · x${row.qty}` : ''}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
+                      {row.notes ? (
+                        <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={row.deltaUsd < 0 ? 'text-orange-400' : row.deltaUsd > 0 ? 'text-emerald-400' : 'text-[#B7B7C2]'}>
+                        {row.deltaUsd > 0 ? '+' : ''}{fmtUSD(row.deltaUsd)}
+                      </span>
+                    </td>
                   </tr>
                 );
               })

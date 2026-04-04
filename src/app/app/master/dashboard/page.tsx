@@ -738,6 +738,38 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const rawOrderAdjustments = (orderAdjustmentsData ?? []) as RawOrderAdjustmentRow[];
 
+  const adjustmentCreatorIds = Array.from(
+    new Set(
+      rawOrderAdjustments
+        .map((row) => row.created_by_user_id)
+        .filter((x): x is string => !!x)
+    )
+  );
+
+  const { data: adjustmentCreatorsData, error: adjustmentCreatorsError } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .in(
+      'id',
+      adjustmentCreatorIds.length > 0
+        ? adjustmentCreatorIds
+        : ['00000000-0000-0000-0000-000000000000']
+    );
+
+  if (adjustmentCreatorsError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h1>Error cargando autores de ajustes</h1>
+        <pre>{adjustmentCreatorsError.message}</pre>
+      </div>
+    );
+  }
+
+  const adjustmentCreatorNameById = new Map<string, string>();
+  for (const row of adjustmentCreatorsData ?? []) {
+    adjustmentCreatorNameById.set(String(row.id), row.full_name ?? 'Admin');
+  }
+
   const { data: moneyAccountsData, error: moneyAccountsError } = await supabase
     .from('money_accounts')
     .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
@@ -1252,6 +1284,9 @@ const clientName =
       payload: adjustment.payload ?? {},
       createdAt: adjustment.created_at,
       createdByUserId: adjustment.created_by_user_id,
+      createdByName:
+        adjustmentCreatorNameById.get(adjustment.created_by_user_id) ??
+        'Admin',
     }));
 
 const draftItems = rowItems.map((item) => {
