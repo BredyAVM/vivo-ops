@@ -587,6 +587,7 @@ export async function updateCatalogItemAction(input: {
   internalRiderPayUsd: number | null;
   inventoryEnabled: boolean;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+  inventoryDeductionMode: 'self' | 'composition';
   inventoryUnitName: string;
   packagingName: string | null;
   packagingSize: number | null;
@@ -622,16 +623,15 @@ export async function updateCatalogItemAction(input: {
 
   if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
     throw new Error('Modo de comisiÃ³n invÃ¡lido.');
+  }
   if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
     throw new Error('Tipo de inventario inválido.');
   }
+  if (!['self', 'composition'].includes(input.inventoryDeductionMode)) {
+    throw new Error('Modo de descuento de inventario inválido.');
   }
   if (!['VES', 'USD'].includes(input.sourcePriceCurrency)) {
     throw new Error('Moneda invÃ¡lida.');
-  }
-
-  if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
-    throw new Error('Modo de comisiÃ³n invÃ¡lido.');
   }
 
   const { data: currentProduct, error: productError } = await supabase
@@ -726,6 +726,7 @@ export async function updateCatalogItemAction(input: {
       internal_rider_pay_usd: internalRiderPayUsd,
       inventory_enabled: input.inventoryEnabled,
       inventory_kind: input.inventoryKind,
+      inventory_deduction_mode: input.inventoryDeductionMode,
       inventory_unit_name: String(input.inventoryUnitName || 'pieza').trim() || 'pieza',
       packaging_name: input.packagingName?.trim() ? input.packagingName.trim() : null,
       packaging_size: packagingSize,
@@ -1636,6 +1637,7 @@ export async function createCatalogItemAction(input: {
   internalRiderPayUsd: number | null;
   inventoryEnabled: boolean;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+  inventoryDeductionMode: 'self' | 'composition';
   inventoryUnitName: string;
   packagingName: string | null;
   packagingSize: number | null;
@@ -1668,6 +1670,9 @@ export async function createCatalogItemAction(input: {
   }
   if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
     throw new Error('Tipo de inventario invÃ¡lido.');
+  }
+  if (!['self', 'composition'].includes(input.inventoryDeductionMode)) {
+    throw new Error('Modo de descuento de inventario invÃ¡lido.');
   }
   if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
     throw new Error('El monto fuente es invÃ¡lido.');
@@ -1737,6 +1742,7 @@ export async function createCatalogItemAction(input: {
       internal_rider_pay_usd: internalRiderPayUsd,
       inventory_enabled: input.inventoryEnabled,
       inventory_kind: input.inventoryKind,
+      inventory_deduction_mode: input.inventoryDeductionMode,
       inventory_unit_name: String(input.inventoryUnitName || 'pieza').trim() || 'pieza',
       packaging_name: input.packagingName?.trim() ? input.packagingName.trim() : null,
       packaging_size: packagingSize,

@@ -186,6 +186,7 @@ type RawProductRow = {
   internal_rider_pay_usd: number | string | null;
   inventory_enabled: boolean;
   inventory_kind: 'raw_material' | 'prepared_base' | 'finished_good' | null;
+  inventory_deduction_mode: 'self' | 'composition' | null;
   inventory_unit_name: string | null;
   packaging_name: string | null;
   packaging_size: number | string | null;
@@ -1162,6 +1163,7 @@ const { data: ordersData, error: ordersError } = await supabase
       internal_rider_pay_usd,
       inventory_enabled,
       inventory_kind,
+      inventory_deduction_mode,
       inventory_unit_name,
       packaging_name,
       packaging_size,
@@ -1353,6 +1355,10 @@ const { data: ordersData, error: ordersError } = await supabase
         : p.inventory_kind === 'prepared_base'
           ? ('prepared_base' as const)
           : ('finished_good' as const),
+    inventoryDeductionMode:
+      p.inventory_deduction_mode === 'composition'
+        ? ('composition' as const)
+        : ('self' as const),
     inventoryUnitName: p.inventory_unit_name ?? 'pieza',
     packagingName: p.packaging_name ?? null,
     packagingSize: p.packaging_size == null ? null : toNumber(p.packaging_size, 0),

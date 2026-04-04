@@ -356,6 +356,7 @@ type CatalogItem = {
   internalRiderPayUsd: number | null;
   inventoryEnabled: boolean;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+  inventoryDeductionMode: 'self' | 'composition';
   inventoryUnitName: string;
   packagingName: string | null;
   packagingSize: number | null;
@@ -1862,6 +1863,7 @@ const [newCommissionNotes, setNewCommissionNotes] = useState('');
 const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
 const [newInventoryEnabled, setNewInventoryEnabled] = useState(false);
 const [newInventoryKind, setNewInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
+const [newInventoryDeductionMode, setNewInventoryDeductionMode] = useState<'self' | 'composition'>('self');
 const [newInventoryUnitName, setNewInventoryUnitName] = useState('pieza');
 const [newPackagingName, setNewPackagingName] = useState('');
 const [newPackagingSize, setNewPackagingSize] = useState('');
@@ -1883,6 +1885,7 @@ const [newLowStockThreshold, setNewLowStockThreshold] = useState('');
   const [editInternalRiderPayUsd, setEditInternalRiderPayUsd] = useState('');
   const [editInventoryEnabled, setEditInventoryEnabled] = useState(false);
   const [editInventoryKind, setEditInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
+  const [editInventoryDeductionMode, setEditInventoryDeductionMode] = useState<'self' | 'composition'>('self');
   const [editInventoryUnitName, setEditInventoryUnitName] = useState('pieza');
   const [editPackagingName, setEditPackagingName] = useState('');
   const [editPackagingSize, setEditPackagingSize] = useState('');
@@ -2325,6 +2328,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
     );
     setEditInventoryEnabled(selectedCatalogItem.inventoryEnabled);
     setEditInventoryKind(selectedCatalogItem.inventoryKind);
+    setEditInventoryDeductionMode(selectedCatalogItem.inventoryDeductionMode);
     setEditInventoryUnitName(selectedCatalogItem.inventoryUnitName || 'pieza');
     setEditPackagingName(selectedCatalogItem.packagingName || '');
     setEditPackagingSize(selectedCatalogItem.packagingSize == null ? '' : String(selectedCatalogItem.packagingSize));
@@ -3031,6 +3035,7 @@ const handleSaveCatalog = async () => {
         : null,
       inventoryEnabled: editInventoryEnabled,
       inventoryKind: editInventoryKind,
+      inventoryDeductionMode: editInventoryDeductionMode,
       inventoryUnitName: editInventoryUnitName.trim() || 'pieza',
       packagingName: editPackagingName.trim() || null,
       packagingSize: editPackagingSize.trim()
@@ -3637,6 +3642,7 @@ const resetCreateCatalogForm = () => {
   setNewInternalRiderPayUsd('');
   setNewInventoryEnabled(false);
   setNewInventoryKind('finished_good');
+  setNewInventoryDeductionMode('self');
   setNewInventoryUnitName('pieza');
   setNewPackagingName('');
   setNewPackagingSize('');
@@ -3774,6 +3780,7 @@ const handleCreateCatalogItem = async () => {
         : null,
       inventoryEnabled: newInventoryEnabled,
       inventoryKind: newInventoryKind,
+      inventoryDeductionMode: newInventoryDeductionMode,
       inventoryUnitName: newInventoryUnitName.trim() || 'pieza',
       packagingName: newPackagingName.trim() || null,
       packagingSize: newPackagingSize.trim()
@@ -8123,6 +8130,14 @@ suppressHydrationWarning
                     <InfoCell label="Precio Bs" value={fmtBs(selectedCatalogItem.basePriceBs)} />
                     <InfoCell label="Precio $" value={fmtUSD(selectedCatalogItem.basePriceUsd)} />
                     <InfoCell label="Und/servicio" value={String(selectedCatalogItem.unitsPerService)} />
+                    <InfoCell
+                      label="Descuento inventario"
+                      value={
+                        selectedCatalogItem.inventoryDeductionMode === 'composition'
+                          ? 'Por composición'
+                          : 'A sí mismo'
+                      }
+                    />
                     <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
                     <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
                     <InfoCell
@@ -8131,6 +8146,36 @@ suppressHydrationWarning
                     />
                   </div>
                 </div>
+
+                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+  <div className="text-sm font-semibold text-[#F5F5F7]">Cómo descuenta inventario</div>
+
+  <div className="mt-3 text-sm text-[#B7B7C2]">
+    {selectedCatalogItem.inventoryDeductionMode === 'composition'
+      ? 'Este producto descuenta por composición. La venta baja los componentes definidos en su receta.'
+      : 'Este producto descuenta a sí mismo. La venta bajará el stock de este mismo producto.'}
+  </div>
+
+  {selectedCatalogItem.inventoryDeductionMode === 'composition' ? (
+    <div className="mt-3 space-y-2">
+      {selectedCatalogComponents.length === 0 ? (
+        <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+          No hay componentes cargados todavía.
+        </div>
+      ) : (
+        selectedCatalogComponents.map((pc) => (
+          <div
+            key={`deduction-${pc.id}`}
+            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+          >
+            <span className="font-medium text-[#F5F5F7]">{pc.componentName}</span>
+            <span className="text-[#8A8A96]"> · {pc.quantity} und</span>
+          </div>
+        ))
+      )}
+    </div>
+  ) : null}
+</div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
   <div className="flex items-center justify-between gap-3">
@@ -8246,6 +8291,15 @@ suppressHydrationWarning
                           { value: 'finished_good', label: 'Producto final' },
                           { value: 'prepared_base', label: 'Base preparada' },
                           { value: 'raw_material', label: 'Materia prima' },
+                        ]}
+                      />
+                      <FieldSelect
+                        label="Modo de descuento"
+                        value={editInventoryDeductionMode}
+                        onChange={(v) => setEditInventoryDeductionMode(v as 'self' | 'composition')}
+                        options={[
+                          { value: 'self', label: 'A sí mismo' },
+                          { value: 'composition', label: 'Por composición' },
                         ]}
                       />
                       <FieldInput
@@ -10023,6 +10077,15 @@ deliveryAssignMode === 'external' ? (
               { value: 'finished_good', label: 'Producto final' },
               { value: 'prepared_base', label: 'Base preparada' },
               { value: 'raw_material', label: 'Materia prima' },
+            ]}
+          />
+          <FieldSelect
+            label="Modo de descuento"
+            value={newInventoryDeductionMode}
+            onChange={(v) => setNewInventoryDeductionMode(v as 'self' | 'composition')}
+            options={[
+              { value: 'self', label: 'A sí mismo' },
+              { value: 'composition', label: 'Por composición' },
             ]}
           />
           <FieldInput label="Unidad base" value={newInventoryUnitName} onChange={setNewInventoryUnitName} />
