@@ -4905,7 +4905,7 @@ const selectedPaymentReportAccount =
   }, [catalogItems]);
 
   const inventoryItems = useMemo(
-    () => catalogItems.filter((item) => item.inventoryEnabled || item.isInventoryItem),
+    () => catalogItems.filter((item) => item.inventoryEnabled && item.isInventoryItem),
     [catalogItems]
   );
 
