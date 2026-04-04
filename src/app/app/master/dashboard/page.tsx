@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import MasterDashboardClient from './MasterDashboardClient';
@@ -43,6 +44,10 @@ type RawOrderItemRow = {
   product_name_snapshot: string;
   sku_snapshot: string | null;
   notes: string | null;
+  admin_price_override_usd: number | string | null;
+  admin_price_override_reason: string | null;
+  admin_price_override_by_user_id: string | null;
+  admin_price_override_at: string | null;
 };
 
 type RawPaymentReportRow = {
@@ -624,6 +629,10 @@ const { data: ordersData, error: ordersError } = await supabase
       pricing_origin_amount,
       unit_price_usd_snapshot,
       line_total_usd,
+      admin_price_override_usd,
+      admin_price_override_reason,
+      admin_price_override_by_user_id,
+      admin_price_override_at,
       unit_price_bs_snapshot,
       line_total_bs_snapshot,
       product_name_snapshot,
@@ -1149,7 +1158,7 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     };
   })
   .filter((row) => row.parentProductId && row.componentProductId);
-  const initialOrders = rawOrders.map((row) => {
+  const initialOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
     const confirmedPaidUsd = confirmedPaidByOrder.get(row.id) ?? 0;
     const totalUsd = toNumber(
       row.extra_fields?.pricing?.total_usd,
@@ -1224,6 +1233,13 @@ const pricingOriginCurrency: 'VES' | 'USD' =
           .map((x) => x.trim())
           .filter(Boolean)
       : [],
+    adminPriceOverrideUsd:
+      (item as any).admin_price_override_usd == null
+        ? null
+        : toNumber((item as any).admin_price_override_usd, 0),
+    adminPriceOverrideReason: (item as any).admin_price_override_reason ?? null,
+    adminPriceOverrideByUserId: (item as any).admin_price_override_by_user_id ?? null,
+    adminPriceOverrideAt: (item as any).admin_price_override_at ?? null,
   };
 });
 
