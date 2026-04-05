@@ -555,13 +555,14 @@ export async function outForDeliveryAction(input: {
 export async function markDeliveredAction(input: {
   orderId: number;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('mark_delivered', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+  await applyDeliveredOrderInventoryDeductions(supabase, user.id, input.orderId);
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1637,6 +1638,230 @@ async function replaceProductInventoryLinks(
 
   if (insertError) {
     throw new Error(insertError.message);
+  }
+}
+
+async function applyDeliveredOrderInventoryDeductions(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  userId: string,
+  orderId: number
+) {
+  const { data: existingSaleMovements, error: existingSaleMovementsError } = await supabase
+    .from('inventory_movements')
+    .select('id')
+    .eq('order_id', orderId)
+    .eq('movement_type', 'sale_out')
+    .limit(1);
+
+  if (existingSaleMovementsError) {
+    throw new Error(existingSaleMovementsError.message);
+  }
+
+  if ((existingSaleMovements ?? []).length > 0) {
+    return;
+  }
+
+  const { data: orderRow, error: orderError } = await supabase
+    .from('orders')
+    .select('id, order_number')
+    .eq('id', orderId)
+    .single();
+
+  if (orderError || !orderRow) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden entregada.');
+  }
+
+  const { data: orderItems, error: orderItemsError } = await supabase
+    .from('order_items')
+    .select('id, product_id, qty, product_name_snapshot')
+    .eq('order_id', orderId);
+
+  if (orderItemsError) {
+    throw new Error(orderItemsError.message);
+  }
+
+  const productIds = Array.from(
+    new Set((orderItems ?? []).map((row) => toSafeNumber(row.product_id, 0)).filter((id) => id > 0))
+  );
+
+  if (productIds.length === 0) {
+    return;
+  }
+
+  const { data: products, error: productsError } = await supabase
+    .from('products')
+    .select('id, name, inventory_enabled, inventory_deduction_mode')
+    .in('id', productIds);
+
+  if (productsError) {
+    throw new Error(productsError.message);
+  }
+
+  const { data: links, error: linksError } = await supabase
+    .from('product_inventory_links')
+    .select('product_id, inventory_item_id, quantity_units, is_active')
+    .in('product_id', productIds);
+
+  if (linksError) {
+    throw new Error(linksError.message);
+  }
+
+  const productById = new Map(
+    (products ?? []).map((row) => [
+      Number(row.id),
+      {
+        id: Number(row.id),
+        name: String(row.name || '').trim(),
+        inventoryEnabled: !!row.inventory_enabled,
+        deductionMode: row.inventory_deduction_mode === 'composition' ? ('composition' as const) : ('self' as const),
+      },
+    ])
+  );
+
+  const linksByProductId = new Map<number, Array<{ inventoryItemId: number; quantityUnits: number }>>();
+  for (const row of links ?? []) {
+    if (!row.is_active) continue;
+    const productId = Number(row.product_id);
+    const list = linksByProductId.get(productId) ?? [];
+    list.push({
+      inventoryItemId: Number(row.inventory_item_id),
+      quantityUnits: Math.max(0, toSafeNumber(row.quantity_units, 0)),
+    });
+    linksByProductId.set(productId, list);
+  }
+
+  const selfInventoryNames = Array.from(
+    new Set(
+      (products ?? [])
+        .filter((row) => row.inventory_enabled && row.inventory_deduction_mode !== 'composition')
+        .map((row) => String(row.name || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const inventoryItemsByName = new Map<string, { id: number; currentStockUnits: number }>();
+  if (selfInventoryNames.length > 0) {
+    const { data: selfInventoryItems, error: selfInventoryItemsError } = await supabase
+      .from('inventory_items')
+      .select('id, name, current_stock_units')
+      .in('name', selfInventoryNames);
+
+    if (selfInventoryItemsError) {
+      throw new Error(selfInventoryItemsError.message);
+    }
+
+    for (const row of selfInventoryItems ?? []) {
+      inventoryItemsByName.set(String(row.name || '').trim(), {
+        id: Number(row.id),
+        currentStockUnits: toSafeNumber(row.current_stock_units, 0),
+      });
+    }
+  }
+
+  const allLinkedInventoryIds = Array.from(
+    new Set((links ?? []).filter((row) => row.is_active).map((row) => Number(row.inventory_item_id)).filter((id) => id > 0))
+  );
+
+  const inventoryItemsById = new Map<number, { id: number; currentStockUnits: number }>();
+  if (allLinkedInventoryIds.length > 0) {
+    const { data: linkedInventoryItems, error: linkedInventoryItemsError } = await supabase
+      .from('inventory_items')
+      .select('id, current_stock_units')
+      .in('id', allLinkedInventoryIds);
+
+    if (linkedInventoryItemsError) {
+      throw new Error(linkedInventoryItemsError.message);
+    }
+
+    for (const row of linkedInventoryItems ?? []) {
+      inventoryItemsById.set(Number(row.id), {
+        id: Number(row.id),
+        currentStockUnits: toSafeNumber(row.current_stock_units, 0),
+      });
+    }
+  }
+
+  const aggregatedDeductions = new Map<number, number>();
+  const notesByInventoryItemId = new Map<number, string[]>();
+
+  for (const row of orderItems ?? []) {
+    const productId = toSafeNumber(row.product_id, 0);
+    const qty = Math.max(0, toSafeNumber(row.qty, 0));
+    if (productId <= 0 || qty <= 0) continue;
+
+    const product = productById.get(productId);
+    if (!product?.inventoryEnabled) continue;
+
+    if (product.deductionMode === 'composition') {
+      const productLinks = linksByProductId.get(productId) ?? [];
+      for (const link of productLinks) {
+        if (link.inventoryItemId <= 0 || link.quantityUnits <= 0) continue;
+        const delta = qty * link.quantityUnits;
+        aggregatedDeductions.set(
+          link.inventoryItemId,
+          (aggregatedDeductions.get(link.inventoryItemId) ?? 0) + delta
+        );
+        const notes = notesByInventoryItemId.get(link.inventoryItemId) ?? [];
+        notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
+        notesByInventoryItemId.set(link.inventoryItemId, notes);
+      }
+      continue;
+    }
+
+    const selfInventoryItem = inventoryItemsByName.get(product.name);
+    if (!selfInventoryItem) continue;
+
+    aggregatedDeductions.set(
+      selfInventoryItem.id,
+      (aggregatedDeductions.get(selfInventoryItem.id) ?? 0) + qty
+    );
+    const notes = notesByInventoryItemId.get(selfInventoryItem.id) ?? [];
+    notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
+    notesByInventoryItemId.set(selfInventoryItem.id, notes);
+  }
+
+  if (aggregatedDeductions.size === 0) {
+    return;
+  }
+
+  for (const [inventoryItemId, quantityUnits] of aggregatedDeductions.entries()) {
+    const inventoryItem = inventoryItemsById.get(inventoryItemId)
+      ?? Array.from(inventoryItemsByName.values()).find((item) => item.id === inventoryItemId);
+
+    if (!inventoryItem) {
+      throw new Error(`No se encontró el item interno ${inventoryItemId} para descontar inventario.`);
+    }
+
+    const nextStock = inventoryItem.currentStockUnits - quantityUnits;
+    const noteLines = notesByInventoryItemId.get(inventoryItemId) ?? [];
+    const notes = [`Orden #${orderRow.order_number}`, ...noteLines].join(' · ');
+
+    const { error: movementError } = await supabase
+      .from('inventory_movements')
+      .insert({
+        inventory_item_id: inventoryItemId,
+        movement_type: 'sale_out',
+        quantity_units: quantityUnits,
+        reason_code: 'order_delivery',
+        notes,
+        order_id: orderId,
+        created_by_user_id: userId,
+      });
+
+    if (movementError) {
+      throw new Error(movementError.message);
+    }
+
+    const { error: stockError } = await supabase
+      .from('inventory_items')
+      .update({ current_stock_units: nextStock })
+      .eq('id', inventoryItemId);
+
+    if (stockError) {
+      throw new Error(stockError.message);
+    }
+
+    inventoryItemsById.set(inventoryItemId, { id: inventoryItemId, currentStockUnits: nextStock });
   }
 }
 
