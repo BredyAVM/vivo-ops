@@ -10918,7 +10918,14 @@ deliveryAssignMode === 'external' ? (
             <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
             <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
             <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
-            <ToggleRow label="Activo" checked={inventoryItemFormIsActive} onChange={setInventoryItemFormIsActive} />
+            <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={inventoryItemFormIsActive}
+                onChange={(e) => setInventoryItemFormIsActive(e.target.checked)}
+              />
+              Activo
+            </label>
           </div>
           <FieldInput label="Notas" value={inventoryItemFormNotes} onChange={setInventoryItemFormNotes} />
           <div className="flex gap-2">
@@ -10970,7 +10977,14 @@ deliveryAssignMode === 'external' ? (
             <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
             <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
             <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
-            <ToggleRow label="Activo" checked={inventoryItemFormIsActive} onChange={setInventoryItemFormIsActive} />
+            <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={inventoryItemFormIsActive}
+                onChange={(e) => setInventoryItemFormIsActive(e.target.checked)}
+              />
+              Activo
+            </label>
           </div>
           <FieldInput label="Notas" value={inventoryItemFormNotes} onChange={setInventoryItemFormNotes} />
           <div className="flex gap-2">
