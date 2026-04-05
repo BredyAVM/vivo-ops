@@ -56,6 +56,7 @@ async function syncInventoryItemFromCatalogProduct(
     packagingSize: number | null;
     currentStockUnits: number | null;
     lowStockThreshold: number | null;
+    inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
   }
 ) {
   if (!input.inventoryEnabled || !input.isInventoryItem || input.inventoryDeductionMode !== 'self') {
@@ -95,6 +96,7 @@ async function syncInventoryItemFromCatalogProduct(
           : Math.max(0, toSafeNumber(input.currentStockUnits, 0)),
     low_stock_threshold:
       input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0)),
+    inventory_group: input.inventoryGroup,
     is_active: !!input.isActive,
   };
 
@@ -665,6 +667,7 @@ export async function updateCatalogItemAction(input: {
   packagingSize: number | null;
   currentStockUnits: number | null;
   lowStockThreshold: number | null;
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
   inventoryLinks?: Array<{
     inventoryItemId: number;
     quantityUnits: number;
@@ -704,6 +707,9 @@ export async function updateCatalogItemAction(input: {
   }
   if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
     throw new Error('Tipo de inventario inválido.');
+  }
+  if (!['raw', 'fried', 'prefried', 'sauces', 'packaging', 'other'].includes(input.inventoryGroup)) {
+    throw new Error('Grupo de inventario inválido.');
   }
   if (!['self', 'composition'].includes(input.inventoryDeductionMode)) {
     throw new Error('Modo de descuento de inventario inválido.');
@@ -849,6 +855,7 @@ export async function updateCatalogItemAction(input: {
     packagingSize,
     currentStockUnits,
     lowStockThreshold,
+    inventoryGroup: input.inventoryGroup,
   });
 
   await replaceProductInventoryLinks(supabase, {
@@ -1138,6 +1145,7 @@ export async function toggleMoneyAccountActiveAction(input: {
 export async function createInventoryItemAction(input: {
   name: string;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
   unitName: string;
   packagingName: string | null;
   packagingSize: number | null;
@@ -1153,6 +1161,9 @@ export async function createInventoryItemAction(input: {
   if (!['raw_material', 'prepared_base', 'finished_stock', 'packaging'].includes(input.inventoryKind)) {
     throw new Error('Tipo de inventario inválido.');
   }
+  if (!['raw', 'fried', 'prefried', 'sauces', 'packaging', 'other'].includes(input.inventoryGroup)) {
+    throw new Error('Grupo de inventario inválido.');
+  }
 
   const { error } = await supabase.from('inventory_items').insert({
     name,
@@ -1164,6 +1175,7 @@ export async function createInventoryItemAction(input: {
     current_stock_units: Math.max(0, toSafeNumber(input.currentStockUnits, 0)),
     low_stock_threshold:
       input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0)),
+    inventory_group: input.inventoryGroup,
     is_active: !!input.isActive,
     notes: String(input.notes || '').trim() || null,
   });
@@ -1176,6 +1188,7 @@ export async function updateInventoryItemAction(input: {
   inventoryItemId: number;
   name: string;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
   unitName: string;
   packagingName: string | null;
   packagingSize: number | null;
@@ -1196,6 +1209,9 @@ export async function updateInventoryItemAction(input: {
   if (!['raw_material', 'prepared_base', 'finished_stock', 'packaging'].includes(input.inventoryKind)) {
     throw new Error('Tipo de inventario inválido.');
   }
+  if (!['raw', 'fried', 'prefried', 'sauces', 'packaging', 'other'].includes(input.inventoryGroup)) {
+    throw new Error('Grupo de inventario inválido.');
+  }
 
   const { error } = await supabase
     .from('inventory_items')
@@ -1209,6 +1225,7 @@ export async function updateInventoryItemAction(input: {
       current_stock_units: Math.max(0, toSafeNumber(input.currentStockUnits, 0)),
       low_stock_threshold:
         input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0)),
+      inventory_group: input.inventoryGroup,
       is_active: !!input.isActive,
       notes: String(input.notes || '').trim() || null,
     })
@@ -2155,6 +2172,7 @@ export async function createCatalogItemAction(input: {
   packagingSize: number | null;
   currentStockUnits: number | null;
   lowStockThreshold: number | null;
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
   inventoryLinks?: Array<{
     inventoryItemId: number;
     quantityUnits: number;
@@ -2188,6 +2206,9 @@ export async function createCatalogItemAction(input: {
   }
   if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
     throw new Error('Tipo de inventario invÃ¡lido.');
+  }
+  if (!['raw', 'fried', 'prefried', 'sauces', 'packaging', 'other'].includes(input.inventoryGroup)) {
+    throw new Error('Grupo de inventario invÃ¡lido.');
   }
   if (!['self', 'composition'].includes(input.inventoryDeductionMode)) {
     throw new Error('Modo de descuento de inventario invÃ¡lido.');
@@ -2277,6 +2298,7 @@ export async function createCatalogItemAction(input: {
       packaging_size: packagingSize,
       current_stock_units: currentStockUnits ?? 0,
       low_stock_threshold: lowStockThreshold,
+      inventory_group: input.inventoryGroup,
     })
     .select('id')
     .single();
@@ -2295,6 +2317,7 @@ export async function createCatalogItemAction(input: {
     packagingSize,
     currentStockUnits,
     lowStockThreshold,
+    inventoryGroup: input.inventoryGroup,
   });
 
   await replaceProductInventoryLinks(supabase, {

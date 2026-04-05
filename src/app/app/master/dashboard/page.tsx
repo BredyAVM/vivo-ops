@@ -192,12 +192,14 @@ type RawProductRow = {
   packaging_size: number | string | null;
   current_stock_units: number | string | null;
   low_stock_threshold: number | string | null;
+  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other' | null;
 };
 
 type RawInventoryItemRow = {
   id: number;
   name: string;
   inventory_kind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other' | null;
   unit_name: string;
   packaging_name: string | null;
   packaging_size: number | string | null;
@@ -1192,7 +1194,8 @@ const { data: ordersData, error: ordersError } = await supabase
       packaging_name,
       packaging_size,
       current_stock_units,
-      low_stock_threshold
+      low_stock_threshold,
+      inventory_group
     `)
     .order('id', { ascending: true });
 
@@ -1207,6 +1210,7 @@ const { data: ordersData, error: ordersError } = await supabase
       packaging_size,
       current_stock_units,
       low_stock_threshold,
+      inventory_group,
       is_active,
       notes,
       created_at
@@ -1452,6 +1456,14 @@ const { data: ordersData, error: ordersError } = await supabase
     packagingSize: p.packaging_size == null ? null : toNumber(p.packaging_size, 0),
     currentStockUnits: toNumber(p.current_stock_units, 0),
     lowStockThreshold: p.low_stock_threshold == null ? null : toNumber(p.low_stock_threshold, 0),
+    inventoryGroup:
+      p.inventory_group === 'raw' ||
+      p.inventory_group === 'fried' ||
+      p.inventory_group === 'prefried' ||
+      p.inventory_group === 'sauces' ||
+      p.inventory_group === 'packaging'
+        ? p.inventory_group
+        : ('other' as const),
   }));
 
   const inventoryItems = ((inventoryItemsData ?? []) as RawInventoryItemRow[]).map((row) => ({
@@ -1463,6 +1475,14 @@ const { data: ordersData, error: ordersError } = await supabase
     packagingSize: row.packaging_size == null ? null : toNumber(row.packaging_size, 0),
     currentStockUnits: toNumber(row.current_stock_units, 0),
     lowStockThreshold: row.low_stock_threshold == null ? null : toNumber(row.low_stock_threshold, 0),
+    inventoryGroup:
+      row.inventory_group === 'raw' ||
+      row.inventory_group === 'fried' ||
+      row.inventory_group === 'prefried' ||
+      row.inventory_group === 'sauces' ||
+      row.inventory_group === 'packaging'
+        ? row.inventory_group
+        : ('other' as const),
     isActive: Boolean(row.is_active),
     notes: row.notes ?? null,
     createdAt: row.created_at,
