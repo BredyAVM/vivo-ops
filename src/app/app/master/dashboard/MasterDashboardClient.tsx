@@ -22,6 +22,9 @@ import {
   clearDeliveryAssignmentAction,
   returnFromKitchenToQueueAction,
   cancelOrderAction,
+  createInventoryItemAction,
+  updateInventoryItemAction,
+  toggleInventoryItemActiveAction,
   updateCatalogItemAction,
   updateCatalogPricesQuickAction,
   createInventoryMovementAction,
@@ -1764,6 +1767,18 @@ export default function MasterDashboardClient({
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
   const [inventorySearch, setInventorySearch] = useState('');
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<number | null>(null);
+  const [inventoryItemCreateOpen, setInventoryItemCreateOpen] = useState(false);
+  const [inventoryItemEditOpen, setInventoryItemEditOpen] = useState(false);
+  const [inventoryItemSaving, setInventoryItemSaving] = useState(false);
+  const [inventoryItemFormName, setInventoryItemFormName] = useState('');
+  const [inventoryItemFormKind, setInventoryItemFormKind] = useState<InventoryItem['inventoryKind']>('raw_material');
+  const [inventoryItemFormUnitName, setInventoryItemFormUnitName] = useState('pieza');
+  const [inventoryItemFormPackagingName, setInventoryItemFormPackagingName] = useState('');
+  const [inventoryItemFormPackagingSize, setInventoryItemFormPackagingSize] = useState('');
+  const [inventoryItemFormCurrentStock, setInventoryItemFormCurrentStock] = useState('0');
+  const [inventoryItemFormLowStock, setInventoryItemFormLowStock] = useState('');
+  const [inventoryItemFormIsActive, setInventoryItemFormIsActive] = useState(true);
+  const [inventoryItemFormNotes, setInventoryItemFormNotes] = useState('');
   const [inventoryMovementOpen, setInventoryMovementOpen] = useState(false);
   const [inventoryMovementSaving, setInventoryMovementSaving] = useState(false);
   const [inventoryMovementType, setInventoryMovementType] = useState<'inbound' | 'damage' | 'waste' | 'manual_adjustment' | 'stock_count'>('inbound');
@@ -3674,6 +3689,41 @@ const resetInventoryMovementForm = () => {
   setInventoryMovementNotes('');
 };
 
+const resetInventoryItemForm = () => {
+  setInventoryItemFormName('');
+  setInventoryItemFormKind('raw_material');
+  setInventoryItemFormUnitName('pieza');
+  setInventoryItemFormPackagingName('');
+  setInventoryItemFormPackagingSize('');
+  setInventoryItemFormCurrentStock('0');
+  setInventoryItemFormLowStock('');
+  setInventoryItemFormIsActive(true);
+  setInventoryItemFormNotes('');
+};
+
+const openInventoryItemCreateDrawer = () => {
+  setSelectedInventoryProductId(null);
+  resetInventoryItemForm();
+  setInventoryItemCreateOpen(true);
+};
+
+const openInventoryItemEditDrawer = (inventoryItemId: number) => {
+  const item = inventoryItemById.get(inventoryItemId);
+  if (!item) return;
+
+  setSelectedInventoryProductId(inventoryItemId);
+  setInventoryItemFormName(item.name);
+  setInventoryItemFormKind(item.inventoryKind);
+  setInventoryItemFormUnitName(item.unitName || 'pieza');
+  setInventoryItemFormPackagingName(item.packagingName || '');
+  setInventoryItemFormPackagingSize(item.packagingSize != null ? String(item.packagingSize) : '');
+  setInventoryItemFormCurrentStock(String(item.currentStockUnits ?? 0));
+  setInventoryItemFormLowStock(item.lowStockThreshold != null ? String(item.lowStockThreshold) : '');
+  setInventoryItemFormIsActive(!!item.isActive);
+  setInventoryItemFormNotes(item.notes || '');
+  setInventoryItemEditOpen(true);
+};
+
 const resetInventoryProductionForm = () => {
   setSelectedInventoryRecipeId(null);
   setInventoryProductionBatches('1');
@@ -3697,6 +3747,72 @@ const openInventoryProductionDrawer = (productId: number) => {
   setInventoryProductionBatches('1');
   setInventoryProductionNotes('');
   setInventoryProductionOpen(true);
+};
+
+const handleCreateInventoryItem = async () => {
+  try {
+    setInventoryItemSaving(true);
+    await createInventoryItemAction({
+      name: inventoryItemFormName,
+      inventoryKind: inventoryItemFormKind,
+      unitName: inventoryItemFormUnitName,
+      packagingName: inventoryItemFormPackagingName.trim() || null,
+      packagingSize: inventoryItemFormPackagingSize.trim() ? Number(inventoryItemFormPackagingSize.replace(',', '.')) : null,
+      currentStockUnits: Number(inventoryItemFormCurrentStock.replace(',', '.')),
+      lowStockThreshold: inventoryItemFormLowStock.trim() ? Number(inventoryItemFormLowStock.replace(',', '.')) : null,
+      isActive: inventoryItemFormIsActive,
+      notes: inventoryItemFormNotes.trim() || null,
+    });
+    showToast('success', 'Item de inventario creado.');
+    setInventoryItemCreateOpen(false);
+    resetInventoryItemForm();
+    router.refresh();
+  } catch (err) {
+    showToast('error', err instanceof Error ? err.message : 'No se pudo crear el item.');
+  } finally {
+    setInventoryItemSaving(false);
+  }
+};
+
+const handleUpdateInventoryItem = async () => {
+  if (!selectedInventoryProductId) return;
+
+  try {
+    setInventoryItemSaving(true);
+    await updateInventoryItemAction({
+      inventoryItemId: selectedInventoryProductId,
+      name: inventoryItemFormName,
+      inventoryKind: inventoryItemFormKind,
+      unitName: inventoryItemFormUnitName,
+      packagingName: inventoryItemFormPackagingName.trim() || null,
+      packagingSize: inventoryItemFormPackagingSize.trim() ? Number(inventoryItemFormPackagingSize.replace(',', '.')) : null,
+      currentStockUnits: Number(inventoryItemFormCurrentStock.replace(',', '.')),
+      lowStockThreshold: inventoryItemFormLowStock.trim() ? Number(inventoryItemFormLowStock.replace(',', '.')) : null,
+      isActive: inventoryItemFormIsActive,
+      notes: inventoryItemFormNotes.trim() || null,
+    });
+    showToast('success', 'Item de inventario actualizado.');
+    setInventoryItemEditOpen(false);
+    resetInventoryItemForm();
+    router.refresh();
+  } catch (err) {
+    showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el item.');
+  } finally {
+    setInventoryItemSaving(false);
+  }
+};
+
+const handleToggleInventoryItemActive = async (item: InventoryItem) => {
+  try {
+    await toggleInventoryItemActiveAction({
+      inventoryItemId: item.id,
+      nextIsActive: !item.isActive,
+    });
+    showToast('success', item.isActive ? 'Item desactivado.' : 'Item activado.');
+    router.refresh();
+  } catch (err) {
+    showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado.');
+  }
 };
 
 const handleCreateInventoryMovement = async () => {
@@ -7455,6 +7571,12 @@ suppressHydrationWarning
       <div className="text-xs text-[#8A8A96] md:max-w-[280px]">
         El stock se guarda en unidades base y se muestra usando el empaque configurado del producto.
       </div>
+      <button
+        className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+        onClick={openInventoryItemCreateDrawer}
+      >
+        Nuevo item
+      </button>
     </div>
 
     <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
@@ -7538,6 +7660,12 @@ suppressHydrationWarning
                       <div className="flex flex-wrap gap-2">
                         <button
                           className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                          onClick={() => openInventoryItemEditDrawer(item.id)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
                           onClick={() => openInventoryMovementDrawer(item.id)}
                         >
                           Movimiento
@@ -7550,6 +7678,12 @@ suppressHydrationWarning
                             Producir
                           </button>
                         ) : null}
+                        <button
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                          onClick={() => handleToggleInventoryItemActive(item)}
+                        >
+                          {item.isActive ? 'Desactivar' : 'Activar'}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -10752,6 +10886,110 @@ deliveryAssignMode === 'external' ? (
               disabled={deliveryPartnerRateSaving}
             >
               {deliveryPartnerRateSaving ? 'Guardando...' : 'Guardar tarifa'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer
+        open={inventoryItemCreateOpen}
+        title="Nuevo item de inventario"
+        onClose={() => {
+          setInventoryItemCreateOpen(false);
+          resetInventoryItemForm();
+        }}
+        widthClass="w-[760px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FieldInput label="Nombre" value={inventoryItemFormName} onChange={setInventoryItemFormName} />
+            <FieldSelect
+              label="Tipo"
+              value={inventoryItemFormKind}
+              onChange={(value) => setInventoryItemFormKind(value as InventoryItem['inventoryKind'])}
+              options={[
+                { value: 'raw_material', label: 'Materia prima' },
+                { value: 'prepared_base', label: 'Base preparada' },
+                { value: 'finished_stock', label: 'Stock final' },
+                { value: 'packaging', label: 'Empaque' },
+              ]}
+            />
+            <FieldInput label="Unidad base" value={inventoryItemFormUnitName} onChange={setInventoryItemFormUnitName} />
+            <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
+            <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
+            <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
+            <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+            <ToggleRow label="Activo" checked={inventoryItemFormIsActive} onChange={setInventoryItemFormIsActive} />
+          </div>
+          <FieldInput label="Notas" value={inventoryItemFormNotes} onChange={setInventoryItemFormNotes} />
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => {
+                setInventoryItemCreateOpen(false);
+                resetInventoryItemForm();
+              }}
+              disabled={inventoryItemSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateInventoryItem}
+              disabled={inventoryItemSaving}
+            >
+              {inventoryItemSaving ? 'Guardando...' : 'Crear item'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+      <Drawer
+        open={inventoryItemEditOpen}
+        title={selectedInventoryProduct ? `Editar: ${selectedInventoryProduct.name}` : 'Editar item de inventario'}
+        onClose={() => {
+          setInventoryItemEditOpen(false);
+          resetInventoryItemForm();
+        }}
+        widthClass="w-[760px]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FieldInput label="Nombre" value={inventoryItemFormName} onChange={setInventoryItemFormName} />
+            <FieldSelect
+              label="Tipo"
+              value={inventoryItemFormKind}
+              onChange={(value) => setInventoryItemFormKind(value as InventoryItem['inventoryKind'])}
+              options={[
+                { value: 'raw_material', label: 'Materia prima' },
+                { value: 'prepared_base', label: 'Base preparada' },
+                { value: 'finished_stock', label: 'Stock final' },
+                { value: 'packaging', label: 'Empaque' },
+              ]}
+            />
+            <FieldInput label="Unidad base" value={inventoryItemFormUnitName} onChange={setInventoryItemFormUnitName} />
+            <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
+            <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
+            <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
+            <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+            <ToggleRow label="Activo" checked={inventoryItemFormIsActive} onChange={setInventoryItemFormIsActive} />
+          </div>
+          <FieldInput label="Notas" value={inventoryItemFormNotes} onChange={setInventoryItemFormNotes} />
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => {
+                setInventoryItemEditOpen(false);
+                resetInventoryItemForm();
+              }}
+              disabled={inventoryItemSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleUpdateInventoryItem}
+              disabled={inventoryItemSaving}
+            >
+              {inventoryItemSaving ? 'Guardando...' : 'Guardar item'}
             </button>
           </div>
         </div>

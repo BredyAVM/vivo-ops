@@ -1023,6 +1023,109 @@ export async function toggleMoneyAccountActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createInventoryItemAction(input: {
+  name: string;
+  inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  unitName: string;
+  packagingName: string | null;
+  packagingSize: number | null;
+  currentStockUnits: number;
+  lowStockThreshold: number | null;
+  isActive: boolean;
+  notes: string | null;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre del item es obligatorio.');
+  if (!['raw_material', 'prepared_base', 'finished_stock', 'packaging'].includes(input.inventoryKind)) {
+    throw new Error('Tipo de inventario inválido.');
+  }
+
+  const { error } = await supabase.from('inventory_items').insert({
+    name,
+    inventory_kind: input.inventoryKind,
+    unit_name: String(input.unitName || '').trim() || 'pieza',
+    packaging_name: String(input.packagingName || '').trim() || null,
+    packaging_size:
+      input.packagingSize == null ? null : Math.max(0, toSafeNumber(input.packagingSize, 0)),
+    current_stock_units: Math.max(0, toSafeNumber(input.currentStockUnits, 0)),
+    low_stock_threshold:
+      input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0)),
+    is_active: !!input.isActive,
+    notes: String(input.notes || '').trim() || null,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateInventoryItemAction(input: {
+  inventoryItemId: number;
+  name: string;
+  inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  unitName: string;
+  packagingName: string | null;
+  packagingSize: number | null;
+  currentStockUnits: number;
+  lowStockThreshold: number | null;
+  isActive: boolean;
+  notes: string | null;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const inventoryItemId = Number(input.inventoryItemId);
+  if (!Number.isFinite(inventoryItemId) || inventoryItemId <= 0) {
+    throw new Error('Item de inventario inválido.');
+  }
+
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('El nombre del item es obligatorio.');
+  if (!['raw_material', 'prepared_base', 'finished_stock', 'packaging'].includes(input.inventoryKind)) {
+    throw new Error('Tipo de inventario inválido.');
+  }
+
+  const { error } = await supabase
+    .from('inventory_items')
+    .update({
+      name,
+      inventory_kind: input.inventoryKind,
+      unit_name: String(input.unitName || '').trim() || 'pieza',
+      packaging_name: String(input.packagingName || '').trim() || null,
+      packaging_size:
+        input.packagingSize == null ? null : Math.max(0, toSafeNumber(input.packagingSize, 0)),
+      current_stock_units: Math.max(0, toSafeNumber(input.currentStockUnits, 0)),
+      low_stock_threshold:
+        input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0)),
+      is_active: !!input.isActive,
+      notes: String(input.notes || '').trim() || null,
+    })
+    .eq('id', inventoryItemId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function toggleInventoryItemActiveAction(input: {
+  inventoryItemId: number;
+  nextIsActive: boolean;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const inventoryItemId = Number(input.inventoryItemId);
+  if (!Number.isFinite(inventoryItemId) || inventoryItemId <= 0) {
+    throw new Error('Item de inventario inválido.');
+  }
+
+  const { error } = await supabase
+    .from('inventory_items')
+    .update({ is_active: !!input.nextIsActive })
+    .eq('id', inventoryItemId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createDeliveryPartnerAction(input: {
   name: string;
   partnerType: string;

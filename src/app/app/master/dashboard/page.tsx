@@ -1199,7 +1199,7 @@ const { data: ordersData, error: ordersError } = await supabase
       notes,
       created_at
     `)
-    .eq('is_active', true)
+    .order('is_active', { ascending: false })
     .order('name', { ascending: true });
 
   if (inventoryItemsError) {
