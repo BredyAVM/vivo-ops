@@ -41,6 +41,77 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+async function syncInventoryItemFromCatalogProduct(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    currentName?: string;
+    nextName: string;
+    isActive: boolean;
+    inventoryEnabled: boolean;
+    isInventoryItem: boolean;
+    inventoryDeductionMode: 'self' | 'composition';
+    inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
+    inventoryUnitName: string;
+    packagingName: string | null;
+    packagingSize: number | null;
+    currentStockUnits: number | null;
+    lowStockThreshold: number | null;
+  }
+) {
+  if (!input.inventoryEnabled || !input.isInventoryItem || input.inventoryDeductionMode !== 'self') {
+    return;
+  }
+
+  const candidateNames = Array.from(
+    new Set([String(input.currentName || '').trim(), String(input.nextName || '').trim()].filter(Boolean))
+  );
+
+  const { data: existingItems, error: existingItemsError } = await supabase
+    .from('inventory_items')
+    .select('id, name, current_stock_units')
+    .in('name', candidateNames);
+
+  if (existingItemsError) {
+    throw new Error(existingItemsError.message);
+  }
+
+  const matchedItem =
+    (existingItems ?? []).find((item) => String(item.name || '').trim() === String(input.currentName || '').trim()) ??
+    (existingItems ?? []).find((item) => String(item.name || '').trim() === String(input.nextName || '').trim()) ??
+    null;
+
+  const payload = {
+    name: input.nextName,
+    inventory_kind:
+      input.inventoryKind === 'finished_good' ? 'finished_stock' : input.inventoryKind,
+    unit_name: input.inventoryUnitName.trim() || 'pieza',
+    packaging_name: input.packagingName?.trim() ? input.packagingName.trim() : null,
+    packaging_size: input.packagingSize == null ? null : Math.max(0, toSafeNumber(input.packagingSize, 0)),
+    current_stock_units:
+      matchedItem != null
+        ? toSafeNumber(matchedItem.current_stock_units, 0)
+        : input.currentStockUnits == null
+          ? 0
+          : Math.max(0, toSafeNumber(input.currentStockUnits, 0)),
+    low_stock_threshold:
+      input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0)),
+    is_active: !!input.isActive,
+  };
+
+  if (matchedItem) {
+    const { error } = await supabase
+      .from('inventory_items')
+      .update(payload)
+      .eq('id', Number(matchedItem.id));
+
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { error } = await supabase.from('inventory_items').insert(payload);
+  if (error) throw new Error(error.message);
+}
+
 export async function createPaymentReportAction(input: {
   orderId: number;
   reportedMoneyAccountId: number;
@@ -744,6 +815,21 @@ export async function updateCatalogItemAction(input: {
   if (!updatedProduct) {
     throw new Error('No se pudo actualizar el producto. Revisa los permisos de update sobre products.');
   }
+
+  await syncInventoryItemFromCatalogProduct(supabase, {
+    currentName: currentProduct.name,
+    nextName: currentProduct.name,
+    isActive: input.isActive,
+    inventoryEnabled: input.inventoryEnabled,
+    isInventoryItem: input.isInventoryItem,
+    inventoryDeductionMode: input.inventoryDeductionMode,
+    inventoryKind: input.inventoryKind,
+    inventoryUnitName: input.inventoryUnitName,
+    packagingName: input.packagingName,
+    packagingSize,
+    currentStockUnits,
+    lowStockThreshold,
+  });
 
   const { error: deleteComponentsError } = await supabase
     .from('product_components')
@@ -1856,6 +1942,20 @@ export async function createCatalogItemAction(input: {
     .single();
 
   if (error) throw new Error(error.message);
+
+  await syncInventoryItemFromCatalogProduct(supabase, {
+    nextName: name,
+    isActive: input.isActive,
+    inventoryEnabled: input.inventoryEnabled,
+    isInventoryItem: input.isInventoryItem,
+    inventoryDeductionMode: input.inventoryDeductionMode,
+    inventoryKind: input.inventoryKind,
+    inventoryUnitName: input.inventoryUnitName,
+    packagingName: input.packagingName,
+    packagingSize,
+    currentStockUnits,
+    lowStockThreshold,
+  });
 
   revalidatePath('/app/master/dashboard');
   return { id: Number(data.id) };
