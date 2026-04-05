@@ -1361,7 +1361,7 @@ const { data: ordersData, error: ordersError } = await supabase
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
           <div className="text-lg font-semibold">Error cargando enlaces de inventario</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los descuentos por composiciÃ³n del catÃ¡logo.
+            No se pudieron obtener los descuentos por composición del catálogo.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {productInventoryLinksError.message}

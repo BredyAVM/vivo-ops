@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -473,7 +473,7 @@ const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   cash_count_adjustment: 'Ajuste de caja',
   change_given: 'Cambio entregado',
   expense_payment: 'Pago de gasto',
-  fee_charge: 'ComisiÃƒÂ³n',
+  fee_charge: 'Comisi�n',
   order_payment: 'Pago de orden',
   other_income: 'Otro ingreso',
   withdrawal: 'Retiro',
@@ -502,7 +502,7 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   created: 'Creada',
   queued: 'En cola',
   confirmed: 'Enviado a cocina',
-  in_kitchen: 'En preparaciÃ³n',
+  in_kitchen: 'En preparación',
   ready: 'Preparada',
   out_for_delivery: 'En camino',
   delivered: 'Entregado / Retirado',
@@ -523,7 +523,7 @@ const fmtBs = (n: number) => {
 };
 
 const fmtRateBs = (n: number) => {
-  if (!Number.isFinite(n)) return 'Bs â€”';
+  if (!Number.isFinite(n)) return 'Bs ?';
 
   const fixed = n.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
@@ -624,14 +624,14 @@ const fmtDeliveryTextES = (iso: string) => {
   });
 
   const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
-  return `${cap} ${dd}/${mm} Â· ${time}`;
+  return `${cap} ${dd}/${mm} ? ${time}`;
 };
 
 function fmtDateTimeES(iso: string | null) {
-  if (!iso) return 'â€”';
+  if (!iso) return '?';
 
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'â€”';
+  if (Number.isNaN(d.getTime())) return '?';
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -646,7 +646,7 @@ function fmtDateTimeES(iso: string | null) {
 
   const yy = String(year).slice(-2);
 
-  return `${day}/${month}/${yy} Â· ${hour}:${minute} ${ampm}`;
+  return `${day}/${month}/${yy} ? ${hour}:${minute} ${ampm}`;
 }
 
 function toDateInputValue(d: Date) {
@@ -694,9 +694,9 @@ function mapAdjustmentFieldLabel(field: string) {
     fulfillment: 'Tipo de entrega',
     client_id: 'Cliente',
     attributed_advisor_id: 'Asesor',
-    delivery_address: 'DirecciÃ³n',
+    delivery_address: 'Dirección',
     receiver_name: 'Recibe',
-    receiver_phone: 'TelÃ©fono receptor',
+    receiver_phone: 'Teléfono receptor',
     notes: 'Notas',
     total_usd: 'Total USD',
     total_bs_snapshot: 'Total Bs',
@@ -776,7 +776,7 @@ function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, Catalo
 
 function getOrderDeliveryChargeLabel(order: Order, catalogItemById: Map<number, CatalogItem>) {
   const deliveryItems = getOrderDeliveryItems(order, catalogItemById);
-  if (deliveryItems.length === 0) return 'Sin Ã­tem delivery';
+  if (deliveryItems.length === 0) return 'Sin ítem delivery';
 
   return deliveryItems
     .map((item) => `${item.productNameSnapshot}${Number(item.qty || 0) > 1 ? ` x${Number(item.qty || 0)}` : ''}`)
@@ -846,15 +846,15 @@ function splitISOToDeliveryFields(iso: string) {
 }
 
 const pillLabel = (f: Fulfillment) => (f === 'delivery' ? 'Delivery' : 'Pickup');
-const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado âœ…' : `â— Pendiente: ${fmtUSD(balanceUsd)}`);
+const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado ?' : `? Pendiente: ${fmtUSD(balanceUsd)}`);
 const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
 
 function splitTwoWordsCompact(full: string) {
   const parts = (full || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? 'â€”';
+  const first = parts[0] ?? '?';
   const second = parts[1] ?? '';
   const hasMore = parts.length > 2;
-  const line2 = second ? (hasMore ? `${second}â€¦` : second) : '';
+  const line2 = second ? (hasMore ? `${second}?` : second) : '';
   return { line1: first, line2 };
 }
 
@@ -877,13 +877,13 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
 
 function getPaymentMethodLabel(method: string) {
   if (method === 'pending') return 'Pendiente';
-  if (method === 'payment_mobile') return 'Pago mÃ³vil';
+  if (method === 'payment_mobile') return 'Pago móvil';
   if (method === 'transfer') return 'Transferencia';
   if (method === 'cash_usd') return 'Efectivo USD';
   if (method === 'cash_ves') return 'Efectivo Bs';
   if (method === 'zelle') return 'Zelle';
   if (method === 'mixed') return 'Mixto';
-  return 'â€”';
+  return '?';
 }
 
 function getCurrentOperatorLabel(
@@ -893,7 +893,7 @@ function getCurrentOperatorLabel(
   const name = currentUser.fullName?.trim() || currentUser.email || 'Usuario';
 
   if (roles.includes('admin')) return `Admin (${name})`;
-  if (roles.includes('master')) return `MÃ¡ster (${name})`;
+  if (roles.includes('master')) return `Máster (${name})`;
 
   return name;
 }
@@ -946,14 +946,14 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   const bs = fmtBs(line.qty * line.priceBs);
   const isDelivery = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
 
-  if (isDelivery) return `â–ªï¸ ${line.qty} ${line.name}: ${bs}`;
+  if (isDelivery) return `?? ${line.qty} ${line.name}: ${bs}`;
 
   if (units !== null) {
     const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    return `â–ªï¸ ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    return `?? ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
   }
 
-  return `â–ªï¸ ${line.qty} ${line.name}: ${bs}`;
+  return `?? ${line.qty} ${line.name}: ${bs}`;
 }
 
 function buildWhatsAppOrderSummary(order: Order) {
@@ -963,16 +963,16 @@ function buildWhatsAppOrderSummary(order: Order) {
 
   parts.push(`*Resumen de Pedido*`);
   parts.push('');
-  parts.push(`âœ… *Orden:* ${order.id}`);
-  parts.push(`âœ… *Asesor:* ${order.advisorName}`);
-  parts.push(`âœ… *Cliente:* ${order.clientName}`);
+  parts.push(`? *Orden:* ${order.id}`);
+  parts.push(`? *Asesor:* ${order.advisorName}`);
+  parts.push(`? *Cliente:* ${order.clientName}`);
 
   parts.push('');
-  parts.push(`âœ… *Pedido:*`);
+  parts.push(`? *Pedido:*`);
   parts.push('');
 
   if (lines.length === 0) {
-    parts.push(`â–ªï¸ Sin Ã­tems cargados`);
+    parts.push(`?? Sin ítems cargados`);
   } else {
     for (const line of lines) {
       parts.push(lineTextWhatsAppStyle(line));
@@ -989,16 +989,16 @@ function buildWhatsAppOrderSummary(order: Order) {
   parts.push(`*TOTAL:* ${fmtBs(order.totalBs)} / ${fmtUSD(order.totalUsd)}`);
 
   parts.push('');
-  parts.push(`âœ… *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`âœ… *DÃ­a de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
+  parts.push(`? *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
+  parts.push(`? *Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
 
   if (order.fulfillment === 'delivery' && order.address?.trim()) {
-    parts.push(`âœ… *DirecciÃ³n:* ${order.address.trim()}`);
+    parts.push(`? *Dirección:* ${order.address.trim()}`);
   }
 
   if (order.notes?.trim()) {
     parts.push('');
-    parts.push(`âœ… *Nota:* ${order.notes.trim()}`);
+    parts.push(`? *Nota:* ${order.notes.trim()}`);
   }
 
   return parts.join('\n');
@@ -1047,7 +1047,7 @@ function fmtWeekRangeES(d: Date) {
   const mm1 = String(s.getMonth() + 1).padStart(2, '0');
   const dd2 = String(e.getDate()).padStart(2, '0');
   const mm2 = String(e.getMonth() + 1).padStart(2, '0');
-  return `Semana: Lun ${dd1}/${mm1} â€“ Dom ${dd2}/${mm2}`;
+  return `Semana: Lun ${dd1}/${mm1} ? Dom ${dd2}/${mm2}`;
 }
 
 function withinDay(dISO: string, day: Date) {
@@ -1102,12 +1102,12 @@ function canMarkDelivered(o: Order) {
 }
 
 function kitchenTooltip(o: Order) {
-  if (o.status === 'created') return 'Pendiente de aprobaciÃ³n';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobaciÃ³n';
+  if (o.status === 'created') return 'Pendiente de aprobación';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobación';
   if (o.status === 'queued') return 'Listo para enviar a cocina';
   if (o.status === 'cancelled') return 'Pedido cancelado';
   if (o.status === 'delivered') return 'Pedido finalizado';
-  return 'Ya estÃ¡ en proceso';
+  return 'Ya está en proceso';
 }
 function riderEnabled(o: Order) {
   return (
@@ -1118,16 +1118,16 @@ function riderEnabled(o: Order) {
 function riderTooltip(o: Order) {
   if (o.fulfillment === 'pickup') return 'No aplica (PickUp)';
   if (!['confirmed', 'in_kitchen', 'ready'].includes(o.status)) {
-    return 'Solo puedes asignar driver cuando la orden estÃ¡ confirmada, en cocina o preparada';
+    return 'Solo puedes asignar driver cuando la orden est? confirmada, en cocina o preparada';
   }
   return 'Asignar delivery';
 }
 
 function payIcon(p: PaymentVerify) {
-  if (p === 'pending') return 'ðŸŸ ';
-  if (p === 'confirmed') return 'âœ…';
-  if (p === 'rejected') return 'âŒ';
-  return 'â€”';
+  if (p === 'pending') return '? ';
+  if (p === 'confirmed') return '?';
+  if (p === 'rejected') return '?';
+  return '?';
 }
 function payIconTooltip(p: PaymentVerify) {
   if (p === 'pending') return 'Por confirmar';
@@ -1199,9 +1199,9 @@ function getNextPrimaryActionLabel(o: Order) {
   if (canMarkDelivered(o)) return o.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado';
   if (o.status === 'cancelled') return 'Orden cancelada';
   if (o.status === 'delivered') return 'Ciclo completado';
-  if (o.status === 'created') return 'Pendiente de aprobaciÃ³n';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobaciÃ³n';
-  return 'Sin acciÃ³n principal';
+  if (o.status === 'created') return 'Pendiente de aprobación';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobación';
+  return 'Sin acción principal';
 }
 
 function ProcessTimeline({ order }: { order: Order }) {
@@ -1305,12 +1305,12 @@ function NextActionCard({
     <div className="rounded-lg border border-[#1D1D28] bg-[#101014] px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] text-[#8A8A96]">PrÃ³xima acciÃ³n</div>
+          <div className="text-[10px] text-[#8A8A96]">Próxima acción</div>
           <div className="truncate text-[11px] text-[#F5F5F7]">{label}</div>
         </div>
 
         <div className="shrink-0">
-          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acciÃ³n</div>}
+          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acción</div>}
         </div>
       </div>
     </div>
@@ -1341,7 +1341,7 @@ function Drawer({
             className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
             onClick={onClose}
           >
-            âœ•
+            ?
           </button>
         </div>
         <div className="h-[calc(100%-52px)] overflow-y-auto px-4 py-4">{children}</div>
@@ -1393,7 +1393,7 @@ function productCompositionKind(item: CatalogItem | null, sku: string | undefine
     return 'Plato configurable';
   }
   if (components.length > 0) return 'Combo fijo';
-  return 'Sin composiciÃ³n';
+  return 'Sin composición';
 }
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -1467,10 +1467,10 @@ function ComponentCard({
     {pc.componentName}
   </div>
   <div className="mt-1 text-xs text-[#8A8A96]">
-    {pc.componentSku ? `${pc.componentSku} Â· ` : ''}
+    {pc.componentSku ? `${pc.componentSku} ? ` : ''}
     {catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService
       ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
-      : 'â€”'}
+      : '?'}
   </div>
 </div>
 
@@ -1491,19 +1491,19 @@ function ComponentCard({
             <div className="mt-1 text-[#F5F5F7]">{pc.quantity}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">Cuenta lÃ­mite</div>
+            <div className="text-[#8A8A96]">Cuenta límite</div>
             <div className="mt-1 text-[#F5F5F7]">
-              {pc.countsTowardDetailLimit ? 'SÃ­' : 'No'}
+              {pc.countsTowardDetailLimit ? 'S?' : 'No'}
             </div>
           </div>
           <div>
             <div className="text-[#8A8A96]">Requerido</div>
-            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'SÃ­' : 'No'}</div>
+            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'S?' : 'No'}</div>
           </div>
         </div>
       ) : (
         <div className="mt-3 text-xs text-[#B7B7C2]">
-          OpciÃ³n habilitada para selecciÃ³n dentro del lÃ­mite del plato.
+          Opción habilitada para selección dentro del límite del plato.
         </div>
       )}
 
@@ -1651,7 +1651,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'unknown',
       label: 'Sin definir',
-      summary: 'Sin informaciÃ³n',
+      summary: 'Sin información',
     };
   }
 
@@ -1662,7 +1662,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'mix',
       label: 'Mixto fijo',
-      summary: 'ComposiciÃ³n cerrada con cantidades exactas por componente.',
+      summary: 'Composición cerrada con cantidades exactas por componente.',
     };
   }
 
@@ -1672,7 +1672,7 @@ function getCatalogOperationalModel(
         kind: 'configurable_with_fixed',
         label: 'Plato configurable con extras fijos',
         summary:
-          'El cliente puede escoger piezas seleccionables dentro del lÃ­mite. AdemÃ¡s puede incluir componentes fijos u opcionales.',
+          'El cliente puede escoger piezas seleccionables dentro del límite. Además puede incluir componentes fijos u opcionales.',
       };
     }
 
@@ -1680,7 +1680,7 @@ function getCatalogOperationalModel(
       kind: 'configurable',
       label: 'Plato configurable',
       summary:
-        'El cliente puede escoger piezas seleccionables dentro del lÃ­mite permitido.',
+        'El cliente puede escoger piezas seleccionables dentro del límite permitido.',
     };
   }
 
@@ -1694,8 +1694,8 @@ function getCatalogOperationalModel(
 
   return {
     kind: 'simple',
-    label: 'Ãtem simple',
-    summary: 'Producto sin composiciÃ³n cargada.',
+    label: 'ítem simple',
+    summary: 'Producto sin composición cargada.',
   };
 }
 
@@ -1708,7 +1708,7 @@ function validateCatalogBeforeSave(params: {
   const { item, editIsDetailEditable, editDetailUnitsLimit, editComponents } = params;
 
   if (!item) {
-    return 'Producto invÃ¡lido.';
+    return 'Producto inválido.';
   }
 
   const normalized = editComponents.map((row) => ({
@@ -1719,7 +1719,7 @@ function validateCatalogBeforeSave(params: {
   }));
 
   if (normalized.some((row) => row.componentProductId <= 0)) {
-    return 'Todos los componentes deben tener un producto vÃ¡lido.';
+    return 'Todos los componentes deben tener un producto válido.';
   }
 
   if (normalized.some((row) => row.componentMode === 'fixed' && row.quantity <= 0)) {
@@ -1730,7 +1730,7 @@ function validateCatalogBeforeSave(params: {
   for (const row of normalized) {
     const key = `${row.componentProductId}::${row.componentMode}`;
     if (seen.has(key)) {
-      return 'No repitas el mismo componente con el mismo modo. EdÃ­talo en una sola fila.';
+      return 'No repitas el mismo componente con el mismo modo. Edítalo en una sola fila.';
     }
     seen.add(key);
   }
@@ -1743,7 +1743,7 @@ function validateCatalogBeforeSave(params: {
 
     const detailLimit = Number(editDetailUnitsLimit || 0);
     if (detailLimit <= 0) {
-      return 'El lÃ­mite de detalle debe ser mayor a 0 para un plato editable.';
+      return 'El límite de detalle debe ser mayor a 0 para un plato editable.';
     }
   }
 
@@ -2163,7 +2163,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 7)
       .map((o) => ({
         id: o.id,
-        label: `${o.id} Â· ${o.clientName}`,
+        label: `${o.id} ? ${o.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.deliveryAtISO)}`,
       }));
   }, [orders, search]);
@@ -2236,7 +2236,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
           orderId: o.id,
-          label: `${o.id} Â· ${o.clientName}`,
+          label: `${o.id} ? ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2246,7 +2246,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-re-${o.id}`,
           type: 'RE-APROBAR',
           orderId: o.id,
-          label: `${o.id} Â· ${o.clientName}`,
+          label: `${o.id} ? ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2256,7 +2256,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-pay-${o.id}`,
           type: 'CONFIRMAR PAGO',
           orderId: o.id,
-          label: `${o.id} Â· ${o.clientName}`,
+          label: `${o.id} ? ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2496,12 +2496,12 @@ const openCreateOrderDrawer = () => {
 const INVENTORY_MOVEMENT_LABEL: Record<InventoryMovementItem['movementType'], string> = {
   inbound: 'Entrada',
   sale_out: 'Salida por venta',
-  damage: 'AverÃ­a',
+  damage: 'Avería',
   waste: 'Merma',
   manual_adjustment: 'Ajuste manual',
-  stock_count: 'Conteo fÃ­sico',
-  production_out: 'Salida por producciÃ³n',
-  production_in: 'Entrada por producciÃ³n',
+  stock_count: 'Conteo físico',
+  production_out: 'Salida por producción',
+  production_in: 'Entrada por producción',
   pack_out: 'Salida por empaque',
   pack_in: 'Entrada por empaque',
 };
@@ -2659,7 +2659,7 @@ const handleLogout = async () => {
   try {
     await logoutAction();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cerrando sesiÃ³n.';
+    const message = err instanceof Error ? err.message : 'Error cerrando sesión.';
     showToast('error', message);
   }
 };
@@ -2813,7 +2813,7 @@ const handleApprove = async (o: Order) => {
       return;
     }
 
-    showToast('error', 'Esta orden no requiere aprobaciÃ³n.');
+    showToast('error', 'Esta orden no requiere aprobación.');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando la orden.';
     showToast('error', message);
@@ -2832,7 +2832,7 @@ const handleReturn = async (o: Order) => {
       reason: reviewActionNotes.trim(),
     });
 
-    showToast('success', 'Pedido devuelto a revisiÃ³n.');
+    showToast('success', 'Pedido devuelto a revisión.');
     resetReviewActionBox();
     router.refresh();
   } catch (err) {
@@ -2858,13 +2858,13 @@ const handleCreatePaymentReport = async (o: Order) => {
     );
 
     if (!selectedAccount) {
-      showToast('error', 'Cuenta invÃ¡lida.');
+      showToast('error', 'Cuenta inválida.');
       return;
     }
 
     const reportedAmount = Number(paymentReportAmount || 0);
     if (!Number.isFinite(reportedAmount) || reportedAmount <= 0) {
-      showToast('error', 'Monto invÃ¡lido.');
+      showToast('error', 'Monto inválido.');
       return;
     }
 
@@ -2873,7 +2873,7 @@ const handleCreatePaymentReport = async (o: Order) => {
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(paymentReportExchangeRate || 0);
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-        showToast('error', 'Debes indicar una tasa vÃ¡lida para pagos en VES.');
+        showToast('error', 'Debes indicar una tasa válida para pagos en VES.');
         return;
       }
     }
@@ -2900,7 +2900,7 @@ const handleCreatePaymentReport = async (o: Order) => {
 
 const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
   try {
-    const reviewNotes = window.prompt('Notas de confirmaciÃ³n (opcional):', '') ?? '';
+    const reviewNotes = window.prompt('Notas de confirmación (opcional):', '') ?? '';
     const today = new Date().toISOString().slice(0, 10);
 
     await confirmPaymentReportAction({
@@ -2913,7 +2913,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       reviewNotes,
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
-      description: `Pago confirmado desde Master Dashboard Â· orden ${o.id} Â· reporte ${rp.id}`,
+      description: `Pago confirmado desde Master Dashboard ? orden ${o.id} ? reporte ${rp.id}`,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -2972,7 +2972,7 @@ const handleKitchenTake = async (o: Order) => {
     const etaMinutes = Number(kitchenEtaMinutes || 0);
 
     if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
-      showToast('error', 'ETA invÃ¡lido.');
+      showToast('error', 'ETA inválido.');
       return;
     }
 
@@ -3013,7 +3013,7 @@ const handleOutForDelivery = async (o: Order) => {
       o.fulfillment === 'delivery' &&
       (!Number.isFinite(etaMinutes) || etaMinutes == null || etaMinutes <= 0)
     ) {
-      showToast('error', 'Tiempo estimado invÃ¡lido.');
+      showToast('error', 'Tiempo estimado inválido.');
       return;
     }
 
@@ -3114,18 +3114,18 @@ const handleCancelOrder = async (o: Order) => {
 const handleClearDeliveryAssignment = async (o: Order) => {
   try {
     const notes =
-      window.prompt('Motivo para quitar la asignaciÃ³n (opcional):', '') ?? '';
+      window.prompt('Motivo para quitar la asignación (opcional):', '') ?? '';
 
     await clearDeliveryAssignmentAction({
       orderId: o.id,
       notes,
     });
 
-    showToast('success', 'AsignaciÃ³n de delivery quitada.');
+    showToast('success', 'Asignación de delivery quitada.');
     router.refresh();
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Error quitando la asignaciÃ³n.';
+      err instanceof Error ? err.message : 'Error quitando la asignación.';
     showToast('error', message);
   }
 };
@@ -3152,7 +3152,7 @@ const handleSaveCatalog = async () => {
     );
 
     if (!Number.isFinite(normalizedSourcePriceAmount) || normalizedSourcePriceAmount < 0) {
-      showToast('error', 'El monto fuente no es vÃ¡lido.');
+      showToast('error', 'El monto fuente no es válido.');
       return;
     }
 
@@ -3211,11 +3211,11 @@ const handleSaveCatalog = async () => {
       })),
     });
 
-    showToast('success', 'CatÃ¡logo actualizado.');
+    showToast('success', 'Catálogo actualizado.');
     setCatalogEditMode(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error guardando catÃ¡logo.';
+    const message = err instanceof Error ? err.message : 'Error guardando catálogo.';
     showToast('error', message);
   } finally {
     setCatalogSaving(false);
@@ -3275,11 +3275,11 @@ const handleSaveQuickCatalog = async () => {
     await updateCatalogPricesQuickAction({
       items: changedItems,
     });
-    showToast('success', `CatÃ¡logo actualizado por bloque (${changedItems.length}).`);
+    showToast('success', `Catálogo actualizado por bloque (${changedItems.length}).`);
     setQuickCatalogOpen(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error actualizando precios rÃ¡pidos.';
+    const message = err instanceof Error ? err.message : 'Error actualizando precios rápidos.';
     showToast('error', message);
   } finally {
     setQuickCatalogSaving(false);
@@ -3671,13 +3671,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde invÃ¡lido.');
+        throw new Error('Km desde inválido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta invÃ¡lido.');
+        throw new Error('Km hasta inválido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa invÃ¡lida.');
+        throw new Error('Tarifa inválida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -3719,13 +3719,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde invÃ¡lido.');
+        throw new Error('Km desde inválido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta invÃ¡lido.');
+        throw new Error('Km hasta inválido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa invÃ¡lida.');
+        throw new Error('Tarifa inválida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -3957,7 +3957,7 @@ const handleCreateInventoryMovement = async () => {
       safePackagingQty * Number(selectedInventoryProduct.packagingSize || 0) + safeUnitQty;
 
     if (!Number.isFinite(quantityUnits) || quantityUnits < 0) {
-      throw new Error('Cantidad invÃ¡lida.');
+      throw new Error('Cantidad inválida.');
     }
 
     await createInventoryMovementAction({
@@ -3987,7 +3987,7 @@ const handleCreateInventoryProduction = async () => {
 
     const batchMultiplier = Number(String(inventoryProductionBatches || '').trim().replace(',', '.'));
     if (!Number.isFinite(batchMultiplier) || batchMultiplier <= 0) {
-      throw new Error('La cantidad a producir es invÃ¡lida.');
+      throw new Error('La cantidad a producir es inválida.');
     }
 
     await createInventoryProductionAction({
@@ -3996,12 +3996,12 @@ const handleCreateInventoryProduction = async () => {
       notes: inventoryProductionNotes.trim() || null,
     });
 
-    showToast('success', 'ProducciÃ³n registrada.');
+    showToast('success', 'Producción registrada.');
     setInventoryProductionOpen(false);
     resetInventoryProductionForm();
     router.refresh();
   } catch (err) {
-    showToast('error', err instanceof Error ? err.message : 'No se pudo registrar la producciÃ³n.');
+    showToast('error', err instanceof Error ? err.message : 'No se pudo registrar la producción.');
   } finally {
     setInventoryProductionSaving(false);
   }
@@ -4058,7 +4058,7 @@ const handleCreateCatalogItem = async () => {
       })),
     });
 
-    showToast('success', 'Ãtem creado.');
+    showToast('success', 'ítem creado.');
     setCreateCatalogOpen(false);
     resetCreateCatalogForm();
     router.refresh();
@@ -4069,7 +4069,7 @@ const handleCreateCatalogItem = async () => {
       setCatalogEditMode(true);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error creando Ã­tem.';
+    const message = err instanceof Error ? err.message : 'Error creando ítem.';
     showToast('error', message);
   } finally {
     setCreateCatalogSaving(false);
@@ -4087,10 +4087,10 @@ const handleToggleCatalogItemActive = async () => {
       nextIsActive,
     });
 
-    showToast('success', nextIsActive ? 'Ãtem activado.' : 'Ãtem desactivado.');
+    showToast('success', nextIsActive ? 'ítem activado.' : 'ítem desactivado.');
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cambiando estado del Ã­tem.';
+    const message = err instanceof Error ? err.message : 'Error cambiando estado del ítem.';
     showToast('error', message);
   }
 };
@@ -4099,7 +4099,7 @@ const handleDeleteCatalogItem = async () => {
   if (!selectedCatalogItem) return;
 
   const confirmed = window.confirm(
-    `Â¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionarÃ¡ si no tiene uso ni dependencias.`
+    `?Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionar? si no tiene uso ni dependencias.`
   );
 
   if (!confirmed) return;
@@ -4109,12 +4109,12 @@ const handleDeleteCatalogItem = async () => {
       productId: selectedCatalogItem.id,
     });
 
-    showToast('success', 'Ãtem eliminado.');
+    showToast('success', 'ítem eliminado.');
     setCatalogDetailOpen(false);
     setSelectedCatalogItemId(null);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error eliminando Ã­tem.';
+    const message = err instanceof Error ? err.message : 'Error eliminando ítem.';
     showToast('error', message);
   }
 };
@@ -4305,7 +4305,7 @@ const handleCreateOrderClientNow = async () => {
     }
 
     if (!phone) {
-      showToast('error', 'Debes colocar el telÃ©fono del cliente.');
+      showToast('error', 'Debes colocar el teléfono del cliente.');
       return;
     }
 
@@ -4355,7 +4355,7 @@ const handleCreateOrderClientNow = async () => {
     showToast(
       'success',
       quickClient.alreadyExisted
-        ? 'Ese cliente ya existÃ­a y fue seleccionado.'
+        ? 'Ese cliente ya existía y fue seleccionado.'
         : 'Cliente creado.'
     );
     return;
@@ -4388,7 +4388,7 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
   const product = catalogItems.find((item) => item.id === draftItem.productId);
 
   if (!product) {
-    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este Ã­tem.');
+    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este ítem.');
     return;
   }
 
@@ -4719,7 +4719,7 @@ const handleUpdateOrder = async () => {
       !['created', 'queued'].includes(selectedOrder.status);
 
     if (isAdvancedAdminEdit && !adminEditReason.trim()) {
-      showToast('error', 'Debes indicar el motivo de la modificaciÃ³n administrativa.');
+      showToast('error', 'Debes indicar el motivo de la modificación administrativa.');
       return;
     }
 
@@ -4839,7 +4839,7 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
 
   const nextUnitUsd = Number(String(priceAdjustValue || '').replace(',', '.'));
   if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
-    showToast('error', 'El precio ajustado es invÃ¡lido.');
+    showToast('error', 'El precio ajustado es inválido.');
     return;
   }
 
@@ -5329,7 +5329,7 @@ const selectedPaymentReportAccount =
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
-              : 'Ãtem';
+              : 'ítem';
           const changedFields = getAdjustmentChangedFields(payload);
           const changedFieldLabels = changedFields.map(mapAdjustmentFieldLabel);
 
@@ -6226,14 +6226,14 @@ useEffect(() => {
     <button
       className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-left"
       onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
-      title="Seleccionar dÃ­a"
+      title="Seleccionar día"
       type="button"
     >
       <div className="text-sm font-medium">
         {isMounted && selectedDay ? fmtDeliveryTextES(selectedDay.toISOString()) : 'Cargando fecha...'}
       </div>
       <div className="text-xs text-[#B7B7C2]">
-        {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : 'â€”'}
+        {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : '—'}
       </div>
     </button>
   </div>
@@ -6249,7 +6249,7 @@ suppressHydrationWarning
   >
     <div className="text-xs text-[#B7B7C2]">Tasa</div>
     <div className="text-sm font-medium text-[#F5F5F7]">
-      {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : 'â€”'}
+      {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
     </div>
   </div>
 </div>
@@ -6266,7 +6266,7 @@ suppressHydrationWarning
       ].join(' ')}
       onClick={() => setViewMode('operations')}
     >
-      OperaciÃ³n
+      Operación
     </button>
 
     <button
@@ -6278,7 +6278,7 @@ suppressHydrationWarning
       ].join(' ')}
       onClick={() => setViewMode('settings')}
     >
-      ConfiguraciÃ³n
+      Configuración
     </button>
 
     {isAdmin ? (
@@ -6291,7 +6291,7 @@ suppressHydrationWarning
         ].join(' ')}
         onClick={() => setViewMode('calculations')}
       >
-        CÃ¡lculos
+        Cálculos
       </button>
     ) : null}
 
@@ -6300,7 +6300,7 @@ suppressHydrationWarning
       onClick={() => setNotifOpen(true)}
       title="Notificaciones"
     >
-      ðŸ”” Notificaciones ({notifications.length})
+      Notificaciones ({notifications.length})
     </button>
   </div>
 
@@ -6313,7 +6313,7 @@ suppressHydrationWarning
 
       <div className="mt-0.5 text-xs text-[#B7B7C2]">
         {roles.length > 0
-          ? ` ${roles.map((r) => r.toUpperCase()).join(' Â· ')}`
+          ? ` ${roles.map((r) => r.toUpperCase()).join(' · ')}`
           : 'Sin roles'}
       </div>
     </div>
@@ -6322,7 +6322,7 @@ suppressHydrationWarning
       className="shrink-0 rounded-xl border border-red-500/40 bg-[#0B0B0D] px-2 py-2.5 text-xs text-red-400"
       onClick={handleLogout}
       type="button"
-      title="Cerrar sesiÃ³n"
+      title="Cerrar sesión"
     >
       Salir
     </button>
@@ -6341,7 +6341,7 @@ suppressHydrationWarning
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
         <Chip active={settingsTab === 'catalog'} onClick={() => setSettingsTab('catalog')}>
-          CatÃ¡logo
+          Catálogo
         </Chip>
         <Chip active={settingsTab === 'inventory'} onClick={() => setSettingsTab('inventory')}>
           Inventario
@@ -6387,16 +6387,16 @@ suppressHydrationWarning
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           <div className="grid grid-cols-12 gap-4">
-            <Card title="Estado del dÃ­a" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Estado del día" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={dayStats.cierres} />
-              <StatRow label="FacturaciÃ³n" value={fmtUSD(dayStats.fact)} />
+              <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
             </Card>
 
             <Card title="Estado de la semana" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={weekStats.cierres} />
-              <StatRow label="FacturaciÃ³n" value={fmtUSD(weekStats.fact)} />
+              <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
@@ -6439,7 +6439,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver mÃ¡s â–¾
+                    Ver más ▾
                   </button>
                 </div>
               </div>
@@ -6451,7 +6451,7 @@ suppressHydrationWarning
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por #orden o clienteâ€¦"
+                placeholder="Buscar por #orden o cliente…"
                 className="w-full rounded-2xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               {searchResults.length > 0 ? (
@@ -6475,13 +6475,13 @@ suppressHydrationWarning
 
 <div className="flex flex-wrap gap-2">
   <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-  <Btn onClick={() => showToast('error', 'Editar pedido por nÃºmero aÃºn estÃ¡ en demo.')}>
+  <Btn onClick={() => showToast('error', 'Editar pedido por número aún está en demo.')}>
     Editar pedido
   </Btn>
-  <Btn onClick={() => showToast('error', 'Registrar pago por nÃºmero aÃºn estÃ¡ en demo.')}>
+  <Btn onClick={() => showToast('error', 'Registrar pago por número aún está en demo.')}>
     Registrar pago
   </Btn>
-  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aÃºn estÃ¡ en demo.')}>
+  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aún está en demo.')}>
     Confirmar pagos
   </Btn>
   <Btn onClick={() => setMovementOpen(true)}>Movimiento</Btn>
@@ -6491,7 +6491,7 @@ suppressHydrationWarning
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             <Chip active={tray === 'all'} onClick={() => setTray('all')}>Todos</Chip>
             <Chip active={tray === 'pending_created'} onClick={() => setTray('pending_created')}>Pendientes</Chip>
-            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobaciÃ³n</Chip>
+            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobación</Chip>
             <Chip active={tray === 'queued'} onClick={() => setTray('queued')}>En cola</Chip>
             <Chip active={tray === 'kitchen'} onClick={() => setTray('kitchen')}>Cocina</Chip>
             <Chip active={tray === 'delivery'} onClick={() => setTray('delivery')}>Delivery</Chip>
@@ -6524,7 +6524,7 @@ suppressHydrationWarning
                   {tableOrders.length === 0 ? (
                     <tr>
                       <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={14}>
-                        Sin pedidos para este dÃ­a/filtro.
+                        Sin pedidos para este día/filtro.
                       </td>
                     </tr>
                   ) : (
@@ -6544,7 +6544,7 @@ suppressHydrationWarning
 
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || 'â€”');
+                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '?');
 
                       return (
                         <tr
@@ -6588,7 +6588,7 @@ suppressHydrationWarning
                                 </span>
                               </div>
                             ) : (
-                              <div className="mt-1 text-[#8A8A96]">â€”</div>
+                              <div className="mt-1 text-[#8A8A96]">?</div>
                             )}
                           </td>
                           <td className="px-2 py-2 leading-4">
@@ -6597,10 +6597,10 @@ suppressHydrationWarning
                           </td>
                           <td className="px-2 py-2">{deliveryLabel}</td>
                           <td className="px-2 py-2" title={o.fulfillment === 'delivery' ? (o.address || '') : ''}>
-                            {o.fulfillment === 'delivery' && (o.address?.trim() ? 'ðŸ“' : 'â€”')}
+                            {o.fulfillment === 'delivery' && (o.address?.trim() ? '??' : '?')}
                           </td>
                           <td className="px-2 py-2" title={o.notes?.trim() ? o.notes : ''}>
-                            {o.notes?.trim() ? 'ðŸ“' : 'â€”'}
+                            {o.notes?.trim() ? '??' : '?'}
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -6649,9 +6649,9 @@ suppressHydrationWarning
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[#F5F5F7]">AnÃ¡lisis de asesores</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Análisis de asesores</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cierres, facturaciÃ³n, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
+                      Revisa cierres, facturación, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
                     </div>
                   </div>
 
@@ -6699,11 +6699,11 @@ suppressHydrationWarning
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <Card title="Resumen General" className="p-3">
-                  <StatRow label="FacturaciÃ³n" value={fmtUSD(advisorCalculatedData.facturacion)} />
+                  <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
-                  <StatRow label="ComisiÃ³n estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
-                  <StatRow label="Ã“rdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
+                  <StatRow label="Comisión estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
                 <Card title="Pagos" className="p-3">
@@ -6720,12 +6720,12 @@ suppressHydrationWarning
 
                 <Card title="Pagos Pendientes" className="p-3">
                   <StatRow label="Total" value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)} highlightTone="warn" />
-                  <StatRow label="Ã“rdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
                 </Card>
 
-                <Card title="PerÃ­odo" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || 'â€”'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || 'â€”'} />
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '?'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '?'} />
                   <StatRow
                     label="Asesor"
                     value={
@@ -6758,7 +6758,7 @@ suppressHydrationWarning
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">FacturaciÃ³n</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación</div>
                     <div className="text-sm font-semibold text-emerald-400">{fmtUSD(advisorCalculatedData.facturacion)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">
@@ -6768,7 +6768,7 @@ suppressHydrationWarning
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
                           <th className="px-3 py-2 text-left font-medium">Origen</th>
-                          <th className="px-3 py-2 text-right font-medium">ComisiÃ³n</th>
+                          <th className="px-3 py-2 text-right font-medium">Comisión</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                         </tr>
                       </thead>
@@ -6776,7 +6776,7 @@ suppressHydrationWarning
                         {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                              Sin cierres entregados en el perÃ­odo.
+                              Sin cierres entregados en el período.
                             </td>
                           </tr>
                         ) : (
@@ -6879,7 +6879,7 @@ suppressHydrationWarning
                         {advisorCalculatedData.newClientOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin clientes nuevos en el perÃ­odo.
+                              Sin clientes nuevos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -7057,7 +7057,7 @@ suppressHydrationWarning
                   <div>
                     <div className="text-sm font-semibold text-[#F5F5F7]">Control de deliveries</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cantidad de deliveries, costo total, liquidaciÃ³n de internos y auditorÃ­a de externos.
+                      Revisa cantidad de deliveries, costo total, liquidación de internos y auditoría de externos.
                     </div>
                   </div>
 
@@ -7111,23 +7111,23 @@ suppressHydrationWarning
 
                 <Card title="Sin snapshot" className="p-3">
                   <StatRow
-                    label="Ã“rdenes"
+                    label="Órdenes"
                     value={deliveryCalculatedData.rows.filter((row) => row.costUsd <= 0).length}
                     highlightTone="warn"
                   />
                   <StatRow label="Sin asignar" value={deliveryCalculatedData.unassignedCount} highlightTone="warn" />
                 </Card>
 
-                <Card title="PerÃ­odo" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || 'â€”'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || 'â€”'} />
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '?'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '?'} />
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃ³n Internos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación Internos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.internalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -7143,7 +7143,7 @@ suppressHydrationWarning
                         {deliveryCalculatedData.internalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
-                              Sin deliveries internos en el perÃ­odo.
+                              Sin deliveries internos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -7165,7 +7165,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃ­a Externos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría Externos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.externalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -7182,7 +7182,7 @@ suppressHydrationWarning
                         {deliveryCalculatedData.externalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin deliveries externos en el perÃ­odo.
+                              Sin deliveries externos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -7215,9 +7215,9 @@ suppressHydrationWarning
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-3 py-2 text-left font-medium">Ãtem delivery</th>
+                        <th className="px-3 py-2 text-left font-medium">ítem delivery</th>
                         <th className="px-3 py-2 text-left font-medium">Tipo</th>
-                        <th className="px-3 py-2 text-left font-medium">AsignaciÃ³n</th>
+                        <th className="px-3 py-2 text-left font-medium">Asignación</th>
                         <th className="px-3 py-2 text-right font-medium">Km</th>
                         <th className="px-3 py-2 text-right font-medium">Costo</th>
                       </tr>
@@ -7226,7 +7226,7 @@ suppressHydrationWarning
                       {deliveryCalculatedData.rows.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
-                            Sin deliveries entregados en el perÃ­odo.
+                            Sin deliveries entregados en el período.
                           </td>
                         </tr>
                       ) : (
@@ -7254,7 +7254,7 @@ suppressHydrationWarning
                               ) : null}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : 'â€”'}
+                              {row.distanceKm != null ? row.distanceKm.toFixed(1) : '?'}
                             </td>
                             <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                           </tr>
@@ -7301,7 +7301,7 @@ suppressHydrationWarning
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃ³n por motorizado</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación por motorizado</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredInternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -7349,7 +7349,7 @@ suppressHydrationWarning
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">Ãtem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">ítem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Pago</th>
                             </tr>
                           </thead>
@@ -7357,7 +7357,7 @@ suppressHydrationWarning
                             {filteredDeliveryRows.filter((row) => row.mode === 'internal').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                                  Sin deliveries internos en el perÃ­odo.
+                                  Sin deliveries internos en el período.
                                 </td>
                               </tr>
                             ) : (
@@ -7412,7 +7412,7 @@ suppressHydrationWarning
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃ­a por empresa</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría por empresa</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredExternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -7462,7 +7462,7 @@ suppressHydrationWarning
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">Ãtem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">ítem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Km</th>
                               <th className="px-3 py-2 text-right font-medium">Costo</th>
                             </tr>
@@ -7471,7 +7471,7 @@ suppressHydrationWarning
                             {filteredDeliveryRows.filter((row) => row.mode === 'external').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                                  Sin deliveries externos en el perÃ­odo.
+                                  Sin deliveries externos en el período.
                                 </td>
                               </tr>
                             ) : (
@@ -7480,7 +7480,7 @@ suppressHydrationWarning
                                   <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
                                   <td className="px-3 py-2">{row.order.clientName}</td>
                                   <td className="px-3 py-2">{row.deliveryChargeLabel}</td>
-                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : 'â€”'}</td>
+                                  <td className="px-3 py-2 text-right">{row.distanceKm != null ? row.distanceKm.toFixed(1) : '?'}</td>
                                   <td className="px-3 py-2 text-right">{fmtUSD(row.costUsd)}</td>
                                 </tr>
                               ))
@@ -7541,7 +7541,7 @@ suppressHydrationWarning
                               >
                                 <td className="px-3 py-2">{partner.name}</td>
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
-                                <td className="px-3 py-2">{partner.whatsappPhone || 'â€”'}</td>
+                                <td className="px-3 py-2">{partner.whatsappPhone || '?'}</td>
                                 <td className="px-3 py-2">
                                   {(partner.rates ?? []).filter((rate) => rate.isActive).length}
                                 </td>
@@ -7569,7 +7569,7 @@ suppressHydrationWarning
     <input
       value={catalogSearch}
       onChange={(e) => setCatalogSearch(e.target.value)}
-      placeholder="Buscar nombre o SKUâ€¦"
+      placeholder="Buscar nombre o SKU?"
       className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96] md:max-w-[280px]"
     />
 
@@ -7589,7 +7589,7 @@ suppressHydrationWarning
 
   <div className="flex flex-wrap gap-2">
     <Btn onClick={() => setCreateCatalogOpen(true)}>
-      Nuevo Ã­tem
+      Nuevo ítem
     </Btn>
   </div>
 </div>
@@ -7615,7 +7615,7 @@ suppressHydrationWarning
                         <th className="w-[86px] px-2 py-3 text-left text-[11px] font-medium">Precio $</th>
                         <th className="w-[70px] px-2 py-3 text-left text-[11px] font-medium">Und/serv.</th>
                         <th className="w-[58px] px-2 py-3 text-left text-[11px] font-medium">Detalle</th>
-                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">LÃ­mite</th>
+                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">Límite</th>
                         <th className="w-[74px] px-2 py-3 text-left text-[11px] font-medium">Comp. combo</th>
                       </tr>
                     </thead>
@@ -7624,7 +7624,7 @@ suppressHydrationWarning
                       {filteredCatalogItems.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={12}>
-                            Sin datos de catÃ¡logo cargados aÃºn.
+                            Sin datos de catálogo cargados aún.
                           </td>
                         </tr>
                       ) : (
@@ -7655,7 +7655,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isActive ? (
-                                  <span className="text-emerald-400">SÃ­</span>
+                                  <span className="text-emerald-400">S?</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7691,7 +7691,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isDetailEditable ? (
-                                  <span className="text-[#FEEF00]">SÃ­</span>
+                                  <span className="text-[#FEEF00]">S?</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7703,7 +7703,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isComboComponentSelectable ? (
-                                  <span className="text-emerald-400">SÃ­</span>
+                                  <span className="text-emerald-400">S?</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7731,7 +7731,7 @@ suppressHydrationWarning
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
         <div className="text-sm font-semibold text-[#F5F5F7]">Bajo stock</div>
         <div className="mt-3 text-2xl font-semibold text-[#FEEF00]">{inventorySummary.lowStock}</div>
-        <div className="mt-1 text-xs text-[#8A8A96]">Por debajo del mÃ­nimo configurado</div>
+        <div className="mt-1 text-xs text-[#8A8A96]">Por debajo del mínimo configurado</div>
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -7796,9 +7796,9 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Empaque</th>
               <th className="px-3 py-3 text-left font-medium">Stock actual</th>
-              <th className="px-3 py-3 text-left font-medium">MÃ­nimo</th>
-              <th className="px-3 py-3 text-left font-medium">Ãšltimo movimiento</th>
-              <th className="px-3 py-3 text-left font-medium">AcciÃ³n</th>
+              <th className="px-3 py-3 text-left font-medium">Mínimo</th>
+              <th className="px-3 py-3 text-left font-medium">?ltimo movimiento</th>
+              <th className="px-3 py-3 text-left font-medium">Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -7818,7 +7818,7 @@ suppressHydrationWarning
 
                 return (
                   <tr key={item.id} className={`${zebra} border-b border-[#242433] align-top`}>
-                    <td className="px-3 py-3 text-[#8A8A96]">{item.sku || 'â€”'}</td>
+                    <td className="px-3 py-3 text-[#8A8A96]">{item.sku || '?'}</td>
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{item.name}</div>
                       <div className="mt-1 text-[11px] text-[#8A8A96]">{item.unitName}</div>
@@ -7852,7 +7852,7 @@ suppressHydrationWarning
                             item.packagingSize,
                             item.unitName
                           )
-                        : 'â€”'}
+                        : '?'}
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
                       {latestMovement ? (
@@ -7915,11 +7915,11 @@ suppressHydrationWarning
     <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="VES por USD"
-        value={activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : 'â€”'}
+        value={activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '?'}
       />
       <InfoCell
         label="Vigente desde"
-        value={activeExchangeRate ? fmtDateTimeES(activeExchangeRate.effectiveAt) : 'â€”'}
+        value={activeExchangeRate ? fmtDateTimeES(activeExchangeRate.effectiveAt) : '?'}
       />
     </div>
   </div>
@@ -7928,7 +7928,7 @@ suppressHydrationWarning
     <div className="text-sm font-semibold text-[#F5F5F7]">Actualizar tasa</div>
 
     <div className="mt-2 text-sm text-[#B7B7C2]">
-      Esta tasa recalcula precios base en el catÃ¡logo segÃºn la lÃ³gica actual.
+      Esta tasa recalcula precios base en el catálogo según la lógica actual.
     </div>
 
     <div className="mt-4 max-w-sm">
@@ -7966,11 +7966,11 @@ suppressHydrationWarning
               value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
             />
             <InfoCell
-              label={`Ingresos perÃƒÂ­odo (${currency})`}
+              label={`Ingresos período (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
             />
             <InfoCell
-              label={`Egresos perÃƒÂ­odo (${currency})`}
+              label={`Egresos período (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
             />
             <InfoCell
@@ -8006,12 +8006,12 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Cuenta</th>
               <th className="px-3 py-3 text-left font-medium">Moneda</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">InstituciÃƒÂ³n</th>
+              <th className="px-3 py-3 text-left font-medium">Institución</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos perÃƒÂ­odo</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos perÃƒÂ­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos período</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos período</th>
               <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
@@ -8051,8 +8051,8 @@ suppressHydrationWarning
                     </td>
                     <td className="px-3 py-3">{account.currencyCode}</td>
                     <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
-                    <td className="px-3 py-3">{account.institutionName || 'â€”'}</td>
-                    <td className="px-3 py-3">{account.ownerName || 'â€”'}</td>
+                    <td className="px-3 py-3">{account.institutionName || '?'}</td>
+                    <td className="px-3 py-3">{account.ownerName || '?'}</td>
                     <td className="px-3 py-3">
                       {account.isActive ? (
                         <span className="text-emerald-400">Activa</span>
@@ -8104,17 +8104,17 @@ suppressHydrationWarning
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoCell label="Total" value={String(clientStats.total)} />
           <InfoCell label="Activos" value={String(clientStats.active)} />
-          <InfoCell label="Con facturaciÃ³n" value={String(clientStats.withBilling)} />
+          <InfoCell label="Con facturación" value={String(clientStats.withBilling)} />
           <InfoCell label="Con nota de entrega" value={String(clientStats.withDeliveryNote)} />
           <InfoCell label="Con direcciones" value={String(clientStats.withAddresses)} />
         </div>
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo usarlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo usarlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>Guarda aquÃ­ la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
-          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorÃ­as que usan en la operaciÃ³n.</div>
+          <div>Guarda aquí la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
+          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorías que usan en la operación.</div>
           <div>Las dos direcciones recientes guardan solo texto + GPS, como me pediste, para no complicar el flujo.</div>
         </div>
       </div>
@@ -8136,7 +8136,7 @@ suppressHydrationWarning
           <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
             <tr>
               <th className="px-3 py-3 text-left font-medium">Cliente</th>
-              <th className="px-3 py-3 text-left font-medium">TelÃ©fono</th>
+              <th className="px-3 py-3 text-left font-medium">Teléfono</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Asesor principal</th>
               <th className="px-3 py-3 text-left font-medium">Etiquetas</th>
@@ -8185,12 +8185,12 @@ suppressHydrationWarning
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{client.notes}</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{client.phone || 'â€”'}</td>
-                    <td className="px-3 py-3">{client.clientType || 'â€”'}</td>
+                    <td className="px-3 py-3">{client.phone || '?'}</td>
+                    <td className="px-3 py-3">{client.clientType || '?'}</td>
                     <td className="px-3 py-3">
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
-                        : 'â€”'}
+                        : '?'}
                     </td>
                     <td className="px-3 py-3">
                       {tags.length > 0 ? (
@@ -8203,7 +8203,7 @@ suppressHydrationWarning
                           ) : null}
                         </div>
                       ) : (
-                        'â€”'
+                        '?'
                       )}
                     </td>
                     <td className="px-3 py-3">{hasBilling ? 'Cargado' : 'Pendiente'}</td>
@@ -8241,10 +8241,10 @@ suppressHydrationWarning
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo leerlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>AquÃ­ ves todos los ajustes administrativos registrados en las Ã³rdenes cargadas en el dashboard.</div>
-          <div>Un impacto negativo significa que la empresa asumiÃ³ un descuento o cortesÃ­a.</div>
+          <div>Aquí ves todos los ajustes administrativos registrados en las Órdenes cargadas en el dashboard.</div>
+          <div>Un impacto negativo significa que la empresa asumió un descuento o cortesía.</div>
           <div>Un impacto positivo significa un recargo o aumento sobre el valor original.</div>
         </div>
       </div>
@@ -8271,7 +8271,7 @@ suppressHydrationWarning
             { value: '', label: 'Todos' },
             ...adjustmentTypeOptions.map((value) => ({
               value,
-              label: value === 'item_price_override' ? 'Ajuste de precio por Ã­tem' : value,
+              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
             })),
           ]}
         />
@@ -8316,7 +8316,7 @@ suppressHydrationWarning
                     <td className="px-3 py-3">{row.clientName}</td>
                     <td className="px-3 py-3">
                       {row.adjustmentKind === 'admin_full_edit'
-                        ? 'ModificaciÃ³n admin'
+                        ? 'Modificación admin'
                         : row.adjustmentType === 'item_price_override'
                           ? 'Ajuste de precio'
                           : row.adjustmentType}
@@ -8326,18 +8326,18 @@ suppressHydrationWarning
                         {row.adjustmentKind === 'admin_full_edit'
                           ? row.changedFieldLabels.length > 0
                             ? row.changedFieldLabels.join(', ')
-                            : 'ModificaciÃ³n auditada'
+                            : 'Modificación auditada'
                           : row.productName}
                       </div>
                       {row.adjustmentKind === 'admin_full_edit' ? null : (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">
-                          {fmtUSD(row.originalUnitUsd)} â†’ {fmtUSD(row.overrideUnitUsd)}
-                          {row.qty > 0 ? ` Â· x${row.qty}` : ''}
+                          {fmtUSD(row.originalUnitUsd)} ? {fmtUSD(row.overrideUnitUsd)}
+                          {row.qty > 0 ? ` ? x${row.qty}` : ''}
                         </div>
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || 'â€”'}</div>
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '?'}</div>
                       {row.notes ? (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
                       ) : null}
@@ -8429,7 +8429,7 @@ suppressHydrationWarning
                     <div>
                       <div className="text-lg font-semibold text-[#F5F5F7]">{selectedCatalogItem.name}</div>
                       <div className="mt-1 text-xs text-[#8A8A96]" title={selectedCatalogItem.sku}>
-                        SKU: {selectedCatalogItem.sku || 'â€”'}
+                        SKU: {selectedCatalogItem.sku || '?'}
                       </div>
                     </div>
 
@@ -8466,7 +8466,7 @@ suppressHydrationWarning
 
                         {editIsDetailEditable ? (
                             <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-3 text-sm text-[#B7B7C2]">
-                            <span className="text-[#F5F5F7]">LÃ­mite actual:</span>{' '}
+                            <span className="text-[#F5F5F7]">Límite actual:</span>{' '}
                             {editDetailUnitsLimit || '0'} piezas seleccionables
                             </div>
                         ) : null}
@@ -8489,33 +8489,33 @@ suppressHydrationWarning
                       label="Descuento inventario"
                       value={
                         selectedCatalogItem.inventoryDeductionMode === 'composition'
-                          ? 'Por composiciÃ³n'
-                          : 'A sÃ­ mismo'
+                          ? 'Por composición'
+                          : 'A s? mismo'
                       }
                     />
-                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'SÃ­' : 'No'} />
-                    <InfoCell label="LÃ­mite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
+                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'S?' : 'No'} />
+                    <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
                     <InfoCell
                       label="Puede ser comp. combo"
-                      value={selectedCatalogItem.isComboComponentSelectable ? 'SÃ­' : 'No'}
+                      value={selectedCatalogItem.isComboComponentSelectable ? 'S?' : 'No'}
                     />
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-  <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo descuenta inventario</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">Cómo descuenta inventario</div>
 
   <div className="mt-3 text-sm text-[#B7B7C2]">
     {selectedCatalogItem.inventoryDeductionMode === 'composition'
-      ? 'Este producto descuenta por composiciÃ³n. La venta baja los componentes definidos en su receta.'
-      : 'Este producto descuenta a sÃ­ mismo. La venta bajarÃ¡ el stock de este mismo producto.'}
+      ? 'Este producto descuenta por composición. La venta baja los componentes definidos en su receta.'
+      : 'Este producto descuenta a sí mismo. La venta bajará el stock de este mismo producto.'}
   </div>
 
   {selectedCatalogItem.inventoryDeductionMode === 'composition' ? (
     <div className="mt-3 space-y-2">
       {selectedCatalogComponents.length === 0 ? (
         <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-          No hay componentes cargados todavÃ­a.
+          No hay componentes cargados todavía.
         </div>
       ) : (
         selectedCatalogComponents.map((pc) => (
@@ -8524,7 +8524,7 @@ suppressHydrationWarning
             className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
           >
             <span className="font-medium text-[#F5F5F7]">{pc.componentName}</span>
-            <span className="text-[#8A8A96]"> Â· {pc.quantity} und</span>
+            <span className="text-[#8A8A96]"> ? {pc.quantity} und</span>
           </div>
         ))
       )}
@@ -8564,30 +8564,30 @@ suppressHydrationWarning
     {selectedCatalogItem.isDetailEditable ? (
       <>
         <div>
-          Este Ã­tem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
+          Este ítem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
         </div>
         <div>
-          El asesor puede cargar piezas seleccionables sin superar el lÃ­mite mÃ¡ximo de{' '}
+          El asesor puede cargar piezas seleccionables sin superar el límite máximo de{' '}
           <span className="text-[#F5F5F7]">{selectedCatalogItem.detailUnitsLimit}</span>.
         </div>
         {selectedFixedComponents.length > 0 ? (
           <div>
-            AdemÃ¡s, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
+            Además, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
           </div>
         ) : null}
       </>
     ) : selectedCatalogItem.sku.startsWith('MIX_') ? (
       <div>
-        Este Ã­tem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
+        Este ítem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
       </div>
     ) : selectedCatalogComponents.length > 0 ? (
       <div>
-        Este Ã­tem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
+        Este ítem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
         Su receta debe descontar exactamente los componentes definidos abajo.
       </div>
     ) : (
       <div>
-        Este Ã­tem no tiene composiciÃ³n cargada todavÃ­a.
+        Este ítem no tiene composición cargada todavía.
       </div>
     )}
   </div>
@@ -8669,11 +8669,11 @@ suppressHydrationWarning
                         hint={
                           editInventoryDeductionMode === 'composition'
                             ? 'Este producto baja stock de un item interno distinto.'
-                            : 'La venta bajarÃƒÂ¡ stock de este mismo producto.'
+                            : 'La venta bajará stock de este mismo producto.'
                         }
                         options={[
-                          { value: 'self', label: 'A sÃ­ mismo' },
-                          { value: 'composition', label: 'Por composiciÃ³n' },
+                          { value: 'self', label: 'A s? mismo' },
+                          { value: 'composition', label: 'Por composición' },
                         ]}
                       />
                       <FieldInput
@@ -8688,7 +8688,7 @@ suppressHydrationWarning
                         onChange={setEditPackagingName}
                       />
                       <FieldInput
-                        label="TamaÃ±o empaque"
+                        label="Tamaño empaque"
                         value={editPackagingSize}
                         onChange={setEditPackagingSize}
                         type="text"
@@ -8700,11 +8700,11 @@ suppressHydrationWarning
                         type="text"
                       />
                       <FieldInput
-                        label="Stock mÃ­nimo"
+                        label="Stock mínimo"
                         value={editLowStockThreshold}
                         onChange={setEditLowStockThreshold}
                         type="text"
-                        hint="Cuando baje de este nÃƒÂºmero, quedarÃƒÂ¡ marcado como bajo stock."
+                        hint="Cuando baje de este número, quedará marcado como bajo stock."
                       />
                     </div>
                     {editInventoryEnabled && editInventoryDeductionMode === 'composition' ? (
@@ -8727,7 +8727,7 @@ suppressHydrationWarning
                         <div className="mt-3 space-y-3">
                           {editInventoryLinks.length === 0 ? (
                             <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
-                              Agrega al menos un item interno. Ejemplo: Mini tequeÃƒÂ±o crudo x 25.
+                              Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
                             </div>
                           ) : (
                             editInventoryLinks.map((row) => (
@@ -8742,7 +8742,7 @@ suppressHydrationWarning
                                       })
                                     }
                                     options={inventoryItemOptions}
-                                    hint="AquÃƒÂ­ eliges el stock real que va a bajar."
+                                    hint="Aquí eliges el stock real que va a bajar."
                                   />
                                   <FieldInput
                                     label="Cantidad"
@@ -8753,7 +8753,7 @@ suppressHydrationWarning
                                       })
                                     }
                                     type="text"
-                                    hint="Si un servicio trae 25 piezas, aquÃƒÂ­ va 25."
+                                    hint="Si un servicio trae 25 piezas, aqu� va 25."
                                   />
                                   <div className="flex items-end">
                                     <button
@@ -8776,7 +8776,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catÃ¡logo</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catálogo</div>
                     <div className="flex gap-2">
                       <button
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -8851,7 +8851,7 @@ suppressHydrationWarning
                       type="text"
                     />
                     <FieldInput
-                      label="LÃ­mite detalle"
+                      label="Límite detalle"
                       value={editDetailUnitsLimit}
                       onChange={setEditDetailUnitsLimit}
                       type="number"
@@ -8860,20 +8860,20 @@ suppressHydrationWarning
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">ComisiÃ³n</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión</div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldSelect
-                      label="Regla comisiÃ³n"
+                      label="Regla comisión"
                       value={editCommissionMode}
                       onChange={(v) => setEditCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
                       options={[
                         { value: 'default', label: 'Default' },
-                        { value: 'fixed_item', label: 'Fija por Ã­tem' },
+                        { value: 'fixed_item', label: 'Fija por ítem' },
                         { value: 'fixed_order', label: 'Fija por orden' },
                       ]}
                     />
                     <FieldInput
-                      label="Valor comisiÃ³n"
+                      label="Valor comisión"
                       value={editCommissionValue}
                       onChange={setEditCommissionValue}
                       type="text"
@@ -8881,7 +8881,7 @@ suppressHydrationWarning
                   </div>
                   <div className="mt-3">
                     <FieldInput
-                      label="Notas comisiÃ³n"
+                      label="Notas comisión"
                       value={editCommissionNotes}
                       onChange={setEditCommissionNotes}
                     />
@@ -8890,7 +8890,7 @@ suppressHydrationWarning
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃ³n</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
                     <button
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
                       onClick={addEditComponent}
@@ -8975,7 +8975,7 @@ suppressHydrationWarning
 
                 
                 <FieldCheckbox
-                  label="Cuenta para lÃ­mite"
+                  label="Cuenta para límite"
                   checked={row.countsTowardDetailLimit}
                   onChange={(v) =>
                     updateEditComponent(row.localId, {
@@ -9100,7 +9100,7 @@ suppressHydrationWarning
 
       <Drawer
         open={detailOpen}
-        title={selectedOrder ? `${selectedOrder.id} Â· ${selectedOrder.clientName}` : 'Detalle'}
+        title={selectedOrder ? `${selectedOrder.id} ? ${selectedOrder.clientName}` : 'Detalle'}
 onClose={() => {
   setDetailOpen(false);
   resetDeliveryAssignBox();
@@ -9121,8 +9121,8 @@ onClose={() => {
   <div className="flex items-start justify-between gap-3">
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#F5F5F7]">
-        <span>Orden #{selectedOrder.id} Â· {selectedOrder.clientName}</span>
-        <span className="text-[#8A8A96]">Â·</span>
+        <span>Orden #{selectedOrder.id} ? {selectedOrder.clientName}</span>
+        <span className="text-[#8A8A96]">?</span>
         <span>{fmtUSD(selectedOrder.totalUsd)}</span>
         <span className={paymentToneClass(selectedOrder.balanceUsd)}>
           {paymentLabel(selectedOrder.balanceUsd)}
@@ -9131,7 +9131,7 @@ onClose={() => {
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-[#8A8A96]">
         <span>{selectedOrder.advisorName}</span>
-        <span>Â·</span>
+        <span>?</span>
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
@@ -9182,7 +9182,7 @@ onClose={() => {
 
         <div className="mt-2 space-y-2 text-sm">
           {orderMainLinesForPreview(selectedOrder.lines).length === 0 ? (
-            <div className="text-[#B7B7C2]">Sin Ã­tems cargados.</div>
+            <div className="text-[#B7B7C2]">Sin ítems cargados.</div>
           ) : (
             orderMainLinesForPreview(selectedOrder.lines).map((line, idx) => (
               <div key={idx} className="leading-5">
@@ -9190,7 +9190,7 @@ onClose={() => {
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 10).map((t, i) => (
-                      <div key={i}>â€¢ {t}</div>
+                      <div key={i}>? {t}</div>
                     ))}
                   </div>
                 ) : null}
@@ -9320,7 +9320,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryDistanceKm != null
                 ? `${selectedOrder.editMeta.deliveryDistanceKm} km`
-                : 'â€”'}
+                : '?'}
             </div>
           </div>
 
@@ -9329,7 +9329,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryCostUsd != null
                 ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
-                : 'â€”'}
+                : '?'}
             </div>
             {selectedOrder.editMeta?.deliveryCostSource ? (
               <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
@@ -9341,20 +9341,20 @@ onClose={() => {
       {selectedOrder.fulfillment === 'delivery' ? (
         <>
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">DirecciÃ³n</div>
+            <div className="text-[10px] text-[#8A8A96]">Dirección</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
-              {selectedOrder.address || 'â€”'}
+              {selectedOrder.address || '?'}
             </div>
           </div>
 
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">AsignaciÃ³n actual</div>
+            <div className="text-[10px] text-[#8A8A96]">Asignación actual</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.riderName
                 ? `Interno: ${selectedOrder.riderName}`
                 : selectedOrder.externalPartner
                   ? `Externo: ${selectedOrder.externalPartner}`
-                  : 'Sin asignaciÃ³n'}
+                  : 'Sin asignación'}
             </div>
           </div>
         </>
@@ -9492,7 +9492,7 @@ onClose={() => {
           {selectedOrder.editMeta?.paymentRequiresChange
             ? selectedOrder.editMeta?.paymentChangeFor
               ? `Para ${selectedOrder.editMeta.paymentChangeFor} ${selectedOrder.editMeta.paymentChangeCurrency || ''}`
-              : 'SÃ­'
+              : 'S?'
             : 'No'}
         </div>
       </div>
@@ -9518,10 +9518,10 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {rp.currencyCode} {rp.amount.toFixed(2)} Â· {fmtUSD(rp.usdEquivalent)}
+                    {rp.currencyCode} {rp.amount.toFixed(2)} ? {fmtUSD(rp.usdEquivalent)}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {rp.moneyAccountName} Â· {fmtDateTimeES(rp.createdAt)}
+                    {rp.moneyAccountName} ? {fmtDateTimeES(rp.createdAt)}
                   </div>
                 </div>
 
@@ -9551,17 +9551,17 @@ onClose={() => {
 
                 <div>
                   <span className="text-[#8A8A96]">Referencia:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.referenceCode || 'â€”'}</span>
+                  <span className="text-[#F5F5F7]">{rp.referenceCode || '?'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Pagador:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.payerName || 'â€”'}</span>
+                  <span className="text-[#F5F5F7]">{rp.payerName || '?'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Tasa:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : 'â€”'}</span>
+                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '?'}</span>
                 </div>
               </div>
 
@@ -9600,7 +9600,7 @@ onClose={() => {
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
     <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-      {selectedOrder.notes?.trim() ? selectedOrder.notes : 'â€”'}
+      {selectedOrder.notes?.trim() ? selectedOrder.notes : '?'}
     </div>
   </div>
 ) : null}
@@ -9629,7 +9629,7 @@ onClose={() => {
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
-              : 'Ãtem';
+              : 'ítem';
           const qty = Number(payload.qty ?? 0);
           const changedFieldLabels = getAdjustmentChangedFields(payload).map(mapAdjustmentFieldLabel);
           const isAdminFullEdit = payload.kind === 'admin_full_edit';
@@ -9643,13 +9643,13 @@ onClose={() => {
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
                     {isAdminFullEdit
-                      ? 'ModificaciÃ³n administrativa'
+                      ? 'Modificación administrativa'
                       : adjustment.adjustmentType === 'item_price_override'
-                      ? 'Ajuste de precio por Ã­tem'
+                      ? 'Ajuste de precio por ítem'
                       : adjustment.adjustmentType}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {fmtDateTimeES(adjustment.createdAt)} Â· {adjustment.createdByUserId}
+                    {fmtDateTimeES(adjustment.createdAt)} ? {adjustment.createdByUserId}
                   </div>
                 </div>
 
@@ -9662,18 +9662,18 @@ onClose={() => {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
                   <div className="text-[10px] text-[#8A8A96]">Motivo</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || 'â€”'}</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || '?'}</div>
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">{isAdminFullEdit ? 'Cambios detectados' : 'Ãtem'}</div>
+                  <div className="text-[10px] text-[#8A8A96]">{isAdminFullEdit ? 'Cambios detectados' : 'ítem'}</div>
                   <div className="mt-1 text-sm text-[#F5F5F7]">
                     {isAdminFullEdit
                       ? changedFieldLabels.length > 0
                         ? changedFieldLabels.join(', ')
-                        : 'ModificaciÃ³n auditada'
+                        : 'Modificación auditada'
                       : productName}
-                    {!isAdminFullEdit && qty > 0 ? ` Â· x${qty}` : ''}
+                    {!isAdminFullEdit && qty > 0 ? ` ? x${qty}` : ''}
                   </div>
                 </div>
               </div>
@@ -9828,7 +9828,7 @@ onClick={() => {
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleClearDeliveryAssignment(selectedOrder)}
       >
-        Quitar asignaciÃ³n
+        Quitar asignación
       </button>
     ) : null}
   </>
@@ -9866,7 +9866,7 @@ onClick={() => {
         }}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">â€” cuenta â€”</option>
+        <option value="">? cuenta ?</option>
         {moneyAccounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name} ({a.currencyCode})
@@ -9944,7 +9944,7 @@ deliveryAssignMode === 'internal' ? (
         onChange={(e) => setDeliveryAssignDriverId(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">â€” seleccionar â€”</option>
+        <option value="">? seleccionar ?</option>
         {drivers.map((d) => (
           <option key={d.id} value={d.id}>
             {d.fullName}
@@ -9986,7 +9986,7 @@ deliveryAssignMode === 'external' ? (
         onChange={(e) => handleDeliveryAssignPartnerChange(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">â€” seleccionar â€”</option>
+        <option value="">? seleccionar ?</option>
         {deliveryPartners.filter((p) => p.isActive).map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -10014,7 +10014,7 @@ deliveryAssignMode === 'external' ? (
           </span>
         </>
       ) : (
-        'Sin tarifa automÃ¡tica para esa distancia.'
+        'Sin tarifa automática para esa distancia.'
       )}
     </div>
 
@@ -10084,7 +10084,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar aprobaciÃ³n
+          Confirmar aprobación
         </button>
       ) : null}
 
@@ -10093,7 +10093,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar re-aprobaciÃ³n
+          Confirmar re-aprobación
         </button>
       ) : null}
 
@@ -10102,7 +10102,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReturn(selectedOrder)}
         >
-          Enviar devoluciÃ³n
+          Enviar devolución
         </button>
       ) : null}
 
@@ -10111,7 +10111,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReviewChanges(selectedOrder, true)}
         >
-          Confirmar aprobaciÃ³n
+          Confirmar aprobación
         </button>
       ) : null}
 
@@ -10201,7 +10201,7 @@ deliveryAssignMode === 'external' ? (
         ? `Interno: ${selectedOrder.riderName}`
         : selectedOrder.externalPartner
           ? `Externo: ${selectedOrder.externalPartner}`
-          : 'Sin asignaciÃ³n visible'}
+          : 'Sin asignación visible'}
     </div>
 
     <div className="mt-2 space-y-2">
@@ -10314,7 +10314,7 @@ deliveryAssignMode === 'external' ? (
         value={cancelOrderReason}
         onChange={(e) => setCancelOrderReason(e.target.value)}
         rows={3}
-        placeholder="Motivo de cancelaciÃ³n (obligatorio)"
+        placeholder="Motivo de cancelación (obligatorio)"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
@@ -10324,7 +10324,7 @@ deliveryAssignMode === 'external' ? (
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleCancelOrder(selectedOrder)}
       >
-        Confirmar cancelaciÃ³n
+        Confirmar cancelación
       </button>
 
       <button
@@ -10348,7 +10348,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={quickCatalogOpen}
-  title="ActualizaciÃ³n rÃ¡pida de catÃ¡logo"
+  title="Actualización rápida de catálogo"
   onClose={() => setQuickCatalogOpen(false)}
   widthClass="w-[820px]"
 >
@@ -10360,11 +10360,11 @@ deliveryAssignMode === 'external' ? (
             Montos fuente por bloque
           </div>
           <div className="mt-1 text-sm text-[#B7B7C2]">
-            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rÃ¡pido de un Ã­tem al siguiente.
+            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rápido de un ítem al siguiente.
           </div>
         </div>
 
-        <SmallBadge label={`${quickCatalogRows.length} Ã­tems`} tone="muted" />
+        <SmallBadge label={`${quickCatalogRows.length} ítems`} tone="muted" />
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
@@ -10373,7 +10373,7 @@ deliveryAssignMode === 'external' ? (
             <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#121218] text-[#B7B7C2]">
               <tr>
                 <th className="w-[84px] px-3 py-3 text-left font-medium">SKU</th>
-                <th className="px-3 py-3 text-left font-medium">Ãtem</th>
+                <th className="px-3 py-3 text-left font-medium">Ítem</th>
                 <th className="w-[78px] px-3 py-3 text-left font-medium">Moneda</th>
                 <th className="w-[170px] px-3 py-3 text-left font-medium">Monto fuente</th>
               </tr>
@@ -10384,7 +10384,7 @@ deliveryAssignMode === 'external' ? (
                   key={row.productId}
                   className={`${idx % 2 === 0 ? 'bg-[#0F0F14]' : 'bg-[#13131A]'} border-b border-[#242433]`}
                 >
-                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || 'â€”'}</td>
+                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || '—'}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.name}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.sourcePriceCurrency}</td>
                   <td className="px-3 py-2">
@@ -10430,7 +10430,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={createCatalogOpen}
-  title="Nuevo Ã­tem de catÃ¡logo"
+  title="Nuevo ítem de catálogo"
   onClose={() => setCreateCatalogOpen(false)}
   widthClass="w-[720px]"
 >
@@ -10474,7 +10474,7 @@ deliveryAssignMode === 'external' ? (
         />
 
         <FieldInput
-          label="LÃ­mite detalle"
+          label="Límite detalle"
           value={newDetailUnitsLimit}
           onChange={setNewDetailUnitsLimit}
           type="number"
@@ -10483,18 +10483,18 @@ deliveryAssignMode === 'external' ? (
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <FieldSelect
-          label="Regla comisiÃ³n"
+          label="Regla comisión"
           value={newCommissionMode}
           onChange={(v) => setNewCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
           options={[
             { value: 'default', label: 'Default' },
-            { value: 'fixed_item', label: 'Fija por Ã­tem' },
+            { value: 'fixed_item', label: 'Fija por ítem' },
             { value: 'fixed_order', label: 'Fija por orden' },
           ]}
         />
 
         <FieldInput
-          label="Valor comisiÃ³n"
+          label="Valor comisión"
           value={newCommissionValue}
           onChange={setNewCommissionValue}
           type="text"
@@ -10502,7 +10502,7 @@ deliveryAssignMode === 'external' ? (
       </div>
 
       <div className="mt-3">
-        <FieldInput label="Notas comisiÃ³n" value={newCommissionNotes} onChange={setNewCommissionNotes} />
+        <FieldInput label="Notas comisión" value={newCommissionNotes} onChange={setNewCommissionNotes} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3">
@@ -10540,11 +10540,11 @@ deliveryAssignMode === 'external' ? (
             hint={
               newInventoryDeductionMode === 'composition'
                 ? 'Este producto baja stock de un item interno distinto.'
-                : 'La venta bajarÃƒÂ¡ stock de este mismo producto.'
+                : 'La venta bajará stock de este mismo producto.'
             }
             options={[
-              { value: 'self', label: 'A sÃ­ mismo' },
-              { value: 'composition', label: 'Por composiciÃ³n' },
+              { value: 'self', label: 'A sí mismo' },
+              { value: 'composition', label: 'Por composición' },
             ]}
           />
           <FieldInput
@@ -10554,14 +10554,14 @@ deliveryAssignMode === 'external' ? (
             hint="Ejemplo: pieza, kg, bandeja o vasito."
           />
           <FieldInput label="Empaque" value={newPackagingName} onChange={setNewPackagingName} />
-          <FieldInput label="TamaÃ±o empaque" value={newPackagingSize} onChange={setNewPackagingSize} type="text" />
+          <FieldInput label="Tamaño empaque" value={newPackagingSize} onChange={setNewPackagingSize} type="text" />
           <FieldInput label="Stock actual" value={newCurrentStockUnits} onChange={setNewCurrentStockUnits} type="text" />
           <FieldInput
-            label="Stock mÃ­nimo"
+            label="Stock mínimo"
             value={newLowStockThreshold}
             onChange={setNewLowStockThreshold}
             type="text"
-            hint="Cuando baje de este nÃºmero, quedarÃ¡ marcado como bajo stock."
+            hint="Cuando baje de este número, quedará marcado como bajo stock."
           />
         </div>
         {newInventoryEnabled && newInventoryDeductionMode === 'composition' ? (
@@ -10585,7 +10585,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-3 space-y-3">
               {newInventoryLinks.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
-                  Agrega al menos un item interno. Ejemplo: Mini tequeÃ±o crudo x 25.
+                  Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
                 </div>
               ) : (
                 newInventoryLinks.map((row) => (
@@ -10600,7 +10600,7 @@ deliveryAssignMode === 'external' ? (
                           })
                         }
                         options={inventoryItemOptions}
-                        hint="AquÃ­ eliges el stock real que va a bajar."
+                        hint="Aquí eliges el stock real que va a bajar."
                       />
                       <FieldInput
                         label="Cantidad"
@@ -10611,7 +10611,7 @@ deliveryAssignMode === 'external' ? (
                           })
                         }
                         type="text"
-                        hint="Si un servicio trae 25 piezas, aquÃ­ va 25."
+                        hint="Si un servicio trae 25 piezas, aquí va 25."
                       />
                       <div className="flex items-end">
                         <button
@@ -10657,7 +10657,7 @@ deliveryAssignMode === 'external' ? (
         onClick={handleCreateCatalogItem}
         disabled={createCatalogSaving}
       >
-        {createCatalogSaving ? 'Creando...' : 'Crear Ã­tem'}
+        {createCatalogSaving ? 'Creando...' : 'Crear ítem'}
       </button>
     </div>
   </div>
@@ -10687,7 +10687,7 @@ deliveryAssignMode === 'external' ? (
 
           <div className="space-y-2 rounded-2xl border border-[#242433] bg-[#121218] p-3">
             <div className="text-sm font-semibold">{movementType}</div>
-            <div className="text-sm text-[#B7B7C2]">(Demo) AquÃ­ irÃ­an: cuenta(s), moneda, monto, fecha, referencia.</div>
+            <div className="text-sm text-[#B7B7C2]">(Demo) Aquí irían: cuenta(s), moneda, monto, fecha, referencia.</div>
             <button
   className="w-full rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={() => showToast('success', 'Guardar movimiento (demo).')}
@@ -10757,8 +10757,8 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
-              <InfoCell label="InstituciÃƒÂ³n" value={selectedAccount.institutionName || 'â€”'} />
-              <InfoCell label="Titular" value={selectedAccount.ownerName || 'â€”'} />
+              <InfoCell label="Institución" value={selectedAccount.institutionName || '?'} />
+              <InfoCell label="Titular" value={selectedAccount.ownerName || '?'} />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -10773,9 +10773,9 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-2 py-2 text-left font-medium">NÂ° Orden</th>
+                        <th className="px-2 py-2 text-left font-medium">N? Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
-                        <th className="px-2 py-2 text-left font-medium">NÂ° Control</th>
+                        <th className="px-2 py-2 text-left font-medium">N? Control</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -10803,10 +10803,10 @@ deliveryAssignMode === 'external' ? (
                               </div>
                               <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
                             </td>
-                            <td className="px-2 py-2">{linkedOrder?.clientName || 'â€”'}</td>
-                            <td className="px-2 py-2">{movement.orderId ?? 'â€”'}</td>
+                            <td className="px-2 py-2">{linkedOrder?.clientName || '?'}</td>
+                            <td className="px-2 py-2">{movement.orderId ?? '?'}</td>
                             <td className="px-2 py-2">
-                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || 'â€”'}
+                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '?'}
                             </td>
                             <td className="px-2 py-2">
                               {movement.referenceCode || movement.paymentReportId || movement.id}
@@ -10854,7 +10854,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃƒÂ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -10927,7 +10927,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃƒÂ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -11018,7 +11018,7 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || 'â€”'} />
+                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '?'} />
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
@@ -11312,7 +11312,7 @@ deliveryAssignMode === 'external' ? (
             <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
             <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
             <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
-            <FieldInput label="Stock mÃ­nimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+            <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
             <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
               <input
                 type="checkbox"
@@ -11381,7 +11381,7 @@ deliveryAssignMode === 'external' ? (
             <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
             <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
             <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
-            <FieldInput label="Stock mÃ­nimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+            <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
             <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
               <input
                 type="checkbox"
@@ -11428,7 +11428,7 @@ deliveryAssignMode === 'external' ? (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="SKU" value={selectedInventoryProduct.sku || 'â€”'} />
+                <InfoCell label="SKU" value={selectedInventoryProduct.sku || '?'} />
                 <InfoCell
                   label="Stock actual"
                   value={fmtInventoryUnits(
@@ -11453,10 +11453,10 @@ deliveryAssignMode === 'external' ? (
                   }
                   options={[
                     { value: 'inbound', label: 'Entrada' },
-                    { value: 'damage', label: 'AverÃ­a' },
+                    { value: 'damage', label: 'Avería' },
                     { value: 'waste', label: 'Merma' },
                     { value: 'manual_adjustment', label: 'Ajuste manual' },
-                    { value: 'stock_count', label: 'Conteo fÃ­sico' },
+                    { value: 'stock_count', label: 'Conteo físico' },
                   ]}
                 />
                 <FieldInput
@@ -11522,7 +11522,7 @@ deliveryAssignMode === 'external' ? (
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-              <div className="text-sm font-semibold text-[#F5F5F7]">Ãšltimos movimientos</div>
+              <div className="text-sm font-semibold text-[#F5F5F7]">?ltimos movimientos</div>
               <div className="mt-3 space-y-2">
                 {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? [])
                   .slice(0, 8)
@@ -11569,7 +11569,7 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
       <Drawer
         open={inventoryProductionOpen}
-        title={selectedInventoryProduct ? `ProducciÃ³n: ${selectedInventoryProduct.name}` : 'ProducciÃ³n'}
+        title={selectedInventoryProduct ? `Producción: ${selectedInventoryProduct.name}` : 'Producción'}
         onClose={() => {
           setInventoryProductionOpen(false);
           resetInventoryProductionForm();
@@ -11579,7 +11579,7 @@ deliveryAssignMode === 'external' ? (
         {!selectedInventoryProduct ? (
           <div className="text-sm text-[#B7B7C2]">Sin producto seleccionado.</div>
         ) : selectedInventoryRecipes.length === 0 ? (
-          <div className="text-sm text-[#B7B7C2]">Este producto todavÃ­a no tiene una receta activa.</div>
+          <div className="text-sm text-[#B7B7C2]">Este producto todavía no tiene una receta activa.</div>
         ) : (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -11592,8 +11592,8 @@ deliveryAssignMode === 'external' ? (
                     value: String(recipe.id),
                     label:
                       recipe.recipeKind === 'packaging'
-                        ? `Empaque Â· ${recipe.outputQuantityUnits} und`
-                        : `ProducciÃ³n Â· ${recipe.outputQuantityUnits} und`,
+                        ? `Empaque ? ${recipe.outputQuantityUnits} und`
+                        : `Producción · ${recipe.outputQuantityUnits} und`,
                   }))}
                 />
                 <FieldInput
@@ -11645,7 +11645,7 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Resultado</div>
               <div className="mt-3 text-sm text-[#B7B7C2]">
-                Se sumarÃ¡n{' '}
+                Se sumarán{' '}
                 <span className="font-semibold text-[#F5F5F7]">
                   {fmtInventoryUnits(
                     (selectedInventoryRecipe?.outputQuantityUnits ?? 0) *
@@ -11675,7 +11675,7 @@ deliveryAssignMode === 'external' ? (
                 onClick={handleCreateInventoryProduction}
                 disabled={inventoryProductionSaving}
               >
-                {inventoryProductionSaving ? 'Guardando...' : 'Registrar producciÃ³n'}
+                {inventoryProductionSaving ? 'Guardando...' : 'Registrar producción'}
               </button>
             </div>
           </div>
@@ -11725,17 +11725,17 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="TelÃ©fono" value={selectedClient.phone || 'â€”'} />
+                <InfoCell label="Teléfono" value={selectedClient.phone || '?'} />
                 <InfoCell
                   label="Asesor principal"
                   value={
                     selectedClient.primaryAdvisorId
                       ? advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor'
-                      : 'â€”'
+                      : '?'
                   }
                 />
-                <InfoCell label="CumpleaÃ±os" value={selectedClient.birthDate || 'â€”'} />
-                <InfoCell label="Fecha importante" value={selectedClient.importantDate || 'â€”'} />
+                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '?'} />
+                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '?'} />
               </div>
 
               {normalizeClientTags(selectedClient.crmTags).length > 0 ? (
@@ -11760,25 +11760,25 @@ deliveryAssignMode === 'external' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="RazÃ³n social" value={selectedClient.billingCompanyName || 'â€”'} />
-                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || 'â€”'} />
-                  <InfoCell label="TelÃ©fono" value={selectedClient.billingPhone || 'â€”'} />
-                  <InfoCell label="DirecciÃ³n fiscal" value={selectedClient.billingAddress || 'â€”'} />
+                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '?'} />
+                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '?'} />
+                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '?'} />
+                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '?'} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || 'â€”'} />
+                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '?'} />
                   <InfoCell
                     label="Documento"
-                    value={selectedClient.deliveryNoteDocumentId || 'â€”'}
+                    value={selectedClient.deliveryNoteDocumentId || '?'}
                   />
-                  <InfoCell label="TelÃ©fono" value={selectedClient.deliveryNotePhone || 'â€”'} />
+                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '?'} />
                   <InfoCell
-                    label="DirecciÃ³n"
-                    value={selectedClient.deliveryNoteAddress || 'â€”'}
+                    label="Dirección"
+                    value={selectedClient.deliveryNoteAddress || '?'}
                   />
                 </div>
               </div>
@@ -11792,10 +11792,10 @@ deliveryAssignMode === 'external' ? (
                 ) : (
                   normalizeClientAddresses(selectedClient.recentAddresses).map((address, idx) => (
                     <div key={`${selectedClient.id}-${idx}`} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-                      <div className="text-xs text-[#8A8A96]">DirecciÃ³n {idx + 1}</div>
-                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || 'â€”'}</div>
+                      <div className="text-xs text-[#8A8A96]">Dirección {idx + 1}</div>
+                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '?'}</div>
                       <div className="mt-3 text-xs text-[#8A8A96]">GPS</div>
-                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || 'â€”'}</div>
+                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '?'}</div>
                     </div>
                   ))
                 )}
@@ -11813,17 +11813,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃ¡sicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="TelÃ©fono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: 'â€” sin asesor principal â€”' },
+                  { value: '', label: '? sin asesor principal ?' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -11853,7 +11853,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="CumpleaÃ±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -11875,14 +11875,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="RazÃ³n social"
+                  label="Razón social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="TelÃ©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -11903,12 +11903,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="TelÃ©fono"
+                  label="Teléfono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -11925,7 +11925,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -11938,7 +11938,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -11978,17 +11978,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃ¡sicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="TelÃ©fono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: 'â€” sin asesor principal â€”' },
+                  { value: '', label: '? sin asesor principal ?' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -12018,7 +12018,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="CumpleaÃ±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -12040,14 +12040,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="RazÃ³n social"
+                  label="Razón social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="TelÃ©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -12068,12 +12068,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="TelÃ©fono"
+                  label="Teléfono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -12090,7 +12090,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -12103,7 +12103,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -12144,8 +12144,8 @@ deliveryAssignMode === 'external' ? (
     <div className="flex items-center justify-between rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3">
       <div className="text-sm text-[#B7B7C2]">
         {orderEditorMode === 'edit'
-          ? 'EstÃ¡s modificando una orden existente.'
-          : 'EstÃ¡s creando una orden nueva.'}
+          ? 'Estás modificando una orden existente.'
+          : 'Estás creando una orden nueva.'}
       </div>
 
       <span
@@ -12184,7 +12184,7 @@ deliveryAssignMode === 'external' ? (
       value={createOrderAdvisorUserId}
       onChange={setCreateOrderAdvisorUserId}
       options={[
-        { value: '', label: 'â€” seleccionar â€”' },
+        { value: '', label: '? seleccionar ?' },
         ...advisors.map((advisor) => ({
           value: advisor.userId,
           label: advisor.isActive
@@ -12224,7 +12224,7 @@ deliveryAssignMode === 'external' ? (
   <input
     value={createOrderClientSearch}
     onChange={(e) => setCreateOrderClientSearch(e.target.value)}
-    placeholder="Buscar por nombre o telÃ©fonoâ€¦"
+    placeholder="Buscar por nombre o teléfono?"
     className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
   />
 
@@ -12252,10 +12252,10 @@ deliveryAssignMode === 'external' ? (
                 {createOrderSelectedClientName}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tel: {createOrderSelectedClientPhone || 'â€”'}
+                Tel: {createOrderSelectedClientPhone || '?'}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tipo: {createOrderSelectedClientType || 'â€”'}
+                Tipo: {createOrderSelectedClientType || '?'}
               </div>
             </div>
           ) : null}
@@ -12278,7 +12278,7 @@ deliveryAssignMode === 'external' ? (
                       onClick={() => handleApplyClientAddress(address)}
                       className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
                     >
-                      Usar direcciÃ³n {idx + 1}
+                      Usar dirección {idx + 1}
                     </button>
                   ))}
                 </div>
@@ -12299,7 +12299,7 @@ deliveryAssignMode === 'external' ? (
                     {client.fullName}
                   </div>
                   <div className="mt-1 text-xs text-[#B7B7C2]">
-                    Tel: {client.phone || 'â€”'} Â· Tipo: {client.clientType || 'â€”'}
+                    Tel: {client.phone || '?'} ? Tipo: {client.clientType || '?'}
                   </div>
                 </button>
               ))}
@@ -12315,7 +12315,7 @@ deliveryAssignMode === 'external' ? (
     />
 
     <FieldInput
-      label="TelÃ©fono"
+      label="Teléfono"
       value={createOrderNewClientPhone}
       onChange={setCreateOrderNewClientPhone}
     />
@@ -12456,11 +12456,11 @@ deliveryAssignMode === 'external' ? (
                 {item.name}
               </div>
 <div className="mt-1 text-xs text-[#8A8A96]">
-  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : 'â€”'} Â·{' '}
+  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '?'} ?{' '}
   {item.sourcePriceCurrency === 'VES'
     ? fmtBs(item.basePriceBs)
     : fmtUSD(item.basePriceUsd)}
-  {item.sku ? ` Â· ${item.sku}` : ''}
+  {item.sku ? ` ? ${item.sku}` : ''}
 </div>
             </button>
           ))
@@ -12499,7 +12499,7 @@ deliveryAssignMode === 'external' ? (
 
         {createOrderDraftItems.length === 0 ? (
           <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-            Sin Ã­tems cargados.
+            Sin ítems cargados.
           </div>
         ) : (
           <div className="mt-4 space-y-2">
@@ -12512,12 +12512,12 @@ deliveryAssignMode === 'external' ? (
 
 <div>
   <div className="text-sm font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
-  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || 'â€”'}</div>
+  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || '?'}</div>
 
   {item.editableDetailLines.length > 0 ? (
     <div className="mt-2 space-y-1 text-xs text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
-        <div key={detailIdx}>â€¢ {detail}</div>
+        <div key={detailIdx}>? {detail}</div>
       ))}
     </div>
   ) : null}
@@ -12737,13 +12737,13 @@ deliveryAssignMode === 'external' ? (
       {createOrderReceiverIsDifferent ? (
         <div className="grid grid-cols-2 gap-3">
           <FieldInput
-            label="QuiÃ©n recibe"
+            label="Quién recibe"
             value={createOrderReceiverName}
             onChange={setCreateOrderReceiverName}
           />
 
           <FieldInput
-            label="TelÃ©fono recibe"
+            label="Teléfono recibe"
             value={createOrderReceiverPhone}
             onChange={setCreateOrderReceiverPhone}
           />
@@ -12754,7 +12754,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 min-w-0">
       {createOrderFulfillment === 'delivery' ? (
         <div className="min-w-0">
-          <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+          <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
           <textarea
             value={createOrderDeliveryAddress}
             onChange={(e) => setCreateOrderDeliveryAddress(e.target.value)}
@@ -12785,7 +12785,7 @@ deliveryAssignMode === 'external' ? (
 </div>
 
 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 md:col-span-2">
-  <div className="text-sm font-semibold text-[#F5F5F7]">E. CondiciÃ³n de pago</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">E. Condición de pago</div>
 
   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 
@@ -12795,7 +12795,7 @@ deliveryAssignMode === 'external' ? (
   onChange={setCreateOrderPaymentMethod}
   options={[
 { value: 'pending', label: 'Pendiente' },
-{ value: 'payment_mobile', label: 'Pago mÃ³vil' },
+{ value: 'payment_mobile', label: 'Pago móvil' },
 { value: 'transfer', label: 'Transferencia' },
 { value: 'cash_usd', label: 'Efectivo USD' },
 { value: 'cash_ves', label: 'Efectivo Bs' },
@@ -12892,7 +12892,7 @@ deliveryAssignMode === 'external' ? (
   {createOrderHasInvoice ? (
     <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
       <FieldInput
-        label="Nombre / razÃ³n social"
+        label="Nombre / razón social"
         value={createOrderInvoiceCompanyName}
         onChange={setCreateOrderInvoiceCompanyName}
       />
@@ -12902,7 +12902,7 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderInvoiceTaxId}
       />
       <FieldInput
-        label="TelÃ©fono"
+        label="Teléfono"
         value={createOrderInvoicePhone}
         onChange={setCreateOrderInvoicePhone}
       />
@@ -12913,7 +12913,7 @@ deliveryAssignMode === 'external' ? (
         type="text"
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
         <textarea
           value={createOrderInvoiceAddress}
           onChange={(e) => setCreateOrderInvoiceAddress(e.target.value)}
@@ -12937,12 +12937,12 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderDeliveryNoteDocumentId}
       />
       <FieldInput
-        label="TelÃ©fono"
+        label="Teléfono"
         value={createOrderDeliveryNotePhone}
         onChange={setCreateOrderDeliveryNotePhone}
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
         <textarea
           value={createOrderDeliveryNoteAddress}
           onChange={(e) => setCreateOrderDeliveryNoteAddress(e.target.value)}
@@ -12986,7 +12986,7 @@ deliveryAssignMode === 'external' ? (
   ) : null}
 
   <div className="mt-3">
-    <label className="mb-1 block text-xs text-[#8A8A96]">ObservaciÃ³n de pago</label>
+    <label className="mb-1 block text-xs text-[#8A8A96]">Observación de pago</label>
     <textarea
       value={createOrderPaymentNote}
       onChange={(e) => setCreateOrderPaymentNote(e.target.value)}
@@ -13003,7 +13003,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="Cliente"
-        value={createOrderSelectedClientName || createOrderNewClientName || 'â€”'}
+        value={createOrderSelectedClientName || createOrderNewClientName || '?'}
       />
 
       <InfoCell label="Tipo" value={createOrderFulfillment} />
@@ -13014,16 +13014,16 @@ deliveryAssignMode === 'external' ? (
         label="Asesor"
         value={
           createOrderSource === 'advisor'
-            ? advisors.find((advisor) => advisor.userId === createOrderAdvisorUserId)?.fullName || 'â€”'
+            ? advisors.find((advisor) => advisor.userId === createOrderAdvisorUserId)?.fullName || '?'
             : currentOperatorLabel
         }
       />
 
-      <InfoCell label="Ãtems" value={String(createOrderDraftItems.length)} />
+      <InfoCell label="ítems" value={String(createOrderDraftItems.length)} />
 
       <InfoCell
         label="Tasa"
-        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : 'â€”'}
+        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : '?'}
       />
 
       <InfoCell
@@ -13054,7 +13054,7 @@ deliveryAssignMode === 'external' ? (
           value={
             createOrderPaymentChangeFor
               ? `Para ${createOrderPaymentChangeFor} ${createOrderPaymentChangeCurrency === 'USD' ? 'USD' : 'Bs'}`
-              : 'SÃ­'
+              : 'S?'
           }
         />
       ) : null}
@@ -13062,28 +13062,28 @@ deliveryAssignMode === 'external' ? (
       {createOrderHasDeliveryNote ? (
         <InfoCell
           label="Nota de entrega"
-          value="SÃ­"
+          value="S?"
         />
       ) : null}
 
       {createOrderHasInvoice ? (
         <InfoCell
           label="Factura"
-          value="SÃ­"
+          value="S?"
         />
       ) : null}
 
       {createOrderDiscountEnabled && createOrderDiscountPctNumber > 0 ? (
         <InfoCell
           label="Descuento"
-          value={`${createOrderDiscountPctNumber}% Â· -${fmtBs(createOrderDiscountAmountBs)}`}
+          value={`${createOrderDiscountPctNumber}% ? -${fmtBs(createOrderDiscountAmountBs)}`}
         />
       ) : null}
 
       {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
         <InfoCell
           label="IVA"
-          value={`${createOrderInvoiceTaxPctNumber}% Â· +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
+          value={`${createOrderInvoiceTaxPctNumber}% ? +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
         />
       ) : null}
     </div>
@@ -13114,7 +13114,7 @@ deliveryAssignMode === 'external' ? (
             <span className="text-[#F5F5F7]">Datos factura:</span>{' '}
             {[createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
               .filter(Boolean)
-              .join(' | ') || 'â€”'}
+              .join(' | ') || '?'}
           </div>
         ) : null}
 
@@ -13128,7 +13128,7 @@ deliveryAssignMode === 'external' ? (
               createOrderDeliveryNotePhone,
             ]
               .filter(Boolean)
-              .join(' | ') || 'â€”'}
+              .join(' | ') || '?'}
           </div>
         ) : null}
       </div>
@@ -13136,39 +13136,39 @@ deliveryAssignMode === 'external' ? (
 
     <div className="space-y-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
       <div className={createOrderHasClient ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasClient ? 'âœ… Cliente listo' : 'âŒ Falta cliente'}
+        {createOrderHasClient ? '? Cliente listo' : '? Falta cliente'}
       </div>
 
       <div className={createOrderHasItems ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasItems ? 'âœ… Pedido con Ã­tems' : 'âŒ Falta agregar Ã­tems'}
+        {createOrderHasItems ? '? Pedido con ítems' : '? Falta agregar ítems'}
       </div>
 
       <div className={createOrderHasValidAdvisor ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasValidAdvisor ? 'âœ… Asesor vÃ¡lido' : 'âŒ Debes seleccionar asesor'}
+        {createOrderHasValidAdvisor ? '? Asesor válido' : 'Debes seleccionar asesor'}
       </div>
 
       <div className={createOrderHasDeliveryAddress ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryAddress ? 'âœ… Entrega vÃ¡lida' : 'âŒ Falta direcciÃ³n de delivery'}
+        {createOrderHasDeliveryAddress ? '? Entrega válida' : '? Falta dirección de delivery'}
       </div>
       <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryChargeItem ? 'âœ… Ãtem de delivery cargado' : 'âŒ Falta producto de delivery'}
+        {createOrderHasDeliveryChargeItem ? '? ítem de delivery cargado' : 'Falta producto de delivery'}
       </div>
     </div>
 
 {orderEditorMode === 'edit' && selectedOrder?.status === 'queued' ? (
   <div className="rounded-xl border border-orange-500/40 bg-[#0B0B0D] p-3 text-sm text-orange-400">
-    Esta ediciÃ³n marcarÃ¡ la orden para <span className="font-semibold">re-aprobaciÃ³n</span>.
+    Esta edición marcará la orden para <span className="font-semibold">re-aprobación</span>.
   </div>
 ) : null}
 
 {orderEditorMode === 'edit' && isAdmin && selectedOrder && !['created', 'queued'].includes(selectedOrder.status) ? (
   <div className="rounded-xl border border-sky-500/30 bg-[#0B0B0D] p-3 text-sm text-sky-200">
-    <div className="font-semibold text-sky-300">ModificaciÃ³n administrativa</div>
+    <div className="font-semibold text-sky-300">Modificación administrativa</div>
     <div className="mt-1">
-      EstÃ¡s editando una orden avanzada o cerrada. El cambio quedarÃ¡ auditado y requiere motivo obligatorio.
+      Estás editando una orden avanzada o cerrada. El cambio quedará auditado y requiere motivo obligatorio.
     </div>
     <div className="mt-3">
-      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificaciÃ³n</label>
+      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificación</label>
       <textarea
         value={adminEditReason}
         onChange={(e) => setAdminEditReason(e.target.value)}
@@ -13258,9 +13258,9 @@ deliveryAssignMode === 'external' ? (
   <div className="space-y-4">
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="grid grid-cols-3 gap-3">
-        <InfoCell label="Producto" value={createOrderConfigProductName || 'â€”'} />
+        <InfoCell label="Producto" value={createOrderConfigProductName || '?'} />
         <InfoCell label="Cant." value={String(createOrderConfigQty)} />
-        <InfoCell label="LÃ­mite" value={String(createOrderConfigLimit || 0)} />
+        <InfoCell label="Límite" value={String(createOrderConfigLimit || 0)} />
       </div>
 
       <div className="mt-3 grid grid-cols-[1fr_120px] gap-3">
@@ -13291,7 +13291,7 @@ deliveryAssignMode === 'external' ? (
     </div>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃ³n</div>
+      <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
 
       {createOrderConfigSelectableOptions.length === 0 ? (
         <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
@@ -13313,7 +13313,7 @@ return (
         {option.name}
       </div>
       <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
-        {option.sku || 'â€”'}
+        {option.sku || '?'}
       </div>
     </div>
 
@@ -13366,7 +13366,7 @@ return (
   className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={handleConfirmCreateOrderConfig}
 >
-  {createOrderConfigEditingLocalId ? 'Guardar Ã­tem' : 'Confirmar'}
+  {createOrderConfigEditingLocalId ? 'Guardar ítem' : 'Confirmar'}
 </button>
     </div>
   </div>
@@ -13392,6 +13392,8 @@ return (
     </div>
   );
 }
+
+
 
 
 
