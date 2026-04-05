@@ -1493,12 +1493,12 @@ function ComponentCard({
           <div>
             <div className="text-[#8A8A96]">Cuenta límite</div>
             <div className="mt-1 text-[#F5F5F7]">
-              {pc.countsTowardDetailLimit ? 'S?' : 'No'}
+              {pc.countsTowardDetailLimit ? 'Sí' : 'No'}
             </div>
           </div>
           <div>
             <div className="text-[#8A8A96]">Requerido</div>
-            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'S?' : 'No'}</div>
+            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'Sí' : 'No'}</div>
           </div>
         </div>
       ) : (
@@ -7655,7 +7655,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isActive ? (
-                                  <span className="text-emerald-400">S?</span>
+                                  <span className="text-emerald-400">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7691,7 +7691,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isDetailEditable ? (
-                                  <span className="text-[#FEEF00]">S?</span>
+                                  <span className="text-[#FEEF00]">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -7703,7 +7703,7 @@ suppressHydrationWarning
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isComboComponentSelectable ? (
-                                  <span className="text-emerald-400">S?</span>
+                                  <span className="text-emerald-400">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -8493,11 +8493,11 @@ suppressHydrationWarning
                           : 'A s? mismo'
                       }
                     />
-                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'S?' : 'No'} />
+                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
                     <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
                     <InfoCell
                       label="Puede ser comp. combo"
-                      value={selectedCatalogItem.isComboComponentSelectable ? 'S?' : 'No'}
+                      value={selectedCatalogItem.isComboComponentSelectable ? 'Sí' : 'No'}
                     />
                   </div>
                 </div>
@@ -9492,7 +9492,7 @@ onClose={() => {
           {selectedOrder.editMeta?.paymentRequiresChange
             ? selectedOrder.editMeta?.paymentChangeFor
               ? `Para ${selectedOrder.editMeta.paymentChangeFor} ${selectedOrder.editMeta.paymentChangeCurrency || ''}`
-              : 'S?'
+              : 'Sí'
             : 'No'}
         </div>
       </div>
@@ -13054,7 +13054,7 @@ deliveryAssignMode === 'external' ? (
           value={
             createOrderPaymentChangeFor
               ? `Para ${createOrderPaymentChangeFor} ${createOrderPaymentChangeCurrency === 'USD' ? 'USD' : 'Bs'}`
-              : 'S?'
+              : 'Sí'
           }
         />
       ) : null}
@@ -13062,14 +13062,14 @@ deliveryAssignMode === 'external' ? (
       {createOrderHasDeliveryNote ? (
         <InfoCell
           label="Nota de entrega"
-          value="S?"
+          value="Sí"
         />
       ) : null}
 
       {createOrderHasInvoice ? (
         <InfoCell
           label="Factura"
-          value="S?"
+          value="Sí"
         />
       ) : null}
 
@@ -13392,8 +13392,6 @@ return (
     </div>
   );
 }
-
-
 
 
 
