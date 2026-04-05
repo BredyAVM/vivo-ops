@@ -1779,29 +1779,23 @@ export async function toggleCatalogItemActiveAction(input: {
 }
 
 export async function createInventoryMovementAction(input: {
-  productId: number;
+  inventoryItemId: number;
   movementType:
     | 'inbound'
     | 'damage'
     | 'waste'
     | 'manual_adjustment'
     | 'stock_count';
-  packagingQuantity: number | null;
-  unitQuantityExtra: number | null;
   quantityUnits: number;
   reasonCode: string | null;
   notes: string | null;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
-  const productId = toSafeNumber(input.productId, 0);
+  const inventoryItemId = toSafeNumber(input.inventoryItemId, 0);
   const quantityUnits = toSafeNumber(input.quantityUnits, 0);
-  const packagingQuantity =
-    input.packagingQuantity == null ? null : Math.max(0, toSafeNumber(input.packagingQuantity, 0));
-  const unitQuantityExtra =
-    input.unitQuantityExtra == null ? null : Math.max(0, toSafeNumber(input.unitQuantityExtra, 0));
 
-  if (productId <= 0) throw new Error('Producto inválido.');
+  if (inventoryItemId <= 0) throw new Error('Item de inventario inválido.');
   if (!['inbound', 'damage', 'waste', 'manual_adjustment', 'stock_count'].includes(input.movementType)) {
     throw new Error('Movimiento inválido.');
   }
@@ -1809,17 +1803,17 @@ export async function createInventoryMovementAction(input: {
     throw new Error('Cantidad inválida.');
   }
 
-  const { data: product, error: productError } = await supabase
-    .from('products')
+  const { data: inventoryItem, error: inventoryItemError } = await supabase
+    .from('inventory_items')
     .select('id, current_stock_units')
-    .eq('id', productId)
+    .eq('id', inventoryItemId)
     .single();
 
-  if (productError || !product) {
-    throw new Error(productError?.message || 'No se pudo cargar el producto.');
+  if (inventoryItemError || !inventoryItem) {
+    throw new Error(inventoryItemError?.message || 'No se pudo cargar el item de inventario.');
   }
 
-  const currentStock = toSafeNumber(product.current_stock_units, 0);
+  const currentStock = toSafeNumber(inventoryItem.current_stock_units, 0);
   const signedDelta =
     input.movementType === 'inbound'
       ? quantityUnits
@@ -1835,11 +1829,9 @@ export async function createInventoryMovementAction(input: {
   const { error: movementError } = await supabase
     .from('inventory_movements')
     .insert({
-      product_id: productId,
+      inventory_item_id: inventoryItemId,
       movement_type: input.movementType,
       quantity_units: quantityUnits,
-      packaging_quantity: packagingQuantity,
-      unit_quantity_extra: unitQuantityExtra,
       reason_code: input.reasonCode?.trim() ? input.reasonCode.trim() : null,
       notes: input.notes?.trim() ? input.notes.trim() : null,
       order_id: null,
@@ -1849,11 +1841,11 @@ export async function createInventoryMovementAction(input: {
   if (movementError) throw new Error(movementError.message);
 
   const { error: stockError } = await supabase
-    .from('products')
+    .from('inventory_items')
     .update({
       current_stock_units: nextStock,
     })
-    .eq('id', productId);
+    .eq('id', inventoryItemId);
 
   if (stockError) throw new Error(stockError.message);
 
@@ -1877,7 +1869,7 @@ export async function createInventoryProductionAction(input: {
 
   const { data: recipe, error: recipeError } = await supabase
     .from('inventory_recipes')
-    .select('id, output_product_id, recipe_kind, output_quantity_units, notes, is_active')
+    .select('id, output_inventory_item_id, recipe_kind, output_quantity_units, notes, is_active')
     .eq('id', recipeId)
     .single();
 
@@ -1891,7 +1883,7 @@ export async function createInventoryProductionAction(input: {
 
   const { data: components, error: componentsError } = await supabase
     .from('inventory_recipe_components')
-    .select('id, input_product_id, quantity_units, sort_order')
+    .select('id, input_inventory_item_id, quantity_units, sort_order')
     .eq('recipe_id', recipeId)
     .order('sort_order', { ascending: true });
 
@@ -1903,46 +1895,48 @@ export async function createInventoryProductionAction(input: {
     throw new Error('La receta no tiene componentes cargados.');
   }
 
-  const inputProductIds = Array.from(
-    new Set((components ?? []).map((component) => Number(component.input_product_id)).filter((id) => id > 0))
+  const inputInventoryItemIds = Array.from(
+    new Set((components ?? []).map((component) => Number(component.input_inventory_item_id)).filter((id) => id > 0))
   );
 
-  const allProductIds = Array.from(new Set([...inputProductIds, Number(recipe.output_product_id)]));
+  const allInventoryItemIds = Array.from(
+    new Set([...inputInventoryItemIds, Number(recipe.output_inventory_item_id)])
+  );
 
-  const { data: products, error: productsError } = await supabase
-    .from('products')
+  const { data: inventoryItems, error: inventoryItemsError } = await supabase
+    .from('inventory_items')
     .select('id, name, current_stock_units')
-    .in('id', allProductIds);
+    .in('id', allInventoryItemIds);
 
-  if (productsError) {
-    throw new Error(productsError.message);
+  if (inventoryItemsError) {
+    throw new Error(inventoryItemsError.message);
   }
 
-  const productById = new Map((products ?? []).map((product) => [Number(product.id), product]));
-  const outputProduct = productById.get(Number(recipe.output_product_id));
+  const inventoryItemById = new Map((inventoryItems ?? []).map((item) => [Number(item.id), item]));
+  const outputInventoryItem = inventoryItemById.get(Number(recipe.output_inventory_item_id));
 
-  if (!outputProduct) {
-    throw new Error('No se pudo cargar el producto resultante.');
+  if (!outputInventoryItem) {
+    throw new Error('No se pudo cargar el item resultante.');
   }
 
   const componentRows = (components ?? []).map((component) => {
-    const inputProductId = Number(component.input_product_id);
-    const inputProduct = productById.get(inputProductId);
+    const inputInventoryItemId = Number(component.input_inventory_item_id);
+    const inputInventoryItem = inventoryItemById.get(inputInventoryItemId);
     const baseQuantity = toSafeNumber(component.quantity_units, 0);
     const quantityUnits = baseQuantity * batchMultiplier;
 
-    if (!inputProduct) {
+    if (!inputInventoryItem) {
       throw new Error('No se pudo cargar un insumo de la receta.');
     }
 
-    const currentStock = toSafeNumber(inputProduct.current_stock_units, 0);
+    const currentStock = toSafeNumber(inputInventoryItem.current_stock_units, 0);
     if (currentStock < quantityUnits) {
-      throw new Error(`Stock insuficiente en ${inputProduct.name}.`);
+      throw new Error(`Stock insuficiente en ${inputInventoryItem.name}.`);
     }
 
     return {
-      productId: inputProductId,
-      productName: String(inputProduct.name || 'Insumo'),
+      inventoryItemId: inputInventoryItemId,
+      inventoryItemName: String(inputInventoryItem.name || 'Insumo'),
       quantityUnits,
       nextStock: currentStock - quantityUnits,
     };
@@ -1953,7 +1947,7 @@ export async function createInventoryProductionAction(input: {
     throw new Error('La receta tiene una salida inválida.');
   }
 
-  const outputCurrentStock = toSafeNumber(outputProduct.current_stock_units, 0);
+  const outputCurrentStock = toSafeNumber(outputInventoryItem.current_stock_units, 0);
   const outputNextStock = outputCurrentStock + outputQuantityUnits;
   const notes = input.notes?.trim() || null;
   const recipeLabel = recipe.recipe_kind === 'packaging' ? 'Empaque' : 'Producción';
@@ -1962,15 +1956,13 @@ export async function createInventoryProductionAction(input: {
     const { error: movementError } = await supabase
       .from('inventory_movements')
       .insert({
-        product_id: component.productId,
+        inventory_item_id: component.inventoryItemId,
         movement_type: recipe.recipe_kind === 'packaging' ? 'pack_out' : 'production_out',
         quantity_units: component.quantityUnits,
-        packaging_quantity: null,
-        unit_quantity_extra: null,
         reason_code: 'recipe_output',
         notes:
           notes ??
-          `${recipeLabel}: ${outputProduct.name}`,
+          `${recipeLabel}: ${outputInventoryItem.name}`,
         order_id: null,
         created_by_user_id: user.id,
       });
@@ -1978,9 +1970,9 @@ export async function createInventoryProductionAction(input: {
     if (movementError) throw new Error(movementError.message);
 
     const { error: stockError } = await supabase
-      .from('products')
+      .from('inventory_items')
       .update({ current_stock_units: component.nextStock })
-      .eq('id', component.productId);
+      .eq('id', component.inventoryItemId);
 
     if (stockError) throw new Error(stockError.message);
   }
@@ -1988,15 +1980,13 @@ export async function createInventoryProductionAction(input: {
   const { error: outputMovementError } = await supabase
     .from('inventory_movements')
     .insert({
-      product_id: Number(recipe.output_product_id),
+      inventory_item_id: Number(recipe.output_inventory_item_id),
       movement_type: recipe.recipe_kind === 'packaging' ? 'pack_in' : 'production_in',
       quantity_units: outputQuantityUnits,
-      packaging_quantity: null,
-      unit_quantity_extra: null,
       reason_code: 'recipe_output',
       notes:
         notes ??
-        `${recipeLabel}: ${outputProduct.name}`,
+        `${recipeLabel}: ${outputInventoryItem.name}`,
       order_id: null,
       created_by_user_id: user.id,
     });
@@ -2004,9 +1994,9 @@ export async function createInventoryProductionAction(input: {
   if (outputMovementError) throw new Error(outputMovementError.message);
 
   const { error: outputStockError } = await supabase
-    .from('products')
+    .from('inventory_items')
     .update({ current_stock_units: outputNextStock })
-    .eq('id', Number(recipe.output_product_id));
+    .eq('id', Number(recipe.output_inventory_item_id));
 
   if (outputStockError) throw new Error(outputStockError.message);
 

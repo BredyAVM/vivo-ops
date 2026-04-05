@@ -194,9 +194,23 @@ type RawProductRow = {
   low_stock_threshold: number | string | null;
 };
 
+type RawInventoryItemRow = {
+  id: number;
+  name: string;
+  inventory_kind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  unit_name: string;
+  packaging_name: string | null;
+  packaging_size: number | string | null;
+  current_stock_units: number | string;
+  low_stock_threshold: number | string | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+};
+
 type RawInventoryMovementRow = {
   id: number;
-  product_id: number;
+  inventory_item_id: number;
   movement_type:
     | 'inbound'
     | 'sale_out'
@@ -209,8 +223,6 @@ type RawInventoryMovementRow = {
     | 'pack_out'
     | 'pack_in';
   quantity_units: number | string;
-  packaging_quantity: number | string | null;
-  unit_quantity_extra: number | string | null;
   reason_code: string | null;
   notes: string | null;
   order_id: number | null;
@@ -220,7 +232,7 @@ type RawInventoryMovementRow = {
 
 type RawInventoryRecipeRow = {
   id: number;
-  output_product_id: number;
+  output_inventory_item_id: number;
   recipe_kind: 'production' | 'packaging';
   output_quantity_units: number | string;
   notes: string | null;
@@ -231,7 +243,7 @@ type RawInventoryRecipeRow = {
 type RawInventoryRecipeComponentRow = {
   id: number;
   recipe_id: number;
-  input_product_id: number;
+  input_inventory_item_id: number;
   quantity_units: number | string;
   sort_order: number | string;
 };
@@ -1172,15 +1184,47 @@ const { data: ordersData, error: ordersError } = await supabase
     `)
     .order('id', { ascending: true });
 
+  const { data: inventoryItemsData, error: inventoryItemsError } = await supabase
+    .from('inventory_items')
+    .select(`
+      id,
+      name,
+      inventory_kind,
+      unit_name,
+      packaging_name,
+      packaging_size,
+      current_stock_units,
+      low_stock_threshold,
+      is_active,
+      notes,
+      created_at
+    `)
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  if (inventoryItemsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando inventario interno</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los items internos de inventario.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryItemsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const { data: inventoryMovementsData, error: inventoryMovementsError } = await supabase
     .from('inventory_movements')
     .select(`
       id,
-      product_id,
+      inventory_item_id,
       movement_type,
       quantity_units,
-      packaging_quantity,
-      unit_quantity_extra,
       reason_code,
       notes,
       order_id,
@@ -1226,7 +1270,7 @@ const { data: ordersData, error: ordersError } = await supabase
     .from('inventory_recipes')
     .select(`
       id,
-      output_product_id,
+      output_inventory_item_id,
       recipe_kind,
       output_quantity_units,
       notes,
@@ -1256,7 +1300,7 @@ const { data: ordersData, error: ordersError } = await supabase
     .select(`
       id,
       recipe_id,
-      input_product_id,
+      input_inventory_item_id,
       quantity_units,
       sort_order
     `)
@@ -1366,13 +1410,25 @@ const { data: ordersData, error: ordersError } = await supabase
     lowStockThreshold: p.low_stock_threshold == null ? null : toNumber(p.low_stock_threshold, 0),
   }));
 
+  const inventoryItems = ((inventoryItemsData ?? []) as RawInventoryItemRow[]).map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    inventoryKind: row.inventory_kind,
+    unitName: row.unit_name ?? 'pieza',
+    packagingName: row.packaging_name ?? null,
+    packagingSize: row.packaging_size == null ? null : toNumber(row.packaging_size, 0),
+    currentStockUnits: toNumber(row.current_stock_units, 0),
+    lowStockThreshold: row.low_stock_threshold == null ? null : toNumber(row.low_stock_threshold, 0),
+    isActive: Boolean(row.is_active),
+    notes: row.notes ?? null,
+    createdAt: row.created_at,
+  }));
+
   const inventoryMovements = ((inventoryMovementsData ?? []) as RawInventoryMovementRow[]).map((row) => ({
     id: Number(row.id),
-    productId: Number(row.product_id),
+    inventoryItemId: Number(row.inventory_item_id),
     movementType: row.movement_type,
     quantityUnits: toNumber(row.quantity_units, 0),
-    packagingQuantity: row.packaging_quantity == null ? null : toNumber(row.packaging_quantity, 0),
-    unitQuantityExtra: row.unit_quantity_extra == null ? null : toNumber(row.unit_quantity_extra, 0),
     reasonCode: row.reason_code ?? null,
     notes: row.notes ?? null,
     orderId: row.order_id == null ? null : Number(row.order_id),
@@ -1382,7 +1438,7 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const inventoryRecipes = ((inventoryRecipesData ?? []) as RawInventoryRecipeRow[]).map((row) => ({
     id: Number(row.id),
-    outputProductId: Number(row.output_product_id),
+    outputInventoryItemId: Number(row.output_inventory_item_id),
     recipeKind: row.recipe_kind,
     outputQuantityUnits: toNumber(row.output_quantity_units, 0),
     notes: row.notes ?? null,
@@ -1393,7 +1449,7 @@ const { data: ordersData, error: ordersError } = await supabase
   const inventoryRecipeComponents = ((inventoryRecipeComponentsData ?? []) as RawInventoryRecipeComponentRow[]).map((row) => ({
     id: Number(row.id),
     recipeId: Number(row.recipe_id),
-    inputProductId: Number(row.input_product_id),
+    inputInventoryItemId: Number(row.input_inventory_item_id),
     quantityUnits: toNumber(row.quantity_units, 0),
     sortOrder: toNumber(row.sort_order, 0),
   }));
@@ -1712,6 +1768,7 @@ currentUser={{
       initialOrders={initialOrders}
       moneyAccounts={moneyAccounts}
       moneyMovements={moneyMovements}
+      inventoryItems={inventoryItems}
       inventoryMovements={inventoryMovements}
       inventoryRecipes={inventoryRecipes}
       inventoryRecipeComponents={inventoryRecipeComponents}

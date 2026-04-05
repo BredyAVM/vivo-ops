@@ -364,9 +364,24 @@ type CatalogItem = {
   lowStockThreshold: number | null;
 };
 
+type InventoryItem = {
+  id: number;
+  sku?: string;
+  name: string;
+  inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
+  unitName: string;
+  packagingName: string | null;
+  packagingSize: number | null;
+  currentStockUnits: number;
+  lowStockThreshold: number | null;
+  isActive: boolean;
+  notes: string | null;
+  createdAt: string;
+};
+
 type InventoryMovementItem = {
   id: number;
-  productId: number;
+  inventoryItemId: number;
   movementType:
     | 'inbound'
     | 'sale_out'
@@ -379,8 +394,6 @@ type InventoryMovementItem = {
     | 'pack_out'
     | 'pack_in';
   quantityUnits: number;
-  packagingQuantity: number | null;
-  unitQuantityExtra: number | null;
   reasonCode: string | null;
   notes: string | null;
   orderId: number | null;
@@ -390,7 +403,7 @@ type InventoryMovementItem = {
 
 type InventoryRecipeItem = {
   id: number;
-  outputProductId: number;
+  outputInventoryItemId: number;
   recipeKind: 'production' | 'packaging';
   outputQuantityUnits: number;
   notes: string | null;
@@ -401,7 +414,7 @@ type InventoryRecipeItem = {
 type InventoryRecipeComponentItem = {
   id: number;
   recipeId: number;
-  inputProductId: number;
+  inputInventoryItemId: number;
   quantityUnits: number;
   sortOrder: number;
 };
@@ -1713,6 +1726,7 @@ export default function MasterDashboardClient({
   initialOrders,
   moneyAccounts,
   moneyMovements = [],
+  inventoryItems = [],
   inventoryMovements = [],
   inventoryRecipes = [],
   inventoryRecipeComponents = [],
@@ -1729,6 +1743,7 @@ export default function MasterDashboardClient({
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
   moneyMovements?: MoneyMovementItem[];
+  inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovementItem[];
   inventoryRecipes?: InventoryRecipeItem[];
   inventoryRecipeComponents?: InventoryRecipeComponentItem[];
@@ -3677,7 +3692,7 @@ const openInventoryMovementDrawer = (productId: number) => {
 
 const openInventoryProductionDrawer = (productId: number) => {
   setSelectedInventoryProductId(productId);
-  const recipes = (inventoryRecipesByOutputProductId.get(productId) ?? []).filter((recipe) => recipe.isActive);
+  const recipes = (inventoryRecipesByOutputItemId.get(productId) ?? []).filter((recipe) => recipe.isActive);
   setSelectedInventoryRecipeId(recipes[0]?.id ?? null);
   setInventoryProductionBatches('1');
   setInventoryProductionNotes('');
@@ -3702,10 +3717,8 @@ const handleCreateInventoryMovement = async () => {
     }
 
     await createInventoryMovementAction({
-      productId: selectedInventoryProduct.id,
+      inventoryItemId: selectedInventoryProduct.id,
       movementType: inventoryMovementType,
-      packagingQuantity: safePackagingQty,
-      unitQuantityExtra: safeUnitQty,
       quantityUnits,
       reasonCode: inventoryMovementReasonCode.trim() || null,
       notes: inventoryMovementNotes.trim() || null,
@@ -4904,18 +4917,12 @@ const selectedPaymentReportAccount =
     return new Map(catalogItems.map((item) => [item.id, item]));
   }, [catalogItems]);
 
-  const inventoryItems = useMemo(
-    () => catalogItems.filter((item) => item.inventoryEnabled && item.isInventoryItem),
-    [catalogItems]
-  );
-
   const filteredInventoryItems = useMemo(() => {
     const term = inventorySearch.trim().toLowerCase();
     if (!term) return inventoryItems;
     return inventoryItems.filter(
       (item) =>
         item.name.toLowerCase().includes(term) ||
-        item.sku.toLowerCase().includes(term) ||
         item.inventoryKind.toLowerCase().includes(term)
     );
   }, [inventoryItems, inventorySearch]);
@@ -4925,12 +4932,16 @@ const selectedPaymentReportAccount =
     [inventoryItems, selectedInventoryProductId]
   );
 
-  const inventoryRecipesByOutputProductId = useMemo(() => {
+  const inventoryItemById = useMemo(() => {
+    return new Map(inventoryItems.map((item) => [item.id, item]));
+  }, [inventoryItems]);
+
+  const inventoryRecipesByOutputItemId = useMemo(() => {
     const map = new Map<number, InventoryRecipeItem[]>();
     for (const recipe of inventoryRecipes) {
-      const list = map.get(recipe.outputProductId) ?? [];
+      const list = map.get(recipe.outputInventoryItemId) ?? [];
       list.push(recipe);
-      map.set(recipe.outputProductId, list);
+      map.set(recipe.outputInventoryItemId, list);
     }
     return map;
   }, [inventoryRecipes]);
@@ -4951,9 +4962,9 @@ const selectedPaymentReportAccount =
   const selectedInventoryRecipes = useMemo(
     () =>
       selectedInventoryProduct
-        ? (inventoryRecipesByOutputProductId.get(selectedInventoryProduct.id) ?? []).filter((recipe) => recipe.isActive)
+        ? (inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ?? []).filter((recipe) => recipe.isActive)
         : [],
-    [selectedInventoryProduct, inventoryRecipesByOutputProductId]
+    [selectedInventoryProduct, inventoryRecipesByOutputItemId]
   );
 
   const selectedInventoryRecipe = useMemo(
@@ -4972,12 +4983,12 @@ const selectedPaymentReportAccount =
     [selectedInventoryRecipe, inventoryRecipeComponentsByRecipeId]
   );
 
-  const inventoryMovementsByProductId = useMemo(() => {
+  const inventoryMovementsByItemId = useMemo(() => {
     const map = new Map<number, InventoryMovementItem[]>();
     for (const movement of inventoryMovements) {
-      const list = map.get(movement.productId) ?? [];
+      const list = map.get(movement.inventoryItemId) ?? [];
       list.push(movement);
-      map.set(movement.productId, list);
+      map.set(movement.inventoryItemId, list);
     }
     return map;
   }, [inventoryMovements]);
@@ -7451,8 +7462,8 @@ suppressHydrationWarning
         <table className="w-full text-[12px]">
           <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
             <tr>
-              <th className="px-3 py-3 text-left font-medium">SKU</th>
-              <th className="px-3 py-3 text-left font-medium">Producto</th>
+              <th className="px-3 py-3 text-left font-medium">ID</th>
+              <th className="px-3 py-3 text-left font-medium">Item</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Empaque</th>
               <th className="px-3 py-3 text-left font-medium">Stock actual</th>
@@ -7471,7 +7482,7 @@ suppressHydrationWarning
             ) : (
               filteredInventoryItems.map((item, idx) => {
                 const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                const latestMovement = (inventoryMovementsByProductId.get(item.id) ?? [])[0] ?? null;
+                const latestMovement = (inventoryMovementsByItemId.get(item.id) ?? [])[0] ?? null;
                 const isLow =
                   item.lowStockThreshold != null &&
                   item.currentStockUnits <= item.lowStockThreshold;
@@ -7481,7 +7492,7 @@ suppressHydrationWarning
                     <td className="px-3 py-3 text-[#8A8A96]">{item.sku || '—'}</td>
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{item.name}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">{item.inventoryUnitName}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">{item.unitName}</div>
                     </td>
                     <td className="px-3 py-3">
                       <SmallBadge label={item.inventoryKind} tone="muted" />
@@ -7497,7 +7508,7 @@ suppressHydrationWarning
                           item.currentStockUnits,
                           item.packagingName,
                           item.packagingSize,
-                          item.inventoryUnitName
+                          item.unitName
                         )}
                       </div>
                     </td>
@@ -7507,7 +7518,7 @@ suppressHydrationWarning
                             item.lowStockThreshold,
                             item.packagingName,
                             item.packagingSize,
-                            item.inventoryUnitName
+                            item.unitName
                           )
                         : '—'}
                     </td>
@@ -7531,7 +7542,7 @@ suppressHydrationWarning
                         >
                           Movimiento
                         </button>
-                        {(inventoryRecipesByOutputProductId.get(item.id) ?? []).some((recipe) => recipe.isActive) ? (
+                        {(inventoryRecipesByOutputItemId.get(item.id) ?? []).some((recipe) => recipe.isActive) ? (
                           <button
                             className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#FEEF00]"
                             onClick={() => openInventoryProductionDrawer(item.id)}
@@ -10767,7 +10778,7 @@ deliveryAssignMode === 'external' ? (
                     selectedInventoryProduct.currentStockUnits,
                     selectedInventoryProduct.packagingName,
                     selectedInventoryProduct.packagingSize,
-                    selectedInventoryProduct.inventoryUnitName
+                    selectedInventoryProduct.unitName
                   )}
                 />
               </div>
@@ -10803,7 +10814,7 @@ deliveryAssignMode === 'external' ? (
                   type="text"
                 />
                 <FieldInput
-                  label={selectedInventoryProduct.inventoryUnitName || 'Unidades'}
+                  label={selectedInventoryProduct.unitName || 'Unidades'}
                   value={inventoryMovementUnitQty}
                   onChange={setInventoryMovementUnitQty}
                   type="text"
@@ -10827,7 +10838,7 @@ deliveryAssignMode === 'external' ? (
                       (Number(String(inventoryMovementUnitQty || '0').replace(',', '.')) || 0),
                     selectedInventoryProduct.packagingName,
                     selectedInventoryProduct.packagingSize,
-                    selectedInventoryProduct.inventoryUnitName
+                    selectedInventoryProduct.unitName
                   )}
                 </span>
               </div>
@@ -10856,7 +10867,7 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Últimos movimientos</div>
               <div className="mt-3 space-y-2">
-                {(inventoryMovementsByProductId.get(selectedInventoryProduct.id) ?? [])
+                {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? [])
                   .slice(0, 8)
                   .map((movement) => (
                     <div
@@ -10872,13 +10883,13 @@ deliveryAssignMode === 'external' ? (
                           movement.quantityUnits,
                           selectedInventoryProduct.packagingName,
                           selectedInventoryProduct.packagingSize,
-                          selectedInventoryProduct.inventoryUnitName
+                          selectedInventoryProduct.unitName
                         )}
                         {movement.reasonCode ? ` · ${movement.reasonCode}` : ''}
                       </div>
                     </div>
                   ))}
-                {(inventoryMovementsByProductId.get(selectedInventoryProduct.id) ?? []).length === 0 ? (
+                {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? []).length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">Sin movimientos registrados.</div>
                 ) : null}
               </div>
@@ -10936,7 +10947,7 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Consumo de receta</div>
               <div className="mt-3 space-y-2">
                 {selectedInventoryRecipeComponents.map((component) => {
-                  const product = catalogItemById.get(component.inputProductId);
+                  const product = inventoryItemById.get(component.inputInventoryItemId);
                   const multiplier = Number(String(inventoryProductionBatches || '0').replace(',', '.')) || 0;
                   const quantityUnits = component.quantityUnits * Math.max(0, multiplier);
                   return (
@@ -10951,7 +10962,7 @@ deliveryAssignMode === 'external' ? (
                             quantityUnits,
                             product?.packagingName ?? null,
                             product?.packagingSize ?? null,
-                            product?.inventoryUnitName ?? 'pieza'
+                            product?.unitName ?? 'pieza'
                           )}
                         </div>
                       </div>
@@ -10971,7 +10982,7 @@ deliveryAssignMode === 'external' ? (
                       (Number(String(inventoryProductionBatches || '0').replace(',', '.')) || 0),
                     selectedInventoryProduct.packagingName,
                     selectedInventoryProduct.packagingSize,
-                    selectedInventoryProduct.inventoryUnitName
+                    selectedInventoryProduct.unitName
                   )}
                 </span>{' '}
                 a {selectedInventoryProduct.name}.
