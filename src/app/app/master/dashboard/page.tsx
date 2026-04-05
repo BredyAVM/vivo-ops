@@ -248,6 +248,18 @@ type RawInventoryRecipeComponentRow = {
   sort_order: number | string;
 };
 
+type RawProductInventoryLinkRow = {
+  id: number;
+  product_id: number;
+  inventory_item_id: number;
+  deduction_mode: 'self_link' | 'recipe';
+  quantity_units: number | string;
+  sort_order: number | string;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
 type RawExchangeRateRow = {
   id: number;
   rate_bs_per_usd: number | string;
@@ -1323,6 +1335,38 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
+  const { data: productInventoryLinksData, error: productInventoryLinksError } = await supabase
+    .from('product_inventory_links')
+    .select(`
+      id,
+      product_id,
+      inventory_item_id,
+      deduction_mode,
+      quantity_units,
+      sort_order,
+      notes,
+      is_active,
+      created_at
+    `)
+    .order('product_id', { ascending: true })
+    .order('sort_order', { ascending: true });
+
+  if (productInventoryLinksError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando enlaces de inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los descuentos por composiciÃ³n del catÃ¡logo.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {productInventoryLinksError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const { data: productComponentsData, error: productComponentsError } = await supabase
     .from('product_components')
     .select(`
@@ -1452,6 +1496,18 @@ const { data: ordersData, error: ordersError } = await supabase
     inputInventoryItemId: Number(row.input_inventory_item_id),
     quantityUnits: toNumber(row.quantity_units, 0),
     sortOrder: toNumber(row.sort_order, 0),
+  }));
+
+  const productInventoryLinks = ((productInventoryLinksData ?? []) as RawProductInventoryLinkRow[]).map((row) => ({
+    id: Number(row.id),
+    productId: Number(row.product_id),
+    inventoryItemId: Number(row.inventory_item_id),
+    deductionMode: row.deduction_mode === 'recipe' ? ('recipe' as const) : ('self_link' as const),
+    quantityUnits: toNumber(row.quantity_units, 0),
+    sortOrder: toNumber(row.sort_order, 0),
+    notes: row.notes ?? null,
+    isActive: !!row.is_active,
+    createdAt: row.created_at,
   }));
 
 const productComponents = ((productComponentsData ?? []) as RawProductComponentRow[])
@@ -1772,6 +1828,7 @@ currentUser={{
       inventoryMovements={inventoryMovements}
       inventoryRecipes={inventoryRecipes}
       inventoryRecipeComponents={inventoryRecipeComponents}
+      productInventoryLinks={productInventoryLinks}
       clients={clients}
       catalogItems={catalogItems}
       productComponents={productComponents}

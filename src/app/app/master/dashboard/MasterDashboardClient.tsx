@@ -422,6 +422,18 @@ type InventoryRecipeComponentItem = {
   sortOrder: number;
 };
 
+type ProductInventoryLink = {
+  id: number;
+  productId: number;
+  inventoryItemId: number;
+  deductionMode: 'self_link' | 'recipe';
+  quantityUnits: number;
+  sortOrder: number;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
 type ProductComponent = {
   id: number;
   parentProductId: number;
@@ -472,6 +484,14 @@ type EditableComponentRow = {
   quantity: number;
   countsTowardDetailLimit: boolean;
   isRequired: boolean;
+  sortOrder: number;
+  notes: string;
+};
+
+type EditableInventoryLinkRow = {
+  localId: string;
+  inventoryItemId: number;
+  quantityUnits: number;
   sortOrder: number;
   notes: string;
 };
@@ -1499,11 +1519,13 @@ function FieldInput({
   value,
   onChange,
   type = 'text',
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  hint?: string;
 }) {
   return (
     <div>
@@ -1514,6 +1536,7 @@ function FieldInput({
         type={type}
         className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
       />
+      {hint ? <div className="mt-1 text-[11px] text-[#6F6F7C]">{hint}</div> : null}
     </div>
   );
 }
@@ -1524,12 +1547,14 @@ function FieldSelect({
   onChange,
   options,
   disabled = false,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
+  hint?: string;
 }) {
   return (
     <div>
@@ -1544,9 +1569,10 @@ function FieldSelect({
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
-        ))}
-      </select>
-    </div>
+          ))}
+        </select>
+      {hint ? <div className="mt-1 text-[11px] text-[#6F6F7C]">{hint}</div> : null}
+      </div>
   );
 }
 
@@ -1729,11 +1755,12 @@ export default function MasterDashboardClient({
   initialOrders,
   moneyAccounts,
   moneyMovements = [],
-  inventoryItems = [],
-  inventoryMovements = [],
-  inventoryRecipes = [],
-  inventoryRecipeComponents = [],
-  clients = [],
+    inventoryItems = [],
+    inventoryMovements = [],
+    inventoryRecipes = [],
+    inventoryRecipeComponents = [],
+    productInventoryLinks = [],
+    clients = [],
   drivers = [],
   deliveryPartners = [],
   catalogItems = [],
@@ -1746,11 +1773,12 @@ export default function MasterDashboardClient({
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
   moneyMovements?: MoneyMovementItem[];
-  inventoryItems?: InventoryItem[];
-  inventoryMovements?: InventoryMovementItem[];
-  inventoryRecipes?: InventoryRecipeItem[];
-  inventoryRecipeComponents?: InventoryRecipeComponentItem[];
-  clients?: ClientItem[];
+    inventoryItems?: InventoryItem[];
+    inventoryMovements?: InventoryMovementItem[];
+    inventoryRecipes?: InventoryRecipeItem[];
+    inventoryRecipeComponents?: InventoryRecipeComponentItem[];
+    productInventoryLinks?: ProductInventoryLink[];
+    clients?: ClientItem[];
   drivers?: DriverOption[];
   deliveryPartners?: DeliveryPartnerOption[];
   catalogItems?: CatalogItem[];
@@ -1894,11 +1922,12 @@ const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
 const [newInventoryEnabled, setNewInventoryEnabled] = useState(false);
 const [newInventoryKind, setNewInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
 const [newInventoryDeductionMode, setNewInventoryDeductionMode] = useState<'self' | 'composition'>('self');
-const [newInventoryUnitName, setNewInventoryUnitName] = useState('pieza');
-const [newPackagingName, setNewPackagingName] = useState('');
-const [newPackagingSize, setNewPackagingSize] = useState('');
-const [newCurrentStockUnits, setNewCurrentStockUnits] = useState('0');
-const [newLowStockThreshold, setNewLowStockThreshold] = useState('');
+  const [newInventoryUnitName, setNewInventoryUnitName] = useState('pieza');
+  const [newPackagingName, setNewPackagingName] = useState('');
+  const [newPackagingSize, setNewPackagingSize] = useState('');
+  const [newCurrentStockUnits, setNewCurrentStockUnits] = useState('0');
+  const [newLowStockThreshold, setNewLowStockThreshold] = useState('');
+  const [newInventoryLinks, setNewInventoryLinks] = useState<EditableInventoryLinkRow[]>([]);
 
   const [editIsActive, setEditIsActive] = useState(true);
   const [editSourcePriceCurrency, setEditSourcePriceCurrency] = useState<'VES' | 'USD'>('VES');
@@ -1921,6 +1950,7 @@ const [newLowStockThreshold, setNewLowStockThreshold] = useState('');
   const [editPackagingSize, setEditPackagingSize] = useState('');
   const [editCurrentStockUnits, setEditCurrentStockUnits] = useState('0');
   const [editLowStockThreshold, setEditLowStockThreshold] = useState('');
+  const [editInventoryLinks, setEditInventoryLinks] = useState<EditableInventoryLinkRow[]>([]);
   const [editComponents, setEditComponents] = useState<EditableComponentRow[]>([]);
 
   useEffect(() => {
@@ -2284,6 +2314,22 @@ const createOrderConfigSelectableOptions = useMemo(() => {
     [selectedCatalogItem, componentsByParentId]
   );
 
+  const productInventoryLinksByProductId = useMemo(() => {
+    const map = new Map<number, ProductInventoryLink[]>();
+    for (const link of productInventoryLinks) {
+      if (!link.isActive) continue;
+      const list = map.get(link.productId) ?? [];
+      list.push(link);
+      map.set(link.productId, list);
+    }
+    return map;
+  }, [productInventoryLinks]);
+
+  const selectedCatalogInventoryLinks = useMemo(
+    () => (selectedCatalogItem ? productInventoryLinksByProductId.get(selectedCatalogItem.id) ?? [] : []),
+    [selectedCatalogItem, productInventoryLinksByProductId]
+  );
+
   const selectedFixedComponents = useMemo(
     () => selectedCatalogComponents.filter((x) => x.componentMode === 'fixed'),
     [selectedCatalogComponents]
@@ -2379,7 +2425,16 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
         notes: pc.notes ?? '',
       }))
     );
-  }, [selectedCatalogItem, selectedCatalogComponents]);
+    setEditInventoryLinks(
+      selectedCatalogInventoryLinks.map((link, idx) => ({
+        localId: `${link.id}-${idx}`,
+        inventoryItemId: link.inventoryItemId,
+        quantityUnits: link.quantityUnits,
+        sortOrder: link.sortOrder || idx + 1,
+        notes: link.notes ?? '',
+      }))
+    );
+  }, [selectedCatalogItem, selectedCatalogComponents, selectedCatalogInventoryLinks]);
 
   const selectableComponentOptions = useMemo(
     () =>
@@ -2391,6 +2446,17 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
           sku: item.sku,
         })),
     [catalogItems]
+  );
+
+  const inventoryItemOptions = useMemo(
+    () =>
+      inventoryItems
+        .filter((item) => item.isActive)
+        .map((item) => ({
+          value: String(item.id),
+          label: item.name,
+        })),
+    [inventoryItems]
   );
 
 const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
@@ -3077,6 +3143,12 @@ const handleSaveCatalog = async () => {
       lowStockThreshold: editLowStockThreshold.trim()
         ? Number(String(editLowStockThreshold).trim().replace(',', '.'))
         : null,
+      inventoryLinks: editInventoryLinks.map((row, idx) => ({
+        inventoryItemId: Number(row.inventoryItemId || 0),
+        quantityUnits: Number(String(row.quantityUnits || 0).replace(',', '.')),
+        notes: row.notes?.trim() || null,
+        sortOrder: Number(row.sortOrder || idx + 1),
+      })),
       components: editComponents.map((row, idx) => ({
         componentProductId: Number(row.componentProductId),
         componentMode: row.componentMode,
@@ -3678,6 +3750,7 @@ const resetCreateCatalogForm = () => {
   setNewPackagingSize('');
   setNewCurrentStockUnits('0');
   setNewLowStockThreshold('');
+  setNewInventoryLinks([]);
 };
 
 const resetInventoryMovementForm = () => {
@@ -3921,6 +3994,12 @@ const handleCreateCatalogItem = async () => {
       lowStockThreshold: newLowStockThreshold.trim()
         ? Number(String(newLowStockThreshold).trim().replace(',', '.'))
         : null,
+      inventoryLinks: newInventoryLinks.map((row, idx) => ({
+        inventoryItemId: Number(row.inventoryItemId || 0),
+        quantityUnits: Number(String(row.quantityUnits || 0).replace(',', '.')),
+        notes: row.notes?.trim() || null,
+        sortOrder: Number(row.sortOrder || idx + 1),
+      })),
     });
 
     showToast('success', 'Ítem creado.');
@@ -4009,13 +4088,63 @@ const addEditComponent = () => {
   ]);
 };
 
-const removeEditComponent = (localId: string) => {
-  setEditComponents((prev) =>
-    prev
-      .filter((row) => row.localId !== localId)
-      .map((row, idx) => ({ ...row, sortOrder: idx + 1 }))
-  );
-};
+  const removeEditComponent = (localId: string) => {
+    setEditComponents((prev) =>
+      prev
+        .filter((row) => row.localId !== localId)
+        .map((row, idx) => ({ ...row, sortOrder: idx + 1 }))
+    );
+  };
+
+  const addNewInventoryLink = () => {
+    setNewInventoryLinks((prev) => [
+      ...prev,
+      {
+        localId: `new-link-${Date.now()}-${Math.random()}`,
+        inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
+        quantityUnits: 1,
+        sortOrder: prev.length + 1,
+        notes: '',
+      },
+    ]);
+  };
+
+  const updateNewInventoryLink = (localId: string, patch: Partial<EditableInventoryLinkRow>) => {
+    setNewInventoryLinks((prev) => prev.map((row) => (row.localId === localId ? { ...row, ...patch } : row)));
+  };
+
+  const removeNewInventoryLink = (localId: string) => {
+    setNewInventoryLinks((prev) =>
+      prev
+        .filter((row) => row.localId !== localId)
+        .map((row, idx) => ({ ...row, sortOrder: idx + 1 }))
+    );
+  };
+
+  const addEditInventoryLink = () => {
+    setEditInventoryLinks((prev) => [
+      ...prev,
+      {
+        localId: `edit-link-${Date.now()}-${Math.random()}`,
+        inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
+        quantityUnits: 1,
+        sortOrder: prev.length + 1,
+        notes: '',
+      },
+    ]);
+  };
+
+  const updateEditInventoryLink = (localId: string, patch: Partial<EditableInventoryLinkRow>) => {
+    setEditInventoryLinks((prev) => prev.map((row) => (row.localId === localId ? { ...row, ...patch } : row)));
+  };
+
+  const removeEditInventoryLink = (localId: string) => {
+    setEditInventoryLinks((prev) =>
+      prev
+        .filter((row) => row.localId !== localId)
+        .map((row, idx) => ({ ...row, sortOrder: idx + 1 }))
+    );
+  };
 
 const handleSearchCreateOrderClients = async () => {
   const q = createOrderClientSearch.trim();
@@ -8442,6 +8571,11 @@ suppressHydrationWarning
                         label="Modo de descuento"
                         value={editInventoryDeductionMode}
                         onChange={(v) => setEditInventoryDeductionMode(v as 'self' | 'composition')}
+                        hint={
+                          editInventoryDeductionMode === 'composition'
+                            ? 'Este producto baja stock de un item interno distinto.'
+                            : 'La venta bajarÃ¡ stock de este mismo producto.'
+                        }
                         options={[
                           { value: 'self', label: 'A sí mismo' },
                           { value: 'composition', label: 'Por composición' },
@@ -8451,6 +8585,7 @@ suppressHydrationWarning
                         label="Unidad base"
                         value={editInventoryUnitName}
                         onChange={setEditInventoryUnitName}
+                        hint="Ejemplo: pieza, kg, bandeja o vasito."
                       />
                       <FieldInput
                         label="Empaque"
@@ -8474,8 +8609,73 @@ suppressHydrationWarning
                         value={editLowStockThreshold}
                         onChange={setEditLowStockThreshold}
                         type="text"
+                        hint="Cuando baje de este nÃºmero, quedarÃ¡ marcado como bajo stock."
                       />
                     </div>
+                    {editInventoryEnabled && editInventoryDeductionMode === 'composition' ? (
+                      <div className="rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-[#F5F5F7]">Descuenta de inventario interno</div>
+                            <div className="mt-1 text-xs text-[#8A8A96]">
+                              Elige el item real que debe bajar cuando se venda este producto.
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm"
+                            onClick={addEditInventoryLink}
+                          >
+                            Agregar item
+                          </button>
+                        </div>
+                        <div className="mt-3 space-y-3">
+                          {editInventoryLinks.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
+                              Agrega al menos un item interno. Ejemplo: Mini tequeÃ±o crudo x 25.
+                            </div>
+                          ) : (
+                            editInventoryLinks.map((row) => (
+                              <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.4fr)_140px_auto]">
+                                  <FieldSelect
+                                    label="Item interno"
+                                    value={String(row.inventoryItemId || '')}
+                                    onChange={(v) =>
+                                      updateEditInventoryLink(row.localId, {
+                                        inventoryItemId: Number(v || 0),
+                                      })
+                                    }
+                                    options={inventoryItemOptions}
+                                    hint="AquÃ­ eliges el stock real que va a bajar."
+                                  />
+                                  <FieldInput
+                                    label="Cantidad"
+                                    value={String(row.quantityUnits ?? '')}
+                                    onChange={(value) =>
+                                      updateEditInventoryLink(row.localId, {
+                                        quantityUnits: Number(String(value || '0').replace(',', '.')) || 0,
+                                      })
+                                    }
+                                    type="text"
+                                    hint="Si un servicio trae 25 piezas, aquÃ­ va 25."
+                                  />
+                                  <div className="flex items-end">
+                                    <button
+                                      type="button"
+                                      className="w-full rounded-xl border border-[#5A2626] bg-[#120B0B] px-3 py-2 text-sm text-[#F5B7B7]"
+                                      onClick={() => removeEditInventoryLink(row.localId)}
+                                    >
+                                      Quitar
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -10228,12 +10428,22 @@ deliveryAssignMode === 'external' ? (
             label="Modo de descuento"
             value={newInventoryDeductionMode}
             onChange={(v) => setNewInventoryDeductionMode(v as 'self' | 'composition')}
+            hint={
+              newInventoryDeductionMode === 'composition'
+                ? 'Este producto baja stock de un item interno distinto.'
+                : 'La venta bajarÃ¡ stock de este mismo producto.'
+            }
             options={[
               { value: 'self', label: 'A sí mismo' },
               { value: 'composition', label: 'Por composición' },
             ]}
           />
-          <FieldInput label="Unidad base" value={newInventoryUnitName} onChange={setNewInventoryUnitName} />
+          <FieldInput
+            label="Unidad base"
+            value={newInventoryUnitName}
+            onChange={setNewInventoryUnitName}
+            hint="Ejemplo: pieza, kg, bandeja o vasito."
+          />
           <FieldInput label="Empaque" value={newPackagingName} onChange={setNewPackagingName} />
           <FieldInput label="Tamaño empaque" value={newPackagingSize} onChange={setNewPackagingSize} type="text" />
           <FieldInput label="Stock actual" value={newCurrentStockUnits} onChange={setNewCurrentStockUnits} type="text" />
@@ -10242,8 +10452,74 @@ deliveryAssignMode === 'external' ? (
             value={newLowStockThreshold}
             onChange={setNewLowStockThreshold}
             type="text"
+            hint="Cuando baje de este número, quedará marcado como bajo stock."
           />
         </div>
+        {newInventoryEnabled && newInventoryDeductionMode === 'composition' ? (
+          <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[#F5F5F7]">Descuenta de inventario interno</div>
+                <div className="mt-1 text-xs text-[#8A8A96]">
+                  Elige el item real que debe bajar cuando se venda este producto.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm"
+                onClick={addNewInventoryLink}
+              >
+                Agregar item
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              {newInventoryLinks.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
+                  Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
+                </div>
+              ) : (
+                newInventoryLinks.map((row) => (
+                  <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.4fr)_140px_auto]">
+                      <FieldSelect
+                        label="Item interno"
+                        value={String(row.inventoryItemId || '')}
+                        onChange={(v) =>
+                          updateNewInventoryLink(row.localId, {
+                            inventoryItemId: Number(v || 0),
+                          })
+                        }
+                        options={inventoryItemOptions}
+                        hint="Aquí eliges el stock real que va a bajar."
+                      />
+                      <FieldInput
+                        label="Cantidad"
+                        value={String(row.quantityUnits ?? '')}
+                        onChange={(value) =>
+                          updateNewInventoryLink(row.localId, {
+                            quantityUnits: Number(String(value || '0').replace(',', '.')) || 0,
+                          })
+                        }
+                        type="text"
+                        hint="Si un servicio trae 25 piezas, aquí va 25."
+                      />
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          className="w-full rounded-xl border border-[#5A2626] bg-[#120B0B] px-3 py-2 text-sm text-[#F5B7B7]"
+                          onClick={() => removeNewInventoryLink(row.localId)}
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">

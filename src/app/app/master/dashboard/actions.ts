@@ -664,6 +664,12 @@ export async function updateCatalogItemAction(input: {
   packagingSize: number | null;
   currentStockUnits: number | null;
   lowStockThreshold: number | null;
+  inventoryLinks?: Array<{
+    inventoryItemId: number;
+    quantityUnits: number;
+    notes: string | null;
+    sortOrder: number;
+  }>;
   components: Array<{
     componentProductId: number;
     componentMode: 'fixed' | 'selectable';
@@ -703,6 +709,19 @@ export async function updateCatalogItemAction(input: {
   }
   if (!['VES', 'USD'].includes(input.sourcePriceCurrency)) {
     throw new Error('Moneda invÃ¡lida.');
+  }
+
+  const normalizedInventoryLinks = (input.inventoryLinks ?? [])
+    .map((row, index) => ({
+      inventoryItemId: toSafeNumber(row.inventoryItemId, 0),
+      quantityUnits: Math.max(0, toSafeNumber(row.quantityUnits, 0)),
+      notes: row.notes?.trim() ? row.notes.trim() : null,
+      sortOrder: toSafeNumber(row.sortOrder, index + 1) || index + 1,
+    }))
+    .filter((row) => row.inventoryItemId > 0 && row.quantityUnits > 0);
+
+  if (input.inventoryEnabled && input.inventoryDeductionMode === 'composition' && normalizedInventoryLinks.length === 0) {
+    throw new Error('Define al menos un item interno para el descuento por composiciÃ³n.');
   }
 
   const { data: currentProduct, error: productError } = await supabase
@@ -829,6 +848,12 @@ export async function updateCatalogItemAction(input: {
     packagingSize,
     currentStockUnits,
     lowStockThreshold,
+  });
+
+  await replaceProductInventoryLinks(supabase, {
+    productId: input.productId,
+    inventoryDeductionMode: input.inventoryDeductionMode,
+    inventoryLinks: normalizedInventoryLinks,
   });
 
   const { error: deleteComponentsError } = await supabase
@@ -1542,6 +1567,79 @@ async function assertDeliveryItemForOrder(
   }
 }
 
+async function replaceProductInventoryLinks(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    productId: number;
+    inventoryDeductionMode: 'self' | 'composition';
+    inventoryLinks: Array<{
+      inventoryItemId: number;
+      quantityUnits: number;
+      notes: string | null;
+      sortOrder: number;
+    }>;
+  }
+) {
+  const { error: deleteError } = await supabase
+    .from('product_inventory_links')
+    .delete()
+    .eq('product_id', input.productId);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  if (input.inventoryDeductionMode !== 'composition') {
+    return;
+  }
+
+  const normalized = (input.inventoryLinks ?? [])
+    .map((row, index) => ({
+      inventoryItemId: toSafeNumber(row.inventoryItemId, 0),
+      quantityUnits: Math.max(0, toSafeNumber(row.quantityUnits, 0)),
+      notes: row.notes?.trim() ? row.notes.trim() : null,
+      sortOrder: toSafeNumber(row.sortOrder, index + 1) || index + 1,
+    }))
+    .filter((row) => row.inventoryItemId > 0 && row.quantityUnits > 0);
+
+  if (normalized.length === 0) {
+    return;
+  }
+
+  const { data: existingItems, error: existingItemsError } = await supabase
+    .from('inventory_items')
+    .select('id')
+    .in('id', normalized.map((row) => row.inventoryItemId));
+
+  if (existingItemsError) {
+    throw new Error(existingItemsError.message);
+  }
+
+  const foundIds = new Set((existingItems ?? []).map((row) => Number(row.id)));
+  const missing = normalized.filter((row) => !foundIds.has(row.inventoryItemId));
+  if (missing.length > 0) {
+    throw new Error('Hay items internos invÃ¡lidos en el descuento de inventario.');
+  }
+
+  const { error: insertError } = await supabase
+    .from('product_inventory_links')
+    .insert(
+      normalized.map((row) => ({
+        product_id: input.productId,
+        inventory_item_id: row.inventoryItemId,
+        deduction_mode: 'recipe',
+        quantity_units: row.quantityUnits,
+        sort_order: row.sortOrder,
+        notes: row.notes,
+        is_active: true,
+      }))
+    );
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+}
+
 export async function createClientAction(input: {
   fullName: string;
   phone: string;
@@ -1832,6 +1930,12 @@ export async function createCatalogItemAction(input: {
   packagingSize: number | null;
   currentStockUnits: number | null;
   lowStockThreshold: number | null;
+  inventoryLinks?: Array<{
+    inventoryItemId: number;
+    quantityUnits: number;
+    notes: string | null;
+    sortOrder: number;
+  }>;
 }) {
   const supabase = await createSupabaseServer();
 
@@ -1863,6 +1967,14 @@ export async function createCatalogItemAction(input: {
   if (!['self', 'composition'].includes(input.inventoryDeductionMode)) {
     throw new Error('Modo de descuento de inventario invÃ¡lido.');
   }
+  const normalizedInventoryLinks = (input.inventoryLinks ?? [])
+    .map((row, index) => ({
+      inventoryItemId: toSafeNumber(row.inventoryItemId, 0),
+      quantityUnits: Math.max(0, toSafeNumber(row.quantityUnits, 0)),
+      notes: row.notes?.trim() ? row.notes.trim() : null,
+      sortOrder: toSafeNumber(row.sortOrder, index + 1) || index + 1,
+    }))
+    .filter((row) => row.inventoryItemId > 0 && row.quantityUnits > 0);
   if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
     throw new Error('El monto fuente es invÃ¡lido.');
   }
@@ -1871,6 +1983,9 @@ export async function createCatalogItemAction(input: {
   }
   if (!Number.isFinite(detailUnitsLimit) || detailUnitsLimit < 0) {
     throw new Error('LÃ­mite de detalle invÃ¡lido.');
+  }
+  if (input.inventoryEnabled && input.inventoryDeductionMode === 'composition' && normalizedInventoryLinks.length === 0) {
+    throw new Error('Define al menos un item interno para el descuento por composiciÃ³n.');
   }
 
   const { data: existingSku, error: existingSkuError } = await supabase
@@ -1955,6 +2070,12 @@ export async function createCatalogItemAction(input: {
     packagingSize,
     currentStockUnits,
     lowStockThreshold,
+  });
+
+  await replaceProductInventoryLinks(supabase, {
+    productId: Number(data.id),
+    inventoryDeductionMode: input.inventoryDeductionMode,
+    inventoryLinks: normalizedInventoryLinks,
   });
 
   revalidatePath('/app/master/dashboard');
