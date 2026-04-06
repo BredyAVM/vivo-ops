@@ -3846,6 +3846,8 @@ const openInventoryItemEditDrawer = (inventoryItemId: number) => {
   const item = inventoryItemById.get(inventoryItemId);
   if (!item) return;
 
+  setInventoryMovementOpen(false);
+  setInventoryProductionOpen(false);
   setSelectedInventoryProductId(inventoryItemId);
   setInventoryItemFormName(item.name);
   setInventoryItemFormKind(item.inventoryKind);
@@ -3877,6 +3879,8 @@ const openInventoryMovementDrawer = (productId: number) => {
 };
 
 const openInventoryProductionDrawer = (productId: number) => {
+  setInventoryMovementOpen(false);
+  setInventoryItemEditOpen(false);
   setSelectedInventoryProductId(productId);
   const recipes = (inventoryRecipesByOutputItemId.get(productId) ?? []).filter((recipe) => recipe.isActive);
   setSelectedInventoryRecipeId(recipes[0]?.id ?? null);
