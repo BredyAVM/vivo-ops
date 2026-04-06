@@ -1125,8 +1125,8 @@ function riderTooltip(o: Order) {
 
 function payIcon(p: PaymentVerify) {
   if (p === 'pending') return '? ';
-  if (p === 'confirmed') return '?';
-  if (p === 'rejected') return '?';
+  if (p === 'confirmed') return 'OK';
+  if (p === 'rejected') return 'No';
   return '?';
 }
 function payIconTooltip(p: PaymentVerify) {
@@ -6544,7 +6544,7 @@ suppressHydrationWarning
 
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '?');
+                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '—');
 
                       return (
                         <tr
@@ -6588,7 +6588,7 @@ suppressHydrationWarning
                                 </span>
                               </div>
                             ) : (
-                              <div className="mt-1 text-[#8A8A96]">?</div>
+                              <div className="mt-1 text-[#8A8A96]">—</div>
                             )}
                           </td>
                           <td className="px-2 py-2 leading-4">
@@ -6597,10 +6597,10 @@ suppressHydrationWarning
                           </td>
                           <td className="px-2 py-2">{deliveryLabel}</td>
                           <td className="px-2 py-2" title={o.fulfillment === 'delivery' ? (o.address || '') : ''}>
-                            {o.fulfillment === 'delivery' && (o.address?.trim() ? '??' : '?')}
+                            {o.fulfillment === 'delivery' ? (o.address?.trim() ? '📍' : '—') : '—'}
                           </td>
                           <td className="px-2 py-2" title={o.notes?.trim() ? o.notes : ''}>
-                            {o.notes?.trim() ? '??' : '?'}
+                            {o.notes?.trim() ? '📝' : '—'}
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
@@ -8185,12 +8185,12 @@ suppressHydrationWarning
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{client.notes}</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{client.phone || '?'}</td>
-                    <td className="px-3 py-3">{client.clientType || '?'}</td>
+                    <td className="px-3 py-3">{client.phone || '—'}</td>
+                    <td className="px-3 py-3">{client.clientType || '—'}</td>
                     <td className="px-3 py-3">
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
-                        : '?'}
+                        : '—'}
                     </td>
                     <td className="px-3 py-3">
                       {tags.length > 0 ? (
@@ -8203,7 +8203,7 @@ suppressHydrationWarning
                           ) : null}
                         </div>
                       ) : (
-                        '?'
+                        '—'
                       )}
                     </td>
                     <td className="px-3 py-3">{hasBilling ? 'Cargado' : 'Pendiente'}</td>
@@ -13392,7 +13392,5 @@ return (
     </div>
   );
 }
-
-
 
 
