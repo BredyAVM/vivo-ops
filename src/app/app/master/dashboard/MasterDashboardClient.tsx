@@ -5466,6 +5466,79 @@ const selectedPaymentReportAccount =
     [selectedInventoryRecipe, inventoryRecipeComponentsByRecipeId]
   );
 
+  const inventoryAvailabilityByItemId = useMemo(() => {
+    const cache = new Map<number, { readyUnits: number; potentialUnits: number; totalUnits: number }>();
+
+    const compute = (itemId: number, stack = new Set<number>()) => {
+      if (cache.has(itemId)) return cache.get(itemId)!;
+
+      const item = inventoryItemById.get(itemId);
+      if (!item) {
+        const fallback = { readyUnits: 0, potentialUnits: 0, totalUnits: 0 };
+        cache.set(itemId, fallback);
+        return fallback;
+      }
+
+      if (stack.has(itemId)) {
+        const cycleFallback = {
+          readyUnits: item.currentStockUnits,
+          potentialUnits: 0,
+          totalUnits: item.currentStockUnits,
+        };
+        cache.set(itemId, cycleFallback);
+        return cycleFallback;
+      }
+
+      const activeRecipe = (inventoryRecipesByOutputItemId.get(itemId) ?? []).find((recipe) => recipe.isActive) ?? null;
+      if (!activeRecipe) {
+        const direct = {
+          readyUnits: item.currentStockUnits,
+          potentialUnits: 0,
+          totalUnits: item.currentStockUnits,
+        };
+        cache.set(itemId, direct);
+        return direct;
+      }
+
+      const components = inventoryRecipeComponentsByRecipeId.get(activeRecipe.id) ?? [];
+      if (components.length === 0 || activeRecipe.outputQuantityUnits <= 0) {
+        const direct = {
+          readyUnits: item.currentStockUnits,
+          potentialUnits: 0,
+          totalUnits: item.currentStockUnits,
+        };
+        cache.set(itemId, direct);
+        return direct;
+      }
+
+      const nextStack = new Set(stack);
+      nextStack.add(itemId);
+
+      let maxBatches = Number.POSITIVE_INFINITY;
+      for (const component of components) {
+        if (component.quantityUnits <= 0) continue;
+        const availableInput = compute(component.inputInventoryItemId, nextStack).totalUnits;
+        maxBatches = Math.min(maxBatches, availableInput / component.quantityUnits);
+      }
+
+      const safeBatches = Number.isFinite(maxBatches) && maxBatches > 0 ? maxBatches : 0;
+      const potentialUnits = safeBatches * activeRecipe.outputQuantityUnits;
+      const result = {
+        readyUnits: item.currentStockUnits,
+        potentialUnits,
+        totalUnits: item.currentStockUnits + potentialUnits,
+      };
+      cache.set(itemId, result);
+      return result;
+    };
+
+    for (const item of inventoryItems) {
+      compute(item.id);
+    }
+
+    return cache;
+  }, [inventoryItemById, inventoryItems, inventoryRecipeComponentsByRecipeId, inventoryRecipesByOutputItemId]);
+
   const inventoryMovementsByItemId = useMemo(() => {
     const map = new Map<number, InventoryMovementItem[]>();
     for (const movement of inventoryMovements) {
@@ -5480,12 +5553,14 @@ const selectedPaymentReportAccount =
     return {
       totalItems: inventoryItems.length,
       lowStock: inventoryItems.filter(
-        (item) => item.lowStockThreshold != null && item.currentStockUnits <= item.lowStockThreshold
+        (item) =>
+          item.lowStockThreshold != null &&
+          (inventoryAvailabilityByItemId.get(item.id)?.totalUnits ?? item.currentStockUnits) <= item.lowStockThreshold
       ).length,
       raw: inventoryItems.filter((item) => item.inventoryKind === 'raw_material').length,
       bases: inventoryItems.filter((item) => item.inventoryKind === 'prepared_base').length,
     };
-  }, [inventoryItems]);
+  }, [inventoryAvailabilityByItemId, inventoryItems]);
 
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
@@ -7990,9 +8065,14 @@ suppressHydrationWarning
               filteredInventoryItems.map((item, idx) => {
                 const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
                 const latestMovement = (inventoryMovementsByItemId.get(item.id) ?? [])[0] ?? null;
+                const availability = inventoryAvailabilityByItemId.get(item.id) ?? {
+                  readyUnits: item.currentStockUnits,
+                  potentialUnits: 0,
+                  totalUnits: item.currentStockUnits,
+                };
                 const isLow =
                   item.lowStockThreshold != null &&
-                  item.currentStockUnits <= item.lowStockThreshold;
+                  availability.totalUnits <= item.lowStockThreshold;
 
                 return (
                   <tr
@@ -8019,14 +8099,24 @@ suppressHydrationWarning
                     <td className="px-3 py-3">
                       <div className={`font-medium ${isLow ? 'text-[#FEEF00]' : 'text-[#F5F5F7]'}`}>
                         {fmtInventoryUnits(
-                          item.currentStockUnits,
+                          availability.readyUnits,
                           item.packagingName,
                           item.packagingSize,
                           item.unitName
                         )}
                       </div>
                       <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        Total: {item.currentStockUnits} {item.unitName}{item.currentStockUnits === 1 ? '' : 's'}
+                        Listo: {availability.readyUnits} {item.unitName}{availability.readyUnits === 1 ? '' : 's'}
+                      </div>
+                      {availability.potentialUnits > 0 ? (
+                        <div className="mt-1 text-[11px] text-emerald-400">
+                          Puede reponerse: {Number(availability.potentialUnits.toFixed(3))} {item.unitName}
+                          {availability.potentialUnits === 1 ? '' : 's'}
+                        </div>
+                      ) : null}
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        Total posible: {Number(availability.totalUnits.toFixed(3))} {item.unitName}
+                        {availability.totalUnits === 1 ? '' : 's'}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
@@ -11592,6 +11682,41 @@ deliveryAssignMode === 'external' ? (
           <div className="text-sm text-[#B7B7C2]">Sin producto seleccionado.</div>
         ) : (
           <div className="space-y-4">
+            {(() => {
+              const availability = inventoryAvailabilityByItemId.get(selectedInventoryProduct.id) ?? {
+                readyUnits: selectedInventoryProduct.currentStockUnits,
+                potentialUnits: 0,
+                totalUnits: selectedInventoryProduct.currentStockUnits,
+              };
+
+              return (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                    <div className="text-xs text-[#8A8A96]">Stock listo</div>
+                    <div className="mt-2 text-lg font-semibold text-[#F5F5F7]">
+                      {Number(availability.readyUnits.toFixed(3))}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">{selectedInventoryProduct.unitName}</div>
+                  </div>
+                  <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                    <div className="text-xs text-[#8A8A96]">Puede reponerse</div>
+                    <div className="mt-2 text-lg font-semibold text-emerald-400">
+                      {Number(availability.potentialUnits.toFixed(3))}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">según receta activa</div>
+                  </div>
+                  <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                    <div className="text-xs text-[#8A8A96]">Total posible</div>
+                    <div className="mt-2 text-lg font-semibold text-[#F5F5F7]">
+                      {Number(availability.totalUnits.toFixed(3))}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      listo + capacidad de producción
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="mb-4 flex flex-wrap gap-2">
                 <button
