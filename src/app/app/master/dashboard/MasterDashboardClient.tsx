@@ -2457,7 +2457,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
       selectedCatalogInventoryLinks.map((link, idx) => ({
         localId: `${link.id}-${idx}`,
         inventoryItemId: link.inventoryItemId,
-        quantityUnits: link.quantityUnits,
+        quantityUnits: String(link.quantityUnits),
         sortOrder: link.sortOrder || idx + 1,
         notes: link.notes ?? '',
       }))
