@@ -60,7 +60,7 @@ async function syncInventoryItemFromCatalogProduct(
   }
 ) {
   if (!input.inventoryEnabled || !input.isInventoryItem || input.inventoryDeductionMode !== 'self') {
-    return;
+    return null;
   }
 
   const candidateNames = Array.from(
@@ -107,11 +107,16 @@ async function syncInventoryItemFromCatalogProduct(
       .eq('id', Number(matchedItem.id));
 
     if (error) throw new Error(error.message);
-    return;
+    return Number(matchedItem.id);
   }
 
-  const { error } = await supabase.from('inventory_items').insert(payload);
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .insert(payload)
+    .select('id')
+    .single();
   if (error) throw new Error(error.message);
+  return Number(data.id);
 }
 
 export async function createPaymentReportAction(input: {
@@ -842,7 +847,7 @@ export async function updateCatalogItemAction(input: {
     throw new Error('No se pudo actualizar el producto. Revisa los permisos de update sobre products.');
   }
 
-  await syncInventoryItemFromCatalogProduct(supabase, {
+  const selfInventoryItemId = await syncInventoryItemFromCatalogProduct(supabase, {
     currentName: currentProduct.name,
     nextName: currentProduct.name,
     isActive: input.isActive,
@@ -861,6 +866,7 @@ export async function updateCatalogItemAction(input: {
   await replaceProductInventoryLinks(supabase, {
     productId: input.productId,
     inventoryDeductionMode: input.inventoryDeductionMode,
+    selfInventoryItemId,
     inventoryLinks: normalizedInventoryLinks,
   });
 
@@ -1590,6 +1596,7 @@ async function replaceProductInventoryLinks(
   input: {
     productId: number;
     inventoryDeductionMode: 'self' | 'composition';
+    selfInventoryItemId?: number | null;
     inventoryLinks: Array<{
       inventoryItemId: number;
       quantityUnits: number;
@@ -1607,7 +1614,28 @@ async function replaceProductInventoryLinks(
     throw new Error(deleteError.message);
   }
 
-  if (input.inventoryDeductionMode !== 'composition') {
+  if (input.inventoryDeductionMode === 'self') {
+    const selfInventoryItemId = toSafeNumber(input.selfInventoryItemId, 0);
+    if (selfInventoryItemId <= 0) {
+      return;
+    }
+
+    const { error: insertSelfLinkError } = await supabase
+      .from('product_inventory_links')
+      .insert({
+        product_id: input.productId,
+        inventory_item_id: selfInventoryItemId,
+        deduction_mode: 'self_link',
+        quantity_units: 1,
+        sort_order: 1,
+        notes: null,
+        is_active: true,
+      });
+
+    if (insertSelfLinkError) {
+      throw new Error(insertSelfLinkError.message);
+    }
+
     return;
   }
 
@@ -1747,34 +1775,6 @@ async function applyDeliveredOrderInventoryDeductions(
     linksByProductId.set(productId, list);
   }
 
-  const selfInventoryNames = Array.from(
-    new Set(
-      (products ?? [])
-        .filter((row) => row.inventory_enabled && row.inventory_deduction_mode !== 'composition')
-        .map((row) => String(row.name || '').trim())
-        .filter(Boolean)
-    )
-  );
-
-  const inventoryItemsByName = new Map<string, { id: number; currentStockUnits: number }>();
-  if (selfInventoryNames.length > 0) {
-    const { data: selfInventoryItems, error: selfInventoryItemsError } = await supabase
-      .from('inventory_items')
-      .select('id, name, current_stock_units')
-      .in('name', selfInventoryNames);
-
-    if (selfInventoryItemsError) {
-      throw new Error(selfInventoryItemsError.message);
-    }
-
-    for (const row of selfInventoryItems ?? []) {
-      inventoryItemsByName.set(String(row.name || '').trim(), {
-        id: Number(row.id),
-        currentStockUnits: toSafeNumber(row.current_stock_units, 0),
-      });
-    }
-  }
-
   const allLinkedInventoryIds = Array.from(
     new Set((links ?? []).filter((row) => row.is_active).map((row) => Number(row.inventory_item_id)).filter((id) => id > 0))
   );
@@ -1825,16 +1825,43 @@ async function applyDeliveredOrderInventoryDeductions(
       continue;
     }
 
-    const selfInventoryItem = inventoryItemsByName.get(product.name);
-    if (!selfInventoryItem) continue;
+    const selfInventoryLink = (linksByProductId.get(productId) ?? []).find((link) => link.inventoryItemId > 0) ?? null;
+    if (selfInventoryLink) {
+      aggregatedDeductions.set(
+        selfInventoryLink.inventoryItemId,
+        (aggregatedDeductions.get(selfInventoryLink.inventoryItemId) ?? 0) + qty
+      );
+      const notes = notesByInventoryItemId.get(selfInventoryLink.inventoryItemId) ?? [];
+      notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
+      notesByInventoryItemId.set(selfInventoryLink.inventoryItemId, notes);
+      continue;
+    }
 
+    const { data: selfInventoryItemByName, error: selfInventoryItemByNameError } = await supabase
+      .from('inventory_items')
+      .select('id, current_stock_units')
+      .eq('name', product.name)
+      .limit(1)
+      .maybeSingle();
+
+    if (selfInventoryItemByNameError) {
+      throw new Error(selfInventoryItemByNameError.message);
+    }
+
+    if (!selfInventoryItemByName) continue;
+
+    const fallbackInventoryItemId = Number(selfInventoryItemByName.id);
     aggregatedDeductions.set(
-      selfInventoryItem.id,
-      (aggregatedDeductions.get(selfInventoryItem.id) ?? 0) + qty
+      fallbackInventoryItemId,
+      (aggregatedDeductions.get(fallbackInventoryItemId) ?? 0) + qty
     );
-    const notes = notesByInventoryItemId.get(selfInventoryItem.id) ?? [];
+    const notes = notesByInventoryItemId.get(fallbackInventoryItemId) ?? [];
     notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
-    notesByInventoryItemId.set(selfInventoryItem.id, notes);
+    notesByInventoryItemId.set(fallbackInventoryItemId, notes);
+    inventoryItemsById.set(fallbackInventoryItemId, {
+      id: fallbackInventoryItemId,
+      currentStockUnits: toSafeNumber(selfInventoryItemByName.current_stock_units, 0),
+    });
   }
 
   if (aggregatedDeductions.size === 0) {
@@ -1842,8 +1869,7 @@ async function applyDeliveredOrderInventoryDeductions(
   }
 
   for (const [inventoryItemId, quantityUnits] of aggregatedDeductions.entries()) {
-    const inventoryItem = inventoryItemsById.get(inventoryItemId)
-      ?? Array.from(inventoryItemsByName.values()).find((item) => item.id === inventoryItemId);
+    const inventoryItem = inventoryItemsById.get(inventoryItemId);
 
     if (!inventoryItem) {
       throw new Error(`No se encontró el item interno ${inventoryItemId} para descontar inventario.`);
@@ -2387,7 +2413,7 @@ export async function createCatalogItemAction(input: {
 
   if (error) throw new Error(error.message);
 
-  await syncInventoryItemFromCatalogProduct(supabase, {
+  const selfInventoryItemId = await syncInventoryItemFromCatalogProduct(supabase, {
     nextName: name,
     isActive: input.isActive,
     inventoryEnabled: input.inventoryEnabled,
@@ -2405,6 +2431,7 @@ export async function createCatalogItemAction(input: {
   await replaceProductInventoryLinks(supabase, {
     productId: Number(data.id),
     inventoryDeductionMode: input.inventoryDeductionMode,
+    selfInventoryItemId,
     inventoryLinks: normalizedInventoryLinks,
   });
 
