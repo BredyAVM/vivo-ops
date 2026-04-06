@@ -254,6 +254,23 @@ export async function returnToCreatedAction(input: {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
   }
 
+  const { data: previousOrderItems, error: previousOrderItemsError } = await supabase
+    .from('order_items')
+    .select(`
+      id,
+      product_name_snapshot,
+      unit_price_usd_snapshot,
+      admin_price_override_usd,
+      admin_price_override_reason,
+      qty,
+      line_total_usd
+    `)
+    .eq('order_id', orderId);
+
+  if (previousOrderItemsError) {
+    throw new Error(previousOrderItemsError.message);
+  }
+
   if (currentOrder.status !== 'queued') {
     throw new Error('Solo se puede devolver una orden que está en cola.');
   }
@@ -2756,6 +2773,7 @@ function buildOrderItemOverrideAuditPayload(item: {
   productNameSnapshot: string;
   unitPriceUsdSnapshot: number;
   adminPriceOverrideUsd: number | null;
+  adminPriceOverrideReason?: string | null;
   qty: number;
   lineTotalUsd: number;
 }) {
@@ -2775,6 +2793,25 @@ function buildOrderItemOverrideAuditPayload(item: {
     override_line_total_usd: overrideLineTotalUsd,
     delta_usd: overrideLineTotalUsd - originalLineTotalUsd,
   };
+}
+
+function buildOrderItemOverrideAuditSignature(item: {
+  productNameSnapshot: string;
+  unitPriceUsdSnapshot: number;
+  adminPriceOverrideUsd: number | null;
+  adminPriceOverrideReason?: string | null;
+  qty: number;
+  lineTotalUsd: number;
+}) {
+  const payload = buildOrderItemOverrideAuditPayload(item);
+  return JSON.stringify({
+    product_name: payload.product_name,
+    qty: payload.qty,
+    original_unit_price_usd: payload.original_unit_price_usd,
+    override_unit_price_usd: payload.override_unit_price_usd,
+    override_line_total_usd: payload.override_line_total_usd,
+    reason: String(item.adminPriceOverrideReason || '').trim(),
+  });
 }
 
 function pad4(n: number) {
@@ -3783,19 +3820,33 @@ export async function updateOrderAction(input: {
     throw new Error(insertItemsError.message);
   }
 
-  const { error: deleteOldAdjustmentsError } = await supabase
-    .from('order_admin_adjustments')
-    .delete()
-    .eq('order_id', orderId)
-    .eq('adjustment_type', 'item_price_override');
-
-  if (deleteOldAdjustmentsError) {
-    throw new Error(deleteOldAdjustmentsError.message);
+  const previousOverrideSignatureCounts = new Map<string, number>();
+  for (const previousItem of previousOrderItems ?? []) {
+    if (previousItem.admin_price_override_usd == null) continue;
+    const signature = buildOrderItemOverrideAuditSignature({
+      productNameSnapshot: String(previousItem.product_name_snapshot || ''),
+      unitPriceUsdSnapshot: Number(previousItem.unit_price_usd_snapshot || 0),
+      adminPriceOverrideUsd: Number(previousItem.admin_price_override_usd || 0),
+      adminPriceOverrideReason: previousItem.admin_price_override_reason ?? null,
+      qty: Number(previousItem.qty || 0),
+      lineTotalUsd: Number(previousItem.line_total_usd || 0),
+    });
+    previousOverrideSignatureCounts.set(
+      signature,
+      (previousOverrideSignatureCounts.get(signature) ?? 0) + 1
+    );
   }
 
   const updateAdjustmentRows = input.items
     .map((item, idx) => {
       if (item.adminPriceOverrideUsd == null) return null;
+
+      const signature = buildOrderItemOverrideAuditSignature(item);
+      const previousCount = previousOverrideSignatureCounts.get(signature) ?? 0;
+      if (previousCount > 0) {
+        previousOverrideSignatureCounts.set(signature, previousCount - 1);
+        return null;
+      }
 
       return {
         order_id: orderId,
