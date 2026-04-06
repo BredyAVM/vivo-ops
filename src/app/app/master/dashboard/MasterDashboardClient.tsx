@@ -523,7 +523,7 @@ const fmtBs = (n: number) => {
 };
 
 const fmtRateBs = (n: number) => {
-  if (!Number.isFinite(n)) return 'Bs ?';
+  if (!Number.isFinite(n)) return 'Bs —';
 
   const fixed = n.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
@@ -883,7 +883,7 @@ function getPaymentMethodLabel(method: string) {
   if (method === 'cash_ves') return 'Efectivo Bs';
   if (method === 'zelle') return 'Zelle';
   if (method === 'mixed') return 'Mixto';
-  return '?';
+  return '—';
 }
 
 function getCurrentOperatorLabel(
@@ -963,12 +963,12 @@ function buildWhatsAppOrderSummary(order: Order) {
 
   parts.push(`*Resumen de Pedido*`);
   parts.push('');
-  parts.push(`? *Orden:* ${order.id}`);
-  parts.push(`? *Asesor:* ${order.advisorName}`);
-  parts.push(`? *Cliente:* ${order.clientName}`);
+  parts.push(`*Orden:* ${order.id}`);
+  parts.push(`*Asesor:* ${order.advisorName}`);
+  parts.push(`*Cliente:* ${order.clientName}`);
 
   parts.push('');
-  parts.push(`? *Pedido:*`);
+  parts.push(`*Pedido:*`);
   parts.push('');
 
   if (lines.length === 0) {
@@ -989,16 +989,16 @@ function buildWhatsAppOrderSummary(order: Order) {
   parts.push(`*TOTAL:* ${fmtBs(order.totalBs)} / ${fmtUSD(order.totalUsd)}`);
 
   parts.push('');
-  parts.push(`? *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`? *Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
+  parts.push(`*Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
+  parts.push(`*Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
 
   if (order.fulfillment === 'delivery' && order.address?.trim()) {
-    parts.push(`? *Dirección:* ${order.address.trim()}`);
+    parts.push(`*Dirección:* ${order.address.trim()}`);
   }
 
   if (order.notes?.trim()) {
     parts.push('');
-    parts.push(`? *Nota:* ${order.notes.trim()}`);
+    parts.push(`*Nota:* ${order.notes.trim()}`);
   }
 
   return parts.join('\n');
@@ -1118,7 +1118,7 @@ function riderEnabled(o: Order) {
 function riderTooltip(o: Order) {
   if (o.fulfillment === 'pickup') return 'No aplica (PickUp)';
   if (!['confirmed', 'in_kitchen', 'ready'].includes(o.status)) {
-    return 'Solo puedes asignar driver cuando la orden est? confirmada, en cocina o preparada';
+    return 'Solo puedes asignar driver cuando la orden está confirmada, en cocina o preparada';
   }
   return 'Asignar delivery';
 }
@@ -1341,7 +1341,7 @@ function Drawer({
             className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
             onClick={onClose}
           >
-            ?
+            ×
           </button>
         </div>
         <div className="h-[calc(100%-52px)] overflow-y-auto px-4 py-4">{children}</div>
@@ -1467,10 +1467,10 @@ function ComponentCard({
     {pc.componentName}
   </div>
   <div className="mt-1 text-xs text-[#8A8A96]">
-    {pc.componentSku ? `${pc.componentSku} ? ` : ''}
+    {pc.componentSku ? `${pc.componentSku} · ` : ''}
     {catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService
       ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
-      : '?'}
+      : '—'}
   </div>
 </div>
 
@@ -4099,7 +4099,7 @@ const handleDeleteCatalogItem = async () => {
   if (!selectedCatalogItem) return;
 
   const confirmed = window.confirm(
-    `?Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionar? si no tiene uso ni dependencias.`
+    `¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionará si no tiene uso ni dependencias.`
   );
 
   if (!confirmed) return;
@@ -6724,8 +6724,8 @@ suppressHydrationWarning
                 </Card>
 
                 <Card title="Período" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || '?'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || '?'} />
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                   <StatRow
                     label="Asesor"
                     value={
@@ -7119,8 +7119,8 @@ suppressHydrationWarning
                 </Card>
 
                 <Card title="Período" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || '?'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || '?'} />
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                 </Card>
               </div>
 
@@ -7541,7 +7541,7 @@ suppressHydrationWarning
                               >
                                 <td className="px-3 py-2">{partner.name}</td>
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
-                                <td className="px-3 py-2">{partner.whatsappPhone || '?'}</td>
+                                <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
                                 <td className="px-3 py-2">
                                   {(partner.rates ?? []).filter((rate) => rate.isActive).length}
                                 </td>
@@ -7569,7 +7569,7 @@ suppressHydrationWarning
     <input
       value={catalogSearch}
       onChange={(e) => setCatalogSearch(e.target.value)}
-      placeholder="Buscar nombre o SKU?"
+      placeholder="Buscar nombre o SKU"
       className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96] md:max-w-[280px]"
     />
 
@@ -8051,8 +8051,8 @@ suppressHydrationWarning
                     </td>
                     <td className="px-3 py-3">{account.currencyCode}</td>
                     <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
-                    <td className="px-3 py-3">{account.institutionName || '?'}</td>
-                    <td className="px-3 py-3">{account.ownerName || '?'}</td>
+                    <td className="px-3 py-3">{account.institutionName || '—'}</td>
+                    <td className="px-3 py-3">{account.ownerName || '—'}</td>
                     <td className="px-3 py-3">
                       {account.isActive ? (
                         <span className="text-emerald-400">Activa</span>
@@ -8337,7 +8337,7 @@ suppressHydrationWarning
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '?'}</div>
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
                       {row.notes ? (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
                       ) : null}
@@ -8429,7 +8429,7 @@ suppressHydrationWarning
                     <div>
                       <div className="text-lg font-semibold text-[#F5F5F7]">{selectedCatalogItem.name}</div>
                       <div className="mt-1 text-xs text-[#8A8A96]" title={selectedCatalogItem.sku}>
-                        SKU: {selectedCatalogItem.sku || '?'}
+                        SKU: {selectedCatalogItem.sku || '—'}
                       </div>
                     </div>
 
@@ -8490,7 +8490,7 @@ suppressHydrationWarning
                       value={
                         selectedCatalogItem.inventoryDeductionMode === 'composition'
                           ? 'Por composición'
-                          : 'A s? mismo'
+                          : 'A sí mismo'
                       }
                     />
                     <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
@@ -8672,7 +8672,7 @@ suppressHydrationWarning
                             : 'La venta bajará stock de este mismo producto.'
                         }
                         options={[
-                          { value: 'self', label: 'A s? mismo' },
+                          { value: 'self', label: 'A sí mismo' },
                           { value: 'composition', label: 'Por composición' },
                         ]}
                       />
@@ -9121,8 +9121,8 @@ onClose={() => {
   <div className="flex items-start justify-between gap-3">
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#F5F5F7]">
-        <span>Orden #{selectedOrder.id} ? {selectedOrder.clientName}</span>
-        <span className="text-[#8A8A96]">?</span>
+        <span>Orden #{selectedOrder.id} · {selectedOrder.clientName}</span>
+        <span className="text-[#8A8A96]">·</span>
         <span>{fmtUSD(selectedOrder.totalUsd)}</span>
         <span className={paymentToneClass(selectedOrder.balanceUsd)}>
           {paymentLabel(selectedOrder.balanceUsd)}
@@ -9131,7 +9131,7 @@ onClose={() => {
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-[#8A8A96]">
         <span>{selectedOrder.advisorName}</span>
-        <span>?</span>
+        <span>·</span>
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
@@ -9190,7 +9190,7 @@ onClose={() => {
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 10).map((t, i) => (
-                      <div key={i}>? {t}</div>
+                      <div key={i}>• {t}</div>
                     ))}
                   </div>
                 ) : null}
@@ -9320,7 +9320,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryDistanceKm != null
                 ? `${selectedOrder.editMeta.deliveryDistanceKm} km`
-                : '?'}
+                : '—'}
             </div>
           </div>
 
@@ -9329,7 +9329,7 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryCostUsd != null
                 ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
-                : '?'}
+                : '—'}
             </div>
             {selectedOrder.editMeta?.deliveryCostSource ? (
               <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
@@ -9343,7 +9343,7 @@ onClose={() => {
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
             <div className="text-[10px] text-[#8A8A96]">Dirección</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
-              {selectedOrder.address || '?'}
+              {selectedOrder.address || '—'}
             </div>
           </div>
 
@@ -9518,10 +9518,10 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {rp.currencyCode} {rp.amount.toFixed(2)} ? {fmtUSD(rp.usdEquivalent)}
+                    {rp.currencyCode} {rp.amount.toFixed(2)} · {fmtUSD(rp.usdEquivalent)}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {rp.moneyAccountName} ? {fmtDateTimeES(rp.createdAt)}
+                    {rp.moneyAccountName} · {fmtDateTimeES(rp.createdAt)}
                   </div>
                 </div>
 
@@ -9551,17 +9551,17 @@ onClose={() => {
 
                 <div>
                   <span className="text-[#8A8A96]">Referencia:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.referenceCode || '?'}</span>
+                  <span className="text-[#F5F5F7]">{rp.referenceCode || '—'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Pagador:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.payerName || '?'}</span>
+                  <span className="text-[#F5F5F7]">{rp.payerName || '—'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Tasa:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '?'}</span>
+                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '—'}</span>
                 </div>
               </div>
 
@@ -9600,7 +9600,7 @@ onClose={() => {
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
     <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-      {selectedOrder.notes?.trim() ? selectedOrder.notes : '?'}
+      {selectedOrder.notes?.trim() ? selectedOrder.notes : '—'}
     </div>
   </div>
 ) : null}
@@ -9649,7 +9649,7 @@ onClose={() => {
                       : adjustment.adjustmentType}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {fmtDateTimeES(adjustment.createdAt)} ? {adjustment.createdByUserId}
+                    {fmtDateTimeES(adjustment.createdAt)} · {adjustment.createdByUserId}
                   </div>
                 </div>
 
@@ -9662,7 +9662,7 @@ onClose={() => {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
                   <div className="text-[10px] text-[#8A8A96]">Motivo</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || '?'}</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || '—'}</div>
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
@@ -9866,7 +9866,7 @@ onClick={() => {
         }}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">? cuenta ?</option>
+        <option value="">— cuenta —</option>
         {moneyAccounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name} ({a.currencyCode})
@@ -9944,7 +9944,7 @@ deliveryAssignMode === 'internal' ? (
         onChange={(e) => setDeliveryAssignDriverId(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">? seleccionar ?</option>
+        <option value="">— seleccionar —</option>
         {drivers.map((d) => (
           <option key={d.id} value={d.id}>
             {d.fullName}
@@ -9986,7 +9986,7 @@ deliveryAssignMode === 'external' ? (
         onChange={(e) => handleDeliveryAssignPartnerChange(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">? seleccionar ?</option>
+        <option value="">— seleccionar —</option>
         {deliveryPartners.filter((p) => p.isActive).map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -10757,8 +10757,8 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
-              <InfoCell label="Institución" value={selectedAccount.institutionName || '?'} />
-              <InfoCell label="Titular" value={selectedAccount.ownerName || '?'} />
+              <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
+              <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -10773,9 +10773,9 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-2 py-2 text-left font-medium">N? Orden</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
-                        <th className="px-2 py-2 text-left font-medium">N? Control</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Control</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -11018,7 +11018,7 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '?'} />
+                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '—'} />
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
@@ -11428,7 +11428,7 @@ deliveryAssignMode === 'external' ? (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="SKU" value={selectedInventoryProduct.sku || '?'} />
+                <InfoCell label="SKU" value={selectedInventoryProduct.sku || '—'} />
                 <InfoCell
                   label="Stock actual"
                   value={fmtInventoryUnits(
@@ -11522,7 +11522,7 @@ deliveryAssignMode === 'external' ? (
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-              <div className="text-sm font-semibold text-[#F5F5F7]">?ltimos movimientos</div>
+              <div className="text-sm font-semibold text-[#F5F5F7]">Últimos movimientos</div>
               <div className="mt-3 space-y-2">
                 {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? [])
                   .slice(0, 8)
@@ -11725,17 +11725,17 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="Teléfono" value={selectedClient.phone || '?'} />
+                <InfoCell label="Teléfono" value={selectedClient.phone || '—'} />
                 <InfoCell
                   label="Asesor principal"
                   value={
                     selectedClient.primaryAdvisorId
                       ? advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor'
-                      : '?'
+                      : '—'
                   }
                 />
-                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '?'} />
-                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '?'} />
+                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '—'} />
+                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '—'} />
               </div>
 
               {normalizeClientTags(selectedClient.crmTags).length > 0 ? (
@@ -11760,25 +11760,25 @@ deliveryAssignMode === 'external' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '?'} />
-                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '?'} />
-                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '?'} />
-                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '?'} />
+                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '—'} />
+                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '—'} />
+                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '—'} />
+                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '—'} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '?'} />
+                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '—'} />
                   <InfoCell
                     label="Documento"
-                    value={selectedClient.deliveryNoteDocumentId || '?'}
+                    value={selectedClient.deliveryNoteDocumentId || '—'}
                   />
-                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '?'} />
+                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '—'} />
                   <InfoCell
                     label="Dirección"
-                    value={selectedClient.deliveryNoteAddress || '?'}
+                    value={selectedClient.deliveryNoteAddress || '—'}
                   />
                 </div>
               </div>
@@ -11793,9 +11793,9 @@ deliveryAssignMode === 'external' ? (
                   normalizeClientAddresses(selectedClient.recentAddresses).map((address, idx) => (
                     <div key={`${selectedClient.id}-${idx}`} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
                       <div className="text-xs text-[#8A8A96]">Dirección {idx + 1}</div>
-                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '?'}</div>
+                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '—'}</div>
                       <div className="mt-3 text-xs text-[#8A8A96]">GPS</div>
-                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '?'}</div>
+                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '—'}</div>
                     </div>
                   ))
                 )}
@@ -11823,7 +11823,7 @@ deliveryAssignMode === 'external' ? (
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: '? sin asesor principal ?' },
+                  { value: '', label: '— sin asesor principal —' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -11988,7 +11988,7 @@ deliveryAssignMode === 'external' ? (
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: '? sin asesor principal ?' },
+                  { value: '', label: '— sin asesor principal —' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -12156,7 +12156,7 @@ deliveryAssignMode === 'external' ? (
             : 'bg-[#FEEF00] text-[#0B0B0D]',
         ].join(' ')}
       >
-        {orderEditorMode === 'edit' ? 'MODO EDIT' : 'MODO CREATE'}
+          {orderEditorMode === 'edit' ? 'MODO EDICIÓN' : 'MODO CREAR'}
       </span>
     </div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -12165,15 +12165,15 @@ deliveryAssignMode === 'external' ? (
 
   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
     <FieldSelect
-      label="Source"
+      label="Origen"
       value={createOrderSource}
       onChange={(value) =>
         setCreateOrderSource(value as 'advisor' | 'master' | 'walk_in')
       }
       options={[
-        { value: 'master', label: 'master' },
-        { value: 'advisor', label: 'advisor' },
-        { value: 'walk_in', label: 'walk_in' },
+        { value: 'master', label: 'Master' },
+        { value: 'advisor', label: 'Asesor' },
+        { value: 'walk_in', label: 'Walk-in' },
       ]}
     />
 
@@ -12184,7 +12184,7 @@ deliveryAssignMode === 'external' ? (
       value={createOrderAdvisorUserId}
       onChange={setCreateOrderAdvisorUserId}
       options={[
-        { value: '', label: '? seleccionar ?' },
+        { value: '', label: '— seleccionar —' },
         ...advisors.map((advisor) => ({
           value: advisor.userId,
           label: advisor.isActive
@@ -12224,7 +12224,7 @@ deliveryAssignMode === 'external' ? (
   <input
     value={createOrderClientSearch}
     onChange={(e) => setCreateOrderClientSearch(e.target.value)}
-    placeholder="Buscar por nombre o teléfono?"
+    placeholder="Buscar por nombre o teléfono"
     className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
   />
 
@@ -12252,10 +12252,10 @@ deliveryAssignMode === 'external' ? (
                 {createOrderSelectedClientName}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tel: {createOrderSelectedClientPhone || '?'}
+                Tel: {createOrderSelectedClientPhone || '—'}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tipo: {createOrderSelectedClientType || '?'}
+                Tipo: {createOrderSelectedClientType || '—'}
               </div>
             </div>
           ) : null}
@@ -12512,12 +12512,12 @@ deliveryAssignMode === 'external' ? (
 
 <div>
   <div className="text-sm font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
-  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || '?'}</div>
+  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || '—'}</div>
 
   {item.editableDetailLines.length > 0 ? (
     <div className="mt-2 space-y-1 text-xs text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
-        <div key={detailIdx}>? {detail}</div>
+        <div key={detailIdx}>• {detail}</div>
       ))}
     </div>
   ) : null}
@@ -13003,7 +13003,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="Cliente"
-        value={createOrderSelectedClientName || createOrderNewClientName || '?'}
+        value={createOrderSelectedClientName || createOrderNewClientName || '—'}
       />
 
       <InfoCell label="Tipo" value={createOrderFulfillment} />
@@ -13114,7 +13114,7 @@ deliveryAssignMode === 'external' ? (
             <span className="text-[#F5F5F7]">Datos factura:</span>{' '}
             {[createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
               .filter(Boolean)
-              .join(' | ') || '?'}
+              .join(' | ') || '—'}
           </div>
         ) : null}
 
@@ -13128,7 +13128,7 @@ deliveryAssignMode === 'external' ? (
               createOrderDeliveryNotePhone,
             ]
               .filter(Boolean)
-              .join(' | ') || '?'}
+              .join(' | ') || '—'}
           </div>
         ) : null}
       </div>
@@ -13136,22 +13136,22 @@ deliveryAssignMode === 'external' ? (
 
     <div className="space-y-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
       <div className={createOrderHasClient ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasClient ? '? Cliente listo' : '? Falta cliente'}
+        {createOrderHasClient ? 'Cliente listo' : 'Falta cliente'}
       </div>
 
       <div className={createOrderHasItems ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasItems ? '? Pedido con ítems' : '? Falta agregar ítems'}
+        {createOrderHasItems ? 'Pedido con ítems' : 'Falta agregar ítems'}
       </div>
 
       <div className={createOrderHasValidAdvisor ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasValidAdvisor ? '? Asesor válido' : 'Debes seleccionar asesor'}
+        {createOrderHasValidAdvisor ? 'Asesor válido' : 'Debes seleccionar asesor'}
       </div>
 
       <div className={createOrderHasDeliveryAddress ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryAddress ? '? Entrega válida' : '? Falta dirección de delivery'}
+        {createOrderHasDeliveryAddress ? 'Entrega válida' : 'Falta dirección de delivery'}
       </div>
       <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryChargeItem ? '? ítem de delivery cargado' : 'Falta producto de delivery'}
+        {createOrderHasDeliveryChargeItem ? 'Ítem de delivery cargado' : 'Falta producto de delivery'}
       </div>
     </div>
 
@@ -13258,7 +13258,7 @@ deliveryAssignMode === 'external' ? (
   <div className="space-y-4">
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="grid grid-cols-3 gap-3">
-        <InfoCell label="Producto" value={createOrderConfigProductName || '?'} />
+        <InfoCell label="Producto" value={createOrderConfigProductName || '—'} />
         <InfoCell label="Cant." value={String(createOrderConfigQty)} />
         <InfoCell label="Límite" value={String(createOrderConfigLimit || 0)} />
       </div>
@@ -13313,7 +13313,7 @@ return (
         {option.name}
       </div>
       <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
-        {option.sku || '?'}
+        {option.sku || '—'}
       </div>
     </div>
 
