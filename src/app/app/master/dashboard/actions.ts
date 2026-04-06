@@ -1882,6 +1882,88 @@ async function applyDeliveredOrderInventoryDeductions(
   }
 }
 
+async function resetDeliveredOrderInventoryDeductions(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  orderId: number
+) {
+  const { data: existingSaleMovements, error: existingSaleMovementsError } = await supabase
+    .from('inventory_movements')
+    .select('id, inventory_item_id, quantity_units')
+    .eq('order_id', orderId)
+    .eq('movement_type', 'sale_out');
+
+  if (existingSaleMovementsError) {
+    throw new Error(existingSaleMovementsError.message);
+  }
+
+  if ((existingSaleMovements ?? []).length === 0) {
+    return;
+  }
+
+  const restoreByItemId = new Map<number, number>();
+  for (const movement of existingSaleMovements ?? []) {
+    const inventoryItemId = Number(movement.inventory_item_id);
+    const quantityUnits = Math.max(0, toSafeNumber(movement.quantity_units, 0));
+    if (inventoryItemId <= 0 || quantityUnits <= 0) continue;
+
+    restoreByItemId.set(
+      inventoryItemId,
+      (restoreByItemId.get(inventoryItemId) ?? 0) + quantityUnits
+    );
+  }
+
+  const inventoryItemIds = Array.from(restoreByItemId.keys());
+  if (inventoryItemIds.length > 0) {
+    const { data: inventoryItems, error: inventoryItemsError } = await supabase
+      .from('inventory_items')
+      .select('id, current_stock_units')
+      .in('id', inventoryItemIds);
+
+    if (inventoryItemsError) {
+      throw new Error(inventoryItemsError.message);
+    }
+
+    const inventoryById = new Map(
+      (inventoryItems ?? []).map((row) => [
+        Number(row.id),
+        toSafeNumber(row.current_stock_units, 0),
+      ])
+    );
+
+    for (const inventoryItemId of inventoryItemIds) {
+      const currentStockUnits = inventoryById.get(inventoryItemId);
+      if (currentStockUnits == null) {
+        throw new Error(`No se encontró el item interno ${inventoryItemId} para restaurar inventario.`);
+      }
+
+      const restoreQty = restoreByItemId.get(inventoryItemId) ?? 0;
+      const { error: restoreError } = await supabase
+        .from('inventory_items')
+        .update({ current_stock_units: currentStockUnits + restoreQty })
+        .eq('id', inventoryItemId);
+
+      if (restoreError) {
+        throw new Error(restoreError.message);
+      }
+    }
+  }
+
+  const movementIds = (existingSaleMovements ?? [])
+    .map((movement) => Number(movement.id))
+    .filter((id) => id > 0);
+
+  if (movementIds.length > 0) {
+    const { error: deleteMovementsError } = await supabase
+      .from('inventory_movements')
+      .delete()
+      .in('id', movementIds);
+
+    if (deleteMovementsError) {
+      throw new Error(deleteMovementsError.message);
+    }
+  }
+}
+
 export async function createClientAction(input: {
   fullName: string;
   phone: string;
@@ -3787,6 +3869,11 @@ export async function updateOrderAction(input: {
     if (createAuditError) {
       throw new Error(createAuditError.message);
     }
+  }
+
+  if (currentOrder.status === 'delivered') {
+    await resetDeliveredOrderInventoryDeductions(supabase, orderId);
+    await applyDeliveredOrderInventoryDeductions(supabase, user.id, orderId);
   }
 
   revalidatePath('/app/master/dashboard');
