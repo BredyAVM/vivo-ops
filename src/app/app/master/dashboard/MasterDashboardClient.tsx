@@ -439,7 +439,7 @@ type ProductInventoryLink = {
 type EditableInventoryRecipeRow = {
   localId: string;
   inputInventoryItemId: number;
-  quantityUnits: number;
+  quantityUnits: string;
   sortOrder: number;
 };
 
@@ -500,7 +500,7 @@ type EditableComponentRow = {
 type EditableInventoryLinkRow = {
   localId: string;
   inventoryItemId: number;
-  quantityUnits: number;
+  quantityUnits: string;
   sortOrder: number;
   notes: string;
 };
@@ -3220,7 +3220,7 @@ const handleSaveCatalog = async () => {
         : null,
       inventoryLinks: editInventoryLinks.map((row, idx) => ({
         inventoryItemId: Number(row.inventoryItemId || 0),
-        quantityUnits: Number(String(row.quantityUnits || 0).replace(',', '.')),
+        quantityUnits: Number(String(row.quantityUnits || 0).trim().replace(',', '.')),
         notes: row.notes?.trim() || null,
         sortOrder: Number(row.sortOrder || idx + 1),
       })),
@@ -3907,7 +3907,7 @@ const openInventoryRecipeEditor = (inventoryItemId: number) => {
     recipeComponents.map((component, index) => ({
       localId: makeLocalId(),
       inputInventoryItemId: component.inputInventoryItemId,
-      quantityUnits: component.quantityUnits,
+      quantityUnits: String(component.quantityUnits),
       sortOrder: component.sortOrder || index + 1,
     }))
   );
@@ -3921,7 +3921,7 @@ const addInventoryRecipeRow = () => {
     {
       localId: makeLocalId(),
       inputInventoryItemId: 0,
-      quantityUnits: 0,
+      quantityUnits: '',
       sortOrder: current.length + 1,
     },
   ]);
@@ -4231,7 +4231,7 @@ const handleCreateCatalogItem = async () => {
         : null,
       inventoryLinks: newInventoryLinks.map((row, idx) => ({
         inventoryItemId: Number(row.inventoryItemId || 0),
-        quantityUnits: Number(String(row.quantityUnits || 0).replace(',', '.')),
+        quantityUnits: Number(String(row.quantityUnits || 0).trim().replace(',', '.')),
         notes: row.notes?.trim() || null,
         sortOrder: Number(row.sortOrder || idx + 1),
       })),
@@ -4334,13 +4334,13 @@ const addEditComponent = () => {
   const addNewInventoryLink = () => {
     setNewInventoryLinks((prev) => [
       ...prev,
-      {
-        localId: `new-link-${Date.now()}-${Math.random()}`,
-        inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
-        quantityUnits: 1,
-        sortOrder: prev.length + 1,
-        notes: '',
-      },
+        {
+          localId: `new-link-${Date.now()}-${Math.random()}`,
+          inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
+          quantityUnits: '1',
+          sortOrder: prev.length + 1,
+          notes: '',
+        },
     ]);
   };
 
@@ -4359,13 +4359,13 @@ const addEditComponent = () => {
   const addEditInventoryLink = () => {
     setEditInventoryLinks((prev) => [
       ...prev,
-      {
-        localId: `edit-link-${Date.now()}-${Math.random()}`,
-        inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
-        quantityUnits: 1,
-        sortOrder: prev.length + 1,
-        notes: '',
-      },
+        {
+          localId: `edit-link-${Date.now()}-${Math.random()}`,
+          inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
+          quantityUnits: '1',
+          sortOrder: prev.length + 1,
+          notes: '',
+        },
     ]);
   };
 
@@ -8913,7 +8913,7 @@ suppressHydrationWarning
                                     value={String(row.quantityUnits ?? '')}
                                     onChange={(value) =>
                                       updateEditInventoryLink(row.localId, {
-                                        quantityUnits: Number(String(value || '0').replace(',', '.')) || 0,
+                                        quantityUnits: value,
                                       })
                                     }
                                     type="text"
@@ -10771,7 +10771,7 @@ deliveryAssignMode === 'external' ? (
                         value={String(row.quantityUnits ?? '')}
                         onChange={(value) =>
                           updateNewInventoryLink(row.localId, {
-                            quantityUnits: Number(String(value || '0').replace(',', '.')) || 0,
+                            quantityUnits: value,
                           })
                         }
                         type="text"
@@ -11737,7 +11737,7 @@ deliveryAssignMode === 'external' ? (
                               value={String(row.quantityUnits ?? '')}
                               onChange={(value) =>
                                 updateInventoryRecipeRow(row.localId, {
-                                  quantityUnits: Number(String(value || '0').replace(',', '.')) || 0,
+                                  quantityUnits: value,
                                 })
                               }
                               type="text"
