@@ -960,9 +960,7 @@ const { data: ordersData, error: ordersError } = await supabase
     movementGroupId: mv.movement_group_id ?? null,
   }));
 
-  const { data: clientsData, error: clientsError } = await supabase
-    .from('clients')
-    .select(`
+  const clientSelect = `
       id,
       full_name,
       phone,
@@ -985,9 +983,32 @@ const { data: ordersData, error: ordersError } = await supabase
       crm_tags,
       extra_fields,
       updated_at
-    `)
-    .order('updated_at', { ascending: false })
-    .limit(5000);
+    `;
+
+  const clientsPageSize = 1000;
+  let clientsError: { message: string } | null = null;
+  const clientsRows: RawClientRow[] = [];
+
+  for (let pageFrom = 0; pageFrom < 10000; pageFrom += clientsPageSize) {
+    const pageTo = pageFrom + clientsPageSize - 1;
+    const { data, error } = await supabase
+      .from('clients')
+      .select(clientSelect)
+      .order('updated_at', { ascending: false })
+      .range(pageFrom, pageTo);
+
+    if (error) {
+      clientsError = error;
+      break;
+    }
+
+    const batch = (data ?? []) as RawClientRow[];
+    clientsRows.push(...batch);
+
+    if (batch.length < clientsPageSize) {
+      break;
+    }
+  }
 
   if (clientsError) {
     return (
@@ -1005,7 +1026,7 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  const clients = ((clientsData ?? []) as RawClientRow[]).map((client) => ({
+  const clients = clientsRows.map((client) => ({
     id: Number(client.id),
     fullName: client.full_name,
     phone: client.phone ?? '',
