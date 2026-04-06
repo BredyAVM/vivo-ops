@@ -987,7 +987,7 @@ const { data: ordersData, error: ordersError } = await supabase
       updated_at
     `)
     .order('updated_at', { ascending: false })
-    .limit(500);
+    .limit(5000);
 
   if (clientsError) {
     return (

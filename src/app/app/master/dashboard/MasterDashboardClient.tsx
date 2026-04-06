@@ -6454,7 +6454,7 @@ useEffect(() => {
   }, [selectedDay]);
 
   useEffect(() => {
-    if (advisorCalcSource === 'advisor') return;
+    if (advisorCalcSource === '' || advisorCalcSource === 'advisor') return;
     if (!advisorCalcAdvisorId) return;
     setAdvisorCalcAdvisorId('');
   }, [advisorCalcSource, advisorCalcAdvisorId]);
