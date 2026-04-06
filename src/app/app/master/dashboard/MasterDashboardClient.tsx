@@ -1124,10 +1124,10 @@ function riderTooltip(o: Order) {
 }
 
 function payIcon(p: PaymentVerify) {
-  if (p === 'pending') return '? ';
+  if (p === 'pending') return 'Pend.';
   if (p === 'confirmed') return 'OK';
   if (p === 'rejected') return 'No';
-  return '?';
+  return '—';
 }
 function payIconTooltip(p: PaymentVerify) {
   if (p === 'pending') return 'Por confirmar';
@@ -13392,5 +13392,4 @@ return (
     </div>
   );
 }
-
 
