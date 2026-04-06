@@ -7808,13 +7808,12 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Stock actual</th>
               <th className="px-3 py-3 text-left font-medium">Mínimo</th>
               <th className="px-3 py-3 text-left font-medium">Último movimiento</th>
-              <th className="px-3 py-3 text-left font-medium">Acción</th>
             </tr>
           </thead>
           <tbody>
             {filteredInventoryItems.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={9}>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={8}>
                   No hay items de inventario que coincidan con el filtro.
                 </td>
               </tr>
@@ -7863,12 +7862,21 @@ suppressHydrationWarning
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
                       {item.lowStockThreshold != null
-                        ? fmtInventoryUnits(
-                            item.lowStockThreshold,
-                            item.packagingName,
-                            item.packagingSize,
-                            item.unitName
-                          )
+                        ? (
+                          <>
+                            <div className="text-[#F5F5F7]">
+                              {fmtInventoryUnits(
+                                item.lowStockThreshold,
+                                item.packagingName,
+                                item.packagingSize,
+                                item.unitName
+                              )}
+                            </div>
+                            <div className="mt-1 text-[11px] text-[#8A8A96]">
+                              Total: {item.lowStockThreshold} {item.unitName}{item.lowStockThreshold === 1 ? '' : 's'}
+                            </div>
+                          </>
+                        )
                         : '—'}
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
@@ -7882,48 +7890,6 @@ suppressHydrationWarning
                       ) : (
                         'Sin movimientos'
                       )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openInventoryItemEditDrawer(item.id);
-                          }}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openInventoryMovementDrawer(item.id);
-                          }}
-                        >
-                          Movimiento
-                        </button>
-                        {(inventoryRecipesByOutputItemId.get(item.id) ?? []).some((recipe) => recipe.isActive) ? (
-                          <button
-                            className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#FEEF00]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openInventoryProductionDrawer(item.id);
-                            }}
-                          >
-                            Producir
-                          </button>
-                        ) : null}
-                        <button
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleInventoryItemActive(item);
-                          }}
-                        >
-                          {item.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 );
@@ -11456,6 +11422,28 @@ deliveryAssignMode === 'external' ? (
         ) : (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  onClick={() => openInventoryItemEditDrawer(selectedInventoryProduct.id)}
+                >
+                  Editar
+                </button>
+                {(inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ?? []).some((recipe) => recipe.isActive) ? (
+                  <button
+                    className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#FEEF00]"
+                    onClick={() => openInventoryProductionDrawer(selectedInventoryProduct.id)}
+                  >
+                    Producir
+                  </button>
+                ) : null}
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  onClick={() => handleToggleInventoryItemActive(selectedInventoryProduct)}
+                >
+                  {selectedInventoryProduct.isActive ? 'Desactivar' : 'Activar'}
+                </button>
+              </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <InfoCell label="ID" value={String(selectedInventoryProduct.id)} />
                 <InfoCell
@@ -11472,6 +11460,7 @@ deliveryAssignMode === 'external' ? (
                   value={`${selectedInventoryProduct.currentStockUnits} ${selectedInventoryProduct.unitName}${selectedInventoryProduct.currentStockUnits === 1 ? '' : 's'}`}
                 />
                 <InfoCell label="Tipo" value={INVENTORY_KIND_LABEL[selectedInventoryProduct.inventoryKind]} />
+                <InfoCell label="Grupo" value={INVENTORY_GROUP_LABEL[selectedInventoryProduct.inventoryGroup]} />
               </div>
             </div>
 
