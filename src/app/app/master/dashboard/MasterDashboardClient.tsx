@@ -624,14 +624,14 @@ const fmtDeliveryTextES = (iso: string) => {
   });
 
   const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
-  return `${cap} ${dd}/${mm} ? ${time}`;
+  return `${cap} ${dd}/${mm} · ${time}`;
 };
 
 function fmtDateTimeES(iso: string | null) {
-  if (!iso) return '?';
+  if (!iso) return '—';
 
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '?';
+  if (Number.isNaN(d.getTime())) return '—';
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -646,7 +646,7 @@ function fmtDateTimeES(iso: string | null) {
 
   const yy = String(year).slice(-2);
 
-  return `${day}/${month}/${yy} ? ${hour}:${minute} ${ampm}`;
+  return `${day}/${month}/${yy} · ${hour}:${minute} ${ampm}`;
 }
 
 function toDateInputValue(d: Date) {
