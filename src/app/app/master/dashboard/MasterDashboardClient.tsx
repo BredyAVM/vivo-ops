@@ -5419,6 +5419,10 @@ const selectedPaymentReportAccount =
     return new Map(inventoryItems.map((item) => [item.id, item]));
   }, [inventoryItems]);
 
+  const inventoryItemByName = useMemo(() => {
+    return new Map(inventoryItems.map((item) => [item.name.trim().toLowerCase(), item]));
+  }, [inventoryItems]);
+
   const inventoryRecipesByOutputItemId = useMemo(() => {
     const map = new Map<number, InventoryRecipeItem[]>();
     for (const recipe of inventoryRecipes) {
@@ -5561,6 +5565,55 @@ const selectedPaymentReportAccount =
       bases: inventoryItems.filter((item) => item.inventoryKind === 'prepared_base').length,
     };
   }, [inventoryAvailabilityByItemId, inventoryItems]);
+
+  const productAvailabilityById = useMemo(() => {
+    const map = new Map<number, { readyUnits: number; potentialUnits: number; totalUnits: number }>();
+
+    for (const product of catalogItems) {
+      if (!product.inventoryEnabled) continue;
+
+      if (product.inventoryDeductionMode === 'composition') {
+        const links = productInventoryLinksByProductId.get(product.id) ?? [];
+        if (links.length === 0) continue;
+
+        let readyUnits = Number.POSITIVE_INFINITY;
+        let totalUnits = Number.POSITIVE_INFINITY;
+
+        for (const link of links) {
+          if (link.inventoryItemId <= 0 || link.quantityUnits <= 0) continue;
+          const availability = inventoryAvailabilityByItemId.get(link.inventoryItemId);
+          if (!availability) continue;
+          readyUnits = Math.min(readyUnits, availability.readyUnits / link.quantityUnits);
+          totalUnits = Math.min(totalUnits, availability.totalUnits / link.quantityUnits);
+        }
+
+        const safeReady = Number.isFinite(readyUnits) && readyUnits > 0 ? readyUnits : 0;
+        const safeTotal = Number.isFinite(totalUnits) && totalUnits > 0 ? totalUnits : 0;
+        map.set(product.id, {
+          readyUnits: safeReady,
+          potentialUnits: Math.max(0, safeTotal - safeReady),
+          totalUnits: safeTotal,
+        });
+        continue;
+      }
+
+      const selfItem = inventoryItemByName.get(product.name.trim().toLowerCase());
+      if (!selfItem) continue;
+      const availability = inventoryAvailabilityByItemId.get(selfItem.id) ?? {
+        readyUnits: selfItem.currentStockUnits,
+        potentialUnits: 0,
+        totalUnits: selfItem.currentStockUnits,
+      };
+      map.set(product.id, availability);
+    }
+
+    return map;
+  }, [
+    catalogItems,
+    inventoryAvailabilityByItemId,
+    inventoryItemByName,
+    productInventoryLinksByProductId,
+  ]);
 
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
@@ -12974,17 +13027,43 @@ deliveryAssignMode === 'external' ? (
       : 'hover:bg-[#121218]',
   ].join(' ')}
 >
+{(() => {
+  const availability = productAvailabilityById.get(item.id) ?? null;
+  const readyUnits = availability ? Number(availability.readyUnits.toFixed(3)) : null;
+  const potentialUnits = availability ? Number(availability.potentialUnits.toFixed(3)) : null;
+  const totalUnits = availability ? Number(availability.totalUnits.toFixed(3)) : null;
+
+  return (
+    <>
 
               <div className="text-sm font-medium text-[#F5F5F7]">
                 {item.name}
               </div>
 <div className="mt-1 text-xs text-[#8A8A96]">
-  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '?'} ?{' '}
+  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} ·{' '}
   {item.sourcePriceCurrency === 'VES'
     ? fmtBs(item.basePriceBs)
     : fmtUSD(item.basePriceUsd)}
-  {item.sku ? ` ? ${item.sku}` : ''}
+  {item.sku ? ` · ${item.sku}` : ''}
 </div>
+              {availability ? (
+                <div className="mt-2 text-[11px]">
+                  <div className="text-[#8A8A96]">
+                    Listo: <span className="text-[#F5F5F7]">{readyUnits}</span>
+                    {potentialUnits && potentialUnits > 0 ? (
+                      <>
+                        {' '}· Puede producirse:{' '}
+                        <span className="text-emerald-400">{potentialUnits}</span>
+                        {' '}· Total posible:{' '}
+                        <span className="text-[#F5F5F7]">{totalUnits}</span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+    </>
+  );
+})()}
             </button>
           ))
         )}
@@ -13825,7 +13904,8 @@ deliveryAssignMode === 'external' ? (
           {createOrderConfigSelectableOptions.map((option, idx) => {
             const currentQty =
               createOrderConfigSelections.find((x) => x.componentProductId === option.id)?.qty || 0;
-
+            const availability = productAvailabilityById.get(option.id) ?? null;
+ 
 return (
   <div
     key={option.id}
@@ -13838,6 +13918,14 @@ return (
       <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
         {option.sku || '—'}
       </div>
+      {availability ? (
+        <div className="mt-1 text-[11px] text-[#8A8A96]">
+          Listo: {Number(availability.readyUnits.toFixed(3))}
+          {availability.potentialUnits > 0 ? (
+            <> · Puede producirse: <span className="text-emerald-400">{Number(availability.potentialUnits.toFixed(3))}</span></>
+          ) : null}
+        </div>
+      ) : null}
     </div>
 
     <div className="flex items-center justify-end gap-2">
