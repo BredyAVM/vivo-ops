@@ -2527,6 +2527,16 @@ const INVENTORY_GROUP_LABEL: Record<
   other: 'Otros',
 };
 
+const INVENTORY_KIND_LABEL: Record<
+  'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging',
+  string
+> = {
+  raw_material: 'Materia prima',
+  prepared_base: 'Base preparada',
+  finished_stock: 'Stock final',
+  packaging: 'Empaque',
+};
+
 const loadOrderIntoCreateForm = (order: Order) => {
   const deliveryFields = splitISOToDeliveryFields(order.deliveryAtISO);
 
@@ -7817,7 +7827,11 @@ suppressHydrationWarning
                   item.currentStockUnits <= item.lowStockThreshold;
 
                 return (
-                  <tr key={item.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                  <tr
+                    key={item.id}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A24]`}
+                    onClick={() => openInventoryMovementDrawer(item.id)}
+                  >
                     <td className="px-3 py-3 text-[#8A8A96]">{item.id}</td>
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{item.name}</div>
@@ -7827,7 +7841,7 @@ suppressHydrationWarning
                       <SmallBadge label={INVENTORY_GROUP_LABEL[item.inventoryGroup]} tone="brand" />
                     </td>
                     <td className="px-3 py-3">
-                      <SmallBadge label={item.inventoryKind} tone="muted" />
+                      <SmallBadge label={INVENTORY_KIND_LABEL[item.inventoryKind]} tone="muted" />
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
                       {item.packagingName && item.packagingSize
@@ -7842,6 +7856,9 @@ suppressHydrationWarning
                           item.packagingSize,
                           item.unitName
                         )}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        Total: {item.currentStockUnits} {item.unitName}{item.currentStockUnits === 1 ? '' : 's'}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
@@ -7870,27 +7887,39 @@ suppressHydrationWarning
                       <div className="flex flex-wrap gap-2">
                         <button
                           className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                          onClick={() => openInventoryItemEditDrawer(item.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openInventoryItemEditDrawer(item.id);
+                          }}
                         >
                           Editar
                         </button>
                         <button
                           className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                          onClick={() => openInventoryMovementDrawer(item.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openInventoryMovementDrawer(item.id);
+                          }}
                         >
                           Movimiento
                         </button>
                         {(inventoryRecipesByOutputItemId.get(item.id) ?? []).some((recipe) => recipe.isActive) ? (
                           <button
                             className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#FEEF00]"
-                            onClick={() => openInventoryProductionDrawer(item.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openInventoryProductionDrawer(item.id);
+                            }}
                           >
                             Producir
                           </button>
                         ) : null}
                         <button
                           className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                          onClick={() => handleToggleInventoryItemActive(item)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleInventoryItemActive(item);
+                          }}
                         >
                           {item.isActive ? 'Desactivar' : 'Activar'}
                         </button>
@@ -11415,7 +11444,7 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
       <Drawer
         open={inventoryMovementOpen}
-        title={selectedInventoryProduct ? `Movimiento: ${selectedInventoryProduct.name}` : 'Movimiento de inventario'}
+        title={selectedInventoryProduct ? `Inventario: ${selectedInventoryProduct.name}` : 'Movimiento de inventario'}
         onClose={() => {
           setInventoryMovementOpen(false);
           resetInventoryMovementForm();
@@ -11428,7 +11457,7 @@ deliveryAssignMode === 'external' ? (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="SKU" value={selectedInventoryProduct.sku || '—'} />
+                <InfoCell label="ID" value={String(selectedInventoryProduct.id)} />
                 <InfoCell
                   label="Stock actual"
                   value={fmtInventoryUnits(
@@ -11438,6 +11467,11 @@ deliveryAssignMode === 'external' ? (
                     selectedInventoryProduct.unitName
                   )}
                 />
+                <InfoCell
+                  label="Total unidades"
+                  value={`${selectedInventoryProduct.currentStockUnits} ${selectedInventoryProduct.unitName}${selectedInventoryProduct.currentStockUnits === 1 ? '' : 's'}`}
+                />
+                <InfoCell label="Tipo" value={INVENTORY_KIND_LABEL[selectedInventoryProduct.inventoryKind]} />
               </div>
             </div>
 
