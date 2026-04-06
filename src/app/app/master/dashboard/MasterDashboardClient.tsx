@@ -436,6 +436,13 @@ type ProductInventoryLink = {
   createdAt: string;
 };
 
+type EditableInventoryRecipeRow = {
+  localId: string;
+  inputInventoryItemId: number;
+  quantityUnits: number;
+  sortOrder: number;
+};
+
 type ProductComponent = {
   id: number;
   parentProductId: number;
@@ -1802,7 +1809,7 @@ export default function MasterDashboardClient({
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<number | null>(null);
   const [inventoryItemCreateOpen, setInventoryItemCreateOpen] = useState(false);
   const [inventoryItemEditOpen, setInventoryItemEditOpen] = useState(false);
-  const [inventoryDrawerMode, setInventoryDrawerMode] = useState<'movement' | 'edit'>('movement');
+  const [inventoryDrawerMode, setInventoryDrawerMode] = useState<'movement' | 'edit' | 'recipe'>('movement');
   const [inventoryItemSaving, setInventoryItemSaving] = useState(false);
   const [inventoryItemFormName, setInventoryItemFormName] = useState('');
   const [inventoryItemFormKind, setInventoryItemFormKind] = useState<InventoryItem['inventoryKind']>('raw_material');
@@ -1826,6 +1833,11 @@ export default function MasterDashboardClient({
   const [inventoryProductionOpen, setInventoryProductionOpen] = useState(false);
   const [inventoryProductionSaving, setInventoryProductionSaving] = useState(false);
   const [selectedInventoryRecipeId, setSelectedInventoryRecipeId] = useState<number | null>(null);
+  const [inventoryRecipeFormKind, setInventoryRecipeFormKind] = useState<'production' | 'packaging'>('production');
+  const [inventoryRecipeFormOutputUnits, setInventoryRecipeFormOutputUnits] = useState('1');
+  const [inventoryRecipeFormNotes, setInventoryRecipeFormNotes] = useState('');
+  const [inventoryRecipeRows, setInventoryRecipeRows] = useState<EditableInventoryRecipeRow[]>([]);
+  const [inventoryRecipeSaving, setInventoryRecipeSaving] = useState(false);
   const [inventoryProductionBatches, setInventoryProductionBatches] = useState('1');
   const [inventoryProductionNotes, setInventoryProductionNotes] = useState('');
   const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('general');
@@ -2537,6 +2549,8 @@ const INVENTORY_KIND_LABEL: Record<
   finished_stock: 'Stock final',
   packaging: 'Empaque',
 };
+
+const makeLocalId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const loadOrderIntoCreateForm = (order: Order) => {
   const deliveryFields = splitISOToDeliveryFields(order.deliveryAtISO);
@@ -3859,6 +3873,7 @@ const openInventoryItemEditDrawer = (inventoryItemId: number) => {
   setInventoryItemFormLowStock(item.lowStockThreshold != null ? String(item.lowStockThreshold) : '');
   setInventoryItemFormIsActive(!!item.isActive);
   setInventoryItemFormNotes(item.notes || '');
+  setInventoryItemEditOpen(false);
   setInventoryDrawerMode('edit');
   setInventoryMovementOpen(true);
 };
@@ -3869,6 +3884,63 @@ const resetInventoryProductionForm = () => {
   setInventoryProductionNotes('');
 };
 
+const resetInventoryRecipeForm = () => {
+  setInventoryRecipeFormKind('production');
+  setInventoryRecipeFormOutputUnits('1');
+  setInventoryRecipeFormNotes('');
+  setInventoryRecipeRows([]);
+};
+
+const openInventoryRecipeEditor = (inventoryItemId: number) => {
+  const item = inventoryItemById.get(inventoryItemId);
+  if (!item) return;
+
+  const recipe = (inventoryRecipesByOutputItemId.get(inventoryItemId) ?? []).find((row) => row.isActive) ?? null;
+  const recipeComponents = recipe ? inventoryRecipeComponentsByRecipeId.get(recipe.id) ?? [] : [];
+
+  setSelectedInventoryProductId(inventoryItemId);
+  setSelectedInventoryRecipeId(recipe?.id ?? null);
+  setInventoryRecipeFormKind(recipe?.recipeKind ?? 'production');
+  setInventoryRecipeFormOutputUnits(String(recipe?.outputQuantityUnits ?? 1));
+  setInventoryRecipeFormNotes(recipe?.notes ?? '');
+  setInventoryRecipeRows(
+    recipeComponents.map((component, index) => ({
+      localId: makeLocalId(),
+      inputInventoryItemId: component.inputInventoryItemId,
+      quantityUnits: component.quantityUnits,
+      sortOrder: component.sortOrder || index + 1,
+    }))
+  );
+  setInventoryDrawerMode('recipe');
+  setInventoryMovementOpen(true);
+};
+
+const addInventoryRecipeRow = () => {
+  setInventoryRecipeRows((current) => [
+    ...current,
+    {
+      localId: makeLocalId(),
+      inputInventoryItemId: 0,
+      quantityUnits: 0,
+      sortOrder: current.length + 1,
+    },
+  ]);
+};
+
+const updateInventoryRecipeRow = (localId: string, patch: Partial<EditableInventoryRecipeRow>) => {
+  setInventoryRecipeRows((current) =>
+    current.map((row) => (row.localId === localId ? { ...row, ...patch } : row))
+  );
+};
+
+const removeInventoryRecipeRow = (localId: string) => {
+  setInventoryRecipeRows((current) =>
+    current
+      .filter((row) => row.localId !== localId)
+      .map((row, index) => ({ ...row, sortOrder: index + 1 }))
+  );
+};
+
 const openInventoryMovementDrawer = (productId: number) => {
   setInventoryMovementType('inbound');
   setInventoryMovementPackagingQty('0');
@@ -3876,6 +3948,7 @@ const openInventoryMovementDrawer = (productId: number) => {
   setInventoryMovementReasonCode('');
   setInventoryMovementNotes('');
   setSelectedInventoryProductId(productId);
+  setInventoryItemEditOpen(false);
   setInventoryDrawerMode('movement');
   setInventoryMovementOpen(true);
 };
@@ -3889,6 +3962,95 @@ const openInventoryProductionDrawer = (productId: number) => {
   setInventoryProductionBatches('1');
   setInventoryProductionNotes('');
   setInventoryProductionOpen(true);
+};
+
+const handleSaveInventoryRecipe = async () => {
+  if (!selectedInventoryProduct) return;
+
+  try {
+    setInventoryRecipeSaving(true);
+
+    const outputQuantityUnits = Number(String(inventoryRecipeFormOutputUnits || '').trim().replace(',', '.'));
+    if (!Number.isFinite(outputQuantityUnits) || outputQuantityUnits <= 0) {
+      throw new Error('La salida de la receta debe ser mayor a 0.');
+    }
+
+    const normalizedRows = inventoryRecipeRows
+      .map((row, index) => ({
+        inputInventoryItemId: Number(row.inputInventoryItemId || 0),
+        quantityUnits: Number(String(row.quantityUnits || 0).replace(',', '.')),
+        sortOrder: index + 1,
+      }))
+      .filter((row) => row.inputInventoryItemId > 0 && Number.isFinite(row.quantityUnits) && row.quantityUnits > 0);
+
+    if (normalizedRows.length === 0) {
+      throw new Error('Agrega al menos un insumo a la receta.');
+    }
+
+    const supabase = createSupabaseBrowser();
+    let recipeId = selectedInventoryRecipeId;
+
+    if (recipeId) {
+      const { data, error } = await supabase
+        .from('inventory_recipes')
+        .update({
+          recipe_kind: inventoryRecipeFormKind,
+          output_quantity_units: outputQuantityUnits,
+          notes: inventoryRecipeFormNotes.trim() || null,
+          is_active: true,
+        })
+        .eq('id', recipeId)
+        .select('id')
+        .single();
+
+      if (error) throw new Error(error.message);
+      recipeId = Number(data.id);
+
+      const { error: deleteError } = await supabase
+        .from('inventory_recipe_components')
+        .delete()
+        .eq('recipe_id', recipeId);
+
+      if (deleteError) throw new Error(deleteError.message);
+    } else {
+      const { data, error } = await supabase
+        .from('inventory_recipes')
+        .insert({
+          output_inventory_item_id: selectedInventoryProduct.id,
+          recipe_kind: inventoryRecipeFormKind,
+          output_quantity_units: outputQuantityUnits,
+          notes: inventoryRecipeFormNotes.trim() || null,
+          is_active: true,
+        })
+        .select('id')
+        .single();
+
+      if (error) throw new Error(error.message);
+      recipeId = Number(data.id);
+    }
+
+    const { error: insertComponentsError } = await supabase
+      .from('inventory_recipe_components')
+      .insert(
+        normalizedRows.map((row) => ({
+          recipe_id: recipeId,
+          input_inventory_item_id: row.inputInventoryItemId,
+          quantity_units: row.quantityUnits,
+          sort_order: row.sortOrder,
+        }))
+      );
+
+    if (insertComponentsError) throw new Error(insertComponentsError.message);
+
+    showToast('success', 'Receta guardada.');
+    setSelectedInventoryRecipeId(recipeId ?? null);
+    setInventoryDrawerMode('movement');
+    router.refresh();
+  } catch (err) {
+    showToast('error', err instanceof Error ? err.message : 'No se pudo guardar la receta.');
+  } finally {
+    setInventoryRecipeSaving(false);
+  }
 };
 
 const handleCreateInventoryItem = async () => {
@@ -8755,7 +8917,7 @@ suppressHydrationWarning
                                       })
                                     }
                                     type="text"
-                                    hint="Si un servicio trae 25 piezas, aqu� va 25."
+                                    hint="Acepta decimales. Si un servicio trae 25 piezas, va 25. Si una salsa de 5 oz consume 1/8 de una base, va 0.125."
                                   />
                                   <div className="flex items-end">
                                     <button
@@ -10613,7 +10775,7 @@ deliveryAssignMode === 'external' ? (
                           })
                         }
                         type="text"
-                        hint="Si un servicio trae 25 piezas, aquí va 25."
+                        hint="Acepta decimales. Si un servicio trae 25 piezas, va 25. Si una salsa de 5 oz consume 1/8 de una base, va 0.125."
                       />
                       <div className="flex items-end">
                         <button
@@ -11422,6 +11584,7 @@ deliveryAssignMode === 'external' ? (
           setInventoryMovementOpen(false);
           setInventoryDrawerMode('movement');
           resetInventoryMovementForm();
+          resetInventoryRecipeForm();
         }}
         widthClass="w-[620px]"
       >
@@ -11452,6 +11615,17 @@ deliveryAssignMode === 'external' ? (
                   onClick={() => openInventoryItemEditDrawer(selectedInventoryProduct.id)}
                 >
                   Editar
+                </button>
+                <button
+                  className={[
+                    'rounded-xl border px-3 py-2 text-sm',
+                    inventoryDrawerMode === 'recipe'
+                      ? 'border-[#FEEF00] bg-[#FEEF00] font-semibold text-[#0B0B0D]'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]',
+                  ].join(' ')}
+                  onClick={() => openInventoryRecipeEditor(selectedInventoryProduct.id)}
+                >
+                  Receta
                 </button>
                 {(inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ?? []).some((recipe) => recipe.isActive) ? (
                   <button
@@ -11488,7 +11662,121 @@ deliveryAssignMode === 'external' ? (
               </div>
             </div>
 
-            {inventoryDrawerMode === 'edit' ? (
+            {inventoryDrawerMode === 'recipe' ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <FieldSelect
+                      label="Tipo de receta"
+                      value={inventoryRecipeFormKind}
+                      onChange={(value) => setInventoryRecipeFormKind(value as 'production' | 'packaging')}
+                      options={[
+                        { value: 'production', label: 'Producción' },
+                        { value: 'packaging', label: 'Empaque' },
+                      ]}
+                    />
+                    <FieldInput
+                      label="Salida por lote"
+                      value={inventoryRecipeFormOutputUnits}
+                      onChange={setInventoryRecipeFormOutputUnits}
+                      type="text"
+                      hint="Cuántas unidades de este item produce un lote."
+                    />
+                  </div>
+                  <div className="mt-3">
+                    <FieldInput
+                      label="Notas"
+                      value={inventoryRecipeFormNotes}
+                      onChange={setInventoryRecipeFormNotes}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Insumos de la receta</div>
+                      <div className="mt-1 text-xs text-[#8A8A96]">
+                        Aquí conectas este item con otros items internos, por ejemplo mayonesa y lechuga.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                      onClick={addInventoryRecipeRow}
+                    >
+                      Agregar insumo
+                    </button>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    {inventoryRecipeRows.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
+                        Agrega al menos un insumo. Ejemplo: Mayonesa x 0.5 y Lechuga x 0.2 para producir una salsa base.
+                      </div>
+                    ) : (
+                      inventoryRecipeRows.map((row) => (
+                        <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1.5fr)_150px_auto]">
+                            <FieldSelect
+                              label="Item interno"
+                              value={String(row.inputInventoryItemId || '')}
+                              onChange={(value) =>
+                                updateInventoryRecipeRow(row.localId, {
+                                  inputInventoryItemId: Number(value || 0),
+                                })
+                              }
+                              options={[
+                                { value: '', label: '— seleccionar —' },
+                                ...inventoryItemOptions.filter((option) => Number(option.value) !== selectedInventoryProduct.id),
+                              ]}
+                              hint="El insumo real que se consumirá."
+                            />
+                            <FieldInput
+                              label="Cantidad"
+                              value={String(row.quantityUnits ?? '')}
+                              onChange={(value) =>
+                                updateInventoryRecipeRow(row.localId, {
+                                  quantityUnits: Number(String(value || '0').replace(',', '.')) || 0,
+                                })
+                              }
+                              type="text"
+                              hint="Acepta decimales. Ejemplo: 0.125, 0.5 o 8."
+                            />
+                            <div className="flex items-end">
+                              <button
+                                type="button"
+                                className="w-full rounded-xl border border-[#5A2626] bg-[#120B0B] px-3 py-2 text-sm text-[#F5B7B7]"
+                                onClick={() => removeInventoryRecipeRow(row.localId)}
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+                    onClick={() => setInventoryDrawerMode('movement')}
+                    disabled={inventoryRecipeSaving}
+                  >
+                    Volver
+                  </button>
+                  <button
+                    className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+                    onClick={handleSaveInventoryRecipe}
+                    disabled={inventoryRecipeSaving}
+                  >
+                    {inventoryRecipeSaving ? 'Guardando...' : 'Guardar receta'}
+                  </button>
+                </div>
+              </div>
+            ) : inventoryDrawerMode === 'edit' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <FieldInput label="Nombre" value={inventoryItemFormName} onChange={setInventoryItemFormName} />
@@ -11699,12 +11987,12 @@ deliveryAssignMode === 'external' ? (
                   value={String(selectedInventoryRecipe?.id ?? '')}
                   onChange={(value) => setSelectedInventoryRecipeId(Number(value))}
                   options={selectedInventoryRecipes.map((recipe) => ({
-                    value: String(recipe.id),
-                    label:
-                      recipe.recipeKind === 'packaging'
-                        ? `Empaque ? ${recipe.outputQuantityUnits} und`
+                      value: String(recipe.id),
+                      label:
+                        recipe.recipeKind === 'packaging'
+                        ? `Empaque · ${recipe.outputQuantityUnits} und`
                         : `Producción · ${recipe.outputQuantityUnits} und`,
-                  }))}
+                    }))}
                 />
                 <FieldInput
                   label="Lotes"
