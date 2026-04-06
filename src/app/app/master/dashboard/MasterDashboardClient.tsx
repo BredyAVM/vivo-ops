@@ -1768,8 +1768,10 @@ export default function MasterDashboardClient({
     inventoryMovements = [],
     inventoryRecipes = [],
     inventoryRecipeComponents = [],
-    productInventoryLinks = [],
-    clients = [],
+  productInventoryLinks = [],
+  clients = [],
+  clientTotalCount,
+  clientActiveCount,
   drivers = [],
   deliveryPartners = [],
   catalogItems = [],
@@ -1788,6 +1790,8 @@ export default function MasterDashboardClient({
     inventoryRecipeComponents?: InventoryRecipeComponentItem[];
     productInventoryLinks?: ProductInventoryLink[];
     clients?: ClientItem[];
+    clientTotalCount?: number;
+    clientActiveCount?: number;
   drivers?: DriverOption[];
   deliveryPartners?: DeliveryPartnerOption[];
   catalogItems?: CatalogItem[];
@@ -5343,16 +5347,17 @@ const selectedPaymentReportAccount =
   }, [filteredMoneyMovements, selectedAccountId]);
 
   const clientStats = useMemo(() => {
+    const hasClientSearch = clientSearch.trim().length > 0;
     const base = {
-      total: filteredClients.length,
-      active: 0,
+      total: hasClientSearch ? filteredClients.length : Math.max(0, Number(clientTotalCount ?? filteredClients.length)),
+      active: hasClientSearch ? 0 : Math.max(0, Number(clientActiveCount ?? 0)),
       withBilling: 0,
       withDeliveryNote: 0,
       withAddresses: 0,
     };
 
     for (const client of filteredClients) {
-      if (client.isActive) base.active += 1;
+      if (hasClientSearch && client.isActive) base.active += 1;
       if (
         client.billingCompanyName ||
         client.billingTaxId ||
@@ -5375,7 +5380,7 @@ const selectedPaymentReportAccount =
     }
 
     return base;
-  }, [filteredClients]);
+  }, [clientActiveCount, clientSearch, clientTotalCount, filteredClients]);
 
   const advisorNameById = useMemo(() => {
     return new Map(advisors.map((advisor) => [advisor.userId, advisor.fullName]));

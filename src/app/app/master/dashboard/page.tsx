@@ -960,6 +960,47 @@ const { data: ordersData, error: ordersError } = await supabase
     movementGroupId: mv.movement_group_id ?? null,
   }));
 
+  const { count: clientTotalCount, error: clientTotalCountError } = await supabase
+    .from('clients')
+    .select('id', { count: 'exact', head: true });
+
+  if (clientTotalCountError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error contando clientes</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener el total de clientes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {clientTotalCountError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  const { count: clientActiveCount, error: clientActiveCountError } = await supabase
+    .from('clients')
+    .select('id', { count: 'exact', head: true })
+    .eq('is_active', true);
+
+  if (clientActiveCountError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error contando clientes activos</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener el total de clientes activos.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {clientActiveCountError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const clientSelect = `
       id,
       full_name,
@@ -1871,6 +1912,8 @@ currentUser={{
       inventoryRecipeComponents={inventoryRecipeComponents}
       productInventoryLinks={productInventoryLinks}
       clients={clients}
+      clientTotalCount={clientTotalCount ?? clients.length}
+      clientActiveCount={clientActiveCount ?? clients.filter((client) => client.isActive).length}
       catalogItems={catalogItems}
       productComponents={productComponents}
       activeExchangeRate={
