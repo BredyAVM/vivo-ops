@@ -853,15 +853,15 @@ function splitISOToDeliveryFields(iso: string) {
 }
 
 const pillLabel = (f: Fulfillment) => (f === 'delivery' ? 'Delivery' : 'Pickup');
-const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado ?' : `? Pendiente: ${fmtUSD(balanceUsd)}`);
+const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado' : `Pendiente: ${fmtUSD(balanceUsd)}`);
 const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
 
 function splitTwoWordsCompact(full: string) {
   const parts = (full || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? '?';
+  const first = parts[0] ?? '—';
   const second = parts[1] ?? '';
   const hasMore = parts.length > 2;
-  const line2 = second ? (hasMore ? `${second}?` : second) : '';
+  const line2 = second ? (hasMore ? `${second}…` : second) : '';
   return { line1: first, line2 };
 }
 
@@ -953,14 +953,14 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   const bs = fmtBs(line.qty * line.priceBs);
   const isDelivery = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
 
-  if (isDelivery) return `?? ${line.qty} ${line.name}: ${bs}`;
+  if (isDelivery) return `• ${line.qty} ${line.name}: ${bs}`;
 
   if (units !== null) {
     const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    return `?? ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    return `• ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
   }
 
-  return `?? ${line.qty} ${line.name}: ${bs}`;
+  return `• ${line.qty} ${line.name}: ${bs}`;
 }
 
 function buildWhatsAppOrderSummary(order: Order) {
@@ -979,7 +979,7 @@ function buildWhatsAppOrderSummary(order: Order) {
   parts.push('');
 
   if (lines.length === 0) {
-    parts.push(`?? Sin ítems cargados`);
+    parts.push(`- Sin ítems cargados`);
   } else {
     for (const line of lines) {
       parts.push(lineTextWhatsAppStyle(line));
@@ -2176,7 +2176,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 7)
       .map((o) => ({
         id: o.id,
-        label: `${o.id} ? ${o.clientName}`,
+        label: `${o.id} · ${o.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.deliveryAtISO)}`,
       }));
   }, [orders, search]);
@@ -2249,7 +2249,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
           orderId: o.id,
-          label: `${o.id} ? ${o.clientName}`,
+          label: `${o.id} · ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2259,7 +2259,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-re-${o.id}`,
           type: 'RE-APROBAR',
           orderId: o.id,
-          label: `${o.id} ? ${o.clientName}`,
+          label: `${o.id} · ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2269,7 +2269,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-pay-${o.id}`,
           type: 'CONFIRMAR PAGO',
           orderId: o.id,
-          label: `${o.id} ? ${o.clientName}`,
+          label: `${o.id} · ${o.clientName}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2938,7 +2938,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       reviewNotes,
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
-      description: `Pago confirmado desde Master Dashboard ? orden ${o.id} ? reporte ${rp.id}`,
+      description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -9407,7 +9407,7 @@ suppressHydrationWarning
 
       <Drawer
         open={detailOpen}
-        title={selectedOrder ? `${selectedOrder.id} ? ${selectedOrder.clientName}` : 'Detalle'}
+        title={selectedOrder ? `${selectedOrder.id} · ${selectedOrder.clientName}` : 'Detalle'}
 onClose={() => {
   setDetailOpen(false);
   resetDeliveryAssignBox();
@@ -9980,7 +9980,7 @@ onClose={() => {
                         ? changedFieldLabels.join(', ')
                         : 'Modificación auditada'
                       : productName}
-                    {!isAdminFullEdit && qty > 0 ? ` ? x${qty}` : ''}
+                    {!isAdminFullEdit && qty > 0 ? ` · x${qty}` : ''}
                   </div>
                 </div>
               </div>
@@ -12875,7 +12875,7 @@ deliveryAssignMode === 'external' ? (
                     {client.fullName}
                   </div>
                   <div className="mt-1 text-xs text-[#B7B7C2]">
-                    Tel: {client.phone || '?'} ? Tipo: {client.clientType || '?'}
+                    Tel: {client.phone || '—'} · Tipo: {client.clientType || '—'}
                   </div>
                 </button>
               ))}
@@ -13625,7 +13625,7 @@ deliveryAssignMode === 'external' ? (
 
       <InfoCell
         label="Tasa"
-        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : '?'}
+        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : '—'}
       />
 
       <InfoCell
@@ -13678,14 +13678,14 @@ deliveryAssignMode === 'external' ? (
       {createOrderDiscountEnabled && createOrderDiscountPctNumber > 0 ? (
         <InfoCell
           label="Descuento"
-          value={`${createOrderDiscountPctNumber}% ? -${fmtBs(createOrderDiscountAmountBs)}`}
+          value={`${createOrderDiscountPctNumber}% · -${fmtBs(createOrderDiscountAmountBs)}`}
         />
       ) : null}
 
       {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
         <InfoCell
           label="IVA"
-          value={`${createOrderInvoiceTaxPctNumber}% ? +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
+          value={`${createOrderInvoiceTaxPctNumber}% · +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
         />
       ) : null}
     </div>
