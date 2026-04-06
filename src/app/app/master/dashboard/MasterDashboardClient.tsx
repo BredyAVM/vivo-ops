@@ -1047,7 +1047,7 @@ function fmtWeekRangeES(d: Date) {
   const mm1 = String(s.getMonth() + 1).padStart(2, '0');
   const dd2 = String(e.getDate()).padStart(2, '0');
   const mm2 = String(e.getMonth() + 1).padStart(2, '0');
-  return `Semana: Lun ${dd1}/${mm1} ? Dom ${dd2}/${mm2}`;
+  return `Semana: Lun ${dd1}/${mm1} – Dom ${dd2}/${mm2}`;
 }
 
 function withinDay(dISO: string, day: Date) {
@@ -7797,7 +7797,7 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Empaque</th>
               <th className="px-3 py-3 text-left font-medium">Stock actual</th>
               <th className="px-3 py-3 text-left font-medium">Mínimo</th>
-              <th className="px-3 py-3 text-left font-medium">?ltimo movimiento</th>
+              <th className="px-3 py-3 text-left font-medium">Último movimiento</th>
               <th className="px-3 py-3 text-left font-medium">Acción</th>
             </tr>
           </thead>
@@ -7818,7 +7818,7 @@ suppressHydrationWarning
 
                 return (
                   <tr key={item.id} className={`${zebra} border-b border-[#242433] align-top`}>
-                    <td className="px-3 py-3 text-[#8A8A96]">{item.sku || '?'}</td>
+                    <td className="px-3 py-3 text-[#8A8A96]">{item.id}</td>
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{item.name}</div>
                       <div className="mt-1 text-[11px] text-[#8A8A96]">{item.unitName}</div>
@@ -7852,12 +7852,12 @@ suppressHydrationWarning
                             item.packagingSize,
                             item.unitName
                           )
-                        : '?'}
+                        : '—'}
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
                       {latestMovement ? (
                         <div>
-                          <div className="text-[#F5F5F7]">{latestMovement.movementType}</div>
+                          <div className="text-[#F5F5F7]">{INVENTORY_MOVEMENT_LABEL[latestMovement.movementType] || latestMovement.movementType}</div>
                           <div className="mt-1 text-[11px] text-[#8A8A96]">
                             {fmtDateTimeES(latestMovement.createdAt)}
                           </div>
@@ -13392,4 +13392,3 @@ return (
     </div>
   );
 }
-
