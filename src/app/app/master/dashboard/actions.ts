@@ -212,6 +212,238 @@ export async function confirmPaymentReportAction(input: {
   });
 
   if (error) throw new Error(error.message);
+
+  const orderId = Number(input.orderId || 0);
+  if (Number.isFinite(orderId) && orderId > 0) {
+    const { data: currentOrder, error: currentOrderError } = await supabase
+      .from('orders')
+      .select('id, client_id, total_usd, total_bs_snapshot, extra_fields')
+      .eq('id', orderId)
+      .single();
+
+    if (currentOrderError || !currentOrder) {
+      throw new Error(currentOrderError?.message || 'No se pudo recalcular el saldo de la orden.');
+    }
+
+    const { data: orderMovements, error: orderMovementsError } = await supabase
+      .from('money_movements')
+      .select('direction, amount_usd_equivalent')
+      .eq('order_id', orderId);
+
+    if (orderMovementsError) {
+      throw new Error(orderMovementsError.message);
+    }
+
+    const confirmedPaidUsd = (orderMovements ?? []).reduce((sum, row) => {
+      const signedAmount =
+        toSafeNumber(row.amount_usd_equivalent, 0) *
+        (row.direction === 'outflow' ? -1 : 1);
+      return sum + signedAmount;
+    }, 0);
+
+    const currentTotalUsd = toSafeNumber(currentOrder.total_usd, 0);
+    const currentTotalBs = toSafeNumber(currentOrder.total_bs_snapshot, 0);
+    const excessUsd = Number(Math.max(0, confirmedPaidUsd - currentTotalUsd).toFixed(2));
+    const handling = input.overpaymentHandling ?? null;
+    const notes = String(input.overpaymentNotes || '').trim() || null;
+
+    if (excessUsd > 0.005 && handling === 'change_given') {
+      const changeNativeAmount = toNativeAmountFromUsd(
+        excessUsd,
+        input.confirmedCurrency,
+        input.confirmedExchangeRateVesPerUsd
+      );
+
+      const { error: changeMovementError } = await supabase
+        .from('money_movements')
+        .insert({
+          movement_date: input.movementDate,
+          created_by_user_id: user.id,
+          confirmed_at: new Date().toISOString(),
+          confirmed_by_user_id: user.id,
+          direction: 'outflow',
+          movement_type: 'change_given',
+          money_account_id: input.confirmedMoneyAccountId,
+          currency_code: input.confirmedCurrency,
+          amount: changeNativeAmount,
+          exchange_rate_ves_per_usd:
+            String(input.confirmedCurrency).toUpperCase() === 'VES'
+              ? input.confirmedExchangeRateVesPerUsd
+              : null,
+          amount_usd_equivalent: excessUsd,
+          reference_code: input.referenceCode,
+          counterparty_name: input.counterpartyName,
+          description:
+            input.description
+              ? `${input.description} · cambio entregado`
+              : `Cambio entregado · orden ${orderId} · reporte ${input.reportId}`,
+          notes,
+          order_id: orderId,
+          payment_report_id: input.reportId,
+          movement_group_id: `change-${orderId}-${input.reportId}`,
+        });
+
+      if (changeMovementError) {
+        throw new Error(changeMovementError.message);
+      }
+    }
+
+    if (excessUsd > 0.005 && handling === 'store_fund') {
+      const clientId = Number(input.clientId || currentOrder.client_id || 0);
+      if (!Number.isFinite(clientId) || clientId <= 0) {
+        throw new Error('La orden no tiene un cliente válido para guardar el fondo.');
+      }
+
+      const nativeAmount = toNativeAmountFromUsd(
+        excessUsd,
+        input.confirmedCurrency,
+        input.confirmedExchangeRateVesPerUsd
+      );
+
+      const { data: currentClient, error: currentClientError } = await supabase
+        .from('clients')
+        .select('id, fund_balance_usd')
+        .eq('id', clientId)
+        .single();
+
+      if (currentClientError || !currentClient) {
+        throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
+      }
+
+      const { error: updateClientFundError } = await supabase
+        .from('clients')
+        .update({
+          fund_balance_usd: Number((toSafeNumber(currentClient.fund_balance_usd, 0) + excessUsd).toFixed(2)),
+        })
+        .eq('id', clientId);
+
+      if (updateClientFundError) {
+        throw new Error(updateClientFundError.message);
+      }
+
+      const { error: fundMovementError } = await supabase
+        .from('client_fund_movements')
+        .insert({
+          client_id: clientId,
+          movement_type: 'credit',
+          currency_code: input.confirmedCurrency,
+          amount: nativeAmount,
+          amount_usd: excessUsd,
+          money_account_id: input.confirmedMoneyAccountId,
+          order_id: orderId,
+          payment_report_id: input.reportId,
+          reason_code: 'payment_overage_stored',
+          notes,
+          created_by_user_id: user.id,
+        });
+
+      if (fundMovementError) {
+        throw new Error(fundMovementError.message);
+      }
+    }
+
+    if (excessUsd > 0.005 && handling === 'close_difference') {
+      if (!roles.includes('admin')) {
+        throw new Error('Solo admin puede cerrar excedentes por redondeo.');
+      }
+
+      if (excessUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+        throw new Error(
+          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_CLOSE_MAX_USD.toFixed(2)} USD.`
+        );
+      }
+
+      const extraFields =
+        currentOrder.extra_fields &&
+        typeof currentOrder.extra_fields === 'object' &&
+        !Array.isArray(currentOrder.extra_fields)
+          ? ({ ...currentOrder.extra_fields } as Record<string, any>)
+          : {};
+
+      const pricing =
+        extraFields.pricing && typeof extraFields.pricing === 'object' && !Array.isArray(extraFields.pricing)
+          ? { ...extraFields.pricing }
+          : {};
+
+      const payment =
+        extraFields.payment && typeof extraFields.payment === 'object' && !Array.isArray(extraFields.payment)
+          ? { ...extraFields.payment }
+          : {};
+
+      const fxRate = toSafeNumber(pricing.fx_rate, 0);
+      const nextTotalUsd = Number(confirmedPaidUsd.toFixed(2));
+      const nextTotalBs =
+        fxRate > 0
+          ? Number((nextTotalUsd * fxRate).toFixed(2))
+          : currentTotalUsd > 0
+            ? Number(((currentTotalBs / currentTotalUsd) * nextTotalUsd).toFixed(2))
+            : currentTotalBs;
+
+      pricing.total_usd = nextTotalUsd;
+      pricing.total_bs = nextTotalBs;
+      pricing.rounding_gain_closed_usd = excessUsd;
+      pricing.rounding_gain_close_applied_at = new Date().toISOString();
+      pricing.rounding_gain_close_applied_by = user.id;
+
+      payment.rounding_gain_close = {
+        closed_balance_usd: excessUsd,
+        previous_total_usd: Number(currentTotalUsd.toFixed(2)),
+        next_total_usd: nextTotalUsd,
+        applied_at: new Date().toISOString(),
+        applied_by: user.id,
+        notes,
+      };
+
+      extraFields.pricing = pricing;
+      extraFields.payment = payment;
+
+      const { error: updateOrderError } = await supabase
+        .from('orders')
+        .update({
+          total_usd: nextTotalUsd,
+          total_bs_snapshot: nextTotalBs,
+          extra_fields: extraFields,
+          last_modified_at: new Date().toISOString(),
+          last_modified_by: user.id,
+        })
+        .eq('id', orderId);
+
+      if (updateOrderError) {
+        throw new Error(updateOrderError.message);
+      }
+
+      const { error: adjustmentError } = await supabase
+        .from('order_admin_adjustments')
+        .insert({
+          order_id: orderId,
+          order_item_id: null,
+          adjustment_type: 'other',
+          reason: 'Cierre de excedente por redondeo',
+          notes,
+          payload: {
+            kind: 'rounding_gain_close',
+            delta_usd: excessUsd,
+            original_unit_price_usd: Number(currentTotalUsd.toFixed(2)),
+            override_unit_price_usd: nextTotalUsd,
+            product_name: 'Cierre por redondeo',
+            qty: 1,
+            closed_balance_usd: excessUsd,
+            previous_total_usd: Number(currentTotalUsd.toFixed(2)),
+            previous_total_bs: Number(currentTotalBs.toFixed(2)),
+            confirmed_paid_usd: Number(confirmedPaidUsd.toFixed(2)),
+            next_total_usd: nextTotalUsd,
+            next_total_bs: nextTotalBs,
+            payment_report_id: input.reportId,
+          },
+          created_by_user_id: user.id,
+        });
+
+      if (adjustmentError) {
+        throw new Error(adjustmentError.message);
+      }
+    }
+  }
+
   revalidatePath('/app/master/dashboard');
 }
 
@@ -2769,6 +3001,7 @@ export async function createOrderClientQuickAction(input: {
       recent_addresses,
       crm_tags,
       extra_fields,
+      fund_balance_usd,
       updated_at
     `)
     .eq('phone', phone)
@@ -2811,6 +3044,7 @@ export async function createOrderClientQuickAction(input: {
       recent_addresses,
       crm_tags,
       extra_fields,
+      fund_balance_usd,
       updated_at
     `)
     .single();
