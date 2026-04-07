@@ -4928,6 +4928,11 @@ const handleCreateOrder = async () => {
       return;
     }
 
+    if (createOrderUseClientFund && createOrderAppliedFundUsd <= 0.005) {
+      showToast('error', 'El monto a aplicar del fondo no es válido.');
+      return;
+    }
+
     const result = await createOrderAction({
       source: createOrderSource,
       attributedAdvisorUserId: createOrderSource === 'advisor' ? createOrderAdvisorUserId : null,
@@ -5013,6 +5018,11 @@ const handleUpdateOrder = async () => {
 
     if (!createOrderCanSave) {
       showToast('error', 'Faltan datos obligatorios.');
+      return;
+    }
+
+    if (createOrderUseClientFund && createOrderAppliedFundUsd <= 0.005) {
+      showToast('error', 'El monto a aplicar del fondo no es válido.');
       return;
     }
 
@@ -6401,11 +6411,7 @@ const createOrderCanSave =
   createOrderHasClient &&
   createOrderHasItems &&
   createOrderHasDeliveryAddress &&
-  createOrderHasDeliveryChargeItem &&
-  (!createOrderUseClientFund ||
-    (createOrderAppliedFundUsd > 0.005 &&
-      createOrderAppliedFundUsd <= createOrderClientFundAvailableUsd + 0.0001 &&
-      createOrderAppliedFundUsd <= createOrderDraftTotalUsd + 0.0001));
+  createOrderHasDeliveryChargeItem;
 
 useEffect(() => {
   if (!createOrderUseClientFund) return;
