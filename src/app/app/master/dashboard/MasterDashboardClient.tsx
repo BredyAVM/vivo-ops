@@ -7046,7 +7046,7 @@ useEffect(() => {
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-4">
              <div className="flex items-center gap-4">
-  <h1 className="text-xl font-semibold">Master Dashboard</h1>
+  <h1 className="text-xl font-semibold">Panel Master</h1>
 
   <div className="relative">
     <input
@@ -7138,9 +7138,9 @@ suppressHydrationWarning
     <button
       className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-sm text-[#F5F5F7]"
       onClick={() => setNotifOpen(true)}
-      title="Notificaciones"
+      title="Alertas"
     >
-      Notificaciones ({notifications.length})
+      Alertas ({notifications.length})
     </button>
   </div>
 
@@ -7227,33 +7227,33 @@ suppressHydrationWarning
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           <div className="grid grid-cols-12 gap-4">
-            <Card title="Estado del día" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Hoy" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={dayStats.cierres} />
               <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
             </Card>
 
-            <Card title="Estado de la semana" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Semana" className="col-span-12 md:col-span-6 xl:col-span-3">
               <StatRow label="Cierres" value={weekStats.cierres} />
               <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
 
-            <Card title="Pagos (semana)" className="col-span-12 md:col-span-6 xl:col-span-2">
+            <Card title="Pagos por revisar" className="col-span-12 md:col-span-6 xl:col-span-2">
               <StatRow label="Por confirmar" value={paymentsStats.porConfirmar} highlightTone="warn" />
               <StatRow label="Confirmados" value={paymentsStats.confirmados} />
               <StatRow label="Rechazados" value={paymentsStats.rechazados} />
             </Card>
 
-            <Card title="Aprobaciones (semana)" className="col-span-12 md:col-span-6 xl:col-span-2">
+            <Card title="Pedidos por revisar" className="col-span-12 md:col-span-6 xl:col-span-2">
               <StatRow label="Por aprobar" value={approvalsStats.porAprobar} highlightTone="brand" />
               <StatRow label="Re-aprobar" value={approvalsStats.reaprobar} highlightTone="warn" />
               <StatRow label="Listas para cocina" value={approvalsStats.listasCocina} />
             </Card>
 
-            <Card title="Productos comprometidos (und)" className="col-span-12 xl:col-span-2">
+            <Card title="Productos mas pedidos" className="col-span-12 xl:col-span-2">
               <div className="space-y-2">
                 {top3.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
@@ -7279,7 +7279,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver más ▾
+                    Ver mas
                   </button>
                 </div>
               </div>
@@ -7291,7 +7291,7 @@ suppressHydrationWarning
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por #orden o cliente…"
+                placeholder="Buscar orden o cliente"
                 className="w-full rounded-2xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               {searchResults.length > 0 ? (
@@ -7315,16 +7315,7 @@ suppressHydrationWarning
 
 <div className="flex flex-wrap gap-2">
   <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-  <Btn onClick={() => showToast('error', 'Editar pedido por número aún está en demo.')}>
-    Editar pedido
-  </Btn>
-  <Btn onClick={() => showToast('error', 'Registrar pago por número aún está en demo.')}>
-    Registrar pago
-  </Btn>
-  <Btn onClick={() => showToast('error', 'Confirmar pagos desde bandeja aún está en demo.')}>
-    Confirmar pagos
-  </Btn>
-  <Btn onClick={() => setMovementOpen(true)}>Movimiento</Btn>
+  <Btn onClick={() => setMovementOpen(true)}>Ingreso / Egreso</Btn>
 </div>
           </div>
 
@@ -7351,11 +7342,11 @@ suppressHydrationWarning
                     <th className="px-2 py-2 text-left font-medium">Total</th>
                     <th className="px-2 py-2 text-left font-medium">Pendiente</th>
                     <th className="px-2 py-2 text-left font-medium">Pago</th>
-                    <th className="px-2 py-2 text-left font-medium">Proceso</th>
+                    <th className="px-2 py-2 text-left font-medium">Estado</th>
                     <th className="px-2 py-2 text-left font-medium">Rider</th>
                     <th className="px-2 py-2 text-left font-medium">Entrega</th>
-                    <th className="px-2 py-2 text-left font-medium">Dir</th>
-                    <th className="px-2 py-2 text-left font-medium">Nota</th>
+                    <th className="px-2 py-2 text-left font-medium">GPS</th>
+                    <th className="px-2 py-2 text-left font-medium">Notas</th>
                     <th className="px-2 py-2 text-left font-medium">Acciones</th>
                   </tr>
                 </thead>
@@ -7364,7 +7355,7 @@ suppressHydrationWarning
                   {tableOrders.length === 0 ? (
                     <tr>
                       <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={14}>
-                        Sin pedidos para este día/filtro.
+                        Sin pedidos para este filtro.
                       </td>
                     </tr>
                   ) : (
