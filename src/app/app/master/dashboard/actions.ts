@@ -420,7 +420,7 @@ export async function confirmPaymentReportAction(input: {
               : `Cambio entregado · orden ${orderId} · reporte ${input.reportId}`,
           notes,
           order_id: orderId,
-          payment_report_id: input.reportId,
+          payment_report_id: null,
           movement_group_id: `change-${orderId}-${input.reportId}`,
         });
 
