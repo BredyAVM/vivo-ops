@@ -603,6 +603,15 @@ function parseTagsInput(value: string) {
   );
 }
 
+function normalizeLooseText(value: string) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 const fmtTimeAMPM = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleTimeString('es-VE', {
@@ -640,6 +649,28 @@ const fmtDeliveryTextES = (iso: string) => {
 
   const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
   return `${cap} ${dd}/${mm} · ${time}`;
+};
+
+const fmtDayLabelES = (iso: string) => {
+  const d = new Date(iso);
+
+  const dow = d.toLocaleDateString('es-VE', {
+    weekday: 'short',
+    timeZone: 'America/Caracas',
+  });
+
+  const dd = d.toLocaleDateString('es-VE', {
+    day: '2-digit',
+    timeZone: 'America/Caracas',
+  });
+
+  const mm = d.toLocaleDateString('es-VE', {
+    month: '2-digit',
+    timeZone: 'America/Caracas',
+  });
+
+  const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
+  return `${cap} ${dd}/${mm}`;
 };
 
 function fmtDateTimeES(iso: string | null) {
@@ -2321,8 +2352,82 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [weekOrders]);
 
   const committedList = useMemo(() => computeCommittedUndByProduct(dayOrders), [dayOrders]);
-  const top3 = committedList.slice(0, 3);
-  const maxUnd = top3[0]?.und ?? 1;
+  const committedProductsRows = useMemo(() => {
+    const inventoryByName = new Map<string, InventoryItem>();
+    for (const item of inventoryItems) {
+      inventoryByName.set(normalizeLooseText(item.name), item);
+    }
+
+    return committedList.slice(0, 4).map((product) => {
+      const linkedInventory = inventoryByName.get(normalizeLooseText(product.name)) ?? null;
+      const currentUnits = linkedInventory ? Number(linkedInventory.currentStockUnits || 0) : null;
+      const minimumUnits =
+        linkedInventory && linkedInventory.lowStockThreshold != null
+          ? Number(linkedInventory.lowStockThreshold || 0)
+          : null;
+      const remainingUnits = linkedInventory && currentUnits != null ? currentUnits - product.und : null;
+
+      let statusLabel: string | null = null;
+      let statusTone: 'warn' | 'brand' | null = null;
+
+      if (linkedInventory && minimumUnits != null) {
+        if (currentUnits != null && currentUnits <= minimumUnits) {
+          statusLabel = 'Ya esta en minimo';
+          statusTone = 'warn';
+        } else if (remainingUnits != null && remainingUnits <= minimumUnits) {
+          statusLabel = 'Se acerca al minimo';
+          statusTone = 'brand';
+        }
+      }
+
+      return {
+        ...product,
+        linkedInventory,
+        remainingUnits,
+        statusLabel,
+        statusTone,
+      };
+    });
+  }, [committedList, inventoryItems]);
+
+  const urgentTaskRows = useMemo(() => {
+    return dayOrders
+      .filter((order) => order.status === 'created' || order.status === 'queued')
+      .map((order) => {
+        const actionLabel =
+          order.status === 'created'
+            ? 'Aprobar'
+            : order.queuedNeedsReapproval
+              ? 'Reaprobar'
+              : 'Enviar a cocina';
+
+        const tone =
+          order.status === 'created'
+            ? 'brand'
+            : order.queuedNeedsReapproval
+              ? 'warn'
+              : null;
+
+        return {
+          id: order.id,
+          clientName: order.clientName,
+          deliveryAtISO: order.deliveryAtISO,
+          actionLabel,
+          tone,
+        };
+      })
+      .sort((a, b) => new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime())
+      .slice(0, 5);
+  }, [dayOrders]);
+
+  const lowStockAlertsCount = useMemo(
+    () =>
+      inventoryItems.filter((item) => {
+        if (item.lowStockThreshold == null) return false;
+        return Number(item.currentStockUnits || 0) <= Number(item.lowStockThreshold || 0);
+      }).length,
+    [inventoryItems]
+  );
 
   const [productsExpanded, setProductsExpanded] = useState(false);
 
@@ -7046,7 +7151,7 @@ useEffect(() => {
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-4">
              <div className="flex items-center gap-4">
-  <h1 className="text-xl font-semibold">Panel Master</h1>
+  <h1 className="text-xl font-semibold">B. Master 3.0</h1>
 
   <div className="relative">
     <input
@@ -7064,22 +7169,40 @@ useEffect(() => {
     />
 
     <button
-      className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-left"
+      className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3 text-left"
       onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
       title="Seleccionar día"
       type="button"
     >
-      <div className="text-sm font-medium">
+      <div className="hidden text-sm font-medium">
         {isMounted && selectedDay ? fmtDeliveryTextES(selectedDay.toISOString()) : 'Cargando fecha...'}
       </div>
-      <div className="text-xs text-[#B7B7C2]">
+      <div className="hidden text-xs text-[#B7B7C2]">
         {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : '—'}
+      </div>
+      <div className="grid min-w-[260px] grid-cols-2 gap-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
+          <div className="mt-1 text-sm font-medium">
+            {isMounted && selectedDay ? fmtDayLabelES(selectedDay.toISOString()) : 'Cargando fecha...'}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
+          <div className="mt-1 text-xs text-[#B7B7C2]">
+            {isMounted && selectedDay ? fmtWeekRangeES(selectedDay).replace('Semana: ', '') : '—'}
+          </div>
+        </div>
       </div>
     </button>
   </div>
 
-  <div
-    className="rounded-2xl border border-[#242433] bg-[#121218] px-3 py-2"
+  <button
+    className="rounded-2xl border border-[#242433] bg-[#121218] px-3 py-2 text-left transition hover:border-[#FEEF00]/60"
+    onClick={() => {
+      setViewMode('settings');
+      setSettingsTab('exchange_rate');
+    }}
     title={
   activeExchangeRate
     ? `Vigente desde: ${fmtDateTimeES(activeExchangeRate.effectiveAt)}`
@@ -7091,7 +7214,8 @@ suppressHydrationWarning
     <div className="text-sm font-medium text-[#F5F5F7]">
       {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
     </div>
-  </div>
+    <div className="mt-1 text-[11px] text-[#8A8A96]">Tocar para editar</div>
+  </button>
 </div>
 
 
@@ -7141,6 +7265,20 @@ suppressHydrationWarning
       title="Alertas"
     >
       Alertas ({notifications.length})
+      <div className="hidden min-w-[260px] grid-cols-2 gap-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
+          <div className="mt-1 text-sm font-medium">
+            {isMounted && selectedDay ? fmtDayLabelES(selectedDay.toISOString()) : 'Cargando fecha...'}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
+          <div className="mt-1 text-xs text-[#B7B7C2]">
+            {isMounted && selectedDay ? fmtWeekRangeES(selectedDay).replace('Semana: ', '') : '—'}
+          </div>
+        </div>
+      </div>
     </button>
   </div>
 
@@ -7227,14 +7365,22 @@ suppressHydrationWarning
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           <div className="grid grid-cols-12 gap-4">
-            <Card title="Hoy" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Hoy y semana" className="col-span-12 xl:col-span-4">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
               <StatRow label="Cierres" value={dayStats.cierres} />
               <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
+              <div className="mt-3 border-t border-[#242433] pt-3">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
+                <StatRow label="Cierres" value={weekStats.cierres} />
+                <StatRow label="Facturacion" value={fmtUSD(weekStats.fact)} />
+                <StatRow label="Abonado" value={fmtUSD(weekStats.abonadoConfirmado)} />
+                <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
+              </div>
             </Card>
 
-            <Card title="Semana" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Semana" className="hidden">
               <StatRow label="Cierres" value={weekStats.cierres} />
               <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
@@ -7245,30 +7391,85 @@ suppressHydrationWarning
               <StatRow label="Por confirmar" value={paymentsStats.porConfirmar} highlightTone="warn" />
               <StatRow label="Confirmados" value={paymentsStats.confirmados} />
               <StatRow label="Rechazados" value={paymentsStats.rechazados} />
+              <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
+                Revisa primero los pagos pendientes.
+              </div>
             </Card>
 
-            <Card title="Pedidos por revisar" className="col-span-12 md:col-span-6 xl:col-span-2">
-              <StatRow label="Por aprobar" value={approvalsStats.porAprobar} highlightTone="brand" />
-              <StatRow label="Re-aprobar" value={approvalsStats.reaprobar} highlightTone="warn" />
-              <StatRow label="Listas para cocina" value={approvalsStats.listasCocina} />
-            </Card>
-
-            <Card title="Productos mas pedidos" className="col-span-12 xl:col-span-2">
+            <Card title="Tareas urgentes" className="col-span-12 md:col-span-6 xl:col-span-3">
+              <StatRow label="Aprobar" value={approvalsStats.porAprobar} highlightTone="brand" />
+              <StatRow label="Reaprobar" value={approvalsStats.reaprobar} highlightTone="warn" />
+              <StatRow label="Enviar a cocina" value={approvalsStats.listasCocina} />
               <div className="space-y-2">
-                {top3.length === 0 ? (
+                {urgentTaskRows.length === 0 ? (
+                  <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
+                    Sin tareas urgentes por ahora.
+                  </div>
+                ) : (
+                  urgentTaskRows.map((task) => (
+                    <button
+                      key={task.id}
+                      className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                      onClick={() => openOrderPanel(task.id, 'detalle')}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-sm text-[#F5F5F7]">#{task.id} · {task.clientName}</div>
+                        <div
+                          className={[
+                            'shrink-0 text-xs font-semibold',
+                            task.tone === 'warn'
+                              ? 'text-orange-400'
+                              : task.tone === 'brand'
+                                ? 'text-[#FEEF00]'
+                                : 'text-[#7FE7C4]',
+                          ].join(' ')}
+                        >
+                          {task.actionLabel}
+                        </div>
+                      </div>
+                      <div className="mt-1 text-xs text-[#8A8A96]">{fmtDeliveryTextES(task.deliveryAtISO)}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </Card>
+
+            <Card title="Productos comprometidos" className="col-span-12 xl:col-span-3">
+              <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
+                Alertas de inventario: <span className="font-semibold text-[#F5F5F7]">{lowStockAlertsCount}</span>
+              </div>
+              <div className="space-y-2">
+                {committedProductsRows.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
-                  top3.map((p) => (
-                    <div key={p.name} className="text-xs">
+                  committedProductsRows.map((product) => (
+                    <div key={product.name} className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="truncate text-[#F5F5F7]">{p.name}</div>
-                        <div className="shrink-0 text-[#B7B7C2]">{p.und} und</div>
+                        <div className="truncate text-[#F5F5F7]">{product.name}</div>
+                        <div className="shrink-0 text-[#B7B7C2]">{product.und} und</div>
                       </div>
-                      <div className="mt-1 h-1 w-full rounded-full bg-[#191926]">
-                        <div
-                          className="h-1 rounded-full bg-[#FEEF00]"
-                          style={{ width: `${Math.max(8, Math.round((p.und / maxUnd) * 100))}%` }}
-                        />
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-[#8A8A96]">
+                        <div className="truncate">
+                          {product.linkedInventory
+                            ? `Disponible: ${fmtInventoryUnits(
+                                product.linkedInventory.currentStockUnits,
+                                product.linkedInventory.packagingName,
+                                product.linkedInventory.packagingSize,
+                                product.linkedInventory.unitName
+                              )}`
+                            : 'Sin item de inventario ligado'}
+                        </div>
+                        {product.statusLabel ? (
+                          <div
+                            className={[
+                              'shrink-0 font-semibold',
+                              product.statusTone === 'warn' ? 'text-orange-400' : 'text-[#FEEF00]',
+                            ].join(' ')}
+                          >
+                            {product.statusLabel}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   ))
@@ -7279,7 +7480,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver mas
+                    Ver detalle
                   </button>
                 </div>
               </div>
