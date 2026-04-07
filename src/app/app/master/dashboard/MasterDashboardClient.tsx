@@ -5516,6 +5516,23 @@ const selectedOrderClientFundAvailableUsd = Math.max(
   Number(selectedOrderClient?.fundBalanceUsd ?? 0)
 );
 
+const selectedOrderChangeMovements = useMemo(() => {
+  if (!selectedOrder) return [];
+
+  return moneyMovements
+    .filter(
+      (movement) =>
+        movement.orderId === selectedOrder.id &&
+        movement.direction === 'outflow' &&
+        movement.movementType === 'change_given'
+    )
+    .sort((a, b) => {
+      const aDate = new Date(a.confirmedAt || a.createdAt).getTime();
+      const bDate = new Date(b.confirmedAt || b.createdAt).getTime();
+      return bDate - aDate;
+    });
+}, [moneyMovements, selectedOrder]);
+
   const selectedAccount = useMemo(
     () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
     [moneyAccounts, selectedAccountId]
@@ -10243,7 +10260,7 @@ onClose={() => {
     <div className="mt-3">
       <div className="mb-2 text-sm font-semibold text-[#F5F5F7]">Reportes</div>
 
-      {selectedOrder.paymentReports.length === 0 ? (
+      {selectedOrder.paymentReports.length === 0 && selectedOrderChangeMovements.length === 0 ? (
         <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
           Sin reportes de pago.
         </div>
@@ -10326,6 +10343,64 @@ onClose={() => {
               ) : null}
             </div>
           ))}
+
+          {selectedOrderChangeMovements.map((movement) => {
+            const movementAccount =
+              moneyAccounts.find((account) => account.id === movement.moneyAccountId) ?? null;
+
+            return (
+              <div
+                key={`change-movement-${movement.id}`}
+                className="rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[#F5F5F7]">
+                      Cambio entregado · {movement.currencyCode} {movement.amount.toFixed(2)} · {fmtUSD(movement.amountUsdEquivalent)}
+                    </div>
+                    <div className="mt-1 text-[11px] text-[#8A8A96]">
+                      {(movementAccount?.name || 'Cuenta') + ' · ' + fmtDateTimeES(movement.confirmedAt || movement.createdAt)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
+                    CAMBIO
+                  </div>
+                </div>
+
+                <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-[#B7B7C2] sm:grid-cols-2">
+                  <div>
+                    <span className="text-[#8A8A96]">Cuenta:</span>{' '}
+                    <span className="text-[#F5F5F7]">{movementAccount?.name || '—'}</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[#8A8A96]">Moneda:</span>{' '}
+                    <span className="text-[#F5F5F7]">{movement.currencyCode}</span>
+                  </div>
+
+                  <div>
+                    <span className="text-[#8A8A96]">Tasa:</span>{' '}
+                    <span className="text-[#F5F5F7]">
+                      {movement.exchangeRateVesPerUsd != null ? movement.exchangeRateVesPerUsd : '—'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-[#8A8A96]">Descripción:</span>{' '}
+                    <span className="text-[#F5F5F7]">{movement.description || 'Cambio entregado'}</span>
+                  </div>
+                </div>
+
+                {movement.notes ? (
+                  <div className="mt-2 text-[11px] text-[#B7B7C2]">
+                    <span className="text-[#8A8A96]">Notas:</span>{' '}
+                    <span className="text-[#F5F5F7]">{movement.notes}</span>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
