@@ -744,6 +744,48 @@ function buildCalendarDays(viewMonth: Date) {
   });
 }
 
+function buildCommittedProductsRows(
+  committedSource: Array<{ name: string; und: number }>,
+  inventoryItems: InventoryItem[]
+) {
+  const inventoryByName = new Map<string, InventoryItem>();
+  for (const item of inventoryItems) {
+    inventoryByName.set(normalizeLooseText(item.name), item);
+  }
+
+  return committedSource.map((product) => {
+    const linkedInventory = inventoryByName.get(normalizeLooseText(product.name)) ?? null;
+    const currentUnits = linkedInventory ? Number(linkedInventory.currentStockUnits || 0) : null;
+    const minimumUnits =
+      linkedInventory && linkedInventory.lowStockThreshold != null
+        ? Number(linkedInventory.lowStockThreshold || 0)
+        : null;
+    const remainingUnits = linkedInventory && currentUnits != null ? currentUnits - product.und : null;
+
+    let statusLabel: string | null = null;
+    let statusTone: 'warn' | 'brand' | null = null;
+
+    if (linkedInventory && minimumUnits != null) {
+      if (currentUnits != null && currentUnits <= minimumUnits) {
+        statusLabel = 'Ya está en mínimo';
+        statusTone = 'warn';
+      } else if (remainingUnits != null && remainingUnits <= minimumUnits) {
+        statusLabel = 'Queda justo';
+        statusTone = 'brand';
+      }
+    }
+
+    return {
+      ...product,
+      linkedInventory,
+      currentUnits,
+      remainingUnits,
+      statusLabel,
+      statusTone,
+    };
+  });
+}
+
 function fmtShortOrderLabel(orderId: number) {
   return String(orderId).padStart(2, '0');
 }
@@ -2479,44 +2521,16 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return { porConfirmar, confirmados, rechazados };
   }, [weekOrders]);
 
-  const committedList = useMemo(() => computeCommittedUndByProduct(dayOrders), [dayOrders]);
-  const committedProductsRows = useMemo(() => {
-    const inventoryByName = new Map<string, InventoryItem>();
-    for (const item of inventoryItems) {
-      inventoryByName.set(normalizeLooseText(item.name), item);
-    }
-
-    return committedList.map((product) => {
-      const linkedInventory = inventoryByName.get(normalizeLooseText(product.name)) ?? null;
-      const currentUnits = linkedInventory ? Number(linkedInventory.currentStockUnits || 0) : null;
-      const minimumUnits =
-        linkedInventory && linkedInventory.lowStockThreshold != null
-          ? Number(linkedInventory.lowStockThreshold || 0)
-          : null;
-      const remainingUnits = linkedInventory && currentUnits != null ? currentUnits - product.und : null;
-
-      let statusLabel: string | null = null;
-      let statusTone: 'warn' | 'brand' | null = null;
-
-      if (linkedInventory && minimumUnits != null) {
-        if (currentUnits != null && currentUnits <= minimumUnits) {
-          statusLabel = 'Ya esta en minimo';
-          statusTone = 'warn';
-        } else if (remainingUnits != null && remainingUnits <= minimumUnits) {
-          statusLabel = 'Se acerca al minimo';
-          statusTone = 'brand';
-        }
-      }
-
-      return {
-        ...product,
-        linkedInventory,
-        remainingUnits,
-        statusLabel,
-        statusTone,
-      };
-    });
-  }, [committedList, inventoryItems]);
+  const committedListDay = useMemo(() => computeCommittedUndByProduct(dayOrders), [dayOrders]);
+  const committedListWeek = useMemo(() => computeCommittedUndByProduct(weekOrders), [weekOrders]);
+  const committedProductsRowsDay = useMemo(
+    () => buildCommittedProductsRows(committedListDay, inventoryItems),
+    [committedListDay, inventoryItems]
+  );
+  const committedProductsRowsWeek = useMemo(
+    () => buildCommittedProductsRows(committedListWeek, inventoryItems),
+    [committedListWeek, inventoryItems]
+  );
 
   const urgentTaskBuckets = useMemo(() => {
     const byDeliveryTime = (a: Order, b: Order) =>
@@ -2552,6 +2566,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   );
 
   const [productsExpanded, setProductsExpanded] = useState(false);
+  const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
   const [taskPanelKind, setTaskPanelKind] = useState<'approve' | 'reapprove' | 'kitchen' | 'driver'>('approve');
 
@@ -2593,6 +2608,11 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const pr = (t: NotificationType) => (t === 'RE-APROBAR' ? 0 : t === 'CONFIRMAR PAGO' ? 1 : 2);
     return out.sort((a, b) => pr(a.type) - pr(b.type));
   }, [orders]);
+
+  const committedProductsRows =
+    committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
+  const committedProductsTotalUnits = committedProductsRows.reduce((sum, row) => sum + row.und, 0);
+  const committedProductsPreviewRows = committedProductsRows.slice(0, 5);
 
   const filteredCatalogItems = useMemo(() => {
     const q = catalogSearch.trim().toLowerCase();
@@ -7647,37 +7667,94 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <Card title="Productos comprometidos" className="col-span-12 xl:col-span-3">
               <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      className={[
+                        'rounded-full border px-2 py-0.5 text-[10px]',
+                        committedProductsScope === 'day'
+                          ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                          : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+                      ].join(' ')}
+                      onClick={() => setCommittedProductsScope('day')}
+                      type="button"
+                    >
+                      Día
+                    </button>
+                    <button
+                      className={[
+                        'rounded-full border px-2 py-0.5 text-[10px]',
+                        committedProductsScope === 'week'
+                          ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                          : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+                      ].join(' ')}
+                      onClick={() => setCommittedProductsScope('week')}
+                      type="button"
+                    >
+                      Semana
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-[#8A8A96]">
+                    {committedProductsRows.length} productos · {fmtUnitsValue(committedProductsTotalUnits)} und
+                  </div>
+                </div>
+
                 {committedProductsRows.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
-                  <div className="max-h-[180px] space-y-1.5 overflow-y-auto pr-1">
-                    {committedProductsRows.map((product) => (
+                  <div className="space-y-1.5">
+                    {committedProductsPreviewRows.map((product) => (
                       <div
                         key={product.name}
-                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[12px]"
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[12px]"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="truncate font-medium text-[#F5F5F7]">{product.name}</div>
-                          <div className="shrink-0 font-semibold text-[#FEEF00]">{product.und} und</div>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[#8A8A96]">
-                          <div className="truncate">
-                            {product.linkedInventory && product.remainingUnits != null
-                              ? `Quedan ${fmtUnitsValue(product.remainingUnits)} ${product.linkedInventory.unitName || 'und'}`
-                              : product.linkedInventory
-                                ? `Stock: ${fmtUnitsValue(product.linkedInventory.currentStockUnits)} ${product.linkedInventory.unitName || 'und'}`
-                                : 'Sin inventario ligado'}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-[#F5F5F7]">{product.name}</div>
+                            <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#8A8A96]">
+                              {product.linkedInventory?.unitName || 'und'}
+                            </div>
                           </div>
                           {product.statusLabel ? (
                             <div
                               className={[
-                                'shrink-0 font-semibold',
-                                product.statusTone === 'warn' ? 'text-orange-400' : 'text-[#FEEF00]',
+                                'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                                product.statusTone === 'warn'
+                                  ? 'bg-orange-500/12 text-orange-400'
+                                  : 'bg-[#FEEF00]/10 text-[#FEEF00]',
                               ].join(' ')}
                             >
                               {product.statusLabel}
                             </div>
                           ) : null}
+                        </div>
+
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <div className="rounded-lg border border-[#1F1F2B] bg-[#121218] px-2 py-1.5">
+                            <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Comp.</div>
+                            <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
+                              {fmtUnitsValue(product.und)}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-[#1F1F2B] bg-[#121218] px-2 py-1.5">
+                            <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Stock</div>
+                            <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">
+                              {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-[#1F1F2B] bg-[#121218] px-2 py-1.5">
+                            <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Queda</div>
+                            <div
+                              className={[
+                                'mt-0.5 text-[12px] font-semibold',
+                                product.remainingUnits != null && product.remainingUnits <= 0
+                                  ? 'text-orange-400'
+                                  : 'text-[#B7B7C2]',
+                              ].join(' ')}
+                            >
+                              {product.remainingUnits != null ? fmtUnitsValue(product.remainingUnits) : '—'}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -7685,12 +7762,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 )}
 
                 <div className="flex justify-end">
-                  <button
-                    className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
-                    onClick={() => setProductsExpanded(true)}
-                  >
-                    Ver lista
-                  </button>
+                  {committedProductsRows.length > committedProductsPreviewRows.length ? (
+                    <button
+                      className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
+                      onClick={() => setProductsExpanded(true)}
+                    >
+                      Ver más
+                    </button>
+                  ) : committedProductsRows.length > 0 ? (
+                    <button
+                      className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
+                      onClick={() => setProductsExpanded(true)}
+                    >
+                      Ver detalle
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </Card>
@@ -9639,27 +9725,112 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         )}
       </Drawer>
 
-      <Drawer open={productsExpanded} title="Productos comprometidos (und)" onClose={() => setProductsExpanded(false)} widthClass="w-[520px]">
-        {committedList.length === 0 ? (
-          <div className="text-sm text-[#B7B7C2]">Sin datos.</div>
-        ) : (
-          <div className="space-y-3">
-            {committedList.map((p) => (
-              <div key={p.name} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold">{p.name}</div>
-                  <div className="text-sm text-[#B7B7C2]">{p.und} und</div>
-                </div>
-                <div className="mt-2 h-1.5 w-full rounded-full bg-[#191926]">
-                  <div
-                    className="h-1.5 rounded-full bg-[#FEEF00]"
-                    style={{ width: `${Math.max(4, Math.round((p.und / (committedList[0]?.und ?? 1)) * 100))}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+      <Drawer
+        open={productsExpanded}
+        title={`Productos comprometidos · ${committedProductsScope === 'day' ? 'Día' : 'Semana'}`}
+        onClose={() => setProductsExpanded(false)}
+        widthClass="w-[560px]"
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              <button
+                className={[
+                  'rounded-full border px-2.5 py-1 text-[11px]',
+                  committedProductsScope === 'day'
+                    ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+                ].join(' ')}
+                onClick={() => setCommittedProductsScope('day')}
+                type="button"
+              >
+                Día
+              </button>
+              <button
+                className={[
+                  'rounded-full border px-2.5 py-1 text-[11px]',
+                  committedProductsScope === 'week'
+                    ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+                ].join(' ')}
+                onClick={() => setCommittedProductsScope('week')}
+                type="button"
+              >
+                Semana
+              </button>
+            </div>
+            <div className="text-[11px] text-[#8A8A96]">
+              {committedProductsRows.length} productos · {fmtUnitsValue(committedProductsTotalUnits)} und
+            </div>
           </div>
-        )}
+
+          {committedProductsRows.length === 0 ? (
+            <div className="text-sm text-[#B7B7C2]">Sin datos para este período.</div>
+          ) : (
+            <div className="space-y-2.5">
+              {committedProductsRows.map((product) => {
+                const maxUnits = Math.max(committedProductsRows[0]?.und ?? 1, 1);
+                const ratio = Math.max(6, Math.round((product.und / maxUnits) * 100));
+                return (
+                  <div key={product.name} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
+                        <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-[#8A8A96]">
+                          {product.linkedInventory?.unitName || 'und'}
+                        </div>
+                      </div>
+                      {product.statusLabel ? (
+                        <div
+                          className={[
+                            'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                            product.statusTone === 'warn'
+                              ? 'bg-orange-500/12 text-orange-400'
+                              : 'bg-[#FEEF00]/10 text-[#FEEF00]',
+                          ].join(' ')}
+                        >
+                          {product.statusLabel}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      <div className="rounded-xl border border-[#1F1F2B] bg-[#0B0B0D] px-2.5 py-2">
+                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Comprometido</div>
+                        <div className="mt-1 text-sm font-semibold text-[#FEEF00]">
+                          {fmtUnitsValue(product.und)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-[#1F1F2B] bg-[#0B0B0D] px-2.5 py-2">
+                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Stock</div>
+                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                          {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-[#1F1F2B] bg-[#0B0B0D] px-2.5 py-2">
+                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Quedaría</div>
+                        <div
+                          className={[
+                            'mt-1 text-sm font-semibold',
+                            product.remainingUnits != null && product.remainingUnits <= 0
+                              ? 'text-orange-400'
+                              : 'text-[#B7B7C2]',
+                          ].join(' ')}
+                        >
+                          {product.remainingUnits != null ? fmtUnitsValue(product.remainingUnits) : '—'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-[#191926]">
+                      <div className="h-1.5 rounded-full bg-[#FEEF00]" style={{ width: `${ratio}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </Drawer>
 
       <Drawer
