@@ -11877,32 +11877,32 @@ deliveryAssignMode === 'external' ? (
                 label="Monto"
                 value={movementAmount}
                 onChange={setMovementAmount}
-                placeholder="0"
+                hint="Monto real del ingreso o egreso."
               />
               <FieldInput
                 label="Referencia / control"
                 value={movementReferenceCode}
                 onChange={setMovementReferenceCode}
-                placeholder="Opcional"
+                hint="Opcional."
               />
               <FieldInput
                 label="Nombre / contraparte"
                 value={movementCounterpartyName}
                 onChange={setMovementCounterpartyName}
-                placeholder="Opcional"
+                hint="Opcional."
               />
               <FieldInput
                 label="Motivo"
                 value={movementDescription}
                 onChange={setMovementDescription}
-                placeholder={movementType === 'Ingreso' ? 'Ej. ingreso extraordinario' : 'Ej. gasto operativo'}
+                hint={movementType === 'Ingreso' ? 'Ej. ingreso extraordinario.' : 'Ej. gasto operativo.'}
               />
               {selectedMovementAccount?.currencyCode === 'VES' ? (
                 <FieldInput
                   label="Tasa Bs por USD"
                   value={movementExchangeRate}
                   onChange={setMovementExchangeRate}
-                  placeholder="Obligatoria en Bs"
+                  hint="Obligatoria si la cuenta está en Bs."
                 />
               ) : (
                 <InfoCell
