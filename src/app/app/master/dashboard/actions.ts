@@ -41,7 +41,7 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-const ORDER_ROUNDING_CLOSE_MAX_USD = 0.25;
+const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 
 async function syncInventoryItemFromCatalogProduct(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
@@ -1622,6 +1622,11 @@ export async function closeOrderRoundingBalanceAction(input: {
       notes: String(input.notes || '').trim() || null,
       payload: {
         kind: 'rounding_writeoff',
+        delta_usd: -roundedPendingUsd,
+        original_unit_price_usd: Number(currentTotalUsd.toFixed(2)),
+        override_unit_price_usd: nextTotalUsd,
+        product_name: 'Cierre por redondeo',
+        qty: 1,
         closed_balance_usd: roundedPendingUsd,
         previous_total_usd: Number(currentTotalUsd.toFixed(2)),
         previous_total_bs: Number(currentTotalBs.toFixed(2)),

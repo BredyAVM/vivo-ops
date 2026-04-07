@@ -321,7 +321,7 @@ type MasterNotification = {
 
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
-const ORDER_ROUNDING_CLOSE_MAX_USD = 0.25;
+const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 type ToastState = {
   type: 'success' | 'error';
   message: string;
