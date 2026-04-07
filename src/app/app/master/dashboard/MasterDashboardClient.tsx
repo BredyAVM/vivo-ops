@@ -12580,6 +12580,14 @@ deliveryAssignMode === 'external' ? (
                       : '—'
                   }
                 />
+                <InfoCell
+                  label="Fondo disponible"
+                  value={
+                    selectedClient.fundBalanceUsd > 0.005
+                      ? fmtUSD(selectedClient.fundBalanceUsd)
+                      : '—'
+                  }
+                />
                 <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '—'} />
                 <InfoCell label="Fecha importante" value={selectedClient.importantDate || '—'} />
               </div>
@@ -13108,6 +13116,14 @@ deliveryAssignMode === 'external' ? (
 
           {createOrderSelectedClientId && selectedCreateOrderClient ? (
             <div className="mt-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+              <div className="mb-2">
+                Fondo disponible:{' '}
+                <span className="font-medium text-[#F5F5F7]">
+                  {selectedCreateOrderClient.fundBalanceUsd > 0.005
+                    ? fmtUSD(selectedCreateOrderClient.fundBalanceUsd)
+                    : '—'}
+                </span>
+              </div>
               {normalizeClientTags(selectedCreateOrderClient.crmTags).length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {normalizeClientTags(selectedCreateOrderClient.crmTags).slice(0, 5).map((tag) => (
@@ -13876,6 +13892,15 @@ deliveryAssignMode === 'external' ? (
       <InfoCell
         label="Cliente"
         value={createOrderSelectedClientName || createOrderNewClientName || '—'}
+      />
+
+      <InfoCell
+        label="Fondo cliente"
+        value={
+          selectedCreateOrderClient && selectedCreateOrderClient.fundBalanceUsd > 0.005
+            ? fmtUSD(selectedCreateOrderClient.fundBalanceUsd)
+            : '—'
+        }
       />
 
       <InfoCell label="Tipo" value={createOrderFulfillment} />
