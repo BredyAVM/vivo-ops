@@ -937,6 +937,8 @@ const { data: ordersData, error: ordersError } = await supabase
     createdByUserId: a.created_by_user_id,
   }));
 
+  const catalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
+
   const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => ({
     id: Number(mv.id),
     movementDate: mv.movement_date,
@@ -1728,7 +1730,12 @@ const pricingOriginCurrency: 'VES' | 'USD' =
 const lines = rowItems.map((item) => {
   const productName = item.product_name_snapshot?.trim() || 'Producto';
   const qty = toNumber(item.qty, 0);
-  const unitsPerService = extractUnitsPerServiceFromName(productName);
+  const productId = Number(item.product_id);
+  const productUnitsPerService = catalogItemById.get(productId)?.unitsPerService ?? 0;
+  const unitsPerService =
+    productUnitsPerService > 0
+      ? productUnitsPerService
+      : extractUnitsPerServiceFromName(productName);
   const unitPriceUsd = toNumber(item.unit_price_usd_snapshot, 0);
   const unitPriceBs = toNumber(
     (item as any).unit_price_bs_snapshot,
