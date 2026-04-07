@@ -161,6 +161,7 @@ type ClientItem = {
   deliveryNotePhone: string;
   recentAddresses: unknown[];
   crmTags: unknown[];
+  fundBalanceUsd: number;
   extraFields: Record<string, unknown>;
   updatedAt: string;
 };
@@ -2971,9 +2972,43 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
   try {
     const reviewNotes = window.prompt('Notas de confirmación (opcional):', '') ?? '';
     const today = new Date().toISOString().slice(0, 10);
+    const predictedExcessUsd = Number(
+      Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
+    );
+    let overpaymentHandling: 'change_given' | 'store_fund' | 'close_difference' | null = null;
+    let overpaymentNotes: string | null = null;
+
+    if (predictedExcessUsd > 0.005) {
+      const instruction =
+        predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD && isAdmin
+          ? `El pago excede la orden por ${fmtUSD(predictedExcessUsd)}. Escribe CAMBIO, FONDO o CERRAR.`
+          : `El pago excede la orden por ${fmtUSD(predictedExcessUsd)}. Escribe CAMBIO o FONDO.`;
+
+      const decision = (window.prompt(instruction, 'CAMBIO') ?? '').trim().toUpperCase();
+
+      if (decision === 'CAMBIO') {
+        overpaymentHandling = 'change_given';
+      } else if (decision === 'FONDO') {
+        overpaymentHandling = 'store_fund';
+      } else if (
+        decision === 'CERRAR' &&
+        predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD &&
+        isAdmin
+      ) {
+        overpaymentHandling = 'close_difference';
+      } else {
+        showToast('error', 'Debes elegir un destino válido para el excedente.');
+        return;
+      }
+
+      overpaymentNotes =
+        window.prompt('Nota del manejo del excedente (opcional):', '')?.trim() || null;
+    }
 
     await confirmPaymentReportAction({
       reportId: rp.id,
+      orderId: o.id,
+      clientId: o.clientId,
       confirmedMoneyAccountId: rp.moneyAccountId,
       confirmedCurrency: rp.currencyCode,
       confirmedAmount: rp.amount,
@@ -2983,6 +3018,8 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
+      overpaymentHandling,
+      overpaymentNotes,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -4543,6 +4580,7 @@ const handleCreateOrderClientNow = async () => {
       fullName: quickClient.client.full_name ?? 'Sin nombre',
       phone: quickClient.client.phone ?? '',
       notes: quickClient.client.notes ?? '',
+      fundBalanceUsd: 0,
       primaryAdvisorId: quickClient.client.primary_advisor_id ?? null,
       createdAt: quickClient.client.created_at ?? '',
       clientType: String(quickClient.client.client_type ?? ''),
@@ -8491,6 +8529,7 @@ suppressHydrationWarning
               <th className="px-3 py-3 text-left font-medium">Teléfono</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Asesor principal</th>
+              <th className="px-3 py-3 text-left font-medium">Fondo USD</th>
               <th className="px-3 py-3 text-left font-medium">Etiquetas</th>
               <th className="px-3 py-3 text-left font-medium">Factura</th>
               <th className="px-3 py-3 text-left font-medium">Nota de entrega</th>
@@ -8501,7 +8540,7 @@ suppressHydrationWarning
           <tbody>
             {filteredClients.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={9}>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={10}>
                   No hay clientes que coincidan con el filtro.
                 </td>
               </tr>
@@ -8543,6 +8582,9 @@ suppressHydrationWarning
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
                         : '—'}
+                    </td>
+                    <td className="px-3 py-3">
+                      {client.fundBalanceUsd > 0.005 ? fmtUSD(client.fundBalanceUsd) : '—'}
                     </td>
                     <td className="px-3 py-3">
                       {tags.length > 0 ? (
@@ -8669,7 +8711,9 @@ suppressHydrationWarning
                     <td className="px-3 py-3">
                       {row.adjustmentKind === 'admin_full_edit'
                         ? 'Modificación admin'
-                        : row.adjustmentType === 'item_price_override'
+                        : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
+                          ? 'Cierre por redondeo'
+                          : row.adjustmentType === 'item_price_override'
                           ? 'Ajuste de precio'
                           : row.adjustmentType}
                     </td>
@@ -8679,7 +8723,9 @@ suppressHydrationWarning
                           ? row.changedFieldLabels.length > 0
                             ? row.changedFieldLabels.join(', ')
                             : 'Modificación auditada'
-                          : row.productName}
+                          : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
+                            ? 'Total ajustado al monto confirmado'
+                            : row.productName}
                       </div>
                       {row.adjustmentKind === 'admin_full_edit' ? null : (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">
@@ -9996,6 +10042,8 @@ onClose={() => {
                   <div className="text-sm font-medium text-[#F5F5F7]">
                     {isAdminFullEdit
                       ? 'Modificación administrativa'
+                      : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
+                      ? 'Cierre por redondeo'
                       : adjustment.adjustmentType === 'item_price_override'
                       ? 'Ajuste de precio por ítem'
                       : adjustment.adjustmentType}
@@ -10024,7 +10072,9 @@ onClose={() => {
                       ? changedFieldLabels.length > 0
                         ? changedFieldLabels.join(', ')
                         : 'Modificación auditada'
-                      : productName}
+                      : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
+                        ? 'Total ajustado al monto confirmado'
+                        : productName}
                     {!isAdminFullEdit && qty > 0 ? ` · x${qty}` : ''}
                   </div>
                 </div>

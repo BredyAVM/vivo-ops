@@ -161,6 +161,7 @@ type RawClientRow = {
   recent_addresses: unknown;
   crm_tags: unknown;
   extra_fields: unknown;
+  fund_balance_usd: number | string | null;
   updated_at: string;
 };
 
@@ -1023,6 +1024,7 @@ const { data: ordersData, error: ordersError } = await supabase
       recent_addresses,
       crm_tags,
       extra_fields,
+      fund_balance_usd,
       updated_at
     `;
 
@@ -1088,6 +1090,7 @@ const { data: ordersData, error: ordersError } = await supabase
     deliveryNotePhone: client.delivery_note_phone ?? '',
     recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
     crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
+    fundBalanceUsd: toNumber(client.fund_balance_usd, 0),
     extraFields:
       client.extra_fields && typeof client.extra_fields === 'object'
         ? (client.extra_fields as Record<string, unknown>)
@@ -1153,7 +1156,9 @@ const { data: ordersData, error: ordersError } = await supabase
   const confirmedPaidByOrder = new Map<number, number>();
   for (const mv of movementsData ?? []) {
     const orderId = Number(mv.order_id);
-    const amt = toNumber(mv.amount_usd_equivalent, 0);
+    const amt =
+      toNumber(mv.amount_usd_equivalent, 0) *
+      (mv.direction === 'outflow' ? -1 : 1);
     confirmedPaidByOrder.set(orderId, (confirmedPaidByOrder.get(orderId) ?? 0) + amt);
   }
 
