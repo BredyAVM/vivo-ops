@@ -10924,7 +10924,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
               ) : (
                 <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#8A8A96]">
                   {selectedConfirmChangeAccount
-                    ? `Cambio en ${selectedConfirmChangeAccount.currencyCode}`
+                    ? `Cambio en ${selectedConfirmChangeAccount?.currencyCode ?? '—'}`
                     : 'Selecciona una cuenta'}
                 </div>
               )}
