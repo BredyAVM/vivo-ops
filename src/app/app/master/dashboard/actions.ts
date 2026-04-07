@@ -567,6 +567,105 @@ export async function confirmPaymentReportAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function applyClientFundPaymentAction(input: {
+  orderId: number;
+  amountUsd: number;
+  notes?: string | null;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const orderId = Number(input.orderId || 0);
+  const requestedAmountUsd = Number(toSafeNumber(input.amountUsd, 0).toFixed(2));
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden inválida.');
+  }
+
+  if (!Number.isFinite(requestedAmountUsd) || requestedAmountUsd <= 0) {
+    throw new Error('El monto del fondo no es válido.');
+  }
+
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from('orders')
+    .select('id, client_id, total_usd, extra_fields')
+    .eq('id', orderId)
+    .single();
+
+  if (currentOrderError || !currentOrder) {
+    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  const clientId = Number(currentOrder.client_id || 0);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('La orden no tiene cliente asociado.');
+  }
+
+  const totalUsd = Number(toSafeNumber(currentOrder.total_usd, 0).toFixed(2));
+  const previousFundUsedUsd = Number(
+    toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
+  );
+
+  const { data: confirmedReports, error: confirmedReportsError } = await supabase
+    .from('payment_reports')
+    .select('usd_equivalent')
+    .eq('order_id', orderId)
+    .eq('status', 'confirmed');
+
+  if (confirmedReportsError) {
+    throw new Error(confirmedReportsError.message);
+  }
+
+  const confirmedPaidUsd = (confirmedReports ?? []).reduce(
+    (sum, row) => sum + toSafeNumber((row as { usd_equivalent?: number | string | null }).usd_equivalent, 0),
+    0
+  );
+
+  const pendingUsd = Number(
+    Math.max(0, totalUsd - confirmedPaidUsd - previousFundUsedUsd).toFixed(2)
+  );
+
+  if (pendingUsd <= 0.005) {
+    throw new Error('Esta orden ya no tiene saldo pendiente.');
+  }
+
+  const applicableAmountUsd = Number(Math.min(requestedAmountUsd, pendingUsd).toFixed(2));
+
+  if (applicableAmountUsd <= 0.005) {
+    throw new Error('El monto del fondo no es aplicable a esta orden.');
+  }
+
+  await applyClientFundToOrder(supabase, {
+    clientId,
+    orderId,
+    amountUsd: applicableAmountUsd,
+    userId: user.id,
+    notes: input.notes ?? 'Fondo aplicado desde pagos',
+  });
+
+  const nextExtraFields = {
+    ...(currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object'
+      ? (currentOrder.extra_fields as Record<string, unknown>)
+      : {}),
+    payment: {
+      ...(((currentOrder.extra_fields as any)?.payment ?? {}) as Record<string, unknown>),
+      client_fund_used_usd: Number((previousFundUsedUsd + applicableAmountUsd).toFixed(2)),
+    },
+  };
+
+  const { error: updateOrderError } = await supabase
+    .from('orders')
+    .update({
+      extra_fields: nextExtraFields,
+    })
+    .eq('id', orderId);
+
+  if (updateOrderError) {
+    throw new Error(updateOrderError.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function rejectPaymentReportAction(input: {
   reportId: number;
   reviewNotes: string;

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   approveOrderAction,
+  applyClientFundPaymentAction,
   assignExternalPartnerAction,
   assignInternalDriverAction,
   closeOrderRoundingBalanceAction,
@@ -2088,6 +2089,8 @@ const [paymentReportExchangeRate, setPaymentReportExchangeRate] = useState('');
 const [paymentReportReferenceCode, setPaymentReportReferenceCode] = useState('');
 const [paymentReportPayerName, setPaymentReportPayerName] = useState('');
 const [paymentReportNotes, setPaymentReportNotes] = useState('');
+const [paymentApplyFundAmountUsd, setPaymentApplyFundAmountUsd] = useState('');
+const [paymentApplyFundNotes, setPaymentApplyFundNotes] = useState('');
 const [paymentConfirmBoxOpen, setPaymentConfirmBoxOpen] = useState(false);
 const [paymentConfirmReportId, setPaymentConfirmReportId] = useState<number | null>(null);
 const [paymentConfirmReviewNotes, setPaymentConfirmReviewNotes] = useState('');
@@ -2784,6 +2787,8 @@ const resetPaymentReportBox = () => {
   setPaymentReportReferenceCode('');
   setPaymentReportPayerName('');
   setPaymentReportNotes('');
+  setPaymentApplyFundAmountUsd('');
+  setPaymentApplyFundNotes('');
 };
 
 const resetPaymentConfirmBox = () => {
@@ -2998,6 +3003,34 @@ const handleCreatePaymentReport = async (o: Order) => {
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error reportando el pago.';
+    showToast('error', message);
+  }
+};
+
+const handleApplyClientFundPayment = async (o: Order) => {
+  try {
+    if ((o.clientId ?? null) == null) {
+      showToast('error', 'La orden no tiene cliente asociado.');
+      return;
+    }
+
+    const amountUsd = Number(String(paymentApplyFundAmountUsd || '').replace(',', '.'));
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      showToast('error', 'El monto del fondo no es válido.');
+      return;
+    }
+
+    await applyClientFundPaymentAction({
+      orderId: o.id,
+      amountUsd,
+      notes: paymentApplyFundNotes.trim() || null,
+    });
+
+    showToast('success', 'Fondo aplicado a la orden.');
+    resetPaymentReportBox();
+    router.refresh();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error aplicando el fondo.';
     showToast('error', message);
   }
 };
@@ -5357,6 +5390,16 @@ const selectedConfirmPaymentExcessUsd =
         ).toFixed(2)
       )
     : 0;
+
+const selectedOrderClient =
+  selectedOrder && selectedOrder.clientId != null
+    ? clients.find((client) => client.id === selectedOrder.clientId) ?? null
+    : null;
+
+const selectedOrderClientFundAvailableUsd = Math.max(
+  0,
+  Number(selectedOrderClient?.fundBalanceUsd ?? 0)
+);
 
   const selectedAccount = useMemo(
     () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
@@ -10436,6 +10479,17 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
       setPaymentReportAmount(
         selectedOrder.balanceUsd > 0 ? String(Number(selectedOrder.balanceUsd.toFixed(2))) : ''
       );
+      const suggestedFund = Math.max(
+        0,
+        Math.min(
+          Number(selectedOrder.balanceUsd.toFixed(2)),
+          Number(selectedOrderClientFundAvailableUsd.toFixed(2))
+        )
+      );
+      setPaymentApplyFundAmountUsd(
+        suggestedFund > 0.005 ? String(Number(suggestedFund.toFixed(2))) : ''
+      );
+      setPaymentApplyFundNotes('');
     }}
   >
     Reportar pago
@@ -10507,6 +10561,41 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         rows={2}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
+
+      {selectedOrderClientFundAvailableUsd > 0.005 ? (
+        <div className="rounded-lg border border-emerald-500/20 bg-[#0F1512] p-3">
+          <div className="text-[11px] font-medium text-[#F5F5F7]">Aplicar fondo del cliente</div>
+          <div className="mt-1 text-[11px] text-[#8A8A96]">
+            Disponible: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Esto baja el pendiente sin meter dinero nuevo a caja.
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+            <input
+              value={paymentApplyFundAmountUsd}
+              onChange={(e) => setPaymentApplyFundAmountUsd(e.target.value)}
+              placeholder="Monto a aplicar (USD)"
+              type="text"
+              className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+            />
+
+            <input
+              value={paymentApplyFundNotes}
+              onChange={(e) => setPaymentApplyFundNotes(e.target.value)}
+              placeholder="Nota (opcional)"
+              className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+            />
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2">
+            <button
+              className="rounded-md border border-emerald-500/50 bg-[#0D1611] px-2 py-1 text-[10px] font-semibold text-emerald-300"
+              onClick={() => handleApplyClientFundPayment(selectedOrder)}
+            >
+              Aplicar fondo
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-1.5">
         <button
