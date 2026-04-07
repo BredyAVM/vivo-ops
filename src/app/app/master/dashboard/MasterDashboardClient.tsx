@@ -1040,14 +1040,14 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   const bs = fmtBs(line.qty * line.priceBs);
   const isDelivery = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
 
-  if (isDelivery) return `â€¢ ${line.qty} ${line.name}: ${bs}`;
+  if (isDelivery) return `• ${line.qty} ${line.name}: ${bs}`;
 
   if (units !== null) {
     const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    return `â€¢ ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    return `• ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
   }
 
-  return `â€¢ ${line.qty} ${line.name}: ${bs}`;
+  return `• ${line.qty} ${line.name}: ${bs}`;
 }
 
 function buildWhatsAppOrderSummary(order: Order) {
@@ -1084,10 +1084,10 @@ function buildWhatsAppOrderSummary(order: Order) {
 
   parts.push('');
   parts.push(`*Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`*DÃ­a de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
+  parts.push(`*Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
 
   if (order.fulfillment === 'delivery' && order.address?.trim()) {
-    parts.push(`*DirecciÃ³n:* ${order.address.trim()}`);
+    parts.push(`*Dirección:* ${order.address.trim()}`);
   }
 
   if (order.notes?.trim()) {
@@ -1435,7 +1435,7 @@ function Drawer({
             className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
             onClick={onClose}
           >
-            Ã—
+            ×
           </button>
         </div>
         <div className="h-[calc(100%-52px)] overflow-y-auto px-4 py-4">{children}</div>
@@ -3451,7 +3451,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       reviewNotes,
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
-      description: `Pago confirmado desde Master Dashboard Â· orden ${o.id} Â· reporte ${rp.id}`,
+      description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
       overpaymentHandling,
       overpaymentNotes,
       changeMoneyAccountId: null,
@@ -7577,7 +7577,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       type="button"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="truncate text-sm text-[#F5F5F7]">#{task.id} Â· {task.clientName}</div>
+                        <div className="truncate text-sm text-[#F5F5F7]">#{task.id} · {task.clientName}</div>
                         <div
                           className={[
                             'shrink-0 text-xs font-semibold',
@@ -9707,11 +9707,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 type="button"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="font-semibold text-[#F5F5F7]">#{order.id} Â· {order.clientName}</div>
+          <div className="font-semibold text-[#F5F5F7]">#{order.id} · {order.clientName}</div>
                   <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
-                  {order.advisorName} Â· {ORDER_STATUS_LABEL[order.status]}
+                  {order.advisorName} · {ORDER_STATUS_LABEL[order.status]}
                 </div>
               </button>
             ))}
@@ -10407,7 +10407,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
       <Drawer
         open={detailOpen}
-        title={selectedOrder ? `${selectedOrder.id} Â· ${selectedOrder.clientName}` : 'Detalle'}
+        title={selectedOrder ? `${selectedOrder.id} · ${selectedOrder.clientName}` : 'Detalle'}
 onClose={() => {
   setDetailOpen(false);
   resetDeliveryAssignBox();
@@ -10428,8 +10428,8 @@ onClose={() => {
   <div className="flex items-start justify-between gap-3">
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-[#F5F5F7]">
-        <span>Orden #{selectedOrder.id} Â· {selectedOrder.clientName}</span>
-        <span className="text-[#8A8A96]">Â·</span>
+        <span>Orden #{selectedOrder.id} · {selectedOrder.clientName}</span>
+        <span className="text-[#8A8A96]">·</span>
         <span>{fmtUSD(selectedOrder.totalUsd)}</span>
         <span className={paymentToneClass(selectedOrder.balanceUsd)}>
           {paymentLabel(selectedOrder.balanceUsd)}
@@ -10438,7 +10438,7 @@ onClose={() => {
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-[#8A8A96]">
         <span>{selectedOrder.advisorName}</span>
-        <span>Â·</span>
+        <span>·</span>
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
@@ -10489,7 +10489,7 @@ onClose={() => {
 
         <div className="mt-2 space-y-2 text-sm">
           {orderMainLinesForPreview(selectedOrder.lines).length === 0 ? (
-            <div className="text-[#B7B7C2]">Sin Ã­tems cargados.</div>
+            <div className="text-[#B7B7C2]">Sin ítems cargados.</div>
           ) : (
             orderMainLinesForPreview(selectedOrder.lines).map((line, idx) => (
               <div key={idx} className="leading-5">
@@ -10497,7 +10497,7 @@ onClose={() => {
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 10).map((t, i) => (
-                      <div key={i}>â€¢ {t}</div>
+                      <div key={i}>• {t}</div>
                     ))}
                   </div>
                 ) : null}
