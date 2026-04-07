@@ -517,7 +517,7 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   created: 'Creada',
   queued: 'En cola',
   confirmed: 'Enviado a cocina',
-  in_kitchen: 'En preparaciÃ³n',
+  in_kitchen: 'En preparación',
   ready: 'Preparada',
   out_for_delivery: 'En camino',
   delivered: 'Entregado / Retirado',
@@ -538,7 +538,7 @@ const fmtBs = (n: number) => {
 };
 
 const fmtRateBs = (n: number) => {
-  if (!Number.isFinite(n)) return 'Bs â€”';
+  if (!Number.isFinite(n)) return 'Bs —';
 
   const fixed = n.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
@@ -648,7 +648,7 @@ const fmtDeliveryTextES = (iso: string) => {
   });
 
   const cap = dow.charAt(0).toUpperCase() + dow.slice(1);
-  return `${cap} ${dd}/${mm} Â· ${time}`;
+  return `${cap} ${dd}/${mm} - ${time}`;
 };
 
 const fmtDayLabelES = (iso: string) => {
@@ -674,10 +674,10 @@ const fmtDayLabelES = (iso: string) => {
 };
 
 function fmtDateTimeES(iso: string | null) {
-  if (!iso) return 'â€”';
+  if (!iso) return '—';
 
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'â€”';
+  if (Number.isNaN(d.getTime())) return '—';
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -692,7 +692,7 @@ function fmtDateTimeES(iso: string | null) {
 
   const yy = String(year).slice(-2);
 
-  return `${day}/${month}/${yy} Â· ${hour}:${minute} ${ampm}`;
+  return `${day}/${month}/${yy} - ${hour}:${minute} ${ampm}`;
 }
 
 function toDateInputValue(d: Date) {
@@ -929,13 +929,13 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
 
 function getPaymentMethodLabel(method: string) {
   if (method === 'pending') return 'Pendiente';
-  if (method === 'payment_mobile') return 'Pago mÃ³vil';
+  if (method === 'payment_mobile') return 'Pago móvil';
   if (method === 'transfer') return 'Transferencia';
   if (method === 'cash_usd') return 'Efectivo USD';
   if (method === 'cash_ves') return 'Efectivo Bs';
   if (method === 'zelle') return 'Zelle';
   if (method === 'mixed') return 'Mixto';
-  return 'â€”';
+  return '—';
 }
 
 function getCurrentOperatorLabel(
@@ -945,7 +945,7 @@ function getCurrentOperatorLabel(
   const name = currentUser.fullName?.trim() || currentUser.email || 'Usuario';
 
   if (roles.includes('admin')) return `Admin (${name})`;
-  if (roles.includes('master')) return `MÃ¡ster (${name})`;
+  if (roles.includes('master')) return `Máster (${name})`;
 
   return name;
 }
@@ -1099,7 +1099,7 @@ function fmtWeekRangeES(d: Date) {
   const mm1 = String(s.getMonth() + 1).padStart(2, '0');
   const dd2 = String(e.getDate()).padStart(2, '0');
   const mm2 = String(e.getMonth() + 1).padStart(2, '0');
-  return `Semana: Lun ${dd1}/${mm1} â€“ Dom ${dd2}/${mm2}`;
+  return `Semana: Lun ${dd1}/${mm1} - Dom ${dd2}/${mm2}`;
 }
 
 function withinDay(dISO: string, day: Date) {
@@ -1154,12 +1154,12 @@ function canMarkDelivered(o: Order) {
 }
 
 function kitchenTooltip(o: Order) {
-  if (o.status === 'created') return 'Pendiente de aprobaciÃ³n';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobaciÃ³n';
+  if (o.status === 'created') return 'Pendiente de aprobación';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobación';
   if (o.status === 'queued') return 'Listo para enviar a cocina';
   if (o.status === 'cancelled') return 'Pedido cancelado';
   if (o.status === 'delivered') return 'Pedido finalizado';
-  return 'Ya estÃ¡ en proceso';
+  return 'Ya está en proceso';
 }
 function riderEnabled(o: Order) {
   return (
@@ -1170,7 +1170,7 @@ function riderEnabled(o: Order) {
 function riderTooltip(o: Order) {
   if (o.fulfillment === 'pickup') return 'No aplica (PickUp)';
   if (!['confirmed', 'in_kitchen', 'ready'].includes(o.status)) {
-    return 'Solo puedes asignar driver cuando la orden estÃ¡ confirmada, en cocina o preparada';
+    return 'Solo puedes asignar driver cuando la orden está confirmada, en cocina o preparada';
   }
   return 'Asignar delivery';
 }
@@ -1179,7 +1179,7 @@ function payIcon(p: PaymentVerify) {
   if (p === 'pending') return 'Pend.';
   if (p === 'confirmed') return 'OK';
   if (p === 'rejected') return 'No';
-  return 'â€”';
+  return '—';
 }
 function payIconTooltip(p: PaymentVerify) {
   if (p === 'pending') return 'Por confirmar';
@@ -1251,9 +1251,9 @@ function getNextPrimaryActionLabel(o: Order) {
   if (canMarkDelivered(o)) return o.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado';
   if (o.status === 'cancelled') return 'Orden cancelada';
   if (o.status === 'delivered') return 'Ciclo completado';
-  if (o.status === 'created') return 'Pendiente de aprobaciÃ³n';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobaciÃ³n';
-  return 'Sin acciÃ³n principal';
+  if (o.status === 'created') return 'Pendiente de aprobación';
+  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobación';
+  return 'Sin acción principal';
 }
 
 function ProcessTimeline({ order }: { order: Order }) {
@@ -1357,12 +1357,12 @@ function NextActionCard({
     <div className="rounded-lg border border-[#1D1D28] bg-[#101014] px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] text-[#8A8A96]">PrÃ³xima acciÃ³n</div>
+          <div className="text-[10px] text-[#8A8A96]">Próxima acción</div>
           <div className="truncate text-[11px] text-[#F5F5F7]">{label}</div>
         </div>
 
         <div className="shrink-0">
-          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acciÃ³n</div>}
+          {button ? button : <div className="text-[10px] text-[#6F6F7C]">Sin acción</div>}
         </div>
       </div>
     </div>
@@ -1465,7 +1465,7 @@ function TopNavButton({
   count,
 }: {
   label: string;
-  icon: string;
+  icon: React.ReactNode;
   active: boolean;
   onClick: () => void;
   count?: number;
@@ -1483,7 +1483,7 @@ function TopNavButton({
     >
       <span
         className={[
-          'flex h-5 w-5 items-center justify-center rounded-lg text-[10px] font-semibold leading-none',
+          'flex h-5 w-5 items-center justify-center rounded-lg',
           active ? 'bg-[#FEEF00] text-[#0B0B0D]' : 'bg-[#191926] text-[#B7B7C2]',
         ].join(' ')}
       >
@@ -1496,6 +1496,41 @@ function TopNavButton({
         </span>
       ) : null}
     </button>
+  );
+}
+
+function TopNavIcon({ kind }: { kind: 'operations' | 'settings' | 'calculations' | 'alerts' }) {
+  if (kind === 'operations') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === 'settings') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="8" cy="8" r="2.2" />
+        <path d="M8 2.3v1.4M8 12.3v1.4M13.7 8h-1.4M3.7 8H2.3M11.9 4.1l-1 1M5.1 10.9l-1 1M11.9 11.9l-1-1M5.1 5.1l-1-1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === 'calculations') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <rect x="3" y="2.5" width="10" height="11" rx="1.8" />
+        <path d="M5.4 5.2h5.2M5.4 8h1.3M7.9 8h1.3M10.4 8h.2M5.4 10.8h1.3M7.9 10.8h1.3M10.4 10.8h.2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <path d="M8 3.1a3.8 3.8 0 0 1 3.8 3.8c0 2.7-2.2 3.6-3.2 4.8-.2.3-.4.6-.4 1" strokeLinecap="round" />
+      <circle cx="8" cy="12.8" r=".7" fill="currentColor" stroke="none" />
+    </svg>
   );
 }
 
@@ -7253,12 +7288,12 @@ useEffect(() => {
 
       <div className="flex items-center gap-2.5">
         <div className="flex items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
-          <TopNavButton label="Operación" icon="O" active={viewMode === 'operations'} onClick={() => setViewMode('operations')} />
-          <TopNavButton label="Config." icon="C" active={viewMode === 'settings'} onClick={() => setViewMode('settings')} />
+          <TopNavButton label="Operación" icon={<TopNavIcon kind="operations" />} active={viewMode === 'operations'} onClick={() => setViewMode('operations')} />
+          <TopNavButton label="Config." icon={<TopNavIcon kind="settings" />} active={viewMode === 'settings'} onClick={() => setViewMode('settings')} />
           {isAdmin ? (
-            <TopNavButton label="Cálculos" icon="Σ" active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
+            <TopNavButton label="Cálculos" icon={<TopNavIcon kind="calculations" />} active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
           ) : null}
-          <TopNavButton label="Alertas" icon="!" active={notifOpen} onClick={() => setNotifOpen(true)} count={notifications.length} />
+          <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={notifications.length} />
         </div>
 
         <div className="w-[200px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
@@ -7293,7 +7328,7 @@ useEffect(() => {
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
         <Chip active={settingsTab === 'catalog'} onClick={() => setSettingsTab('catalog')}>
-          CatÃ¡logo
+          Catálogo
         </Chip>
         <Chip active={settingsTab === 'inventory'} onClick={() => setSettingsTab('inventory')}>
           Inventario
@@ -7362,7 +7397,7 @@ useEffect(() => {
                 <div className="text-center font-semibold text-[#F5F5F7]">{dayStats.cierres}</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{weekStats.cierres}</div>
 
-                <div className="text-[#B7B7C2]">FacturaciÃ³n</div>
+                <div className="text-[#B7B7C2]">Facturación</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(dayStats.fact)}</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(weekStats.fact)}</div>
 
@@ -7574,7 +7609,7 @@ useEffect(() => {
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             <Chip active={tray === 'all'} onClick={() => setTray('all')}>Todos</Chip>
             <Chip active={tray === 'pending_created'} onClick={() => setTray('pending_created')}>Pendientes</Chip>
-            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobaciÃ³n</Chip>
+            <Chip active={tray === 'reapproval'} onClick={() => setTray('reapproval')}>Re-aprobación</Chip>
             <Chip active={tray === 'queued'} onClick={() => setTray('queued')}>En cola</Chip>
             <Chip active={tray === 'kitchen'} onClick={() => setTray('kitchen')}>Cocina</Chip>
             <Chip active={tray === 'delivery'} onClick={() => setTray('delivery')}>Delivery</Chip>
@@ -7627,7 +7662,7 @@ useEffect(() => {
 
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || 'â€”');
+                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '—');
 
                       return (
                         <tr
@@ -7671,7 +7706,7 @@ useEffect(() => {
                                 </span>
                               </div>
                             ) : (
-                              <div className="mt-1 text-[#8A8A96]">â€”</div>
+                              <div className="mt-1 text-[#8A8A96]">—</div>
                             )}
                           </td>
                           <td className="px-2 py-2 leading-4">
@@ -7680,10 +7715,10 @@ useEffect(() => {
                           </td>
                           <td className="px-2 py-2">{deliveryLabel}</td>
                           <td className="px-2 py-2" title={o.fulfillment === 'delivery' ? (o.address || '') : ''}>
-                            {o.fulfillment === 'delivery' ? (o.address?.trim() ? 'ðŸ“' : 'â€”') : 'â€”'}
+                            {o.fulfillment === 'delivery' ? (o.address?.trim() ? 'Sí' : '—') : '—'}
                           </td>
                           <td className="px-2 py-2" title={o.notes?.trim() ? o.notes : ''}>
-                            {o.notes?.trim() ? 'ðŸ“' : 'â€”'}
+                            {o.notes?.trim() ? 'Sí' : '—'}
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
