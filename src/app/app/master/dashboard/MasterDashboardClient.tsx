@@ -10889,47 +10889,6 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
               className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
             />
           </div>
-
-          {false && paymentConfirmOverpaymentHandling === 'change_given' ? (
-            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-              <select
-                value={paymentConfirmChangeMoneyAccountId}
-                onChange={(e) => setPaymentConfirmChangeMoneyAccountId(e.target.value)}
-                className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-              >
-                <option value="">— cuenta del cambio —</option>
-                {moneyAccounts.filter((account) => account.isActive).map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name} ({account.currencyCode})
-                  </option>
-                ))}
-              </select>
-
-              <input
-                value={paymentConfirmChangeAmount}
-                onChange={(e) => setPaymentConfirmChangeAmount(e.target.value)}
-                placeholder="Monto del cambio"
-                type="text"
-                className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-              />
-
-              {selectedConfirmChangeAccount?.currencyCode === 'VES' ? (
-                <input
-                  value={paymentConfirmChangeExchangeRate}
-                  onChange={(e) => setPaymentConfirmChangeExchangeRate(e.target.value)}
-                  placeholder="Tasa Bs por USD"
-                  type="text"
-                  className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-                />
-              ) : (
-                <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#8A8A96]">
-                  {selectedConfirmChangeAccount
-                    ? `Cambio en ${selectedConfirmChangeAccount?.currencyCode ?? '—'}`
-                    : 'Selecciona una cuenta'}
-                </div>
-              )}
-            </div>
-          ) : null}
         </div>
       ) : null}
 
