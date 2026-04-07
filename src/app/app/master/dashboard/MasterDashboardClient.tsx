@@ -1444,9 +1444,9 @@ function productCompositionKind(item: CatalogItem | null, sku: string | undefine
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className={['rounded-2xl border border-[#242433] bg-[#121218] p-4', className || ''].join(' ')}>
-      <div className="text-sm font-semibold text-[#F5F5F7]">{title}</div>
-      <div className="mt-3 space-y-2">{children}</div>
+    <div className={['rounded-2xl border border-[#242433] bg-[#121218] p-2.5', className || ''].join(' ')}>
+      <div className="text-[13px] font-semibold leading-none text-[#F5F5F7]">{title}</div>
+      <div className="mt-1.5 space-y-1.5">{children}</div>
     </div>
   );
 }
@@ -2358,7 +2358,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       inventoryByName.set(normalizeLooseText(item.name), item);
     }
 
-    return committedList.slice(0, 4).map((product) => {
+    return committedList.map((product) => {
       const linkedInventory = inventoryByName.get(normalizeLooseText(product.name)) ?? null;
       const currentUnits = linkedInventory ? Number(linkedInventory.currentStockUnits || 0) : null;
       const minimumUnits =
@@ -7143,11 +7143,11 @@ useEffect(() => {
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <div className="sticky top-0 z-50 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
-        <div className="mx-auto max-w-[1400px] px-5 py-4">
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-4">
-             <div className="flex items-center gap-4">
-  <h1 className="text-xl font-semibold">B. Master 3.0</h1>
+        <div className="mx-auto max-w-[1400px] px-5 py-2.5">
+          <div className="flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-2.5">
+             <div className="flex items-center gap-2.5">
+  <h1 className="text-base font-semibold leading-none">B. Master 3.0</h1>
 
   <div className="relative">
     <input
@@ -7165,7 +7165,7 @@ useEffect(() => {
     />
 
     <button
-      className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3 text-left"
+      className="rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left"
       onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
       title="Seleccionar día"
       type="button"
@@ -7176,16 +7176,16 @@ useEffect(() => {
       <div className="hidden text-xs text-[#B7B7C2]">
         {isMounted && selectedDay ? fmtWeekRangeES(selectedDay) : '—'}
       </div>
-      <div className="grid min-w-[260px] grid-cols-2 gap-4">
+      <div className="grid min-w-[190px] grid-cols-2 gap-1.5">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
-          <div className="mt-1 text-sm font-medium">
+          <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Hoy</div>
+          <div className="mt-0.5 text-[12px] font-medium leading-none">
             {isMounted && selectedDay ? fmtDayLabelES(selectedDay.toISOString()) : 'Cargando fecha...'}
           </div>
         </div>
         <div>
-          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
-          <div className="mt-1 text-xs text-[#B7B7C2]">
+          <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Semana</div>
+          <div className="mt-0.5 text-[10px] leading-tight text-[#B7B7C2]">
             {isMounted && selectedDay ? fmtWeekRangeES(selectedDay).replace('Semana: ', '') : '—'}
           </div>
         </div>
@@ -7194,7 +7194,7 @@ useEffect(() => {
   </div>
 
   <button
-    className="rounded-2xl border border-[#242433] bg-[#121218] px-3 py-2 text-left transition hover:border-[#FEEF00]/60"
+    className="rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left transition hover:border-[#FEEF00]/60"
     onClick={() => {
       setViewMode('settings');
       setSettingsTab('exchange_rate');
@@ -7206,20 +7206,19 @@ useEffect(() => {
 }
 suppressHydrationWarning
   >
-    <div className="text-xs text-[#B7B7C2]">Tasa</div>
-    <div className="text-sm font-medium text-[#F5F5F7]">
+    <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Tasa</div>
+    <div className="mt-0.5 text-[13px] font-medium leading-none text-[#F5F5F7]">
       {activeExchangeRate ? fmtRateBs(activeExchangeRate.rateBsPerUsd) : '—'}
     </div>
-    <div className="mt-1 text-[11px] text-[#8A8A96]">Tocar para editar</div>
   </button>
 </div>
 
 
-<div className="flex items-center gap-3">
-  <div className="flex items-center gap-2">
+<div className="flex items-center gap-2.5">
+  <div className="flex items-center gap-1.5">
     <button
       className={[
-        'rounded-2xl border px-4 py-2 text-sm',
+        'rounded-2xl border px-3 py-1.5 text-xs',
         viewMode === 'operations'
           ? 'border-[#FEEF00] bg-[#121218] text-[#F5F5F7]'
           : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
@@ -7231,7 +7230,7 @@ suppressHydrationWarning
 
     <button
       className={[
-        'rounded-2xl border px-4 py-2 text-sm',
+        'rounded-2xl border px-3 py-1.5 text-xs',
         viewMode === 'settings'
           ? 'border-[#FEEF00] bg-[#121218] text-[#F5F5F7]'
           : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
@@ -7244,7 +7243,7 @@ suppressHydrationWarning
     {isAdmin ? (
       <button
         className={[
-          'rounded-2xl border px-4 py-2 text-sm',
+          'rounded-2xl border px-3 py-1.5 text-xs',
           viewMode === 'calculations'
             ? 'border-[#FEEF00] bg-[#121218] text-[#F5F5F7]'
             : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
@@ -7256,7 +7255,7 @@ suppressHydrationWarning
     ) : null}
 
     <button
-      className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2 text-sm text-[#F5F5F7]"
+      className="rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-xs text-[#F5F5F7]"
       onClick={() => setNotifOpen(true)}
       title="Alertas"
     >
@@ -7278,14 +7277,14 @@ suppressHydrationWarning
     </button>
   </div>
 
-<div className="w-[220px] rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2">
+<div className="w-[200px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
   <div className="flex items-start justify-between gap-0">
     <div className="min-w-0">
-      <div className="truncate text-sm font-semibold text-[#F5F5F7]">
+      <div className="truncate text-[13px] font-semibold leading-none text-[#F5F5F7]">
         {currentUser.fullName || 'Usuario'}
       </div>
 
-      <div className="mt-0.5 text-xs text-[#B7B7C2]">
+      <div className="mt-0.5 truncate text-[10px] text-[#B7B7C2]">
         {roles.length > 0
           ? ` ${roles.map((r) => r.toUpperCase()).join(' · ')}`
           : 'Sin roles'}
@@ -7293,7 +7292,7 @@ suppressHydrationWarning
     </div>
 
     <button
-      className="shrink-0 rounded-xl border border-red-500/40 bg-[#0B0B0D] px-2 py-2.5 text-xs text-red-400"
+      className="shrink-0 rounded-xl border border-red-500/40 bg-[#0B0B0D] px-2 py-2 text-[11px] text-red-400"
       onClick={handleLogout}
       type="button"
       title="Cerrar sesión"
@@ -7359,8 +7358,8 @@ suppressHydrationWarning
 
 
       {viewMode === 'operations' ? (
-        <div className="mx-auto max-w-[1400px] px-5 py-5">
-          <div className="grid grid-cols-12 gap-4">
+        <div className="mx-auto max-w-[1400px] px-5 py-4">
+          <div className="grid grid-cols-12 gap-3">
             <Card title="Estado" className="col-span-12 xl:col-span-4">
               <div className="hidden">
               <StatRow label="Cierres" value={dayStats.cierres} />
@@ -7375,10 +7374,10 @@ suppressHydrationWarning
                 <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
               </div>
               </div>
-              <div className="grid grid-cols-[1.2fr_0.7fr_0.7fr] gap-x-3 gap-y-2 text-sm">
+              <div className="grid grid-cols-[1.2fr_0.7fr_0.7fr] gap-x-2.5 gap-y-1.5 text-[13px]">
                 <div />
-                <div className="text-center text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
-                <div className="text-center text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
+                <div className="text-center text-[10px] uppercase tracking-[0.16em] text-[#8A8A96]">Hoy</div>
+                <div className="text-center text-[10px] uppercase tracking-[0.16em] text-[#8A8A96]">Semana</div>
 
                 <div className="text-[#B7B7C2]">Cierres</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{dayStats.cierres}</div>
@@ -7406,11 +7405,19 @@ suppressHydrationWarning
             </Card>
 
             <Card title="Pagos por revisar" className="col-span-12 md:col-span-6 xl:col-span-2">
-              <StatRow label="Por confirmar" value={paymentsStats.porConfirmar} highlightTone="warn" />
-              <StatRow label="Confirmados" value={paymentsStats.confirmados} />
-              <StatRow label="Rechazados" value={paymentsStats.rechazados} />
-              <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
-                Revisa primero los pagos pendientes.
+              <div className="space-y-1.5 text-[13px]">
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Por confirmar</span>
+                  <span className="font-semibold text-orange-400">{paymentsStats.porConfirmar}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Confirmados</span>
+                  <span className="font-semibold text-[#7FE7C4]">{paymentsStats.confirmados}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Rechazados</span>
+                  <span className="font-semibold text-[#F5F5F7]">{paymentsStats.rechazados}</span>
+                </div>
               </div>
             </Card>
 
@@ -7453,9 +7460,9 @@ suppressHydrationWarning
                 )}
               </div>
               </div>
-              <div className="space-y-2 text-sm">
+              <div className="space-y-1.5 text-[13px]">
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('approve');
                     setTaskPanelOpen(true);
@@ -7466,7 +7473,7 @@ suppressHydrationWarning
                   <span className="font-semibold text-[#FEEF00]">{urgentTaskBuckets.approve.length}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('reapprove');
                     setTaskPanelOpen(true);
@@ -7477,7 +7484,7 @@ suppressHydrationWarning
                   <span className="font-semibold text-orange-400">{urgentTaskBuckets.reapprove.length}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('kitchen');
                     setTaskPanelOpen(true);
@@ -7488,7 +7495,7 @@ suppressHydrationWarning
                   <span className="font-semibold text-[#7FE7C4]">{urgentTaskBuckets.kitchen.length}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('driver');
                     setTaskPanelOpen(true);
@@ -7502,43 +7509,42 @@ suppressHydrationWarning
             </Card>
 
             <Card title="Productos comprometidos" className="col-span-12 xl:col-span-3">
-              <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
-                Alertas de inventario: <span className="font-semibold text-[#F5F5F7]">{lowStockAlertsCount}</span>
-              </div>
               <div className="space-y-1.5">
                 {committedProductsRows.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
-                  committedProductsRows.slice(0, 4).map((product) => (
-                    <div key={product.name} className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="truncate text-[#F5F5F7]">{product.name}</div>
-                        <div className="shrink-0 text-[#B7B7C2]">{product.und} und</div>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-[#8A8A96]">
-                        <div className="truncate">
-                          {product.linkedInventory
-                            ? `Disponible: ${fmtInventoryUnits(
-                                product.linkedInventory.currentStockUnits,
-                                product.linkedInventory.packagingName,
-                                product.linkedInventory.packagingSize,
-                                product.linkedInventory.unitName
-                              )}`
-                            : 'Sin item de inventario ligado'}
+                  <div className="max-h-[180px] space-y-1.5 overflow-y-auto pr-1">
+                    {committedProductsRows.map((product) => (
+                      <div
+                        key={product.name}
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[12px]"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="truncate font-medium text-[#F5F5F7]">{product.name}</div>
+                          <div className="shrink-0 font-semibold text-[#FEEF00]">{product.und} und</div>
                         </div>
-                        {product.statusLabel ? (
-                          <div
-                            className={[
-                              'shrink-0 font-semibold',
-                              product.statusTone === 'warn' ? 'text-orange-400' : 'text-[#FEEF00]',
-                            ].join(' ')}
-                          >
-                            {product.statusLabel}
+                        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[#8A8A96]">
+                          <div className="truncate">
+                            {product.linkedInventory && product.remainingUnits != null
+                              ? `Quedan ${fmtUnitsValue(product.remainingUnits)} ${product.linkedInventory.unitName || 'und'}`
+                              : product.linkedInventory
+                                ? `Stock: ${fmtUnitsValue(product.linkedInventory.currentStockUnits)} ${product.linkedInventory.unitName || 'und'}`
+                                : 'Sin inventario ligado'}
                           </div>
-                        ) : null}
+                          {product.statusLabel ? (
+                            <div
+                              className={[
+                                'shrink-0 font-semibold',
+                                product.statusTone === 'warn' ? 'text-orange-400' : 'text-[#FEEF00]',
+                              ].join(' ')}
+                            >
+                              {product.statusLabel}
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
 
                 <div className="flex justify-end">
@@ -7546,7 +7552,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver todo
+                    Ver lista
                   </button>
                 </div>
               </div>
