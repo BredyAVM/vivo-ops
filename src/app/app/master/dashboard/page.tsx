@@ -937,8 +937,6 @@ const { data: ordersData, error: ordersError } = await supabase
     createdByUserId: a.created_by_user_id,
   }));
 
-  const catalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
-
   const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => ({
     id: Number(mv.id),
     movementDate: mv.movement_date,
@@ -1534,6 +1532,8 @@ const { data: ordersData, error: ordersError } = await supabase
         ? p.inventory_group
         : ('other' as const),
   }));
+
+  const catalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
 
   const inventoryItems = ((inventoryItemsData ?? []) as RawInventoryItemRow[]).map((row) => ({
     id: Number(row.id),
