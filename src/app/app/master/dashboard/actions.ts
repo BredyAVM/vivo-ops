@@ -605,20 +605,23 @@ export async function applyClientFundPaymentAction(input: {
     toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
   );
 
-  const { data: confirmedReports, error: confirmedReportsError } = await supabase
-    .from('payment_reports')
-    .select('usd_equivalent')
-    .eq('order_id', orderId)
-    .eq('status', 'confirmed');
+  const { data: orderMovements, error: orderMovementsError } = await supabase
+    .from('money_movements')
+    .select('direction, amount_usd_equivalent')
+    .eq('order_id', orderId);
 
-  if (confirmedReportsError) {
-    throw new Error(confirmedReportsError.message);
+  if (orderMovementsError) {
+    throw new Error(orderMovementsError.message);
   }
 
-  const confirmedPaidUsd = (confirmedReports ?? []).reduce(
-    (sum, row) => sum + toSafeNumber((row as { usd_equivalent?: number | string | null }).usd_equivalent, 0),
-    0
-  );
+  const confirmedPaidUsd = (orderMovements ?? []).reduce((sum, row) => {
+    const signedAmount =
+      toSafeNumber(
+        (row as { amount_usd_equivalent?: number | string | null }).amount_usd_equivalent,
+        0
+      ) * (((row as { direction?: string | null }).direction ?? 'inflow') === 'outflow' ? -1 : 1);
+    return sum + signedAmount;
+  }, 0);
 
   const pendingUsd = Number(
     Math.max(0, totalUsd - confirmedPaidUsd - previousFundUsedUsd).toFixed(2)
@@ -642,25 +645,36 @@ export async function applyClientFundPaymentAction(input: {
     notes: input.notes ?? 'Fondo aplicado desde pagos',
   });
 
-  const nextExtraFields = {
-    ...(currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object'
-      ? (currentOrder.extra_fields as Record<string, unknown>)
-      : {}),
-    payment: {
-      ...(((currentOrder.extra_fields as any)?.payment ?? {}) as Record<string, unknown>),
-      client_fund_used_usd: Number((previousFundUsedUsd + applicableAmountUsd).toFixed(2)),
-    },
-  };
+  try {
+    const nextExtraFields = {
+      ...(currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object'
+        ? (currentOrder.extra_fields as Record<string, unknown>)
+        : {}),
+      payment: {
+        ...(((currentOrder.extra_fields as any)?.payment ?? {}) as Record<string, unknown>),
+        client_fund_used_usd: Number((previousFundUsedUsd + applicableAmountUsd).toFixed(2)),
+      },
+    };
 
-  const { error: updateOrderError } = await supabase
-    .from('orders')
-    .update({
-      extra_fields: nextExtraFields,
-    })
-    .eq('id', orderId);
+    const { error: updateOrderError } = await supabase
+      .from('orders')
+      .update({
+        extra_fields: nextExtraFields,
+      })
+      .eq('id', orderId);
 
-  if (updateOrderError) {
-    throw new Error(updateOrderError.message);
+    if (updateOrderError) {
+      throw new Error(updateOrderError.message);
+    }
+  } catch (error) {
+    await restoreClientFundToOrder(supabase, {
+      clientId,
+      orderId,
+      amountUsd: applicableAmountUsd,
+      userId: user.id,
+      notes: 'Reverso por error aplicando fondo a la orden',
+    });
+    throw error;
   }
 
   revalidatePath('/app/master/dashboard');
