@@ -256,23 +256,6 @@ export async function returnToCreatedAction(input: {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
   }
 
-  const { data: previousOrderItems, error: previousOrderItemsError } = await supabase
-    .from('order_items')
-    .select(`
-      id,
-      product_name_snapshot,
-      unit_price_usd_snapshot,
-      admin_price_override_usd,
-      admin_price_override_reason,
-      qty,
-      line_total_usd
-    `)
-    .eq('order_id', orderId);
-
-  if (previousOrderItemsError) {
-    throw new Error(previousOrderItemsError.message);
-  }
-
   if (currentOrder.status !== 'queued') {
     throw new Error('Solo se puede devolver una orden que está en cola.');
   }
