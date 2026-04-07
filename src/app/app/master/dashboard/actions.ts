@@ -421,7 +421,7 @@ export async function confirmPaymentReportAction(input: {
           notes,
           order_id: orderId,
           payment_report_id: null,
-          movement_group_id: `change-${orderId}-${input.reportId}`,
+          movement_group_id: null,
         });
 
       if (changeMovementError) {
@@ -813,7 +813,7 @@ export async function deliverClientFundChangeAction(input: {
           notes: String(input.notes || '').trim() || null,
           order_id: orderId,
           payment_report_id: null,
-          movement_group_id: `fund-change-${orderId}-${Date.now()}`,
+          movement_group_id: null,
         });
 
       if (moneyMovementError) {
