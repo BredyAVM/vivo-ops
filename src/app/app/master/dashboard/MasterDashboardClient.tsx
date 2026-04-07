@@ -702,6 +702,48 @@ function toDateInputValue(d: Date) {
   return `${year}-${month}-${day}`;
 }
 
+const CALENDAR_WEEKDAY_LABELS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'] as const;
+
+function fmtCalendarMonthES(d: Date) {
+  const month = d.toLocaleDateString('es-VE', {
+    month: 'long',
+    timeZone: 'America/Caracas',
+  });
+  const label = month.charAt(0).toUpperCase() + month.slice(1);
+  return `${label} ${d.getFullYear()}`;
+}
+
+function startOfMonthGrid(d: Date) {
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  return startOfWeekMon(first);
+}
+
+function addDays(base: Date, days: number) {
+  const next = new Date(base);
+  next.setDate(base.getDate() + days);
+  return next;
+}
+
+function isSameDay(a: Date | null, b: Date | null) {
+  if (!a || !b) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function buildCalendarDays(viewMonth: Date) {
+  const start = startOfMonthGrid(viewMonth);
+  return Array.from({ length: 42 }, (_, idx) => {
+    const day = addDays(start, idx);
+    return {
+      date: day,
+      inMonth: day.getMonth() === viewMonth.getMonth(),
+    };
+  });
+}
+
 function fmtShortOrderLabel(orderId: number) {
   return String(orderId).padStart(2, '0');
 }
@@ -1971,6 +2013,11 @@ export default function MasterDashboardClient({
 
   const [isMounted, setIsMounted] = useState(false);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarViewMonth, setCalendarViewMonth] = useState(() => {
+    const base = new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+  });
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
   const [inventorySearch, setInventorySearch] = useState('');
@@ -2179,8 +2226,6 @@ const [newInventoryDeductionMode, setNewInventoryDeductionMode] = useState<'self
     setSelectedDay(new Date(today.getTime()));
     setIsMounted(true);
   }, [searchParams.toString()]);
-
-  const dateInputRef = useRef<HTMLInputElement | null>(null);
 
   const createOrderProductSearchRef = useRef<HTMLInputElement | null>(null);
   const createOrderQtyRef = useRef<HTMLInputElement | null>(null);
@@ -7168,6 +7213,7 @@ useEffect(() => {
     const dateValue = toDateInputValue(selectedDay);
     setAdvisorCalcDateFrom((prev) => (prev ? prev : dateValue));
     setAdvisorCalcDateTo((prev) => (prev ? prev : dateValue));
+    setCalendarViewMonth(new Date(selectedDay.getFullYear(), selectedDay.getMonth(), 1));
   }, [selectedDay]);
 
   useEffect(() => {
@@ -7176,7 +7222,7 @@ useEffect(() => {
     setAdvisorCalcAdvisorId('');
   }, [advisorCalcSource, advisorCalcAdvisorId]);
 
-useEffect(() => {
+  useEffect(() => {
   if (!createOrderOpen) return;
   if (!selectedCreateOrderClient) return;
 
@@ -7222,6 +7268,8 @@ useEffect(() => {
   createOrderDeliveryNotePhone,
 ]);
 
+const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calendarViewMonth]);
+
 
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
@@ -7233,23 +7281,9 @@ useEffect(() => {
         <h1 className="text-base font-semibold leading-none">B. Master 3.0</h1>
 
         <div className="relative">
-          <input
-            ref={dateInputRef}
-            type="date"
-            value={selectedDay ? toDateInputValue(selectedDay) : ''}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (!value) return;
-              const next = new Date(`${value}T00:00:00`);
-              next.setHours(0, 0, 0, 0);
-              setSelectedDay(next);
-            }}
-            className="pointer-events-none absolute inset-0 opacity-0"
-          />
-
           <button
             className="rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left"
-            onClick={() => dateInputRef.current?.showPicker?.() ?? dateInputRef.current?.click()}
+            onClick={() => setCalendarOpen((prev) => !prev)}
             title="Seleccionar día"
             type="button"
           >
@@ -7268,6 +7302,95 @@ useEffect(() => {
               </div>
             </div>
           </button>
+
+          {calendarOpen ? (
+            <div className="absolute left-0 top-[calc(100%+8px)] z-[90] w-[252px] rounded-2xl border border-[#242433] bg-[#121218] p-2 shadow-2xl">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <button
+                  className="flex h-7 w-7 items-center justify-center rounded-xl border border-[#242433] bg-[#0B0B0D] text-sm text-[#B7B7C2] hover:text-[#F5F5F7]"
+                  onClick={() =>
+                    setCalendarViewMonth(
+                      new Date(calendarViewMonth.getFullYear(), calendarViewMonth.getMonth() - 1, 1)
+                    )
+                  }
+                  type="button"
+                >
+                  ‹
+                </button>
+                <div className="text-[12px] font-medium text-[#F5F5F7]">{fmtCalendarMonthES(calendarViewMonth)}</div>
+                <button
+                  className="flex h-7 w-7 items-center justify-center rounded-xl border border-[#242433] bg-[#0B0B0D] text-sm text-[#B7B7C2] hover:text-[#F5F5F7]"
+                  onClick={() =>
+                    setCalendarViewMonth(
+                      new Date(calendarViewMonth.getFullYear(), calendarViewMonth.getMonth() + 1, 1)
+                    )
+                  }
+                  type="button"
+                >
+                  ›
+                </button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {CALENDAR_WEEKDAY_LABELS.map((label) => (
+                  <div key={label} className="pb-1 text-center text-[10px] uppercase tracking-[0.12em] text-[#6F6F7C]">
+                    {label}
+                  </div>
+                ))}
+                {calendarDays.map(({ date, inMonth }) => {
+                  const isSelected = isSameDay(selectedDay, date);
+                  const isToday = isSameDay(new Date(), date);
+
+                  return (
+                    <button
+                      key={date.toISOString()}
+                      className={[
+                        'h-8 rounded-xl text-[12px] transition',
+                        isSelected
+                          ? 'bg-[#FEEF00] font-semibold text-[#0B0B0D]'
+                          : inMonth
+                            ? 'bg-[#0B0B0D] text-[#F5F5F7] hover:border-[#FEEF00]/40'
+                            : 'bg-[#0B0B0D] text-[#5D5D68]',
+                        isToday && !isSelected ? 'border border-[#FEEF00]/50' : 'border border-transparent',
+                      ].join(' ')}
+                      onClick={() => {
+                        const next = new Date(date);
+                        next.setHours(0, 0, 0, 0);
+                        setSelectedDay(next);
+                        setCalendarOpen(false);
+                      }}
+                      type="button"
+                    >
+                      {date.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2] hover:text-[#F5F5F7]"
+                  onClick={() => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    setSelectedDay(today);
+                    setCalendarViewMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+                    setCalendarOpen(false);
+                  }}
+                  type="button"
+                >
+                  Hoy
+                </button>
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2] hover:text-[#F5F5F7]"
+                  onClick={() => setCalendarOpen(false)}
+                  type="button"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <button
