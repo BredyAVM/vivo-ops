@@ -2042,6 +2042,14 @@ const [paymentReportExchangeRate, setPaymentReportExchangeRate] = useState('');
 const [paymentReportReferenceCode, setPaymentReportReferenceCode] = useState('');
 const [paymentReportPayerName, setPaymentReportPayerName] = useState('');
 const [paymentReportNotes, setPaymentReportNotes] = useState('');
+const [paymentConfirmBoxOpen, setPaymentConfirmBoxOpen] = useState(false);
+const [paymentConfirmReportId, setPaymentConfirmReportId] = useState<number | null>(null);
+const [paymentConfirmReviewNotes, setPaymentConfirmReviewNotes] = useState('');
+const [paymentConfirmOverpaymentHandling, setPaymentConfirmOverpaymentHandling] = useState<
+  '' | 'change_given' | 'store_fund' | 'close_difference'
+>('');
+const [paymentConfirmOverpaymentNotes, setPaymentConfirmOverpaymentNotes] = useState('');
+const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
 
   const [movementOpen, setMovementOpen] = useState(false);
   const [movementType, setMovementType] = useState<'Ingreso' | 'Egreso' | 'Transferencia'>('Ingreso');
@@ -2724,6 +2732,15 @@ const resetPaymentReportBox = () => {
   setPaymentReportNotes('');
 };
 
+const resetPaymentConfirmBox = () => {
+  setPaymentConfirmBoxOpen(false);
+  setPaymentConfirmReportId(null);
+  setPaymentConfirmReviewNotes('');
+  setPaymentConfirmOverpaymentHandling('');
+  setPaymentConfirmOverpaymentNotes('');
+  setPaymentConfirmSaving(false);
+};
+
 const resetReviewActionBox = () => {
   setReviewActionMode(null);
   setReviewActionNotes('');
@@ -2970,40 +2987,33 @@ const handleCloseRoundingBalance = async (o: Order) => {
 
 const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
   try {
-    const reviewNotes = window.prompt('Notas de confirmación (opcional):', '') ?? '';
     const today = new Date().toISOString().slice(0, 10);
     const predictedExcessUsd = Number(
       Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
     );
+    const reviewNotes = paymentConfirmReviewNotes.trim();
     let overpaymentHandling: 'change_given' | 'store_fund' | 'close_difference' | null = null;
     let overpaymentNotes: string | null = null;
 
     if (predictedExcessUsd > 0.005) {
-      const instruction =
-        predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD && isAdmin
-          ? `El pago excede la orden por ${fmtUSD(predictedExcessUsd)}. Escribe CAMBIO, FONDO o CERRAR.`
-          : `El pago excede la orden por ${fmtUSD(predictedExcessUsd)}. Escribe CAMBIO o FONDO.`;
-
-      const decision = (window.prompt(instruction, 'CAMBIO') ?? '').trim().toUpperCase();
-
-      if (decision === 'CAMBIO') {
-        overpaymentHandling = 'change_given';
-      } else if (decision === 'FONDO') {
-        overpaymentHandling = 'store_fund';
-      } else if (
-        decision === 'CERRAR' &&
-        predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD &&
-        isAdmin
-      ) {
-        overpaymentHandling = 'close_difference';
-      } else {
-        showToast('error', 'Debes elegir un destino válido para el excedente.');
+      if (!paymentConfirmOverpaymentHandling) {
+        showToast('error', 'Debes elegir qué hacer con el excedente.');
         return;
       }
 
-      overpaymentNotes =
-        window.prompt('Nota del manejo del excedente (opcional):', '')?.trim() || null;
+      if (
+        paymentConfirmOverpaymentHandling === 'close_difference' &&
+        (!isAdmin || predictedExcessUsd > ORDER_ROUNDING_CLOSE_MAX_USD)
+      ) {
+        showToast('error', 'Ese excedente no puede cerrarse por redondeo.');
+        return;
+      }
+
+      overpaymentHandling = paymentConfirmOverpaymentHandling;
+      overpaymentNotes = paymentConfirmOverpaymentNotes.trim() || null;
     }
+
+    setPaymentConfirmSaving(true);
 
     await confirmPaymentReportAction({
       reportId: rp.id,
@@ -3023,10 +3033,13 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
     });
 
     showToast('success', 'Pago confirmado.');
+    resetPaymentConfirmBox();
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error confirmando el pago.';
     showToast('error', message);
+  } finally {
+    setPaymentConfirmSaving(false);
   }
 };
 
@@ -3049,6 +3062,24 @@ const handleRejectPayment = async (rp: PaymentReportItem) => {
     const message = err instanceof Error ? err.message : 'Error rechazando el pago.';
     showToast('error', message);
   }
+};
+
+const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
+  const predictedExcessUsd = Number(
+    Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
+  );
+
+  setPaymentConfirmReportId(rp.id);
+  setPaymentConfirmReviewNotes('');
+  setPaymentConfirmOverpaymentNotes('');
+  setPaymentConfirmOverpaymentHandling(
+    predictedExcessUsd > 0.005
+      ? predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD && isAdmin
+        ? 'close_difference'
+        : 'change_given'
+      : ''
+  );
+  setPaymentConfirmBoxOpen(true);
 };
 
 const handleReviewChanges = async (o: Order, approved: boolean) => {
@@ -5245,6 +5276,19 @@ const createOrderHasDeliveryChargeItem =
 
 const selectedPaymentReportAccount =
   moneyAccounts.filter((a) => a.isActive).find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
+
+const selectedConfirmPaymentReport =
+  selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ?? null;
+
+const selectedConfirmPaymentExcessUsd =
+  selectedOrder && selectedConfirmPaymentReport
+    ? Number(
+        Math.max(
+          0,
+          selectedOrder.confirmedPaidUsd + selectedConfirmPaymentReport.usdEquivalent - selectedOrder.totalUsd
+        ).toFixed(2)
+      )
+    : 0;
 
   const selectedAccount = useMemo(
     () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
@@ -9974,7 +10018,7 @@ onClose={() => {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-                    onClick={() => handleConfirmPayment(selectedOrder, rp)}
+                    onClick={() => openConfirmPaymentBox(selectedOrder, rp)}
                   >
                     Confirmar
                   </button>
@@ -10341,6 +10385,125 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
           onClick={resetPaymentReportBox}
         >
           Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
+
+{detailTab === 'pagos' && paymentConfirmBoxOpen && selectedConfirmPaymentReport ? (
+  <div className="mt-2 rounded-lg border border-[#3A2F12] bg-[#120F08] p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-semibold text-[#F5F5F7]">Confirmar pago</div>
+        <div className="mt-1 text-[11px] text-[#B7B7C2]">
+          Reporte #{selectedConfirmPaymentReport.id} · {fmtUSD(selectedConfirmPaymentReport.usdEquivalent)}
+        </div>
+      </div>
+      <SmallBadge
+        label={
+          selectedConfirmPaymentExcessUsd > 0.005
+            ? `Excedente ${fmtUSD(selectedConfirmPaymentExcessUsd)}`
+            : 'Pago exacto'
+        }
+        tone={selectedConfirmPaymentExcessUsd > 0.005 ? 'warn' : 'brand'}
+      />
+    </div>
+
+    <div className="mt-3 space-y-3">
+      <div>
+        <label className="mb-1 block text-[11px] text-[#8A8A96]">Notas de confirmación</label>
+        <textarea
+          value={paymentConfirmReviewNotes}
+          onChange={(e) => setPaymentConfirmReviewNotes(e.target.value)}
+          rows={2}
+          placeholder="Opcional"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+      </div>
+
+      {selectedConfirmPaymentExcessUsd > 0.005 ? (
+        <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-3">
+          <div className="text-[11px] font-medium text-[#F5F5F7]">Qué hacer con el excedente</div>
+          <div className="mt-1 text-[11px] text-[#8A8A96]">
+            El cliente está pagando {fmtUSD(selectedConfirmPaymentExcessUsd)} de más.
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              className={[
+                'rounded-xl border px-3 py-2 text-left',
+                paymentConfirmOverpaymentHandling === 'change_given'
+                  ? 'border-[#FEEF00] bg-[#19150A] text-[#F5F5F7]'
+                  : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
+              ].join(' ')}
+              onClick={() => setPaymentConfirmOverpaymentHandling('change_given')}
+            >
+              <div className="text-sm font-semibold">Dar cambio</div>
+              <div className="mt-1 text-[11px]">Sale dinero de caja y no queda saldo al cliente.</div>
+            </button>
+
+            <button
+              type="button"
+              className={[
+                'rounded-xl border px-3 py-2 text-left',
+                paymentConfirmOverpaymentHandling === 'store_fund'
+                  ? 'border-[#FEEF00] bg-[#19150A] text-[#F5F5F7]'
+                  : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
+              ].join(' ')}
+              onClick={() => setPaymentConfirmOverpaymentHandling('store_fund')}
+            >
+              <div className="text-sm font-semibold">Guardar en fondo</div>
+              <div className="mt-1 text-[11px]">Queda como saldo a favor del cliente.</div>
+            </button>
+
+            {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
+              <button
+                type="button"
+                className={[
+                  'rounded-xl border px-3 py-2 text-left',
+                  paymentConfirmOverpaymentHandling === 'close_difference'
+                    ? 'border-orange-400 bg-[#1A1208] text-[#F5F5F7]'
+                    : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
+                ].join(' ')}
+                onClick={() => setPaymentConfirmOverpaymentHandling('close_difference')}
+              >
+                <div className="text-sm font-semibold">Cerrar diferencia</div>
+                <div className="mt-1 text-[11px]">Se absorbe a favor de la empresa y queda auditado.</div>
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mt-3">
+            <label className="mb-1 block text-[11px] text-[#8A8A96]">Nota del excedente</label>
+            <textarea
+              value={paymentConfirmOverpaymentNotes}
+              onChange={(e) => setPaymentConfirmOverpaymentNotes(e.target.value)}
+              rows={2}
+              placeholder="Opcional"
+              className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-3 py-2 text-[11px] text-[#F5F5F7]"
+          onClick={resetPaymentConfirmBox}
+          disabled={paymentConfirmSaving}
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-[11px] font-semibold text-[#0B0B0D]"
+          onClick={() => handleConfirmPayment(selectedOrder, selectedConfirmPaymentReport)}
+          disabled={paymentConfirmSaving}
+        >
+          {paymentConfirmSaving ? 'Confirmando...' : 'Confirmar pago'}
         </button>
       </div>
     </div>
