@@ -11,6 +11,7 @@ import {
   closeOrderRoundingBalanceAction,
   confirmPaymentReportAction,
   createPaymentReportAction,
+  deliverClientFundChangeAction,
   createInventoryProductionAction,
   rejectPaymentReportAction,
   reapproveQueuedOrderAction,
@@ -2091,6 +2092,11 @@ const [paymentReportPayerName, setPaymentReportPayerName] = useState('');
 const [paymentReportNotes, setPaymentReportNotes] = useState('');
 const [paymentApplyFundAmountUsd, setPaymentApplyFundAmountUsd] = useState('');
 const [paymentApplyFundNotes, setPaymentApplyFundNotes] = useState('');
+const [paymentGiveChangeBoxOpen, setPaymentGiveChangeBoxOpen] = useState(false);
+const [paymentGiveChangeMoneyAccountId, setPaymentGiveChangeMoneyAccountId] = useState('');
+const [paymentGiveChangeAmount, setPaymentGiveChangeAmount] = useState('');
+const [paymentGiveChangeExchangeRate, setPaymentGiveChangeExchangeRate] = useState('');
+const [paymentGiveChangeNotes, setPaymentGiveChangeNotes] = useState('');
 const [paymentConfirmBoxOpen, setPaymentConfirmBoxOpen] = useState(false);
 const [paymentConfirmReportId, setPaymentConfirmReportId] = useState<number | null>(null);
 const [paymentConfirmReviewNotes, setPaymentConfirmReviewNotes] = useState('');
@@ -2792,6 +2798,11 @@ const resetPaymentReportBox = () => {
   setPaymentReportNotes('');
   setPaymentApplyFundAmountUsd('');
   setPaymentApplyFundNotes('');
+  setPaymentGiveChangeBoxOpen(false);
+  setPaymentGiveChangeMoneyAccountId('');
+  setPaymentGiveChangeAmount('');
+  setPaymentGiveChangeExchangeRate('');
+  setPaymentGiveChangeNotes('');
 };
 
 const resetPaymentConfirmBox = () => {
@@ -3041,6 +3052,53 @@ const handleApplyClientFundPayment = async (o: Order) => {
   }
 };
 
+const handleDeliverClientChange = async (o: Order) => {
+  try {
+    const moneyAccountId = Number(paymentGiveChangeMoneyAccountId || 0);
+    if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+      showToast('error', 'Debes seleccionar la cuenta desde la cual entregarás el cambio.');
+      return;
+    }
+
+    const selectedAccount = moneyAccounts.find((account) => account.id === moneyAccountId);
+    if (!selectedAccount) {
+      showToast('error', 'Cuenta inválida.');
+      return;
+    }
+
+    const amount = Number(String(paymentGiveChangeAmount || '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showToast('error', 'Debes indicar el monto del cambio.');
+      return;
+    }
+
+    let exchangeRate: number | null = null;
+    if (selectedAccount.currencyCode === 'VES') {
+      exchangeRate = Number(String(paymentGiveChangeExchangeRate || '').replace(',', '.'));
+      if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+        showToast('error', 'Debes indicar una tasa válida para el cambio en Bs.');
+        return;
+      }
+    }
+
+    await deliverClientFundChangeAction({
+      orderId: o.id,
+      moneyAccountId,
+      currencyCode: selectedAccount.currencyCode,
+      amount,
+      exchangeRateVesPerUsd: exchangeRate,
+      notes: paymentGiveChangeNotes.trim() || null,
+    });
+
+    showToast('success', 'Cambio entregado y registrado.');
+    resetPaymentReportBox();
+    router.refresh();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error entregando el cambio.';
+    showToast('error', message);
+  }
+};
+
 const handleCloseRoundingBalance = async (o: Order) => {
   try {
     if (!isAdmin) {
@@ -3085,11 +3143,12 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
     );
     const reviewNotes = paymentConfirmReviewNotes.trim();
-    let overpaymentHandling: 'change_given' | 'store_fund' | 'close_difference' | null = null;
+    let overpaymentHandling: 'change_given' | 'store_fund' | 'close_difference' | null =
+      predictedExcessUsd > 0.005 ? 'store_fund' : null;
     let overpaymentNotes: string | null = null;
 
     if (predictedExcessUsd > 0.005) {
-      if (!paymentConfirmOverpaymentHandling) {
+      if (false && !paymentConfirmOverpaymentHandling) {
         showToast('error', 'Debes elegir qué hacer con el excedente.');
         return;
       }
@@ -3127,7 +3186,10 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
         }
       }
 
-      overpaymentHandling = paymentConfirmOverpaymentHandling;
+      overpaymentHandling =
+        paymentConfirmOverpaymentHandling === 'close_difference'
+          ? 'close_difference'
+          : 'store_fund';
       overpaymentNotes = paymentConfirmOverpaymentNotes.trim() || null;
     }
 
@@ -3148,22 +3210,10 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
       overpaymentHandling,
       overpaymentNotes,
-      changeMoneyAccountId:
-        overpaymentHandling === 'change_given'
-          ? Number(paymentConfirmChangeMoneyAccountId || 0)
-          : null,
-      changeCurrency:
-        overpaymentHandling === 'change_given'
-          ? selectedConfirmChangeAccount?.currencyCode ?? null
-          : null,
-      changeAmount:
-        overpaymentHandling === 'change_given'
-          ? Number(String(paymentConfirmChangeAmount || '').replace(',', '.'))
-          : null,
-      changeExchangeRateVesPerUsd:
-        overpaymentHandling === 'change_given' && selectedConfirmChangeAccount?.currencyCode === 'VES'
-          ? Number(String(paymentConfirmChangeExchangeRate || '').replace(',', '.'))
-          : null,
+      changeMoneyAccountId: null,
+      changeCurrency: null,
+      changeAmount: null,
+      changeExchangeRateVesPerUsd: null,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -3217,7 +3267,7 @@ const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
     predictedExcessUsd > 0.005
       ? predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD && isAdmin
         ? 'close_difference'
-        : 'change_given'
+        : 'store_fund'
       : ''
   );
   setPaymentConfirmBoxOpen(true);
@@ -5447,6 +5497,9 @@ const selectedConfirmPaymentExcessUsd =
 
 const selectedConfirmChangeAccount =
   moneyAccounts.find((account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)) ?? null;
+
+const selectedGiveChangeAccount =
+  moneyAccounts.find((account) => account.id === Number(paymentGiveChangeMoneyAccountId || 0)) ?? null;
 
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
@@ -10673,6 +10726,89 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
   </div>
 ) : null}
 
+{detailTab === 'pagos' && selectedOrderClientFundAvailableUsd > 0.005 ? (
+  <div className="mt-2 rounded-lg border border-sky-500/20 bg-[#0B1016] p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-medium text-[#F5F5F7]">Dar cambio desde fondo</div>
+        <div className="mt-1 text-[11px] text-[#8A8A96]">
+          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}.
+        </div>
+      </div>
+      <button
+        type="button"
+        className="rounded-md border border-sky-500/40 bg-[#0D141D] px-2 py-1 text-[10px] font-semibold text-sky-300"
+        onClick={() => {
+          const suggested = Number(selectedOrderClientFundAvailableUsd.toFixed(2));
+          setPaymentGiveChangeBoxOpen((prev) => !prev);
+          setPaymentGiveChangeMoneyAccountId('');
+          setPaymentGiveChangeAmount(suggested > 0.005 ? String(suggested) : '');
+          setPaymentGiveChangeExchangeRate('');
+          setPaymentGiveChangeNotes('');
+        }}
+      >
+        {paymentGiveChangeBoxOpen ? 'Ocultar' : 'Dar cambio'}
+      </button>
+    </div>
+
+    {paymentGiveChangeBoxOpen ? (
+      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+        <select
+          value={paymentGiveChangeMoneyAccountId}
+          onChange={(e) => setPaymentGiveChangeMoneyAccountId(e.target.value)}
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+        >
+          <option value="">— cuenta del cambio —</option>
+          {moneyAccounts.filter((account) => account.isActive).map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.name} ({account.currencyCode})
+            </option>
+          ))}
+        </select>
+
+        <input
+          value={paymentGiveChangeAmount}
+          onChange={(e) => setPaymentGiveChangeAmount(e.target.value)}
+          placeholder="Monto del cambio"
+          type="text"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+
+        {selectedGiveChangeAccount?.currencyCode === 'VES' ? (
+          <input
+            value={paymentGiveChangeExchangeRate}
+            onChange={(e) => setPaymentGiveChangeExchangeRate(e.target.value)}
+            placeholder="Tasa Bs por USD"
+            type="text"
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+          />
+        ) : (
+          <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#8A8A96]">
+            {selectedGiveChangeAccount ? `Cambio en ${selectedGiveChangeAccount.currencyCode}` : 'Selecciona una cuenta'}
+          </div>
+        )}
+
+        <input
+          value={paymentGiveChangeNotes}
+          onChange={(e) => setPaymentGiveChangeNotes(e.target.value)}
+          placeholder="Nota (opcional)"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+
+        <div className="md:col-span-4 flex justify-end">
+          <button
+            type="button"
+            className="rounded-md border border-sky-500/40 bg-[#0D141D] px-3 py-2 text-[11px] font-semibold text-sky-300"
+            onClick={() => handleDeliverClientChange(selectedOrder)}
+          >
+            Confirmar cambio
+          </button>
+        </div>
+      </div>
+    ) : null}
+  </div>
+) : null}
+
 {detailTab === 'pagos' && paymentConfirmBoxOpen && selectedConfirmPaymentReport ? (
   <div className="mt-2 rounded-lg border border-[#3A2F12] bg-[#120F08] p-3">
     <div className="flex items-start justify-between gap-3">
@@ -10711,21 +10847,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
             El cliente está pagando {fmtUSD(selectedConfirmPaymentExcessUsd)} de más.
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              className={[
-                'rounded-xl border px-3 py-2 text-left',
-                paymentConfirmOverpaymentHandling === 'change_given'
-                  ? 'border-[#FEEF00] bg-[#19150A] text-[#F5F5F7]'
-                  : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
-              ].join(' ')}
-              onClick={() => setPaymentConfirmOverpaymentHandling('change_given')}
-            >
-              <div className="text-sm font-semibold">Dar cambio</div>
-              <div className="mt-1 text-[11px]">Sale dinero de caja y no queda saldo al cliente.</div>
-            </button>
-
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               className={[
@@ -10736,8 +10858,8 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
               ].join(' ')}
               onClick={() => setPaymentConfirmOverpaymentHandling('store_fund')}
             >
-              <div className="text-sm font-semibold">Guardar en fondo</div>
-              <div className="mt-1 text-[11px]">Queda como saldo a favor del cliente.</div>
+              <div className="text-sm font-semibold">Fondo automático</div>
+              <div className="mt-1 text-[11px]">El excedente quedará como saldo a favor y luego podrás dar cambio desde la orden.</div>
             </button>
 
             {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
@@ -10768,7 +10890,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
             />
           </div>
 
-          {paymentConfirmOverpaymentHandling === 'change_given' ? (
+          {false && paymentConfirmOverpaymentHandling === 'change_given' ? (
             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
               <select
                 value={paymentConfirmChangeMoneyAccountId}

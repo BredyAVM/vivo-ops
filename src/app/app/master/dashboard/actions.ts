@@ -368,7 +368,7 @@ export async function confirmPaymentReportAction(input: {
     const currentTotalUsd = toSafeNumber(currentOrder.total_usd, 0);
     const currentTotalBs = toSafeNumber(currentOrder.total_bs_snapshot, 0);
     const excessUsd = Number(Math.max(0, confirmedPaidUsd - currentTotalUsd).toFixed(2));
-    const handling = input.overpaymentHandling ?? null;
+    const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
     if (excessUsd > 0.005 && handling === 'change_given') {
@@ -695,6 +695,136 @@ export async function applyClientFundPaymentAction(input: {
       userId: user.id,
       notes: 'Reverso por error aplicando fondo a la orden',
     });
+    throw error;
+  }
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function deliverClientFundChangeAction(input: {
+  orderId: number;
+  moneyAccountId: number;
+  currencyCode: string;
+  amount: number;
+  exchangeRateVesPerUsd?: number | null;
+  notes?: string | null;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const orderId = Number(input.orderId || 0);
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const nativeAmount = Number(toSafeNumber(input.amount, 0).toFixed(2));
+  const currencyCode = String(input.currencyCode || '').trim().toUpperCase();
+  const exchangeRate =
+    input.exchangeRateVesPerUsd == null ? null : Number(toSafeNumber(input.exchangeRateVesPerUsd, 0).toFixed(6));
+
+  if (!Number.isFinite(orderId) || orderId <= 0) throw new Error('Orden inválida.');
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) throw new Error('Cuenta inválida.');
+  if (!currencyCode) throw new Error('Moneda inválida.');
+  if (!Number.isFinite(nativeAmount) || nativeAmount <= 0) throw new Error('Monto inválido.');
+  if (currencyCode === 'VES' && (!exchangeRate || exchangeRate <= 0)) {
+    throw new Error('Debes indicar una tasa válida para el cambio en Bs.');
+  }
+
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from('orders')
+    .select('id, client_id')
+    .eq('id', orderId)
+    .single();
+
+  if (currentOrderError || !currentOrder) {
+    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  const clientId = Number(currentOrder.client_id || 0);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('La orden no tiene cliente asociado.');
+  }
+
+  const { data: currentClient, error: currentClientError } = await supabase
+    .from('clients')
+    .select('id, fund_balance_usd')
+    .eq('id', clientId)
+    .single();
+
+  if (currentClientError || !currentClient) {
+    throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
+  }
+
+  const amountUsd = Number(
+    (currencyCode === 'VES' ? nativeAmount / Number(exchangeRate) : nativeAmount).toFixed(2)
+  );
+  const currentBalanceUsd = Number(toSafeNumber(currentClient.fund_balance_usd, 0).toFixed(2));
+
+  if (amountUsd > currentBalanceUsd + 0.0001) {
+    throw new Error('El cliente no tiene suficiente fondo para entregar ese cambio.');
+  }
+
+  const { error: updateClientError } = await supabase
+    .from('clients')
+    .update({
+      fund_balance_usd: Number((currentBalanceUsd - amountUsd).toFixed(2)),
+    })
+    .eq('id', clientId);
+
+  if (updateClientError) {
+    throw new Error(updateClientError.message);
+  }
+
+  try {
+    const { error: fundMovementError } = await supabase
+      .from('client_fund_movements')
+      .insert({
+        client_id: clientId,
+        movement_type: 'debit',
+        currency_code: currencyCode,
+        amount: nativeAmount,
+        amount_usd: amountUsd,
+        money_account_id: moneyAccountId,
+        order_id: orderId,
+        payment_report_id: null,
+        reason_code: 'change_given_from_fund',
+        notes: String(input.notes || '').trim() || null,
+        created_by_user_id: user.id,
+      });
+
+    if (fundMovementError) {
+      throw new Error(fundMovementError.message);
+    }
+
+    const { error: moneyMovementError } = await supabase
+      .from('money_movements')
+      .insert({
+        movement_date: new Date().toISOString().slice(0, 10),
+        created_by_user_id: user.id,
+        confirmed_at: new Date().toISOString(),
+        confirmed_by_user_id: user.id,
+        direction: 'outflow',
+        movement_type: 'change_given',
+        money_account_id: moneyAccountId,
+        currency_code: currencyCode,
+        amount: nativeAmount,
+        exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+        amount_usd_equivalent: amountUsd,
+        reference_code: null,
+        counterparty_name: null,
+        description: `Cambio entregado desde fondo · orden ${orderId}`,
+        notes: String(input.notes || '').trim() || null,
+        order_id: orderId,
+        payment_report_id: null,
+        movement_group_id: `fund-change-${orderId}-${Date.now()}`,
+      });
+
+    if (moneyMovementError) {
+      throw new Error(moneyMovementError.message);
+    }
+  } catch (error) {
+    await supabase
+      .from('clients')
+      .update({
+        fund_balance_usd: currentBalanceUsd,
+      })
+      .eq('id', clientId);
     throw error;
   }
 
