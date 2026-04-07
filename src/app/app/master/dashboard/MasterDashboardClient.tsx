@@ -2390,34 +2390,28 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     });
   }, [committedList, inventoryItems]);
 
-  const urgentTaskRows = useMemo(() => {
-    return dayOrders
-      .filter((order) => order.status === 'created' || order.status === 'queued')
-      .map((order) => {
-        const actionLabel =
-          order.status === 'created'
-            ? 'Aprobar'
-            : order.queuedNeedsReapproval
-              ? 'Reaprobar'
-              : 'Enviar a cocina';
+  const urgentTaskBuckets = useMemo(() => {
+    const byDeliveryTime = (a: Order, b: Order) =>
+      new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
 
-        const tone =
-          order.status === 'created'
-            ? 'brand'
-            : order.queuedNeedsReapproval
-              ? 'warn'
-              : null;
-
-        return {
-          id: order.id,
-          clientName: order.clientName,
-          deliveryAtISO: order.deliveryAtISO,
-          actionLabel,
-          tone,
-        };
-      })
-      .sort((a, b) => new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime())
-      .slice(0, 5);
+    return {
+      approve: dayOrders.filter((order) => order.status === 'created').sort(byDeliveryTime),
+      reapprove: dayOrders
+        .filter((order) => order.status === 'queued' && order.queuedNeedsReapproval)
+        .sort(byDeliveryTime),
+      kitchen: dayOrders
+        .filter((order) => order.status === 'queued' && !order.queuedNeedsReapproval)
+        .sort(byDeliveryTime),
+      driver: dayOrders
+        .filter(
+          (order) =>
+            order.fulfillment === 'delivery' &&
+            ['queued', 'ready', 'out_for_delivery'].includes(order.status) &&
+            !order.riderName &&
+            !order.externalPartner
+        )
+        .sort(byDeliveryTime),
+    };
   }, [dayOrders]);
 
   const lowStockAlertsCount = useMemo(
@@ -2430,6 +2424,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   );
 
   const [productsExpanded, setProductsExpanded] = useState(false);
+  const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+  const [taskPanelKind, setTaskPanelKind] = useState<'approve' | 'reapprove' | 'kitchen' | 'driver'>('approve');
 
   const notifications: MasterNotification[] = useMemo(() => {
     const out: MasterNotification[] = [];
@@ -7365,8 +7361,8 @@ suppressHydrationWarning
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           <div className="grid grid-cols-12 gap-4">
-            <Card title="Hoy y semana" className="col-span-12 xl:col-span-4">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
+            <Card title="Estado" className="col-span-12 xl:col-span-4">
+              <div className="hidden">
               <StatRow label="Cierres" value={dayStats.cierres} />
               <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
@@ -7377,6 +7373,28 @@ suppressHydrationWarning
                 <StatRow label="Facturacion" value={fmtUSD(weekStats.fact)} />
                 <StatRow label="Abonado" value={fmtUSD(weekStats.abonadoConfirmado)} />
                 <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
+              </div>
+              </div>
+              <div className="grid grid-cols-[1.2fr_0.7fr_0.7fr] gap-x-3 gap-y-2 text-sm">
+                <div />
+                <div className="text-center text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Hoy</div>
+                <div className="text-center text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
+
+                <div className="text-[#B7B7C2]">Cierres</div>
+                <div className="text-center font-semibold text-[#F5F5F7]">{dayStats.cierres}</div>
+                <div className="text-center font-semibold text-[#F5F5F7]">{weekStats.cierres}</div>
+
+                <div className="text-[#B7B7C2]">Facturación</div>
+                <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(dayStats.fact)}</div>
+                <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(weekStats.fact)}</div>
+
+                <div className="text-[#B7B7C2]">Abonado</div>
+                <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(dayStats.abonadoConfirmado)}</div>
+                <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(weekStats.abonadoConfirmado)}</div>
+
+                <div className="text-[#B7B7C2]">Pendiente</div>
+                <div className="text-center font-semibold text-[#FEEF00]">{fmtUSD(dayStats.pendiente)}</div>
+                <div className="text-center font-semibold text-[#FEEF00]">{fmtUSD(weekStats.pendiente)}</div>
               </div>
             </Card>
 
@@ -7397,16 +7415,17 @@ suppressHydrationWarning
             </Card>
 
             <Card title="Tareas urgentes" className="col-span-12 md:col-span-6 xl:col-span-3">
+              <div className="hidden">
               <StatRow label="Aprobar" value={approvalsStats.porAprobar} highlightTone="brand" />
               <StatRow label="Reaprobar" value={approvalsStats.reaprobar} highlightTone="warn" />
               <StatRow label="Enviar a cocina" value={approvalsStats.listasCocina} />
               <div className="space-y-2">
-                {urgentTaskRows.length === 0 ? (
+                {true ? (
                   <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
                     Sin tareas urgentes por ahora.
                   </div>
                 ) : (
-                  urgentTaskRows.map((task) => (
+                  ([] as Array<{ id: number; clientName: string; deliveryAtISO: string; actionLabel: string; tone: 'warn' | 'brand' | null }>).map((task) => (
                     <button
                       key={task.id}
                       className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
@@ -7433,17 +7452,64 @@ suppressHydrationWarning
                   ))
                 )}
               </div>
+              </div>
+              <div className="space-y-2 text-sm">
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setTaskPanelKind('approve');
+                    setTaskPanelOpen(true);
+                  }}
+                  type="button"
+                >
+                  <span className="text-[#B7B7C2]">Por aprobar</span>
+                  <span className="font-semibold text-[#FEEF00]">{urgentTaskBuckets.approve.length}</span>
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setTaskPanelKind('reapprove');
+                    setTaskPanelOpen(true);
+                  }}
+                  type="button"
+                >
+                  <span className="text-[#B7B7C2]">Reaprobar</span>
+                  <span className="font-semibold text-orange-400">{urgentTaskBuckets.reapprove.length}</span>
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setTaskPanelKind('kitchen');
+                    setTaskPanelOpen(true);
+                  }}
+                  type="button"
+                >
+                  <span className="text-[#B7B7C2]">Enviar a cocina</span>
+                  <span className="font-semibold text-[#7FE7C4]">{urgentTaskBuckets.kitchen.length}</span>
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setTaskPanelKind('driver');
+                    setTaskPanelOpen(true);
+                  }}
+                  type="button"
+                >
+                  <span className="text-[#B7B7C2]">Asignar driver</span>
+                  <span className="font-semibold text-[#F5F5F7]">{urgentTaskBuckets.driver.length}</span>
+                </button>
+              </div>
             </Card>
 
             <Card title="Productos comprometidos" className="col-span-12 xl:col-span-3">
               <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#8A8A96]">
                 Alertas de inventario: <span className="font-semibold text-[#F5F5F7]">{lowStockAlertsCount}</span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {committedProductsRows.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
-                  committedProductsRows.map((product) => (
+                  committedProductsRows.slice(0, 4).map((product) => (
                     <div key={product.name} className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="truncate text-[#F5F5F7]">{product.name}</div>
@@ -7480,7 +7546,7 @@ suppressHydrationWarning
                     className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                     onClick={() => setProductsExpanded(true)}
                   >
-                    Ver detalle
+                    Ver todo
                   </button>
                 </div>
               </div>
@@ -9448,6 +9514,63 @@ suppressHydrationWarning
                   />
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={taskPanelOpen}
+        title={
+          taskPanelKind === 'approve'
+            ? 'Pedidos por aprobar'
+            : taskPanelKind === 'reapprove'
+              ? 'Pedidos para reaprobar'
+              : taskPanelKind === 'kitchen'
+                ? 'Pedidos para enviar a cocina'
+                : 'Pedidos para asignar driver'
+        }
+        onClose={() => setTaskPanelOpen(false)}
+        widthClass="w-[520px]"
+      >
+        {(
+          taskPanelKind === 'approve'
+            ? urgentTaskBuckets.approve
+            : taskPanelKind === 'reapprove'
+              ? urgentTaskBuckets.reapprove
+              : taskPanelKind === 'kitchen'
+                ? urgentTaskBuckets.kitchen
+                : urgentTaskBuckets.driver
+        ).length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin pedidos en esta tarea.</div>
+        ) : (
+          <div className="space-y-3">
+            {(
+              taskPanelKind === 'approve'
+                ? urgentTaskBuckets.approve
+                : taskPanelKind === 'reapprove'
+                  ? urgentTaskBuckets.reapprove
+                  : taskPanelKind === 'kitchen'
+                    ? urgentTaskBuckets.kitchen
+                    : urgentTaskBuckets.driver
+            ).map((order) => (
+              <button
+                key={order.id}
+                className="w-full rounded-2xl border border-[#242433] bg-[#121218] p-3 text-left hover:border-[#FEEF00]/40"
+                onClick={() => {
+                  setTaskPanelOpen(false);
+                  openOrderPanel(order.id, order.fulfillment === 'delivery' ? 'entrega' : 'detalle');
+                }}
+                type="button"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-[#F5F5F7]">#{order.id} · {order.clientName}</div>
+                  <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
+                </div>
+                <div className="mt-1 text-xs text-[#B7B7C2]">
+                  {order.advisorName} · {ORDER_STATUS_LABEL[order.status]}
+                </div>
+              </button>
             ))}
           </div>
         )}
