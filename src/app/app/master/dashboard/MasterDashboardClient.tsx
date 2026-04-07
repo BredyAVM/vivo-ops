@@ -7287,6 +7287,7 @@ useEffect(() => {
     </div>
   </div>
 </div>
+</div>
 {viewMode === 'settings' ? (
   <div className="border-b border-[#242433] bg-[#0B0B0D]">
     <div className="mx-auto max-w-[1400px] px-5 py-2">
