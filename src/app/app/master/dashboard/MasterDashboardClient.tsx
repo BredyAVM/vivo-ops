@@ -734,6 +734,12 @@ function fmtInventoryUnits(
   return parts.join(' + ');
 }
 
+function fmtUnitsValue(units: number | null | undefined) {
+  const value = Number(units ?? 0);
+  if (!Number.isFinite(value)) return '0';
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
+}
+
 function mapAdjustmentFieldLabel(field: string) {
   const labels: Record<string, string> = {
     source: 'Origen',
