@@ -2098,6 +2098,9 @@ const [paymentConfirmOverpaymentHandling, setPaymentConfirmOverpaymentHandling] 
   '' | 'change_given' | 'store_fund' | 'close_difference'
 >('');
 const [paymentConfirmOverpaymentNotes, setPaymentConfirmOverpaymentNotes] = useState('');
+const [paymentConfirmChangeMoneyAccountId, setPaymentConfirmChangeMoneyAccountId] = useState('');
+const [paymentConfirmChangeAmount, setPaymentConfirmChangeAmount] = useState('');
+const [paymentConfirmChangeExchangeRate, setPaymentConfirmChangeExchangeRate] = useState('');
 const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
 
   const [movementOpen, setMovementOpen] = useState(false);
@@ -2797,6 +2800,9 @@ const resetPaymentConfirmBox = () => {
   setPaymentConfirmReviewNotes('');
   setPaymentConfirmOverpaymentHandling('');
   setPaymentConfirmOverpaymentNotes('');
+  setPaymentConfirmChangeMoneyAccountId('');
+  setPaymentConfirmChangeAmount('');
+  setPaymentConfirmChangeExchangeRate('');
   setPaymentConfirmSaving(false);
 };
 
@@ -3096,6 +3102,31 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
         return;
       }
 
+      if (paymentConfirmOverpaymentHandling === 'change_given') {
+        const selectedChangeAccount = moneyAccounts.find(
+          (account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)
+        );
+
+        if (!selectedChangeAccount) {
+          showToast('error', 'Debes seleccionar la cuenta desde la cual se dará el cambio.');
+          return;
+        }
+
+        const changeAmount = Number(String(paymentConfirmChangeAmount || '').replace(',', '.'));
+        if (!Number.isFinite(changeAmount) || changeAmount <= 0) {
+          showToast('error', 'Debes indicar el monto real del cambio.');
+          return;
+        }
+
+        if (selectedChangeAccount.currencyCode === 'VES') {
+          const changeRate = Number(String(paymentConfirmChangeExchangeRate || '').replace(',', '.'));
+          if (!Number.isFinite(changeRate) || changeRate <= 0) {
+            showToast('error', 'Debes indicar una tasa válida para el cambio en Bs.');
+            return;
+          }
+        }
+      }
+
       overpaymentHandling = paymentConfirmOverpaymentHandling;
       overpaymentNotes = paymentConfirmOverpaymentNotes.trim() || null;
     }
@@ -3117,6 +3148,22 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
       overpaymentHandling,
       overpaymentNotes,
+      changeMoneyAccountId:
+        overpaymentHandling === 'change_given'
+          ? Number(paymentConfirmChangeMoneyAccountId || 0)
+          : null,
+      changeCurrency:
+        overpaymentHandling === 'change_given'
+          ? selectedConfirmChangeAccount?.currencyCode ?? null
+          : null,
+      changeAmount:
+        overpaymentHandling === 'change_given'
+          ? Number(String(paymentConfirmChangeAmount || '').replace(',', '.'))
+          : null,
+      changeExchangeRateVesPerUsd:
+        overpaymentHandling === 'change_given' && selectedConfirmChangeAccount?.currencyCode === 'VES'
+          ? Number(String(paymentConfirmChangeExchangeRate || '').replace(',', '.'))
+          : null,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -3159,6 +3206,13 @@ const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
   setPaymentConfirmReportId(rp.id);
   setPaymentConfirmReviewNotes('');
   setPaymentConfirmOverpaymentNotes('');
+  setPaymentConfirmChangeMoneyAccountId(String(rp.moneyAccountId || ''));
+  setPaymentConfirmChangeExchangeRate(
+    rp.exchangeRate != null && rp.exchangeRate > 0 ? String(rp.exchangeRate) : ''
+  );
+  setPaymentConfirmChangeAmount(
+    predictedExcessUsd > 0.005 ? String(Number(predictedExcessUsd.toFixed(2))) : ''
+  );
   setPaymentConfirmOverpaymentHandling(
     predictedExcessUsd > 0.005
       ? predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD && isAdmin
@@ -5390,6 +5444,9 @@ const selectedConfirmPaymentExcessUsd =
         ).toFixed(2)
       )
     : 0;
+
+const selectedConfirmChangeAccount =
+  moneyAccounts.find((account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)) ?? null;
 
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
@@ -10710,6 +10767,47 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
               className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
             />
           </div>
+
+          {paymentConfirmOverpaymentHandling === 'change_given' ? (
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+              <select
+                value={paymentConfirmChangeMoneyAccountId}
+                onChange={(e) => setPaymentConfirmChangeMoneyAccountId(e.target.value)}
+                className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+              >
+                <option value="">— cuenta del cambio —</option>
+                {moneyAccounts.filter((account) => account.isActive).map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} ({account.currencyCode})
+                  </option>
+                ))}
+              </select>
+
+              <input
+                value={paymentConfirmChangeAmount}
+                onChange={(e) => setPaymentConfirmChangeAmount(e.target.value)}
+                placeholder="Monto del cambio"
+                type="text"
+                className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+              />
+
+              {selectedConfirmChangeAccount?.currencyCode === 'VES' ? (
+                <input
+                  value={paymentConfirmChangeExchangeRate}
+                  onChange={(e) => setPaymentConfirmChangeExchangeRate(e.target.value)}
+                  placeholder="Tasa Bs por USD"
+                  type="text"
+                  className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                />
+              ) : (
+                <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#8A8A96]">
+                  {selectedConfirmChangeAccount
+                    ? `Cambio en ${selectedConfirmChangeAccount.currencyCode}`
+                    : 'Selecciona una cuenta'}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

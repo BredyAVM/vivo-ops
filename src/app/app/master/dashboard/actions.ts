@@ -315,6 +315,10 @@ export async function confirmPaymentReportAction(input: {
   description: string | null;
   overpaymentHandling?: 'change_given' | 'store_fund' | 'close_difference' | null;
   overpaymentNotes?: string | null;
+  changeMoneyAccountId?: number | null;
+  changeCurrency?: string | null;
+  changeAmount?: number | null;
+  changeExchangeRateVesPerUsd?: number | null;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
@@ -368,11 +372,28 @@ export async function confirmPaymentReportAction(input: {
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
     if (excessUsd > 0.005 && handling === 'change_given') {
-      const changeNativeAmount = toNativeAmountFromUsd(
-        excessUsd,
-        input.confirmedCurrency,
-        input.confirmedExchangeRateVesPerUsd
-      );
+      const changeMoneyAccountId = Number(input.changeMoneyAccountId || 0);
+      if (!Number.isFinite(changeMoneyAccountId) || changeMoneyAccountId <= 0) {
+        throw new Error('Debes seleccionar la cuenta desde la cual se dará el cambio.');
+      }
+
+      const changeCurrency = String(input.changeCurrency || '').trim().toUpperCase();
+      if (!changeCurrency) {
+        throw new Error('No se pudo determinar la moneda del cambio.');
+      }
+
+      const changeAmount =
+        input.changeAmount != null && Number.isFinite(Number(input.changeAmount))
+          ? Number(Number(input.changeAmount).toFixed(2))
+          : toNativeAmountFromUsd(
+              excessUsd,
+              changeCurrency,
+              input.changeExchangeRateVesPerUsd ?? null
+            );
+
+      if (!Number.isFinite(changeAmount) || changeAmount <= 0) {
+        throw new Error('El monto del cambio no es válido.');
+      }
 
       const { error: changeMovementError } = await supabase
         .from('money_movements')
@@ -383,12 +404,12 @@ export async function confirmPaymentReportAction(input: {
           confirmed_by_user_id: user.id,
           direction: 'outflow',
           movement_type: 'change_given',
-          money_account_id: input.confirmedMoneyAccountId,
-          currency_code: input.confirmedCurrency,
-          amount: changeNativeAmount,
+          money_account_id: changeMoneyAccountId,
+          currency_code: changeCurrency,
+          amount: changeAmount,
           exchange_rate_ves_per_usd:
-            String(input.confirmedCurrency).toUpperCase() === 'VES'
-              ? input.confirmedExchangeRateVesPerUsd
+            changeCurrency === 'VES'
+              ? input.changeExchangeRateVesPerUsd ?? null
               : null,
           amount_usd_equivalent: excessUsd,
           reference_code: input.referenceCode,
