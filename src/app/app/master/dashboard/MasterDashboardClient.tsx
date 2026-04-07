@@ -3081,7 +3081,7 @@ const handleDeliverClientChange = async (o: Order) => {
       }
     }
 
-    await deliverClientFundChangeAction({
+    const result = await deliverClientFundChangeAction({
       orderId: o.id,
       moneyAccountId,
       currencyCode: selectedAccount.currencyCode,
@@ -3089,6 +3089,11 @@ const handleDeliverClientChange = async (o: Order) => {
       exchangeRateVesPerUsd: exchangeRate,
       notes: paymentGiveChangeNotes.trim() || null,
     });
+
+    if (!result.ok) {
+      showToast('error', result.message);
+      return;
+    }
 
     showToast('success', 'Cambio entregado y registrado.');
     resetPaymentReportBox();
