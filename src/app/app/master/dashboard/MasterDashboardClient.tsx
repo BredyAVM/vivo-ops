@@ -3683,6 +3683,7 @@ const handleSaveQuickCatalog = async () => {
 
   const openMoneyMovementDrawer = (accountId?: number | null) => {
     resetMoneyMovementForm();
+    setAccountDetailOpen(false);
     if (accountId && Number.isFinite(accountId) && accountId > 0) {
       setMovementMoneyAccountId(String(accountId));
     }
