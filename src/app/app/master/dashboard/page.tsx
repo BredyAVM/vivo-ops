@@ -1626,7 +1626,8 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
   })
   .filter((row) => row.parentProductId && row.componentProductId);
   const initialOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
-    const confirmedPaidUsd = confirmedPaidByOrder.get(row.id) ?? 0;
+    const clientFundUsedUsd = toNumber(row.extra_fields?.payment?.client_fund_used_usd, 0);
+    const confirmedPaidUsd = (confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd;
     const totalUsd = toNumber(
       row.extra_fields?.pricing?.total_usd,
       toNumber(row.total_usd, 0)
@@ -1820,6 +1821,10 @@ return {
             : null,
         paymentChangeCurrency: row.extra_fields?.payment?.change_currency ?? null,
         paymentNote: row.extra_fields?.payment?.notes ?? null,
+        clientFundUsedUsd:
+          row.extra_fields?.payment?.client_fund_used_usd != null
+            ? toNumber(row.extra_fields.payment.client_fund_used_usd, 0)
+            : null,
         hasDeliveryNote: Boolean(row.extra_fields?.documents?.has_delivery_note ?? false),
         hasInvoice: Boolean(row.extra_fields?.documents?.has_invoice ?? false),
         invoiceDataNote: row.extra_fields?.documents?.invoice_data_note ?? null,

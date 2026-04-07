@@ -231,6 +231,7 @@ type OrderEditMeta = {
   paymentChangeFor: string | null;
   paymentChangeCurrency: 'USD' | 'VES' | null;
   paymentNote: string | null;
+  clientFundUsedUsd: number | null;
   hasDeliveryNote: boolean;
   hasInvoice: boolean;
   invoiceDataNote: string | null;
@@ -2122,6 +2123,8 @@ const [createOrderPaymentRequiresChange, setCreateOrderPaymentRequiresChange] = 
 const [createOrderPaymentChangeFor, setCreateOrderPaymentChangeFor] = useState('');
 const [createOrderPaymentChangeCurrency, setCreateOrderPaymentChangeCurrency] = useState<'USD' | 'VES'>('USD');
 const [createOrderPaymentNote, setCreateOrderPaymentNote] = useState('');
+const [createOrderUseClientFund, setCreateOrderUseClientFund] = useState(false);
+const [createOrderClientFundAmountUsd, setCreateOrderClientFundAmountUsd] = useState('');
 
 const [cancelOrderBoxOpen, setCancelOrderBoxOpen] = useState(false);
 const [cancelOrderReason, setCancelOrderReason] = useState('');
@@ -2620,6 +2623,12 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderPaymentChangeFor(order.editMeta?.paymentChangeFor ?? '');
   setCreateOrderPaymentChangeCurrency(order.editMeta?.paymentChangeCurrency ?? 'USD');
   setCreateOrderPaymentNote(order.editMeta?.paymentNote ?? '');
+  setCreateOrderUseClientFund((order.editMeta?.clientFundUsedUsd ?? 0) > 0.005);
+  setCreateOrderClientFundAmountUsd(
+    order.editMeta?.clientFundUsedUsd != null && order.editMeta.clientFundUsedUsd > 0
+      ? String(order.editMeta.clientFundUsedUsd)
+      : ''
+  );
 
   setCreateOrderHasDeliveryNote(Boolean(order.editMeta?.hasDeliveryNote));
   setCreateOrderHasInvoice(Boolean(order.editMeta?.hasInvoice));
@@ -4950,6 +4959,8 @@ const handleCreateOrder = async () => {
       paymentChangeFor: createOrderPaymentChangeFor,
       paymentChangeCurrency: createOrderPaymentChangeCurrency,
       paymentNote: createOrderPaymentNote,
+      useClientFund: createOrderUseClientFund,
+      clientFundAmountUsd: createOrderUseClientFund ? String(createOrderAppliedFundUsd) : '',
       hasDeliveryNote: createOrderHasDeliveryNote,
       hasInvoice: createOrderHasInvoice,
       invoiceDataNote: [
@@ -5047,6 +5058,8 @@ const handleUpdateOrder = async () => {
       paymentChangeFor: createOrderPaymentChangeFor,
       paymentChangeCurrency: createOrderPaymentChangeCurrency,
       paymentNote: createOrderPaymentNote,
+      useClientFund: createOrderUseClientFund,
+      clientFundAmountUsd: createOrderUseClientFund ? String(createOrderAppliedFundUsd) : '',
       hasDeliveryNote: createOrderHasDeliveryNote,
       hasInvoice: createOrderHasInvoice,
       invoiceDataNote: [
@@ -5339,6 +5352,39 @@ const selectedConfirmPaymentExcessUsd =
   const selectedCreateOrderClient = useMemo(
     () => clients.find((client) => client.id === createOrderSelectedClientId) ?? null,
     [clients, createOrderSelectedClientId]
+  );
+
+  const createOrderExistingAppliedFundUsd =
+    orderEditorMode === 'edit' &&
+    selectedOrder &&
+    selectedCreateOrderClient &&
+    selectedOrder.clientId === selectedCreateOrderClient.id
+      ? Number(selectedOrder.editMeta?.clientFundUsedUsd ?? 0)
+      : 0;
+
+  const createOrderClientFundAvailableUsd = Math.max(
+    0,
+    Number(selectedCreateOrderClient?.fundBalanceUsd ?? 0) + createOrderExistingAppliedFundUsd
+  );
+
+  const createOrderClientFundRequestedUsd = Number(
+    String(createOrderClientFundAmountUsd || '').replace(',', '.')
+  ) || 0;
+
+  const createOrderAppliedFundUsd = createOrderUseClientFund
+    ? Math.max(
+        0,
+        Math.min(
+          Number(createOrderDraftTotalUsd.toFixed(2)),
+          Number(createOrderClientFundAvailableUsd.toFixed(2)),
+          Number(createOrderClientFundRequestedUsd.toFixed(2))
+        )
+      )
+    : 0;
+
+  const createOrderRemainingAfterFundUsd = Math.max(
+    0,
+    Number((createOrderDraftTotalUsd - createOrderAppliedFundUsd).toFixed(2))
   );
 
   const filteredMoneyMovements = useMemo(() => {
@@ -6355,7 +6401,44 @@ const createOrderCanSave =
   createOrderHasClient &&
   createOrderHasItems &&
   createOrderHasDeliveryAddress &&
-  createOrderHasDeliveryChargeItem;
+  createOrderHasDeliveryChargeItem &&
+  (!createOrderUseClientFund ||
+    (createOrderAppliedFundUsd > 0.005 &&
+      createOrderAppliedFundUsd <= createOrderClientFundAvailableUsd + 0.0001 &&
+      createOrderAppliedFundUsd <= createOrderDraftTotalUsd + 0.0001));
+
+useEffect(() => {
+  if (!createOrderUseClientFund) return;
+
+  const maxAllowed = Math.max(
+    0,
+    Math.min(
+      Number(createOrderDraftTotalUsd.toFixed(2)),
+      Number(createOrderClientFundAvailableUsd.toFixed(2))
+    )
+  );
+
+  if (maxAllowed <= 0.005) {
+    setCreateOrderUseClientFund(false);
+    setCreateOrderClientFundAmountUsd('');
+    return;
+  }
+
+  const requested = Number(String(createOrderClientFundAmountUsd || '').replace(',', '.')) || 0;
+  if (requested <= 0) {
+    setCreateOrderClientFundAmountUsd(String(maxAllowed));
+    return;
+  }
+
+  if (requested > maxAllowed + 0.0001) {
+    setCreateOrderClientFundAmountUsd(String(Number(maxAllowed.toFixed(2))));
+  }
+}, [
+  createOrderUseClientFund,
+  createOrderClientFundAmountUsd,
+  createOrderDraftTotalUsd,
+  createOrderClientFundAvailableUsd,
+]);
 
 useEffect(() => {
   if (!createOrderConfigOpen) return;
@@ -6443,6 +6526,8 @@ const resetCreateOrderForm = () => {
   setCreateOrderPaymentChangeFor('');
   setCreateOrderPaymentChangeCurrency('USD');
   setCreateOrderPaymentNote('');
+  setCreateOrderUseClientFund(false);
+  setCreateOrderClientFundAmountUsd('');
 
   setCreateOrderHasDeliveryNote(false);
   setCreateOrderHasInvoice(false);
@@ -13119,8 +13204,8 @@ deliveryAssignMode === 'external' ? (
               <div className="mb-2">
                 Fondo disponible:{' '}
                 <span className="font-medium text-[#F5F5F7]">
-                  {selectedCreateOrderClient.fundBalanceUsd > 0.005
-                    ? fmtUSD(selectedCreateOrderClient.fundBalanceUsd)
+                  {createOrderClientFundAvailableUsd > 0.005
+                    ? fmtUSD(createOrderClientFundAvailableUsd)
                     : '—'}
                 </span>
               </div>
@@ -13777,6 +13862,51 @@ deliveryAssignMode === 'external' ? (
     </div>
   ) : null}
 
+  {selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005 ? (
+    <div className="mt-3 rounded-xl border border-emerald-500/20 bg-[#0B0B0D] p-3">
+      <div className="text-sm font-semibold text-[#F5F5F7]">Uso de fondo del cliente</div>
+      <div className="mt-1 text-xs text-[#8A8A96]">
+        Disponible: {fmtUSD(createOrderClientFundAvailableUsd)}. Puedes usarlo como abono sin mover caja.
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <FieldCheckbox
+          label="Usar fondo del cliente"
+          checked={createOrderUseClientFund}
+          onChange={(value) => {
+            setCreateOrderUseClientFund(value);
+            if (value) {
+              const suggested = Math.max(
+                0,
+                Math.min(
+                  Number(createOrderDraftTotalUsd.toFixed(2)),
+                  Number(createOrderClientFundAvailableUsd.toFixed(2))
+                )
+              );
+              setCreateOrderClientFundAmountUsd(
+                suggested > 0.005 ? String(Number(suggested.toFixed(2))) : ''
+              );
+            } else {
+              setCreateOrderClientFundAmountUsd('');
+            }
+          }}
+        />
+        <FieldInput
+          label="Monto a aplicar (USD)"
+          value={createOrderClientFundAmountUsd}
+          onChange={setCreateOrderClientFundAmountUsd}
+          type="text"
+          hint="Máximo: saldo del cliente o total de la orden."
+        />
+      </div>
+      {createOrderUseClientFund ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <InfoCell label="Fondo aplicado" value={fmtUSD(createOrderAppliedFundUsd)} />
+          <InfoCell label="Resta por cobrar" value={fmtUSD(createOrderRemainingAfterFundUsd)} />
+        </div>
+      ) : null}
+    </div>
+  ) : null}
+
   {createOrderHasInvoice ? (
     <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
       <FieldInput
@@ -13897,8 +14027,8 @@ deliveryAssignMode === 'external' ? (
       <InfoCell
         label="Fondo cliente"
         value={
-          selectedCreateOrderClient && selectedCreateOrderClient.fundBalanceUsd > 0.005
-            ? fmtUSD(selectedCreateOrderClient.fundBalanceUsd)
+          selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005
+            ? fmtUSD(createOrderClientFundAvailableUsd)
             : '—'
         }
       />
@@ -13932,6 +14062,20 @@ deliveryAssignMode === 'external' ? (
         label="Total"
         value={`${fmtBs(createOrderDraftTotalBs)} / ${fmtUSD(createOrderDraftTotalUsd)}`}
       />
+
+      {createOrderUseClientFund ? (
+        <InfoCell
+          label="Fondo aplicado"
+          value={fmtUSD(createOrderAppliedFundUsd)}
+        />
+      ) : null}
+
+      {createOrderUseClientFund ? (
+        <InfoCell
+          label="Pendiente tras fondo"
+          value={fmtUSD(createOrderRemainingAfterFundUsd)}
+        />
+      ) : null}
 
       <InfoCell
         label="Pago"

@@ -153,6 +153,126 @@ async function syncInventoryItemFromCatalogProduct(
   return Number(data.id);
 }
 
+async function applyClientFundToOrder(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    clientId: number;
+    orderId: number;
+    amountUsd: number;
+    userId: string;
+    notes?: string | null;
+  }
+) {
+  const amountUsd = Number(input.amountUsd || 0);
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) return;
+
+  const { data: currentClient, error: currentClientError } = await supabase
+    .from('clients')
+    .select('id, fund_balance_usd')
+    .eq('id', input.clientId)
+    .single();
+
+  if (currentClientError || !currentClient) {
+    throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
+  }
+
+  const currentBalance = Number(toSafeNumber(currentClient.fund_balance_usd, 0).toFixed(2));
+  const nextAmountUsd = Number(amountUsd.toFixed(2));
+
+  if (nextAmountUsd > currentBalance + 0.0001) {
+    throw new Error('El cliente no tiene suficiente fondo disponible.');
+  }
+
+  const { error: updateClientError } = await supabase
+    .from('clients')
+    .update({
+      fund_balance_usd: Number((currentBalance - nextAmountUsd).toFixed(2)),
+    })
+    .eq('id', input.clientId);
+
+  if (updateClientError) {
+    throw new Error(updateClientError.message);
+  }
+
+  const { error: fundMovementError } = await supabase
+    .from('client_fund_movements')
+    .insert({
+      client_id: input.clientId,
+      movement_type: 'debit',
+      currency_code: 'USD',
+      amount: nextAmountUsd,
+      amount_usd: nextAmountUsd,
+      money_account_id: null,
+      order_id: input.orderId,
+      payment_report_id: null,
+      reason_code: 'order_fund_applied',
+      notes: String(input.notes || '').trim() || null,
+      created_by_user_id: input.userId,
+    });
+
+  if (fundMovementError) {
+    throw new Error(fundMovementError.message);
+  }
+}
+
+async function restoreClientFundToOrder(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    clientId: number;
+    orderId: number;
+    amountUsd: number;
+    userId: string;
+    notes?: string | null;
+  }
+) {
+  const amountUsd = Number(input.amountUsd || 0);
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) return;
+
+  const { data: currentClient, error: currentClientError } = await supabase
+    .from('clients')
+    .select('id, fund_balance_usd')
+    .eq('id', input.clientId)
+    .single();
+
+  if (currentClientError || !currentClient) {
+    throw new Error(currentClientError?.message || 'No se pudo restaurar el fondo del cliente.');
+  }
+
+  const currentBalance = Number(toSafeNumber(currentClient.fund_balance_usd, 0).toFixed(2));
+  const nextAmountUsd = Number(amountUsd.toFixed(2));
+
+  const { error: updateClientError } = await supabase
+    .from('clients')
+    .update({
+      fund_balance_usd: Number((currentBalance + nextAmountUsd).toFixed(2)),
+    })
+    .eq('id', input.clientId);
+
+  if (updateClientError) {
+    throw new Error(updateClientError.message);
+  }
+
+  const { error: fundMovementError } = await supabase
+    .from('client_fund_movements')
+    .insert({
+      client_id: input.clientId,
+      movement_type: 'credit',
+      currency_code: 'USD',
+      amount: nextAmountUsd,
+      amount_usd: nextAmountUsd,
+      money_account_id: null,
+      order_id: input.orderId,
+      payment_report_id: null,
+      reason_code: 'order_fund_restore',
+      notes: String(input.notes || '').trim() || null,
+      created_by_user_id: input.userId,
+    });
+
+  if (fundMovementError) {
+    throw new Error(fundMovementError.message);
+  }
+}
+
 export async function createPaymentReportAction(input: {
   orderId: number;
   reportedMoneyAccountId: number;
@@ -3779,6 +3899,8 @@ export async function createOrderAction(input: {
   paymentChangeFor: string;
   paymentChangeCurrency: 'USD' | 'VES';
   paymentNote: string;
+  useClientFund: boolean;
+  clientFundAmountUsd: string;
   hasDeliveryNote: boolean;
   hasInvoice: boolean;
   invoiceDataNote: string;
@@ -4032,6 +4154,13 @@ export async function createOrderAction(input: {
   const totalUsd =
     fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
 
+  const requestedClientFundUsd = Number(
+    String(input.clientFundAmountUsd || '').replace(',', '.')
+  );
+  const clientFundUsedUsd = input.useClientFund
+    ? Number(Math.max(0, Math.min(totalUsd, Number.isFinite(requestedClientFundUsd) ? requestedClientFundUsd : 0)).toFixed(2))
+    : 0;
+
   const orderNumber = await generateUniqueOrderNumber(supabase);
 
   const extraFields = {
@@ -4057,6 +4186,7 @@ export async function createOrderAction(input: {
         : null,
       change_currency: input.paymentChangeCurrency || null,
       notes: input.paymentNote.trim() || null,
+      client_fund_used_usd: clientFundUsedUsd > 0.005 ? clientFundUsedUsd : 0,
     },
     documents: {
       has_delivery_note: !!input.hasDeliveryNote,
@@ -4218,6 +4348,16 @@ export async function createOrderAction(input: {
     throw new Error(finalizeTotalsError.message);
   }
 
+  if (clientFundUsedUsd > 0.005) {
+    await applyClientFundToOrder(supabase, {
+      clientId,
+      orderId,
+      amountUsd: clientFundUsedUsd,
+      userId: user.id,
+      notes: 'Fondo aplicado al crear orden',
+    });
+  }
+
   revalidatePath('/app/master/dashboard');
 
   return { id: orderId, orderNumber };
@@ -4256,6 +4396,8 @@ export async function updateOrderAction(input: {
   paymentChangeFor: string;
   paymentChangeCurrency: 'USD' | 'VES';
   paymentNote: string;
+  useClientFund: boolean;
+  clientFundAmountUsd: string;
   hasDeliveryNote: boolean;
   hasInvoice: boolean;
   invoiceDataNote: string;
@@ -4532,6 +4674,16 @@ export async function updateOrderAction(input: {
   const totalUsd =
     fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
 
+  const requestedClientFundUsd = Number(
+    String(input.clientFundAmountUsd || '').replace(',', '.')
+  );
+  const clientFundUsedUsd = input.useClientFund
+    ? Number(Math.max(0, Math.min(totalUsd, Number.isFinite(requestedClientFundUsd) ? requestedClientFundUsd : 0)).toFixed(2))
+    : 0;
+  const previousClientFundUsedUsd = Number(
+    toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
+  );
+
   const extraFields = {
     schedule: {
       date: input.deliveryDate,
@@ -4555,6 +4707,7 @@ export async function updateOrderAction(input: {
         : null,
       change_currency: input.paymentChangeCurrency || null,
       notes: input.paymentNote.trim() || null,
+      client_fund_used_usd: clientFundUsedUsd > 0.005 ? clientFundUsedUsd : 0,
     },
     documents: {
       has_delivery_note: !!input.hasDeliveryNote,
@@ -4627,6 +4780,27 @@ export async function updateOrderAction(input: {
     orderUpdatePayload.queued_needs_reapproval = false;
     orderUpdatePayload.queued_last_modified_at = null;
     orderUpdatePayload.queued_last_modified_by = null;
+  }
+
+  const previousClientId = Number(currentOrder.client_id || 0);
+  if (previousClientFundUsedUsd > 0.005 && Number.isFinite(previousClientId) && previousClientId > 0) {
+    await restoreClientFundToOrder(supabase, {
+      clientId: previousClientId,
+      orderId,
+      amountUsd: previousClientFundUsedUsd,
+      userId: user.id,
+      notes: 'Restitución de fondo por edición de orden',
+    });
+  }
+
+  if (clientFundUsedUsd > 0.005) {
+    await applyClientFundToOrder(supabase, {
+      clientId,
+      orderId,
+      amountUsd: clientFundUsedUsd,
+      userId: user.id,
+      notes: 'Fondo aplicado por edición de orden',
+    });
   }
 
   const { error: updateOrderError } = await supabase
