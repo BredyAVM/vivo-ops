@@ -1873,14 +1873,14 @@ export async function createExtraMoneyMovementAction(input: {
       ? Number(input.exchangeRateVesPerUsd || 0)
       : null;
 
-  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
     throw new Error('Debes indicar una tasa válida para movimientos en Bs.');
   }
 
   const amountUsdEquivalent =
     currencyCode === 'USD'
       ? Number(amount.toFixed(2))
-      : Number((amount / Number(exchangeRate)).toFixed(2));
+      : Number((amount / (exchangeRate ?? 1)).toFixed(2));
 
   const movementType = direction === 'inflow' ? 'other_income' : 'expense_payment';
 
