@@ -7,6 +7,7 @@ import {
   approveOrderAction,
   assignExternalPartnerAction,
   assignInternalDriverAction,
+  closeOrderRoundingBalanceAction,
   confirmPaymentReportAction,
   createPaymentReportAction,
   createInventoryProductionAction,
@@ -318,7 +319,9 @@ type MasterNotification = {
   advisorName: string;
 };
 
- type ViewMode = 'operations' | 'settings' | 'calculations';
+type ViewMode = 'operations' | 'settings' | 'calculations';
+
+const ORDER_ROUNDING_CLOSE_MAX_USD = 0.25;
 type ToastState = {
   type: 'success' | 'error';
   message: string;
@@ -2923,6 +2926,43 @@ const handleCreatePaymentReport = async (o: Order) => {
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error reportando el pago.';
+    showToast('error', message);
+  }
+};
+
+const handleCloseRoundingBalance = async (o: Order) => {
+  try {
+    if (!isAdmin) {
+      showToast('error', 'Solo admin puede cerrar diferencias.');
+      return;
+    }
+
+    if (o.balanceUsd <= 0.005) {
+      showToast('error', 'Esta orden ya no tiene diferencia pendiente.');
+      return;
+    }
+
+    if (o.balanceUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+      showToast(
+        'error',
+        `Solo puedes cerrar diferencias de hasta ${fmtUSD(ORDER_ROUNDING_CLOSE_MAX_USD)}.`
+      );
+      return;
+    }
+
+    const notes =
+      window.prompt('Nota del cierre por redondeo (opcional):', 'Ajuste por redondeo') ?? '';
+
+    await closeOrderRoundingBalanceAction({
+      orderId: o.id,
+      notes: notes.trim() || null,
+    });
+
+    showToast('success', 'Diferencia cerrada.');
+    router.refresh();
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Error cerrando la diferencia.';
     showToast('error', message);
   }
 };
@@ -10144,6 +10184,18 @@ onClick={() => {
       </button>
     ) : null}
   </>
+) : null}
+
+{detailTab === 'pagos' &&
+isAdmin &&
+selectedOrder.balanceUsd > 0.01 &&
+selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
+  <button
+    className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-orange-400"
+    onClick={() => handleCloseRoundingBalance(selectedOrder)}
+  >
+    Cerrar diferencia
+  </button>
 ) : null}
 
 {detailTab === 'pagos' && selectedOrder.balanceUsd > 0.01 ? (
