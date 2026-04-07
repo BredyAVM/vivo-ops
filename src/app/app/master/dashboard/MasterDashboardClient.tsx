@@ -1484,6 +1484,51 @@ function ComponentCard({
       ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
       : '—'}
   </div>
+
+  {selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005 ? (
+    <div className="mt-4 rounded-xl border border-emerald-500/20 bg-[#0B0B0D] p-3">
+      <div className="text-sm font-semibold text-[#F5F5F7]">Aplicación de fondo</div>
+      <div className="mt-1 text-xs text-[#8A8A96]">
+        Disponible: {fmtUSD(createOrderClientFundAvailableUsd)}. Este saldo ya entró antes; aquí solo se aplica a la orden.
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <FieldCheckbox
+          label="Usar fondo del cliente"
+          checked={createOrderUseClientFund}
+          onChange={(value) => {
+            setCreateOrderUseClientFund(value);
+            if (value) {
+              const suggested = Math.max(
+                0,
+                Math.min(
+                  Number(createOrderDraftTotalUsd.toFixed(2)),
+                  Number(createOrderClientFundAvailableUsd.toFixed(2))
+                )
+              );
+              setCreateOrderClientFundAmountUsd(
+                suggested > 0.005 ? String(Number(suggested.toFixed(2))) : ''
+              );
+            } else {
+              setCreateOrderClientFundAmountUsd('');
+            }
+          }}
+        />
+        <FieldInput
+          label="Monto a aplicar (USD)"
+          value={createOrderClientFundAmountUsd}
+          onChange={setCreateOrderClientFundAmountUsd}
+          type="text"
+          hint="Máximo: saldo del cliente o total de la orden."
+        />
+      </div>
+      {createOrderUseClientFund ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <InfoCell label="Fondo aplicado" value={fmtUSD(createOrderAppliedFundUsd)} />
+          <InfoCell label="Resta por cobrar" value={fmtUSD(createOrderRemainingAfterFundUsd)} />
+        </div>
+      ) : null}
+    </div>
+  ) : null}
 </div>
 
 
@@ -13868,7 +13913,7 @@ deliveryAssignMode === 'external' ? (
     </div>
   ) : null}
 
-  {selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005 ? (
+  {false && selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005 ? (
     <div className="mt-3 rounded-xl border border-emerald-500/20 bg-[#0B0B0D] p-3">
       <div className="text-sm font-semibold text-[#F5F5F7]">Uso de fondo del cliente</div>
       <div className="mt-1 text-xs text-[#8A8A96]">
