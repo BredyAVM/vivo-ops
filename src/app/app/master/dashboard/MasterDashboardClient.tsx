@@ -7702,59 +7702,42 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 {committedProductsRows.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     {committedProductsPreviewRows.map((product) => (
                       <div
                         key={product.name}
-                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[12px]"
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px]"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-[#F5F5F7]">{product.name}</div>
-                            <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[#8A8A96]">
-                              {product.linkedInventory?.unitName || 'und'}
-                            </div>
+                        <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1 truncate font-medium text-[#F5F5F7]">
+                            {product.name}
+                          </div>
+                          <div className="shrink-0 text-[#FEEF00]">
+                            {fmtUnitsValue(product.und)}
+                          </div>
+                          <div className="shrink-0 text-[#8A8A96]">
+                            / {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
+                          </div>
+                          <div
+                            className={[
+                              'shrink-0',
+                              product.remainingUnits != null && product.remainingUnits <= 0
+                                ? 'text-orange-400'
+                                : 'text-[#B7B7C2]',
+                            ].join(' ')}
+                          >
+                            ({product.remainingUnits != null ? fmtUnitsValue(product.remainingUnits) : '—'})
                           </div>
                           {product.statusLabel ? (
                             <div
                               className={[
-                                'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                                product.statusTone === 'warn'
-                                  ? 'bg-orange-500/12 text-orange-400'
-                                  : 'bg-[#FEEF00]/10 text-[#FEEF00]',
+                                'shrink-0 text-[10px] font-semibold',
+                                product.statusTone === 'warn' ? 'text-orange-400' : 'text-[#FEEF00]',
                               ].join(' ')}
                             >
                               {product.statusLabel}
                             </div>
                           ) : null}
-                        </div>
-
-                        <div className="mt-2 grid grid-cols-3 gap-2">
-                          <div className="rounded-lg border border-[#1F1F2B] bg-[#121218] px-2 py-1.5">
-                            <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Comp.</div>
-                            <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
-                              {fmtUnitsValue(product.und)}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-[#1F1F2B] bg-[#121218] px-2 py-1.5">
-                            <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Stock</div>
-                            <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">
-                              {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-[#1F1F2B] bg-[#121218] px-2 py-1.5">
-                            <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Queda</div>
-                            <div
-                              className={[
-                                'mt-0.5 text-[12px] font-semibold',
-                                product.remainingUnits != null && product.remainingUnits <= 0
-                                  ? 'text-orange-400'
-                                  : 'text-[#B7B7C2]',
-                              ].join(' ')}
-                            >
-                              {product.remainingUnits != null ? fmtUnitsValue(product.remainingUnits) : '—'}
-                            </div>
-                          </div>
                         </div>
                       </div>
                     ))}
