@@ -1808,6 +1808,107 @@ export async function toggleMoneyAccountActiveAction(input: {
 
   if (error) throw new Error(error.message);
 
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function createExtraMoneyMovementAction(input: {
+  direction: 'inflow' | 'outflow';
+  moneyAccountId: number;
+  amount: number;
+  movementDate: string;
+  exchangeRateVesPerUsd: number | null;
+  referenceCode: string;
+  counterpartyName: string;
+  description: string;
+  notes: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const amount = Number(input.amount || 0);
+  const movementDate = String(input.movementDate || '').trim();
+  const referenceCode = String(input.referenceCode || '').trim() || null;
+  const counterpartyName = String(input.counterpartyName || '').trim() || null;
+  const description = String(input.description || '').trim();
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Debes seleccionar una cuenta.');
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('El monto debe ser mayor a 0.');
+  }
+
+  if (!movementDate) {
+    throw new Error('Debes indicar la fecha del movimiento.');
+  }
+
+  if (!description) {
+    throw new Error('Debes indicar el motivo o descripción.');
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, currency_code, is_active')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
+  }
+
+  if (!account.is_active) {
+    throw new Error('La cuenta seleccionada está inactiva.');
+  }
+
+  const currencyCode = String(account.currency_code || '').toUpperCase();
+  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+    throw new Error('La moneda de la cuenta no es válida.');
+  }
+
+  const exchangeRate =
+    currencyCode === 'VES'
+      ? Number(input.exchangeRateVesPerUsd || 0)
+      : null;
+
+  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+    throw new Error('Debes indicar una tasa válida para movimientos en Bs.');
+  }
+
+  const amountUsdEquivalent =
+    currencyCode === 'USD'
+      ? Number(amount.toFixed(2))
+      : Number((amount / Number(exchangeRate)).toFixed(2));
+
+  const movementType = direction === 'inflow' ? 'other_income' : 'expense_payment';
+
+  const { error } = await supabase.from('money_movements').insert({
+    movement_date: movementDate,
+    created_by_user_id: user.id,
+    confirmed_at: new Date().toISOString(),
+    confirmed_by_user_id: user.id,
+    direction,
+    movement_type: movementType,
+    money_account_id: moneyAccountId,
+    currency_code: currencyCode,
+    amount: Number(amount.toFixed(2)),
+    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+    amount_usd_equivalent: amountUsdEquivalent,
+    reference_code: referenceCode,
+    counterparty_name: counterpartyName,
+    description,
+    notes,
+    order_id: null,
+    payment_report_id: null,
+    movement_group_id: null,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+
   /* const orderId = Number(input.orderId || 0);
   if (Number.isFinite(orderId) && orderId > 0) {
     const { data: currentOrder, error: currentOrderError } = await supabase

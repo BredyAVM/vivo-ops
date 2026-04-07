@@ -31,6 +31,7 @@ import {
   updateCatalogItemAction,
   updateCatalogPricesQuickAction,
   createInventoryMovementAction,
+  createExtraMoneyMovementAction,
   updateExchangeRateAction,
   createCatalogItemAction,
   createClientAction,
@@ -1937,6 +1938,15 @@ export default function MasterDashboardClient({
   const [accountFormOwnerName, setAccountFormOwnerName] = useState('');
   const [accountFormNotes, setAccountFormNotes] = useState('');
   const [accountFormIsActive, setAccountFormIsActive] = useState(true);
+  const [movementSaving, setMovementSaving] = useState(false);
+  const [movementMoneyAccountId, setMovementMoneyAccountId] = useState('');
+  const [movementAmount, setMovementAmount] = useState('');
+  const [movementExchangeRate, setMovementExchangeRate] = useState('');
+  const [movementDate, setMovementDate] = useState(new Date().toISOString().slice(0, 10));
+  const [movementReferenceCode, setMovementReferenceCode] = useState('');
+  const [movementCounterpartyName, setMovementCounterpartyName] = useState('');
+  const [movementDescription, setMovementDescription] = useState('');
+  const [movementNotes, setMovementNotes] = useState('');
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [clientDetailOpen, setClientDetailOpen] = useState(false);
@@ -2110,7 +2120,7 @@ const [paymentConfirmChangeExchangeRate, setPaymentConfirmChangeExchangeRate] = 
 const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
 
   const [movementOpen, setMovementOpen] = useState(false);
-  const [movementType, setMovementType] = useState<'Ingreso' | 'Egreso' | 'Transferencia'>('Ingreso');
+  const [movementType, setMovementType] = useState<'Ingreso' | 'Egreso'>('Ingreso');
 
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
@@ -3654,9 +3664,29 @@ const handleSaveQuickCatalog = async () => {
     setAccountFormIsActive(true);
   };
 
+  const resetMoneyMovementForm = () => {
+    setMovementType('Ingreso');
+    setMovementMoneyAccountId('');
+    setMovementAmount('');
+    setMovementExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+    setMovementDate(new Date().toISOString().slice(0, 10));
+    setMovementReferenceCode('');
+    setMovementCounterpartyName('');
+    setMovementDescription('');
+    setMovementNotes('');
+  };
+
   const openCreateAccount = () => {
     resetAccountForm();
     setAccountCreateOpen(true);
+  };
+
+  const openMoneyMovementDrawer = (accountId?: number | null) => {
+    resetMoneyMovementForm();
+    if (accountId && Number.isFinite(accountId) && accountId > 0) {
+      setMovementMoneyAccountId(String(accountId));
+    }
+    setMovementOpen(true);
   };
 
   const openEditAccount = (account: MoneyAccountOption) => {
@@ -3729,6 +3759,67 @@ const handleSaveQuickCatalog = async () => {
       router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado.');
+    }
+  };
+
+  const handleCreateMoneyMovement = async () => {
+    try {
+      const moneyAccountId = Number(movementMoneyAccountId || 0);
+      if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+        showToast('error', 'Debes seleccionar una cuenta.');
+        return;
+      }
+
+      const amount = Number(String(movementAmount || '').replace(',', '.'));
+      if (!Number.isFinite(amount) || amount <= 0) {
+        showToast('error', 'El monto debe ser mayor a 0.');
+        return;
+      }
+
+      const exchangeRate =
+        selectedMovementAccount?.currencyCode === 'VES'
+          ? Number(String(movementExchangeRate || '').replace(',', '.'))
+          : null;
+
+      if (
+        selectedMovementAccount?.currencyCode === 'VES' &&
+        (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)
+      ) {
+        showToast('error', 'Debes indicar una tasa válida para movimientos en Bs.');
+        return;
+      }
+
+      if (!movementDate) {
+        showToast('error', 'Debes indicar la fecha del movimiento.');
+        return;
+      }
+
+      if (!movementDescription.trim()) {
+        showToast('error', 'Debes indicar el motivo o descripción.');
+        return;
+      }
+
+      setMovementSaving(true);
+      await createExtraMoneyMovementAction({
+        direction: movementType === 'Ingreso' ? 'inflow' : 'outflow',
+        moneyAccountId,
+        amount,
+        movementDate,
+        exchangeRateVesPerUsd: exchangeRate,
+        referenceCode: movementReferenceCode,
+        counterpartyName: movementCounterpartyName,
+        description: movementDescription,
+        notes: movementNotes,
+      });
+
+      showToast('success', `${movementType} extraordinario registrado.`);
+      setMovementOpen(false);
+      resetMoneyMovementForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo guardar el movimiento.');
+    } finally {
+      setMovementSaving(false);
     }
   };
 
@@ -5505,6 +5596,9 @@ const selectedConfirmChangeAccount =
 
 const selectedGiveChangeAccount =
   moneyAccounts.find((account) => account.id === Number(paymentGiveChangeMoneyAccountId || 0)) ?? null;
+
+const selectedMovementAccount =
+  moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ?? null;
 
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
@@ -8739,6 +8833,7 @@ suppressHydrationWarning
       </div>
 
       <div className="flex gap-2">
+        <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn>
         <Btn onClick={openCreateAccount}>Nueva cuenta</Btn>
       </div>
     </div>
@@ -11724,14 +11819,24 @@ deliveryAssignMode === 'external' ? (
   </div>
         </Drawer>
 
-      <Drawer open={movementOpen} title="Movimiento" onClose={() => setMovementOpen(false)} widthClass="w-[420px]">
+      <Drawer
+        open={movementOpen}
+        title={movementType === 'Ingreso' ? 'Ingreso extraordinario' : 'Egreso extraordinario'}
+        onClose={() => {
+          setMovementOpen(false);
+          resetMoneyMovementForm();
+        }}
+        widthClass="w-[620px]"
+      >
         <div className="space-y-4">
-          <div className="text-sm text-[#B7B7C2]">Registrar ingreso/egreso/transferencia (demo UI).</div>
+          <div className="text-sm text-[#B7B7C2]">
+            Registra movimientos extraordinarios que no nacen desde una orden.
+          </div>
 
           <div className="space-y-2">
             <div className="text-xs text-[#B7B7C2]">Tipo</div>
             <div className="flex gap-2">
-              {(['Ingreso', 'Egreso', 'Transferencia'] as const).map((t) => (
+              {(['Ingreso', 'Egreso'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setMovementType(t)}
@@ -11746,14 +11851,109 @@ deliveryAssignMode === 'external' ? (
             </div>
           </div>
 
-          <div className="space-y-2 rounded-2xl border border-[#242433] bg-[#121218] p-3">
-            <div className="text-sm font-semibold">{movementType}</div>
-            <div className="text-sm text-[#B7B7C2]">(Demo) Aquí irían: cuenta(s), moneda, monto, fecha, referencia.</div>
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldSelect
+                label="Cuenta"
+                value={movementMoneyAccountId}
+                onChange={setMovementMoneyAccountId}
+                options={[
+                  { value: '', label: '— seleccionar cuenta —' },
+                  ...moneyAccounts
+                    .filter((account) => account.isActive)
+                    .map((account) => ({
+                      value: String(account.id),
+                      label: `${account.name} · ${account.currencyCode}`,
+                    })),
+                ]}
+              />
+              <FieldInput
+                label="Fecha"
+                value={movementDate}
+                onChange={setMovementDate}
+                type="date"
+              />
+              <FieldInput
+                label="Monto"
+                value={movementAmount}
+                onChange={setMovementAmount}
+                placeholder="0"
+              />
+              <FieldInput
+                label="Referencia / control"
+                value={movementReferenceCode}
+                onChange={setMovementReferenceCode}
+                placeholder="Opcional"
+              />
+              <FieldInput
+                label="Nombre / contraparte"
+                value={movementCounterpartyName}
+                onChange={setMovementCounterpartyName}
+                placeholder="Opcional"
+              />
+              <FieldInput
+                label="Motivo"
+                value={movementDescription}
+                onChange={setMovementDescription}
+                placeholder={movementType === 'Ingreso' ? 'Ej. ingreso extraordinario' : 'Ej. gasto operativo'}
+              />
+              {selectedMovementAccount?.currencyCode === 'VES' ? (
+                <FieldInput
+                  label="Tasa Bs por USD"
+                  value={movementExchangeRate}
+                  onChange={setMovementExchangeRate}
+                  placeholder="Obligatoria en Bs"
+                />
+              ) : (
+                <InfoCell
+                  label="Moneda"
+                  value={selectedMovementAccount?.currencyCode || '—'}
+                />
+              )}
+            </div>
+
+            <div className="mt-3">
+              <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+              <textarea
+                value={movementNotes}
+                onChange={(e) => setMovementNotes(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              />
+            </div>
+
+            <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+              <div>
+                Cuenta seleccionada:{' '}
+                <span className="font-medium text-[#F5F5F7]">
+                  {selectedMovementAccount?.name || '—'}
+                </span>
+              </div>
+              <div className="mt-1">
+                Impacto: <span className={movementType === 'Ingreso' ? 'text-emerald-400' : 'text-red-400'}>
+                  {movementType === 'Ingreso' ? 'Ingreso' : 'Egreso'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
             <button
-  className="w-full rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D]"
-  onClick={() => showToast('success', 'Guardar movimiento (demo).')}
->
-              Guardar
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => {
+                setMovementOpen(false);
+                resetMoneyMovementForm();
+              }}
+              disabled={movementSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateMoneyMovement}
+              disabled={movementSaving}
+            >
+              {movementSaving ? 'Guardando...' : 'Guardar movimiento'}
             </button>
           </div>
         </div>
@@ -11796,6 +11996,13 @@ deliveryAssignMode === 'external' ? (
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => openMoneyMovementDrawer(selectedAccount.id)}
+                    >
+                      Movimiento
+                    </button>
                     <button
                       type="button"
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
