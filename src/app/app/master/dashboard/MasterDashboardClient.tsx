@@ -1485,8 +1485,8 @@ function ComponentCard({
       : '—'}
   </div>
 
-  {selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005 ? (
-    <div className="mt-4 rounded-xl border border-emerald-500/20 bg-[#0B0B0D] p-3">
+  {/* bloque legado movido fuera de contexto
+    <div className="mt-4 hidden rounded-xl border border-emerald-500/20 bg-[#0B0B0D] p-3">
       <div className="text-sm font-semibold text-[#F5F5F7]">Aplicación de fondo</div>
       <div className="mt-1 text-xs text-[#8A8A96]">
         Disponible: {fmtUSD(createOrderClientFundAvailableUsd)}. Este saldo ya entró antes; aquí solo se aplica a la orden.
@@ -1528,7 +1528,7 @@ function ComponentCard({
         </div>
       ) : null}
     </div>
-  ) : null}
+  */}
 </div>
 
 
