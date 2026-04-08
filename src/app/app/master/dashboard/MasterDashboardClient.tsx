@@ -1395,6 +1395,64 @@ function ProcessTimeline({ order }: { order: Order }) {
   );
 }
 
+function RowProcessTimeline({ order }: { order: Order }) {
+  const steps = getProcessSteps(order);
+  const currentKey = getProcessCurrentKey(order);
+  const orderedKeys = steps.map((s) => s.key);
+  const cancelled = order.status === 'cancelled';
+  const assignmentLabel =
+    order.fulfillment !== 'delivery'
+      ? 'Pickup'
+      : order.riderName
+        ? `Interno: ${order.riderName}`
+        : order.externalPartner
+          ? `Externo: ${order.externalPartner}`
+          : 'Sin driver';
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        {steps.map((step, idx) => {
+          const tone = getProcessStepTone(step.key, currentKey, cancelled, orderedKeys);
+
+          const dotClass =
+            tone === 'done'
+              ? 'bg-emerald-500 border-emerald-500'
+              : tone === 'current'
+                ? 'bg-[#FEEF00] border-[#FEEF00]'
+                : tone === 'current-cancelled'
+                  ? 'bg-red-500 border-red-500'
+                  : 'bg-[#191926] border-[#2A2A38]';
+
+          const textClass =
+            tone === 'done'
+              ? 'text-emerald-400'
+              : tone === 'current'
+                ? 'text-[#FEEF00]'
+                : tone === 'current-cancelled'
+                  ? 'text-red-400'
+                  : 'text-[#6F6F7C]';
+
+          const lineClass = tone === 'done' ? 'bg-emerald-500/60' : 'bg-[#242433]';
+
+          return (
+            <div key={step.key} className="flex min-w-0 flex-1 items-center">
+              <div className="flex min-w-0 items-center gap-1">
+                <div className={`h-1.5 w-1.5 shrink-0 rounded-full border ${dotClass}`} />
+                <div className={`truncate text-[10px] leading-none ${textClass}`}>{step.label}</div>
+              </div>
+              {idx < steps.length - 1 ? <div className={`mx-1 h-[1px] flex-1 rounded-full ${lineClass}`} /> : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[10px] text-[#8A8A96]">
+        {order.fulfillment === 'delivery' ? assignmentLabel : 'Retiro en local'}
+      </div>
+    </div>
+  );
+}
+
 function NextActionCard({
   order,
   onSendToKitchen,
@@ -7988,41 +8046,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <th className="px-2 py-2 text-left font-medium">Tipo</th>
                     <th className="px-2 py-2 text-left font-medium">Total</th>
                     <th className="px-2 py-2 text-left font-medium">Pendiente</th>
-                    <th className="px-2 py-2 text-left font-medium">Pago</th>
-                    <th className="px-2 py-2 text-left font-medium">Estado</th>
-                    <th className="px-2 py-2 text-left font-medium">Rider</th>
-                    <th className="px-2 py-2 text-left font-medium">Entrega</th>
-                    <th className="px-2 py-2 text-left font-medium">GPS</th>
-                    <th className="px-2 py-2 text-left font-medium">Notas</th>
-                    <th className="px-2 py-2 text-left font-medium">Acciones</th>
+                    <th className="px-2 py-2 text-left font-medium">Ruta</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {tableOrders.length === 0 ? (
                     <tr>
-                      <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={14}>
+                      <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={8}>
                         Sin pedidos para este filtro.
                       </td>
                     </tr>
                   ) : (
                     tableOrders.map((o, idx) => {
                       const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                      const flag = processFlag(o);
-                      const statusLabel = ORDER_STATUS_LABEL[o.status];
-
-                      const deliveryLabel =
-                        o.status === 'out_for_delivery'
-                          ? 'En camino'
-                          : o.status === 'delivered'
-                            ? 'Entregado'
-                            : o.status === 'cancelled'
-                              ? 'Cancelado'
-                              : 'Pendiente';
-
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const rName = splitTwoWordsCompact(o.riderName || o.externalPartner || '—');
 
                       return (
                         <tr
@@ -8049,67 +8088,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <td className={['px-2 py-2 font-medium', paymentToneClass(o.balanceUsd)].join(' ')}>
                             {fmtUSD(o.balanceUsd)}
                           </td>
-                          <td className="px-2 py-2" title={payIconTooltip(o.paymentVerify)}>
-                            {payIcon(o.paymentVerify)}
-                          </td>
-                          <td className="px-2 py-2 leading-4">
-                            <div className="text-[#F5F5F7]">{statusLabel}</div>
-                            {flag ? (
-                              <div className="mt-1">
-                                <span
-                                  className={[
-                                    'inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                                    flag === 'APROBAR' ? 'bg-[#FEEF00] text-[#0B0B0D]' : 'bg-orange-500 text-[#0B0B0D]',
-                                  ].join(' ')}
-                                >
-                                  {flag}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="mt-1 text-[#8A8A96]">—</div>
-                            )}
-                          </td>
-                          <td className="px-2 py-2 leading-4">
-                            <div>{rName.line1}</div>
-                            <div className="text-[#B7B7C2]">{rName.line2}</div>
-                          </td>
-                          <td className="px-2 py-2">{deliveryLabel}</td>
-                          <td className="px-2 py-2" title={o.fulfillment === 'delivery' ? (o.address || '') : ''}>
-                            {o.fulfillment === 'delivery' ? (o.address?.trim() ? 'Sí' : '—') : '—'}
-                          </td>
-                          <td className="px-2 py-2" title={o.notes?.trim() ? o.notes : ''}>
-                            {o.notes?.trim() ? 'Sí' : '—'}
-                          </td>
-                          <td className="px-2 py-2">
-                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                className={[
-                                  'rounded-lg border px-2 py-1 text-[11px]',
-                                  canSendToKitchen(o)
-                                    ? 'border-[#FEEF00] bg-[#0B0B0D] text-[#F5F5F7]'
-                                    : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
-                                ].join(' ')}
-                                title={kitchenTooltip(o)}
-                                disabled={!canSendToKitchen(o)}
-                                onClick={() => handleSendToKitchen(o.id)}
-                              >
-                                Cocina
-                              </button>
-
-                              <button
-                                className={[
-                                  'rounded-lg border px-2 py-1 text-[11px]',
-                                  riderEnabled(o)
-                                    ? 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]'
-                                    : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
-                                ].join(' ')}
-                                title={riderTooltip(o)}
-                                disabled={!riderEnabled(o)}
-                                onClick={() => openOrderPanel(o.id, 'entrega')}
-                              >
-                                Rider
-                              </button>
-                            </div>
+                          <td className="px-2 py-2 min-w-[420px]">
+                            <RowProcessTimeline order={o} />
                           </td>
                         </tr>
                       );
