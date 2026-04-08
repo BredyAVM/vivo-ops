@@ -8063,12 +8063,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <Card title="Productos comprometidos">
               <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[10px] text-[#8A8A96]">
-                    {committedProductsRowsDay.length} productos · {fmtUnitsValue(committedProductsDayTotalUnits)} und
-                  </div>
-                </div>
-
                 {committedProductsRowsDay.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
@@ -10046,9 +10040,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 Semana
               </button>
             </div>
-            <div className="text-[10px] text-[#8A8A96]">
-              {committedProductsRows.length} productos · {fmtUnitsValue(committedProductsTotalUnits)} und
-            </div>
           </div>
 
           {committedProductsRows.length === 0 ? (
@@ -10056,61 +10047,37 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           ) : (
             <div className="space-y-1.5">
               {committedProductsRows.map((product) => {
-                const maxUnits = Math.max(committedProductsRows[0]?.und ?? 1, 1);
-                const ratio = Math.max(6, Math.round((product.und / maxUnits) * 100));
                 return (
-                  <div key={product.name} className="rounded-xl border border-[#242433] bg-[#121218] p-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-[12px] font-semibold text-[#F5F5F7]">{product.name}</div>
-                        <div className="mt-0.5 text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">
-                          {product.linkedInventory?.unitName || 'und'}
-                        </div>
+                  <div
+                    key={product.name}
+                    className="rounded-lg border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-[11px]"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1 truncate font-medium text-[#F5F5F7]">{product.name}</div>
+                      <div className="shrink-0 text-[#FEEF00]">{fmtUnitsValue(product.und)}</div>
+                      <div className="shrink-0 text-[#8A8A96]">
+                        / {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
+                      </div>
+                      <div
+                        className={[
+                          'shrink-0',
+                          product.remainingUnits != null && product.remainingUnits <= 0
+                            ? 'text-orange-400'
+                            : 'text-[#B7B7C2]',
+                        ].join(' ')}
+                      >
+                        ({product.remainingUnits != null ? fmtUnitsValue(product.remainingUnits) : '—'})
                       </div>
                       {product.statusLabel ? (
                         <div
                           className={[
-                            'shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
-                            product.statusTone === 'warn'
-                              ? 'bg-orange-500/12 text-orange-400'
-                              : 'bg-[#FEEF00]/10 text-[#FEEF00]',
+                            'shrink-0 text-[10px] font-semibold',
+                            product.statusTone === 'warn' ? 'text-orange-400' : 'text-[#FEEF00]',
                           ].join(' ')}
                         >
                           {product.statusLabel}
                         </div>
                       ) : null}
-                    </div>
-
-                    <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-                      <div className="rounded-lg border border-[#1F1F2B] bg-[#0B0B0D] px-2 py-1.5">
-                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Comprometido</div>
-                        <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
-                          {fmtUnitsValue(product.und)}
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-[#1F1F2B] bg-[#0B0B0D] px-2 py-1.5">
-                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Stock</div>
-                        <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">
-                          {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
-                        </div>
-                      </div>
-                      <div className="rounded-lg border border-[#1F1F2B] bg-[#0B0B0D] px-2 py-1.5">
-                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Quedaría</div>
-                        <div
-                          className={[
-                            'mt-0.5 text-[12px] font-semibold',
-                            product.remainingUnits != null && product.remainingUnits <= 0
-                              ? 'text-orange-400'
-                              : 'text-[#B7B7C2]',
-                          ].join(' ')}
-                        >
-                          {product.remainingUnits != null ? fmtUnitsValue(product.remainingUnits) : '—'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-1.5 h-1 w-full rounded-full bg-[#191926]">
-                      <div className="h-1 rounded-full bg-[#FEEF00]" style={{ width: `${ratio}%` }} />
                     </div>
                   </div>
                 );
