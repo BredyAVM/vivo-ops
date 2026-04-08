@@ -616,6 +616,26 @@ function normalizeLooseText(value: string) {
     .replace(/\s+/g, ' ');
 }
 
+function repairDisplayText(value: string | null | undefined) {
+  return String(value ?? '')
+    .replace(/Â·/g, '·')
+    .replace(/â€¦/g, '…')
+    .replace(/â€”/g, '—')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã±/g, 'ñ')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã“/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    .replace(/Ã‘/g, 'Ñ')
+    .trim();
+}
+
 const fmtTimeAMPM = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleTimeString('es-VE', {
@@ -990,11 +1010,11 @@ const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado' : `Pend
 const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
 
 function splitTwoWordsCompact(full: string) {
-  const parts = (full || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ?? 'â€”';
+  const parts = repairDisplayText(full).split(/\s+/).filter(Boolean);
+  const first = parts[0] ?? '—';
   const second = parts[1] ?? '';
   const hasMore = parts.length > 2;
-  const line2 = second ? (hasMore ? `${second}â€¦` : second) : '';
+  const line2 = second ? (hasMore ? `${second}…` : second) : '';
   return { line1: first, line2 };
 }
 
@@ -2788,7 +2808,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
           orderId: o.id,
-          label: `${o.id} Â· ${o.clientName}`,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2798,7 +2818,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-re-${o.id}`,
           type: 'RE-APROBAR',
           orderId: o.id,
-          label: `${o.id} Â· ${o.clientName}`,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -2808,7 +2828,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           id: `n-pay-${o.id}`,
           type: 'CONFIRMAR PAGO',
           orderId: o.id,
-          label: `${o.id} Â· ${o.clientName}`,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
         });
@@ -9737,15 +9757,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{client.notes}</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-3">{client.phone || 'â€”'}</td>
-                    <td className="px-3 py-3">{client.clientType || 'â€”'}</td>
+                    <td className="px-3 py-3">{client.phone || '—'}</td>
+                    <td className="px-3 py-3">{client.clientType || '—'}</td>
                     <td className="px-3 py-3">
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
-                        : 'â€”'}
+                        : '—'}
                     </td>
                     <td className="px-3 py-3">
-                      {client.fundBalanceUsd > 0.005 ? fmtUSD(client.fundBalanceUsd) : 'â€”'}
+                      {client.fundBalanceUsd > 0.005 ? fmtUSD(client.fundBalanceUsd) : '—'}
                     </td>
                     <td className="px-3 py-3">
                       {tags.length > 0 ? (
@@ -9758,7 +9778,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           ) : null}
                         </div>
                       ) : (
-                        'â€”'
+                        '—'
                       )}
                     </td>
                     <td className="px-3 py-3">{hasBilling ? 'Cargado' : 'Pendiente'}</td>
@@ -9931,7 +9951,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="text-xs text-[#B7B7C2]">{n.deliveryText}</div>
                 </div>
                 <div className="mt-2 text-sm font-semibold">{n.label}</div>
-                <div className="mt-1 text-xs text-[#B7B7C2]">Asesor: {n.advisorName}</div>
+                  <div className="mt-1 text-xs text-[#B7B7C2]">Asesor: {repairDisplayText(n.advisorName)}</div>
 
                 <button
                   className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -10105,7 +10125,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
-                  {order.advisorName} · {ORDER_STATUS_LABEL[order.status]}
+                  {repairDisplayText(order.advisorName)} · {ORDER_STATUS_LABEL[order.status]}
                 </div>
               </button>
             ))}
@@ -10156,7 +10176,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
-                  {order.advisorName} · Pago · {order.paymentVerify === 'pending'
+                  {repairDisplayText(order.advisorName)} · Pago · {order.paymentVerify === 'pending'
                     ? 'Por confirmar'
                     : order.paymentVerify === 'confirmed'
                       ? 'Confirmado'
@@ -10193,7 +10213,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
-                  {order.advisorName} · {deliveryPanelKind === 'internal'
+                  {repairDisplayText(order.advisorName)} · {deliveryPanelKind === 'internal'
                     ? `Interno: ${order.riderName || 'Asignado'}`
                     : `Externo: ${order.externalPartner || 'Asignado'}`}
                 </div>
@@ -10252,7 +10272,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
-                  {order.advisorName} · {ORDER_STATUS_LABEL[order.status]}
+                  {repairDisplayText(order.advisorName)} · {ORDER_STATUS_LABEL[order.status]}
                 </div>
               </button>
             ))}
@@ -10978,7 +10998,7 @@ onClose={() => {
       </div>
 
       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-[#8A8A96]">
-        <span>{selectedOrder.advisorName}</span>
+        <span>{repairDisplayText(selectedOrder.advisorName)}</span>
         <span>·</span>
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
@@ -14262,13 +14282,13 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="TelÃ©fono" value={selectedClient.phone || 'â€”'} />
+                <InfoCell label="Teléfono" value={selectedClient.phone || '—'} />
                 <InfoCell
                   label="Asesor principal"
                   value={
                     selectedClient.primaryAdvisorId
-                      ? advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor'
-                      : 'â€”'
+                      ? repairDisplayText(advisorNameById.get(selectedClient.primaryAdvisorId) || 'Asesor')
+                      : '—'
                   }
                 />
                 <InfoCell
@@ -14276,11 +14296,11 @@ deliveryAssignMode === 'external' ? (
                   value={
                     selectedClient.fundBalanceUsd > 0.005
                       ? fmtUSD(selectedClient.fundBalanceUsd)
-                      : 'â€”'
+                      : '—'
                   }
                 />
-                <InfoCell label="CumpleaÃ±os" value={selectedClient.birthDate || 'â€”'} />
-                <InfoCell label="Fecha importante" value={selectedClient.importantDate || 'â€”'} />
+                <InfoCell label="Cumpleaños" value={selectedClient.birthDate || '—'} />
+                <InfoCell label="Fecha importante" value={selectedClient.importantDate || '—'} />
               </div>
 
               {normalizeClientTags(selectedClient.crmTags).length > 0 ? (
@@ -14797,10 +14817,10 @@ deliveryAssignMode === 'external' ? (
                 {createOrderSelectedClientName}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tel: {createOrderSelectedClientPhone || 'â€”'}
+                Tel: {createOrderSelectedClientPhone || '—'}
               </div>
               <div className="mt-1 text-[#B7B7C2]">
-                Tipo: {createOrderSelectedClientType || 'â€”'}
+                Tipo: {createOrderSelectedClientType || '—'}
               </div>
             </div>
           ) : null}
@@ -14812,7 +14832,7 @@ deliveryAssignMode === 'external' ? (
                 <span className="font-medium text-[#F5F5F7]">
                   {createOrderClientFundAvailableUsd > 0.005
                     ? fmtUSD(createOrderClientFundAvailableUsd)
-                    : 'â€”'}
+                    : '—'}
                 </span>
               </div>
               {normalizeClientTags(selectedCreateOrderClient.crmTags).length > 0 ? (
@@ -14852,7 +14872,7 @@ deliveryAssignMode === 'external' ? (
                     {client.fullName}
                   </div>
                   <div className="mt-1 text-xs text-[#B7B7C2]">
-                    Tel: {client.phone || 'â€”'} Â· Tipo: {client.clientType || 'â€”'}
+                    Tel: {client.phone || '—'} · Tipo: {client.clientType || '—'}
                   </div>
                 </button>
               ))}

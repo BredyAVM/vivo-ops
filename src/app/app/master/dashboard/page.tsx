@@ -336,6 +336,26 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function repairDisplayText(value: string | null | undefined) {
+  return String(value ?? '')
+    .replace(/Â·/g, '·')
+    .replace(/â€¦/g, '…')
+    .replace(/â€”/g, '—')
+    .replace(/Ã¡/g, 'á')
+    .replace(/Ã©/g, 'é')
+    .replace(/Ã­/g, 'í')
+    .replace(/Ã³/g, 'ó')
+    .replace(/Ãº/g, 'ú')
+    .replace(/Ã±/g, 'ñ')
+    .replace(/Ã/g, 'Á')
+    .replace(/Ã‰/g, 'É')
+    .replace(/Ã/g, 'Í')
+    .replace(/Ã“/g, 'Ó')
+    .replace(/Ãš/g, 'Ú')
+    .replace(/Ã‘/g, 'Ñ')
+    .trim();
+}
+
 function buildDeliveryISO(extraFields: any, fallbackISO: string) {
   const schedule = extraFields?.schedule;
   const date = schedule?.date;
@@ -1660,8 +1680,8 @@ const creatorRow = Array.isArray(row.creator) ? row.creator[0] : row.creator;
 const advisorRow = Array.isArray(row.advisor) ? row.advisor[0] : row.advisor;
 const clientRow = Array.isArray(row.client) ? row.client[0] : row.client;
 
-const creatorName = creatorRow?.full_name?.trim() || 'Usuario';
-const advisorProfileName = advisorRow?.full_name?.trim() || null;
+const creatorName = repairDisplayText(creatorRow?.full_name?.trim() || 'Usuario');
+const advisorProfileName = repairDisplayText(advisorRow?.full_name?.trim() || null);
 
 const advisorName =
   row.source === 'master'
@@ -1670,10 +1690,11 @@ const advisorName =
       ? `Walk-in (${creatorName})`
       : advisorProfileName || creatorName || 'Sin asesor';
 
-const clientName =
+const clientName = repairDisplayText(
   clientRow?.full_name?.trim() ||
   row.extra_fields?.receiver?.name?.trim() ||
-  'Cliente sin nombre';
+  'Cliente sin nombre'
+);
 
     const deliveryAtISO = buildDeliveryISO(row.extra_fields, row.created_at);
 
