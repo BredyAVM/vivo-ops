@@ -66,6 +66,8 @@ type OrderLine = {
   qty: number;
   unitsPerService: number;
   priceBs: number;
+  inventoryGroup?: CatalogItem['inventoryGroup'];
+  inventoryUnitName?: string;
   isDelivery?: boolean;
   editableDetailLines?: string[];
 };
@@ -774,7 +776,7 @@ function buildCalendarDays(viewMonth: Date) {
 }
 
 function buildCommittedProductsRows(
-  committedSource: Array<{ name: string; und: number }>,
+  committedSource: Array<{ name: string; und: number; bucket: CommittedBucket }>,
   inventoryItems: InventoryItem[]
 ) {
   const inventoryByName = new Map<string, InventoryItem>();
@@ -1103,6 +1105,28 @@ function calcUnits(line: OrderLine) {
   return null;
 }
 
+type CommittedBucket = 'products' | 'sauces' | 'beverages';
+
+function getCommittedBucket(line: OrderLine): CommittedBucket {
+  const name = normalizeLooseText(line.name);
+  if (line.inventoryGroup === 'sauces') return 'sauces';
+  if (
+    name.includes('refresco') ||
+    name.includes('gaseosa') ||
+    name.includes('bebida') ||
+    name.includes('malta') ||
+    name.includes('agua') ||
+    name.includes('jugo') ||
+    name.includes('te ') ||
+    name.includes('té ') ||
+    name.includes('coca') ||
+    name.includes('pepsi')
+  ) {
+    return 'beverages';
+  }
+  return 'products';
+}
+
 
 
 function lineTextWhatsAppStyle(line: OrderLine) {
@@ -1173,19 +1197,23 @@ function isCommittedStatus(s: OrderStatus) {
 }
 
 function computeCommittedUndByProduct(orders: Order[]) {
-  const map = new Map<string, number>();
+  const map = new Map<string, { und: number; bucket: CommittedBucket }>();
   for (const o of orders) {
     if (!isCommittedStatus(o.status)) continue;
     for (const line of o.lines) {
       const isDeliveryLine = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
       if (isDeliveryLine) continue;
-      const units = calcUnits(line);
-      if (units === null) continue;
-      map.set(line.name, (map.get(line.name) ?? 0) + units);
+      const units = calcUnits(line) ?? line.qty;
+      if (units <= 0) continue;
+      const prev = map.get(line.name);
+      map.set(line.name, {
+        und: (prev?.und ?? 0) + units,
+        bucket: prev?.bucket ?? getCommittedBucket(line),
+      });
     }
   }
   return Array.from(map.entries())
-    .map(([name, und]) => ({ name, und }))
+    .map(([name, value]) => ({ name, und: value.und, bucket: value.bucket }))
     .sort((a, b) => b.und - a.und);
 }
 
@@ -2859,6 +2887,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
   const [productsExpanded, setProductsExpanded] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
+  const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
   const [paymentsPanelOpen, setPaymentsPanelOpen] = useState(false);
   const [paymentsPanelKind, setPaymentsPanelKind] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
   const [deliveryPanelOpen, setDeliveryPanelOpen] = useState(false);
@@ -2909,6 +2938,9 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
+  const committedProductsDetailRows = committedProductsRows.filter(
+    (row) => row.bucket === committedProductsBucket
+  );
   const committedProductsTotalUnits = committedProductsRows.reduce((sum, row) => sum + row.und, 0);
   const committedProductsDayTotalUnits = committedProductsRowsDay.reduce((sum, row) => sum + row.und, 0);
   const committedProductsPreviewRows = committedProductsRowsDay.slice(0, 4);
@@ -10042,11 +10074,50 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </div>
           </div>
 
-          {committedProductsRows.length === 0 ? (
+          <div className="flex items-center gap-1">
+            <button
+              className={[
+                'rounded-full border px-2 py-0.5 text-[10px]',
+                committedProductsBucket === 'products'
+                  ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                  : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+              ].join(' ')}
+              onClick={() => setCommittedProductsBucket('products')}
+              type="button"
+            >
+              Productos
+            </button>
+            <button
+              className={[
+                'rounded-full border px-2 py-0.5 text-[10px]',
+                committedProductsBucket === 'sauces'
+                  ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                  : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+              ].join(' ')}
+              onClick={() => setCommittedProductsBucket('sauces')}
+              type="button"
+            >
+              Salsas
+            </button>
+            <button
+              className={[
+                'rounded-full border px-2 py-0.5 text-[10px]',
+                committedProductsBucket === 'beverages'
+                  ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
+                  : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
+              ].join(' ')}
+              onClick={() => setCommittedProductsBucket('beverages')}
+              type="button"
+            >
+              Bebidas
+            </button>
+          </div>
+
+          {committedProductsDetailRows.length === 0 ? (
             <div className="text-xs text-[#B7B7C2]">Sin datos para este período.</div>
           ) : (
             <div className="space-y-1.5">
-              {committedProductsRows.map((product) => {
+              {committedProductsDetailRows.map((product) => {
                 return (
                   <div
                     key={product.name}
