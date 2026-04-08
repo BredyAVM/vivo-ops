@@ -15483,7 +15483,7 @@ deliveryAssignMode === 'external' ? (
             </div>
           </div>
 
-          <label className="flex h-[48px] items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-sm text-[#F5F5F7]">
+          <label className="flex items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
             <input
               type="checkbox"
               checked={createOrderIsAsap}
@@ -15506,7 +15506,7 @@ deliveryAssignMode === 'external' ? (
                   type="button"
                   onClick={() => handleApplyClientAddress(address, idx)}
                   className={[
-                    'inline-flex h-[48px] items-center rounded-xl border px-3 text-xs transition',
+                    'inline-flex items-center rounded-xl border px-3 py-2 text-sm transition',
                     createOrderSelectedAddressIndex === idx
                       ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                       : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
