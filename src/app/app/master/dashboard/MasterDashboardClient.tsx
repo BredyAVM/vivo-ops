@@ -7751,7 +7751,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </Card>
 
             <Card title="Productos comprometidos">
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
                     <button
@@ -7791,7 +7791,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     {committedProductsPreviewRows.map((product) => (
                       <div
                         key={product.name}
-                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px]"
+                        className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px]"
                       >
                         <div className="flex items-center gap-2">
                           <div className="min-w-0 flex-1 truncate font-medium text-[#F5F5F7]">
@@ -7829,7 +7829,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 )}
 
-                <div className="flex justify-end">
+                <div className="flex justify-end pt-0.5">
                   {committedProductsRows.length > committedProductsPreviewRows.length ? (
                     <button
                       className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
@@ -7850,13 +7850,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </Card>
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-4 md:flex-row md:items-center md:justify-between">
+          <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-center md:justify-between">
             <div className="relative w-full md:max-w-md">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar orden o cliente"
-                className="w-full rounded-2xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               {searchResults.length > 0 ? (
                 <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
@@ -7877,10 +7877,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               ) : null}
             </div>
 
-<div className="flex flex-wrap gap-2">
-  <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-  <Btn onClick={() => setMovementOpen(true)}>Ingreso / Egreso</Btn>
-</div>
+            <div className="flex flex-wrap gap-2">
+              <Btn className="px-4 py-2" onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
+              <Btn className="px-4 py-2" onClick={() => setMovementOpen(true)}>Ingreso / Egreso</Btn>
+            </div>
           </div>
 
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
