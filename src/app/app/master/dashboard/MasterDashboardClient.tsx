@@ -14788,27 +14788,27 @@ deliveryAssignMode === 'external' ? (
   widthClass="w-[900px]"
 >
   <div className="space-y-4">
-    <div className="flex items-center justify-between rounded-2xl border border-[#242433] bg-[#121218] px-4 py-3">
-      <div className="text-sm text-[#B7B7C2]">
+    <div className="flex items-center justify-between rounded-2xl border border-[#242433] bg-[#121218] px-4 py-2.5">
+      <div className="text-[13px] text-[#B7B7C2]">
         {orderEditorMode === 'edit'
-          ? 'EstÃ¡s modificando una orden existente.'
-          : 'EstÃ¡s creando una orden nueva.'}
+          ? 'Revisa venta, cliente y pedido.'
+          : 'Completa venta, cliente y pedido.'}
       </div>
 
       <span
         className={[
-          'rounded-full px-3 py-1 text-xs font-semibold',
+          'rounded-full px-3 py-1 text-[11px] font-semibold',
           orderEditorMode === 'edit'
             ? 'bg-orange-500 text-[#0B0B0D]'
             : 'bg-[#FEEF00] text-[#0B0B0D]',
         ].join(' ')}
       >
-          {orderEditorMode === 'edit' ? 'MODO EDICIÓN' : 'MODO CREAR'}
+          {orderEditorMode === 'edit' ? 'Editar' : 'Crear'}
       </span>
     </div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-  <div className="text-sm font-semibold text-[#F5F5F7]">A. Venta</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">Venta</div>
 
   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
     <FieldSelect
@@ -14827,11 +14827,11 @@ deliveryAssignMode === 'external' ? (
 {createOrderSource === 'advisor' ? (
   <div>
     <FieldSelect
-      label="Asesor atribuido"
+      label="Asesor"
       value={createOrderAdvisorUserId}
       onChange={setCreateOrderAdvisorUserId}
       options={[
-        { value: '', label: 'â€” seleccionar â€”' },
+        { value: '', label: '— seleccionar —' },
         ...advisors.map((advisor) => ({
           value: advisor.userId,
           label: advisor.isActive
@@ -14842,12 +14842,12 @@ deliveryAssignMode === 'external' ? (
     />
 
     <div className="mt-2 text-xs text-[#8A8A96]">
-      Asesores cargados: {advisors.map((a) => a.fullName).join(', ') || 'ninguno'}
+      {advisors.filter((a) => a.isActive).length} asesores activos
     </div>
   </div>
 ) : (
   <div>
-    <label className="mb-1 block text-xs text-[#8A8A96]">Asesor atribuido</label>
+    <label className="mb-1 block text-xs text-[#8A8A96]">Asesor</label>
     <div className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
       {currentOperatorLabel}
     </div>
@@ -14858,7 +14858,7 @@ deliveryAssignMode === 'external' ? (
 
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">B. Cliente</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cliente</div>
 
         <div className="mt-4 space-y-3">
 <form
@@ -14872,18 +14872,18 @@ deliveryAssignMode === 'external' ? (
     value={createOrderClientSearch}
     onChange={(e) => setCreateOrderClientSearch(e.target.value)}
     placeholder="Buscar por nombre o teléfono"
-    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
+    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
   />
 
   <button
-    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px]"
     type="submit"
   >
     {createOrderClientSearchLoading ? 'Buscando...' : 'Buscar'}
   </button>
 
   <button
-    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px]"
     onClick={handleActivateCreateOrderNewClient}
     type="button"
   >
@@ -14893,8 +14893,7 @@ deliveryAssignMode === 'external' ? (
 
 
           {createOrderSelectedClientId ? (
-            <div className="rounded-xl border border-emerald-500/40 bg-[#0B0B0D] px-3 py-2
- text-sm">
+            <div className="rounded-xl border border-emerald-500/40 bg-[#0B0B0D] px-3 py-2 text-sm">
               <div className="font-medium text-emerald-400">
                 {createOrderSelectedClientName}
               </div>
@@ -14931,7 +14930,7 @@ deliveryAssignMode === 'external' ? (
                       key={`${selectedCreateOrderClient.id}-${idx}`}
                       type="button"
                       onClick={() => handleApplyClientAddress(address)}
-                      className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
+                      className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-[11px] text-[#F5F5F7]"
                     >
                       Usar dirección {idx + 1}
                     </button>
@@ -15006,7 +15005,7 @@ deliveryAssignMode === 'external' ? (
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 md:col-span-2">
-        <div className="text-sm font-semibold text-[#F5F5F7]">C. Pedido</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Pedido</div>
 
 <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_110px_auto]">
   <div className="relative">
@@ -15071,8 +15070,8 @@ deliveryAssignMode === 'external' ? (
       }
     }
   }}
-  placeholder="Escribe producto..."
-  className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
+  placeholder="Buscar producto..."
+  className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
 />
 
 
@@ -15119,11 +15118,11 @@ deliveryAssignMode === 'external' ? (
                 {item.name}
               </div>
 <div className="mt-1 text-xs text-[#8A8A96]">
-  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : 'â€”'} Â·{' '}
+  {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} ·{' '}
   {item.sourcePriceCurrency === 'VES'
     ? fmtBs(item.basePriceBs)
     : fmtUSD(item.basePriceUsd)}
-  {item.sku ? ` Â· ${item.sku}` : ''}
+  {item.sku ? ` · ${item.sku}` : ''}
 </div>
               {availability ? (
                 <div className="mt-2 text-[11px]">
@@ -15131,9 +15130,9 @@ deliveryAssignMode === 'external' ? (
                     Listo: <span className="text-[#F5F5F7]">{readyUnits}</span>
                     {potentialUnits && potentialUnits > 0 ? (
                       <>
-                        {' '}Â· Puede producirse:{' '}
+                        {' '}· Puede producirse:{' '}
                         <span className="text-emerald-400">{potentialUnits}</span>
-                        {' '}Â· Total posible:{' '}
+                        {' '}· Total posible:{' '}
                         <span className="text-[#F5F5F7]">{totalUnits}</span>
                       </>
                     ) : null}
