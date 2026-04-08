@@ -2642,7 +2642,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
   const committedProductsTotalUnits = committedProductsRows.reduce((sum, row) => sum + row.und, 0);
-  const committedProductsPreviewRows = committedProductsRows.slice(0, 5);
+  const committedProductsPreviewRows = committedProductsRows.slice(0, 4);
 
   const filteredCatalogItems = useMemo(() => {
     const q = catalogSearch.trim().toLowerCase();
@@ -7547,7 +7547,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-4">
           <div className="grid grid-cols-12 gap-3">
-            <Card title="Estado" className="col-span-12 xl:col-span-4">
+            <Card title="Estado" className="col-span-12 md:col-span-6 xl:col-span-2">
               <div className="hidden">
               <StatRow label="Cierres" value={dayStats.cierres} />
               <StatRow label="FacturaciÃ³n" value={fmtUSD(dayStats.fact)} />
@@ -7561,16 +7561,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
               </div>
               </div>
-              <div className="grid grid-cols-[1.2fr_0.7fr_0.7fr] gap-x-2.5 gap-y-1.5 text-[13px]">
+              <div className="grid grid-cols-[1fr_0.55fr_0.55fr] gap-x-2 gap-y-1 text-[12px]">
                 <div />
-                <div className="text-center text-[10px] uppercase tracking-[0.16em] text-[#8A8A96]">Hoy</div>
-                <div className="text-center text-[10px] uppercase tracking-[0.16em] text-[#8A8A96]">Semana</div>
+                <div className="text-center text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Hoy</div>
+                <div className="text-center text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Semana</div>
 
                 <div className="text-[#B7B7C2]">Cierres</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{dayStats.cierres}</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{weekStats.cierres}</div>
 
-                <div className="text-[#B7B7C2]">Facturación</div>
+                <div className="text-[#B7B7C2]">Fact.</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(dayStats.fact)}</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(weekStats.fact)}</div>
 
@@ -7750,7 +7750,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Productos comprometidos" className="col-span-12 xl:col-span-4">
+            <Card title="Productos comprometidos" className="col-span-12 md:col-span-6 xl:col-span-2">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
