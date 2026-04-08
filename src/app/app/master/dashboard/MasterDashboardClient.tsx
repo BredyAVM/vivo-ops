@@ -12089,50 +12089,62 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
     </div>
 
     {paymentGiveChangeBoxOpen ? (
-      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
-        <select
-          value={paymentGiveChangeMoneyAccountId}
-          onChange={(e) => setPaymentGiveChangeMoneyAccountId(e.target.value)}
-          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-        >
-          <option value="">â€” cuenta del cambio â€”</option>
-          {moneyAccounts.filter((account) => account.isActive).map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name} ({account.currencyCode})
-            </option>
-          ))}
-        </select>
+      <div className="mt-3 space-y-2.5">
+        <div>
+          <label className="mb-1 block text-[11px] text-[#8A8A96]">Cuenta del cambio</label>
+          <select
+            value={paymentGiveChangeMoneyAccountId}
+            onChange={(e) => setPaymentGiveChangeMoneyAccountId(e.target.value)}
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
+          >
+            <option value="">Selecciona una cuenta</option>
+            {moneyAccounts.filter((account) => account.isActive).map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name} ({account.currencyCode})
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <input
-          value={paymentGiveChangeAmount}
-          onChange={(e) => setPaymentGiveChangeAmount(e.target.value)}
-          placeholder="Monto del cambio"
-          type="text"
-          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-        />
+        <div>
+          <label className="mb-1 block text-[11px] text-[#8A8A96]">Monto del cambio</label>
+          <input
+            value={paymentGiveChangeAmount}
+            onChange={(e) => setPaymentGiveChangeAmount(e.target.value)}
+            placeholder="Ej. 7.97"
+            type="text"
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+          />
+        </div>
 
         {selectedGiveChangeAccount?.currencyCode === 'VES' ? (
-          <input
-            value={paymentGiveChangeExchangeRate}
-            onChange={(e) => setPaymentGiveChangeExchangeRate(e.target.value)}
-            placeholder="Tasa Bs por USD"
-            type="text"
-            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-          />
+          <div>
+            <label className="mb-1 block text-[11px] text-[#8A8A96]">Tasa Bs por USD</label>
+            <input
+              value={paymentGiveChangeExchangeRate}
+              onChange={(e) => setPaymentGiveChangeExchangeRate(e.target.value)}
+              placeholder="Ej. 474.06"
+              type="text"
+              className="w-full rounded-md border border-[#242433] bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+            />
+          </div>
         ) : (
-          <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#8A8A96]">
-            {selectedGiveChangeAccount ? `Cambio en ${selectedGiveChangeAccount.currencyCode}` : 'Selecciona una cuenta'}
+          <div className="rounded-md border border-[#242433] bg-[#121218] px-3 py-2 text-[11px] text-[#8A8A96]">
+            {selectedGiveChangeAccount ? `El cambio saldrá en ${selectedGiveChangeAccount.currencyCode}.` : 'Selecciona una cuenta para continuar.'}
           </div>
         )}
 
-        <input
-          value={paymentGiveChangeNotes}
-          onChange={(e) => setPaymentGiveChangeNotes(e.target.value)}
-          placeholder="Nota (opcional)"
-          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-        />
+        <div>
+          <label className="mb-1 block text-[11px] text-[#8A8A96]">Nota</label>
+          <input
+            value={paymentGiveChangeNotes}
+            onChange={(e) => setPaymentGiveChangeNotes(e.target.value)}
+            placeholder="Opcional"
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+          />
+        </div>
 
-        <div className="md:col-span-4 flex justify-end">
+        <div className="flex justify-end">
           <button
             type="button"
             className="rounded-md border border-sky-500/40 bg-[#0D141D] px-3 py-2 text-[11px] font-semibold text-sky-300"
