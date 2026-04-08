@@ -636,6 +636,11 @@ function repairDisplayText(value: string | null | undefined) {
     .trim();
 }
 
+function truncateDisplayText(value: string, maxChars: number) {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
 const fmtTimeAMPM = (iso: string) => {
   const d = new Date(iso);
   return d.toLocaleTimeString('es-VE', {
@@ -1012,9 +1017,8 @@ const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emeral
 function splitTwoWordsCompact(full: string) {
   const parts = repairDisplayText(full).split(/\s+/).filter(Boolean);
   const first = parts[0] ?? '—';
-  const second = parts[1] ?? '';
-  const hasMore = parts.length > 2;
-  const line2 = second ? (hasMore ? `${second}…` : second) : '';
+  const rest = parts.slice(1).join(' ');
+  const line2 = rest ? truncateDisplayText(rest, 20) : '';
   return { line1: first, line2 };
 }
 
@@ -1367,8 +1371,7 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
     deliveryDueMs != null ? (deliveryDueMs - nowMs) / 60000 : null;
 
   if (currentKey === 'created' && minutesUntilDelivery != null) {
-    if (minutesUntilDelivery <= 0) return 'danger';
-    if (minutesUntilDelivery <= 30) return 'warning';
+    if (minutesUntilDelivery <= 60) return 'danger';
   }
 
   if (currentKey === 'queued' && minutesUntilDelivery != null) {
@@ -1413,6 +1416,67 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
   }
 
   return 'normal';
+}
+
+function getCurrentProcessAlertReason(order: Order, currentKey: string, nowMs: number) {
+  if (order.status === 'cancelled' || order.status === 'delivered') return null;
+
+  const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
+  const minutesUntilDelivery =
+    deliveryDueMs != null ? (deliveryDueMs - nowMs) / 60000 : null;
+
+  if (currentKey === 'created' && minutesUntilDelivery != null && minutesUntilDelivery <= 60) {
+    return 'Pendiente de aprobación';
+  }
+
+  if (currentKey === 'queued' && minutesUntilDelivery != null && minutesUntilDelivery <= 30) {
+    return 'Pendiente de enviar a cocina';
+  }
+
+  if (currentKey === 'confirmed') {
+    if (order.status === 'confirmed') {
+      const sentToKitchenMs = parseIsoMs(order.sentToKitchenAtISO);
+      if (sentToKitchenMs != null && nowMs - sentToKitchenMs >= 5 * 60 * 1000) {
+        return 'Cocina aún no la toma';
+      }
+    }
+
+    if (order.status === 'in_kitchen') {
+      const kitchenStartedMs = parseIsoMs(order.kitchenStartedAtISO);
+      const kitchenEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+      if (
+        kitchenStartedMs != null &&
+        Number.isFinite(kitchenEtaMinutes) &&
+        kitchenEtaMinutes > 0 &&
+        nowMs - kitchenStartedMs >= kitchenEtaMinutes * 60 * 1000
+      ) {
+        return 'Se excedió el tiempo de preparación';
+      }
+    }
+  }
+
+  if (currentKey === 'ready' && order.fulfillment === 'delivery' && order.status === 'ready') {
+    const readyMs = parseIsoMs(order.readyAtISO);
+    if (readyMs != null && nowMs - readyMs >= 5 * 60 * 1000) {
+      return 'Falta salir en camino';
+    }
+  }
+
+  if (currentKey === 'out_for_delivery' && order.status === 'out_for_delivery') {
+    const deliveryStartedMs =
+      parseIsoMs(order.editMeta.deliveryEtaRecordedAtISO) ?? parseIsoMs(order.readyAtISO);
+    const deliveryEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+    if (
+      deliveryStartedMs != null &&
+      Number.isFinite(deliveryEtaMinutes) &&
+      deliveryEtaMinutes > 0 &&
+      nowMs - deliveryStartedMs >= deliveryEtaMinutes * 60 * 1000
+    ) {
+      return 'Se excedió el tiempo de entrega';
+    }
+  }
+
+  return null;
 }
 
 function getProcessVisualClasses(tone: string, alertLevel: ProcessAlertLevel) {
@@ -1472,6 +1536,7 @@ function ProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
   const orderedKeys = steps.map((s) => s.key);
   const cancelled = order.status === 'cancelled';
   const alertLevel = getCurrentProcessAlertLevel(order, currentKey, nowMs);
+  const alertReason = getCurrentProcessAlertReason(order, currentKey, nowMs);
 
   return (
     <div className="rounded-lg border border-[#1D1D28] bg-[#101014] px-2.5 py-2">
@@ -1499,6 +1564,9 @@ function ProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
           );
         })}
       </div>
+      {alertLevel === 'danger' && alertReason ? (
+        <div className="mt-1 text-[10px] font-medium text-red-400">{alertReason}</div>
+      ) : null}
     </div>
   );
 }
@@ -1509,6 +1577,7 @@ function RowProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
   const orderedKeys = steps.map((s) => s.key);
   const cancelled = order.status === 'cancelled';
   const alertLevel = getCurrentProcessAlertLevel(order, currentKey, nowMs);
+  const alertReason = getCurrentProcessAlertReason(order, currentKey, nowMs);
   const hasDriverAssigned = Boolean(order.riderName?.trim() || order.externalPartner?.trim());
   const needsDriverUrgent =
     order.fulfillment === 'delivery' &&
@@ -1547,10 +1616,18 @@ function RowProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
       <div
         className={[
           'text-[10px]',
-          needsDriverUrgent ? 'font-semibold text-red-400' : 'text-[#8A8A96]',
+          alertLevel === 'danger' && alertReason
+            ? 'font-semibold text-red-400'
+            : needsDriverUrgent
+              ? 'font-semibold text-red-400'
+              : 'text-[#8A8A96]',
         ].join(' ')}
       >
-        {order.fulfillment === 'delivery' ? assignmentLabel : 'Retiro en local'}
+        {alertLevel === 'danger' && alertReason
+          ? alertReason
+          : order.fulfillment === 'delivery'
+            ? assignmentLabel
+            : 'Retiro en local'}
       </div>
     </div>
   );
@@ -8183,11 +8260,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         >
                           <td className="px-2 py-2">{fmtTimeAMPM(o.deliveryAtISO)}</td>
                           <td className="px-2 py-2 font-medium">{o.id}</td>
-                          <td className="px-2 py-2 leading-4">
+                          <td className="min-w-[132px] px-2 py-2 leading-4">
                             <div>{aName.line1}</div>
                             <div className="text-[#B7B7C2]">{aName.line2}</div>
                           </td>
-                          <td className="px-2 py-2 leading-4">
+                          <td className="min-w-[132px] px-2 py-2 leading-4">
                             <div>{cName.line1}</div>
                             <div className="text-[#B7B7C2]">{cName.line2}</div>
                           </td>
@@ -8200,7 +8277,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <td className={['px-2 py-2 font-medium', paymentToneClass(o.balanceUsd)].join(' ')}>
                             {fmtUSD(o.balanceUsd)}
                           </td>
-                          <td className="px-2 py-2 min-w-[420px]">
+                          <td className="px-2 py-2 min-w-[400px]">
                             <RowProcessTimeline order={o} nowMs={currentTimeMs} />
                           </td>
                         </tr>
