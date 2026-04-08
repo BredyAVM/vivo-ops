@@ -1519,6 +1519,39 @@ function getCurrentProcessAlertReason(order: Order, currentKey: string, nowMs: n
   return null;
 }
 
+function getDeliveryTimingSummary(order: Order, nowMs: number) {
+  const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
+  const isLate = deliveryDueMs != null ? nowMs >= deliveryDueMs : false;
+
+  if (order.status === 'in_kitchen') {
+    const etaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+    if (Number.isFinite(etaMinutes) && etaMinutes > 0) {
+      return {
+        label: 'Tiempo estimado de preparación',
+        value: `${etaMinutes} min`,
+        tone: 'muted' as const,
+      };
+    }
+  }
+
+  if (order.status === 'out_for_delivery') {
+    const etaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+    if (Number.isFinite(etaMinutes) && etaMinutes > 0) {
+      return {
+        label: 'Tiempo estimado en camino',
+        value: `${etaMinutes} min`,
+        tone: 'muted' as const,
+      };
+    }
+  }
+
+  return {
+    label: 'Estado de tiempo',
+    value: isLate ? 'Retrasado' : 'Va a tiempo',
+    tone: isLate ? ('danger' as const) : ('ok' as const),
+  };
+}
+
 function getProcessVisualClasses(tone: string, alertLevel: ProcessAlertLevel) {
   if (alertLevel === 'danger') {
     return {
@@ -11288,24 +11321,27 @@ onClose={() => {
     <div className="flex items-center justify-between gap-2">
       <div className="text-sm font-semibold text-[#F5F5F7]">Entrega</div>
 
-      <SmallBadge
-        label={
-          selectedOrder.fulfillment === 'delivery'
-            ? selectedOrder.riderName
-              ? 'Asignado interno'
-              : selectedOrder.externalPartner
-                ? 'Asignado externo'
-                : 'Sin asignar'
-            : 'Pickup'
-        }
-        tone={
-          selectedOrder.fulfillment === 'pickup'
-            ? 'muted'
-            : selectedOrder.riderName || selectedOrder.externalPartner
-              ? 'brand'
-              : 'warn'
-        }
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        {selectedOrder.editMeta?.isAsap ? <SmallBadge label="Lo antes posible" tone="warn" /> : null}
+        <SmallBadge
+          label={
+            selectedOrder.fulfillment === 'delivery'
+              ? selectedOrder.riderName
+                ? 'Asignado interno'
+                : selectedOrder.externalPartner
+                  ? 'Asignado externo'
+                  : 'Sin asignar'
+              : 'Pickup'
+          }
+          tone={
+            selectedOrder.fulfillment === 'pickup'
+              ? 'muted'
+              : selectedOrder.riderName || selectedOrder.externalPartner
+                ? 'brand'
+                : 'warn'
+          }
+        />
+      </div>
     </div>
 
     <div className="mt-3 grid grid-cols-1 gap-2">
@@ -11325,9 +11361,42 @@ onClose={() => {
         </div>
       </div>
 
+      <div
+        className={[
+          'rounded-lg border bg-[#0B0B0D] px-3 py-2',
+          getDeliveryTimingSummary(selectedOrder, currentTimeMs).tone === 'danger'
+            ? 'border-red-500/40'
+            : getDeliveryTimingSummary(selectedOrder, currentTimeMs).tone === 'ok'
+              ? 'border-emerald-500/30'
+              : 'border-[#242433]',
+        ].join(' ')}
+      >
+        <div className="text-[10px] text-[#8A8A96]">
+          {getDeliveryTimingSummary(selectedOrder, currentTimeMs).label}
+        </div>
+        <div
+          className={[
+            'mt-1 text-sm',
+            getDeliveryTimingSummary(selectedOrder, currentTimeMs).tone === 'danger'
+              ? 'text-red-400'
+              : getDeliveryTimingSummary(selectedOrder, currentTimeMs).tone === 'ok'
+                ? 'text-emerald-300'
+                : 'text-[#F5F5F7]',
+          ].join(' ')}
+        >
+          {getDeliveryTimingSummary(selectedOrder, currentTimeMs).value}
+        </div>
+      </div>
+
       {selectedOrder.fulfillment === 'delivery' && selectedOrder.editMeta?.deliveryEtaMinutes ? (
         <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-          <div className="text-[10px] text-[#8A8A96]">Tiempo estimado</div>
+          <div className="text-[10px] text-[#8A8A96]">
+            {selectedOrder.status === 'in_kitchen'
+              ? 'Tiempo estimado de preparación'
+              : selectedOrder.status === 'out_for_delivery'
+                ? 'Tiempo estimado en camino'
+                : 'Tiempo estimado registrado'}
+          </div>
           <div className="mt-1 text-sm text-[#F5F5F7]">
             {selectedOrder.editMeta.deliveryEtaMinutes} min
           </div>
@@ -12556,7 +12625,7 @@ deliveryAssignMode === 'external' ? (
 
     <div className="mt-2 space-y-2">
       <div>
-        <label className="mb-1 block text-[10px] text-[#8A8A96]">ETA (minutos)</label>
+        <label className="mb-1 block text-[10px] text-[#8A8A96]">Tiempo estimado de preparación (minutos)</label>
         <input
           value={kitchenEtaMinutes}
           onChange={(e) => setKitchenEtaMinutes(e.target.value)}
@@ -12611,7 +12680,7 @@ deliveryAssignMode === 'external' ? (
     <div className="mt-2 space-y-2">
       <div>
         <label className="mb-1 block text-[10px] text-[#8A8A96]">
-          Tiempo aproximado de entrega (minutos)
+          Tiempo estimado en camino (minutos)
         </label>
         <input
           value={deliveryEtaMinutes}
