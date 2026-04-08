@@ -7921,13 +7921,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </Card>
           </div>
 
-          <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-center md:justify-between">
+          <div className="mt-3 flex flex-col gap-2 rounded-2xl border border-[#242433] bg-[#121218] p-2.5 md:flex-row md:items-center md:justify-between">
             <div className="relative w-full md:max-w-md">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar orden o cliente"
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
               {searchResults.length > 0 ? (
                 <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
@@ -7949,8 +7949,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-              <Btn onClick={() => setMovementOpen(true)}>Ingreso / Egreso</Btn>
+              <button
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
+                onClick={openCreateOrderDrawer}
+                type="button"
+              >
+                Nuevo pedido
+              </button>
+              <button
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
+                onClick={() => setMovementOpen(true)}
+                type="button"
+              >
+                Ingreso / Egreso
+              </button>
             </div>
           </div>
 
