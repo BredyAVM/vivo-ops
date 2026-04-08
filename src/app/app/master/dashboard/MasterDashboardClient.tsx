@@ -15446,7 +15446,7 @@ deliveryAssignMode === 'external' ? (
         <div className="grid grid-cols-1 gap-2">
           <div>
             <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
-            <div className="grid grid-cols-[64px_64px_82px] gap-2">
+            <div className="grid grid-cols-[60px_60px_76px] gap-2">
               <input
                 value={createOrderDeliveryHour12}
                 onChange={(e) => {
@@ -15456,7 +15456,7 @@ deliveryAssignMode === 'external' ? (
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                className="h-[54px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-center text-[13px] text-[#F5F5F7]"
+                className="h-[48px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 text-center text-[13px] text-[#F5F5F7]"
               />
               <input
                 value={createOrderDeliveryMinute}
@@ -15467,7 +15467,7 @@ deliveryAssignMode === 'external' ? (
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                className="h-[54px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-center text-[13px] text-[#F5F5F7]"
+                className="h-[48px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 text-center text-[13px] text-[#F5F5F7]"
               />
               <select
                 value={createOrderDeliveryAmPm}
@@ -15475,7 +15475,7 @@ deliveryAssignMode === 'external' ? (
                   setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
                   setCreateOrderIsAsap(false);
                 }}
-                className="h-[54px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-center text-[13px] text-[#F5F5F7]"
+                className="h-[48px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 text-center text-[13px] text-[#F5F5F7]"
               >
                 <option value="AM">AM</option>
                 <option value="PM">PM</option>
@@ -15483,7 +15483,7 @@ deliveryAssignMode === 'external' ? (
             </div>
           </div>
 
-          <label className="flex items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
+          <label className="flex h-[48px] items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-sm text-[#F5F5F7]">
             <input
               type="checkbox"
               checked={createOrderIsAsap}
@@ -15506,7 +15506,7 @@ deliveryAssignMode === 'external' ? (
                   type="button"
                   onClick={() => handleApplyClientAddress(address, idx)}
                   className={[
-                    'rounded-xl border px-3 py-1.5 text-xs transition',
+                    'inline-flex h-[48px] items-center rounded-xl border px-3 text-xs transition',
                     createOrderSelectedAddressIndex === idx
                       ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                       : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
