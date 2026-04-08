@@ -622,9 +622,11 @@ function normalizeLooseText(value: string) {
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
+    .replace(/Â/g, '')
     .replace(/Â·/g, '·')
     .replace(/â€¦/g, '…')
     .replace(/â€”/g, '—')
+    .replace(/â€“/g, '–')
     .replace(/Ã¼/g, 'ü')
     .replace(/Ãœ/g, 'Ü')
     .replace(/Ã¡/g, 'á')
@@ -639,6 +641,34 @@ function repairDisplayText(value: string | null | undefined) {
     .replace(/Ã“/g, 'Ó')
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã‘/g, 'Ñ')
+    .replace(/SÃ­/g, 'Sí')
+    .replace(/CatÃ¡logo/g, 'Catálogo')
+    .replace(/ComposiciÃ³n/g, 'Composición')
+    .replace(/LÃ­mite/g, 'Límite')
+    .replace(/MÃ­nimo/g, 'Mínimo')
+    .replace(/Ã­tem/g, 'ítem')
+    .replace(/Ã“rdenes/g, 'Órdenes')
+    .replace(/CÃ³mo/g, 'Cómo')
+    .replace(/DirecciÃ³n/g, 'Dirección')
+    .replace(/AsignaciÃ³n/g, 'Asignación')
+    .replace(/ComisiÃ³n/g, 'Comisión')
+    .replace(/TamaÃ±o/g, 'Tamaño')
+    .replace(/AnÃ¡lisis/g, 'Análisis')
+    .replace(/PerÃ­odo/g, 'Período')
+    .replace(/FacturaciÃ³n/g, 'Facturación')
+    .replace(/liquidaciÃ³n/g, 'liquidación')
+    .replace(/LiquidaciÃ³n/g, 'Liquidación')
+    .replace(/AuditorÃ­a/g, 'Auditoría')
+    .replace(/InstituciÃ³n/g, 'Institución')
+    .replace(/TelÃ©fono/g, 'Teléfono')
+    .replace(/descripciÃ³n/g, 'descripción')
+    .replace(/DescripciÃ³n/g, 'Descripción')
+    .replace(/mÃ¡ximo/g, 'máximo')
+    .replace(/invÃ¡lido/g, 'inválido')
+    .replace(/cargados aÃºn/g, 'cargados aún')
+    .replace(/todavÃ­a/g, 'todavía')
+    .replace(/A sÃ­ mismo/g, 'A sí mismo')
+    .replace(/composiciÃ³n/g, 'composición')
     .trim();
 }
 
@@ -9396,7 +9426,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
   <div className="flex flex-wrap gap-2">
     <Btn onClick={() => setCreateCatalogOpen(true)}>
-      Nuevo Ã­tem
+      Nuevo ítem
     </Btn>
   </div>
 </div>
@@ -9422,7 +9452,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <th className="w-[86px] px-2 py-3 text-left text-[11px] font-medium">Precio $</th>
                         <th className="w-[70px] px-2 py-3 text-left text-[11px] font-medium">Und/serv.</th>
                         <th className="w-[58px] px-2 py-3 text-left text-[11px] font-medium">Detalle</th>
-                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">LÃ­mite</th>
+                        <th className="w-[56px] px-2 py-3 text-left text-[11px] font-medium">Límite</th>
                         <th className="w-[74px] px-2 py-3 text-left text-[11px] font-medium">Comp. combo</th>
                       </tr>
                     </thead>
@@ -9431,7 +9461,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       {filteredCatalogItems.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={12}>
-                            Sin datos de catÃ¡logo cargados aÃºn.
+                            Sin datos de catálogo cargados aún.
                           </td>
                         </tr>
                       ) : (
@@ -9462,7 +9492,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isActive ? (
-                                  <span className="text-emerald-400">SÃ­</span>
+                                  <span className="text-emerald-400">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -9498,7 +9528,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isDetailEditable ? (
-                                  <span className="text-[#FEEF00]">SÃ­</span>
+                                  <span className="text-[#FEEF00]">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -9510,7 +9540,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                               <td className="px-2 py-3 whitespace-nowrap">
                                 {item.isComboComponentSelectable ? (
-                                  <span className="text-emerald-400">SÃ­</span>
+                                  <span className="text-emerald-400">Sí</span>
                                 ) : (
                                   <span className="text-[#8A8A96]">No</span>
                                 )}
@@ -10583,7 +10613,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                         {editIsDetailEditable ? (
                             <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-3 text-sm text-[#B7B7C2]">
-                            <span className="text-[#F5F5F7]">LÃ­mite actual:</span>{' '}
+                            <span className="text-[#F5F5F7]">Límite actual:</span>{' '}
                             {editDetailUnitsLimit || '0'} piezas seleccionables
                             </div>
                         ) : null}
@@ -10606,33 +10636,33 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       label="Descuento inventario"
                       value={
                         selectedCatalogItem.inventoryDeductionMode === 'composition'
-                          ? 'Por composiciÃ³n'
-                          : 'A sÃ­ mismo'
+                          ? 'Por composición'
+                          : 'A sí mismo'
                       }
                     />
-                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'SÃ­' : 'No'} />
-                    <InfoCell label="LÃ­mite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
+                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
+                    <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
                     <InfoCell
                       label="Puede ser comp. combo"
-                      value={selectedCatalogItem.isComboComponentSelectable ? 'SÃ­' : 'No'}
+                      value={selectedCatalogItem.isComboComponentSelectable ? 'Sí' : 'No'}
                     />
                   </div>
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-  <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo descuenta inventario</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">Cómo descuenta inventario</div>
 
   <div className="mt-3 text-sm text-[#B7B7C2]">
     {selectedCatalogItem.inventoryDeductionMode === 'composition'
-      ? 'Este producto descuenta por composiciÃ³n. La venta baja los componentes definidos en su receta.'
-      : 'Este producto descuenta a sÃ­ mismo. La venta bajarÃ¡ el stock de este mismo producto.'}
+      ? 'Este producto descuenta por composición. La venta baja los componentes definidos en su receta.'
+      : 'Este producto descuenta a sí mismo. La venta bajará el stock de este mismo producto.'}
   </div>
 
   {selectedCatalogItem.inventoryDeductionMode === 'composition' ? (
     <div className="mt-3 space-y-2">
       {selectedCatalogComponents.length === 0 ? (
         <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-          No hay componentes cargados todavÃ­a.
+          No hay componentes cargados todavía.
         </div>
       ) : (
         selectedCatalogComponents.map((pc) => (
@@ -10681,30 +10711,30 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
     {selectedCatalogItem.isDetailEditable ? (
       <>
         <div>
-          Este Ã­tem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
+          Este ítem funciona como un <span className="text-[#F5F5F7]">plato configurable</span>.
         </div>
         <div>
-          El asesor puede cargar piezas seleccionables sin superar el lÃ­mite mÃ¡ximo de{' '}
+          El asesor puede cargar piezas seleccionables sin superar el límite máximo de{' '}
           <span className="text-[#F5F5F7]">{selectedCatalogItem.detailUnitsLimit}</span>.
         </div>
         {selectedFixedComponents.length > 0 ? (
           <div>
-            AdemÃ¡s, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
+            Además, este plato tiene <span className="text-[#F5F5F7]">componentes fijos u opcionales</span>.
           </div>
         ) : null}
       </>
     ) : selectedCatalogItem.sku.startsWith('MIX_') ? (
       <div>
-        Este Ã­tem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
+        Este ítem funciona como un <span className="text-[#F5F5F7]">mixto fijo</span> con cantidades cerradas.
       </div>
     ) : selectedCatalogComponents.length > 0 ? (
       <div>
-        Este Ã­tem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
+        Este ítem funciona como un <span className="text-[#F5F5F7]">combo fijo</span>.
         Su receta debe descontar exactamente los componentes definidos abajo.
       </div>
     ) : (
       <div>
-        Este Ã­tem no tiene composiciÃ³n cargada todavÃ­a.
+        Este ítem no tiene composición cargada todavía.
       </div>
     )}
   </div>
@@ -10786,11 +10816,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         hint={
                           editInventoryDeductionMode === 'composition'
                             ? 'Este producto baja stock de un item interno distinto.'
-                            : 'La venta bajarÃ¡ stock de este mismo producto.'
+                            : 'La venta bajará stock de este mismo producto.'
                         }
                         options={[
-                          { value: 'self', label: 'A sÃ­ mismo' },
-                          { value: 'composition', label: 'Por composiciÃ³n' },
+                          { value: 'self', label: 'A sí mismo' },
+                          { value: 'composition', label: 'Por composición' },
                         ]}
                       />
                       <FieldInput
@@ -10805,7 +10835,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         onChange={setEditPackagingName}
                       />
                       <FieldInput
-                        label="TamaÃ±o empaque"
+                        label="Tamaño empaque"
                         value={editPackagingSize}
                         onChange={setEditPackagingSize}
                         type="text"
@@ -10817,7 +10847,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         type="text"
                       />
                       <FieldInput
-                        label="Stock mÃ­nimo"
+                        label="Stock mínimo"
                         value={editLowStockThreshold}
                         onChange={setEditLowStockThreshold}
                         type="text"
