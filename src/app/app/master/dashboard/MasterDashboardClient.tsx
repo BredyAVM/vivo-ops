@@ -11388,39 +11388,24 @@ onClose={() => {
         </div>
       </div>
 
-      {selectedOrder.fulfillment === 'delivery' && selectedOrder.editMeta?.deliveryEtaMinutes ? (
-        <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-          <div className="text-[10px] text-[#8A8A96]">
-            {selectedOrder.status === 'in_kitchen'
-              ? 'Tiempo estimado de preparación'
-              : selectedOrder.status === 'out_for_delivery'
-                ? 'Tiempo estimado en camino'
-                : 'Tiempo estimado registrado'}
-          </div>
-          <div className="mt-1 text-sm text-[#F5F5F7]">
-            {selectedOrder.editMeta.deliveryEtaMinutes} min
-          </div>
-        </div>
-      ) : null}
-
       {selectedOrder.fulfillment === 'delivery' &&
       (selectedOrder.editMeta?.deliveryDistanceKm != null || selectedOrder.editMeta?.deliveryCostUsd != null) ? (
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
             <div className="text-[10px] text-[#8A8A96]">Distancia</div>
-            <div className="mt-1 text-sm text-[#F5F5F7]">
+              <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryDistanceKm != null
                 ? `${selectedOrder.editMeta.deliveryDistanceKm} km`
-                : 'â€”'}
+                : '—'}
             </div>
           </div>
 
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
             <div className="text-[10px] text-[#8A8A96]">Costo delivery</div>
-            <div className="mt-1 text-sm text-[#F5F5F7]">
+              <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.editMeta?.deliveryCostUsd != null
                 ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
-                : 'â€”'}
+                : '—'}
             </div>
             {selectedOrder.editMeta?.deliveryCostSource ? (
               <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
@@ -12029,7 +12014,7 @@ onClick={() => {
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleClearDeliveryAssignment(selectedOrder)}
       >
-        Quitar asignaciÃ³n
+        Quitar asignación
       </button>
     ) : null}
   </>
@@ -12429,7 +12414,7 @@ deliveryAssignMode === 'internal' ? (
         onChange={(e) => setDeliveryAssignDriverId(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">â€” seleccionar â€”</option>
+        <option value="">— seleccionar —</option>
         {drivers.map((d) => (
           <option key={d.id} value={d.id}>
             {d.fullName}
