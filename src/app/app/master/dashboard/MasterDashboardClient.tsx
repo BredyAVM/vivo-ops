@@ -15414,78 +15414,102 @@ deliveryAssignMode === 'external' ? (
 
   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,560px)_minmax(320px,1fr)]">
     <div className="grid grid-cols-1 gap-3">
-      <div className="grid grid-cols-[100px_130px_240px] gap-2">
-        <FieldSelect
-          label="Tipo"
-          value={createOrderFulfillment}
-          onChange={(value) => {
-            const next = value as 'pickup' | 'delivery';
-            setCreateOrderFulfillment(next);
-            if (next === 'delivery' && selectedCreateOrderClientAddresses[0]) {
-              handleApplyClientAddress(selectedCreateOrderClientAddresses[0], 0);
-            }
-          }}
-          options={[
-            { value: 'pickup', label: 'Pickup' },
-            { value: 'delivery', label: 'Delivery' },
-          ]}
-        />
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[230px_1fr]">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+          <FieldSelect
+            label="Tipo"
+            value={createOrderFulfillment}
+            onChange={(value) => {
+              const next = value as 'pickup' | 'delivery';
+              setCreateOrderFulfillment(next);
+              if (next === 'delivery' && selectedCreateOrderClientAddresses[0]) {
+                handleApplyClientAddress(selectedCreateOrderClientAddresses[0], 0);
+              }
+            }}
+            options={[
+              { value: 'pickup', label: 'Pickup' },
+              { value: 'delivery', label: 'Delivery' },
+            ]}
+          />
 
-        <FieldInput
-          label="Fecha"
-          value={createOrderDeliveryDate}
-          onChange={(value) => {
-            setCreateOrderDeliveryDate(value);
-            setCreateOrderIsAsap(false);
-          }}
-          type="date"
-        />
+          <FieldInput
+            label="Fecha"
+            value={createOrderDeliveryDate}
+            onChange={(value) => {
+              setCreateOrderDeliveryDate(value);
+              setCreateOrderIsAsap(false);
+            }}
+            type="date"
+          />
+        </div>
 
-        <div>
-          <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
-          <div className="grid grid-cols-[68px_68px_84px_auto] gap-2">
-            <input
-              value={createOrderDeliveryHour12}
-              onChange={(e) => {
-                setCreateOrderDeliveryHour12(e.target.value);
-                setCreateOrderIsAsap(false);
-              }}
-              type="number"
-              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-            />
-            <input
-              value={createOrderDeliveryMinute}
-              onChange={(e) => {
-                setCreateOrderDeliveryMinute(e.target.value);
-                setCreateOrderIsAsap(false);
-              }}
-              type="number"
-              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-            />
-            <select
-              value={createOrderDeliveryAmPm}
-              onChange={(e) => {
-                setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
-                setCreateOrderIsAsap(false);
-              }}
-              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-            >
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
-            </select>
-            <button
-              type="button"
-              onClick={applyCreateOrderAsap}
-              className={[
-                'rounded-xl border px-3 py-2 text-xs font-medium transition',
-                createOrderIsAsap
-                  ? 'border-red-500/50 bg-red-500/10 text-red-300'
-                  : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
-              ].join(' ')}
-            >
-              Lo antes posible
-            </button>
+        <div className="grid grid-cols-1 gap-2">
+          <div>
+            <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
+            <div className="grid grid-cols-[minmax(0,72px)_minmax(0,72px)_minmax(0,88px)_minmax(0,1fr)] gap-2">
+              <input
+                value={createOrderDeliveryHour12}
+                onChange={(e) => {
+                  setCreateOrderDeliveryHour12(e.target.value);
+                  setCreateOrderIsAsap(false);
+                }}
+                type="number"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              />
+              <input
+                value={createOrderDeliveryMinute}
+                onChange={(e) => {
+                  setCreateOrderDeliveryMinute(e.target.value);
+                  setCreateOrderIsAsap(false);
+                }}
+                type="number"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              />
+              <select
+                value={createOrderDeliveryAmPm}
+                onChange={(e) => {
+                  setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
+                  setCreateOrderIsAsap(false);
+                }}
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              >
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+              <button
+                type="button"
+                onClick={applyCreateOrderAsap}
+                className={[
+                  'rounded-xl border px-3 py-2 text-xs font-medium transition',
+                  createOrderIsAsap
+                    ? 'border-red-500/50 bg-red-500/10 text-red-300'
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                ].join(' ')}
+              >
+                Lo antes posible
+              </button>
+            </div>
           </div>
+
+          {createOrderFulfillment === 'delivery' && selectedCreateOrderClientAddresses.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {selectedCreateOrderClientAddresses.map((address, idx) => (
+                <button
+                  key={`${address.addressText}-${idx}`}
+                  type="button"
+                  onClick={() => handleApplyClientAddress(address, idx)}
+                  className={[
+                    'rounded-xl border px-3 py-1.5 text-xs transition',
+                    createOrderSelectedAddressIndex === idx
+                      ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                  ].join(' ')}
+                >
+                  Dirección {idx + 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -15526,25 +15550,6 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 min-w-0">
       {createOrderFulfillment === 'delivery' ? (
         <div className="min-w-0">
-          {selectedCreateOrderClientAddresses.length > 0 ? (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {selectedCreateOrderClientAddresses.map((address, idx) => (
-                <button
-                  key={`${address.addressText}-${idx}`}
-                  type="button"
-                  onClick={() => handleApplyClientAddress(address, idx)}
-                  className={[
-                    'rounded-xl border px-3 py-1.5 text-xs transition',
-                    createOrderSelectedAddressIndex === idx
-                      ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
-                  ].join(' ')}
-                >
-                  Dirección {idx + 1}
-                </button>
-              ))}
-            </div>
-          ) : null}
           <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
           <textarea
             value={createOrderDeliveryAddress}
