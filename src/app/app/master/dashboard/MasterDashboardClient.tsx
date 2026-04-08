@@ -14894,46 +14894,36 @@ deliveryAssignMode === 'external' ? (
 
           {createOrderSelectedClientId ? (
             <div className="rounded-xl border border-emerald-500/40 bg-[#0B0B0D] px-3 py-2 text-sm">
-              <div className="font-medium text-emerald-400">
-                {createOrderSelectedClientName}
-              </div>
-              <div className="mt-1 text-[#B7B7C2]">
-                Tel: {createOrderSelectedClientPhone || '—'}
-              </div>
-              <div className="mt-1 text-[#B7B7C2]">
-                Tipo: {createOrderSelectedClientType || '—'}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-emerald-400">
+                    {createOrderSelectedClientName}
+                  </div>
+                  <div className="mt-1 text-[#B7B7C2]">
+                    Tel: {createOrderSelectedClientPhone || '—'}
+                  </div>
+                </div>
+                <div className="min-w-0 text-[#B7B7C2]">
+                  <div className="truncate">Tipo: {createOrderSelectedClientType || '—'}</div>
+                  <div className="mt-1">
+                    Fondo:{' '}
+                    <span className="text-[#F5F5F7]">
+                      {createOrderClientFundAvailableUsd > 0.005
+                        ? fmtUSD(createOrderClientFundAvailableUsd)
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           ) : null}
 
           {createOrderSelectedClientId && selectedCreateOrderClient ? (
             <div className="mt-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
-              <div className="mb-2">
-                Fondo disponible:{' '}
-                <span className="font-medium text-[#F5F5F7]">
-                  {createOrderClientFundAvailableUsd > 0.005
-                    ? fmtUSD(createOrderClientFundAvailableUsd)
-                    : '—'}
-                </span>
-              </div>
               {normalizeClientTags(selectedCreateOrderClient.crmTags).length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {normalizeClientTags(selectedCreateOrderClient.crmTags).slice(0, 5).map((tag) => (
                     <SmallBadge key={tag} label={tag} tone="muted" />
-                  ))}
-                </div>
-              ) : null}
-              {normalizeClientAddresses(selectedCreateOrderClient.recentAddresses).length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {normalizeClientAddresses(selectedCreateOrderClient.recentAddresses).map((address, idx) => (
-                    <button
-                      key={`${selectedCreateOrderClient.id}-${idx}`}
-                      type="button"
-                      onClick={() => handleApplyClientAddress(address)}
-                      className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-[11px] text-[#F5F5F7]"
-                    >
-                      Usar dirección {idx + 1}
-                    </button>
                   ))}
                 </div>
               ) : null}
@@ -15186,16 +15176,16 @@ deliveryAssignMode === 'external' ? (
             {createOrderDraftItems.map((item, idx) => (
               <div
                 key={item.localId}
-                className="grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-[40px_1fr_90px_110px_110px_auto]"
+                className="grid grid-cols-1 gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-2.5 md:grid-cols-[28px_1fr_78px_96px_96px_auto]"
               >
-                <div className="text-sm text-[#B7B7C2]">{idx + 1}</div>
+                <div className="text-[12px] text-[#8A8A96]">{idx + 1}</div>
 
 <div>
-  <div className="text-sm font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
-  <div className="mt-1 text-xs text-[#8A8A96]">{item.skuSnapshot || 'â€”'}</div>
+  <div className="text-[13px] font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
+  <div className="mt-0.5 text-[11px] text-[#8A8A96]">{item.skuSnapshot || '—'}</div>
 
   {item.editableDetailLines.length > 0 ? (
-    <div className="mt-2 space-y-1 text-xs text-[#B7B7C2]">
+    <div className="mt-1.5 space-y-0.5 text-[11px] text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
         <div key={detailIdx}>• {detail}</div>
       ))}
@@ -15216,8 +15206,8 @@ deliveryAssignMode === 'external' ? (
 />
 
 <div>
-  <label className="mb-1 block text-xs text-[#8A8A96]">P/U</label>
-  <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]">
+  <label className="mb-1 block text-[11px] text-[#8A8A96]">P/U</label>
+  <div className="rounded-xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-[13px] text-[#F5F5F7]">
     {item.adminPriceOverrideUsd != null ? (
       <div>
         <div>{fmtUSD(item.adminPriceOverrideUsd)}</div>
@@ -15232,19 +15222,20 @@ deliveryAssignMode === 'external' ? (
 </div>
 
 <div>
-  <label className="mb-1 block text-xs text-[#8A8A96]">Total</label>
-  <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]">
+  <label className="mb-1 block text-[11px] text-[#8A8A96]">Total</label>
+  <div className="rounded-xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-[13px] text-[#F5F5F7]">
     {fmtUSD(item.lineTotalUsd)}
   </div>
 </div>
 
 <div className="flex items-end">
-  <div className="flex w-full gap-2">
+  <div className="flex w-full flex-wrap gap-1.5">
     {item.editableDetailLines.length > 0 ? (
       <button
         type="button"
         onClick={() => openEditCreateOrderConfig(item)}
-        className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
+        className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px] text-[#F5F5F7]"
+        title="Editar"
       >
         Editar
       </button>
@@ -15254,9 +15245,10 @@ deliveryAssignMode === 'external' ? (
       <button
         type="button"
         onClick={() => openAdjustCreateOrderItemPrice(item)}
-        className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
+        className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px] text-[#F5F5F7]"
+        title={item.adminPriceOverrideUsd != null ? 'Ajuste admin' : 'Ajustar precio'}
       >
-        {item.adminPriceOverrideUsd != null ? 'Ajuste admin' : 'Ajustar precio'}
+        {item.adminPriceOverrideUsd != null ? 'Ajuste' : 'Precio'}
       </button>
     ) : null}
 
@@ -15264,16 +15256,18 @@ deliveryAssignMode === 'external' ? (
       <button
         type="button"
         onClick={() => handleClearAdjustedCreateOrderItemPrice(item.localId)}
-        className="w-full rounded-xl border border-orange-500 bg-[#0B0B0D] px-3 py-2 text-sm text-orange-400"
+        className="rounded-lg border border-orange-500 bg-[#0B0B0D] px-2 py-1 text-[11px] text-orange-400"
+        title="Limpiar ajuste"
       >
-        Limpiar ajuste
+        Limpiar
       </button>
     ) : null}
 
     <button
       type="button"
       onClick={() => handleRemoveCreateOrderItem(item.localId)}
-      className="w-full rounded-xl border border-red-500 bg-[#0B0B0D] px-3 py-2 text-sm text-red-400"
+      className="rounded-lg border border-red-500 bg-[#0B0B0D] px-2 py-1 text-[11px] text-red-400"
+      title="Quitar"
     >
       Quitar
     </button>
