@@ -15446,7 +15446,7 @@ deliveryAssignMode === 'external' ? (
         <div className="grid grid-cols-1 gap-2">
           <div>
             <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
-            <div className="grid grid-cols-[56px_56px_72px_minmax(0,132px)] gap-2">
+            <div className="grid grid-cols-[84px_84px_108px] gap-2">
               <input
                 value={createOrderDeliveryHour12}
                 onChange={(e) => {
@@ -15456,7 +15456,7 @@ deliveryAssignMode === 'external' ? (
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[13px] text-[#F5F5F7]"
+                className="h-[56px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 text-[13px] text-[#F5F5F7]"
               />
               <input
                 value={createOrderDeliveryMinute}
@@ -15467,7 +15467,7 @@ deliveryAssignMode === 'external' ? (
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[13px] text-[#F5F5F7]"
+                className="h-[56px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 text-[13px] text-[#F5F5F7]"
               />
               <select
                 value={createOrderDeliveryAmPm}
@@ -15475,25 +15475,28 @@ deliveryAssignMode === 'external' ? (
                   setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
                   setCreateOrderIsAsap(false);
                 }}
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[13px] text-[#F5F5F7]"
+                className="h-[56px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 text-[13px] text-[#F5F5F7]"
               >
                 <option value="AM">AM</option>
                 <option value="PM">PM</option>
               </select>
-              <button
-                type="button"
-                onClick={applyCreateOrderAsap}
-                className={[
-                  'rounded-xl border px-2.5 py-2 text-[11px] font-medium leading-tight transition',
-                  createOrderIsAsap
-                    ? 'border-red-500/50 bg-red-500/10 text-red-300'
-                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
-                ].join(' ')}
-              >
-                Lo antes posible
-              </button>
             </div>
           </div>
+
+          <label className="flex items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={createOrderIsAsap}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  applyCreateOrderAsap();
+                } else {
+                  setCreateOrderIsAsap(false);
+                }
+              }}
+            />
+            Lo antes posible
+          </label>
 
           {createOrderFulfillment === 'delivery' && selectedCreateOrderClientAddresses.length > 0 ? (
             <div className="flex flex-wrap gap-2">
