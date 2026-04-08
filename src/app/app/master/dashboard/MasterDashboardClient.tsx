@@ -225,6 +225,7 @@ type OrderEditMeta = {
   receiverPhone: string | null;
   deliveryGpsUrl: string | null;
   deliveryEtaMinutes: number | null;
+  deliveryEtaRecordedAtISO: string | null;
   deliveryDistanceKm: number | null;
   deliveryCostUsd: number | null;
   deliveryCostSource: string | null;
@@ -266,6 +267,9 @@ type Order = {
   id: number;
   orderNumber: string;
   createdAtISO: string;
+  sentToKitchenAtISO?: string | null;
+  kitchenStartedAtISO?: string | null;
+  readyAtISO?: string | null;
   deliveryAtISO: string;
   source: 'advisor' | 'master' | 'walk_in';
   clientId: number | null;
@@ -1327,6 +1331,108 @@ function getProcessStepTone(stepKey: string, currentKey: string, cancelled: bool
   return 'future';
 }
 
+type ProcessAlertLevel = 'normal' | 'warning' | 'danger';
+
+function parseIsoMs(iso?: string | null) {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: number): ProcessAlertLevel {
+  if (order.status === 'cancelled' || order.status === 'delivered') return 'normal';
+
+  const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
+  const minutesUntilDelivery =
+    deliveryDueMs != null ? (deliveryDueMs - nowMs) / 60000 : null;
+
+  if (currentKey === 'created' && minutesUntilDelivery != null) {
+    if (minutesUntilDelivery <= 0) return 'danger';
+    if (minutesUntilDelivery <= 30) return 'warning';
+  }
+
+  if (currentKey === 'queued' && minutesUntilDelivery != null) {
+    if (minutesUntilDelivery <= 0) return 'danger';
+    if (minutesUntilDelivery <= 30) return 'danger';
+  }
+
+  if (currentKey === 'confirmed') {
+    if (order.status === 'confirmed') {
+      const sentToKitchenMs = parseIsoMs(order.sentToKitchenAtISO);
+      if (sentToKitchenMs != null && nowMs - sentToKitchenMs >= 5 * 60 * 1000) {
+        return 'danger';
+      }
+    }
+
+    if (order.status === 'in_kitchen') {
+      const kitchenStartedMs = parseIsoMs(order.kitchenStartedAtISO);
+      const kitchenEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+      if (
+        kitchenStartedMs != null &&
+        Number.isFinite(kitchenEtaMinutes) &&
+        kitchenEtaMinutes > 0 &&
+        nowMs - kitchenStartedMs >= kitchenEtaMinutes * 60 * 1000
+      ) {
+        return 'danger';
+      }
+    }
+  }
+
+  if (currentKey === 'out_for_delivery' && order.status === 'out_for_delivery') {
+    const deliveryStartedMs =
+      parseIsoMs(order.editMeta.deliveryEtaRecordedAtISO) ?? parseIsoMs(order.readyAtISO);
+    const deliveryEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+    if (
+      deliveryStartedMs != null &&
+      Number.isFinite(deliveryEtaMinutes) &&
+      deliveryEtaMinutes > 0 &&
+      nowMs - deliveryStartedMs >= deliveryEtaMinutes * 60 * 1000
+    ) {
+      return 'danger';
+    }
+  }
+
+  return 'normal';
+}
+
+function getProcessVisualClasses(tone: string, alertLevel: ProcessAlertLevel) {
+  if (alertLevel === 'danger') {
+    return {
+      dotClass: 'bg-red-500 border-red-500',
+      textClass: 'text-red-400',
+      lineClass: 'bg-red-500/50',
+    };
+  }
+
+  if (alertLevel === 'warning') {
+    return {
+      dotClass: 'bg-orange-400 border-orange-400',
+      textClass: 'text-orange-300',
+      lineClass: 'bg-orange-400/40',
+    };
+  }
+
+  return {
+    dotClass:
+      tone === 'done'
+        ? 'bg-emerald-500 border-emerald-500'
+        : tone === 'current'
+          ? 'bg-[#FEEF00] border-[#FEEF00]'
+          : tone === 'current-cancelled'
+            ? 'bg-red-500 border-red-500'
+            : 'bg-[#191926] border-[#2A2A38]',
+    textClass:
+      tone === 'done'
+        ? 'text-emerald-400'
+        : tone === 'current'
+          ? 'text-[#FEEF00]'
+          : tone === 'current-cancelled'
+            ? 'text-red-400'
+            : 'text-[#6F6F7C]',
+    lineClass: tone === 'done' ? 'bg-emerald-500/60' : 'bg-[#242433]',
+  };
+}
+
 function getNextPrimaryActionLabel(o: Order) {
   if (canSendToKitchen(o)) return 'Enviar a cocina';
   if (canKitchenTake(o)) return 'Tomar en cocina';
@@ -1340,52 +1446,34 @@ function getNextPrimaryActionLabel(o: Order) {
   return 'Sin acción principal';
 }
 
-function ProcessTimeline({ order }: { order: Order }) {
+function ProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
   const steps = getProcessSteps(order);
   const currentKey = getProcessCurrentKey(order);
   const orderedKeys = steps.map((s) => s.key);
   const cancelled = order.status === 'cancelled';
+  const alertLevel = getCurrentProcessAlertLevel(order, currentKey, nowMs);
 
   return (
     <div className="rounded-lg border border-[#1D1D28] bg-[#101014] px-2.5 py-2">
       <div className="flex items-center gap-1.5">
         {steps.map((step, idx) => {
           const tone = getProcessStepTone(step.key, currentKey, cancelled, orderedKeys);
-
-          const dotClass =
-            tone === 'done'
-              ? 'bg-emerald-500 border-emerald-500'
-              : tone === 'current'
-                ? 'bg-[#FEEF00] border-[#FEEF00]'
-                : tone === 'current-cancelled'
-                  ? 'bg-red-500 border-red-500'
-                  : 'bg-[#191926] border-[#2A2A38]';
-
-          const textClass =
-            tone === 'done'
-              ? 'text-emerald-400'
-              : tone === 'current'
-                ? 'text-[#FEEF00]'
-                : tone === 'current-cancelled'
-                  ? 'text-red-400'
-                  : 'text-[#6F6F7C]';
-
-          const lineClass =
-            tone === 'done'
-              ? 'bg-emerald-500/60'
-              : 'bg-[#242433]';
+          const visual = getProcessVisualClasses(
+            tone,
+            !cancelled && step.key === currentKey ? alertLevel : 'normal'
+          );
 
           return (
             <div key={step.key} className="flex min-w-0 flex-1 items-center">
               <div className="flex min-w-0 items-center gap-1">
-                <div className={`h-2 w-2 shrink-0 rounded-full border ${dotClass}`} />
-                <div className={`truncate text-[10px] leading-none ${textClass}`}>
+                <div className={`h-2 w-2 shrink-0 rounded-full border ${visual.dotClass}`} />
+                <div className={`truncate text-[10px] leading-none ${visual.textClass}`}>
                   {step.label}
                 </div>
               </div>
 
               {idx < steps.length - 1 ? (
-                <div className={`mx-1 h-[1px] flex-1 rounded-full ${lineClass}`} />
+                <div className={`mx-1 h-[1px] flex-1 rounded-full ${visual.lineClass}`} />
               ) : null}
             </div>
           );
@@ -1395,11 +1483,12 @@ function ProcessTimeline({ order }: { order: Order }) {
   );
 }
 
-function RowProcessTimeline({ order }: { order: Order }) {
+function RowProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
   const steps = getProcessSteps(order);
   const currentKey = getProcessCurrentKey(order);
   const orderedKeys = steps.map((s) => s.key);
   const cancelled = order.status === 'cancelled';
+  const alertLevel = getCurrentProcessAlertLevel(order, currentKey, nowMs);
   const hasDriverAssigned = Boolean(order.riderName?.trim() || order.externalPartner?.trim());
   const needsDriverUrgent =
     order.fulfillment === 'delivery' &&
@@ -1419,34 +1508,18 @@ function RowProcessTimeline({ order }: { order: Order }) {
       <div className="flex items-center gap-1">
         {steps.map((step, idx) => {
           const tone = getProcessStepTone(step.key, currentKey, cancelled, orderedKeys);
-
-          const dotClass =
-            tone === 'done'
-              ? 'bg-emerald-500 border-emerald-500'
-              : tone === 'current'
-                ? 'bg-[#FEEF00] border-[#FEEF00]'
-                : tone === 'current-cancelled'
-                  ? 'bg-red-500 border-red-500'
-                  : 'bg-[#191926] border-[#2A2A38]';
-
-          const textClass =
-            tone === 'done'
-              ? 'text-emerald-400'
-              : tone === 'current'
-                ? 'text-[#FEEF00]'
-                : tone === 'current-cancelled'
-                  ? 'text-red-400'
-                  : 'text-[#6F6F7C]';
-
-          const lineClass = tone === 'done' ? 'bg-emerald-500/60' : 'bg-[#242433]';
+          const visual = getProcessVisualClasses(
+            tone,
+            !cancelled && step.key === currentKey ? alertLevel : 'normal'
+          );
 
           return (
             <div key={step.key} className="flex min-w-0 flex-1 items-center">
               <div className="flex min-w-0 items-center gap-1">
-                <div className={`h-1.5 w-1.5 shrink-0 rounded-full border ${dotClass}`} />
-                <div className={`truncate text-[10px] leading-none ${textClass}`}>{step.label}</div>
+                <div className={`h-1.5 w-1.5 shrink-0 rounded-full border ${visual.dotClass}`} />
+                <div className={`truncate text-[10px] leading-none ${visual.textClass}`}>{step.label}</div>
               </div>
-              {idx < steps.length - 1 ? <div className={`mx-1 h-[1px] flex-1 rounded-full ${lineClass}`} /> : null}
+              {idx < steps.length - 1 ? <div className={`mx-1 h-[1px] flex-1 rounded-full ${visual.lineClass}`} /> : null}
             </div>
           );
         })}
@@ -2336,6 +2409,15 @@ const [newInventoryDeductionMode, setNewInventoryDeductionMode] = useState<'self
     setSelectedDay(new Date(today.getTime()));
     setIsMounted(true);
   }, [searchParams.toString()]);
+
+  const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const tick = () => setCurrentTimeMs(Date.now());
+    tick();
+    const intervalId = window.setInterval(tick, 60 * 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const createOrderProductSearchRef = useRef<HTMLInputElement | null>(null);
   const createOrderQtyRef = useRef<HTMLInputElement | null>(null);
@@ -8099,7 +8181,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             {fmtUSD(o.balanceUsd)}
                           </td>
                           <td className="px-2 py-2 min-w-[420px]">
-                            <RowProcessTimeline order={o} />
+                            <RowProcessTimeline order={o} nowMs={currentTimeMs} />
                           </td>
                         </tr>
                       );
@@ -10917,7 +10999,7 @@ onClose={() => {
   </div>
 </div>
 
-<ProcessTimeline order={selectedOrder} />
+<ProcessTimeline order={selectedOrder} nowMs={currentTimeMs} />
 
 <NextActionCard
   order={selectedOrder}

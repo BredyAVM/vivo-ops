@@ -23,6 +23,9 @@ type RawOrderRow = {
   total_usd: number | string;
   notes: string | null;
   created_at: string;
+  sent_to_kitchen_at: string | null;
+  kitchen_started_at: string | null;
+  ready_at: string | null;
   extra_fields: any;
   queued_needs_reapproval: boolean;
   external_driver_name: string | null;
@@ -629,6 +632,9 @@ const { data: ordersData, error: ordersError } = await supabase
       total_bs_snapshot,
       notes,
       created_at,
+      sent_to_kitchen_at,
+      kitchen_started_at,
+      ready_at,
       extra_fields,
       queued_needs_reapproval,
       external_driver_name,
@@ -1765,6 +1771,9 @@ return {
   id: row.id,
   orderNumber: row.order_number,
   createdAtISO: row.created_at,
+  sentToKitchenAtISO: row.sent_to_kitchen_at ?? null,
+  kitchenStartedAtISO: row.kitchen_started_at ?? null,
+  readyAtISO: row.ready_at ?? null,
   deliveryAtISO,
   source: row.source,
   clientId: row.client_id ?? null,
@@ -1807,6 +1816,10 @@ return {
             : row.eta_minutes != null
               ? toNumber(row.eta_minutes, 0)
               : null,
+        deliveryEtaRecordedAtISO:
+          row.extra_fields?.delivery?.eta_recorded_at != null
+            ? String(row.extra_fields.delivery.eta_recorded_at)
+            : null,
         deliveryDistanceKm:
           row.extra_fields?.delivery?.distance_km != null
             ? toNumber(row.extra_fields.delivery.distance_km, 0)
