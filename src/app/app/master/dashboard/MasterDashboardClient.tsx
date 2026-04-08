@@ -2521,6 +2521,23 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return { porConfirmar, confirmados, rechazados };
   }, [weekOrders]);
 
+  const deliveryStats = useMemo(() => {
+    const activeDeliveryOrders = dayOrders.filter(
+      (order) => order.fulfillment === 'delivery' && !['delivered', 'cancelled'].includes(order.status)
+    );
+    const internos = activeDeliveryOrders.filter((order) => Boolean(order.riderName?.trim())).length;
+    const externos = activeDeliveryOrders.filter((order) => Boolean(order.externalPartner?.trim())).length;
+    return { internos, externos };
+  }, [dayOrders]);
+
+  const kitchenStats = useMemo(() => {
+    const pendientesToma = dayOrders.filter((order) => order.status === 'confirmed').length;
+    const enPreparacion = dayOrders.filter((order) => order.status === 'in_kitchen').length;
+    const preparados = dayOrders.filter((order) => order.status === 'ready').length;
+    const totalEnCocina = pendientesToma + enPreparacion + preparados;
+    return { totalEnCocina, pendientesToma, enPreparacion, preparados };
+  }, [dayOrders]);
+
   const paymentBuckets = useMemo(() => {
     const byDeliveryTime = (a: Order, b: Order) =>
       new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
@@ -7612,7 +7629,41 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Tareas urgentes" className="col-span-12 md:col-span-6 xl:col-span-3">
+            <Card title="Deliveries" className="col-span-12 md:col-span-6 xl:col-span-2">
+              <div className="space-y-1.5 text-[13px]">
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Internos</span>
+                  <span className="font-semibold text-[#7FE7C4]">{deliveryStats.internos}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Externos</span>
+                  <span className="font-semibold text-[#F5F5F7]">{deliveryStats.externos}</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Cocina" className="col-span-12 md:col-span-6 xl:col-span-2">
+              <div className="space-y-1.5 text-[13px]">
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">En cocina</span>
+                  <span className="font-semibold text-[#F5F5F7]">{kitchenStats.totalEnCocina}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Por tomar</span>
+                  <span className="font-semibold text-orange-400">{kitchenStats.pendientesToma}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Preparando</span>
+                  <span className="font-semibold text-[#7FE7C4]">{kitchenStats.enPreparacion}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                  <span className="text-[#B7B7C2]">Preparados</span>
+                  <span className="font-semibold text-[#FEEF00]">{kitchenStats.preparados}</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Tareas urgentes" className="col-span-12 md:col-span-6 xl:col-span-2">
               <div className="hidden">
               <StatRow label="Aprobar" value={approvalsStats.porAprobar} highlightTone="brand" />
               <StatRow label="Reaprobar" value={approvalsStats.reaprobar} highlightTone="warn" />
@@ -7699,7 +7750,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Productos comprometidos" className="col-span-12 xl:col-span-3">
+            <Card title="Productos comprometidos" className="col-span-12 xl:col-span-4">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
