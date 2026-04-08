@@ -1400,6 +1400,11 @@ function RowProcessTimeline({ order }: { order: Order }) {
   const currentKey = getProcessCurrentKey(order);
   const orderedKeys = steps.map((s) => s.key);
   const cancelled = order.status === 'cancelled';
+  const hasDriverAssigned = Boolean(order.riderName?.trim() || order.externalPartner?.trim());
+  const needsDriverUrgent =
+    order.fulfillment === 'delivery' &&
+    !hasDriverAssigned &&
+    ['confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(order.status);
   const assignmentLabel =
     order.fulfillment !== 'delivery'
       ? 'Pickup'
@@ -1446,7 +1451,12 @@ function RowProcessTimeline({ order }: { order: Order }) {
           );
         })}
       </div>
-      <div className="text-[10px] text-[#8A8A96]">
+      <div
+        className={[
+          'text-[10px]',
+          needsDriverUrgent ? 'font-semibold text-red-400' : 'text-[#8A8A96]',
+        ].join(' ')}
+      >
         {order.fulfillment === 'delivery' ? assignmentLabel : 'Retiro en local'}
       </div>
     </div>
