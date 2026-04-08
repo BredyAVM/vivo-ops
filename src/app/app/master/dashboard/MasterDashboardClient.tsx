@@ -11363,20 +11363,20 @@ onClose={() => {
       {selectedOrder.fulfillment === 'delivery' ? (
         <>
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">DirecciÃ³n</div>
+            <div className="text-[10px] text-[#8A8A96]">Dirección</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
-              {selectedOrder.address || 'â€”'}
+              {repairDisplayText(selectedOrder.address) || '—'}
             </div>
           </div>
 
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-            <div className="text-[10px] text-[#8A8A96]">AsignaciÃ³n actual</div>
+            <div className="text-[10px] text-[#8A8A96]">Asignación actual</div>
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {selectedOrder.riderName
                 ? `Interno: ${selectedOrder.riderName}`
                 : selectedOrder.externalPartner
                   ? `Externo: ${selectedOrder.externalPartner}`
-                  : 'Sin asignaciÃ³n'}
+                  : 'Sin asignación'}
             </div>
           </div>
         </>
@@ -11540,10 +11540,10 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {rp.currencyCode} {rp.amount.toFixed(2)} Â· {fmtUSD(rp.usdEquivalent)}
+                    {rp.currencyCode} {rp.amount.toFixed(2)} · {fmtUSD(rp.usdEquivalent)}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {rp.moneyAccountName} Â· {fmtDateTimeES(rp.createdAt)}
+                    {repairDisplayText(rp.moneyAccountName)} · {fmtDateTimeES(rp.createdAt)}
                   </div>
                 </div>
 
@@ -11573,17 +11573,17 @@ onClose={() => {
 
                 <div>
                   <span className="text-[#8A8A96]">Referencia:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.referenceCode || 'â€”'}</span>
+                  <span className="text-[#F5F5F7]">{repairDisplayText(rp.referenceCode) || '—'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Pagador:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.payerName || 'â€”'}</span>
+                  <span className="text-[#F5F5F7]">{repairDisplayText(rp.payerName) || '—'}</span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8A96]">Tasa:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : 'â€”'}</span>
+                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '—'}</span>
                 </div>
               </div>
 
@@ -11625,10 +11625,10 @@ onClose={() => {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-[#F5F5F7]">
-                      Cambio entregado Â· {movement.currencyCode} {movement.amount.toFixed(2)} Â· {fmtUSD(movement.amountUsdEquivalent)}
+                      Cambio entregado · {movement.currencyCode} {movement.amount.toFixed(2)} · {fmtUSD(movement.amountUsdEquivalent)}
                     </div>
                     <div className="mt-1 text-[11px] text-[#8A8A96]">
-                      {(movementAccount?.name || 'Cuenta') + ' Â· ' + fmtDateTimeES(movement.confirmedAt || movement.createdAt)}
+                      {`${repairDisplayText(movementAccount?.name || 'Cuenta')} · ${fmtDateTimeES(movement.confirmedAt || movement.createdAt)}`}
                     </div>
                   </div>
 
@@ -11640,7 +11640,7 @@ onClose={() => {
                 <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-[#B7B7C2] sm:grid-cols-2">
                   <div>
                     <span className="text-[#8A8A96]">Cuenta:</span>{' '}
-                    <span className="text-[#F5F5F7]">{movementAccount?.name || 'â€”'}</span>
+                    <span className="text-[#F5F5F7]">{repairDisplayText(movementAccount?.name) || '—'}</span>
                   </div>
 
                   <div>
@@ -11651,13 +11651,13 @@ onClose={() => {
                   <div>
                     <span className="text-[#8A8A96]">Tasa:</span>{' '}
                     <span className="text-[#F5F5F7]">
-                      {movement.exchangeRateVesPerUsd != null ? movement.exchangeRateVesPerUsd : 'â€”'}
+                      {movement.exchangeRateVesPerUsd != null ? movement.exchangeRateVesPerUsd : '—'}
                     </span>
                   </div>
 
                   <div>
-                    <span className="text-[#8A8A96]">DescripciÃ³n:</span>{' '}
-                    <span className="text-[#F5F5F7]">{movement.description || 'Cambio entregado'}</span>
+                    <span className="text-[#8A8A96]">Descripción:</span>{' '}
+                    <span className="text-[#F5F5F7]">{repairDisplayText(movement.description) || 'Cambio entregado'}</span>
                   </div>
                 </div>
 
@@ -11680,7 +11680,7 @@ onClose={() => {
   <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
     <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-      {selectedOrder.notes?.trim() ? selectedOrder.notes : 'â€”'}
+      {selectedOrder.notes?.trim() ? repairDisplayText(selectedOrder.notes) : '—'}
     </div>
   </div>
 ) : null}
@@ -11981,7 +11981,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         }}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">â€” cuenta â€”</option>
+        <option value="">— cuenta —</option>
         {moneyAccounts.filter((a) => a.isActive).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name} ({a.currencyCode})
@@ -16062,13 +16062,13 @@ deliveryAssignMode === 'external' ? (
         {createOrderHasDeliveryAddress ? 'Entrega válida' : 'Falta dirección de delivery'}
       </div>
       <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryChargeItem ? 'Ãtem de delivery cargado' : 'Falta producto de delivery'}
+        {createOrderHasDeliveryChargeItem ? 'Ítem de delivery cargado' : 'Falta producto de delivery'}
       </div>
     </div>
 
 {orderEditorMode === 'edit' && selectedOrder?.status === 'queued' ? (
   <div className="rounded-xl border border-orange-500/40 bg-[#0B0B0D] p-3 text-sm text-orange-400">
-    Esta ediciÃ³n marcarÃ¡ la orden para <span className="font-semibold">re-aprobaciÃ³n</span>.
+    Esta edición marcará la orden para <span className="font-semibold">re-aprobación</span>.
   </div>
 ) : null}
 
