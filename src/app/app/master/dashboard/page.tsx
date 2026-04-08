@@ -1846,6 +1846,10 @@ return {
           row.extra_fields?.delivery?.eta_recorded_at != null
             ? String(row.extra_fields.delivery.eta_recorded_at)
             : null,
+        deliveryCompletedAtISO:
+          row.extra_fields?.delivery?.completed_at != null
+            ? String(row.extra_fields.delivery.completed_at)
+            : null,
         deliveryDistanceKm:
           row.extra_fields?.delivery?.distance_km != null
             ? toNumber(row.extra_fields.delivery.distance_km, 0)

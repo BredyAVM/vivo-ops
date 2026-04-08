@@ -1226,11 +1226,54 @@ export async function markDeliveredAction(input: {
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
+  let existingExtraFields: Record<string, unknown> = {};
+
+  const { data: orderRow, error: orderError } = await supabase
+    .from('orders')
+    .select('extra_fields')
+    .eq('id', input.orderId)
+    .single();
+
+  if (orderError) throw new Error(orderError.message);
+
+  if (
+    orderRow?.extra_fields &&
+    typeof orderRow.extra_fields === 'object' &&
+    !Array.isArray(orderRow.extra_fields)
+  ) {
+    existingExtraFields = orderRow.extra_fields as Record<string, unknown>;
+  }
+
   const { error } = await supabase.rpc('mark_delivered', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+
+  const currentDelivery =
+    existingExtraFields.delivery &&
+    typeof existingExtraFields.delivery === 'object' &&
+    !Array.isArray(existingExtraFields.delivery)
+      ? (existingExtraFields.delivery as Record<string, unknown>)
+      : {};
+
+  const nextExtraFields = {
+    ...existingExtraFields,
+    delivery: {
+      ...currentDelivery,
+      completed_at: new Date().toISOString(),
+    },
+  };
+
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({
+      extra_fields: nextExtraFields,
+    })
+    .eq('id', input.orderId);
+
+  if (updateError) throw new Error(updateError.message);
+
   await applyDeliveredOrderInventoryDeductions(supabase, user.id, input.orderId);
   revalidatePath('/app/master/dashboard');
 }

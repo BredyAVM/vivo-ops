@@ -229,6 +229,7 @@ type OrderEditMeta = {
   deliveryGpsUrl: string | null;
   deliveryEtaMinutes: number | null;
   deliveryEtaRecordedAtISO: string | null;
+  deliveryCompletedAtISO: string | null;
   deliveryDistanceKm: number | null;
   deliveryCostUsd: number | null;
   deliveryCostSource: string | null;
@@ -1549,6 +1550,55 @@ function getDeliveryTimingSummary(order: Order, nowMs: number) {
     label: 'Estado de tiempo',
     value: isLate ? 'Retrasado' : 'Va a tiempo',
     tone: isLate ? ('danger' as const) : ('ok' as const),
+  };
+}
+
+function getDeliveryCompletionSummary(order: Order) {
+  const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
+  const readyMs = parseIsoMs(order.readyAtISO);
+  const completedMs = parseIsoMs(order.editMeta.deliveryCompletedAtISO);
+
+  const pickupOnTime =
+    order.fulfillment === 'pickup' &&
+    readyMs != null &&
+    deliveryDueMs != null &&
+    readyMs <= deliveryDueMs;
+
+  const deliveryOnTime =
+    order.fulfillment === 'delivery' &&
+    completedMs != null &&
+    deliveryDueMs != null &&
+    completedMs <= deliveryDueMs;
+
+  return {
+    readyLabel: order.fulfillment === 'pickup' ? 'Lista a las' : 'Preparada a las',
+    readyValue: readyMs != null ? fmtDateTimeES(new Date(readyMs).toISOString()) : '—',
+    completedLabel: order.fulfillment === 'pickup' ? 'Retirada a las' : 'Entregada a las',
+    completedValue: completedMs != null ? fmtDateTimeES(new Date(completedMs).toISOString()) : '—',
+    punctuality:
+      order.fulfillment === 'pickup'
+        ? readyMs == null || deliveryDueMs == null
+          ? null
+          : pickupOnTime
+            ? 'Lista a tiempo'
+            : 'Lista con retraso'
+        : completedMs == null || deliveryDueMs == null
+          ? null
+          : deliveryOnTime
+            ? 'Entregada a tiempo'
+            : 'Entregada con retraso',
+    punctualityTone:
+      order.fulfillment === 'pickup'
+        ? readyMs == null || deliveryDueMs == null
+          ? 'muted'
+          : pickupOnTime
+            ? 'ok'
+            : 'danger'
+        : completedMs == null || deliveryDueMs == null
+          ? 'muted'
+          : deliveryOnTime
+            ? 'ok'
+            : 'danger',
   };
 }
 
@@ -11410,6 +11460,49 @@ onClose={() => {
             {selectedOrder.editMeta?.deliveryCostSource ? (
               <div className="mt-1 text-[10px] text-[#8A8A96]">{selectedOrder.editMeta.deliveryCostSource}</div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {(selectedOrder.readyAtISO || selectedOrder.editMeta.deliveryCompletedAtISO || selectedOrder.status === 'delivered') ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+            <div className="text-[10px] text-[#8A8A96]">{getDeliveryCompletionSummary(selectedOrder).readyLabel}</div>
+            <div className="mt-1 text-sm text-[#F5F5F7]">
+              {getDeliveryCompletionSummary(selectedOrder).readyValue}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+            <div className="text-[10px] text-[#8A8A96]">{getDeliveryCompletionSummary(selectedOrder).completedLabel}</div>
+            <div className="mt-1 text-sm text-[#F5F5F7]">
+              {getDeliveryCompletionSummary(selectedOrder).completedValue}
+            </div>
+          </div>
+
+          <div
+            className={[
+              'rounded-lg border bg-[#0B0B0D] px-3 py-2',
+              getDeliveryCompletionSummary(selectedOrder).punctualityTone === 'danger'
+                ? 'border-red-500/40'
+                : getDeliveryCompletionSummary(selectedOrder).punctualityTone === 'ok'
+                  ? 'border-emerald-500/30'
+                  : 'border-[#242433]',
+            ].join(' ')}
+          >
+            <div className="text-[10px] text-[#8A8A96]">Resultado</div>
+            <div
+              className={[
+                'mt-1 text-sm',
+                getDeliveryCompletionSummary(selectedOrder).punctualityTone === 'danger'
+                  ? 'text-red-400'
+                  : getDeliveryCompletionSummary(selectedOrder).punctualityTone === 'ok'
+                    ? 'text-emerald-300'
+                    : 'text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              {getDeliveryCompletionSummary(selectedOrder).punctuality || 'Sin cierre todavía'}
+            </div>
           </div>
         </div>
       ) : null}
