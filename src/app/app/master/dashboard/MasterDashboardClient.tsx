@@ -11877,6 +11877,54 @@ onClick={() => {
           </button>
         ) : null}
 
+        {canSendToKitchen(selectedOrder) ? (
+          <button
+            className="rounded-md border border-[#FEEF00]/60 bg-[#15120A] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
+            onClick={() => handleSendToKitchen(selectedOrder.id)}
+          >
+            Enviar a cocina
+          </button>
+        ) : null}
+
+        {canKitchenTake(selectedOrder) ? (
+          <button
+            className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2.5 py-1.5 text-[11px] text-[#F5F5F7]"
+            onClick={() => {
+              setKitchenTakeBoxOpen(true);
+              setKitchenEtaMinutes('15');
+            }}
+          >
+            Tomar en cocina
+          </button>
+        ) : null}
+
+        {canMarkReady(selectedOrder) ? (
+          <button
+            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] text-emerald-300"
+            onClick={() => handleMarkReady(selectedOrder)}
+          >
+            Marcar preparada
+          </button>
+        ) : null}
+
+        {canOutForDelivery(selectedOrder) ? (
+          <button
+            className="rounded-md border border-sky-500/50 bg-[#0D141D] px-2.5 py-1.5 text-[11px] text-sky-300"
+            onClick={() => openDeliveryEtaBox(selectedOrder)}
+          >
+            {selectedOrder.fulfillment === 'pickup' ? 'Lista para retiro' : 'En camino'}
+          </button>
+        ) : null}
+
+        {canMarkDelivered(selectedOrder) ? (
+          <button
+            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] text-emerald-300"
+            onClick={() => handleMarkDelivered(selectedOrder)}
+          >
+            {selectedOrder.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado'}
+          </button>
+        ) : null}
+
 {canManageDeliveryAssignment(selectedOrder) ? (
   <>
     <button
@@ -12500,18 +12548,6 @@ deliveryAssignMode === 'external' ? (
       </button>
     </div>
   </div>
-) : null}
-
-{canKitchenTake(selectedOrder) ? (
-  <button
-    className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-    onClick={() => {
-      setKitchenTakeBoxOpen(true);
-      setKitchenEtaMinutes('15');
-    }}
-  >
-    Tomar en cocina
-  </button>
 ) : null}
 
 {kitchenTakeBoxOpen ? (
