@@ -7592,9 +7592,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </Card>
 
             <Card title="Pagos por revisar">
-              <div className="space-y-1.5 text-[11px]">
+              <div className="space-y-1 text-[11px]">
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setPaymentsPanelKind('pending');
                     setPaymentsPanelOpen(true);
@@ -7605,7 +7605,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="font-semibold text-orange-400">{paymentsStats.porConfirmar}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setPaymentsPanelKind('confirmed');
                     setPaymentsPanelOpen(true);
@@ -7616,7 +7616,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="font-semibold text-[#7FE7C4]">{paymentsStats.confirmados}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setPaymentsPanelKind('rejected');
                     setPaymentsPanelOpen(true);
@@ -7630,12 +7630,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </Card>
 
             <Card title="Deliveries">
-              <div className="space-y-1.5 text-[11px]">
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+              <div className="space-y-1 text-[11px]">
+                <div className="flex min-h-[38px] items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
                   <span className="text-[#B7B7C2]">Internos</span>
                   <span className="font-semibold text-[#7FE7C4]">{deliveryStats.internos}</span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                <div className="flex min-h-[38px] items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
                   <span className="text-[#B7B7C2]">Externos</span>
                   <span className="font-semibold text-[#F5F5F7]">{deliveryStats.externos}</span>
                 </div>
@@ -7643,20 +7643,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </Card>
 
             <Card title="Cocina">
-              <div className="space-y-1.5 text-[11px]">
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+              <div className="space-y-1 text-[11px]">
+                <div className="flex min-h-[34px] items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
                   <span className="text-[#B7B7C2]">En cocina</span>
                   <span className="font-semibold text-[#F5F5F7]">{kitchenStats.totalEnCocina}</span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                <div className="flex min-h-[34px] items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
                   <span className="text-[#B7B7C2]">Por tomar</span>
                   <span className="font-semibold text-orange-400">{kitchenStats.pendientesToma}</span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                <div className="flex min-h-[34px] items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
                   <span className="text-[#B7B7C2]">Preparando</span>
                   <span className="font-semibold text-[#7FE7C4]">{kitchenStats.enPreparacion}</span>
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                <div className="flex min-h-[34px] items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
                   <span className="text-[#B7B7C2]">Preparados</span>
                   <span className="font-semibold text-[#FEEF00]">{kitchenStats.preparados}</span>
                 </div>
@@ -7702,9 +7702,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 )}
               </div>
               </div>
-              <div className="space-y-1.5 text-[11px]">
+              <div className="space-y-1 text-[11px]">
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('approve');
                     setTaskPanelOpen(true);
@@ -7715,7 +7715,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="font-semibold text-[#FEEF00]">{urgentTaskBuckets.approve.length}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('reapprove');
                     setTaskPanelOpen(true);
@@ -7726,7 +7726,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="font-semibold text-orange-400">{urgentTaskBuckets.reapprove.length}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('kitchen');
                     setTaskPanelOpen(true);
@@ -7737,7 +7737,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="font-semibold text-[#7FE7C4]">{urgentTaskBuckets.kitchen.length}</span>
                 </button>
                 <button
-                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  className="flex min-h-[38px] w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
                     setTaskPanelKind('driver');
                     setTaskPanelOpen(true);
