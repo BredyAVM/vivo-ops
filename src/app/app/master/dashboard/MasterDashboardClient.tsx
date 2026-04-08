@@ -9950,7 +9950,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
-                  {order.advisorName} · {order.paymentMethodLabel || 'Pago'} · {order.paymentVerify === 'pending'
+                  {order.advisorName} · Pago · {order.paymentVerify === 'pending'
                     ? 'Por confirmar'
                     : order.paymentVerify === 'confirmed'
                       ? 'Confirmado'
