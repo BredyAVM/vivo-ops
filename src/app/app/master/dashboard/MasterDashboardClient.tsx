@@ -11544,6 +11544,19 @@ onClose={() => {
             <div className="mt-1 text-sm text-[#F5F5F7]">
               {repairDisplayText(selectedOrder.address) || '—'}
             </div>
+            {selectedOrder.editMeta?.deliveryGpsUrl ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-[#8A8A96]">GPS:</span>
+                <a
+                  href={selectedOrder.editMeta.deliveryGpsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all text-sky-300 hover:text-sky-200 hover:underline"
+                >
+                  {repairDisplayText(selectedOrder.editMeta.deliveryGpsUrl)}
+                </a>
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
