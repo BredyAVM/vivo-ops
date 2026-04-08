@@ -10576,7 +10576,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <div>
                       <div className="text-lg font-semibold text-[#F5F5F7]">{selectedCatalogItem.name}</div>
                       <div className="mt-1 text-xs text-[#8A8A96]" title={selectedCatalogItem.sku}>
-                        SKU: {selectedCatalogItem.sku || 'â€”'}
+                        SKU: {selectedCatalogItem.sku || '—'}
                       </div>
                     </div>
 
@@ -10594,90 +10594,66 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </div>
                   </div>
 
-                    <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <SmallBadge label={selectedOperationalModel.label} tone="brand" />
-                            <SmallBadge label={selectedCatalogItem.type} tone="muted" />
-                        </div>
+                  <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SmallBadge label={selectedOperationalModel.label} tone="brand" />
+                    </div>
 
-                        <div className="mt-3 text-sm text-[#B7B7C2]">
-                            {selectedOperationalModel.summary}
-                        </div>
+                    <div className="mt-3 text-sm text-[#B7B7C2]">
+                      {selectedOperationalModel.summary}
+                    </div>
 
-                        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-                            <InfoCell label="Comp. fijos" value={String(editFixedComponents.length)} />
-                            <InfoCell label="Comp. seleccionables" value={String(editSelectableComponents.length)} />
-                            <InfoCell label="Und fijas (cuentan)" value={String(editFixedUnitsCount)} />
-                            <InfoCell label="Und seleccionables (cuentan)" value={String(editSelectableUnitsCount)} />
-                        </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                      <InfoCell label="Comp. fijos" value={String(editFixedComponents.length)} />
+                      <InfoCell label="Comp. seleccionables" value={String(editSelectableComponents.length)} />
+                      <InfoCell label="Und fijas" value={String(editFixedUnitsCount)} />
+                      <InfoCell label="Und seleccionables" value={String(editSelectableUnitsCount)} />
+                      <InfoCell label="Moneda fuente" value={selectedCatalogItem.sourcePriceCurrency} />
+                      <InfoCell
+                        label="Monto fuente"
+                        value={
+                          selectedCatalogItem.sourcePriceCurrency === 'VES'
+                            ? fmtBs(selectedCatalogItem.sourcePriceAmount)
+                            : fmtUSD(selectedCatalogItem.sourcePriceAmount)
+                        }
+                      />
+                      <InfoCell label="Precio Bs" value={fmtBs(selectedCatalogItem.basePriceBs)} />
+                      <InfoCell label="Precio $" value={fmtUSD(selectedCatalogItem.basePriceUsd)} />
+                      <InfoCell label="Und/servicio" value={String(selectedCatalogItem.unitsPerService)} />
+                      <InfoCell
+                        label="Descuento inventario"
+                        value={
+                          selectedCatalogItem.inventoryDeductionMode === 'composition'
+                            ? 'Por composición'
+                            : 'A sí mismo'
+                        }
+                      />
+                      <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
+                      <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
+                      <InfoCell
+                        label="Comp. combo"
+                        value={selectedCatalogItem.isComboComponentSelectable ? 'Sí' : 'No'}
+                      />
+                      <InfoCell
+                        label="Inventario"
+                        value={selectedCatalogItem.inventoryEnabled ? 'Activo' : 'No aplica'}
+                      />
+                    </div>
 
-                        {editIsDetailEditable ? (
-                            <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-3 text-sm text-[#B7B7C2]">
-                            <span className="text-[#F5F5F7]">Límite actual:</span>{' '}
-                            {editDetailUnitsLimit || '0'} piezas seleccionables
-                            </div>
-                        ) : null}
-                        </div>
+                    <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-2.5 text-sm text-[#B7B7C2]">
+                      {selectedCatalogItem.inventoryDeductionMode === 'composition'
+                        ? 'Descuenta por composición y baja el inventario interno configurado en su receta.'
+                        : 'Descuenta a sí mismo y baja el inventario de este mismo producto.'}
+                    </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <InfoCell label="Moneda fuente" value={selectedCatalogItem.sourcePriceCurrency} />
-                    <InfoCell
-                      label="Monto fuente"
-                      value={
-                        selectedCatalogItem.sourcePriceCurrency === 'VES'
-                          ? fmtBs(selectedCatalogItem.sourcePriceAmount)
-                          : fmtUSD(selectedCatalogItem.sourcePriceAmount)
-                      }
-                    />
-                    <InfoCell label="Precio Bs" value={fmtBs(selectedCatalogItem.basePriceBs)} />
-                    <InfoCell label="Precio $" value={fmtUSD(selectedCatalogItem.basePriceUsd)} />
-                    <InfoCell label="Und/servicio" value={String(selectedCatalogItem.unitsPerService)} />
-                    <InfoCell
-                      label="Descuento inventario"
-                      value={
-                        selectedCatalogItem.inventoryDeductionMode === 'composition'
-                          ? 'Por composición'
-                          : 'A sí mismo'
-                      }
-                    />
-                    <InfoCell label="Detalle editable" value={selectedCatalogItem.isDetailEditable ? 'Sí' : 'No'} />
-                    <InfoCell label="Límite detalle" value={String(selectedCatalogItem.detailUnitsLimit)} />
-                    <InfoCell
-                      label="Puede ser comp. combo"
-                      value={selectedCatalogItem.isComboComponentSelectable ? 'Sí' : 'No'}
-                    />
+                    {editIsDetailEditable ? (
+                      <div className="mt-3 rounded-xl border border-[#242433] bg-[#121218] px-3 py-2.5 text-sm text-[#B7B7C2]">
+                        <span className="text-[#F5F5F7]">Límite actual:</span>{' '}
+                        {editDetailUnitsLimit || '0'} piezas seleccionables
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-  <div className="text-sm font-semibold text-[#F5F5F7]">Cómo descuenta inventario</div>
-
-  <div className="mt-3 text-sm text-[#B7B7C2]">
-    {selectedCatalogItem.inventoryDeductionMode === 'composition'
-      ? 'Este producto descuenta por composición. La venta baja los componentes definidos en su receta.'
-      : 'Este producto descuenta a sí mismo. La venta bajará el stock de este mismo producto.'}
-  </div>
-
-  {selectedCatalogItem.inventoryDeductionMode === 'composition' ? (
-    <div className="mt-3 space-y-2">
-      {selectedCatalogComponents.length === 0 ? (
-        <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-          No hay componentes cargados todavía.
-        </div>
-      ) : (
-        selectedCatalogComponents.map((pc) => (
-          <div
-            key={`deduction-${pc.id}`}
-            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-          >
-            <span className="font-medium text-[#F5F5F7]">{pc.componentName}</span>
-            <span className="text-[#8A8A96]"> ? {pc.quantity} und</span>
-          </div>
-        ))
-      )}
-    </div>
-  ) : null}
-</div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
   <div className="flex items-center justify-between gap-3">
@@ -10851,7 +10827,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         value={editLowStockThreshold}
                         onChange={setEditLowStockThreshold}
                         type="text"
-                        hint="Cuando baje de este nÃºmero, quedarÃ¡ marcado como bajo stock."
+                        hint="Cuando baje de este número, quedará marcado como bajo stock."
                       />
                     </div>
                     {editInventoryEnabled && editInventoryDeductionMode === 'composition' ? (
@@ -10874,7 +10850,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <div className="mt-3 space-y-3">
                           {editInventoryLinks.length === 0 ? (
                             <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
-                              Agrega al menos un item interno. Ejemplo: Mini tequeÃ±o crudo x 25.
+                              Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
                             </div>
                           ) : (
                             editInventoryLinks.map((row) => (
@@ -10889,7 +10865,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                       })
                                     }
                                     options={inventoryItemOptions}
-                                    hint="AquÃ­ eliges el stock real que va a bajar."
+                                    hint="Aquí eliges el stock real que va a bajar."
                                   />
                                   <FieldInput
                                     label="Cantidad"
@@ -10923,7 +10899,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catÃ¡logo</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catálogo</div>
                     <div className="flex gap-2">
                       <button
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
