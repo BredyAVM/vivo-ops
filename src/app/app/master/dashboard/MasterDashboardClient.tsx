@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -224,7 +224,6 @@ type OrderEditMeta = {
   receiverName: string | null;
   receiverPhone: string | null;
   deliveryGpsUrl: string | null;
-  kitchenEtaMinutes: number | null;
   deliveryEtaMinutes: number | null;
   deliveryEtaRecordedAtISO: string | null;
   deliveryDistanceKm: number | null;
@@ -582,11 +581,11 @@ function normalizeClientAddresses(addresses: unknown[]): ClientAddress[] {
 
       return {
         addressText: String(
-          data.addressText ?
-            data.address_text ?
+          data.addressText ??
+            data.address_text ??
             ''
         ).trim(),
-        gpsUrl: String(data.gpsUrl ? data.gps_url ? '').trim(),
+        gpsUrl: String(data.gpsUrl ?? data.gps_url ?? '').trim(),
       };
     })
     .filter((row) => row.addressText || row.gpsUrl)
@@ -759,7 +758,7 @@ function buildCommittedProductsRows(
   }
 
   return committedSource.map((product) => {
-    const linkedInventory = inventoryByName.get(normalizeLooseText(product.name)) ? null;
+    const linkedInventory = inventoryByName.get(normalizeLooseText(product.name)) ?? null;
     const currentUnits = linkedInventory ? Number(linkedInventory.currentStockUnits || 0) : null;
     const minimumUnits =
       linkedInventory && linkedInventory.lowStockThreshold != null
@@ -824,7 +823,7 @@ function fmtInventoryUnits(
 }
 
 function fmtUnitsValue(units: number | null | undefined) {
-  const value = Number(units ? 0);
+  const value = Number(units ?? 0);
   if (!Number.isFinite(value)) return '0';
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
 }
@@ -895,7 +894,7 @@ function getOrderDiscountFactor(order: Order) {
 }
 
 function getInternalDeliveryPayUsd(order: Order, catalogItemById: Map<number, CatalogItem>) {
-  return (order.draftItems ? []).reduce((sum, item) => {
+  return (order.draftItems ?? []).reduce((sum, item) => {
     const product = catalogItemById.get(item.productId);
     const payUsd = Number(product?.internalRiderPayUsd || 0);
     return payUsd > 0 ? sum + payUsd * Number(item.qty || 0) : sum;
@@ -908,7 +907,7 @@ function isDeliveryCatalogItem(item: Pick<CatalogItem, 'name' | 'internalRiderPa
 }
 
 function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, CatalogItem>) {
-  return (order.draftItems ? []).filter((item) => {
+  return (order.draftItems ?? []).filter((item) => {
     const product = catalogItemById.get(item.productId);
     if (isDeliveryCatalogItem(product)) return true;
     return String(item.productNameSnapshot || '').trim().toLowerCase().includes('delivery');
@@ -930,7 +929,7 @@ function findDeliveryPartnerRate(
 ) {
   if (!partner || !Number.isFinite(distanceKm) || distanceKm <= 0) return null;
 
-  const activeRates = (partner.rates ? [])
+  const activeRates = (partner.rates ?? [])
     .filter((rate) => rate.isActive)
     .sort((a, b) => a.kmFrom - b.kmFrom);
 
@@ -939,7 +938,7 @@ function findDeliveryPartnerRate(
       (rate) =>
         distanceKm >= rate.kmFrom &&
         (rate.kmTo == null || distanceKm <= rate.kmTo)
-    ) ? null
+    ) ?? null
   );
 }
 
@@ -965,7 +964,7 @@ function splitISOToDeliveryFields(iso: string) {
     hour12: false,
   }).formatToParts(d);
 
-  const getPart = (type: string) => parts.find((part) => part.type === type)?.value ? '';
+  const getPart = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
 
   const year = getPart('year');
   const month = getPart('month');
@@ -992,8 +991,8 @@ const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emeral
 
 function splitTwoWordsCompact(full: string) {
   const parts = (full || '').trim().split(/\s+/).filter(Boolean);
-  const first = parts[0] ? 'â€”';
-  const second = parts[1] ? '';
+  const first = parts[0] ?? 'â€”';
+  const second = parts[1] ?? '';
   const hasMore = parts.length > 2;
   const line2 = second ? (hasMore ? `${second}â€¦` : second) : '';
   return { line1: first, line2 };
@@ -1158,7 +1157,7 @@ function computeCommittedUndByProduct(orders: Order[]) {
       if (isDeliveryLine) continue;
       const units = calcUnits(line);
       if (units === null) continue;
-      map.set(line.name, (map.get(line.name) ? 0) + units);
+      map.set(line.name, (map.get(line.name) ?? 0) + units);
     }
   }
   return Array.from(map.entries())
@@ -1348,10 +1347,12 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
     deliveryDueMs != null ? (deliveryDueMs - nowMs) / 60000 : null;
 
   if (currentKey === 'created' && minutesUntilDelivery != null) {
-    if (minutesUntilDelivery <= 60) return 'danger';
+    if (minutesUntilDelivery <= 0) return 'danger';
+    if (minutesUntilDelivery <= 30) return 'warning';
   }
 
   if (currentKey === 'queued' && minutesUntilDelivery != null) {
+    if (minutesUntilDelivery <= 0) return 'danger';
     if (minutesUntilDelivery <= 30) return 'danger';
   }
 
@@ -1365,7 +1366,7 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
 
     if (order.status === 'in_kitchen') {
       const kitchenStartedMs = parseIsoMs(order.kitchenStartedAtISO);
-      const kitchenEtaMinutes = Number(order.editMeta.kitchenEtaMinutes || 0);
+      const kitchenEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
       if (
         kitchenStartedMs != null &&
         Number.isFinite(kitchenEtaMinutes) &&
@@ -1377,16 +1378,9 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
     }
   }
 
-  if (currentKey === 'ready' && order.status === 'ready' && order.fulfillment === 'delivery') {
-    const readyMs = parseIsoMs(order.readyAtISO);
-    if (readyMs != null && nowMs - readyMs >= 5 * 60 * 1000) {
-      return 'danger';
-    }
-  }
-
   if (currentKey === 'out_for_delivery' && order.status === 'out_for_delivery') {
     const deliveryStartedMs =
-      parseIsoMs(order.editMeta.deliveryEtaRecordedAtISO) ? parseIsoMs(order.readyAtISO);
+      parseIsoMs(order.editMeta.deliveryEtaRecordedAtISO) ?? parseIsoMs(order.readyAtISO);
     const deliveryEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
     if (
       deliveryStartedMs != null &&
@@ -2604,10 +2598,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }
 }, [createOrderPaymentMethod]);
 
-  const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) ? null, [orders, selectedOrderId]);
+  const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) ?? null, [orders, selectedOrderId]);
 
   const selectedCatalogItem = useMemo(
-    () => catalogItems.find((x) => x.id === selectedCatalogItemId) ? null,
+    () => catalogItems.find((x) => x.id === selectedCatalogItemId) ?? null,
     [catalogItems, selectedCatalogItemId]
   );
 
@@ -2875,7 +2869,7 @@ const createOrderConfigSelectableOptions = useMemo(() => {
   const componentsByParentId = useMemo(() => {
     const map = new Map<number, ProductComponent[]>();
     for (const pc of productComponents) {
-      const arr = map.get(pc.parentProductId) ? [];
+      const arr = map.get(pc.parentProductId) ?? [];
       arr.push(pc);
       map.set(pc.parentProductId, arr);
     }
@@ -2887,7 +2881,7 @@ const createOrderConfigSelectableOptions = useMemo(() => {
   }, [productComponents]);
 
   const selectedCatalogComponents = useMemo(
-    () => (selectedCatalogItem ? componentsByParentId.get(selectedCatalogItem.id) ? [] : []),
+    () => (selectedCatalogItem ? componentsByParentId.get(selectedCatalogItem.id) ?? [] : []),
     [selectedCatalogItem, componentsByParentId]
   );
 
@@ -2895,7 +2889,7 @@ const createOrderConfigSelectableOptions = useMemo(() => {
     const map = new Map<number, ProductInventoryLink[]>();
     for (const link of productInventoryLinks) {
       if (!link.isActive) continue;
-      const list = map.get(link.productId) ? [];
+      const list = map.get(link.productId) ?? [];
       list.push(link);
       map.set(link.productId, list);
     }
@@ -2903,7 +2897,7 @@ const createOrderConfigSelectableOptions = useMemo(() => {
   }, [productInventoryLinks]);
 
   const selectedCatalogInventoryLinks = useMemo(
-    () => (selectedCatalogItem ? productInventoryLinksByProductId.get(selectedCatalogItem.id) ? [] : []),
+    () => (selectedCatalogItem ? productInventoryLinksByProductId.get(selectedCatalogItem.id) ?? [] : []),
     [selectedCatalogItem, productInventoryLinksByProductId]
   );
 
@@ -2920,7 +2914,7 @@ const createOrderConfigSelectableOptions = useMemo(() => {
   const createOrderSelectedCatalogItem =
   createOrderSelectedProductId === ''
     ? null
-    : catalogItems.find((item) => item.id === createOrderSelectedProductId) ? null;
+    : catalogItems.find((item) => item.id === createOrderSelectedProductId) ?? null;
 
 const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.isDetailEditable;
 
@@ -2986,7 +2980,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
     setEditInventoryUnitName(selectedCatalogItem.inventoryUnitName || 'pieza');
     setEditPackagingName(selectedCatalogItem.packagingName || '');
     setEditPackagingSize(selectedCatalogItem.packagingSize == null ? '' : String(selectedCatalogItem.packagingSize));
-    setEditCurrentStockUnits(String(selectedCatalogItem.currentStockUnits ? 0));
+    setEditCurrentStockUnits(String(selectedCatalogItem.currentStockUnits ?? 0));
     setEditLowStockThreshold(
       selectedCatalogItem.lowStockThreshold == null ? '' : String(selectedCatalogItem.lowStockThreshold)
     );
@@ -3000,7 +2994,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
         countsTowardDetailLimit: pc.countsTowardDetailLimit,
         isRequired: pc.isRequired,
         sortOrder: pc.sortOrder,
-        notes: pc.notes ? '',
+        notes: pc.notes ?? '',
       }))
     );
     setEditInventoryLinks(
@@ -3009,7 +3003,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
         inventoryItemId: link.inventoryItemId,
         quantityUnits: String(link.quantityUnits),
         sortOrder: link.sortOrder || idx + 1,
-        notes: link.notes ? '',
+        notes: link.notes ?? '',
       }))
     );
   }, [selectedCatalogItem, selectedCatalogComponents, selectedCatalogInventoryLinks]);
@@ -3039,7 +3033,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
 
 const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
   setSelectedOrderId(orderId);
-  setDetailTab(tab ? 'detalle');
+  setDetailTab(tab ?? 'detalle');
   resetDeliveryAssignBox();
   resetPaymentReportBox();
   resetReviewActionBox();
@@ -3106,14 +3100,14 @@ const loadOrderIntoCreateForm = (order: Order) => {
   const deliveryFields = splitISOToDeliveryFields(order.deliveryAtISO);
 
   setCreateOrderSource(order.source);
-  setCreateOrderAdvisorUserId(order.attributedAdvisorUserId ? '');
+  setCreateOrderAdvisorUserId(order.attributedAdvisorUserId ?? '');
   setCreateOrderFulfillment(order.fulfillment);
 
   setCreateOrderClientSearch('');
   setCreateOrderClientResults([]);
   setCreateOrderClientSearchLoading(false);
 
-  setCreateOrderSelectedClientId(order.clientId ? null);
+  setCreateOrderSelectedClientId(order.clientId ?? null);
   setCreateOrderSelectedClientName(order.clientName || '');
   setCreateOrderSelectedClientPhone('');
   setCreateOrderSelectedClientType(null);
@@ -3128,7 +3122,7 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderSelectedProductId('');
   setCreateOrderQty(1);
 
-  setCreateOrderDraftItems(order.draftItems ? []);
+  setCreateOrderDraftItems(order.draftItems ?? []);
   resetPriceAdjustBox();
 
   setCreateOrderDeliveryDate(deliveryFields.date);
@@ -3136,25 +3130,25 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderDeliveryMinute(deliveryFields.minute);
   setCreateOrderDeliveryAmPm(deliveryFields.ampm);
 
-  const receiverName = order.editMeta?.receiverName?.trim() ? '';
-  const receiverPhone = order.editMeta?.receiverPhone?.trim() ? '';
+  const receiverName = order.editMeta?.receiverName?.trim() ?? '';
+  const receiverPhone = order.editMeta?.receiverPhone?.trim() ?? '';
   const hasDifferentReceiver = !!receiverName || !!receiverPhone;
 
   setCreateOrderReceiverIsDifferent(hasDifferentReceiver);
   setCreateOrderReceiverName(receiverName);
   setCreateOrderReceiverPhone(receiverPhone);
 
-  setCreateOrderDeliveryAddress(order.address ? '');
-  setCreateOrderDeliveryGpsUrl(order.editMeta?.deliveryGpsUrl ? '');
-  setCreateOrderNote(order.notes ? '');
+  setCreateOrderDeliveryAddress(order.address ?? '');
+  setCreateOrderDeliveryGpsUrl(order.editMeta?.deliveryGpsUrl ?? '');
+  setCreateOrderNote(order.notes ?? '');
 
-  setCreateOrderPaymentMethod(order.editMeta?.paymentMethod ? 'payment_mobile');
-  setCreateOrderPaymentCurrency(order.editMeta?.paymentCurrency ? 'VES');
+  setCreateOrderPaymentMethod(order.editMeta?.paymentMethod ?? 'payment_mobile');
+  setCreateOrderPaymentCurrency(order.editMeta?.paymentCurrency ?? 'VES');
   setCreateOrderPaymentRequiresChange(Boolean(order.editMeta?.paymentRequiresChange));
-  setCreateOrderPaymentChangeFor(order.editMeta?.paymentChangeFor ? '');
-  setCreateOrderPaymentChangeCurrency(order.editMeta?.paymentChangeCurrency ? 'USD');
-  setCreateOrderPaymentNote(order.editMeta?.paymentNote ? '');
-  setCreateOrderUseClientFund((order.editMeta?.clientFundUsedUsd ? 0) > 0.005);
+  setCreateOrderPaymentChangeFor(order.editMeta?.paymentChangeFor ?? '');
+  setCreateOrderPaymentChangeCurrency(order.editMeta?.paymentChangeCurrency ?? 'USD');
+  setCreateOrderPaymentNote(order.editMeta?.paymentNote ?? '');
+  setCreateOrderUseClientFund((order.editMeta?.clientFundUsedUsd ?? 0) > 0.005);
   setCreateOrderClientFundAmountUsd(
     order.editMeta?.clientFundUsedUsd != null && order.editMeta.clientFundUsedUsd > 0
       ? String(order.editMeta.clientFundUsedUsd)
@@ -3163,16 +3157,16 @@ const loadOrderIntoCreateForm = (order: Order) => {
 
   setCreateOrderHasDeliveryNote(Boolean(order.editMeta?.hasDeliveryNote));
   setCreateOrderHasInvoice(Boolean(order.editMeta?.hasInvoice));
-  setCreateOrderInvoiceCompanyName(order.editMeta?.invoiceSnapshot?.companyName ? '');
-  setCreateOrderInvoiceTaxId(order.editMeta?.invoiceSnapshot?.taxId ? '');
-  setCreateOrderInvoiceAddress(order.editMeta?.invoiceSnapshot?.address ? '');
-  setCreateOrderInvoicePhone(order.editMeta?.invoiceSnapshot?.phone ? '');
-  setCreateOrderDeliveryNoteName(order.editMeta?.deliveryNoteSnapshot?.name ? '');
-  setCreateOrderDeliveryNoteDocumentId(order.editMeta?.deliveryNoteSnapshot?.documentId ? '');
-  setCreateOrderDeliveryNoteAddress(order.editMeta?.deliveryNoteSnapshot?.address ? '');
-  setCreateOrderDeliveryNotePhone(order.editMeta?.deliveryNoteSnapshot?.phone ? '');
+  setCreateOrderInvoiceCompanyName(order.editMeta?.invoiceSnapshot?.companyName ?? '');
+  setCreateOrderInvoiceTaxId(order.editMeta?.invoiceSnapshot?.taxId ?? '');
+  setCreateOrderInvoiceAddress(order.editMeta?.invoiceSnapshot?.address ?? '');
+  setCreateOrderInvoicePhone(order.editMeta?.invoiceSnapshot?.phone ?? '');
+  setCreateOrderDeliveryNoteName(order.editMeta?.deliveryNoteSnapshot?.name ?? '');
+  setCreateOrderDeliveryNoteDocumentId(order.editMeta?.deliveryNoteSnapshot?.documentId ?? '');
+  setCreateOrderDeliveryNoteAddress(order.editMeta?.deliveryNoteSnapshot?.address ?? '');
+  setCreateOrderDeliveryNotePhone(order.editMeta?.deliveryNoteSnapshot?.phone ?? '');
   setCreateOrderInvoiceDataNote(
-    order.editMeta?.invoiceDataNote ?
+    order.editMeta?.invoiceDataNote ??
       [
         order.editMeta?.invoiceSnapshot?.companyName,
         order.editMeta?.invoiceSnapshot?.taxId,
@@ -3500,7 +3494,7 @@ const handleCreatePaymentReport = async (o: Order) => {
 
 const handleApplyClientFundPayment = async (o: Order) => {
   try {
-    if ((o.clientId ? null) == null) {
+    if ((o.clientId ?? null) == null) {
       showToast('error', 'La orden no tiene cliente asociado.');
       return;
     }
@@ -3599,7 +3593,7 @@ const handleCloseRoundingBalance = async (o: Order) => {
     }
 
     const notes =
-      window.prompt('Nota del cierre por redondeo (opcional):', 'Ajuste por redondeo') ? '';
+      window.prompt('Nota del cierre por redondeo (opcional):', 'Ajuste por redondeo') ?? '';
 
     await closeOrderRoundingBalanceAction({
       orderId: o.id,
@@ -3682,10 +3676,10 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       confirmedCurrency: rp.currencyCode,
       confirmedAmount: rp.amount,
       movementDate: today,
-      confirmedExchangeRateVesPerUsd: rp.exchangeRate ? null,
+      confirmedExchangeRateVesPerUsd: rp.exchangeRate ?? null,
       reviewNotes,
-      referenceCode: rp.referenceCode ? null,
-      counterpartyName: rp.payerName ? null,
+      referenceCode: rp.referenceCode ?? null,
+      counterpartyName: rp.payerName ?? null,
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
       overpaymentHandling,
       overpaymentNotes,
@@ -3708,7 +3702,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
 
 const handleRejectPayment = async (rp: PaymentReportItem) => {
   try {
-    const reviewNotes = window.prompt('Motivo del rechazo (obligatorio):', '') ? '';
+    const reviewNotes = window.prompt('Motivo del rechazo (obligatorio):', '') ?? '';
     if (!reviewNotes.trim()) {
       showToast('error', 'Debes indicar un motivo de rechazo.');
       return;
@@ -3921,7 +3915,7 @@ const handleCancelOrder = async (o: Order) => {
 const handleClearDeliveryAssignment = async (o: Order) => {
   try {
     const notes =
-      window.prompt('Motivo para quitar la asignaciÃ³n (opcional):', '') ? '';
+      window.prompt('Motivo para quitar la asignaciÃ³n (opcional):', '') ?? '';
 
     await clearDeliveryAssignmentAction({
       orderId: o.id,
@@ -4036,8 +4030,8 @@ const openQuickCatalog = () => {
       name: item.name,
       sku: item.sku,
       sourcePriceCurrency: item.sourcePriceCurrency,
-      originalAmount: String(item.sourcePriceAmount ? 0),
-      nextAmount: String(item.sourcePriceAmount ? 0),
+      originalAmount: String(item.sourcePriceAmount ?? 0),
+      nextAmount: String(item.sourcePriceAmount ?? 0),
     }))
   );
   setQuickCatalogOpen(true);
@@ -4132,7 +4126,7 @@ const handleSaveQuickCatalog = async () => {
     setMovementType('Ingreso');
     setMovementMoneyAccountId('');
     setMovementAmount('');
-    setMovementExchangeRate(String(activeExchangeRate?.rateBsPerUsd ? ''));
+    setMovementExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
     setMovementDate(new Date().toISOString().slice(0, 10));
     setMovementReferenceCode('');
     setMovementCounterpartyName('');
@@ -4323,7 +4317,7 @@ const handleSaveQuickCatalog = async () => {
     setClientFormFullName(client.fullName);
     setClientFormPhone(client.phone);
     setClientFormNotes(client.notes);
-    setClientFormPrimaryAdvisorId(client.primaryAdvisorId ? '');
+    setClientFormPrimaryAdvisorId(client.primaryAdvisorId ?? '');
     setClientFormType(client.clientType);
     setClientFormIsActive(client.isActive);
     setClientFormBirthDate(client.birthDate);
@@ -4337,10 +4331,10 @@ const handleSaveQuickCatalog = async () => {
     setClientFormDeliveryNoteDocumentId(client.deliveryNoteDocumentId);
     setClientFormDeliveryNoteAddress(client.deliveryNoteAddress);
     setClientFormDeliveryNotePhone(client.deliveryNotePhone);
-    setClientFormAddress1Text(addresses[0]?.addressText ? '');
-    setClientFormAddress1Gps(addresses[0]?.gpsUrl ? '');
-    setClientFormAddress2Text(addresses[1]?.addressText ? '');
-    setClientFormAddress2Gps(addresses[1]?.gpsUrl ? '');
+    setClientFormAddress1Text(addresses[0]?.addressText ?? '');
+    setClientFormAddress1Gps(addresses[0]?.gpsUrl ?? '');
+    setClientFormAddress2Text(addresses[1]?.addressText ?? '');
+    setClientFormAddress2Gps(addresses[1]?.gpsUrl ?? '');
     setClientEditOpen(true);
   };
 
@@ -4733,7 +4727,7 @@ const openInventoryItemEditDrawer = (inventoryItemId: number) => {
   setInventoryItemFormUnitName(item.unitName || 'pieza');
   setInventoryItemFormPackagingName(item.packagingName || '');
   setInventoryItemFormPackagingSize(item.packagingSize != null ? String(item.packagingSize) : '');
-  setInventoryItemFormCurrentStock(String(item.currentStockUnits ? 0));
+  setInventoryItemFormCurrentStock(String(item.currentStockUnits ?? 0));
   setInventoryItemFormLowStock(item.lowStockThreshold != null ? String(item.lowStockThreshold) : '');
   setInventoryItemFormIsActive(!!item.isActive);
   setInventoryItemFormNotes(item.notes || '');
@@ -4759,14 +4753,14 @@ const openInventoryRecipeEditor = (inventoryItemId: number) => {
   const item = inventoryItemById.get(inventoryItemId);
   if (!item) return;
 
-  const recipe = (inventoryRecipesByOutputItemId.get(inventoryItemId) ? []).find((row) => row.isActive) ? null;
-  const recipeComponents = recipe ? inventoryRecipeComponentsByRecipeId.get(recipe.id) ? [] : [];
+  const recipe = (inventoryRecipesByOutputItemId.get(inventoryItemId) ?? []).find((row) => row.isActive) ?? null;
+  const recipeComponents = recipe ? inventoryRecipeComponentsByRecipeId.get(recipe.id) ?? [] : [];
 
   setSelectedInventoryProductId(inventoryItemId);
-  setSelectedInventoryRecipeId(recipe?.id ? null);
-  setInventoryRecipeFormKind(recipe?.recipeKind ? 'production');
-  setInventoryRecipeFormOutputUnits(String(recipe?.outputQuantityUnits ? 1));
-  setInventoryRecipeFormNotes(recipe?.notes ? '');
+  setSelectedInventoryRecipeId(recipe?.id ?? null);
+  setInventoryRecipeFormKind(recipe?.recipeKind ?? 'production');
+  setInventoryRecipeFormOutputUnits(String(recipe?.outputQuantityUnits ?? 1));
+  setInventoryRecipeFormNotes(recipe?.notes ?? '');
   setInventoryRecipeRows(
     recipeComponents.map((component, index) => ({
       localId: makeLocalId(),
@@ -4821,8 +4815,8 @@ const openInventoryProductionDrawer = (productId: number) => {
   setInventoryMovementOpen(false);
   setInventoryItemEditOpen(false);
   setSelectedInventoryProductId(productId);
-  const recipes = (inventoryRecipesByOutputItemId.get(productId) ? []).filter((recipe) => recipe.isActive);
-  setSelectedInventoryRecipeId(recipes[0]?.id ? null);
+  const recipes = (inventoryRecipesByOutputItemId.get(productId) ?? []).filter((recipe) => recipe.isActive);
+  setSelectedInventoryRecipeId(recipes[0]?.id ?? null);
   setInventoryProductionBatches('1');
   setInventoryProductionNotes('');
   setInventoryProductionOpen(true);
@@ -4907,7 +4901,7 @@ const handleSaveInventoryRecipe = async () => {
     if (insertComponentsError) throw new Error(insertComponentsError.message);
 
     showToast('success', 'Receta guardada.');
-    setSelectedInventoryRecipeId(recipeId ? null);
+    setSelectedInventoryRecipeId(recipeId ?? null);
     setInventoryDrawerMode('movement');
     router.refresh();
   } catch (err) {
@@ -5176,7 +5170,7 @@ const addEditComponent = () => {
     ...prev,
     {
       localId: `new-${Date.now()}-${Math.random()}`,
-      componentProductId: selectableComponentOptions[0]?.id ? 0,
+      componentProductId: selectableComponentOptions[0]?.id ?? 0,
       componentMode: 'fixed',
       quantity: 1,
       countsTowardDetailLimit: false,
@@ -5200,7 +5194,7 @@ const addEditComponent = () => {
       ...prev,
         {
           localId: `new-link-${Date.now()}-${Math.random()}`,
-          inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ? 0,
+          inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
           quantityUnits: '1',
           sortOrder: prev.length + 1,
           notes: '',
@@ -5225,7 +5219,7 @@ const addEditComponent = () => {
       ...prev,
         {
           localId: `edit-link-${Date.now()}-${Math.random()}`,
-          inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ? 0,
+          inventoryItemId: inventoryItems.find((item) => item.isActive)?.id ?? 0,
           quantityUnits: '1',
           sortOrder: prev.length + 1,
           notes: '',
@@ -5290,8 +5284,8 @@ const handleSelectCreateOrderClient = (client: ClientItem) => {
   const addresses = normalizeClientAddresses(client.recentAddresses);
   setCreateOrderSelectedClientId(client.id);
   setCreateOrderSelectedClientName(client.fullName);
-  setCreateOrderSelectedClientPhone(client.phone ? '');
-  setCreateOrderSelectedClientType(client.clientType ? null);
+  setCreateOrderSelectedClientPhone(client.phone ?? '');
+  setCreateOrderSelectedClientType(client.clientType ?? null);
   setCreateOrderNewClientMode(false);
   setCreateOrderClientResults([]);
 
@@ -5360,24 +5354,24 @@ const handleCreateOrderClientNow = async () => {
 
     handleSelectCreateOrderClient({
       id: Number(quickClient.client.id),
-      fullName: quickClient.client.full_name ? 'Sin nombre',
-      phone: quickClient.client.phone ? '',
-      notes: quickClient.client.notes ? '',
+      fullName: quickClient.client.full_name ?? 'Sin nombre',
+      phone: quickClient.client.phone ?? '',
+      notes: quickClient.client.notes ?? '',
       fundBalanceUsd: 0,
-      primaryAdvisorId: quickClient.client.primary_advisor_id ? null,
-      createdAt: quickClient.client.created_at ? '',
-      clientType: String(quickClient.client.client_type ? ''),
-      isActive: Boolean(quickClient.client.is_active ? true),
-      birthDate: quickClient.client.birth_date ? '',
-      importantDate: quickClient.client.important_date ? '',
-      billingCompanyName: quickClient.client.billing_company_name ? '',
-      billingTaxId: quickClient.client.billing_tax_id ? '',
-      billingAddress: quickClient.client.billing_address ? '',
-      billingPhone: quickClient.client.billing_phone ? '',
-      deliveryNoteName: quickClient.client.delivery_note_name ? '',
-      deliveryNoteDocumentId: quickClient.client.delivery_note_document_id ? '',
-      deliveryNoteAddress: quickClient.client.delivery_note_address ? '',
-      deliveryNotePhone: quickClient.client.delivery_note_phone ? '',
+      primaryAdvisorId: quickClient.client.primary_advisor_id ?? null,
+      createdAt: quickClient.client.created_at ?? '',
+      clientType: String(quickClient.client.client_type ?? ''),
+      isActive: Boolean(quickClient.client.is_active ?? true),
+      birthDate: quickClient.client.birth_date ?? '',
+      importantDate: quickClient.client.important_date ?? '',
+      billingCompanyName: quickClient.client.billing_company_name ?? '',
+      billingTaxId: quickClient.client.billing_tax_id ?? '',
+      billingAddress: quickClient.client.billing_address ?? '',
+      billingPhone: quickClient.client.billing_phone ?? '',
+      deliveryNoteName: quickClient.client.delivery_note_name ?? '',
+      deliveryNoteDocumentId: quickClient.client.delivery_note_document_id ?? '',
+      deliveryNoteAddress: quickClient.client.delivery_note_address ?? '',
+      deliveryNotePhone: quickClient.client.delivery_note_phone ?? '',
       recentAddresses: Array.isArray(quickClient.client.recent_addresses)
         ? quickClient.client.recent_addresses
         : [],
@@ -5389,7 +5383,7 @@ const handleCreateOrderClientNow = async () => {
         typeof quickClient.client.extra_fields === 'object'
           ? (quickClient.client.extra_fields as Record<string, unknown>)
           : {},
-      updatedAt: quickClient.client.updated_at ? '',
+      updatedAt: quickClient.client.updated_at ?? '',
     });
 
     setCreateOrderNewClientName('');
@@ -5612,7 +5606,7 @@ const handleConfirmCreateOrderConfig = () => {
     });
 
 const nextItem: DraftItem = {
-  localId: createOrderConfigEditingLocalId ? `${Date.now()}-${Math.random()}`,
+  localId: createOrderConfigEditingLocalId ?? `${Date.now()}-${Math.random()}`,
   productId: createOrderConfigProductId,
   skuSnapshot: createOrderConfigSku,
   productNameSnapshot: createOrderConfigProductName,
@@ -5629,14 +5623,14 @@ const nextItem: DraftItem = {
 };
 
   const existingEditingItem = createOrderConfigEditingLocalId
-    ? createOrderDraftItems.find((item) => item.localId === createOrderConfigEditingLocalId) ? null
+    ? createOrderDraftItems.find((item) => item.localId === createOrderConfigEditingLocalId) ?? null
     : null;
 
   if (existingEditingItem) {
     nextItem.adminPriceOverrideUsd = existingEditingItem.adminPriceOverrideUsd;
     nextItem.adminPriceOverrideReason = existingEditingItem.adminPriceOverrideReason;
-    nextItem.adminPriceOverrideByUserId = existingEditingItem.adminPriceOverrideByUserId ? null;
-    nextItem.adminPriceOverrideAt = existingEditingItem.adminPriceOverrideAt ? null;
+    nextItem.adminPriceOverrideByUserId = existingEditingItem.adminPriceOverrideByUserId ?? null;
+    nextItem.adminPriceOverrideAt = existingEditingItem.adminPriceOverrideAt ?? null;
     nextItem.lineTotalUsd =
       (existingEditingItem.adminPriceOverrideUsd != null
         ? existingEditingItem.adminPriceOverrideUsd
@@ -6041,10 +6035,10 @@ const createOrderHasDeliveryChargeItem =
   });
 
 const selectedPaymentReportAccount =
-  moneyAccounts.filter((a) => a.isActive).find((a) => a.id === Number(paymentReportMoneyAccountId)) ? null;
+  moneyAccounts.filter((a) => a.isActive).find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
 
 const selectedConfirmPaymentReport =
-  selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ? null;
+  selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ?? null;
 
 const selectedConfirmPaymentExcessUsd =
   selectedOrder && selectedConfirmPaymentReport
@@ -6057,22 +6051,22 @@ const selectedConfirmPaymentExcessUsd =
     : 0;
 
 const selectedConfirmChangeAccount =
-  moneyAccounts.find((account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)) ? null;
+  moneyAccounts.find((account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)) ?? null;
 
 const selectedGiveChangeAccount =
-  moneyAccounts.find((account) => account.id === Number(paymentGiveChangeMoneyAccountId || 0)) ? null;
+  moneyAccounts.find((account) => account.id === Number(paymentGiveChangeMoneyAccountId || 0)) ?? null;
 
 const selectedMovementAccount =
-  moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ? null;
+  moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ?? null;
 
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
-    ? clients.find((client) => client.id === selectedOrder.clientId) ? null
+    ? clients.find((client) => client.id === selectedOrder.clientId) ?? null
     : null;
 
 const selectedOrderClientFundAvailableUsd = Math.max(
   0,
-  Number(selectedOrderClient?.fundBalanceUsd ? 0)
+  Number(selectedOrderClient?.fundBalanceUsd ?? 0)
 );
 
 const selectedOrderChangeMovements = useMemo(() => {
@@ -6093,25 +6087,25 @@ const selectedOrderChangeMovements = useMemo(() => {
 }, [moneyMovements, selectedOrder]);
 
   const selectedAccount = useMemo(
-    () => moneyAccounts.find((account) => account.id === selectedAccountId) ? null,
+    () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
     [moneyAccounts, selectedAccountId]
   );
 
   const selectedDeliveryPartner = useMemo(
-    () => deliveryPartners.find((partner) => partner.id === selectedDeliveryPartnerId) ? null,
+    () => deliveryPartners.find((partner) => partner.id === selectedDeliveryPartnerId) ?? null,
     [deliveryPartners, selectedDeliveryPartnerId]
   );
 
   const selectedDeliveryPartnerRate = useMemo(
     () =>
-      selectedDeliveryPartner?.rates.find((rate) => rate.id === selectedDeliveryPartnerRateId) ?
+      selectedDeliveryPartner?.rates.find((rate) => rate.id === selectedDeliveryPartnerRateId) ??
       null,
     [selectedDeliveryPartner, selectedDeliveryPartnerRateId]
   );
 
   const selectedAssignDeliveryPartner = useMemo(
     () =>
-      deliveryPartners.find((partner) => partner.id === Number(deliveryAssignPartnerId || 0)) ?
+      deliveryPartners.find((partner) => partner.id === Number(deliveryAssignPartnerId || 0)) ??
       null,
     [deliveryAssignPartnerId, deliveryPartners]
   );
@@ -6134,12 +6128,12 @@ const selectedOrderChangeMovements = useMemo(() => {
   }, [deliveryAssignCostManuallyEdited, deliveryAssignMode, deliveryAssignSuggestedRate]);
 
   const selectedClient = useMemo(
-    () => clients.find((client) => client.id === selectedClientId) ? null,
+    () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
   );
 
   const selectedCreateOrderClient = useMemo(
-    () => clients.find((client) => client.id === createOrderSelectedClientId) ? null,
+    () => clients.find((client) => client.id === createOrderSelectedClientId) ?? null,
     [clients, createOrderSelectedClientId]
   );
 
@@ -6148,12 +6142,12 @@ const selectedOrderChangeMovements = useMemo(() => {
     selectedOrder &&
     selectedCreateOrderClient &&
     selectedOrder.clientId === selectedCreateOrderClient.id
-      ? Number(selectedOrder.editMeta?.clientFundUsedUsd ? 0)
+      ? Number(selectedOrder.editMeta?.clientFundUsedUsd ?? 0)
       : 0;
 
   const createOrderClientFundAvailableUsd = Math.max(
     0,
-    Number(selectedCreateOrderClient?.fundBalanceUsd ? 0) + createOrderExistingAppliedFundUsd
+    Number(selectedCreateOrderClient?.fundBalanceUsd ?? 0) + createOrderExistingAppliedFundUsd
   );
 
   const createOrderClientFundRequestedUsd = Number(
@@ -6306,8 +6300,8 @@ const selectedOrderChangeMovements = useMemo(() => {
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
     const base = {
-      total: hasClientSearch ? filteredClients.length : Math.max(0, Number(clientTotalCount ? filteredClients.length)),
-      active: hasClientSearch ? 0 : Math.max(0, Number(clientActiveCount ? 0)),
+      total: hasClientSearch ? filteredClients.length : Math.max(0, Number(clientTotalCount ?? filteredClients.length)),
+      active: hasClientSearch ? 0 : Math.max(0, Number(clientActiveCount ?? 0)),
       withBilling: 0,
       withDeliveryNote: 0,
       withAddresses: 0,
@@ -6373,7 +6367,7 @@ const selectedOrderChangeMovements = useMemo(() => {
   }, [inventoryItems, inventorySearch, inventoryGroupFilter]);
 
   const selectedInventoryProduct = useMemo(
-    () => inventoryItems.find((item) => item.id === selectedInventoryProductId) ? null,
+    () => inventoryItems.find((item) => item.id === selectedInventoryProductId) ?? null,
     [inventoryItems, selectedInventoryProductId]
   );
 
@@ -6388,7 +6382,7 @@ const selectedOrderChangeMovements = useMemo(() => {
   const inventoryRecipesByOutputItemId = useMemo(() => {
     const map = new Map<number, InventoryRecipeItem[]>();
     for (const recipe of inventoryRecipes) {
-      const list = map.get(recipe.outputInventoryItemId) ? [];
+      const list = map.get(recipe.outputInventoryItemId) ?? [];
       list.push(recipe);
       map.set(recipe.outputInventoryItemId, list);
     }
@@ -6398,7 +6392,7 @@ const selectedOrderChangeMovements = useMemo(() => {
   const inventoryRecipeComponentsByRecipeId = useMemo(() => {
     const map = new Map<number, InventoryRecipeComponentItem[]>();
     for (const component of inventoryRecipeComponents) {
-      const list = map.get(component.recipeId) ? [];
+      const list = map.get(component.recipeId) ?? [];
       list.push(component);
       map.set(component.recipeId, list);
     }
@@ -6411,15 +6405,15 @@ const selectedOrderChangeMovements = useMemo(() => {
   const selectedInventoryRecipes = useMemo(
     () =>
       selectedInventoryProduct
-        ? (inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ? []).filter((recipe) => recipe.isActive)
+        ? (inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ?? []).filter((recipe) => recipe.isActive)
         : [],
     [selectedInventoryProduct, inventoryRecipesByOutputItemId]
   );
 
   const selectedInventoryRecipe = useMemo(
     () =>
-      selectedInventoryRecipes.find((recipe) => recipe.id === selectedInventoryRecipeId) ?
-      selectedInventoryRecipes[0] ?
+      selectedInventoryRecipes.find((recipe) => recipe.id === selectedInventoryRecipeId) ??
+      selectedInventoryRecipes[0] ??
       null,
     [selectedInventoryRecipes, selectedInventoryRecipeId]
   );
@@ -6427,7 +6421,7 @@ const selectedOrderChangeMovements = useMemo(() => {
   const selectedInventoryRecipeComponents = useMemo(
     () =>
       selectedInventoryRecipe
-        ? inventoryRecipeComponentsByRecipeId.get(selectedInventoryRecipe.id) ? []
+        ? inventoryRecipeComponentsByRecipeId.get(selectedInventoryRecipe.id) ?? []
         : [],
     [selectedInventoryRecipe, inventoryRecipeComponentsByRecipeId]
   );
@@ -6455,7 +6449,7 @@ const selectedOrderChangeMovements = useMemo(() => {
         return cycleFallback;
       }
 
-      const activeRecipe = (inventoryRecipesByOutputItemId.get(itemId) ? []).find((recipe) => recipe.isActive) ? null;
+      const activeRecipe = (inventoryRecipesByOutputItemId.get(itemId) ?? []).find((recipe) => recipe.isActive) ?? null;
       if (!activeRecipe) {
         const direct = {
           readyUnits: item.currentStockUnits,
@@ -6466,7 +6460,7 @@ const selectedOrderChangeMovements = useMemo(() => {
         return direct;
       }
 
-      const components = inventoryRecipeComponentsByRecipeId.get(activeRecipe.id) ? [];
+      const components = inventoryRecipeComponentsByRecipeId.get(activeRecipe.id) ?? [];
       if (components.length === 0 || activeRecipe.outputQuantityUnits <= 0) {
         const direct = {
           readyUnits: item.currentStockUnits,
@@ -6508,7 +6502,7 @@ const selectedOrderChangeMovements = useMemo(() => {
   const inventoryMovementsByItemId = useMemo(() => {
     const map = new Map<number, InventoryMovementItem[]>();
     for (const movement of inventoryMovements) {
-      const list = map.get(movement.inventoryItemId) ? [];
+      const list = map.get(movement.inventoryItemId) ?? [];
       list.push(movement);
       map.set(movement.inventoryItemId, list);
     }
@@ -6521,7 +6515,7 @@ const selectedOrderChangeMovements = useMemo(() => {
       lowStock: inventoryItems.filter(
         (item) =>
           item.lowStockThreshold != null &&
-          (inventoryAvailabilityByItemId.get(item.id)?.totalUnits ? item.currentStockUnits) <= item.lowStockThreshold
+          (inventoryAvailabilityByItemId.get(item.id)?.totalUnits ?? item.currentStockUnits) <= item.lowStockThreshold
       ).length,
       raw: inventoryItems.filter((item) => item.inventoryKind === 'raw_material').length,
       bases: inventoryItems.filter((item) => item.inventoryKind === 'prepared_base').length,
@@ -6535,7 +6529,7 @@ const selectedOrderChangeMovements = useMemo(() => {
       if (!product.inventoryEnabled) continue;
 
       if (product.inventoryDeductionMode === 'composition') {
-        const links = productInventoryLinksByProductId.get(product.id) ? [];
+        const links = productInventoryLinksByProductId.get(product.id) ?? [];
         if (links.length === 0) continue;
 
         let readyUnits = Number.POSITIVE_INFINITY;
@@ -6561,7 +6555,7 @@ const selectedOrderChangeMovements = useMemo(() => {
 
       const selfItem = inventoryItemByName.get(product.name.trim().toLowerCase());
       if (!selfItem) continue;
-      const availability = inventoryAvailabilityByItemId.get(selfItem.id) ? {
+      const availability = inventoryAvailabilityByItemId.get(selfItem.id) ?? {
         readyUnits: selfItem.currentStockUnits,
         potentialUnits: 0,
         totalUnits: selfItem.currentStockUnits,
@@ -6589,12 +6583,12 @@ const selectedOrderChangeMovements = useMemo(() => {
   const settingsAdjustmentsRows = useMemo(() => {
     return orders
       .flatMap((order) =>
-        (order.adminAdjustments ? []).map((adjustment) => {
-          const payload = adjustment.payload ? {};
-          const deltaUsd = Number(payload.delta_usd ? 0);
-          const originalUnitUsd = Number(payload.original_unit_price_usd ? 0);
-          const overrideUnitUsd = Number(payload.override_unit_price_usd ? 0);
-          const qty = Number(payload.qty ? 0);
+        (order.adminAdjustments ?? []).map((adjustment) => {
+          const payload = adjustment.payload ?? {};
+          const deltaUsd = Number(payload.delta_usd ?? 0);
+          const originalUnitUsd = Number(payload.original_unit_price_usd ?? 0);
+          const overrideUnitUsd = Number(payload.override_unit_price_usd ?? 0);
+          const qty = Number(payload.qty ?? 0);
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
@@ -6697,7 +6691,7 @@ const selectedOrderChangeMovements = useMemo(() => {
 
     for (const movement of moneyMovements) {
       if (!movement.orderId || movement.direction !== 'inflow') continue;
-      const arr = grouped.get(movement.orderId) ? [];
+      const arr = grouped.get(movement.orderId) ?? [];
       arr.push(movement);
       grouped.set(movement.orderId, arr);
     }
@@ -6758,7 +6752,7 @@ const selectedOrderChangeMovements = useMemo(() => {
     for (const order of filteredDeliveredOrders) {
       if (order.balanceUsd > 0.01) continue;
 
-      const movements = deliveredOrderMovementsByOrderId.get(order.id) ? [];
+      const movements = deliveredOrderMovementsByOrderId.get(order.id) ?? [];
       let accumulated = 0;
       let fullyPaidAt: string | null = null;
 
@@ -6812,7 +6806,7 @@ const selectedOrderChangeMovements = useMemo(() => {
     );
 
     const commissionOrders = filteredDeliveredOrders.map((order) => {
-      const items = order.draftItems ? [];
+      const items = order.draftItems ?? [];
       const commissionableSubtotalUsd = getOrderCommissionableSubtotalUsd(order);
       const discountFactor = getOrderDiscountFactor(order);
       const fixedOrderItems = items
@@ -6921,7 +6915,7 @@ const selectedOrderChangeMovements = useMemo(() => {
     });
 
     const rows = filteredAdvisorOrders.map((order) => {
-      const items = order.draftItems ? [];
+      const items = order.draftItems ?? [];
       const commissionableSubtotalUsd = getOrderCommissionableSubtotalUsd(order);
       const discountFactor = getOrderDiscountFactor(order);
       const fixedOrderItems = items
@@ -7079,7 +7073,7 @@ const selectedOrderChangeMovements = useMemo(() => {
     const internalSummary = Array.from(
       internalRows.reduce((map, row) => {
         const key = row.order.internalDriverUserId || row.internalDriverName;
-        const current = map.get(key) ? {
+        const current = map.get(key) ?? {
           key,
           driverName: row.internalDriverName,
           deliveries: 0,
@@ -7104,8 +7098,8 @@ const selectedOrderChangeMovements = useMemo(() => {
 
     const externalSummary = Array.from(
       externalRows.reduce((map, row) => {
-        const key = String(row.order.externalPartnerId ? row.externalPartnerName);
-        const current = map.get(key) ? {
+        const key = String(row.order.externalPartnerId ?? row.externalPartnerName);
+        const current = map.get(key) ?? {
           key,
           partnerName: row.externalPartnerName,
           deliveries: 0,
@@ -7173,7 +7167,7 @@ const selectedOrderChangeMovements = useMemo(() => {
         return (row.order.internalDriverUserId || row.internalDriverName) === deliveryInternalDriverFilter;
       }
       if (deliveryExternalPartnerFilter && row.mode === 'external') {
-        return String(row.order.externalPartnerId ? row.externalPartnerName) === deliveryExternalPartnerFilter;
+        return String(row.order.externalPartnerId ?? row.externalPartnerName) === deliveryExternalPartnerFilter;
       }
       return true;
     });
@@ -8286,7 +8280,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     label="Asesor"
                     value={
                       advisorCalcAdvisorId
-                        ? advisorNameById.get(advisorCalcAdvisorId) ? 'Asesor'
+                        ? advisorNameById.get(advisorCalcAdvisorId) ?? 'Asesor'
                         : 'Todos'
                     }
                   />
@@ -8351,7 +8345,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                     : 'Walk-in'}
                               </td>
                               <td className="px-3 py-2 text-right">
-                                {fmtUSD(advisorCalculatedData.commissionByOrderId.get(order.id)?.commissionUsd ? 0)}
+                                {fmtUSD(advisorCalculatedData.commissionByOrderId.get(order.id)?.commissionUsd ?? 0)}
                               </td>
                               <td className="px-3 py-2 text-right">{fmtUSD(order.totalUsd)}</td>
                             </tr>
@@ -8578,7 +8572,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                               </div>
                               {row.mode === 'fixed_order' ? (
                                 <div className="text-orange-400">
-                                  Orden fija {fmtUSD(row.fixedOrderBaseUsd)} {row.fixedOrderPct?.toFixed(2) ? '0.00'}%
+                                  Orden fija {fmtUSD(row.fixedOrderBaseUsd)} {row.fixedOrderPct?.toFixed(2) ?? '0.00'}%
                                 </div>
                               ) : (
                                 <>
@@ -9099,7 +9093,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
                                 <td className="px-3 py-2">{partner.whatsappPhone || 'â€”'}</td>
                                 <td className="px-3 py-2">
-                                  {(partner.rates ? []).filter((rate) => rate.isActive).length}
+                                  {(partner.rates ?? []).filter((rate) => rate.isActive).length}
                                 </td>
                                 <td className="px-3 py-2">{partner.isActive ? 'Activo' : 'Inactivo'}</td>
                               </tr>
@@ -9366,8 +9360,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             ) : (
               filteredInventoryItems.map((item, idx) => {
                 const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                const latestMovement = (inventoryMovementsByItemId.get(item.id) ? [])[0] ? null;
-                const availability = inventoryAvailabilityByItemId.get(item.id) ? {
+                const latestMovement = (inventoryMovementsByItemId.get(item.id) ?? [])[0] ?? null;
+                const availability = inventoryAvailabilityByItemId.get(item.id) ?? {
                   readyUnits: item.currentStockUnits,
                   potentialUnits: 0,
                   totalUnits: item.currentStockUnits,
@@ -9534,7 +9528,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               value={
                 currency === 'VES'
                   ? fmtUSD(accountSummary[currency].balanceUsdRef)
-                  : fmtBs(accountSummary[currency].balanceNative * (activeExchangeRate?.rateBsPerUsd ? 0))
+                  : fmtBs(accountSummary[currency].balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))
               }
             />
           </div>
@@ -9582,7 +9576,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             ) : (
               filteredAccounts.map((account, idx) => {
                 const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                const stats = accountStatsById.get(account.id) ? {
+                const stats = accountStatsById.get(account.id) ?? {
                   balanceNative: 0,
                   periodInflowNative: 0,
                   periodOutflowNative: 0,
@@ -9622,7 +9616,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <div className="mt-1 text-[11px] text-[#8A8A96]">
                         {account.currencyCode === 'VES'
                           ? fmtUSD(stats.balanceUsdRef)
-                          : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ? 0))}
+                          : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-emerald-400">
@@ -9630,7 +9624,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <div className="mt-1 text-[11px] text-[#8A8A96]">
                         {account.currencyCode === 'VES'
                           ? fmtUSD(stats.periodInflowUsdRef)
-                          : fmtBs(stats.periodInflowNative * (activeExchangeRate?.rateBsPerUsd ? 0))}
+                          : fmtBs(stats.periodInflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-red-400">
@@ -9638,7 +9632,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <div className="mt-1 text-[11px] text-[#8A8A96]">
                         {account.currencyCode === 'VES'
                           ? fmtUSD(stats.periodOutflowUsdRef)
-                          : fmtBs(stats.periodOutflowNative * (activeExchangeRate?.rateBsPerUsd ? 0))}
+                          : fmtBs(stats.periodOutflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                       </div>
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">Abrir ficha</td>
@@ -9998,7 +9992,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           ) : (
             <div className="space-y-2.5">
               {committedProductsRows.map((product) => {
-                const maxUnits = Math.max(committedProductsRows[0]?.und ? 1, 1);
+                const maxUnits = Math.max(committedProductsRows[0]?.und ?? 1, 1);
                 const ratio = Math.max(6, Math.round((product.und / maxUnits) * 100));
                 return (
                   <div key={product.name} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
@@ -10600,7 +10594,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                   />
                                   <FieldInput
                                     label="Cantidad"
-                                    value={String(row.quantityUnits ? '')}
+                                    value={String(row.quantityUnits ?? '')}
                                     onChange={(value) =>
                                       updateEditInventoryLink(row.localId, {
                                         quantityUnits: value,
@@ -11057,12 +11051,12 @@ onClose={() => {
           const pricing = selectedOrder?.editMeta;
           const discountEnabled = !!pricing?.discountEnabled;
           const discountPct = Number(pricing?.discountPct || 0);
-          const subtotalUsd = pricing?.subtotalUsd ? selectedOrder.totalUsd;
-          const subtotalBs = pricing?.subtotalBs ? selectedOrder.totalBs;
+          const subtotalUsd = pricing?.subtotalUsd ?? selectedOrder.totalUsd;
+          const subtotalBs = pricing?.subtotalBs ?? selectedOrder.totalBs;
           const subtotalAfterDiscountUsd =
-            pricing?.subtotalAfterDiscountUsd ? selectedOrder.totalUsd;
+            pricing?.subtotalAfterDiscountUsd ?? selectedOrder.totalUsd;
           const subtotalAfterDiscountBs =
-            pricing?.subtotalAfterDiscountBs ? selectedOrder.totalBs;
+            pricing?.subtotalAfterDiscountBs ?? selectedOrder.totalBs;
           const discountUsd = Math.max(0, subtotalUsd - subtotalAfterDiscountUsd);
           const discountBs = Math.max(0, subtotalBs - subtotalAfterDiscountBs);
           const invoiceTaxPct = Number(pricing?.invoiceTaxPct || 0);
@@ -11236,7 +11230,7 @@ onClose={() => {
               </div>
               {selectedOrder.editMeta?.invoiceTaxPct ? (
                 <div className="mt-2 text-xs text-sky-300">
-                  IVA: {selectedOrder.editMeta.invoiceTaxPct}% ({fmtBs(selectedOrder.editMeta.invoiceTaxAmountBs ? 0)} / {fmtUSD(selectedOrder.editMeta.invoiceTaxAmountUsd ? 0)})
+                  IVA: {selectedOrder.editMeta.invoiceTaxPct}% ({fmtBs(selectedOrder.editMeta.invoiceTaxAmountBs ?? 0)} / {fmtUSD(selectedOrder.editMeta.invoiceTaxAmountUsd ?? 0)})
                 </div>
               ) : null}
             </div>
@@ -11447,7 +11441,7 @@ onClose={() => {
 
           {selectedOrderChangeMovements.map((movement) => {
             const movementAccount =
-              moneyAccounts.find((account) => account.id === movement.moneyAccountId) ? null;
+              moneyAccounts.find((account) => account.id === movement.moneyAccountId) ?? null;
 
             return (
               <div
@@ -11534,15 +11528,15 @@ onClose={() => {
     ) : (
       <div className="mt-3 space-y-2">
         {selectedOrder.adminAdjustments.map((adjustment) => {
-          const payload = adjustment.payload ? {};
-          const originalUnit = Number(payload.original_unit_price_usd ? 0);
-          const overrideUnit = Number(payload.override_unit_price_usd ? 0);
-          const deltaUsd = Number(payload.delta_usd ? 0);
+          const payload = adjustment.payload ?? {};
+          const originalUnit = Number(payload.original_unit_price_usd ?? 0);
+          const overrideUnit = Number(payload.override_unit_price_usd ?? 0);
+          const deltaUsd = Number(payload.delta_usd ?? 0);
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
               : 'Ã­tem';
-          const qty = Number(payload.qty ? 0);
+          const qty = Number(payload.qty ?? 0);
           const changedFieldLabels = getAdjustmentChangedFields(payload).map(mapAdjustmentFieldLabel);
           const isAdminFullEdit = payload.kind === 'admin_full_edit';
 
@@ -12766,7 +12760,7 @@ deliveryAssignMode === 'external' ? (
                       />
                       <FieldInput
                         label="Cantidad"
-                        value={String(row.quantityUnits ? '')}
+                        value={String(row.quantityUnits ?? '')}
                         onChange={(value) =>
                           updateNewInventoryLink(row.localId, {
                             quantityUnits: value,
@@ -12988,16 +12982,16 @@ deliveryAssignMode === 'external' ? (
                     <div className="text-xs text-[#8A8A96]">Acumulado</div>
                     <div className="text-lg font-semibold text-[#F5F5F7]">
                       {fmtMoneyByCurrency(
-                        accountStatsById.get(selectedAccount.id)?.balanceNative ? 0,
+                        accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
                         selectedAccount.currencyCode
                       )}
                     </div>
                     <div className="mt-1 text-xs text-[#8A8A96]">
                       {selectedAccount.currencyCode === 'VES'
-                        ? fmtUSD(accountStatsById.get(selectedAccount.id)?.balanceUsdRef ? 0)
+                        ? fmtUSD(accountStatsById.get(selectedAccount.id)?.balanceUsdRef ?? 0)
                         : fmtBs(
-                            (accountStatsById.get(selectedAccount.id)?.balanceNative ? 0) *
-                              (activeExchangeRate?.rateBsPerUsd ? 0)
+                            (accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0) *
+                              (activeExchangeRate?.rateBsPerUsd ?? 0)
                           )}
                     </div>
                   </div>
@@ -13054,13 +13048,13 @@ deliveryAssignMode === 'external' ? (
                     </thead>
                     <tbody>
                       {selectedAccountMovements.map((movement, idx) => {
-                        const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ? null : null;
+                        const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
                         const primaryAmount = fmtMoneyByCurrency(movement.amount, selectedAccount.currencyCode);
                         const secondaryAmount =
                           selectedAccount.currencyCode === 'VES'
                             ? fmtUSD(movement.amountUsdEquivalent)
-                            : fmtBs(movement.amount * (activeExchangeRate?.rateBsPerUsd ? 0));
+                            : fmtBs(movement.amount * (activeExchangeRate?.rateBsPerUsd ?? 0));
 
                         return (
                           <tr key={movement.id} className={`${zebra} border-b border-[#242433] align-top`}>
@@ -13078,7 +13072,7 @@ deliveryAssignMode === 'external' ? (
                               <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
                             </td>
                             <td className="px-2 py-2">{linkedOrder?.clientName || '?'}</td>
-                            <td className="px-2 py-2">{movement.orderId ? '?'}</td>
+                            <td className="px-2 py-2">{movement.orderId ?? '?'}</td>
                             <td className="px-2 py-2">
                               {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '?'}
                             </td>
@@ -13296,11 +13290,11 @@ deliveryAssignMode === 'external' ? (
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
-                  value={String((selectedDeliveryPartner.rates ? []).filter((rate) => rate.isActive).length)}
+                  value={String((selectedDeliveryPartner.rates ?? []).filter((rate) => rate.isActive).length)}
                 />
                 <InfoCell
                   label="Tarifas totales"
-                  value={String((selectedDeliveryPartner.rates ? []).length)}
+                  value={String((selectedDeliveryPartner.rates ?? []).length)}
                 />
               </div>
 
@@ -13320,7 +13314,7 @@ deliveryAssignMode === 'external' ? (
                 </div>
 
                 <div className="mt-3 overflow-x-auto">
-                  {(selectedDeliveryPartner.rates ? []).length === 0 ? (
+                  {(selectedDeliveryPartner.rates ?? []).length === 0 ? (
                     <div className="text-sm text-[#B7B7C2]">Sin tarifas cargadas.</div>
                   ) : (
                     <table className="w-full text-[12px]">
@@ -13703,7 +13697,7 @@ deliveryAssignMode === 'external' ? (
         ) : (
           <div className="space-y-4">
             {(() => {
-              const availability = inventoryAvailabilityByItemId.get(selectedInventoryProduct.id) ? {
+              const availability = inventoryAvailabilityByItemId.get(selectedInventoryProduct.id) ?? {
                 readyUnits: selectedInventoryProduct.currentStockUnits,
                 potentialUnits: 0,
                 totalUnits: selectedInventoryProduct.currentStockUnits,
@@ -13772,7 +13766,7 @@ deliveryAssignMode === 'external' ? (
                 >
                   Receta
                 </button>
-                {(inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ? []).some((recipe) => recipe.isActive) ? (
+                {(inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ?? []).some((recipe) => recipe.isActive) ? (
                   <button
                     className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#FEEF00]"
                     onClick={() => openInventoryProductionDrawer(selectedInventoryProduct.id)}
@@ -13879,7 +13873,7 @@ deliveryAssignMode === 'external' ? (
                             />
                             <FieldInput
                               label="Cantidad"
-                              value={String(row.quantityUnits ? '')}
+                              value={String(row.quantityUnits ?? '')}
                               onChange={(value) =>
                                 updateInventoryRecipeRow(row.localId, {
                                   quantityUnits: value,
@@ -14065,7 +14059,7 @@ deliveryAssignMode === 'external' ? (
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="text-sm font-semibold text-[#F5F5F7]">Ãšltimos movimientos</div>
                   <div className="mt-3 space-y-2">
-                    {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ? [])
+                    {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? [])
                       .slice(0, 8)
                       .map((movement) => {
                         const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) : null;
@@ -14100,7 +14094,7 @@ deliveryAssignMode === 'external' ? (
                           </div>
                         );
                       })}
-                    {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ? []).length === 0 ? (
+                    {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? []).length === 0 ? (
                       <div className="text-sm text-[#B7B7C2]">Sin movimientos registrados.</div>
                     ) : null}
                   </div>
@@ -14129,7 +14123,7 @@ deliveryAssignMode === 'external' ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <FieldSelect
                   label="Receta"
-                  value={String(selectedInventoryRecipe?.id ? '')}
+                  value={String(selectedInventoryRecipe?.id ?? '')}
                   onChange={(value) => setSelectedInventoryRecipeId(Number(value))}
                   options={selectedInventoryRecipes.map((recipe) => ({
                       value: String(recipe.id),
@@ -14173,9 +14167,9 @@ deliveryAssignMode === 'external' ? (
                         <div className="text-sm text-[#B7B7C2]">
                           {fmtInventoryUnits(
                             quantityUnits,
-                            product?.packagingName ? null,
-                            product?.packagingSize ? null,
-                            product?.unitName ? 'pieza'
+                            product?.packagingName ?? null,
+                            product?.packagingSize ?? null,
+                            product?.unitName ?? 'pieza'
                           )}
                         </div>
                       </div>
@@ -14191,7 +14185,7 @@ deliveryAssignMode === 'external' ? (
                 Se sumarÃ¡n{' '}
                 <span className="font-semibold text-[#F5F5F7]">
                   {fmtInventoryUnits(
-                    (selectedInventoryRecipe?.outputQuantityUnits ? 0) *
+                    (selectedInventoryRecipe?.outputQuantityUnits ?? 0) *
                       (Number(String(inventoryProductionBatches || '0').replace(',', '.')) || 0),
                     selectedInventoryProduct.packagingName,
                     selectedInventoryProduct.packagingSize,
@@ -14687,7 +14681,7 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
 <Drawer
     open={createOrderOpen}
-  title={orderEditorMode === 'edit' ? `Editar orden #${editingOrderId ? ''}` : 'Nueva orden'}
+  title={orderEditorMode === 'edit' ? `Editar orden #${editingOrderId ?? ''}` : 'Nueva orden'}
   onClose={() => setCreateOrderOpen(false)}
   widthClass="w-[900px]"
 >
@@ -14945,7 +14939,7 @@ deliveryAssignMode === 'external' ? (
       e.preventDefault();
       setCreateOrderProductActiveIndex((prev) => {
         const next = prev < createOrderFilteredProducts.length - 1 ? prev + 1 : 0;
-        setCreateOrderSelectedProductId(createOrderFilteredProducts[next]?.id ? '');
+        setCreateOrderSelectedProductId(createOrderFilteredProducts[next]?.id ?? '');
         return next;
       });
       return;
@@ -14955,7 +14949,7 @@ deliveryAssignMode === 'external' ? (
       e.preventDefault();
       setCreateOrderProductActiveIndex((prev) => {
         const next = prev > 0 ? prev - 1 : createOrderFilteredProducts.length - 1;
-        setCreateOrderSelectedProductId(createOrderFilteredProducts[next]?.id ? '');
+        setCreateOrderSelectedProductId(createOrderFilteredProducts[next]?.id ?? '');
         return next;
       });
       return;
@@ -15011,7 +15005,7 @@ deliveryAssignMode === 'external' ? (
   ].join(' ')}
 >
 {(() => {
-  const availability = productAvailabilityById.get(item.id) ? null;
+  const availability = productAvailabilityById.get(item.id) ?? null;
   const readyUnits = availability ? Number(availability.readyUnits.toFixed(3)) : null;
   const potentialUnits = availability ? Number(availability.potentialUnits.toFixed(3)) : null;
   const totalUnits = availability ? Number(availability.totalUnits.toFixed(3)) : null;
@@ -15955,7 +15949,7 @@ deliveryAssignMode === 'external' ? (
           {createOrderConfigSelectableOptions.map((option, idx) => {
             const currentQty =
               createOrderConfigSelections.find((x) => x.componentProductId === option.id)?.qty || 0;
-            const availability = productAvailabilityById.get(option.id) ? null;
+            const availability = productAvailabilityById.get(option.id) ?? null;
  
 return (
   <div
