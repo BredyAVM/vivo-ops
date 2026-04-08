@@ -2538,6 +2538,31 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return { totalEnCocina, pendientesToma, enPreparacion, preparados };
   }, [dayOrders]);
 
+  const deliveryBuckets = useMemo(() => {
+    const byDeliveryTime = (a: Order, b: Order) =>
+      new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
+    const activeDeliveryOrders = dayOrders.filter(
+      (order) => order.fulfillment === 'delivery' && !['delivered', 'cancelled'].includes(order.status)
+    );
+
+    return {
+      internal: activeDeliveryOrders.filter((order) => Boolean(order.riderName?.trim())).sort(byDeliveryTime),
+      external: activeDeliveryOrders.filter((order) => Boolean(order.externalPartner?.trim())).sort(byDeliveryTime),
+    };
+  }, [dayOrders]);
+
+  const kitchenBuckets = useMemo(() => {
+    const byDeliveryTime = (a: Order, b: Order) =>
+      new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
+
+    return {
+      total: dayOrders.filter((order) => ['confirmed', 'in_kitchen', 'ready'].includes(order.status)).sort(byDeliveryTime),
+      pending_take: dayOrders.filter((order) => order.status === 'confirmed').sort(byDeliveryTime),
+      preparing: dayOrders.filter((order) => order.status === 'in_kitchen').sort(byDeliveryTime),
+      ready: dayOrders.filter((order) => order.status === 'ready').sort(byDeliveryTime),
+    };
+  }, [dayOrders]);
+
   const paymentBuckets = useMemo(() => {
     const byDeliveryTime = (a: Order, b: Order) =>
       new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
@@ -2597,6 +2622,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [paymentsPanelOpen, setPaymentsPanelOpen] = useState(false);
   const [paymentsPanelKind, setPaymentsPanelKind] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
+  const [deliveryPanelOpen, setDeliveryPanelOpen] = useState(false);
+  const [deliveryPanelKind, setDeliveryPanelKind] = useState<'internal' | 'external'>('internal');
+  const [kitchenPanelOpen, setKitchenPanelOpen] = useState(false);
+  const [kitchenPanelKind, setKitchenPanelKind] = useState<'total' | 'pending_take' | 'preparing' | 'ready'>('total');
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
   const [taskPanelKind, setTaskPanelKind] = useState<'approve' | 'reapprove' | 'kitchen' | 'driver'>('approve');
 
@@ -7631,35 +7660,77 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <Card title="Deliveries">
               <div className="space-y-1 text-[11px]">
-                <div className="flex items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
+                <button
+                  className="flex w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setDeliveryPanelKind('internal');
+                    setDeliveryPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Internos</span>
                   <span className="font-semibold text-[#7FE7C4]">{deliveryStats.internos}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setDeliveryPanelKind('external');
+                    setDeliveryPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Externos</span>
                   <span className="font-semibold text-[#F5F5F7]">{deliveryStats.externos}</span>
-                </div>
+                </button>
               </div>
             </Card>
 
             <Card title="Cocina">
               <div className="space-y-1 text-[11px]">
-                <div className="flex items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
+                <button
+                  className="flex w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setKitchenPanelKind('total');
+                    setKitchenPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">En cocina</span>
                   <span className="font-semibold text-[#F5F5F7]">{kitchenStats.totalEnCocina}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setKitchenPanelKind('pending_take');
+                    setKitchenPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Por tomar</span>
                   <span className="font-semibold text-orange-400">{kitchenStats.pendientesToma}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setKitchenPanelKind('preparing');
+                    setKitchenPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Preparando</span>
                   <span className="font-semibold text-[#7FE7C4]">{kitchenStats.enPreparacion}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1">
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setKitchenPanelKind('ready');
+                    setKitchenPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Preparados</span>
                   <span className="font-semibold text-[#FEEF00]">{kitchenStats.preparados}</span>
-                </div>
+                </button>
               </div>
             </Card>
 
@@ -10006,6 +10077,98 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     : order.paymentVerify === 'confirmed'
                       ? 'Confirmado'
                       : 'Rechazado'}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={deliveryPanelOpen}
+        title={deliveryPanelKind === 'internal' ? 'Deliveries internos' : 'Deliveries externos'}
+        onClose={() => setDeliveryPanelOpen(false)}
+        widthClass="w-[520px]"
+      >
+        {(deliveryPanelKind === 'internal' ? deliveryBuckets.internal : deliveryBuckets.external).length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin pedidos en este estado.</div>
+        ) : (
+          <div className="space-y-3">
+            {(deliveryPanelKind === 'internal' ? deliveryBuckets.internal : deliveryBuckets.external).map((order) => (
+              <button
+                key={order.id}
+                className="w-full rounded-2xl border border-[#242433] bg-[#121218] p-3 text-left hover:border-[#FEEF00]/40"
+                onClick={() => {
+                  setDeliveryPanelOpen(false);
+                  openOrderPanel(order.id, 'entrega');
+                }}
+                type="button"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-[#F5F5F7]">#{order.id} · {order.clientName}</div>
+                  <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
+                </div>
+                <div className="mt-1 text-xs text-[#B7B7C2]">
+                  {order.advisorName} · {deliveryPanelKind === 'internal'
+                    ? `Interno: ${order.riderName || 'Asignado'}`
+                    : `Externo: ${order.externalPartner || 'Asignado'}`}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={kitchenPanelOpen}
+        title={
+          kitchenPanelKind === 'total'
+            ? 'Pedidos en cocina'
+            : kitchenPanelKind === 'pending_take'
+              ? 'Pedidos por tomar'
+              : kitchenPanelKind === 'preparing'
+                ? 'Pedidos en preparación'
+                : 'Pedidos preparados'
+        }
+        onClose={() => setKitchenPanelOpen(false)}
+        widthClass="w-[520px]"
+      >
+        {(
+          kitchenPanelKind === 'total'
+            ? kitchenBuckets.total
+            : kitchenPanelKind === 'pending_take'
+              ? kitchenBuckets.pending_take
+              : kitchenPanelKind === 'preparing'
+                ? kitchenBuckets.preparing
+                : kitchenBuckets.ready
+        ).length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin pedidos en este estado.</div>
+        ) : (
+          <div className="space-y-3">
+            {(
+              kitchenPanelKind === 'total'
+                ? kitchenBuckets.total
+                : kitchenPanelKind === 'pending_take'
+                  ? kitchenBuckets.pending_take
+                  : kitchenPanelKind === 'preparing'
+                    ? kitchenBuckets.preparing
+                    : kitchenBuckets.ready
+            ).map((order) => (
+              <button
+                key={order.id}
+                className="w-full rounded-2xl border border-[#242433] bg-[#121218] p-3 text-left hover:border-[#FEEF00]/40"
+                onClick={() => {
+                  setKitchenPanelOpen(false);
+                  openOrderPanel(order.id, 'detalle');
+                }}
+                type="button"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-[#F5F5F7]">#{order.id} · {order.clientName}</div>
+                  <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
+                </div>
+                <div className="mt-1 text-xs text-[#B7B7C2]">
+                  {order.advisorName} · {ORDER_STATUS_LABEL[order.status]}
                 </div>
               </button>
             ))}
