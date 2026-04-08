@@ -15494,7 +15494,7 @@ deliveryAssignMode === 'external' ? (
                 }
               }}
               className={[
-                'inline-flex h-[56px] items-center justify-center rounded-xl border px-4 whitespace-nowrap text-sm transition',
+                'inline-flex items-center rounded-xl border px-3 py-2 text-sm transition',
                 createOrderIsAsap
                   ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                   : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
@@ -15510,7 +15510,7 @@ deliveryAssignMode === 'external' ? (
                   type="button"
                   onClick={() => handleApplyClientAddress(address, idx)}
                   className={[
-                    'inline-flex h-[56px] items-center justify-center rounded-xl border px-4 whitespace-nowrap text-sm transition',
+                    'inline-flex items-center rounded-xl border px-3 py-2 text-sm transition',
                     createOrderSelectedAddressIndex === idx
                       ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                       : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
