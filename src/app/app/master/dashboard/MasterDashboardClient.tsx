@@ -15446,15 +15446,17 @@ deliveryAssignMode === 'external' ? (
         <div className="grid grid-cols-1 gap-2">
           <div>
             <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
-            <div className="grid grid-cols-[minmax(0,72px)_minmax(0,72px)_minmax(0,88px)_minmax(0,1fr)] gap-2">
+            <div className="grid grid-cols-[56px_56px_72px_minmax(0,132px)] gap-2">
               <input
                 value={createOrderDeliveryHour12}
                 onChange={(e) => {
                   setCreateOrderDeliveryHour12(e.target.value);
                   setCreateOrderIsAsap(false);
                 }}
-                type="number"
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[13px] text-[#F5F5F7]"
               />
               <input
                 value={createOrderDeliveryMinute}
@@ -15462,8 +15464,10 @@ deliveryAssignMode === 'external' ? (
                   setCreateOrderDeliveryMinute(e.target.value);
                   setCreateOrderIsAsap(false);
                 }}
-                type="number"
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[13px] text-[#F5F5F7]"
               />
               <select
                 value={createOrderDeliveryAmPm}
@@ -15471,7 +15475,7 @@ deliveryAssignMode === 'external' ? (
                   setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
                   setCreateOrderIsAsap(false);
                 }}
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-2 text-[13px] text-[#F5F5F7]"
               >
                 <option value="AM">AM</option>
                 <option value="PM">PM</option>
@@ -15480,7 +15484,7 @@ deliveryAssignMode === 'external' ? (
                 type="button"
                 onClick={applyCreateOrderAsap}
                 className={[
-                  'rounded-xl border px-3 py-2 text-xs font-medium transition',
+                  'rounded-xl border px-2.5 py-2 text-[11px] font-medium leading-tight transition',
                   createOrderIsAsap
                     ? 'border-red-500/50 bg-red-500/10 text-red-300'
                     : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
