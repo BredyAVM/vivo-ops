@@ -2521,6 +2521,17 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return { porConfirmar, confirmados, rechazados };
   }, [weekOrders]);
 
+  const paymentBuckets = useMemo(() => {
+    const byDeliveryTime = (a: Order, b: Order) =>
+      new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
+
+    return {
+      pending: weekOrders.filter((order) => order.paymentVerify === 'pending').sort(byDeliveryTime),
+      confirmed: weekOrders.filter((order) => order.paymentVerify === 'confirmed').sort(byDeliveryTime),
+      rejected: weekOrders.filter((order) => order.paymentVerify === 'rejected').sort(byDeliveryTime),
+    };
+  }, [weekOrders]);
+
   const committedListDay = useMemo(() => computeCommittedUndByProduct(dayOrders), [dayOrders]);
   const committedListWeek = useMemo(() => computeCommittedUndByProduct(weekOrders), [weekOrders]);
   const committedProductsRowsDay = useMemo(
@@ -2567,6 +2578,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
   const [productsExpanded, setProductsExpanded] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
+  const [paymentsPanelOpen, setPaymentsPanelOpen] = useState(false);
+  const [paymentsPanelKind, setPaymentsPanelKind] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
   const [taskPanelKind, setTaskPanelKind] = useState<'approve' | 'reapprove' | 'kitchen' | 'driver'>('approve');
 
@@ -7563,18 +7576,39 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <Card title="Pagos por revisar" className="col-span-12 md:col-span-6 xl:col-span-2">
               <div className="space-y-1.5 text-[13px]">
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setPaymentsPanelKind('pending');
+                    setPaymentsPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Por confirmar</span>
                   <span className="font-semibold text-orange-400">{paymentsStats.porConfirmar}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setPaymentsPanelKind('confirmed');
+                    setPaymentsPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Confirmados</span>
                   <span className="font-semibold text-[#7FE7C4]">{paymentsStats.confirmados}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
+                  onClick={() => {
+                    setPaymentsPanelKind('rejected');
+                    setPaymentsPanelOpen(true);
+                  }}
+                  type="button"
+                >
                   <span className="text-[#B7B7C2]">Rechazados</span>
                   <span className="font-semibold text-[#F5F5F7]">{paymentsStats.rechazados}</span>
-                </div>
+                </button>
               </div>
             </Card>
 
@@ -9866,6 +9900,61 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
                 <div className="mt-1 text-xs text-[#B7B7C2]">
                   {order.advisorName} · {ORDER_STATUS_LABEL[order.status]}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={paymentsPanelOpen}
+        title={
+          paymentsPanelKind === 'pending'
+            ? 'Pagos por confirmar'
+            : paymentsPanelKind === 'confirmed'
+              ? 'Pagos confirmados'
+              : 'Pagos rechazados'
+        }
+        onClose={() => setPaymentsPanelOpen(false)}
+        widthClass="w-[520px]"
+      >
+        {(
+          paymentsPanelKind === 'pending'
+            ? paymentBuckets.pending
+            : paymentsPanelKind === 'confirmed'
+              ? paymentBuckets.confirmed
+              : paymentBuckets.rejected
+        ).length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin pedidos en este estado.</div>
+        ) : (
+          <div className="space-y-3">
+            {(
+              paymentsPanelKind === 'pending'
+                ? paymentBuckets.pending
+                : paymentsPanelKind === 'confirmed'
+                  ? paymentBuckets.confirmed
+                  : paymentBuckets.rejected
+            ).map((order) => (
+              <button
+                key={order.id}
+                className="w-full rounded-2xl border border-[#242433] bg-[#121218] p-3 text-left hover:border-[#FEEF00]/40"
+                onClick={() => {
+                  setPaymentsPanelOpen(false);
+                  openOrderPanel(order.id, 'pagos');
+                }}
+                type="button"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold text-[#F5F5F7]">#{order.id} · {order.clientName}</div>
+                  <div className="text-xs text-[#8A8A96]">{fmtDeliveryTextES(order.deliveryAtISO)}</div>
+                </div>
+                <div className="mt-1 text-xs text-[#B7B7C2]">
+                  {order.advisorName} · {order.paymentMethodLabel || 'Pago'} · {order.paymentVerify === 'pending'
+                    ? 'Por confirmar'
+                    : order.paymentVerify === 'confirmed'
+                      ? 'Confirmado'
+                      : 'Rechazado'}
                 </div>
               </button>
             ))}
