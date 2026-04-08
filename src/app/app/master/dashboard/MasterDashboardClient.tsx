@@ -15446,7 +15446,7 @@ deliveryAssignMode === 'external' ? (
         <div className="grid grid-cols-1 gap-2">
           <div>
             <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
-            <div className="grid grid-cols-[84px_84px_108px] gap-2">
+            <div className="grid grid-cols-[64px_64px_82px] gap-2">
               <input
                 value={createOrderDeliveryHour12}
                 onChange={(e) => {
@@ -15456,7 +15456,7 @@ deliveryAssignMode === 'external' ? (
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                className="h-[56px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 text-[13px] text-[#F5F5F7]"
+                className="h-[54px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-center text-[13px] text-[#F5F5F7]"
               />
               <input
                 value={createOrderDeliveryMinute}
@@ -15467,7 +15467,7 @@ deliveryAssignMode === 'external' ? (
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                className="h-[56px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 text-[13px] text-[#F5F5F7]"
+                className="h-[54px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-center text-[13px] text-[#F5F5F7]"
               />
               <select
                 value={createOrderDeliveryAmPm}
@@ -15475,7 +15475,7 @@ deliveryAssignMode === 'external' ? (
                   setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
                   setCreateOrderIsAsap(false);
                 }}
-                className="h-[56px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 text-[13px] text-[#F5F5F7]"
+                className="h-[54px] w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 text-center text-[13px] text-[#F5F5F7]"
               >
                 <option value="AM">AM</option>
                 <option value="PM">PM</option>
