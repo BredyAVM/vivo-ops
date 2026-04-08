@@ -659,9 +659,9 @@ const { data: ordersData, error: ordersError } = await supabase
     return (
       <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando órdenes</div>
+          <div className="text-lg font-semibold">Error cargando ÃƒÆ’Ã‚Â³rdenes</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener las órdenes.
+            No se pudieron obtener las ÃƒÆ’Ã‚Â³rdenes.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {ordersError.message}
@@ -740,9 +740,9 @@ const { data: ordersData, error: ordersError } = await supabase
     return (
       <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando items de órdenes</div>
+          <div className="text-lg font-semibold">Error cargando items de ÃƒÆ’Ã‚Â³rdenes</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los items de las órdenes.
+            No se pudieron obtener los items de las ÃƒÆ’Ã‚Â³rdenes.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {orderItemsError.message}
@@ -848,7 +848,7 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  const adjustmentCreatorNameById = new Map<string, string>();
+    ? `Máster (${creatorName})`
   for (const row of adjustmentCreatorsData ?? []) {
     adjustmentCreatorNameById.set(String(row.id), row.full_name ?? 'Admin');
   }
@@ -1327,7 +1327,7 @@ const { data: ordersData, error: ordersError } = await supabase
     return (
       <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando catálogo</div>
+          <div className="text-lg font-semibold">Error cargando catÃƒÆ’Ã‚Â¡logo</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
             No se pudo obtener la tabla de productos.
           </div>
@@ -1374,7 +1374,7 @@ const { data: ordersData, error: ordersError } = await supabase
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
           <div className="text-lg font-semibold">Error cargando recetas de inventario</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener las recetas de producción/empaque.
+            No se pudieron obtener las recetas de producciÃƒÆ’Ã‚Â³n/empaque.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {inventoryRecipesError.message}
@@ -1402,7 +1402,7 @@ const { data: ordersData, error: ordersError } = await supabase
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
           <div className="text-lg font-semibold">Error cargando componentes de recetas</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los componentes de producción/empaque.
+            No se pudieron obtener los componentes de producciÃƒÆ’Ã‚Â³n/empaque.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {inventoryRecipeComponentsError.message}
@@ -1434,7 +1434,7 @@ const { data: ordersData, error: ordersError } = await supabase
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
           <div className="text-lg font-semibold">Error cargando enlaces de inventario</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los descuentos por composición del catálogo.
+            No se pudieron obtener los descuentos por composiciÃƒÆ’Ã‚Â³n del catÃƒÆ’Ã‚Â¡logo.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {productInventoryLinksError.message}
@@ -1476,9 +1476,9 @@ const { data: ordersData, error: ordersError } = await supabase
     return (
       <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
         <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando composición de productos</div>
+          <div className="text-lg font-semibold">Error cargando composiciÃƒÆ’Ã‚Â³n de productos</div>
           <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudo obtener la composición de combos/productos.
+            No se pudo obtener la composiciÃƒÆ’Ã‚Â³n de combos/productos.
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {productComponentsError.message}
@@ -1665,7 +1665,7 @@ const advisorProfileName = advisorRow?.full_name?.trim() || null;
 
 const advisorName =
   row.source === 'master'
-    ? `Máster (${creatorName})`
+    ? `M\u00E1ster (${creatorName})`
     : row.source === 'walk_in'
       ? `Walk-in (${creatorName})`
       : advisorProfileName || creatorName || 'Sin asesor';
@@ -1962,3 +1962,4 @@ currentUser={{
     />
   );
 }
+
