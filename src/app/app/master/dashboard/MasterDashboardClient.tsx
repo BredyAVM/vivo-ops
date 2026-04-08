@@ -2910,7 +2910,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
   const committedProductsTotalUnits = committedProductsRows.reduce((sum, row) => sum + row.und, 0);
-  const committedProductsPreviewRows = committedProductsRows.slice(0, 4);
+  const committedProductsDayTotalUnits = committedProductsRowsDay.reduce((sum, row) => sum + row.und, 0);
+  const committedProductsPreviewRows = committedProductsRowsDay.slice(0, 4);
 
   const filteredCatalogItems = useMemo(() => {
     const q = catalogSearch.trim().toLowerCase();
@@ -8063,38 +8064,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             <Card title="Productos comprometidos">
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    <button
-                      className={[
-                        'rounded-full border px-2 py-0.5 text-[10px]',
-                        committedProductsScope === 'day'
-                          ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
-                          : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
-                      ].join(' ')}
-                      onClick={() => setCommittedProductsScope('day')}
-                      type="button"
-                    >
-                      Día
-                    </button>
-                    <button
-                      className={[
-                        'rounded-full border px-2 py-0.5 text-[10px]',
-                        committedProductsScope === 'week'
-                          ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
-                          : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
-                      ].join(' ')}
-                      onClick={() => setCommittedProductsScope('week')}
-                      type="button"
-                    >
-                      Semana
-                    </button>
-                  </div>
                   <div className="text-[10px] text-[#8A8A96]">
-                    {committedProductsRows.length} productos · {fmtUnitsValue(committedProductsTotalUnits)} und
+                    {committedProductsRowsDay.length} productos · {fmtUnitsValue(committedProductsDayTotalUnits)} und
                   </div>
                 </div>
 
-                {committedProductsRows.length === 0 ? (
+                {committedProductsRowsDay.length === 0 ? (
                   <div className="text-xs text-[#B7B7C2]">Sin datos</div>
                 ) : (
                   <div className="space-y-1">
@@ -8140,14 +8115,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 )}
 
                 <div className="flex justify-end pt-0.5">
-                  {committedProductsRows.length > committedProductsPreviewRows.length ? (
+                  {committedProductsRowsDay.length > committedProductsPreviewRows.length ? (
                     <button
                       className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                       onClick={() => setProductsExpanded(true)}
                     >
-                      Ver más
+                      Ver detalle
                     </button>
-                  ) : committedProductsRows.length > 0 ? (
+                  ) : committedProductsRowsDay.length > 0 ? (
                     <button
                       className="text-xs text-[#B7B7C2] hover:text-[#F5F5F7]"
                       onClick={() => setProductsExpanded(true)}
@@ -10041,14 +10016,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         open={productsExpanded}
         title={`Productos comprometidos · ${committedProductsScope === 'day' ? 'Día' : 'Semana'}`}
         onClose={() => setProductsExpanded(false)}
-        widthClass="w-[560px]"
+        widthClass="w-[460px]"
       >
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               <button
                 className={[
-                  'rounded-full border px-2.5 py-1 text-[11px]',
+                  'rounded-full border px-2 py-0.5 text-[10px]',
                   committedProductsScope === 'day'
                     ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
                     : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
@@ -10060,7 +10035,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </button>
               <button
                 className={[
-                  'rounded-full border px-2.5 py-1 text-[11px]',
+                  'rounded-full border px-2 py-0.5 text-[10px]',
                   committedProductsScope === 'week'
                     ? 'border-[#FEEF00] bg-[#191926] text-[#F5F5F7]'
                     : 'border-[#242433] bg-[#0B0B0D] text-[#8A8A96]',
@@ -10071,31 +10046,31 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 Semana
               </button>
             </div>
-            <div className="text-[11px] text-[#8A8A96]">
+            <div className="text-[10px] text-[#8A8A96]">
               {committedProductsRows.length} productos · {fmtUnitsValue(committedProductsTotalUnits)} und
             </div>
           </div>
 
           {committedProductsRows.length === 0 ? (
-            <div className="text-sm text-[#B7B7C2]">Sin datos para este período.</div>
+            <div className="text-xs text-[#B7B7C2]">Sin datos para este período.</div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-1.5">
               {committedProductsRows.map((product) => {
                 const maxUnits = Math.max(committedProductsRows[0]?.und ?? 1, 1);
                 const ratio = Math.max(6, Math.round((product.und / maxUnits) * 100));
                 return (
-                  <div key={product.name} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                  <div key={product.name} className="rounded-xl border border-[#242433] bg-[#121218] p-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
-                        <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-[#8A8A96]">
+                        <div className="truncate text-[12px] font-semibold text-[#F5F5F7]">{product.name}</div>
+                        <div className="mt-0.5 text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">
                           {product.linkedInventory?.unitName || 'und'}
                         </div>
                       </div>
                       {product.statusLabel ? (
                         <div
                           className={[
-                            'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                            'shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
                             product.statusTone === 'warn'
                               ? 'bg-orange-500/12 text-orange-400'
                               : 'bg-[#FEEF00]/10 text-[#FEEF00]',
@@ -10106,24 +10081,24 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       ) : null}
                     </div>
 
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      <div className="rounded-xl border border-[#1F1F2B] bg-[#0B0B0D] px-2.5 py-2">
+                    <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                      <div className="rounded-lg border border-[#1F1F2B] bg-[#0B0B0D] px-2 py-1.5">
                         <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Comprometido</div>
-                        <div className="mt-1 text-sm font-semibold text-[#FEEF00]">
+                        <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
                           {fmtUnitsValue(product.und)}
                         </div>
                       </div>
-                      <div className="rounded-xl border border-[#1F1F2B] bg-[#0B0B0D] px-2.5 py-2">
+                      <div className="rounded-lg border border-[#1F1F2B] bg-[#0B0B0D] px-2 py-1.5">
                         <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Stock</div>
-                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                        <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">
                           {product.currentUnits != null ? fmtUnitsValue(product.currentUnits) : '—'}
                         </div>
                       </div>
-                      <div className="rounded-xl border border-[#1F1F2B] bg-[#0B0B0D] px-2.5 py-2">
+                      <div className="rounded-lg border border-[#1F1F2B] bg-[#0B0B0D] px-2 py-1.5">
                         <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Quedaría</div>
                         <div
                           className={[
-                            'mt-1 text-sm font-semibold',
+                            'mt-0.5 text-[12px] font-semibold',
                             product.remainingUnits != null && product.remainingUnits <= 0
                               ? 'text-orange-400'
                               : 'text-[#B7B7C2]',
@@ -10134,8 +10109,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       </div>
                     </div>
 
-                    <div className="mt-2 h-1.5 w-full rounded-full bg-[#191926]">
-                      <div className="h-1.5 rounded-full bg-[#FEEF00]" style={{ width: `${ratio}%` }} />
+                    <div className="mt-1.5 h-1 w-full rounded-full bg-[#191926]">
+                      <div className="h-1 rounded-full bg-[#FEEF00]" style={{ width: `${ratio}%` }} />
                     </div>
                   </div>
                 );
