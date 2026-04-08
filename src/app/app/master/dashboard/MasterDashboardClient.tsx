@@ -6221,6 +6221,18 @@ const selectedGiveChangeAccount =
 const selectedMovementAccount =
   moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ?? null;
 
+const activeBsRate = Number(activeExchangeRate?.rateBsPerUsd ?? 0);
+
+const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | null | undefined) => {
+  if (!Number.isFinite(usdAmount) || usdAmount <= 0) return '';
+
+  if (currencyCode === 'VES' && activeBsRate > 0) {
+    return String(Number((usdAmount * activeBsRate).toFixed(2)));
+  }
+
+  return String(Number(usdAmount.toFixed(2)));
+};
+
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
     ? clients.find((client) => client.id === selectedOrder.clientId) ?? null
@@ -11955,7 +11967,15 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
           setPaymentReportMoneyAccountId(nextId);
 
           const nextAccount = moneyAccounts.find((a) => a.id === Number(nextId));
-          if (nextAccount?.currencyCode !== 'VES') {
+          if (nextAccount?.currencyCode === 'VES') {
+            setPaymentReportAmount(
+              getSuggestedAccountAmount(selectedOrder.balanceUsd, nextAccount.currencyCode)
+            );
+            setPaymentReportExchangeRate(
+              activeBsRate > 0 ? String(Number(activeBsRate.toFixed(2))) : ''
+            );
+          } else {
+            setPaymentReportAmount(getSuggestedAccountAmount(selectedOrder.balanceUsd, nextAccount?.currencyCode));
             setPaymentReportExchangeRate('');
           }
         }}
@@ -12094,7 +12114,25 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
           <label className="mb-1 block text-[11px] text-[#8A8A96]">Cuenta del cambio</label>
           <select
             value={paymentGiveChangeMoneyAccountId}
-            onChange={(e) => setPaymentGiveChangeMoneyAccountId(e.target.value)}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              setPaymentGiveChangeMoneyAccountId(nextId);
+
+              const nextAccount = moneyAccounts.find((account) => account.id === Number(nextId));
+              if (nextAccount?.currencyCode === 'VES') {
+                setPaymentGiveChangeAmount(
+                  getSuggestedAccountAmount(selectedOrderClientFundAvailableUsd, nextAccount.currencyCode)
+                );
+                setPaymentGiveChangeExchangeRate(
+                  activeBsRate > 0 ? String(Number(activeBsRate.toFixed(2))) : ''
+                );
+              } else {
+                setPaymentGiveChangeAmount(
+                  getSuggestedAccountAmount(selectedOrderClientFundAvailableUsd, nextAccount?.currencyCode)
+                );
+                setPaymentGiveChangeExchangeRate('');
+              }
+            }}
             className="w-full rounded-md border border-[#242433] bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
           >
             <option value="">Selecciona una cuenta</option>
