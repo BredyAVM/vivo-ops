@@ -623,6 +623,8 @@ function repairDisplayText(value: string | null | undefined) {
     .replace(/Â·/g, '·')
     .replace(/â€¦/g, '…')
     .replace(/â€”/g, '—')
+    .replace(/Ã¼/g, 'ü')
+    .replace(/Ãœ/g, 'Ü')
     .replace(/Ã¡/g, 'á')
     .replace(/Ã©/g, 'é')
     .replace(/Ã­/g, 'í')
@@ -636,6 +638,15 @@ function repairDisplayText(value: string | null | undefined) {
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã‘/g, 'Ñ')
     .trim();
+}
+
+function fmtClientTypeLabel(value: string | null | undefined) {
+  const normalized = normalizeLooseText(String(value ?? ''));
+  if (!normalized) return '—';
+  if (normalized === 'legacy' || normalized === 'antiguo') return 'Antiguo';
+  if (normalized === 'own' || normalized === 'propio') return 'Propio';
+  if (normalized === 'assigned' || normalized === 'asignado') return 'Asignado';
+  return repairDisplayText(String(value));
 }
 
 function truncateDisplayText(value: string, maxChars: number) {
@@ -9828,7 +9839,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       ) : null}
                     </td>
                     <td className="px-3 py-3">{client.phone || '—'}</td>
-                    <td className="px-3 py-3">{client.clientType || '—'}</td>
+                    <td className="px-3 py-3">{fmtClientTypeLabel(client.clientType)}</td>
                     <td className="px-3 py-3">
                       {client.primaryAdvisorId
                         ? advisorNameById.get(client.primaryAdvisorId) || 'Asesor'
@@ -14344,7 +14355,7 @@ deliveryAssignMode === 'external' ? (
                     tone={selectedClient.isActive ? 'brand' : 'muted'}
                   />
                   {selectedClient.clientType ? (
-                    <SmallBadge label={selectedClient.clientType} tone="muted" />
+                    <SmallBadge label={fmtClientTypeLabel(selectedClient.clientType)} tone="muted" />
                   ) : null}
                   <button
                     type="button"
@@ -14904,7 +14915,7 @@ deliveryAssignMode === 'external' ? (
                   </div>
                 </div>
                 <div className="min-w-0 text-[#B7B7C2]">
-                  <div className="truncate">Tipo: {createOrderSelectedClientType || '—'}</div>
+                  <div className="truncate">Tipo: {fmtClientTypeLabel(createOrderSelectedClientType)}</div>
                   <div className="mt-1">
                     Fondo:{' '}
                     <span className="text-[#F5F5F7]">
@@ -14940,10 +14951,10 @@ deliveryAssignMode === 'external' ? (
                   className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-left"
                 >
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {client.fullName}
+                    {repairDisplayText(client.fullName)}
                   </div>
                   <div className="mt-1 text-xs text-[#B7B7C2]">
-                    Tel: {client.phone || '—'} · Tipo: {client.clientType || '—'}
+                    Tel: {client.phone || '—'} · Tipo: {fmtClientTypeLabel(client.clientType)}
                   </div>
                 </button>
               ))}
@@ -15105,14 +15116,13 @@ deliveryAssignMode === 'external' ? (
     <>
 
               <div className="text-sm font-medium text-[#F5F5F7]">
-                {item.name}
+                {repairDisplayText(item.name)}
               </div>
 <div className="mt-1 text-xs text-[#8A8A96]">
   {item.unitsPerService > 0 ? `${item.unitsPerService} und/serv` : '—'} ·{' '}
   {item.sourcePriceCurrency === 'VES'
     ? fmtBs(item.basePriceBs)
     : fmtUSD(item.basePriceUsd)}
-  {item.sku ? ` · ${item.sku}` : ''}
 </div>
               {availability ? (
                 <div className="mt-2 text-[11px]">
@@ -15181,20 +15191,19 @@ deliveryAssignMode === 'external' ? (
                 <div className="text-[12px] text-[#8A8A96]">{idx + 1}</div>
 
 <div>
-  <div className="text-[13px] font-medium text-[#F5F5F7]">{item.productNameSnapshot}</div>
-  <div className="mt-0.5 text-[11px] text-[#8A8A96]">{item.skuSnapshot || '—'}</div>
+  <div className="text-[13px] font-medium text-[#F5F5F7]">{repairDisplayText(item.productNameSnapshot)}</div>
 
   {item.editableDetailLines.length > 0 ? (
     <div className="mt-1.5 space-y-0.5 text-[11px] text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
-        <div key={detailIdx}>• {detail}</div>
+        <div key={detailIdx}>• {repairDisplayText(detail)}</div>
       ))}
     </div>
   ) : null}
 </div>
 
 <FieldInput
-  label="Qty"
+  label="Cantidad"
   value={String(item.qty)}
   onChange={(value) =>
     handleUpdateCreateOrderItemQty(
@@ -15954,9 +15963,9 @@ deliveryAssignMode === 'external' ? (
   open={priceAdjustOpen}
   title="Ajuste administrativo de precio"
   onClose={resetPriceAdjustBox}
-  widthClass="w-[520px]"
+  widthClass="w-[440px]"
 >
-  <div className="space-y-4">
+  <div className="space-y-3">
     <FieldInput
       label="Precio unitario ajustado (USD)"
       value={priceAdjustValue}
@@ -15968,8 +15977,8 @@ deliveryAssignMode === 'external' ? (
       <textarea
         value={priceAdjustReason}
         onChange={(e) => setPriceAdjustReason(e.target.value)}
-        rows={4}
-        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+        rows={3}
+        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
       />
     </div>
     <div className="flex gap-2">
@@ -15995,17 +16004,17 @@ deliveryAssignMode === 'external' ? (
   open={createOrderConfigOpen}
   title={createOrderConfigProductName || 'Configurar producto'}
   onClose={closeCreateOrderConfig}
-  widthClass="w-[560px]"
+  widthClass="w-[620px]"
 >
-  <div className="space-y-4">
-    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="grid grid-cols-3 gap-3">
-        <InfoCell label="Producto" value={createOrderConfigProductName || 'â€”'} />
-        <InfoCell label="Cant." value={String(createOrderConfigQty)} />
-        <InfoCell label="LÃ­mite" value={String(createOrderConfigLimit || 0)} />
+  <div className="space-y-3">
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+      <div className="grid grid-cols-3 gap-2.5">
+        <InfoCell label="Producto" value={repairDisplayText(createOrderConfigProductName || '—')} />
+        <InfoCell label="Cantidad" value={String(createOrderConfigQty)} />
+        <InfoCell label="Límite" value={String(createOrderConfigLimit || 0)} />
       </div>
 
-      <div className="mt-3 grid grid-cols-[1fr_120px] gap-3">
+      <div className="mt-2.5 grid grid-cols-[1fr_120px] gap-2.5">
 <div>
   <label className="mb-1 block text-xs text-[#8A8A96]">Para</label>
   <input
@@ -16019,28 +16028,28 @@ deliveryAssignMode === 'external' ? (
         createOrderConfigQtyRefs.current[0]?.select();
       }
     }}
-    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
   />
 </div>
 
         <div>
           <label className="mb-1 block text-xs text-[#8A8A96]">Total piezas</label>
-          <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
+          <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]">
             {createOrderConfigSelectedUnits} / {createOrderConfigLimit}
           </div>
         </div>
       </div>
     </div>
 
-    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃ³n</div>
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+      <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
 
       {createOrderConfigSelectableOptions.length === 0 ? (
-        <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+        <div className="mt-2.5 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-[13px] text-[#B7B7C2]">
           Este producto no tiene opciones configuradas.
         </div>
       ) : (
-        <div className="mt-3 space-y-2">
+        <div className="mt-2.5 space-y-1.5">
           {createOrderConfigSelectableOptions.map((option, idx) => {
             const currentQty =
               createOrderConfigSelections.find((x) => x.componentProductId === option.id)?.qty || 0;
@@ -16049,27 +16058,28 @@ deliveryAssignMode === 'external' ? (
 return (
   <div
     key={option.id}
-    className="grid grid-cols-[1fr_110px] items-center gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2"
+    className="grid grid-cols-[minmax(0,1fr)_108px] items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2"
   >
     <div className="min-w-0">
-      <div className="truncate text-sm font-medium text-[#F5F5F7]">
-        {option.name}
+      <div className="truncate text-[13px] font-medium text-[#F5F5F7]">
+        {repairDisplayText(option.name)}
       </div>
       <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
-        {option.sku || 'â€”'}
+        {availability ? (
+          <>
+            Listo: {Number(availability.readyUnits.toFixed(3))}
+            {availability.potentialUnits > 0 ? (
+              <> · Puede producirse: <span className="text-emerald-400">{Number(availability.potentialUnits.toFixed(3))}</span></>
+            ) : null}
+          </>
+        ) : (
+          'Sin disponibilidad calculada'
+        )}
       </div>
-      {availability ? (
-        <div className="mt-1 text-[11px] text-[#8A8A96]">
-          Listo: {Number(availability.readyUnits.toFixed(3))}
-          {availability.potentialUnits > 0 ? (
-            <> Â· Puede producirse: <span className="text-emerald-400">{Number(availability.potentialUnits.toFixed(3))}</span></>
-          ) : null}
-        </div>
-      ) : null}
     </div>
 
     <div className="flex items-center justify-end gap-2">
-      <label className="text-[11px] text-[#8A8A96]">Cant.</label>
+      <label className="text-[11px] text-[#8A8A96]">Cantidad</label>
       <input
         ref={(el) => {
           createOrderConfigQtyRefs.current[idx] = el;
@@ -16093,7 +16103,7 @@ return (
         }}
         type="number"
         min={0}
-        className="w-[56px] rounded-lg border border-[#242433] bg-[#121218] px-2 py-1.5 text-sm text-[#F5F5F7]"
+        className="w-[58px] rounded-lg border border-[#242433] bg-[#121218] px-2 py-1.5 text-[13px] text-[#F5F5F7]"
       />
     </div>
   </div>
@@ -16117,7 +16127,7 @@ return (
   className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
   onClick={handleConfirmCreateOrderConfig}
 >
-  {createOrderConfigEditingLocalId ? 'Guardar Ã­tem' : 'Confirmar'}
+  {createOrderConfigEditingLocalId ? 'Guardar ítem' : 'Confirmar'}
 </button>
     </div>
   </div>
