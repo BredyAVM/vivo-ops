@@ -7546,8 +7546,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
       {viewMode === 'operations' ? (
         <div className="mx-auto max-w-[1400px] px-5 py-4">
-          <div className="grid grid-cols-12 gap-3">
-            <Card title="Estado" className="col-span-12 md:col-span-6 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1.35fr_0.9fr_0.9fr_0.9fr_0.9fr_1.35fr]">
+            <Card title="Estado">
               <div className="hidden">
               <StatRow label="Cierres" value={dayStats.cierres} />
               <StatRow label="FacturaciÃ³n" value={fmtUSD(dayStats.fact)} />
@@ -7561,7 +7561,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
               </div>
               </div>
-              <div className="grid grid-cols-[1fr_0.55fr_0.55fr] gap-x-2 gap-y-1 text-[12px]">
+              <div className="grid grid-cols-[1fr_0.55fr_0.55fr] gap-x-2 gap-y-1 text-[11px]">
                 <div />
                 <div className="text-center text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Hoy</div>
                 <div className="text-center text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Semana</div>
@@ -7591,8 +7591,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
 
-            <Card title="Pagos por revisar" className="col-span-12 md:col-span-6 xl:col-span-2">
-              <div className="space-y-1.5 text-[13px]">
+            <Card title="Pagos por revisar">
+              <div className="space-y-1.5 text-[11px]">
                 <button
                   className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
@@ -7629,8 +7629,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Deliveries" className="col-span-12 md:col-span-6 xl:col-span-2">
-              <div className="space-y-1.5 text-[13px]">
+            <Card title="Deliveries">
+              <div className="space-y-1.5 text-[11px]">
                 <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
                   <span className="text-[#B7B7C2]">Internos</span>
                   <span className="font-semibold text-[#7FE7C4]">{deliveryStats.internos}</span>
@@ -7642,8 +7642,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Cocina" className="col-span-12 md:col-span-6 xl:col-span-2">
-              <div className="space-y-1.5 text-[13px]">
+            <Card title="Cocina">
+              <div className="space-y-1.5 text-[11px]">
                 <div className="flex items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5">
                   <span className="text-[#B7B7C2]">En cocina</span>
                   <span className="font-semibold text-[#F5F5F7]">{kitchenStats.totalEnCocina}</span>
@@ -7663,7 +7663,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Tareas urgentes" className="col-span-12 md:col-span-6 xl:col-span-2">
+            <Card title="Tareas urgentes">
               <div className="hidden">
               <StatRow label="Aprobar" value={approvalsStats.porAprobar} highlightTone="brand" />
               <StatRow label="Reaprobar" value={approvalsStats.reaprobar} highlightTone="warn" />
@@ -7702,7 +7702,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 )}
               </div>
               </div>
-              <div className="space-y-1.5 text-[13px]">
+              <div className="space-y-1.5 text-[11px]">
                 <button
                   className="flex w-full items-center justify-between rounded-xl border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-left hover:border-[#FEEF00]/40"
                   onClick={() => {
@@ -7750,7 +7750,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             </Card>
 
-            <Card title="Productos comprometidos" className="col-span-12 md:col-span-6 xl:col-span-2">
+            <Card title="Productos comprometidos">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
