@@ -1810,6 +1810,10 @@ return {
         receiverName: row.extra_fields?.receiver?.name ?? null,
         receiverPhone: row.extra_fields?.receiver?.phone ?? null,
         deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
+        kitchenEtaMinutes:
+          row.eta_minutes != null
+            ? toNumber(row.eta_minutes, 0)
+            : null,
         deliveryEtaMinutes:
           row.extra_fields?.delivery?.eta_minutes != null
             ? toNumber(row.extra_fields.delivery.eta_minutes, 0)

@@ -224,6 +224,7 @@ type OrderEditMeta = {
   receiverName: string | null;
   receiverPhone: string | null;
   deliveryGpsUrl: string | null;
+  kitchenEtaMinutes: number | null;
   deliveryEtaMinutes: number | null;
   deliveryEtaRecordedAtISO: string | null;
   deliveryDistanceKm: number | null;
@@ -1347,12 +1348,10 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
     deliveryDueMs != null ? (deliveryDueMs - nowMs) / 60000 : null;
 
   if (currentKey === 'created' && minutesUntilDelivery != null) {
-    if (minutesUntilDelivery <= 0) return 'danger';
-    if (minutesUntilDelivery <= 30) return 'warning';
+    if (minutesUntilDelivery <= 60) return 'danger';
   }
 
   if (currentKey === 'queued' && minutesUntilDelivery != null) {
-    if (minutesUntilDelivery <= 0) return 'danger';
     if (minutesUntilDelivery <= 30) return 'danger';
   }
 
@@ -1366,7 +1365,7 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
 
     if (order.status === 'in_kitchen') {
       const kitchenStartedMs = parseIsoMs(order.kitchenStartedAtISO);
-      const kitchenEtaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
+      const kitchenEtaMinutes = Number(order.editMeta.kitchenEtaMinutes || 0);
       if (
         kitchenStartedMs != null &&
         Number.isFinite(kitchenEtaMinutes) &&
@@ -1375,6 +1374,13 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
       ) {
         return 'danger';
       }
+    }
+  }
+
+  if (currentKey === 'ready' && order.status === 'ready' && order.fulfillment === 'delivery') {
+    const readyMs = parseIsoMs(order.readyAtISO);
+    if (readyMs != null && nowMs - readyMs >= 5 * 60 * 1000) {
+      return 'danger';
     }
   }
 
