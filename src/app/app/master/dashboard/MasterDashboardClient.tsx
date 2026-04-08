@@ -11133,7 +11133,7 @@ onClose={() => {
   resetCancelOrderBox();
   resetReturnToQueueBox();
 }}
-        widthClass="w-[720px]"
+        widthClass="w-[860px]"
       >
         {!selectedOrder ? (
           <div className="text-sm text-[#B7B7C2]">Sin pedido seleccionado.</div>
@@ -11174,18 +11174,6 @@ onClose={() => {
 </div>
 
 <ProcessTimeline order={selectedOrder} nowMs={currentTimeMs} />
-
-<NextActionCard
-  order={selectedOrder}
-  onSendToKitchen={() => handleSendToKitchen(selectedOrder.id)}
-  onPrepareKitchenTake={() => {
-    setKitchenTakeBoxOpen(true);
-    setKitchenEtaMinutes('15');
-  }}
-  onMarkReady={() => handleMarkReady(selectedOrder)}
-  onOutForDelivery={() => openDeliveryEtaBox(selectedOrder)}
-  onMarkDelivered={() => handleMarkDelivered(selectedOrder)}
-/>
             <div className="flex gap-1 items-center overflow-x-auto">
               <Chip active={detailTab === 'detalle'} onClick={() => setDetailTab('detalle')}>Pedido</Chip>
               <Chip active={detailTab === 'entrega'} onClick={() => setDetailTab('entrega')}>Entrega</Chip>
@@ -11196,7 +11184,7 @@ onClose={() => {
               ) : null}
             </div>
 
-<div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_190px] lg:items-start">
+<div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
   <div className="min-w-0">
     {detailTab === 'detalle' ? (
       <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
