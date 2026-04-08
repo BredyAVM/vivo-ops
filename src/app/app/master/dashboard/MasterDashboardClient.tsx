@@ -941,7 +941,7 @@ function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, Catalo
 
 function getOrderDeliveryChargeLabel(order: Order, catalogItemById: Map<number, CatalogItem>) {
   const deliveryItems = getOrderDeliveryItems(order, catalogItemById);
-  if (deliveryItems.length === 0) return 'Sin Ã­tem delivery';
+  if (deliveryItems.length === 0) return 'Sin ítem delivery';
 
   return deliveryItems
     .map((item) => `${item.productNameSnapshot}${Number(item.qty || 0) > 1 ? ` x${Number(item.qty || 0)}` : ''}`)
@@ -1136,7 +1136,7 @@ function buildWhatsAppOrderSummary(order: Order) {
   parts.push('');
 
   if (lines.length === 0) {
-    parts.push(`- Sin Ã­tems cargados`);
+    parts.push(`- Sin ítems cargados`);
   } else {
     for (const line of lines) {
       parts.push(lineTextWhatsAppStyle(line));
@@ -1613,21 +1613,13 @@ function RowProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
           );
         })}
       </div>
-      <div
-        className={[
-          'text-[10px]',
-          alertLevel === 'danger' && alertReason
-            ? 'font-semibold text-red-400'
-            : needsDriverUrgent
-              ? 'font-semibold text-red-400'
-              : 'text-[#8A8A96]',
-        ].join(' ')}
-      >
-        {alertLevel === 'danger' && alertReason
-          ? alertReason
-          : order.fulfillment === 'delivery'
-            ? assignmentLabel
-            : 'Retiro en local'}
+      <div className="flex items-start justify-between gap-2 text-[10px]">
+        <div className={needsDriverUrgent ? 'font-semibold text-red-400' : 'text-[#8A8A96]'}>
+          {order.fulfillment === 'delivery' ? assignmentLabel : 'Retiro en local'}
+        </div>
+        <div className={alertLevel === 'danger' && alertReason ? 'text-right font-medium text-red-400' : 'invisible text-right'}>
+          {alertLevel === 'danger' && alertReason ? alertReason : 'Sin alerta'}
+        </div>
       </div>
     </div>
   );
@@ -8260,11 +8252,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         >
                           <td className="px-2 py-2">{fmtTimeAMPM(o.deliveryAtISO)}</td>
                           <td className="px-2 py-2 font-medium">{o.id}</td>
-                          <td className="min-w-[132px] px-2 py-2 leading-4">
+                          <td className="min-w-[122px] px-2 py-2 leading-4">
                             <div>{aName.line1}</div>
                             <div className="text-[#B7B7C2]">{aName.line2}</div>
                           </td>
-                          <td className="min-w-[132px] px-2 py-2 leading-4">
+                          <td className="min-w-[122px] px-2 py-2 leading-4">
                             <div>{cName.line1}</div>
                             <div className="text-[#B7B7C2]">{cName.line2}</div>
                           </td>
@@ -14798,7 +14790,7 @@ deliveryAssignMode === 'external' ? (
             : 'bg-[#FEEF00] text-[#0B0B0D]',
         ].join(' ')}
       >
-          {orderEditorMode === 'edit' ? 'MODO EDICIÃ“N' : 'MODO CREAR'}
+          {orderEditorMode === 'edit' ? 'MODO EDICIÓN' : 'MODO CREAR'}
       </span>
     </div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -14866,7 +14858,7 @@ deliveryAssignMode === 'external' ? (
   <input
     value={createOrderClientSearch}
     onChange={(e) => setCreateOrderClientSearch(e.target.value)}
-    placeholder="Buscar por nombre o telÃ©fono"
+    placeholder="Buscar por nombre o teléfono"
     className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#8A8A96]"
   />
 
@@ -14928,7 +14920,7 @@ deliveryAssignMode === 'external' ? (
                       onClick={() => handleApplyClientAddress(address)}
                       className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#F5F5F7]"
                     >
-                      Usar direcciÃ³n {idx + 1}
+                      Usar dirección {idx + 1}
                     </button>
                   ))}
                 </div>
@@ -14965,7 +14957,7 @@ deliveryAssignMode === 'external' ? (
     />
 
     <FieldInput
-      label="TelÃ©fono"
+      label="Teléfono"
       value={createOrderNewClientPhone}
       onChange={setCreateOrderNewClientPhone}
     />
@@ -15175,7 +15167,7 @@ deliveryAssignMode === 'external' ? (
 
         {createOrderDraftItems.length === 0 ? (
           <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-            Sin Ã­tems cargados.
+            Sin ítems cargados.
           </div>
         ) : (
           <div className="mt-4 space-y-2">
@@ -15193,7 +15185,7 @@ deliveryAssignMode === 'external' ? (
   {item.editableDetailLines.length > 0 ? (
     <div className="mt-2 space-y-1 text-xs text-[#B7B7C2]">
       {item.editableDetailLines.map((detail, detailIdx) => (
-        <div key={detailIdx}>â€¢ {detail}</div>
+        <div key={detailIdx}>• {detail}</div>
       ))}
     </div>
   ) : null}
@@ -15413,13 +15405,13 @@ deliveryAssignMode === 'external' ? (
       {createOrderReceiverIsDifferent ? (
         <div className="grid grid-cols-2 gap-3">
           <FieldInput
-            label="QuiÃ©n recibe"
+            label="Quién recibe"
             value={createOrderReceiverName}
             onChange={setCreateOrderReceiverName}
           />
 
           <FieldInput
-            label="TelÃ©fono recibe"
+            label="Teléfono recibe"
             value={createOrderReceiverPhone}
             onChange={setCreateOrderReceiverPhone}
           />
@@ -15430,7 +15422,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 min-w-0">
       {createOrderFulfillment === 'delivery' ? (
         <div className="min-w-0">
-          <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+          <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
           <textarea
             value={createOrderDeliveryAddress}
             onChange={(e) => setCreateOrderDeliveryAddress(e.target.value)}
@@ -15461,7 +15453,7 @@ deliveryAssignMode === 'external' ? (
 </div>
 
 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 md:col-span-2">
-  <div className="text-sm font-semibold text-[#F5F5F7]">E. CondiciÃ³n de pago</div>
+  <div className="text-sm font-semibold text-[#F5F5F7]">E. Condición de pago</div>
 
   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 
@@ -15471,7 +15463,7 @@ deliveryAssignMode === 'external' ? (
   onChange={setCreateOrderPaymentMethod}
   options={[
 { value: 'pending', label: 'Pendiente' },
-{ value: 'payment_mobile', label: 'Pago mÃ³vil' },
+{ value: 'payment_mobile', label: 'Pago móvil' },
 { value: 'transfer', label: 'Transferencia' },
 { value: 'cash_usd', label: 'Efectivo USD' },
 { value: 'cash_ves', label: 'Efectivo Bs' },
@@ -15749,7 +15741,7 @@ deliveryAssignMode === 'external' ? (
         }
       />
 
-      <InfoCell label="Ã­tems" value={String(createOrderDraftItems.length)} />
+      <InfoCell label="Ítems" value={String(createOrderDraftItems.length)} />
 
       <InfoCell
         label="Tasa"
@@ -15884,15 +15876,15 @@ deliveryAssignMode === 'external' ? (
       </div>
 
       <div className={createOrderHasItems ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasItems ? 'Pedido con Ã­tems' : 'Falta agregar Ã­tems'}
+        {createOrderHasItems ? 'Pedido con ítems' : 'Falta agregar ítems'}
       </div>
 
       <div className={createOrderHasValidAdvisor ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasValidAdvisor ? 'Asesor vÃ¡lido' : 'Debes seleccionar asesor'}
+        {createOrderHasValidAdvisor ? 'Asesor válido' : 'Debes seleccionar asesor'}
       </div>
 
       <div className={createOrderHasDeliveryAddress ? 'text-emerald-400' : 'text-red-400'}>
-        {createOrderHasDeliveryAddress ? 'Entrega vÃ¡lida' : 'Falta direcciÃ³n de delivery'}
+        {createOrderHasDeliveryAddress ? 'Entrega válida' : 'Falta dirección de delivery'}
       </div>
       <div className={createOrderHasDeliveryChargeItem ? 'text-emerald-400' : 'text-red-400'}>
         {createOrderHasDeliveryChargeItem ? 'Ãtem de delivery cargado' : 'Falta producto de delivery'}
@@ -15907,12 +15899,12 @@ deliveryAssignMode === 'external' ? (
 
 {orderEditorMode === 'edit' && isAdmin && selectedOrder && !['created', 'queued'].includes(selectedOrder.status) ? (
   <div className="rounded-xl border border-sky-500/30 bg-[#0B0B0D] p-3 text-sm text-sky-200">
-    <div className="font-semibold text-sky-300">ModificaciÃ³n administrativa</div>
+    <div className="font-semibold text-sky-300">Modificación administrativa</div>
     <div className="mt-1">
-      EstÃ¡s editando una orden avanzada o cerrada. El cambio quedarÃ¡ auditado y requiere motivo obligatorio.
+      Estás editando una orden avanzada o cerrada. El cambio quedará auditado y requiere motivo obligatorio.
     </div>
     <div className="mt-3">
-      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificaciÃ³n</label>
+      <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificación</label>
       <textarea
         value={adminEditReason}
         onChange={(e) => setAdminEditReason(e.target.value)}
