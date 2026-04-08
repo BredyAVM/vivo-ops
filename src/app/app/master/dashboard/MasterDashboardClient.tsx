@@ -15483,40 +15483,44 @@ deliveryAssignMode === 'external' ? (
             </div>
           </div>
 
-          <label className="flex items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
-            <input
-              type="checkbox"
-              checked={createOrderIsAsap}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  applyCreateOrderAsap();
-                } else {
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (createOrderIsAsap) {
                   setCreateOrderIsAsap(false);
+                } else {
+                  applyCreateOrderAsap();
                 }
               }}
-            />
-            Lo antes posible
-          </label>
+              className={[
+                'inline-flex items-center rounded-xl border px-3 py-2 text-sm transition',
+                createOrderIsAsap
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                  : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+              ].join(' ')}
+            >
+              Lo antes posible
+            </button>
 
-          {createOrderFulfillment === 'delivery' && selectedCreateOrderClientAddresses.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {selectedCreateOrderClientAddresses.map((address, idx) => (
-                <button
-                  key={`${address.addressText}-${idx}`}
-                  type="button"
-                  onClick={() => handleApplyClientAddress(address, idx)}
-                  className={[
-                    'inline-flex items-center rounded-xl border px-3 py-2 text-sm transition',
-                    createOrderSelectedAddressIndex === idx
-                      ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
-                  ].join(' ')}
-                >
-                  Dirección {idx + 1}
-                </button>
-              ))}
-            </div>
-          ) : null}
+            {createOrderFulfillment === 'delivery' && selectedCreateOrderClientAddresses.length > 0
+              ? selectedCreateOrderClientAddresses.map((address, idx) => (
+                  <button
+                    key={`${address.addressText}-${idx}`}
+                    type="button"
+                    onClick={() => handleApplyClientAddress(address, idx)}
+                    className={[
+                      'inline-flex items-center rounded-xl border px-3 py-2 text-sm transition',
+                      createOrderSelectedAddressIndex === idx
+                        ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                        : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                    ].join(' ')}
+                  >
+                    Dirección {idx + 1}
+                  </button>
+                ))
+              : null}
+          </div>
         </div>
       </div>
 
