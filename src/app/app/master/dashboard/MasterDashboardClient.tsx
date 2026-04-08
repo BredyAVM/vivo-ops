@@ -7878,8 +7878,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Btn className="px-4 py-2" onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
-              <Btn className="px-4 py-2" onClick={() => setMovementOpen(true)}>Ingreso / Egreso</Btn>
+              <Btn onClick={openCreateOrderDrawer}>Nuevo pedido</Btn>
+              <Btn onClick={() => setMovementOpen(true)}>Ingreso / Egreso</Btn>
             </div>
           </div>
 
