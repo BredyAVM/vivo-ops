@@ -223,6 +223,7 @@ type OrderEditMeta = {
   clientId: number | null;
   source: 'advisor' | 'master' | 'walk_in';
   attributedAdvisorUserId: string | null;
+  isAsap: boolean;
   receiverName: string | null;
   receiverPhone: string | null;
   deliveryGpsUrl: string | null;
@@ -1630,6 +1631,7 @@ function RowProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
         : order.externalPartner
           ? `Externo: ${order.externalPartner}`
           : 'Sin driver';
+  const isAsap = Boolean(order.editMeta.isAsap);
 
   return (
     <div className="space-y-1">
@@ -1653,8 +1655,13 @@ function RowProcessTimeline({ order, nowMs }: { order: Order; nowMs: number }) {
         })}
       </div>
       <div className="flex items-start justify-between gap-2 text-[10px]">
-        <div className={needsDriverUrgent ? 'font-semibold text-red-400' : 'text-[#8A8A96]'}>
-          {order.fulfillment === 'delivery' ? assignmentLabel : 'Retiro en local'}
+        <div className={`flex items-center gap-1.5 ${needsDriverUrgent ? 'font-semibold text-red-400' : 'text-[#8A8A96]'}`}>
+          {isAsap ? (
+            <span className="inline-flex items-center rounded-full border border-red-500/40 bg-red-500/10 px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-wide text-red-300">
+              Urgente
+            </span>
+          ) : null}
+          <span>{order.fulfillment === 'delivery' ? assignmentLabel : 'Retiro en local'}</span>
         </div>
         <div className={alertLevel === 'danger' && alertReason ? 'text-right font-medium text-red-400' : 'invisible text-right'}>
           {alertLevel === 'danger' && alertReason ? alertReason : 'Sin alerta'}
@@ -2655,12 +2662,14 @@ const [createOrderDeliveryDate, setCreateOrderDeliveryDate] = useState('');
 const [createOrderDeliveryHour12, setCreateOrderDeliveryHour12] = useState('');
 const [createOrderDeliveryMinute, setCreateOrderDeliveryMinute] = useState('');
 const [createOrderDeliveryAmPm, setCreateOrderDeliveryAmPm] = useState<'AM' | 'PM'>('AM');
+const [createOrderIsAsap, setCreateOrderIsAsap] = useState(false);
 
 const [createOrderReceiverIsDifferent, setCreateOrderReceiverIsDifferent] = useState(false);
 const [createOrderReceiverName, setCreateOrderReceiverName] = useState('');
 const [createOrderReceiverPhone, setCreateOrderReceiverPhone] = useState('');
 const [createOrderDeliveryAddress, setCreateOrderDeliveryAddress] = useState('');
 const [createOrderDeliveryGpsUrl, setCreateOrderDeliveryGpsUrl] = useState('');
+const [createOrderSelectedAddressIndex, setCreateOrderSelectedAddressIndex] = useState<number | null>(null);
 const [createOrderNote, setCreateOrderNote] = useState('');
 
 const [createOrderPaymentMethod, setCreateOrderPaymentMethod] = useState('payment_mobile');
@@ -3262,6 +3271,7 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderDeliveryHour12(deliveryFields.hour12);
   setCreateOrderDeliveryMinute(deliveryFields.minute);
   setCreateOrderDeliveryAmPm(deliveryFields.ampm);
+  setCreateOrderIsAsap(Boolean(selectedOrder?.editMeta?.isAsap));
 
   const receiverName = order.editMeta?.receiverName?.trim() ?? '';
   const receiverPhone = order.editMeta?.receiverPhone?.trim() ?? '';
@@ -3273,6 +3283,7 @@ const loadOrderIntoCreateForm = (order: Order) => {
 
   setCreateOrderDeliveryAddress(order.address ?? '');
   setCreateOrderDeliveryGpsUrl(order.editMeta?.deliveryGpsUrl ?? '');
+  setCreateOrderSelectedAddressIndex(null);
   setCreateOrderNote(order.notes ?? '');
 
   setCreateOrderPaymentMethod(order.editMeta?.paymentMethod ?? 'payment_mobile');
@@ -5407,10 +5418,30 @@ const handleSearchCreateOrderClients = async () => {
   }
 };
 
-const handleApplyClientAddress = (address: ClientAddress) => {
-  setCreateOrderFulfillment('delivery');
+const handleApplyClientAddress = (address: ClientAddress, index?: number | null) => {
   setCreateOrderDeliveryAddress(address.addressText);
   setCreateOrderDeliveryGpsUrl(address.gpsUrl);
+  setCreateOrderSelectedAddressIndex(index ?? null);
+};
+
+const applyCreateOrderAsap = () => {
+  const target = new Date(Date.now() + 15 * 60 * 1000);
+  target.setSeconds(0, 0);
+
+  const year = target.getFullYear();
+  const month = String(target.getMonth() + 1).padStart(2, '0');
+  const day = String(target.getDate()).padStart(2, '0');
+  let hour24 = target.getHours();
+  const minute = String(target.getMinutes()).padStart(2, '0');
+  const ampm: 'AM' | 'PM' = hour24 >= 12 ? 'PM' : 'AM';
+  let hour12 = hour24 % 12;
+  if (hour12 === 0) hour12 = 12;
+
+  setCreateOrderDeliveryDate(`${year}-${month}-${day}`);
+  setCreateOrderDeliveryHour12(String(hour12));
+  setCreateOrderDeliveryMinute(minute);
+  setCreateOrderDeliveryAmPm(ampm);
+  setCreateOrderIsAsap(true);
 };
 
 const handleSelectCreateOrderClient = (client: ClientItem) => {
@@ -5428,10 +5459,6 @@ const handleSelectCreateOrderClient = (client: ClientItem) => {
 
   if (!createOrderReceiverPhone.trim()) {
     setCreateOrderReceiverPhone(client.deliveryNotePhone || client.phone || '');
-  }
-
-  if (!createOrderDeliveryAddress.trim() && addresses[0]) {
-    handleApplyClientAddress(addresses[0]);
   }
 
   if (!createOrderHasInvoice && client.billingCompanyName) {
@@ -5817,6 +5844,7 @@ const handleCreateOrder = async () => {
       deliveryHour12: createOrderDeliveryHour12,
       deliveryMinute: createOrderDeliveryMinute,
       deliveryAmPm: createOrderDeliveryAmPm,
+      isAsap: createOrderIsAsap,
       receiverName: createOrderReceiverIsDifferent ? createOrderReceiverName : '',
       receiverPhone: createOrderReceiverIsDifferent ? createOrderReceiverPhone : '',
       deliveryAddress: createOrderDeliveryAddress,
@@ -5921,6 +5949,7 @@ const handleUpdateOrder = async () => {
       deliveryHour12: createOrderDeliveryHour12,
       deliveryMinute: createOrderDeliveryMinute,
       deliveryAmPm: createOrderDeliveryAmPm,
+      isAsap: createOrderIsAsap,
       receiverName: createOrderReceiverIsDifferent ? createOrderReceiverName : '',
       receiverPhone: createOrderReceiverIsDifferent ? createOrderReceiverPhone : '',
       deliveryAddress: createOrderDeliveryAddress,
@@ -6265,10 +6294,15 @@ const selectedOrderChangeMovements = useMemo(() => {
     [clients, selectedClientId]
   );
 
-  const selectedCreateOrderClient = useMemo(
-    () => clients.find((client) => client.id === createOrderSelectedClientId) ?? null,
-    [clients, createOrderSelectedClientId]
-  );
+const selectedCreateOrderClient = useMemo(
+  () => clients.find((client) => client.id === createOrderSelectedClientId) ?? null,
+  [clients, createOrderSelectedClientId]
+);
+
+const selectedCreateOrderClientAddresses = useMemo(
+  () => normalizeClientAddresses(selectedCreateOrderClient?.recentAddresses ?? []),
+  [selectedCreateOrderClient]
+);
 
   const createOrderExistingAppliedFundUsd =
     orderEditorMode === 'edit' &&
@@ -7362,6 +7396,31 @@ useEffect(() => {
 }, [createOrderConfigOpen]);
 
 useEffect(() => {
+  if (createOrderFulfillment !== 'delivery') {
+    setCreateOrderSelectedAddressIndex(null);
+    return;
+  }
+
+  if (!selectedCreateOrderClientAddresses.length) return;
+
+  if (
+    createOrderSelectedAddressIndex != null &&
+    selectedCreateOrderClientAddresses[createOrderSelectedAddressIndex]
+  ) {
+    return;
+  }
+
+  if (!createOrderDeliveryAddress.trim()) {
+    handleApplyClientAddress(selectedCreateOrderClientAddresses[0], 0);
+  }
+}, [
+  createOrderFulfillment,
+  createOrderDeliveryAddress,
+  createOrderSelectedAddressIndex,
+  selectedCreateOrderClientAddresses,
+]);
+
+useEffect(() => {
   if (createOrderSelectedProductIsEditable && createOrderQty !== 1) {
     setCreateOrderQty(1);
   }
@@ -7424,12 +7483,14 @@ const resetCreateOrderForm = () => {
   setCreateOrderDeliveryHour12(String(hour12));
   setCreateOrderDeliveryMinute(minute);
   setCreateOrderDeliveryAmPm(ampm);
+  setCreateOrderIsAsap(false);
 
   setCreateOrderReceiverIsDifferent(false);
   setCreateOrderReceiverName('');
   setCreateOrderReceiverPhone('');
   setCreateOrderDeliveryAddress('');
   setCreateOrderDeliveryGpsUrl('');
+  setCreateOrderSelectedAddressIndex(null);
   setCreateOrderNote('');
 
   setCreateOrderPaymentMethod('payment_mobile');
@@ -15357,45 +15418,73 @@ deliveryAssignMode === 'external' ? (
         <FieldSelect
           label="Tipo"
           value={createOrderFulfillment}
-          onChange={(value) =>
-            setCreateOrderFulfillment(value as 'pickup' | 'delivery')
-          }
+          onChange={(value) => {
+            const next = value as 'pickup' | 'delivery';
+            setCreateOrderFulfillment(next);
+            if (next === 'delivery' && selectedCreateOrderClientAddresses[0]) {
+              handleApplyClientAddress(selectedCreateOrderClientAddresses[0], 0);
+            }
+          }}
           options={[
-            { value: 'pickup', label: 'pickup' },
-            { value: 'delivery', label: 'delivery' },
+            { value: 'pickup', label: 'Pickup' },
+            { value: 'delivery', label: 'Delivery' },
           ]}
         />
 
         <FieldInput
           label="Fecha"
           value={createOrderDeliveryDate}
-          onChange={setCreateOrderDeliveryDate}
+          onChange={(value) => {
+            setCreateOrderDeliveryDate(value);
+            setCreateOrderIsAsap(false);
+          }}
           type="date"
         />
 
         <div>
           <label className="mb-1 block text-xs text-[#8A8A96]">Hora</label>
-          <div className="grid grid-cols-[68px_68px_84px] gap-2">
+          <div className="grid grid-cols-[68px_68px_84px_auto] gap-2">
             <input
               value={createOrderDeliveryHour12}
-              onChange={(e) => setCreateOrderDeliveryHour12(e.target.value)}
+              onChange={(e) => {
+                setCreateOrderDeliveryHour12(e.target.value);
+                setCreateOrderIsAsap(false);
+              }}
               type="number"
               className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
             />
             <input
               value={createOrderDeliveryMinute}
-              onChange={(e) => setCreateOrderDeliveryMinute(e.target.value)}
+              onChange={(e) => {
+                setCreateOrderDeliveryMinute(e.target.value);
+                setCreateOrderIsAsap(false);
+              }}
               type="number"
               className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
             />
             <select
               value={createOrderDeliveryAmPm}
-              onChange={(e) => setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM')}
+              onChange={(e) => {
+                setCreateOrderDeliveryAmPm(e.target.value as 'AM' | 'PM');
+                setCreateOrderIsAsap(false);
+              }}
               className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
             >
               <option value="AM">AM</option>
               <option value="PM">PM</option>
             </select>
+            <button
+              type="button"
+              onClick={applyCreateOrderAsap}
+              className={[
+                'rounded-xl border px-3 py-2 text-xs font-medium transition',
+                createOrderIsAsap
+                  ? 'border-red-500/50 bg-red-500/10 text-red-300'
+                  : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+              ].join(' ')}
+            >
+              Lo antes posible
+            </button>
           </div>
         </div>
       </div>
@@ -15437,10 +15526,32 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 min-w-0">
       {createOrderFulfillment === 'delivery' ? (
         <div className="min-w-0">
+          {selectedCreateOrderClientAddresses.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {selectedCreateOrderClientAddresses.map((address, idx) => (
+                <button
+                  key={`${address.addressText}-${idx}`}
+                  type="button"
+                  onClick={() => handleApplyClientAddress(address, idx)}
+                  className={[
+                    'rounded-xl border px-3 py-1.5 text-xs transition',
+                    createOrderSelectedAddressIndex === idx
+                      ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                  ].join(' ')}
+                >
+                  Dirección {idx + 1}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
           <textarea
             value={createOrderDeliveryAddress}
-            onChange={(e) => setCreateOrderDeliveryAddress(e.target.value)}
+            onChange={(e) => {
+              setCreateOrderDeliveryAddress(e.target.value);
+              setCreateOrderSelectedAddressIndex(null);
+            }}
             rows={3}
             className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
           />

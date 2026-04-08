@@ -4255,6 +4255,7 @@ export async function createOrderAction(input: {
   deliveryHour12: string;
   deliveryMinute: string;
   deliveryAmPm: 'AM' | 'PM';
+  isAsap: boolean;
   receiverName: string;
   receiverPhone: string;
   deliveryAddress: string;
@@ -4541,6 +4542,7 @@ export async function createOrderAction(input: {
       date: input.deliveryDate,
       time_12: `${input.deliveryHour12}:${pad2(Number(input.deliveryMinute || 0))} ${input.deliveryAmPm}`,
       time_24: deliveryTime24,
+      asap: Boolean(input.isAsap),
     },
     receiver: {
       name: input.receiverName.trim() || null,
@@ -4752,6 +4754,7 @@ export async function updateOrderAction(input: {
   deliveryHour12: string;
   deliveryMinute: string;
   deliveryAmPm: 'AM' | 'PM';
+  isAsap: boolean;
   receiverName: string;
   receiverPhone: string;
   deliveryAddress: string;
@@ -5062,6 +5065,7 @@ export async function updateOrderAction(input: {
       date: input.deliveryDate,
       time_12: `${input.deliveryHour12}:${pad2(Number(input.deliveryMinute || 0))} ${input.deliveryAmPm}`,
       time_24: deliveryTime24,
+      asap: Boolean(input.isAsap),
     },
     receiver: {
       name: input.receiverName.trim() || null,

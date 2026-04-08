@@ -1828,6 +1828,7 @@ return {
         clientId: row.client_id ?? null,
         source: row.source,
         attributedAdvisorUserId: row.attributed_advisor_id ?? null,
+        isAsap: Boolean(row.extra_fields?.schedule?.asap ?? false),
         receiverName: row.extra_fields?.receiver?.name ?? null,
         receiverPhone: row.extra_fields?.receiver?.phone ?? null,
         deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
