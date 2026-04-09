@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
-import { EmptyBlock, MetricCard, PageIntro, QuickLink, SectionCard, StatusBadge } from './advisor-ui';
+import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
+
+type SearchParams = Promise<{
+  day?: string;
+}>;
 
 type OrderRow = {
   id: number;
@@ -14,11 +18,8 @@ type OrderRow = {
 };
 
 type PaymentRow = {
-  id: number;
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
-  reported_amount_usd_equivalent: number | string;
-  created_at: string | null;
 };
 
 function formatUsd(value: number | string) {
@@ -26,8 +27,30 @@ function formatUsd(value: number | string) {
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
 }
 
-function formatDate(value: string | null) {
-  if (!value) return 'Sin fecha';
+function formatDateLabel(value: Date) {
+  return value.toLocaleDateString('es-VE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function formatShortDay(value: Date) {
+  return value.toLocaleDateString('es-VE', {
+    weekday: 'short',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function formatDayNumber(value: Date) {
+  return value.toLocaleDateString('es-VE', {
+    day: '2-digit',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function formatDateTime(value: string) {
   return new Date(value).toLocaleString('es-VE', {
     dateStyle: 'short',
     timeStyle: 'short',
@@ -35,11 +58,41 @@ function formatDate(value: string | null) {
   });
 }
 
-function statusTone(status: string): 'neutral' | 'warning' | 'success' | 'danger' {
-  if (status === 'created' || status === 'queued' || status === 'pending') return 'warning';
-  if (status === 'delivered' || status === 'confirmed') return 'success';
-  if (status === 'cancelled' || status === 'rejected') return 'danger';
-  return 'neutral';
+function getDateKey(date: Date) {
+  return date.toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function getIsoDayKey(value: string) {
+  return new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function getDayRange(key: string) {
+  return {
+    startIso: `${key}T00:00:00-04:00`,
+    endIso: `${key}T23:59:59-04:00`,
+  };
+}
+
+function buildCalendarDays(activeKey: string) {
+  const base = new Date(`${activeKey}T12:00:00-04:00`);
+  return Array.from({ length: 6 }, (_, idx) => {
+    const current = new Date(base);
+    current.setDate(base.getDate() + idx - 1);
+    return {
+      key: getDateKey(current),
+      label: formatShortDay(current).replace('.', ''),
+      dayNumber: formatDayNumber(current),
+      isToday: getDateKey(new Date()) === getDateKey(current),
+    };
+  });
+}
+
+function firstName(fullName: string) {
+  return fullName.trim().split(/\s+/)[0] || 'Asesor';
 }
 
 function statusLabel(status: string) {
@@ -52,16 +105,31 @@ function statusLabel(status: string) {
     out_for_delivery: 'En camino',
     delivered: 'Entregada',
     cancelled: 'Cancelada',
-    pending: 'Por validar',
-    rejected: 'Rechazado',
   };
 
   return labels[status] ?? status;
 }
 
-export default async function AdvisorHomePage() {
+function statusTone(status: string): 'neutral' | 'warning' | 'success' | 'danger' {
+  if (status === 'created' || status === 'queued' || status === 'ready') return 'warning';
+  if (status === 'delivered') return 'success';
+  if (status === 'cancelled') return 'danger';
+  return 'neutral';
+}
+
+export default async function AdvisorHomePage({ searchParams }: { searchParams?: SearchParams }) {
+  const params = (await searchParams) ?? {};
   const ctx = await getAuthContext();
   if (!ctx) return null;
+
+  const { data: profile } = await ctx.supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', ctx.user.id)
+    .maybeSingle();
+
+  const selectedDayKey = params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
+  const { startIso, endIso } = getDayRange(selectedDayKey);
 
   const [{ data: ordersData }, { data: paymentsData }] = await Promise.all([
     ctx.supabase
@@ -70,73 +138,138 @@ export default async function AdvisorHomePage() {
         'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, client:clients!orders_client_id_fkey(full_name, phone)'
       )
       .eq('attributed_advisor_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(12),
+      .gte('created_at', startIso)
+      .lte('created_at', endIso)
+      .order('created_at', { ascending: true }),
     ctx.supabase
       .from('payment_reports')
-      .select('id, order_id, status, reported_amount_usd_equivalent, created_at')
-      .eq('created_by_user_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(8),
+      .select('order_id, status')
+      .eq('created_by_user_id', ctx.user.id),
   ]);
 
   const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
-  const payments = (paymentsData ?? []) as PaymentRow[];
+  const paymentReports = (paymentsData ?? []) as PaymentRow[];
 
-  const attentionOrders = orders.filter((order) => ['created', 'queued', 'ready'].includes(order.status));
-  const deliveryOrders = orders.filter((order) => order.status === 'out_for_delivery');
-  const closedToday = orders.filter((order) => order.status === 'delivered');
-  const pendingPayments = payments.filter((payment) => payment.status === 'pending');
-  const visibleSales = orders.reduce((sum, order) => sum + Number(order.total_usd || 0), 0);
+  const paymentStatusByOrderId = new Map<number, PaymentRow['status'][]>();
+  for (const report of paymentReports) {
+    const current = paymentStatusByOrderId.get(report.order_id) ?? [];
+    current.push(report.status);
+    paymentStatusByOrderId.set(report.order_id, current);
+  }
+
+  const agendaOrders = orders.filter((order) => getIsoDayKey(order.created_at) === selectedDayKey);
+  const openOrders = agendaOrders.filter((order) => !['delivered', 'cancelled'].includes(order.status));
+  const unpaidOrders = agendaOrders.filter((order) => {
+    if (order.status === 'cancelled') return false;
+    const reports = paymentStatusByOrderId.get(order.id) ?? [];
+    return reports.length === 0 || reports.every((status) => status === 'rejected');
+  });
+  const deliveredOrders = agendaOrders.filter((order) => order.status === 'delivered');
+  const alertsCount = new Set([
+    ...agendaOrders
+      .filter((order) => ['confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(order.status))
+      .map((order) => order.id),
+    ...unpaidOrders.map((order) => order.id),
+  ]).size;
+  const salesVisible = agendaOrders.reduce((sum, order) => sum + Number(order.total_usd || 0), 0);
+  const calendarDays = buildCalendarDays(selectedDayKey);
+  const advisorName = firstName(profile?.full_name?.trim() || ctx.user.user_metadata?.full_name || ctx.user.email || 'Asesor');
 
   return (
     <div className="space-y-4">
-      <PageIntro
-        eyebrow="Centro de trabajo"
-        title="Lo urgente primero"
-        description="Desde aqui el asesor entra a crear pedido, revisar entregas, reportar pagos y seguir lo que aun esta en movimiento."
-        action={
-          <Link
-            href="/app/advisor/new"
-            className="inline-flex h-10 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-sm font-semibold text-[#17191E]"
-          >
-            Crear pedido
-          </Link>
-        }
-      />
+      <section className="rounded-[28px] border border-[#232632] bg-[#12151d] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.2)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
+              {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
+            </div>
+            <h2 className="mt-1 text-[26px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{advisorName}</h2>
+            <p className="mt-1 text-sm leading-5 text-[#AAB2C5]">Agenda del dia, pagos pendientes y seguimiento operativo.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/app/advisor/orders?day=${selectedDayKey}&bucket=alerts`}
+              className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
+            >
+              <span className="text-lg">!</span>
+              <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
+                {alertsCount}
+              </span>
+            </Link>
+            <Link
+              href="/app/advisor/new"
+              className="inline-flex h-11 items-center rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
+            >
+              Nuevo pedido
+            </Link>
+          </div>
+        </div>
+      </section>
 
-      <section className="grid grid-cols-2 gap-3">
-        <MetricCard label="Por mover" value={String(attentionOrders.length)} detail="Pedidos que piden accion del asesor." />
-        <MetricCard label="En entrega" value={String(deliveryOrders.length)} detail="Pedidos que siguen afuera." />
-        <MetricCard label="Cobro por validar" value={String(pendingPayments.length)} detail="Reportes que aun no han sido aprobados." />
-        <MetricCard label="Venta visible" value={formatUsd(visibleSales)} detail="Lectura rapida de lo ya cargado." />
+      <section className="overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-2">
+          {calendarDays.map((day) => {
+            const isActive = day.key === selectedDayKey;
+
+            return (
+              <Link
+                key={day.key}
+                href={`/app/advisor?day=${day.key}`}
+                className={[
+                  'min-w-[76px] rounded-[18px] border px-3 py-3 text-center',
+                  isActive ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] bg-[#12151d] text-[#CCD3E2]',
+                ].join(' ')}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em]">{day.label}</div>
+                <div className="mt-1 text-lg font-semibold">{day.dayNumber}</div>
+                <div className="mt-1 text-[10px]">{day.isToday ? 'Hoy' : 'Agenda'}</div>
+              </Link>
+            );
+          })}
+        </div>
       </section>
 
       <section className="grid grid-cols-2 gap-3">
-        <QuickLink href="/app/advisor/new" title="Nuevo pedido" detail="Cliente, entrega, pago e items." tone="primary" />
-        <QuickLink href="/app/advisor/orders" title="Seguir pedidos" detail="Ver por prioridad y estado." />
-        <QuickLink href="/app/advisor/payments" title="Reportar pagos" detail="Revisar lo pendiente y lo confirmado." />
-        <QuickLink href="/app/advisor/orders" title="Clientes recientes" detail="Usar clientes de las ultimas ordenes." />
+        <Link href={`/app/advisor/orders?day=${selectedDayKey}&bucket=today`} className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">Pedidos de hoy</div>
+          <div className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{agendaOrders.length}</div>
+          <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">Base diaria para leer la agenda.</div>
+        </Link>
+        <Link href={`/app/advisor/orders?day=${selectedDayKey}&bucket=open`} className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">Pendientes</div>
+          <div className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{openOrders.length}</div>
+          <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">Aun no cerradas ni entregadas.</div>
+        </Link>
+        <Link href={`/app/advisor/orders?day=${selectedDayKey}&bucket=unpaid`} className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">Sin pago reportado</div>
+          <div className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{unpaidOrders.length}</div>
+          <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">Ordenes donde falta registrar el cobro.</div>
+        </Link>
+        <Link href={`/app/advisor/orders?day=${selectedDayKey}&bucket=delivered`} className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">Entregadas</div>
+          <div className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{deliveredOrders.length}</div>
+          <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">Cierres visibles del dia activo.</div>
+        </Link>
       </section>
 
       <SectionCard
-        title="Prioridades"
-        subtitle="Tarjetas cortas para decidir la siguiente accion sin perder tiempo."
-        action={
-          <Link href="/app/advisor/orders" className="text-sm font-medium text-[#CCD3E2]">
-            Ver todo
-          </Link>
-        }
+        title="Agenda del dia"
+        subtitle={`Vista corta del ${formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}.`}
+        action={<div className="text-sm font-medium text-[#F0D000]">{formatUsd(salesVisible)}</div>}
       >
-        {attentionOrders.length === 0 ? (
-          <EmptyBlock title="Nada urgente por ahora" detail="Cuando entre un pedido creado, en cola o listo para salir, aparecera aqui." href="/app/advisor/new" cta="Crear pedido" />
+        {agendaOrders.length === 0 ? (
+          <EmptyBlock title="Sin pedidos agendados" detail="Este dia no tiene pedidos visibles para este asesor." href="/app/advisor/new" cta="Crear pedido" />
         ) : (
           <div className="space-y-2.5">
-            {attentionOrders.slice(0, 4).map((order) => (
-              <article key={order.id} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+            {agendaOrders.slice(0, 6).map((order) => (
+              <Link
+                key={order.id}
+                href={`/app/advisor/orders?day=${selectedDayKey}`}
+                className="block rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-[#F5F7FB]">
@@ -150,40 +283,13 @@ export default async function AdvisorHomePage() {
                   {order.fulfillment === 'delivery' ? order.delivery_address?.trim() || 'Delivery sin direccion' : 'Retiro en tienda'}
                 </div>
                 <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
-                  <span>{formatDate(order.created_at)}</span>
+                  <span>{formatDateTime(order.created_at)}</span>
                   <span className="font-medium text-[#F0D000]">{formatUsd(order.total_usd)}</span>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         )}
-      </SectionCard>
-
-      <SectionCard title="Seguimiento rapido" subtitle="Lo mas reciente en pagos y cierres.">
-        <div className="grid gap-3">
-          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-[#F5F7FB]">Pagos pendientes</div>
-              <StatusBadge label={String(pendingPayments.length)} tone={pendingPayments.length > 0 ? 'warning' : 'success'} />
-            </div>
-            <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
-              {pendingPayments.length > 0
-                ? `Ultimo reporte: ${formatDate(pendingPayments[0].created_at)}`
-                : 'No hay reportes pendientes por validar.'}
-            </div>
-          </div>
-          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-[#F5F7FB]">Entregadas recientes</div>
-              <StatusBadge label={String(closedToday.length)} tone="success" />
-            </div>
-            <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
-              {closedToday.length > 0
-                ? `${closedToday[0].client?.full_name?.trim() || closedToday[0].order_number} fue la ultima orden cerrada visible.`
-                : 'Aun no hay entregas cerradas en esta vista.'}
-            </div>
-          </div>
-        </div>
       </SectionCard>
     </div>
   );
