@@ -1151,11 +1151,17 @@ function orderMainLinesForPreview(lines: OrderLine[]) {
 }
 
 function calcUnits(line: OrderLine) {
-  if (line.unitsPerService > 0) return line.qty * line.unitsPerService;
+  if (line.unitsPerService > 0) {
+    const units = line.qty * line.unitsPerService;
+    return units > 0 ? Math.floor(units) : units;
+  }
   const m = line.name.match(/\((\d+)\s*und\)/i);
   if (m) {
     const base = Number(m[1]);
-    if (!Number.isNaN(base) && base > 0) return line.qty * base;
+    if (!Number.isNaN(base) && base > 0) {
+      const units = line.qty * base;
+      return units > 0 ? Math.floor(units) : units;
+    }
   }
   return null;
 }
@@ -11096,7 +11102,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       value={editUnitsPerService}
                       onChange={setEditUnitsPerService}
                       type="number"
-                      hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25."
+                      hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25. Si se vende medio servicio, el sistema redondea hacia abajo: 25 / 2 = 12."
                     />
                     {shouldShowRiderPayField({
                       type: editType,
@@ -13210,7 +13216,7 @@ deliveryAssignMode === 'external' ? (
           value={newUnitsPerService}
           onChange={setNewUnitsPerService}
           type="number"
-          hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25."
+          hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25. Si se vende medio servicio, el sistema redondea hacia abajo: 25 / 2 = 12."
         />
 
         {shouldShowRiderPayField({
