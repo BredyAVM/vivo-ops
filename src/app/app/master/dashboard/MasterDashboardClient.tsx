@@ -16,7 +16,6 @@ import {
   rejectPaymentReportAction,
   reapproveQueuedOrderAction,
   returnToCreatedAction,
-  reviewOrderChangesAction,
   sendToKitchenAction,
   kitchenTakeAction,
   markReadyAction,
@@ -1385,10 +1384,6 @@ function matchesTray(o: Order, tray: MasterTray) {
 
 function canSendToKitchen(o: Order) {
   return o.status === 'queued' && o.queuedNeedsReapproval === false;
-}
-
-function canReviewQueuedChanges(o: Order) {
-  return o.status === 'queued' && o.queuedNeedsReapproval;
 }
 
 function canKitchenTake(o: Order) {
@@ -2929,9 +2924,9 @@ const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState('25');
 const [returnToQueueBoxOpen, setReturnToQueueBoxOpen] = useState(false);
 const [returnToQueueReason, setReturnToQueueReason] = useState('');
 
-const [reviewActionMode, setReviewActionMode] = useState<
-  null | 'approve' | 'reapprove' | 'return' | 'approve_changes' | 'reject_changes'
->(null);
+const [reviewActionMode, setReviewActionMode] = useState<null | 'approve' | 'reapprove' | 'return'>(
+  null,
+);
 const [reviewActionNotes, setReviewActionNotes] = useState('');
 
 
@@ -4136,28 +4131,6 @@ const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
       : ''
   );
   setPaymentConfirmBoxOpen(true);
-};
-
-const handleReviewChanges = async (o: Order, approved: boolean) => {
-  try {
-    if (!approved && !reviewActionNotes.trim()) {
-      showToast('error', 'Debes indicar una nota para rechazar cambios.');
-      return;
-    }
-
-    await reviewOrderChangesAction({
-      orderId: o.id,
-      approved,
-      notes: reviewActionNotes.trim(),
-    });
-
-    showToast('success', approved ? 'Cambios aprobados.' : 'Cambios rechazados.');
-    resetReviewActionBox();
-    router.refresh();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error revisando cambios.';
-    showToast('error', message);
-  }
 };
 
 const handleKitchenTake = async (o: Order) => {
@@ -12180,29 +12153,6 @@ onClick={() => {
           </>
         ) : null}
 
-        {canReviewQueuedChanges(selectedOrder) ? (
-          <>
-            <button
-              className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] text-orange-400"
-onClick={() => {
-  setReviewActionMode('approve_changes');
-  setReviewActionNotes('');
-}}
-            >
-              Aprobar cambios
-            </button>
-            <button
-              className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-onClick={() => {
-  setReviewActionMode('reject_changes');
-  setReviewActionNotes('');
-}}
-            >
-              Rechazar cambios
-            </button>
-          </>
-        ) : null}
-
         {['created', 'queued'].includes(selectedOrder.status) || isAdmin ? (
           <button
             className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
@@ -12811,8 +12761,6 @@ deliveryAssignMode === 'external' ? (
       {reviewActionMode === 'approve' && 'Aprobar pedido'}
       {reviewActionMode === 'reapprove' && 'Re-aprobar pedido'}
       {reviewActionMode === 'return' && 'Devolver pedido'}
-      {reviewActionMode === 'approve_changes' && 'Aprobar cambios'}
-      {reviewActionMode === 'reject_changes' && 'Rechazar cambios'}
     </div>
 
     <div className="mt-2">
@@ -12821,7 +12769,7 @@ deliveryAssignMode === 'external' ? (
         onChange={(e) => setReviewActionNotes(e.target.value)}
         rows={3}
         placeholder={
-          reviewActionMode === 'return' || reviewActionMode === 'reject_changes'
+          reviewActionMode === 'return'
             ? 'Motivo / notas (obligatorio)'
             : 'Notas (opcional)'
         }
@@ -12854,24 +12802,6 @@ deliveryAssignMode === 'external' ? (
           onClick={() => handleReturn(selectedOrder)}
         >
           Enviar devoluciÃ³n
-        </button>
-      ) : null}
-
-      {reviewActionMode === 'approve_changes' ? (
-        <button
-          className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-          onClick={() => handleReviewChanges(selectedOrder, true)}
-        >
-          Confirmar aprobaciÃ³n
-        </button>
-      ) : null}
-
-      {reviewActionMode === 'reject_changes' ? (
-        <button
-          className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
-          onClick={() => handleReviewChanges(selectedOrder, false)}
-        >
-          Confirmar rechazo
         </button>
       ) : null}
 
