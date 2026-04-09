@@ -10817,12 +10817,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         type="text"
                       />
                       <FieldInput
-                        label="Stock actual"
-                        value={editCurrentStockUnits}
-                        onChange={setEditCurrentStockUnits}
-                        type="text"
-                      />
-                      <FieldInput
                         label="Stock mínimo"
                         value={editLowStockThreshold}
                         onChange={setEditLowStockThreshold}
@@ -10974,7 +10968,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       type="text"
                     />
                     <FieldInput
-                      label="LÃ­mite detalle"
+                      label="Límite detalle"
                       value={editDetailUnitsLimit}
                       onChange={setEditDetailUnitsLimit}
                       type="number"
@@ -10983,20 +10977,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">ComisiÃ³n</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión</div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldSelect
-                      label="Regla comisiÃ³n"
+                      label="Regla comisión"
                       value={editCommissionMode}
                       onChange={(v) => setEditCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
                       options={[
                         { value: 'default', label: 'Default' },
-                        { value: 'fixed_item', label: 'Fija por Ã­tem' },
+                        { value: 'fixed_item', label: 'Fija por ítem' },
                         { value: 'fixed_order', label: 'Fija por orden' },
                       ]}
                     />
                     <FieldInput
-                      label="Valor comisiÃ³n"
+                      label="Valor comisión"
                       value={editCommissionValue}
                       onChange={setEditCommissionValue}
                       type="text"
@@ -11004,7 +10998,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                   <div className="mt-3">
                     <FieldInput
-                      label="Notas comisiÃ³n"
+                      label="Notas comisión"
                       value={editCommissionNotes}
                       onChange={setEditCommissionNotes}
                     />
@@ -11013,7 +11007,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">ComposiciÃ³n</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
                     <button
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
                       onClick={addEditComponent}
@@ -13125,7 +13119,6 @@ deliveryAssignMode === 'external' ? (
           />
           <FieldInput label="Empaque" value={newPackagingName} onChange={setNewPackagingName} />
           <FieldInput label="TamaÃ±o empaque" value={newPackagingSize} onChange={setNewPackagingSize} type="text" />
-          <FieldInput label="Stock actual" value={newCurrentStockUnits} onChange={setNewCurrentStockUnits} type="text" />
           <FieldInput
             label="Stock mÃ­nimo"
             value={newLowStockThreshold}
