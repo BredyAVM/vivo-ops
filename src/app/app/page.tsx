@@ -1,5 +1,12 @@
 import { redirect } from 'next/navigation';
+import { getAuthContext, resolveHomePath } from '@/lib/auth';
 
-export default function AppRoot() {
-  redirect('/app/master/dashboard');
+export default async function AppRoot() {
+  const ctx = await getAuthContext();
+
+  if (!ctx) {
+    redirect('/login');
+  }
+
+  redirect(resolveHomePath(ctx.roles));
 }
