@@ -1923,7 +1923,7 @@ function productCompositionKind(item: CatalogItem | null, sku: string | undefine
     return 'Plato configurable';
   }
   if (components.length > 0) return 'Combo fijo';
-  return 'Sin composiciÃ³n';
+  return 'Sin composición';
 }
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
@@ -2143,19 +2143,19 @@ function ComponentCard({
             <div className="mt-1 text-[#F5F5F7]">{pc.quantity}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">Cuenta lÃ­mite</div>
+            <div className="text-[#8A8A96]">Cuenta límite</div>
             <div className="mt-1 text-[#F5F5F7]">
-              {pc.countsTowardDetailLimit ? 'SÃ­' : 'No'}
+              {pc.countsTowardDetailLimit ? 'Sí' : 'No'}
             </div>
           </div>
           <div>
             <div className="text-[#8A8A96]">Requerido</div>
-            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'SÃ­' : 'No'}</div>
+            <div className="mt-1 text-[#F5F5F7]">{pc.isRequired ? 'Sí' : 'No'}</div>
           </div>
         </div>
       ) : (
         <div className="mt-3 text-xs text-[#B7B7C2]">
-          OpciÃ³n habilitada para selecciÃ³n dentro del lÃ­mite del plato.
+          Opción habilitada para selección dentro del límite del plato.
         </div>
       )}
 
@@ -2314,7 +2314,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'mix',
       label: 'Mixto fijo',
-      summary: 'ComposiciÃ³n cerrada con cantidades exactas por componente.',
+      summary: 'Composición cerrada con cantidades exactas por componente.',
     };
   }
 
@@ -2324,7 +2324,7 @@ function getCatalogOperationalModel(
         kind: 'configurable_with_fixed',
         label: 'Plato configurable con extras fijos',
         summary:
-          'El cliente puede escoger piezas seleccionables dentro del lÃ­mite. AdemÃ¡s puede incluir componentes fijos u opcionales.',
+          'El cliente puede escoger piezas seleccionables dentro del límite. Además puede incluir componentes fijos u opcionales.',
       };
     }
 
@@ -2332,7 +2332,7 @@ function getCatalogOperationalModel(
       kind: 'configurable',
       label: 'Plato configurable',
       summary:
-        'El cliente puede escoger piezas seleccionables dentro del lÃ­mite permitido.',
+        'El cliente puede escoger piezas seleccionables dentro del límite permitido.',
     };
   }
 
@@ -2346,8 +2346,8 @@ function getCatalogOperationalModel(
 
   return {
     kind: 'simple',
-    label: 'Ã­tem simple',
-    summary: 'Producto sin composiciÃ³n cargada.',
+    label: 'Ítem simple',
+    summary: 'Producto sin composición cargada.',
   };
 }
 
@@ -10775,11 +10775,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <>
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="text-sm font-semibold text-[#F5F5F7]">Inventario</div>
-                  <div className="mt-4 space-y-4">
-                    <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
-                      <input
-                        type="checkbox"
-                        checked={editInventoryEnabled}
+                    <div className="mt-4 space-y-4">
+                      <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+                        <input
+                          type="checkbox"
+                          checked={editInventoryEnabled}
                         onChange={(e) => setEditInventoryEnabled(e.target.checked)}
                       />
                       Inventario activo
@@ -10797,20 +10797,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           { value: 'prepared_base', label: 'Base preparada' },
                           { value: 'raw_material', label: 'Materia prima' },
                         ]}
-                      />
-                      <FieldSelect
-                        label="Grupo"
-                        value={editInventoryGroup}
-                        onChange={(v) =>
-                          setEditInventoryGroup(
-                            v as 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
-                          )
-                        }
-                        options={INVENTORY_GROUP_OPTIONS.map((option) => ({
-                          value: option.value,
-                          label: option.label,
-                        }))}
-                        hint="Te ayuda a filtrar por crudos, fritos, prefritos, salsas o envases."
                       />
                       <FieldSelect
                         label="Modo de descuento"
@@ -10831,24 +10817,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         value={editInventoryUnitName}
                         onChange={setEditInventoryUnitName}
                         hint="Ejemplo: pieza, kg, bandeja o vasito."
-                      />
-                      <FieldInput
-                        label="Empaque"
-                        value={editPackagingName}
-                        onChange={setEditPackagingName}
-                      />
-                      <FieldInput
-                        label="Tamaño empaque"
-                        value={editPackagingSize}
-                        onChange={setEditPackagingSize}
-                        type="text"
-                      />
-                      <FieldInput
-                        label="Stock mínimo"
-                        value={editLowStockThreshold}
-                        onChange={setEditLowStockThreshold}
-                        type="text"
-                        hint="Cuando baje de este número, quedará marcado como bajo stock."
                       />
                     </div>
                     {editInventoryEnabled && editInventoryDeductionMode === 'composition' ? (
@@ -13069,7 +13037,7 @@ deliveryAssignMode === 'external' ? (
         />
 
         <FieldInput
-          label="LÃ­mite detalle"
+          label="Límite detalle"
           value={newDetailUnitsLimit}
           onChange={setNewDetailUnitsLimit}
           type="number"
@@ -13078,18 +13046,18 @@ deliveryAssignMode === 'external' ? (
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <FieldSelect
-          label="Regla comisiÃ³n"
+          label="Regla comisión"
           value={newCommissionMode}
           onChange={(v) => setNewCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
           options={[
             { value: 'default', label: 'Default' },
-            { value: 'fixed_item', label: 'Fija por Ã­tem' },
+            { value: 'fixed_item', label: 'Fija por ítem' },
             { value: 'fixed_order', label: 'Fija por orden' },
           ]}
         />
 
         <FieldInput
-          label="Valor comisiÃ³n"
+          label="Valor comisión"
           value={newCommissionValue}
           onChange={setNewCommissionValue}
           type="text"
@@ -13097,7 +13065,7 @@ deliveryAssignMode === 'external' ? (
       </div>
 
       <div className="mt-3">
-        <FieldInput label="Notas comisiÃ³n" value={newCommissionNotes} onChange={setNewCommissionNotes} />
+        <FieldInput label="Notas comisión" value={newCommissionNotes} onChange={setNewCommissionNotes} />
       </div>
 
       <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3">
@@ -13115,31 +13083,17 @@ deliveryAssignMode === 'external' ? (
             ]}
           />
           <FieldSelect
-            label="Grupo"
-            value={newInventoryGroup}
-            onChange={(v) =>
-              setNewInventoryGroup(
-                v as 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
-              )
-            }
-            options={INVENTORY_GROUP_OPTIONS.map((option) => ({
-              value: option.value,
-              label: option.label,
-            }))}
-            hint="Te ayuda a filtrar por crudos, fritos, prefritos, salsas o envases."
-          />
-          <FieldSelect
             label="Modo de descuento"
             value={newInventoryDeductionMode}
             onChange={(v) => setNewInventoryDeductionMode(v as 'self' | 'composition')}
             hint={
               newInventoryDeductionMode === 'composition'
                 ? 'Este producto baja stock de un item interno distinto.'
-                : 'La venta bajarÃ¡ stock de este mismo producto.'
+                : 'La venta bajará stock de este mismo producto.'
             }
             options={[
-              { value: 'self', label: 'A sÃ­ mismo' },
-              { value: 'composition', label: 'Por composiciÃ³n' },
+              { value: 'self', label: 'A sí mismo' },
+              { value: 'composition', label: 'Por composición' },
             ]}
           />
           <FieldInput
@@ -13147,15 +13101,6 @@ deliveryAssignMode === 'external' ? (
             value={newInventoryUnitName}
             onChange={setNewInventoryUnitName}
             hint="Ejemplo: pieza, kg, bandeja o vasito."
-          />
-          <FieldInput label="Empaque" value={newPackagingName} onChange={setNewPackagingName} />
-          <FieldInput label="TamaÃ±o empaque" value={newPackagingSize} onChange={setNewPackagingSize} type="text" />
-          <FieldInput
-            label="Stock mÃ­nimo"
-            value={newLowStockThreshold}
-            onChange={setNewLowStockThreshold}
-            type="text"
-            hint="Cuando baje de este nÃºmero, quedarÃ¡ marcado como bajo stock."
           />
         </div>
         {newInventoryEnabled && newInventoryDeductionMode === 'composition' ? (
@@ -13179,7 +13124,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-3 space-y-3">
               {newInventoryLinks.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
-                  Agrega al menos un item interno. Ejemplo: Mini tequeÃ±o crudo x 25.
+                  Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
                 </div>
               ) : (
                 newInventoryLinks.map((row) => (
@@ -13194,7 +13139,7 @@ deliveryAssignMode === 'external' ? (
                           })
                         }
                         options={inventoryItemOptions}
-                        hint="AquÃ­ eliges el stock real que va a bajar."
+                        hint="Aquí eliges el stock real que va a bajar."
                       />
                       <FieldInput
                         label="Cantidad"
