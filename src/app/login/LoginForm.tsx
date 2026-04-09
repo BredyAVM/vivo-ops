@@ -4,6 +4,12 @@ import { useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
+function resolveHomePath(roles: readonly string[]) {
+  if (roles.includes('admin') || roles.includes('master')) return '/app/master/dashboard';
+  if (roles.includes('advisor')) return '/app/advisor/orders';
+  return '/orders';
+}
+
 export default function LoginForm() {
   const router = useRouter();
   const supabase = createSupabaseBrowser();
@@ -28,7 +34,15 @@ export default function LoginForm() {
         return;
       }
 
-      router.push('/');
+      const { data: rolesData, error: rolesError } = await supabase.rpc('get_my_roles');
+
+      if (rolesError) {
+        setErrorMessage(rolesError.message);
+        return;
+      }
+
+      const roles = Array.isArray(rolesData) ? (rolesData as string[]) : [];
+      router.push(resolveHomePath(roles));
       router.refresh();
     } finally {
       setLoading(false);
