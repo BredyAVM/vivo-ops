@@ -1198,6 +1198,16 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   return `• ${line.qty} ${line.name}: ${bs}`;
 }
 
+const EDITABLE_DETAIL_SELECTION_PREFIX = '@sel|';
+
+function isEditableDetailMetadataLine(line: string) {
+  return String(line || '').trim().startsWith(EDITABLE_DETAIL_SELECTION_PREFIX);
+}
+
+function getVisibleEditableDetailLines(lines: string[]) {
+  return (lines ?? []).filter((line) => !isEditableDetailMetadataLine(line));
+}
+
 function buildWhatsAppOrderSummary(order: Order) {
   const lines = orderMainLinesForPreview(order.lines);
 
@@ -1220,7 +1230,7 @@ function buildWhatsAppOrderSummary(order: Order) {
       parts.push(lineTextWhatsAppStyle(line));
 
       if (line.editableDetailLines && line.editableDetailLines.length > 0) {
-        for (const detail of line.editableDetailLines) {
+        for (const detail of getVisibleEditableDetailLines(line.editableDetailLines)) {
           parts.push(`- ${detail}`);
         }
       }
@@ -2265,11 +2275,27 @@ function FieldCheckbox({
 
 function parseEditableDetailLines(lines: string[]) {
   let alias = '';
-  const selections: Array<{ componentName: string; qty: number }> = [];
+  const selections: Array<{
+    componentName: string;
+    qty: number;
+    componentProductId: number | null;
+  }> = [];
+  const selectionsByComponentId = new Map<number, number>();
 
   for (const rawLine of lines) {
     const line = String(rawLine || '').trim();
     if (!line) continue;
+
+    if (isEditableDetailMetadataLine(line)) {
+      const [, componentIdRaw, qtyRaw] = line.split('|');
+      const componentProductId = Number(componentIdRaw || 0);
+      const qty = Number(qtyRaw || 0);
+
+      if (Number.isFinite(componentProductId) && componentProductId > 0 && Number.isFinite(qty) && qty > 0) {
+        selectionsByComponentId.set(componentProductId, qty);
+      }
+      continue;
+    }
 
     if (/^para\s*:/i.test(line)) {
       alias = line.replace(/^para\s*:/i, '').trim();
@@ -2282,9 +2308,20 @@ function parseEditableDetailLines(lines: string[]) {
       const componentName = match[2].trim();
 
       if (Number.isFinite(qty) && qty > 0 && componentName) {
-        selections.push({ componentName, qty });
+        selections.push({ componentName, qty, componentProductId: null });
       }
     }
+  }
+
+  if (selectionsByComponentId.size > 0) {
+    return {
+      alias,
+      selections: Array.from(selectionsByComponentId.entries()).map(([componentProductId, qty]) => ({
+        componentProductId,
+        qty,
+        componentName: '',
+      })),
+    };
   }
 
   return { alias, selections };
@@ -5729,11 +5766,15 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
 
   const nextSelections: DraftEditableSelection[] = parsed.selections
     .map((parsedRow) => {
-      const matchingOption = selectableOptions.find(
-        (option) =>
-          option.componentName.trim().toLowerCase() ===
-          parsedRow.componentName.trim().toLowerCase()
-      );
+      const matchingOption =
+        (parsedRow.componentProductId != null
+          ? selectableOptions.find((option) => option.componentProductId === parsedRow.componentProductId)
+          : null) ??
+        selectableOptions.find(
+          (option) =>
+            option.componentName.trim().toLowerCase() ===
+            parsedRow.componentName.trim().toLowerCase()
+        );
 
       if (!matchingOption) return null;
 
@@ -5892,6 +5933,13 @@ const handleConfirmCreateOrderConfig = () => {
     .sort((a, b) => a.componentName.localeCompare(b.componentName))
     .forEach((x) => {
       detailLines.push(`${x.qty} ${x.componentName}`);
+    });
+
+  createOrderConfigSelections
+    .filter((x) => x.qty > 0)
+    .sort((a, b) => a.componentName.localeCompare(b.componentName))
+    .forEach((x) => {
+      detailLines.push(`${EDITABLE_DETAIL_SELECTION_PREFIX}${x.componentProductId}|${x.qty}`);
     });
 
 const nextItem: DraftItem = {
@@ -11311,9 +11359,9 @@ onClose={() => {
             orderMainLinesForPreview(selectedOrder.lines).map((line, idx) => (
               <div key={idx} className="leading-5">
                 <div className="text-[#F5F5F7]">{lineTextWhatsAppStyle(line)}</div>
-                {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
+                {line.editableDetailLines && getVisibleEditableDetailLines(line.editableDetailLines).length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
-                    {line.editableDetailLines.slice(0, 10).map((t, i) => (
+                    {getVisibleEditableDetailLines(line.editableDetailLines).slice(0, 10).map((t, i) => (
                       <div key={i}>• {t}</div>
                     ))}
                   </div>
@@ -15493,9 +15541,9 @@ deliveryAssignMode === 'external' ? (
 <div>
   <div className="text-[13px] font-medium text-[#F5F5F7]">{repairDisplayText(item.productNameSnapshot)}</div>
 
-  {item.editableDetailLines.length > 0 ? (
+  {getVisibleEditableDetailLines(item.editableDetailLines).length > 0 ? (
     <div className="mt-1.5 space-y-0.5 text-[11px] text-[#B7B7C2]">
-      {item.editableDetailLines.map((detail, detailIdx) => (
+      {getVisibleEditableDetailLines(item.editableDetailLines).map((detail, detailIdx) => (
         <div key={detailIdx}>• {repairDisplayText(detail)}</div>
       ))}
     </div>
@@ -15539,7 +15587,7 @@ deliveryAssignMode === 'external' ? (
 
 <div className="flex items-end">
   <div className="flex w-full flex-wrap gap-1.5">
-    {item.editableDetailLines.length > 0 ? (
+    {getVisibleEditableDetailLines(item.editableDetailLines).length > 0 ? (
       <button
         type="button"
         onClick={() => openEditCreateOrderConfig(item)}

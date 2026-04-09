@@ -3144,7 +3144,7 @@ async function applyDeliveredOrderInventoryDeductions(
 
   const { data: orderItems, error: orderItemsError } = await supabase
     .from('order_items')
-    .select('id, product_id, qty, product_name_snapshot')
+    .select('id, product_id, qty, product_name_snapshot, notes')
     .eq('order_id', orderId);
 
   if (orderItemsError) {
@@ -3159,10 +3159,29 @@ async function applyDeliveredOrderInventoryDeductions(
     return;
   }
 
+  const { data: productComponents, error: productComponentsError } = await supabase
+    .from('product_components')
+    .select('parent_product_id, component_product_id, component_mode, quantity, is_required')
+    .in('parent_product_id', productIds);
+
+  if (productComponentsError) {
+    throw new Error(productComponentsError.message);
+  }
+
+  const componentProductIds = Array.from(
+    new Set(
+      (productComponents ?? [])
+        .map((row) => Number(row.component_product_id))
+        .filter((id) => id > 0)
+    )
+  );
+
+  const lookupProductIds = Array.from(new Set([...productIds, ...componentProductIds]));
+
   const { data: products, error: productsError } = await supabase
     .from('products')
     .select('id, name, inventory_enabled, inventory_deduction_mode')
-    .in('id', productIds);
+    .in('id', lookupProductIds);
 
   if (productsError) {
     throw new Error(productsError.message);
@@ -3171,7 +3190,7 @@ async function applyDeliveredOrderInventoryDeductions(
   const { data: links, error: linksError } = await supabase
     .from('product_inventory_links')
     .select('product_id, inventory_item_id, quantity_units, is_active')
-    .in('product_id', productIds);
+    .in('product_id', lookupProductIds);
 
   if (linksError) {
     throw new Error(linksError.message);
@@ -3188,6 +3207,31 @@ async function applyDeliveredOrderInventoryDeductions(
       },
     ])
   );
+
+  const componentsByParentProductId = new Map<
+    number,
+    Array<{
+      componentProductId: number;
+      componentMode: 'fixed' | 'selectable';
+      quantity: number;
+      isRequired: boolean;
+    }>
+  >();
+
+  for (const row of productComponents ?? []) {
+    const parentProductId = Number(row.parent_product_id);
+    const componentProductId = Number(row.component_product_id);
+    if (parentProductId <= 0 || componentProductId <= 0) continue;
+
+    const list = componentsByParentProductId.get(parentProductId) ?? [];
+    list.push({
+      componentProductId,
+      componentMode: row.component_mode === 'selectable' ? 'selectable' : 'fixed',
+      quantity: Math.max(0, toSafeNumber(row.quantity, 0)),
+      isRequired: !!row.is_required,
+    });
+    componentsByParentProductId.set(parentProductId, list);
+  }
 
   const linksByProductId = new Map<number, Array<{ inventoryItemId: number; quantityUnits: number }>>();
   for (const row of links ?? []) {
@@ -3224,8 +3268,157 @@ async function applyDeliveredOrderInventoryDeductions(
     }
   }
 
+  const fallbackInventoryNames = Array.from(
+    new Set(
+      Array.from(productById.values())
+        .map((product) => String(product.name || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const inventoryItemsByName = new Map<string, { id: number; currentStockUnits: number }>();
+  if (fallbackInventoryNames.length > 0) {
+    const { data: fallbackInventoryItems, error: fallbackInventoryItemsError } = await supabase
+      .from('inventory_items')
+      .select('id, name, current_stock_units')
+      .in('name', fallbackInventoryNames);
+
+    if (fallbackInventoryItemsError) {
+      throw new Error(fallbackInventoryItemsError.message);
+    }
+
+    for (const row of fallbackInventoryItems ?? []) {
+      const normalizedName = String((row as { name?: string | null }).name || '').trim().toLowerCase();
+      if (!normalizedName) continue;
+
+      const inventoryRow = {
+        id: Number(row.id),
+        currentStockUnits: toSafeNumber(row.current_stock_units, 0),
+      };
+
+      inventoryItemsByName.set(normalizedName, inventoryRow);
+      inventoryItemsById.set(inventoryRow.id, inventoryRow);
+    }
+  }
+
   const aggregatedDeductions = new Map<number, number>();
   const notesByInventoryItemId = new Map<number, string[]>();
+
+  const parseOrderItemSelections = (notes: string | null | undefined) => {
+    const selectedComponentQtyById = new Map<number, number>();
+    const selectedComponentQtyByName = new Map<string, number>();
+
+    for (const rawLine of String(notes || '').split('\n')) {
+      const line = rawLine.trim();
+      if (!line) continue;
+
+      if (line.startsWith('@sel|')) {
+        const [, componentProductIdRaw, qtyRaw] = line.split('|');
+        const componentProductId = Number(componentProductIdRaw || 0);
+        const qty = Math.max(0, toSafeNumber(qtyRaw, 0));
+        if (componentProductId > 0 && qty > 0) {
+          selectedComponentQtyById.set(componentProductId, qty);
+        }
+        continue;
+      }
+
+      if (/^para\s*:/i.test(line)) continue;
+
+      const match = line.match(/^(\d+)\s+(.+)$/i);
+      if (!match) continue;
+
+      const qty = Math.max(0, toSafeNumber(match[1], 0));
+      const componentName = String(match[2] || '').trim().toLowerCase();
+      if (!componentName || qty <= 0) continue;
+      selectedComponentQtyByName.set(componentName, qty);
+    }
+
+    return { selectedComponentQtyById, selectedComponentQtyByName };
+  };
+
+  const addInventoryDeduction = (inventoryItemId: number, quantityUnits: number, noteLabel: string) => {
+    if (inventoryItemId <= 0 || quantityUnits <= 0) return;
+
+    aggregatedDeductions.set(
+      inventoryItemId,
+      (aggregatedDeductions.get(inventoryItemId) ?? 0) + quantityUnits
+    );
+
+    const notes = notesByInventoryItemId.get(inventoryItemId) ?? [];
+    notes.push(noteLabel);
+    notesByInventoryItemId.set(inventoryItemId, notes);
+  };
+
+  const applyProductDeductions = (
+    productId: number,
+    qty: number,
+    noteLabel: string,
+    selectableSelections?: ReturnType<typeof parseOrderItemSelections>,
+    stack: number[] = []
+  ) => {
+    if (productId <= 0 || qty <= 0) return;
+    if (stack.includes(productId)) return;
+
+    const product = productById.get(productId);
+    if (!product?.inventoryEnabled) return;
+
+    const nextStack = [...stack, productId];
+    const productComponentsRows = componentsByParentProductId.get(productId) ?? [];
+
+    if (product.deductionMode === 'composition' && productComponentsRows.length > 0) {
+      let appliedFromComponents = false;
+
+      for (const componentRow of productComponentsRows) {
+        if (componentRow.componentMode === 'fixed' || componentRow.isRequired) {
+          const childQty = qty * Math.max(0, componentRow.quantity);
+          if (childQty > 0) {
+            appliedFromComponents = true;
+            applyProductDeductions(componentRow.componentProductId, childQty, noteLabel, undefined, nextStack);
+          }
+          continue;
+        }
+
+        let selectedQty = selectableSelections?.selectedComponentQtyById.get(componentRow.componentProductId) ?? 0;
+        if (selectedQty <= 0) {
+          const componentName = productById.get(componentRow.componentProductId)?.name?.trim().toLowerCase() || '';
+          if (componentName) {
+            selectedQty = selectableSelections?.selectedComponentQtyByName.get(componentName) ?? 0;
+          }
+        }
+
+        if (selectedQty > 0) {
+          appliedFromComponents = true;
+          applyProductDeductions(componentRow.componentProductId, qty * selectedQty, noteLabel, undefined, nextStack);
+        }
+      }
+
+      if (appliedFromComponents) {
+        return;
+      }
+    }
+
+    const productLinks = linksByProductId.get(productId) ?? [];
+    if (product.deductionMode === 'composition') {
+      for (const link of productLinks) {
+        if (link.inventoryItemId <= 0 || link.quantityUnits <= 0) continue;
+        addInventoryDeduction(link.inventoryItemId, qty * link.quantityUnits, noteLabel);
+      }
+      if (productLinks.length > 0) {
+        return;
+      }
+    }
+
+    const selfInventoryLink = productLinks.find((link) => link.inventoryItemId > 0) ?? null;
+    if (selfInventoryLink) {
+      addInventoryDeduction(selfInventoryLink.inventoryItemId, qty, noteLabel);
+      return;
+    }
+
+    const fallbackInventoryItem = inventoryItemsByName.get(product.name.trim().toLowerCase()) ?? null;
+    if (fallbackInventoryItem) {
+      addInventoryDeduction(fallbackInventoryItem.id, qty, noteLabel);
+    }
+  };
 
   for (const row of orderItems ?? []) {
     const productId = toSafeNumber(row.product_id, 0);
@@ -3234,60 +3427,12 @@ async function applyDeliveredOrderInventoryDeductions(
 
     const product = productById.get(productId);
     if (!product?.inventoryEnabled) continue;
-
-    if (product.deductionMode === 'composition') {
-      const productLinks = linksByProductId.get(productId) ?? [];
-      for (const link of productLinks) {
-        if (link.inventoryItemId <= 0 || link.quantityUnits <= 0) continue;
-        const delta = qty * link.quantityUnits;
-        aggregatedDeductions.set(
-          link.inventoryItemId,
-          (aggregatedDeductions.get(link.inventoryItemId) ?? 0) + delta
-        );
-        const notes = notesByInventoryItemId.get(link.inventoryItemId) ?? [];
-        notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
-        notesByInventoryItemId.set(link.inventoryItemId, notes);
-      }
-      continue;
-    }
-
-    const selfInventoryLink = (linksByProductId.get(productId) ?? []).find((link) => link.inventoryItemId > 0) ?? null;
-    if (selfInventoryLink) {
-      aggregatedDeductions.set(
-        selfInventoryLink.inventoryItemId,
-        (aggregatedDeductions.get(selfInventoryLink.inventoryItemId) ?? 0) + qty
-      );
-      const notes = notesByInventoryItemId.get(selfInventoryLink.inventoryItemId) ?? [];
-      notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
-      notesByInventoryItemId.set(selfInventoryLink.inventoryItemId, notes);
-      continue;
-    }
-
-    const { data: selfInventoryItemByName, error: selfInventoryItemByNameError } = await supabase
-      .from('inventory_items')
-      .select('id, current_stock_units')
-      .eq('name', product.name)
-      .limit(1)
-      .maybeSingle();
-
-    if (selfInventoryItemByNameError) {
-      throw new Error(selfInventoryItemByNameError.message);
-    }
-
-    if (!selfInventoryItemByName) continue;
-
-    const fallbackInventoryItemId = Number(selfInventoryItemByName.id);
-    aggregatedDeductions.set(
-      fallbackInventoryItemId,
-      (aggregatedDeductions.get(fallbackInventoryItemId) ?? 0) + qty
+    applyProductDeductions(
+      productId,
+      qty,
+      `${row.product_name_snapshot || product.name} x${qty}`,
+      parseOrderItemSelections((row as { notes?: string | null }).notes ?? null)
     );
-    const notes = notesByInventoryItemId.get(fallbackInventoryItemId) ?? [];
-    notes.push(`${row.product_name_snapshot || product.name} x${qty}`);
-    notesByInventoryItemId.set(fallbackInventoryItemId, notes);
-    inventoryItemsById.set(fallbackInventoryItemId, {
-      id: fallbackInventoryItemId,
-      currentStockUnits: toSafeNumber(selfInventoryItemByName.current_stock_units, 0),
-    });
   }
 
   if (aggregatedDeductions.size === 0) {
