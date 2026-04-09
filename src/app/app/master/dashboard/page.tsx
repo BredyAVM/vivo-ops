@@ -1778,6 +1778,7 @@ const lines = rowItems.map((item) => {
     qty,
     unitsPerService,
     priceBs: unitPriceBs,
+    productType: catalogItemById.get(productId)?.type,
     isDelivery,
     editableDetailLines: item.notes
       ? item.notes

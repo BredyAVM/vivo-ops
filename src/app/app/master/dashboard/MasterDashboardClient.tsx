@@ -66,6 +66,7 @@ type OrderLine = {
   qty: number;
   unitsPerService: number;
   priceBs: number;
+  productType?: CatalogItem['type'];
   inventoryGroup?: CatalogItem['inventoryGroup'];
   inventoryUnitName?: string;
   isDelivery?: boolean;
@@ -1192,7 +1193,10 @@ function lineTextWhatsAppStyle(line: OrderLine) {
 
   if (units !== null) {
     const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    return `• ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    if (line.productType === 'service') {
+      return `• ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+    }
+    return `• ${line.qty} ${cleanName} (${units} und): ${bs}`;
   }
 
   return `• ${line.qty} ${line.name}: ${bs}`;
