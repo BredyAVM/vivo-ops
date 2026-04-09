@@ -976,6 +976,17 @@ function isDeliveryCatalogItem(item: Pick<CatalogItem, 'name' | 'internalRiderPa
   return Number(item.internalRiderPayUsd || 0) > 0 || String(item.name || '').trim().toLowerCase().includes('delivery');
 }
 
+function shouldShowRiderPayField(params: {
+  type?: string | null;
+  name?: string | null;
+  currentValue?: string | number | null;
+}) {
+  const { type, name, currentValue } = params;
+  if (type === 'combo') return true;
+  if (String(name || '').trim().toLowerCase().includes('delivery')) return true;
+  return Number(currentValue || 0) > 0;
+}
+
 function getOrderDeliveryItems(order: Order, catalogItemById: Map<number, CatalogItem>) {
   return (order.draftItems ?? []).filter((item) => {
     const product = catalogItemById.get(item.productId);
@@ -4227,7 +4238,7 @@ const handleSaveCatalog = async () => {
       unitsPerService: Number(editUnitsPerService || 0),
       isDetailEditable: editIsDetailEditable,
       detailUnitsLimit: Number(editDetailUnitsLimit || 0),
-      isInventoryItem: editIsInventoryItem,
+      isInventoryItem: editInventoryEnabled,
       isTemporary: editIsTemporary,
       isComboComponentSelectable: editIsComboComponentSelectable,
       commissionMode: editCommissionMode,
@@ -5320,7 +5331,7 @@ const handleCreateCatalogItem = async () => {
       isActive: newIsActive,
       isDetailEditable: newIsDetailEditable,
       detailUnitsLimit: Number(newDetailUnitsLimit || 0),
-      isInventoryItem: newIsInventoryItem,
+      isInventoryItem: newInventoryEnabled,
       isTemporary: newIsTemporary,
       isComboComponentSelectable: newIsComboComponentSelectable,
       commissionMode: newCommissionMode,
@@ -10899,11 +10910,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       onChange={setEditIsActive}
                     />
                     <FieldCheckbox
-                      label="Inventariable"
-                      checked={editIsInventoryItem}
-                      onChange={setEditIsInventoryItem}
-                    />
-                    <FieldCheckbox
                       label="Detalle editable"
                       checked={editIsDetailEditable}
                       onChange={setEditIsDetailEditable}
@@ -10940,19 +10946,30 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       value={editUnitsPerService}
                       onChange={setEditUnitsPerService}
                       type="number"
+                      hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25."
                     />
-                    <FieldInput
-                      label="Pago rider interno ($)"
-                      value={editInternalRiderPayUsd}
-                      onChange={setEditInternalRiderPayUsd}
-                      type="text"
-                    />
-                    <FieldInput
-                      label="Límite detalle"
-                      value={editDetailUnitsLimit}
-                      onChange={setEditDetailUnitsLimit}
-                      type="number"
-                    />
+                    {shouldShowRiderPayField({
+                      type: selectedCatalogItem?.type,
+                      name: selectedCatalogItem?.name,
+                      currentValue: editInternalRiderPayUsd,
+                    }) ? (
+                      <FieldInput
+                        label="Pago rider interno ($)"
+                        value={editInternalRiderPayUsd}
+                        onChange={setEditInternalRiderPayUsd}
+                        type="text"
+                        hint="Solo aplica si este ítem representa un delivery o combo con delivery."
+                      />
+                    ) : null}
+                    {editIsDetailEditable ? (
+                      <FieldInput
+                        label="Límite detalle"
+                        value={editDetailUnitsLimit}
+                        onChange={setEditDetailUnitsLimit}
+                        type="number"
+                        hint="Máximo de piezas seleccionables que permite este plato."
+                      />
+                    ) : null}
                   </div>
                 </div>
 
@@ -12994,9 +13011,9 @@ deliveryAssignMode === 'external' ? (
   </div>
         </Drawer>
 
-        <Drawer
+<Drawer
   open={createCatalogOpen}
-  title="Nuevo Ã­tem de catÃ¡logo"
+  title="Nuevo ítem de catálogo"
   onClose={() => setCreateCatalogOpen(false)}
   widthClass="w-[720px]"
 >
@@ -13030,21 +13047,32 @@ deliveryAssignMode === 'external' ? (
           value={newUnitsPerService}
           onChange={setNewUnitsPerService}
           type="number"
+          hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25."
         />
 
-        <FieldInput
-          label="Pago rider interno ($)"
-          value={newInternalRiderPayUsd}
-          onChange={setNewInternalRiderPayUsd}
-          type="text"
-        />
+        {shouldShowRiderPayField({
+          type: newType,
+          name: newName,
+          currentValue: newInternalRiderPayUsd,
+        }) ? (
+          <FieldInput
+            label="Pago rider interno ($)"
+            value={newInternalRiderPayUsd}
+            onChange={setNewInternalRiderPayUsd}
+            type="text"
+            hint="Solo aplica si este ítem representa un delivery o combo con delivery."
+          />
+        ) : null}
 
-        <FieldInput
-          label="Límite detalle"
-          value={newDetailUnitsLimit}
-          onChange={setNewDetailUnitsLimit}
-          type="number"
-        />
+        {newIsDetailEditable ? (
+          <FieldInput
+            label="Límite detalle"
+            value={newDetailUnitsLimit}
+            onChange={setNewDetailUnitsLimit}
+            type="number"
+            hint="Máximo de piezas seleccionables que permite este plato."
+          />
+        ) : null}
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-3">
@@ -13175,7 +13203,6 @@ deliveryAssignMode === 'external' ? (
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <FieldCheckbox label="Activo" checked={newIsActive} onChange={setNewIsActive} />
-        <FieldCheckbox label="Inventariable" checked={newIsInventoryItem} onChange={setNewIsInventoryItem} />
         <FieldCheckbox label="Detalle editable" checked={newIsDetailEditable} onChange={setNewIsDetailEditable} />
         <FieldCheckbox label="Temporal" checked={newIsTemporary} onChange={setNewIsTemporary} />
         <FieldCheckbox
