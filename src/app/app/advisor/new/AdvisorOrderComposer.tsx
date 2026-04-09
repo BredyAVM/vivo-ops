@@ -7,7 +7,15 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
 type FulfillmentType = 'pickup' | 'delivery';
-type PaymentMethod = 'pending' | 'cash' | 'transfer' | 'zelle' | 'mixed';
+type PaymentMethod =
+  | 'pending'
+  | 'payment_mobile'
+  | 'transfer'
+  | 'cash_usd'
+  | 'cash_ves'
+  | 'zelle'
+  | 'mixed';
+type CurrencyCode = 'USD' | 'VES';
 
 type ClientRow = {
   id: number;
@@ -21,6 +29,26 @@ type ProductRow = {
   sku: string | null;
   name: string;
   base_price_usd: number | string | null;
+  source_price_currency: CurrencyCode | null;
+  source_price_amount: number | string | null;
+  is_detail_editable: boolean | null;
+  detail_units_limit: number | null;
+};
+
+type ProductComponentRow = {
+  product_id: number;
+  component_product_id: number;
+  component_mode: 'fixed' | 'selectable';
+  quantity: number | null;
+  counts_toward_detail_limit: boolean | null;
+  is_required: boolean | null;
+  sort_order: number | null;
+};
+
+type ConfigSelection = {
+  componentProductId: number;
+  name: string;
+  qty: number;
 };
 
 type DraftItem = {
@@ -29,8 +57,11 @@ type DraftItem = {
   sku_snapshot: string | null;
   product_name_snapshot: string;
   qty: number;
+  source_price_currency: CurrencyCode;
+  source_price_amount: number;
   unit_price_usd_snapshot: number;
   line_total_usd: number;
+  editable_detail_lines: string[];
 };
 
 function pad2(n: number) {
@@ -141,6 +172,125 @@ function Section({
   );
 }
 
+function parseEditableDetailLines(lines: string[]) {
+  let alias = '';
+  const selections: Array<{ componentName: string; qty: number }> = [];
+
+  for (const rawLine of lines) {
+    const line = String(rawLine || '').trim();
+    if (!line) continue;
+
+    if (/^para\s*:/i.test(line)) {
+      alias = line.replace(/^para\s*:/i, '').trim();
+      continue;
+    }
+
+    const match = line.match(/^(\d+)\s+(.+)$/i);
+    if (!match) continue;
+
+    const qty = Number(match[1]);
+    const componentName = match[2].trim();
+
+    if (Number.isFinite(qty) && qty > 0 && componentName) {
+      selections.push({ componentName, qty });
+    }
+  }
+
+  return { alias, selections };
+}
+
+function ConfigSheet(props: {
+  open: boolean;
+  title: string;
+  alias: string;
+  setAlias: (value: string) => void;
+  totalSelected: number;
+  totalLimit: number;
+  options: ProductRow[];
+  selections: ConfigSelection[];
+  onChangeQty: (product: ProductRow, qty: number) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+  isEditing: boolean;
+}) {
+  if (!props.open) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
+      <div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border border-[#232632] bg-[#0C1017] px-4 pb-6 pt-4">
+        <div className="mx-auto max-w-screen-md space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
+                Configurar producto
+              </div>
+              <h3 className="mt-1 text-lg font-semibold text-[#F5F7FB]">{props.title}</h3>
+              <div className="mt-1 text-xs text-[#8B93A7]">
+                Seleccionado {props.totalSelected} de {props.totalLimit || 0} piezas
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={props.onClose}
+              className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3 text-sm text-[#F5F7FB]"
+            >
+              Cerrar
+            </button>
+          </div>
+
+          <Field label="Para">
+            <input
+              value={props.alias}
+              onChange={(e) => props.setAlias(e.target.value)}
+              className={inputClass()}
+              placeholder="Nombre o referencia"
+            />
+          </Field>
+
+          <div className="space-y-2">
+            {props.options.length === 0 ? (
+              <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
+                Este producto no tiene opciones configuradas.
+              </div>
+            ) : (
+              props.options.map((option) => {
+                const currentQty =
+                  props.selections.find((item) => item.componentProductId === option.id)?.qty || 0;
+
+                return (
+                  <div
+                    key={option.id}
+                    className="grid grid-cols-[1fr_88px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">{option.sku || 'Sin codigo'}</div>
+                    </div>
+                    <input
+                      value={String(currentQty)}
+                      onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
+                      className={inputClass()}
+                      inputMode="numeric"
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={props.onConfirm}
+            className="h-11 w-full rounded-[16px] bg-[#F0D000] text-sm font-semibold text-[#17191E]"
+          >
+            {props.isEditing ? 'Guardar composicion' : 'Confirmar composicion'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdvisorOrderComposer() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
@@ -155,6 +305,7 @@ export default function AdvisorOrderComposer() {
 
   const [authUserId, setAuthUserId] = useState('');
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [productComponents, setProductComponents] = useState<ProductComponentRow[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [qty, setQty] = useState('1');
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
@@ -173,23 +324,54 @@ export default function AdvisorOrderComposer() {
   const [deliveryHour12, setDeliveryHour12] = useState(rounded.hour12);
   const [deliveryMinute, setDeliveryMinute] = useState(rounded.minute);
   const [deliveryAmPm, setDeliveryAmPm] = useState<'AM' | 'PM'>(rounded.ampm);
+  const [isAsap, setIsAsap] = useState(false);
   const [receiverName, setReceiverName] = useState('');
   const [receiverPhone, setReceiverPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryGpsUrl, setDeliveryGpsUrl] = useState('');
   const [orderNote, setOrderNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pending');
-  const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'VES'>('USD');
+  const [paymentCurrency, setPaymentCurrency] = useState<CurrencyCode>('USD');
+  const [paymentRequiresChange, setPaymentRequiresChange] = useState(false);
+  const [paymentChangeFor, setPaymentChangeFor] = useState('');
+  const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<CurrencyCode>('USD');
   const [paymentNote, setPaymentNote] = useState('');
+
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configEditingLocalId, setConfigEditingLocalId] = useState<string | null>(null);
+  const [configProductId, setConfigProductId] = useState<number | null>(null);
+  const [configQty, setConfigQty] = useState(1);
+  const [configAlias, setConfigAlias] = useState('');
+  const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
 
   const selectedProduct = useMemo(() => {
     if (selectedProductId === '') return null;
     return products.find((product) => product.id === selectedProductId) ?? null;
   }, [products, selectedProductId]);
 
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const draftTotalUsd = useMemo(
     () => draftItems.reduce((sum, item) => sum + Number(item.line_total_usd || 0), 0),
     [draftItems]
   );
+
+  const configProduct = useMemo(
+    () => (configProductId ? productById.get(configProductId) ?? null : null),
+    [configProductId, productById]
+  );
+
+  const configOptions = useMemo(() => {
+    if (!configProductId) return [];
+    return productComponents
+      .filter((row) => row.product_id === configProductId && row.component_mode === 'selectable')
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+      .map((row) => productById.get(row.component_product_id))
+      .filter((row): row is ProductRow => !!row);
+  }, [configProductId, productById, productComponents]);
+
+  const configBaseLimit = Number(configProduct?.detail_units_limit || 0);
+  const configTotalLimit = configBaseLimit > 0 ? configBaseLimit * Math.max(1, configQty) : 0;
+  const configSelectedUnits = configSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
 
   const createReady =
     draftItems.length > 0 &&
@@ -216,20 +398,41 @@ export default function AdvisorOrderComposer() {
 
       setAuthUserId(user.id);
 
-      const { data: productData, error: productError } = await supabase
-        .from('products')
-        .select('id, sku, name, base_price_usd')
-        .eq('is_active', true)
-        .order('name', { ascending: true });
+      const [{ data: productData, error: productError }, { data: componentData, error: componentError }] =
+        await Promise.all([
+          supabase
+            .from('products')
+            .select(
+              'id, sku, name, base_price_usd, source_price_currency, source_price_amount, is_detail_editable, detail_units_limit'
+            )
+            .eq('is_active', true)
+            .order('name', { ascending: true }),
+          supabase
+            .from('product_components')
+            .select(
+              'product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order'
+            ),
+        ]);
 
       if (productError) setError(productError.message);
       else setProducts((productData ?? []) as ProductRow[]);
+
+      if (componentError) setError(componentError.message);
+      else setProductComponents((componentData ?? []) as ProductComponentRow[]);
 
       setLoading(false);
     }
 
     void boot();
   }, [router, supabase]);
+
+  useEffect(() => {
+    if (paymentMethod === 'cash_ves' || paymentMethod === 'transfer' || paymentMethod === 'payment_mobile') {
+      setPaymentCurrency('VES');
+    } else if (paymentMethod === 'cash_usd' || paymentMethod === 'zelle' || paymentMethod === 'pending') {
+      setPaymentCurrency('USD');
+    }
+  }, [paymentMethod]);
 
   function clearMessages() {
     setError(null);
@@ -296,11 +499,7 @@ export default function AdvisorOrderComposer() {
 
       const { data: created, error: createError } = await supabase
         .from('clients')
-        .insert({
-          full_name,
-          phone,
-          client_type: newClientType,
-        })
+        .insert({ full_name, phone, client_type: newClientType })
         .select('id, full_name, phone, client_type')
         .single();
 
@@ -318,6 +517,77 @@ export default function AdvisorOrderComposer() {
     }
   }
 
+  function resetConfig() {
+    setConfigOpen(false);
+    setConfigEditingLocalId(null);
+    setConfigProductId(null);
+    setConfigQty(1);
+    setConfigAlias('');
+    setConfigSelections([]);
+  }
+
+  function buildDraftItem(product: ProductRow, quantity: number, lines: string[]) {
+    const unitPriceUsd = Number(product.base_price_usd ?? 0);
+    const lineTotal = Number((unitPriceUsd * quantity).toFixed(2));
+
+    return {
+      localId: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      product_id: product.id,
+      sku_snapshot: product.sku,
+      product_name_snapshot: product.name,
+      qty: quantity,
+      source_price_currency: (product.source_price_currency || 'USD') as CurrencyCode,
+      source_price_amount: Number(product.source_price_amount ?? product.base_price_usd ?? 0) || 0,
+      unit_price_usd_snapshot: unitPriceUsd,
+      line_total_usd: lineTotal,
+      editable_detail_lines: lines,
+    } satisfies DraftItem;
+  }
+
+  function openConfigForProduct(product: ProductRow, quantity: number) {
+    setConfigEditingLocalId(null);
+    setConfigProductId(product.id);
+    setConfigQty(quantity);
+    setConfigAlias('');
+    setConfigSelections([]);
+    setConfigOpen(true);
+  }
+
+  function openEditConfig(item: DraftItem) {
+    const parsed = parseEditableDetailLines(item.editable_detail_lines);
+    const product = productById.get(item.product_id);
+    if (!product) {
+      setError('No se pudo cargar la configuracion del item.');
+      return;
+    }
+
+    const nextOptions = productComponents
+      .filter((row) => row.product_id === product.id && row.component_mode === 'selectable')
+      .map((row) => productById.get(row.component_product_id))
+      .filter((row): row is ProductRow => !!row);
+
+    setConfigEditingLocalId(item.localId);
+    setConfigProductId(item.product_id);
+    setConfigQty(item.qty);
+    setConfigAlias(parsed.alias);
+    setConfigSelections(
+      parsed.selections
+        .map((selection) => {
+          const option =
+            nextOptions.find((row) => row.name === selection.componentName) ??
+            products.find((row) => row.name === selection.componentName);
+          if (!option) return null;
+          return {
+            componentProductId: option.id,
+            name: option.name,
+            qty: selection.qty,
+          };
+        })
+        .filter((row): row is ConfigSelection => !!row)
+    );
+    setConfigOpen(true);
+  }
+
   function addDraftItem() {
     clearMessages();
     if (!selectedProduct) {
@@ -331,27 +601,72 @@ export default function AdvisorOrderComposer() {
       return;
     }
 
-    const unitPrice = Number(selectedProduct.base_price_usd ?? 0);
-    const lineTotal = Number((unitPrice * quantity).toFixed(2));
+    const hasSelectableComponents = productComponents.some(
+      (row) => row.product_id === selectedProduct.id && row.component_mode === 'selectable'
+    );
 
-    setDraftItems((current) => [
-      ...current,
-      {
-        localId: `${selectedProduct.id}-${Date.now()}`,
-        product_id: selectedProduct.id,
-        sku_snapshot: selectedProduct.sku,
-        product_name_snapshot: selectedProduct.name,
-        qty: quantity,
-        unit_price_usd_snapshot: unitPrice,
-        line_total_usd: lineTotal,
-      },
-    ]);
+    if (selectedProduct.is_detail_editable || hasSelectableComponents) {
+      openConfigForProduct(selectedProduct, quantity);
+      return;
+    }
+
+    setDraftItems((current) => [...current, buildDraftItem(selectedProduct, quantity, [])]);
     setQty('1');
     setSelectedProductId('');
   }
 
   function removeDraftItem(localId: string) {
     setDraftItems((current) => current.filter((item) => item.localId !== localId));
+  }
+
+  function setConfigSelectionQty(product: ProductRow, quantity: number) {
+    const nextQty = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 0;
+
+    setConfigSelections((current) => {
+      const rest = current.filter((item) => item.componentProductId !== product.id);
+      if (nextQty <= 0) return rest;
+      return [...rest, { componentProductId: product.id, name: product.name, qty: nextQty }];
+    });
+  }
+
+  function confirmConfig() {
+    if (!configProduct) {
+      setError('No se encontro el producto a configurar.');
+      return;
+    }
+
+    if (configTotalLimit > 0 && configSelectedUnits !== configTotalLimit) {
+      setError(`Debes completar ${configTotalLimit} piezas para este producto.`);
+      return;
+    }
+
+    if (configOptions.length > 0 && configSelections.length === 0) {
+      setError('Selecciona la composicion interna del producto.');
+      return;
+    }
+
+    const detailLines = [
+      configAlias.trim() ? `Para: ${configAlias.trim()}` : null,
+      ...configSelections
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+        .map((item) => `${item.qty} ${item.name}`),
+    ].filter((line): line is string => !!line);
+
+    const item = buildDraftItem(configProduct, configQty, detailLines);
+
+    if (configEditingLocalId) {
+      setDraftItems((current) =>
+        current.map((draft) =>
+          draft.localId === configEditingLocalId ? { ...item, localId: draft.localId } : draft
+        )
+      );
+    } else {
+      setDraftItems((current) => [...current, item]);
+    }
+
+    setQty('1');
+    setSelectedProductId('');
+    resetConfig();
   }
 
   async function ensureClientId() {
@@ -373,6 +688,7 @@ export default function AdvisorOrderComposer() {
         date: deliveryDate,
         time_12: `${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`,
         time_24: deliveryTime24,
+        asap: isAsap,
       },
       receiver: {
         name: receiverName.trim() || null,
@@ -380,10 +696,14 @@ export default function AdvisorOrderComposer() {
       },
       delivery: {
         address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
+        gps_url: fulfillment === 'delivery' ? deliveryGpsUrl.trim() || null : null,
       },
       payment: {
         method: paymentMethod,
         currency: paymentCurrency,
+        requires_change: paymentRequiresChange,
+        change_for: paymentRequiresChange && paymentChangeFor.trim() ? Number(paymentChangeFor) : null,
+        change_currency: paymentRequiresChange ? paymentChangeCurrency : null,
         notes: paymentNote.trim() || null,
       },
       note: orderNote.trim() || null,
@@ -434,6 +754,8 @@ export default function AdvisorOrderComposer() {
           total_usd: draftTotalUsd,
           is_price_locked: false,
           delivery_address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
+          receiver_name: receiverName.trim() || null,
+          receiver_phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
           notes: orderNote.trim() || null,
           extra_fields: buildExtraFields(),
         })
@@ -446,11 +768,13 @@ export default function AdvisorOrderComposer() {
         order_id: order.id,
         product_id: item.product_id,
         qty: item.qty,
+        pricing_origin_currency: item.source_price_currency,
+        pricing_origin_amount: item.source_price_amount,
         unit_price_usd_snapshot: item.unit_price_usd_snapshot,
         line_total_usd: item.line_total_usd,
         sku_snapshot: item.sku_snapshot,
         product_name_snapshot: item.product_name_snapshot,
-        notes: null,
+        notes: item.editable_detail_lines.length > 0 ? item.editable_detail_lines.join('\n') : null,
       }));
 
       const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
@@ -465,31 +789,42 @@ export default function AdvisorOrderComposer() {
   }
 
   if (loading) {
-    return <div className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-5 text-sm text-[#AAB2C5]">Cargando captura del asesor...</div>;
+    return (
+      <div className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-5 text-sm text-[#AAB2C5]">
+        Cargando captura del asesor...
+      </div>
+    );
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 pb-28">
-      <section className="rounded-[26px] border border-[#232632] bg-[#12151d] px-4 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">Nuevo pedido</p>
-            <h1 className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">Captura mobile-first</h1>
-            <p className="mt-2 text-sm leading-5 text-[#AAB2C5]">
-              Flujo corto para cliente, entrega, pago y resumen final.
-            </p>
+    <>
+      <form onSubmit={handleSubmit} className="space-y-4 pb-28">
+        <section className="rounded-[26px] border border-[#232632] bg-[#12151d] px-4 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">
+                Nuevo pedido
+              </p>
+              <h1 className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
+                Captura del asesor
+              </h1>
+              <p className="mt-2 text-sm leading-5 text-[#AAB2C5]">
+                Replica la operacion clave de master, pero aterrizada al telefono.
+              </p>
+            </div>
+            <Link
+              href="/app/advisor/orders"
+              className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
+            >
+              Salir
+            </Link>
           </div>
-          <Link href="/app/advisor" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
-            Salir
-          </Link>
-        </div>
-      </section>
+        </section>
 
-      {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
-      {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
+        {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
+        {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
-      <Section title="1. Cliente" subtitle="Busca primero. Si no existe, crealo aqui mismo.">
-        <div className="grid gap-3">
+        <Section title="1. Cliente" subtitle="Busca primero y crea solo si no existe.">
           <Field label="Buscar cliente">
             <div className="flex gap-2">
               <input
@@ -565,163 +900,238 @@ export default function AdvisorOrderComposer() {
               </button>
             </div>
           ) : null}
-        </div>
-      </Section>
+        </Section>
 
-      <Section title="2. Items" subtitle="Controles compactos y lectura inmediata del total.">
-        <div className="grid grid-cols-[1fr_88px] gap-2">
-          <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : '')} className={inputClass()}>
-            <option value="">Selecciona producto</option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.name} - ${Number(product.base_price_usd ?? 0).toFixed(2)}
-              </option>
-            ))}
-          </select>
-          <input value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass()} inputMode="numeric" placeholder="Cant." />
-        </div>
-        <button type="button" onClick={addDraftItem} className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]">
-          Agregar item
-        </button>
-
-        {draftItems.length === 0 ? (
-          <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
-            Agrega al menos un producto para activar el pedido.
+        <Section title="2. Pedido" subtitle="Soporta productos simples y configurables.">
+          <div className="grid grid-cols-[1fr_88px] gap-2">
+            <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : '')} className={inputClass()}>
+              <option value="">Selecciona producto</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name} - ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                </option>
+              ))}
+            </select>
+            <input value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass()} inputMode="numeric" placeholder="Cant." />
           </div>
-        ) : (
-          <div className="space-y-2">
-            {draftItems.map((item) => (
-              <div key={item.localId} className="flex items-center justify-between gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-[#F5F7FB]">{item.product_name_snapshot}</div>
-                  <div className="mt-1 text-xs text-[#8B93A7]">{item.qty} x {formatUsd(item.unit_price_usd_snapshot)}</div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-sm font-medium text-[#F0D000]">{formatUsd(item.line_total_usd)}</div>
-                  <button type="button" onClick={() => removeDraftItem(item.localId)} className="text-xs text-[#AAB2C5]">
-                    Quitar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
 
-      <Section title="3. Entrega" subtitle="Solo la direccion y notas crecen cuando hace falta.">
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setFulfillment('pickup')} className={['h-10 rounded-[14px] border text-sm font-medium', fulfillment === 'pickup' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
-            Retiro
+          <button type="button" onClick={addDraftItem} className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]">
+            Agregar item
           </button>
-          <button type="button" onClick={() => setFulfillment('delivery')} className={['h-10 rounded-[14px] border text-sm font-medium', fulfillment === 'delivery' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
-            Delivery
-          </button>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Fecha">
-            <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} className={inputClass()} />
-          </Field>
-          <Field label="Hora">
-            <div className="grid grid-cols-[1fr_1fr_78px] gap-2">
-              <input value={deliveryHour12} onChange={(e) => setDeliveryHour12(e.target.value)} className={inputClass()} inputMode="numeric" />
-              <input value={deliveryMinute} onChange={(e) => setDeliveryMinute(e.target.value)} className={inputClass()} inputMode="numeric" />
-              <select value={deliveryAmPm} onChange={(e) => setDeliveryAmPm(e.target.value as 'AM' | 'PM')} className={inputClass()}>
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
-              </select>
+          {draftItems.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
+              Agrega al menos un producto para activar el pedido.
             </div>
-          </Field>
-        </div>
+          ) : (
+            <div className="space-y-2">
+              {draftItems.map((item) => (
+                <div key={item.localId} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#F5F7FB]">{item.product_name_snapshot}</div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">
+                        {item.qty} x {formatUsd(item.unit_price_usd_snapshot)}
+                      </div>
+                    </div>
+                    <div className="text-sm font-medium text-[#F0D000]">{formatUsd(item.line_total_usd)}</div>
+                  </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Recibe">
-            <input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className={inputClass()} placeholder="Nombre" />
-          </Field>
-          <Field label="Telefono">
-            <input value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} className={inputClass()} placeholder="Contacto" />
-          </Field>
-        </div>
+                  {item.editable_detail_lines.length > 0 ? (
+                    <div className="mt-2 space-y-1 rounded-[14px] bg-[#0B0F15] px-3 py-2 text-xs text-[#AAB2C5]">
+                      {item.editable_detail_lines.map((line, index) => (
+                        <div key={`${item.localId}-${index}`}>• {line}</div>
+                      ))}
+                    </div>
+                  ) : null}
 
-        {fulfillment === 'delivery' ? (
-          <Field label="Direccion" hint="Campo amplio solo cuando hace falta.">
-            <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className={inputClass(true)} placeholder="Direccion completa" />
-          </Field>
-        ) : null}
-      </Section>
+                  <div className="mt-3 flex gap-2">
+                    {item.editable_detail_lines.length > 0 ? (
+                      <button type="button" onClick={() => openEditConfig(item)} className="h-9 rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]">
+                        Editar
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => removeDraftItem(item.localId)} className="h-9 rounded-[12px] border border-[#5E2229] px-3 text-xs font-medium text-[#F0A6AE]">
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
 
-      <Section title="4. Pago y nota" subtitle="Semantica simple para una operacion real.">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Forma de pago">
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className={inputClass()}>
-              <option value="pending">Por definir</option>
-              <option value="cash">Efectivo</option>
-              <option value="transfer">Transferencia</option>
-              <option value="zelle">Zelle</option>
-              <option value="mixed">Mixto</option>
-            </select>
-          </Field>
-          <Field label="Moneda">
-            <select value={paymentCurrency} onChange={(e) => setPaymentCurrency(e.target.value as 'USD' | 'VES')} className={inputClass()}>
-              <option value="USD">USD</option>
-              <option value="VES">Bs</option>
-            </select>
-          </Field>
-        </div>
-
-        <Field label="Nota de pago">
-          <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass()} placeholder="Referencia o acuerdo" />
-        </Field>
-
-        <Field label="Observaciones del pedido">
-          <textarea value={orderNote} onChange={(e) => setOrderNote(e.target.value)} className={inputClass(true)} placeholder="Notas operativas utiles" />
-        </Field>
-
-        <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
-          <input type="checkbox" checked={quoteOnly} onChange={(e) => setQuoteOnly(e.target.checked)} />
-          <span>Solo presupuesto. No crea la orden todavia.</span>
-        </label>
-      </Section>
-
-      <Section title="5. Resumen" subtitle="Confirmacion corta antes de guardar.">
-        <div className="grid gap-2 text-sm text-[#AAB2C5]">
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Cliente</span>
-            <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">{selectedClient?.full_name || newClientName || 'Falta cliente'}</span>
+        <Section title="3. Entrega" subtitle="Con soporte para fecha fija o lo antes posible.">
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setFulfillment('pickup')} className={['h-10 rounded-[14px] border text-sm font-medium', fulfillment === 'pickup' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
+              Retiro
+            </button>
+            <button type="button" onClick={() => setFulfillment('delivery')} className={['h-10 rounded-[14px] border text-sm font-medium', fulfillment === 'delivery' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
+              Delivery
+            </button>
           </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Entrega</span>
-            <span className="text-[#F5F7FB]">{fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Pago</span>
-            <span className="text-[#F5F7FB]">{paymentMethod}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Total</span>
-            <span className="text-base font-semibold text-[#F0D000]">{formatUsd(draftTotalUsd)}</span>
-          </div>
-        </div>
-      </Section>
 
-      <div className="fixed inset-x-0 bottom-[68px] z-20 border-t border-[#1A1D26] bg-[#090B10]/96 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-screen-md items-center justify-between gap-3">
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
-            <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(draftTotalUsd)}</div>
-          </div>
           <button
-            type="submit"
-            disabled={saving || !createReady}
+            type="button"
+            onClick={() => setIsAsap((current) => !current)}
             className={[
-              'h-11 rounded-[16px] px-4 text-sm font-semibold',
-              saving || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+              'h-10 rounded-[14px] border text-sm font-medium',
+              isAsap ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]',
             ].join(' ')}
           >
-            {saving ? 'Guardando...' : quoteOnly ? 'Guardar presupuesto' : 'Crear pedido'}
+            Lo antes posible
           </button>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Fecha">
+              <input type="date" value={deliveryDate} onChange={(e) => { setDeliveryDate(e.target.value); setIsAsap(false); }} className={inputClass()} />
+            </Field>
+            <Field label="Hora">
+              <div className="grid grid-cols-[1fr_1fr_78px] gap-2">
+                <input value={deliveryHour12} onChange={(e) => { setDeliveryHour12(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+                <input value={deliveryMinute} onChange={(e) => { setDeliveryMinute(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+                <select value={deliveryAmPm} onChange={(e) => { setDeliveryAmPm(e.target.value as 'AM' | 'PM'); setIsAsap(false); }} className={inputClass()}>
+                  <option value="AM">AM</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Recibe">
+              <input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className={inputClass()} placeholder="Nombre" />
+            </Field>
+            <Field label="Telefono">
+              <input value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} className={inputClass()} placeholder="Contacto" />
+            </Field>
+          </div>
+
+          {fulfillment === 'delivery' ? (
+            <>
+              <Field label="Direccion" hint="Solo este campo puede crecer mas cuando haga falta.">
+                <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className={inputClass(true)} placeholder="Direccion completa" />
+              </Field>
+              <Field label="GPS URL">
+                <input value={deliveryGpsUrl} onChange={(e) => setDeliveryGpsUrl(e.target.value)} className={inputClass()} placeholder="Link de ubicacion" />
+              </Field>
+            </>
+          ) : null}
+        </Section>
+
+        <Section title="4. Pago y notas" subtitle="Misma operacion base de master, sin ruido extra.">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Forma de pago">
+              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className={inputClass()}>
+                <option value="pending">Pendiente</option>
+                <option value="payment_mobile">Pago movil</option>
+                <option value="transfer">Transferencia</option>
+                <option value="cash_usd">Efectivo USD</option>
+                <option value="cash_ves">Efectivo Bs</option>
+                <option value="zelle">Zelle</option>
+                <option value="mixed">Mixto</option>
+              </select>
+            </Field>
+            <Field label="Moneda principal">
+              <select value={paymentCurrency} onChange={(e) => setPaymentCurrency(e.target.value as CurrencyCode)} className={inputClass()} disabled={paymentMethod !== 'mixed'}>
+                <option value="USD">USD</option>
+                <option value="VES">Bs</option>
+              </select>
+            </Field>
+          </div>
+
+          <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+            <input type="checkbox" checked={paymentRequiresChange} onChange={(e) => setPaymentRequiresChange(e.target.checked)} />
+            <span>Requiere cambio</span>
+          </label>
+
+          {paymentRequiresChange ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Cambio para">
+                <input value={paymentChangeFor} onChange={(e) => setPaymentChangeFor(e.target.value)} className={inputClass()} inputMode="decimal" placeholder="Monto" />
+              </Field>
+              <Field label="Moneda del cambio">
+                <select value={paymentChangeCurrency} onChange={(e) => setPaymentChangeCurrency(e.target.value as CurrencyCode)} className={inputClass()}>
+                  <option value="USD">USD</option>
+                  <option value="VES">Bs</option>
+                </select>
+              </Field>
+            </div>
+          ) : null}
+
+          <Field label="Nota de pago">
+            <input value={paymentNote} onChange={(e) => setPaymentNote(e.target.value)} className={inputClass()} placeholder="Referencia o acuerdo" />
+          </Field>
+
+          <Field label="Observaciones del pedido">
+            <textarea value={orderNote} onChange={(e) => setOrderNote(e.target.value)} className={inputClass(true)} placeholder="Notas operativas utiles" />
+          </Field>
+
+          <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+            <input type="checkbox" checked={quoteOnly} onChange={(e) => setQuoteOnly(e.target.checked)} />
+            <span>Solo presupuesto. No crea la orden todavia.</span>
+          </label>
+        </Section>
+
+        <Section title="5. Resumen" subtitle="Lectura rapida antes de guardar.">
+          <div className="grid gap-2 text-sm text-[#AAB2C5]">
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Cliente</span>
+              <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">{selectedClient?.full_name || newClientName || 'Falta cliente'}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Entrega</span>
+              <span className="text-[#F5F7FB]">{fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Momento</span>
+              <span className="text-[#F5F7FB]">{isAsap ? 'Lo antes posible' : `${deliveryDate} ${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Pago</span>
+              <span className="text-[#F5F7FB]">{paymentMethod}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Total</span>
+              <span className="text-base font-semibold text-[#F0D000]">{formatUsd(draftTotalUsd)}</span>
+            </div>
+          </div>
+        </Section>
+
+        <div className="fixed inset-x-0 bottom-[68px] z-20 border-t border-[#1A1D26] bg-[#090B10]/96 px-4 py-3 backdrop-blur">
+          <div className="mx-auto flex max-w-screen-md items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
+              <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(draftTotalUsd)}</div>
+            </div>
+            <button
+              type="submit"
+              disabled={saving || !createReady}
+              className={[
+                'h-11 rounded-[16px] px-4 text-sm font-semibold',
+                saving || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+              ].join(' ')}
+            >
+              {saving ? 'Guardando...' : quoteOnly ? 'Guardar presupuesto' : 'Crear pedido'}
+            </button>
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+
+      <ConfigSheet
+        open={configOpen}
+        title={configProduct?.name || 'Configurar producto'}
+        alias={configAlias}
+        setAlias={setConfigAlias}
+        totalSelected={configSelectedUnits}
+        totalLimit={configTotalLimit}
+        options={configOptions}
+        selections={configSelections}
+        onChangeQty={setConfigSelectionQty}
+        onClose={resetConfig}
+        onConfirm={confirmConfig}
+        isEditing={!!configEditingLocalId}
+      />
+    </>
   );
 }
