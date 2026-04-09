@@ -10570,25 +10570,51 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         onClose={closeCatalogDetail}
         widthClass="w-[860px]"
         headerActions={
-          selectedCatalogItem && catalogEditMode ? (
-            <>
-              <button
-                className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
-                onClick={() => setCatalogEditMode(false)}
-                disabled={catalogSaving}
-                type="button"
-              >
-                Cancelar
-              </button>
-              <button
-                className="rounded-xl bg-[#FEEF00] px-3 py-1.5 text-sm font-semibold text-[#0B0B0D]"
-                onClick={handleSaveCatalog}
-                disabled={catalogSaving}
-                type="button"
-              >
-                {catalogSaving ? 'Guardando...' : 'Guardar'}
-              </button>
-            </>
+          selectedCatalogItem ? (
+            catalogEditMode ? (
+              <>
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                  onClick={() => setCatalogEditMode(false)}
+                  disabled={catalogSaving}
+                  type="button"
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="rounded-xl bg-[#FEEF00] px-3 py-1.5 text-sm font-semibold text-[#0B0B0D]"
+                  onClick={handleSaveCatalog}
+                  disabled={catalogSaving}
+                  type="button"
+                >
+                  {catalogSaving ? 'Guardando...' : 'Guardar'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                  onClick={() => setCatalogEditMode(true)}
+                  type="button"
+                >
+                  Editar
+                </button>
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                  onClick={handleToggleCatalogItemActive}
+                  type="button"
+                >
+                  {selectedCatalogItem.isActive ? 'Desactivar' : 'Activar'}
+                </button>
+                <button
+                  className="rounded-xl border border-red-500 bg-[#121218] px-3 py-1.5 text-sm text-red-400"
+                  onClick={handleDeleteCatalogItem}
+                  type="button"
+                >
+                  Eliminar
+                </button>
+              </>
+            )
           ) : null
         }
       >
@@ -10685,29 +10711,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
   <div className="flex items-center justify-between gap-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Regla operativa</div>
-
-    <div className="flex flex-wrap gap-2">
-      <button
-        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-        onClick={() => setCatalogEditMode(true)}
-      >
-        Editar
-      </button>
-
-      <button
-        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-        onClick={handleToggleCatalogItemActive}
-      >
-        {selectedCatalogItem.isActive ? 'Desactivar' : 'Activar'}
-      </button>
-
-      <button
-        className="rounded-xl border border-red-500 bg-[#0B0B0D] px-3 py-2 text-sm text-red-400"
-        onClick={handleDeleteCatalogItem}
-      >
-        Eliminar
-      </button>
-    </div>
   </div>
 
   <div className="mt-3 space-y-2 text-sm text-[#B7B7C2]">
