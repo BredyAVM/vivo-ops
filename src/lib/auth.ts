@@ -27,7 +27,7 @@ export function isAdvisorRole(roles: readonly string[]) {
 
 export function resolveHomePath(roles: readonly string[]) {
   if (isMasterOrAdminRole(roles)) return '/app/master/dashboard';
-  if (isAdvisorRole(roles)) return '/app/advisor';
+  if (isAdvisorRole(roles)) return '/app/advisor/orders';
   return '/orders';
 }
 
