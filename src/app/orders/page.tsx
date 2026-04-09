@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createSupabaseBrowser } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createSupabaseBrowser } from "@/lib/supabase";
 
 type OrderRow = {
   id: number;
@@ -27,11 +27,9 @@ export default function OrdersPage() {
     setLoading(true);
     setError(null);
 
-    // ✅ Auth check
     const { data: authRes, error: authErr } = await supabase.auth.getUser();
 
     if (authErr) {
-      console.log("AUTH ERROR:", authErr.message);
       setError(authErr.message);
       setLoading(false);
       return;
@@ -43,15 +41,29 @@ export default function OrdersPage() {
       return;
     }
 
-    // ✅ Load orders
-    const { data, error } = await supabase
+    const { data: rolesData, error: rolesError } = await supabase.rpc("get_my_roles");
+
+    if (rolesError) {
+      setError(rolesError.message);
+      setLoading(false);
+      return;
+    }
+
+    const roles = Array.isArray(rolesData) ? rolesData : [];
+    if (roles.includes("advisor")) {
+      router.replace("/app/advisor/orders");
+      setLoading(false);
+      return;
+    }
+
+    const { data, error: ordersError } = await supabase
       .from("orders")
       .select("id, order_number, status, fulfillment, source, total_usd, created_at")
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error) {
-      setError(error.message);
+    if (ordersError) {
+      setError(ordersError.message);
       setOrders([]);
     } else {
       setOrders((data ?? []) as OrderRow[]);
@@ -61,14 +73,14 @@ export default function OrdersPage() {
   }
 
   useEffect(() => {
-    load();
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function logout() {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      setError(error.message);
+    const { error: logoutError } = await supabase.auth.signOut();
+    if (logoutError) {
+      setError(logoutError.message);
       return;
     }
 
@@ -83,7 +95,7 @@ export default function OrdersPage() {
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <button
-            onClick={load}
+            onClick={() => void load()}
             style={{ background: "#3b82f6", padding: "10px 14px", borderRadius: 10, color: "white", fontWeight: 800 }}
           >
             Refresh
@@ -116,7 +128,7 @@ export default function OrdersPage() {
         Lista simple conectada a Supabase (tabla <b>orders</b>)
       </p>
 
-      {loading && <p>Cargando…</p>}
+      {loading && <p>Cargando...</p>}
 
       {error && (
         <p style={{ color: "tomato" }}>
@@ -126,7 +138,7 @@ export default function OrdersPage() {
         </p>
       )}
 
-      {!loading && !error && orders.length === 0 && <p>No hay órdenes todavía.</p>}
+      {!loading && !error && orders.length === 0 && <p>No hay ordenes todavia.</p>}
 
       {!loading && !error && orders.length > 0 && (
         <div style={{ marginTop: 16, overflowX: "auto" }}>
@@ -150,19 +162,19 @@ export default function OrdersPage() {
             </thead>
 
             <tbody>
-              {orders.map((o, idx) => (
-                <tr key={o.id}>
+              {orders.map((order, idx) => (
+                <tr key={order.id}>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{idx + 1}</td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{o.order_number}</td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{o.status}</td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{o.fulfillment}</td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{o.source}</td>
-                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{String(o.total_usd)}</td>
+                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{order.order_number}</td>
+                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{order.status}</td>
+                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{order.fulfillment}</td>
+                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{order.source}</td>
+                  <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>{String(order.total_usd)}</td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>
-                    {new Date(o.created_at).toLocaleString()}
+                    {new Date(order.created_at).toLocaleString()}
                   </td>
                   <td style={{ padding: "10px 8px", borderBottom: "1px solid #222" }}>
-                    <Link href={`/orders/${o.id}`} style={{ color: "#60a5fa" }}>
+                    <Link href={`/orders/${order.id}`} style={{ color: "#60a5fa" }}>
                       Ver
                     </Link>
                   </td>
