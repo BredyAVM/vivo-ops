@@ -10953,12 +10953,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     {editInventoryEnabled && editInventoryDeductionMode === 'composition' ? (
                       <div className="rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3">
                         <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-[#F5F5F7]">Descuenta de inventario interno</div>
-                            <div className="mt-1 text-xs text-[#8A8A96]">
-                              Elige el item real que debe bajar cuando se venda este producto.
+                            <div>
+                              <div className="text-sm font-semibold text-[#F5F5F7]">Descuenta de inventario interno</div>
+                              <div className="mt-1 text-xs text-[#8A8A96]">
+                              Si este producto ya descuenta por su composición comercial, puedes dejar esta sección vacía. Úsala solo cuando necesites una receta fija interna.
+                              </div>
                             </div>
-                          </div>
                           <button
                             type="button"
                             className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm"
@@ -10970,7 +10970,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <div className="mt-3 space-y-3">
                           {editInventoryLinks.length === 0 ? (
                             <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
-                              Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
+                              Déjala vacía si el producto baja inventario desde sus componentes. Si no, agrega aquí el item real y su cantidad fija.
                             </div>
                           ) : (
                             editInventoryLinks.map((row) => (
@@ -13239,7 +13239,7 @@ deliveryAssignMode === 'external' ? (
               <div>
                 <div className="text-sm font-semibold text-[#F5F5F7]">Descuenta de inventario interno</div>
                 <div className="mt-1 text-xs text-[#8A8A96]">
-                  Elige el item real que debe bajar cuando se venda este producto.
+                  Si este producto ya descuenta por su composición comercial, puedes dejar esta sección vacía. Úsala solo cuando necesites una receta fija interna.
                 </div>
               </div>
               <button
@@ -13254,7 +13254,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-3 space-y-3">
               {newInventoryLinks.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-[#242433] px-3 py-3 text-sm text-[#8A8A96]">
-                  Agrega al menos un item interno. Ejemplo: Mini tequeño crudo x 25.
+                  Déjala vacía si el producto baja inventario desde sus componentes. Si no, agrega aquí el item real y su cantidad fija.
                 </div>
               ) : (
                 newInventoryLinks.map((row) => (

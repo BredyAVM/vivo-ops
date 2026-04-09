@@ -1441,8 +1441,14 @@ export async function updateCatalogItemAction(input: {
       sortOrder: toSafeNumber(row.sortOrder, index + 1) || index + 1,
     }))
     .filter((row) => row.inventoryItemId > 0 && row.quantityUnits > 0);
+  const hasConfiguredComponents = input.isDetailEditable;
 
-  if (input.inventoryEnabled && input.inventoryDeductionMode === 'composition' && normalizedInventoryLinks.length === 0) {
+  if (
+    input.inventoryEnabled &&
+    input.inventoryDeductionMode === 'composition' &&
+    normalizedInventoryLinks.length === 0 &&
+    !hasConfiguredComponents
+  ) {
     throw new Error('Define al menos un item interno para el descuento por composición.');
   }
 
@@ -3908,6 +3914,7 @@ export async function createCatalogItemAction(input: {
       sortOrder: toSafeNumber(row.sortOrder, index + 1) || index + 1,
     }))
     .filter((row) => row.inventoryItemId > 0 && row.quantityUnits > 0);
+  const hasConfiguredComponents = input.isDetailEditable;
   if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
     throw new Error('El monto fuente es inválido.');
   }
@@ -3917,7 +3924,12 @@ export async function createCatalogItemAction(input: {
   if (!Number.isFinite(detailUnitsLimit) || detailUnitsLimit < 0) {
     throw new Error('Límite de detalle inválido.');
   }
-  if (input.inventoryEnabled && input.inventoryDeductionMode === 'composition' && normalizedInventoryLinks.length === 0) {
+  if (
+    input.inventoryEnabled &&
+    input.inventoryDeductionMode === 'composition' &&
+    normalizedInventoryLinks.length === 0 &&
+    !hasConfiguredComponents
+  ) {
     throw new Error('Define al menos un item interno para el descuento por composición.');
   }
 
