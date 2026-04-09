@@ -1208,6 +1208,47 @@ function getVisibleEditableDetailLines(lines: string[]) {
   return (lines ?? []).filter((line) => !isEditableDetailMetadataLine(line));
 }
 
+function buildComponentDetailLines(
+  components: ProductComponent[],
+  options?: {
+    totalMultiplier?: number;
+    selectedByProductId?: Map<number, number>;
+    includeMetadata?: boolean;
+  }
+) {
+  const totalMultiplier = Math.max(1, Number(options?.totalMultiplier || 1));
+  const selectedByProductId = options?.selectedByProductId ?? new Map<number, number>();
+  const detailLines: string[] = [];
+
+  const orderedComponents = [...components].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.componentName.localeCompare(b.componentName)
+  );
+
+  for (const component of orderedComponents) {
+    let componentQty = 0;
+
+    if (component.componentMode === 'fixed' && component.isRequired) {
+      componentQty = component.quantity;
+    } else if (component.componentMode === 'fixed') {
+      componentQty = selectedByProductId.get(component.componentProductId) ?? 0;
+    } else {
+      componentQty = selectedByProductId.get(component.componentProductId) ?? 0;
+    }
+
+    componentQty = Math.max(0, Number(componentQty || 0));
+    if (componentQty <= 0) continue;
+
+    const totalQty = componentQty * totalMultiplier;
+    detailLines.push(`${totalQty} ${component.componentName}`);
+
+    if (options?.includeMetadata) {
+      detailLines.push(`${EDITABLE_DETAIL_SELECTION_PREFIX}${component.componentProductId}|${totalQty}`);
+    }
+  }
+
+  return detailLines;
+}
+
 function buildWhatsAppOrderSummary(order: Order) {
   const lines = orderMainLinesForPreview(order.lines);
 
@@ -3174,6 +3215,19 @@ const createOrderConfigSelectableOptions = useMemo(() => {
     }));
 }, [createOrderConfigProductId, productComponents]);
 
+const createOrderConfigOptionalFixedOptions = useMemo(() => {
+  if (!createOrderConfigProductId) return [];
+
+  return productComponents
+    .filter(
+      (pc) =>
+        pc.parentProductId === createOrderConfigProductId &&
+        pc.componentMode === 'fixed' &&
+        !pc.isRequired
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.componentName.localeCompare(b.componentName));
+}, [createOrderConfigProductId, productComponents]);
+
   const componentsByParentId = useMemo(() => {
     const map = new Map<number, ProductComponent[]>();
     for (const pc of productComponents) {
@@ -3632,8 +3686,24 @@ const handleSendToKitchen = async (orderId: number) => {
 };
 
 const createOrderConfigSelectedUnits = useMemo(() => {
-  return createOrderConfigSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
-}, [createOrderConfigSelections]);
+  if (!createOrderConfigProductId) {
+    return createOrderConfigSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  }
+
+  const componentById = new Map(
+    productComponents
+      .filter((pc) => pc.parentProductId === createOrderConfigProductId)
+      .map((pc) => [pc.componentProductId, pc] as const)
+  );
+
+  return createOrderConfigSelections.reduce((sum, item) => {
+    const component = componentById.get(item.componentProductId);
+    if (component && !component.countsTowardDetailLimit) {
+      return sum;
+    }
+    return sum + Number(item.qty || 0);
+  }, 0);
+}, [createOrderConfigProductId, createOrderConfigSelections, productComponents]);
 
 const handleAssignInternal = async (o: Order) => {
   try {
@@ -5731,6 +5801,16 @@ const handleCreateOrderClientNow = async () => {
 };
 
 const openCreateOrderConfig = (product: CatalogItem, qty: number) => {
+  const productConfigComponents = productComponents.filter((pc) => pc.parentProductId === product.id);
+  const optionalFixedSelections = productConfigComponents
+    .filter((pc) => pc.componentMode === 'fixed' && !pc.isRequired && Number(pc.quantity || 0) > 0)
+    .map((pc) => ({
+      localId: `fixed-${pc.componentProductId}`,
+      componentProductId: pc.componentProductId,
+      componentName: pc.componentName,
+      qty: Number(pc.quantity || 0),
+    }));
+
   setCreateOrderConfigProductId(product.id);
   setCreateOrderConfigProductName(product.name);
   setCreateOrderConfigSourcePriceCurrency(product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD');
@@ -5743,7 +5823,7 @@ const openCreateOrderConfig = (product: CatalogItem, qty: number) => {
   setCreateOrderConfigUnitPriceUsd(Number(product.basePriceUsd || 0));
   setCreateOrderConfigSku(product.sku || null);
   setCreateOrderConfigLimit(Number(product.detailUnitsLimit || 0));
-  setCreateOrderConfigSelections([]);
+  setCreateOrderConfigSelections(optionalFixedSelections);
   setCreateOrderConfigAlias('');
   setCreateOrderConfigOpen(true);
 };
@@ -5756,10 +5836,10 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
     return;
   }
 
-  const selectableOptions = productComponents.filter(
+  const editableOptions = productComponents.filter(
     (pc) =>
       pc.parentProductId === product.id &&
-      pc.componentMode === 'selectable'
+      (pc.componentMode === 'selectable' || (pc.componentMode === 'fixed' && !pc.isRequired))
   );
 
   const parsed = parseEditableDetailLines(draftItem.editableDetailLines);
@@ -5768,9 +5848,9 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
     .map((parsedRow) => {
       const matchingOption =
         (parsedRow.componentProductId != null
-          ? selectableOptions.find((option) => option.componentProductId === parsedRow.componentProductId)
+          ? editableOptions.find((option) => option.componentProductId === parsedRow.componentProductId)
           : null) ??
-        selectableOptions.find(
+        editableOptions.find(
           (option) =>
             option.componentName.trim().toLowerCase() ===
             parsedRow.componentName.trim().toLowerCase()
@@ -5835,6 +5915,8 @@ const handleAddCreateOrderItem = () => {
     return;
   }
 
+  const productConfigComponents = componentsByParentId.get(product.id) ?? [];
+
   if (product.isDetailEditable) {
     if (createOrderQty !== 1) {
       showToast('error', 'Los productos configurables se cargan uno por uno. Debes usar cantidad 1.');
@@ -5866,7 +5948,9 @@ setCreateOrderDraftItems((prev) => [
         : Number(product.basePriceUsd || 0),
     unitPriceUsdSnapshot: Number(product.basePriceUsd || 0),
     lineTotalUsd: Number(product.basePriceUsd || 0) * createOrderQty,
-    editableDetailLines: [],
+    editableDetailLines: buildComponentDetailLines(productConfigComponents, {
+      totalMultiplier: createOrderQty,
+    }),
     adminPriceOverrideUsd: null,
     adminPriceOverrideReason: null,
     adminPriceOverrideByUserId: null,
@@ -5923,24 +6007,23 @@ const handleConfirmCreateOrderConfig = () => {
   }
 
   const detailLines: string[] = [];
+  const productConfigComponents = componentsByParentId.get(createOrderConfigProductId) ?? [];
+  const selectedByProductId = new Map(
+    createOrderConfigSelections
+      .filter((x) => x.qty > 0)
+      .map((x) => [x.componentProductId, x.qty] as const)
+  );
 
   if (createOrderConfigAlias.trim()) {
     detailLines.push(`Para: ${createOrderConfigAlias.trim()}`);
   }
 
-  createOrderConfigSelections
-    .filter((x) => x.qty > 0)
-    .sort((a, b) => a.componentName.localeCompare(b.componentName))
-    .forEach((x) => {
-      detailLines.push(`${x.qty} ${x.componentName}`);
-    });
-
-  createOrderConfigSelections
-    .filter((x) => x.qty > 0)
-    .sort((a, b) => a.componentName.localeCompare(b.componentName))
-    .forEach((x) => {
-      detailLines.push(`${EDITABLE_DETAIL_SELECTION_PREFIX}${x.componentProductId}|${x.qty}`);
-    });
+  detailLines.push(
+    ...buildComponentDetailLines(productConfigComponents, {
+      selectedByProductId,
+      includeMetadata: true,
+    })
+  );
 
 const nextItem: DraftItem = {
   localId: createOrderConfigEditingLocalId ?? `${Date.now()}-${Math.random()}`,
@@ -16453,12 +16536,66 @@ deliveryAssignMode === 'external' ? (
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
       <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
 
-      {createOrderConfigSelectableOptions.length === 0 ? (
+      {createOrderConfigSelectableOptions.length === 0 && createOrderConfigOptionalFixedOptions.length === 0 ? (
         <div className="mt-2.5 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-[13px] text-[#B7B7C2]">
           Este producto no tiene opciones configuradas.
         </div>
       ) : (
-        <div className="mt-2.5 space-y-1.5">
+        <div className="mt-2.5 space-y-3">
+          {createOrderConfigOptionalFixedOptions.length > 0 ? (
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">
+                Opcionales
+              </div>
+              {createOrderConfigOptionalFixedOptions.map((option) => {
+                const currentQty =
+                  createOrderConfigSelections.find((x) => x.componentProductId === option.componentProductId)?.qty || 0;
+                const isSelected = currentQty > 0;
+                const availability = productAvailabilityById.get(option.componentProductId) ?? null;
+
+                return (
+                  <div
+                    key={`fixed-${option.componentProductId}`}
+                    className="grid grid-cols-[minmax(0,1fr)_96px] items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-medium text-[#F5F5F7]">
+                        {repairDisplayText(option.componentName)}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
+                        {availability ? `Listo: ${Number(availability.readyUnits.toFixed(3))}` : 'Sin disponibilidad calculada'}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={[
+                        'rounded-lg border px-2 py-1.5 text-[12px] font-medium transition',
+                        isSelected
+                          ? 'border-[#FEEF00] bg-[#262400] text-[#FEEF00]'
+                          : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
+                      ].join(' ')}
+                      onClick={() =>
+                        handleSetCreateOrderConfigSelectionQty(
+                          option.componentProductId,
+                          option.componentName,
+                          isSelected ? 0 : Number(option.quantity || 1)
+                        )
+                      }
+                    >
+                      {isSelected ? 'Quitar' : 'Incluir'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {createOrderConfigSelectableOptions.length > 0 ? (
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">
+                Seleccionables
+              </div>
           {createOrderConfigSelectableOptions.map((option, idx) => {
             const currentQty =
               createOrderConfigSelections.find((x) => x.componentProductId === option.id)?.qty || 0;
@@ -16518,6 +16655,8 @@ return (
   </div>
 );
           })}
+            </div>
+          ) : null}
         </div>
       )}
     </div>

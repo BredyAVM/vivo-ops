@@ -3369,7 +3369,7 @@ async function applyDeliveredOrderInventoryDeductions(
       let appliedFromComponents = false;
 
       for (const componentRow of productComponentsRows) {
-        if (componentRow.componentMode === 'fixed' || componentRow.isRequired) {
+        if (componentRow.componentMode === 'fixed' && componentRow.isRequired) {
           const childQty = qty * Math.max(0, componentRow.quantity);
           if (childQty > 0) {
             appliedFromComponents = true;
