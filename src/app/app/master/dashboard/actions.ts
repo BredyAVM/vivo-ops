@@ -1356,6 +1356,7 @@ export async function returnFromKitchenToQueueAction(input: {
 
 export async function updateCatalogItemAction(input: {
   productId: number;
+  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
   sourcePriceAmount: number;
   sourcePriceCurrency: 'VES' | 'USD';
   isActive: boolean;
@@ -1398,6 +1399,10 @@ export async function updateCatalogItemAction(input: {
 
   if (!Number.isFinite(input.productId) || input.productId <= 0) {
     throw new Error('Producto inválido.');
+  }
+
+  if (!['product', 'combo', 'service', 'promo', 'gambit'].includes(input.type)) {
+    throw new Error('Tipo de producto inválido.');
   }
 
   const sourcePriceAmount = toSafeNumber(input.sourcePriceAmount, 0);
@@ -1516,6 +1521,7 @@ export async function updateCatalogItemAction(input: {
   const { data: updatedProduct, error: updateProductError } = await supabase
     .from('products')
     .update({
+      type: input.type,
       source_price_amount: sourcePriceAmount,
       source_price_currency: input.sourcePriceCurrency,
       base_price_usd: basePriceUsd,

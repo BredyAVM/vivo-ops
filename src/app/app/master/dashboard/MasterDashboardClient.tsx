@@ -2709,7 +2709,8 @@ const [newInventoryDeductionMode, setNewInventoryDeductionMode] = useState<'self
   const [newLowStockThreshold, setNewLowStockThreshold] = useState('');
   const [newInventoryLinks, setNewInventoryLinks] = useState<EditableInventoryLinkRow[]>([]);
 
-  const [editIsActive, setEditIsActive] = useState(true);
+const [editIsActive, setEditIsActive] = useState(true);
+  const [editType, setEditType] = useState<'product' | 'combo' | 'service' | 'promo' | 'gambit'>('product');
   const [editSourcePriceCurrency, setEditSourcePriceCurrency] = useState<'VES' | 'USD'>('VES');
   const [editSourcePriceAmount, setEditSourcePriceAmount] = useState<string>('0');
   const [editUnitsPerService, setEditUnitsPerService] = useState<string>('0');
@@ -3323,6 +3324,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
     if (!selectedCatalogItem) return;
 
     setEditIsActive(selectedCatalogItem.isActive);
+    setEditType(selectedCatalogItem.type);
     setEditSourcePriceCurrency(selectedCatalogItem.sourcePriceCurrency);
     setEditSourcePriceAmount(String(selectedCatalogItem.sourcePriceAmount));
     setEditUnitsPerService(String(selectedCatalogItem.unitsPerService));
@@ -4343,6 +4345,7 @@ const handleSaveCatalog = async () => {
 
     await updateCatalogItemAction({
       productId: selectedCatalogItem.id,
+      type: editType,
       sourcePriceAmount: normalizedSourcePriceAmount,
       sourcePriceCurrency: editSourcePriceCurrency,
       isActive: editIsActive,
@@ -11044,6 +11047,18 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       checked={editIsActive}
                       onChange={setEditIsActive}
                     />
+                    <FieldSelect
+                      label="Tipo"
+                      value={editType}
+                      onChange={(v) => setEditType(v as 'product' | 'combo' | 'service' | 'promo' | 'gambit')}
+                      options={[
+                        { value: 'product', label: 'Producto' },
+                        { value: 'combo', label: 'Combo' },
+                        { value: 'service', label: 'Servicio' },
+                        { value: 'promo', label: 'Promo' },
+                        { value: 'gambit', label: 'Gambit' },
+                      ]}
+                    />
                     <FieldCheckbox
                       label="Detalle editable"
                       checked={editIsDetailEditable}
@@ -11084,7 +11099,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25."
                     />
                     {shouldShowRiderPayField({
-                      type: selectedCatalogItem?.type,
+                      type: editType,
                       name: selectedCatalogItem?.name,
                       currentValue: editInternalRiderPayUsd,
                     }) ? (
@@ -13157,6 +13172,19 @@ deliveryAssignMode === 'external' ? (
       <div className="grid grid-cols-2 gap-3">
         <FieldInput label="SKU" value={newSku} onChange={setNewSku} />
         <FieldInput label="Nombre" value={newName} onChange={setNewName} />
+
+        <FieldSelect
+          label="Tipo"
+          value={newType}
+          onChange={(v) => setNewType(v as 'product' | 'combo' | 'service' | 'promo' | 'gambit')}
+          options={[
+            { value: 'product', label: 'Producto' },
+            { value: 'combo', label: 'Combo' },
+            { value: 'service', label: 'Servicio' },
+            { value: 'promo', label: 'Promo' },
+            { value: 'gambit', label: 'Gambit' },
+          ]}
+        />
 
 
 
