@@ -1848,12 +1848,14 @@ function Drawer({
   onClose,
   children,
   widthClass = 'w-[420px]',
+  headerActions,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   widthClass?: string;
+  headerActions?: React.ReactNode;
 }) {
   if (!open) return null;
   return (
@@ -1861,13 +1863,16 @@ function Drawer({
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className={`absolute right-0 top-0 h-full ${widthClass} border-l border-[#242433] bg-[#0B0B0D]`}>
         <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-          <div className="text-base font-semibold text-[#F5F5F7]">{title}</div>
-          <button
-            className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
-            onClick={onClose}
-          >
-            ×
-          </button>
+          <div className="min-w-0 text-base font-semibold text-[#F5F5F7]">{title}</div>
+          <div className="flex items-center gap-2">
+            {headerActions}
+            <button
+              className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-sm text-[#B7B7C2]"
+              onClick={onClose}
+            >
+              ×
+            </button>
+          </div>
         </div>
         <div className="h-[calc(100%-52px)] overflow-y-auto px-4 py-4">{children}</div>
       </div>
@@ -10563,7 +10568,29 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         open={catalogDetailOpen}
         title={selectedCatalogItem ? selectedCatalogItem.name : 'Detalle de producto'}
         onClose={closeCatalogDetail}
-        widthClass="w-[760px]"
+        widthClass="w-[860px]"
+        headerActions={
+          selectedCatalogItem && catalogEditMode ? (
+            <>
+              <button
+                className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                onClick={() => setCatalogEditMode(false)}
+                disabled={catalogSaving}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-xl bg-[#FEEF00] px-3 py-1.5 text-sm font-semibold text-[#0B0B0D]"
+                onClick={handleSaveCatalog}
+                disabled={catalogSaving}
+                type="button"
+              >
+                {catalogSaving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </>
+          ) : null
+        }
       >
         {!selectedCatalogItem ? (
           <div className="text-sm text-[#B7B7C2]">Sin producto seleccionado.</div>
@@ -10892,25 +10919,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Editar catálogo</div>
-                    <div className="flex gap-2">
-                      <button
-                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                        onClick={() => setCatalogEditMode(false)}
-                        disabled={catalogSaving}
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        className="rounded-xl bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D]"
-                        onClick={handleSaveCatalog}
-                        disabled={catalogSaving}
-                      >
-                        {catalogSaving ? 'Guardando...' : 'Guardar'}
-                      </button>
-                    </div>
-                  </div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Operación</div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldCheckbox
@@ -11009,43 +11018,45 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
                     <button
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-sm"
                       onClick={addEditComponent}
+                      type="button"
                     >
                       Agregar componente
                     </button>
                   </div>
 
-                  <div className="mt-4 space-y-5">
+                  <div className="mt-4 space-y-4">
   <div>
-    <div className="mb-2 text-sm font-semibold text-[#F5F5F7]">
+    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8A96]">
       Componentes fijos / opcionales
     </div>
 
     {editFixedComponents.length === 0 ? (
-      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#B7B7C2]">
         Sin componentes fijos.
       </div>
     ) : (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {editFixedComponents
           .slice()
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map((row, idx) => (
-            <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-[#F5F5F7]">
+            <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-xs font-medium uppercase tracking-[0.14em] text-[#8A8A96]">
                   Fijo #{idx + 1}
                 </div>
                 <button
                   className="rounded-lg border border-red-500 bg-[#0B0B0D] px-2 py-1 text-xs text-red-400"
                   onClick={() => removeEditComponent(row.localId)}
+                  type="button"
                 >
                   Quitar
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1.7fr)_100px_130px]">
                 <FieldSelect
                   label="Producto"
                   value={String(row.componentProductId)}
@@ -11069,30 +11080,25 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     })
                   }
                   options={[
-                    { value: 'fixed', label: 'fixed' },
-                    { value: 'selectable', label: 'selectable' },
+                    { value: 'fixed', label: 'Fijo' },
+                    { value: 'selectable', label: 'Seleccionable' },
                   ]}
                 />
-<div>
-  <label className="mb-1 block text-xs text-[#8A8A96]">Cantidad</label>
+                <FieldInput
+                  label="Cantidad"
+                  value={String(row.quantity)}
+                  onChange={(value) =>
+                    updateEditComponent(row.localId, {
+                      quantity: Number(value || 0),
+                    })
+                  }
+                  type="number"
+                />
+              </div>
 
-  <input
-  value={String(row.quantity)}
-  onChange={(e) =>
-    updateEditComponent(row.localId, {
-      quantity: Number(e.target.value || 0),
-    })
-  }
-  type="number"
-  min={1}
-  className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-/>
-
-</div>
-
-                
+              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[auto_auto_minmax(0,1fr)] md:items-end">
                 <FieldCheckbox
-                  label="Cuenta para lÃ­mite"
+                  label="Cuenta para límite"
                   checked={row.countsTowardDetailLimit}
                   onChange={(v) =>
                     updateEditComponent(row.localId, {
@@ -11110,19 +11116,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     })
                   }
                 />
-              </div>
 
-              <div className="mt-3">
-                <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
-                <input
+                <FieldInput
+                  label="Notas"
                   value={row.notes}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     updateEditComponent(row.localId, {
-                      notes: e.target.value,
+                      notes: value,
                     })
                   }
-                  className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
-                  placeholder="Opcional"
                 />
               </div>
             </div>
@@ -11132,34 +11134,35 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 
   <div>
-    <div className="mb-2 text-sm font-semibold text-[#F5F5F7]">
+    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8A96]">
       Componentes seleccionables
     </div>
 
     {editSelectableComponents.length === 0 ? (
-      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#B7B7C2]">
         Sin componentes seleccionables.
       </div>
     ) : (
-      <div className="space-y-3">
+      <div className="space-y-2">
         {editSelectableComponents
           .slice()
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map((row, idx) => (
-            <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-[#F5F5F7]">
+            <div key={row.localId} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-xs font-medium uppercase tracking-[0.14em] text-[#8A8A96]">
                   Seleccionable #{idx + 1}
                 </div>
                 <button
                   className="rounded-lg border border-red-500 bg-[#0B0B0D] px-2 py-1 text-xs text-red-400"
                   onClick={() => removeEditComponent(row.localId)}
+                  type="button"
                 >
                   Quitar
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1.7fr)_100px_130px]">
                 <FieldSelect
                   label="Producto"
                   value={String(row.componentProductId)}
@@ -11183,23 +11186,51 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     })
                   }
                   options={[
-                    { value: 'fixed', label: 'fixed' },
-                    { value: 'selectable', label: 'selectable' },
+                    { value: 'fixed', label: 'Fijo' },
+                    { value: 'selectable', label: 'Seleccionable' },
                   ]}
+                />
+                <FieldInput
+                  label="Cantidad"
+                  value={String(row.quantity)}
+                  onChange={(value) =>
+                    updateEditComponent(row.localId, {
+                      quantity: Number(value || 0),
+                    })
+                  }
+                  type="number"
                 />
               </div>
 
-              <div className="mt-3">
-                <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
-                <input
-                  value={row.notes}
-                  onChange={(e) =>
+              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-[auto_auto_minmax(0,1fr)] md:items-end">
+                <FieldCheckbox
+                  label="Cuenta para límite"
+                  checked={row.countsTowardDetailLimit}
+                  onChange={(v) =>
                     updateEditComponent(row.localId, {
-                      notes: e.target.value,
+                      countsTowardDetailLimit: v,
                     })
                   }
-                  className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
-                  placeholder="Opcional"
+                />
+
+                <FieldCheckbox
+                  label="Requerido"
+                  checked={row.isRequired}
+                  onChange={(v) =>
+                    updateEditComponent(row.localId, {
+                      isRequired: v,
+                    })
+                  }
+                />
+
+                <FieldInput
+                  label="Notas"
+                  value={row.notes}
+                  onChange={(value) =>
+                    updateEditComponent(row.localId, {
+                      notes: value,
+                    })
+                  }
                 />
               </div>
             </div>
