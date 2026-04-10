@@ -20,15 +20,9 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function firstName(value: string) {
-  const source = value.trim();
-  return source ? source.split(/\s+/)[0] || 'Asesor' : 'Asesor';
-}
-
 export default function AdvisorShell(props: AdvisorShellProps) {
-  const { children, fullName } = props;
+  const { children } = props;
   const pathname = usePathname();
-  const advisorName = firstName(fullName);
   const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
 
   return (
@@ -38,7 +32,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[#8B93A7]">VIVO OPS</p>
-              <h1 className="mt-1 truncate text-[20px] font-semibold tracking-[-0.04em]">{advisorName}</h1>
+              <h1 className="mt-1 truncate text-[20px] font-semibold tracking-[-0.04em]">Asesor</h1>
             </div>
             {!isNewOrderRoute ? (
               <Link

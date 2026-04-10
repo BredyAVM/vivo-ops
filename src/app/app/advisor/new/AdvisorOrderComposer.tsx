@@ -23,6 +23,7 @@ type ClientRow = {
   phone: string | null;
   client_type: string | null;
   fund_balance_usd?: number | string | null;
+  recent_addresses?: unknown;
 };
 
 type ProductRow = {
@@ -63,6 +64,11 @@ type DraftItem = {
   unit_price_usd_snapshot: number;
   line_total_usd: number;
   editable_detail_lines: string[];
+};
+
+type ClientAddress = {
+  addressText: string;
+  gpsUrl: string;
 };
 
 function pad2(n: number) {
@@ -135,6 +141,19 @@ function clientTypeLabel(value: string | null | undefined) {
   if (value === 'own') return 'Propio';
   if (value === 'legacy') return 'Antiguo';
   return 'Sin clasificar';
+}
+
+function normalizeClientAddresses(input: unknown): ClientAddress[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((row) => {
+      const data = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+      const addressText = String(data.address_text ?? data.addressText ?? '').trim();
+      const gpsUrl = String(data.gps_url ?? data.gpsUrl ?? '').trim();
+      return { addressText, gpsUrl };
+    })
+    .filter((row) => row.addressText || row.gpsUrl)
+    .slice(0, 2);
 }
 
 function inputClass(multiline = false) {
@@ -314,6 +333,8 @@ export default function AdvisorOrderComposer() {
   const [authUserId, setAuthUserId] = useState('');
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [productComponents, setProductComponents] = useState<ProductComponentRow[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [productActiveIndex, setProductActiveIndex] = useState<number>(-1);
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [qty, setQty] = useState('1');
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
@@ -326,7 +347,6 @@ export default function AdvisorOrderComposer() {
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientType, setNewClientType] = useState<ClientType>('assigned');
 
-  const [quoteOnly, setQuoteOnly] = useState(false);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>('pickup');
   const [deliveryDate, setDeliveryDate] = useState(getTodayInputValue());
   const [deliveryHour12, setDeliveryHour12] = useState(rounded.hour12);
@@ -346,6 +366,7 @@ export default function AdvisorOrderComposer() {
   const [paymentNote, setPaymentNote] = useState('');
   const [discountEnabled, setDiscountEnabled] = useState(false);
   const [discountPct, setDiscountPct] = useState('0');
+  const [copyingQuote, setCopyingQuote] = useState(false);
 
   const [configOpen, setConfigOpen] = useState(false);
   const [configEditingLocalId, setConfigEditingLocalId] = useState<string | null>(null);
@@ -365,6 +386,10 @@ export default function AdvisorOrderComposer() {
     [draftItems]
   );
   const selectedClientFundUsd = Number(selectedClient?.fund_balance_usd ?? 0) || 0;
+  const selectedClientAddresses = useMemo(
+    () => normalizeClientAddresses(selectedClient?.recent_addresses),
+    [selectedClient]
+  );
   const discountPctNumber = Math.max(0, Math.min(100, Number(discountPct || 0) || 0));
   const discountAmountUsd = discountEnabled ? Number((draftTotalUsd * (discountPctNumber / 100)).toFixed(2)) : 0;
   const finalTotalUsd = Number(Math.max(0, draftTotalUsd - discountAmountUsd).toFixed(2));
@@ -391,6 +416,16 @@ export default function AdvisorOrderComposer() {
     draftItems.length > 0 &&
     (!!selectedClient || (isNewClientMode && newClientName.trim() && newClientPhone.trim())) &&
     (fulfillment === 'pickup' || deliveryAddress.trim().length > 0);
+  const filteredProducts = useMemo(() => {
+    const query = productSearch.trim().toLowerCase();
+    if (!query) return [];
+    return products.filter((product) => {
+      return (
+        product.name.toLowerCase().includes(query) ||
+        String(product.sku || '').toLowerCase().includes(query)
+      );
+    });
+  }, [productSearch, products]);
 
   useEffect(() => {
     async function boot() {
@@ -450,6 +485,17 @@ export default function AdvisorOrderComposer() {
     }
   }, [paymentMethod]);
 
+  useEffect(() => {
+    if (
+      fulfillment === 'delivery' &&
+      !deliveryAddress.trim() &&
+      selectedClientAddresses.length > 0
+    ) {
+      setDeliveryAddress(selectedClientAddresses[0].addressText);
+      setDeliveryGpsUrl(selectedClientAddresses[0].gpsUrl);
+    }
+  }, [deliveryAddress, deliveryGpsUrl, fulfillment, selectedClientAddresses]);
+
   function clearMessages() {
     setError(null);
     setInfo(null);
@@ -469,7 +515,7 @@ export default function AdvisorOrderComposer() {
 
     const { data, error: searchError } = await supabase
       .from('clients')
-      .select('id, full_name, phone, client_type, fund_balance_usd')
+      .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses')
       .or(`phone.ilike.%${query}%,full_name.ilike.%${query}%`)
       .order('id', { ascending: false })
       .limit(12);
@@ -498,7 +544,7 @@ export default function AdvisorOrderComposer() {
     try {
       const { data: existing, error: existingError } = await supabase
         .from('clients')
-        .select('id, full_name, phone, client_type, fund_balance_usd')
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses')
         .eq('phone', phone)
         .limit(1);
 
@@ -517,7 +563,7 @@ export default function AdvisorOrderComposer() {
       const { data: created, error: createError } = await supabase
         .from('clients')
         .insert({ full_name, phone, client_type: newClientType })
-        .select('id, full_name, phone, client_type, fund_balance_usd')
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses')
         .single();
 
       if (createError) throw new Error(createError.message);
@@ -541,6 +587,17 @@ export default function AdvisorOrderComposer() {
     setConfigQty(1);
     setConfigAlias('');
     setConfigSelections([]);
+  }
+
+  function applyClientAddress(address: ClientAddress) {
+    setDeliveryAddress(address.addressText);
+    setDeliveryGpsUrl(address.gpsUrl);
+  }
+
+  function chooseProduct(product: ProductRow) {
+    setSelectedProductId(product.id);
+    setProductSearch(product.name);
+    setProductActiveIndex(filteredProducts.findIndex((row) => row.id === product.id));
   }
 
   function buildDraftItem(product: ProductRow, quantity: number, lines: string[]) {
@@ -630,6 +687,8 @@ export default function AdvisorOrderComposer() {
     setDraftItems((current) => [...current, buildDraftItem(selectedProduct, quantity, [])]);
     setQty('1');
     setSelectedProductId('');
+    setProductSearch('');
+    setProductActiveIndex(-1);
   }
 
   function removeDraftItem(localId: string) {
@@ -683,7 +742,66 @@ export default function AdvisorOrderComposer() {
 
     setQty('1');
     setSelectedProductId('');
+    setProductSearch('');
+    setProductActiveIndex(-1);
     resetConfig();
+  }
+
+  function buildQuoteSummary() {
+    const parts: string[] = [];
+    parts.push('*Resumen de Pedido*');
+    parts.push('');
+    parts.push(`*Cliente:* ${selectedClient?.full_name || newClientName.trim() || 'Cliente'}`);
+    parts.push(`*Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro en tienda'}`);
+    parts.push(`*Momento:* ${isAsap ? 'Lo antes posible' : `${deliveryDate} ${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`}`);
+    parts.push('');
+    parts.push('*Pedido:*');
+    parts.push('');
+
+    if (draftItems.length === 0) {
+      parts.push('- Sin items cargados');
+    } else {
+      for (const item of draftItems) {
+        parts.push(`• ${item.qty} ${item.product_name_snapshot}: ${formatUsd(item.line_total_usd)}`);
+        if (item.editable_detail_lines.length > 0) {
+          for (const detail of item.editable_detail_lines) {
+            parts.push(`- ${detail}`);
+          }
+        }
+      }
+    }
+
+    if (fulfillment === 'delivery' && deliveryAddress.trim()) {
+      parts.push('');
+      parts.push(`*Direccion:* ${deliveryAddress.trim()}`);
+    }
+
+    if (orderNote.trim()) {
+      parts.push('');
+      parts.push(`*Nota:* ${orderNote.trim()}`);
+    }
+
+    parts.push('');
+    parts.push(`*TOTAL:* ${formatUsd(finalTotalUsd)}`);
+    return parts.join('\n');
+  }
+
+  async function handleCopyQuote() {
+    clearMessages();
+    if (draftItems.length === 0) {
+      setError('Agrega al menos un item para copiar el presupuesto.');
+      return;
+    }
+
+    setCopyingQuote(true);
+    try {
+      await navigator.clipboard.writeText(buildQuoteSummary());
+      setInfo('Resumen copiado para WhatsApp.');
+    } catch {
+      setError('No se pudo copiar el resumen.');
+    } finally {
+      setCopyingQuote(false);
+    }
   }
 
   async function ensureClientId() {
@@ -732,7 +850,7 @@ export default function AdvisorOrderComposer() {
       },
       note: orderNote.trim() || null,
       ui: {
-        quote_only: quoteOnly,
+        quote_only: false,
         surface: 'advisor_mobile',
       },
     };
@@ -751,11 +869,6 @@ export default function AdvisorOrderComposer() {
       from12hTo24h(deliveryHour12, deliveryMinute, deliveryAmPm);
     } catch (timeError) {
       setError(timeError instanceof Error ? timeError.message : 'Hora invalida.');
-      return;
-    }
-
-    if (quoteOnly) {
-      setInfo(`Presupuesto listo por ${formatUsd(finalTotalUsd)}. Aun no se creo la orden.`);
       return;
     }
 
@@ -822,13 +935,11 @@ export default function AdvisorOrderComposer() {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-4 pb-28">
+      <form onSubmit={handleSubmit} className="space-y-4 pb-32">
         <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">
-                Nuevo pedido
-              </p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">Pedidos / Nuevo pedido</p>
               <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
                 Crear pedido
               </h1>
@@ -837,7 +948,7 @@ export default function AdvisorOrderComposer() {
               href="/app/advisor/orders"
               className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
             >
-              Salir
+              Volver
             </Link>
           </div>
         </section>
@@ -851,6 +962,13 @@ export default function AdvisorOrderComposer() {
               <input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLInputElement).blur();
+                    void handleSearchClients();
+                  }
+                }}
                 className={inputClass()}
                 placeholder="Telefono o nombre"
               />
@@ -939,17 +1057,96 @@ export default function AdvisorOrderComposer() {
           ) : null}
         </Section>
 
-        <Section title="2. Pedido" subtitle="Misma base operativa del master para items y total.">
-          <div className="grid grid-cols-[1fr_88px] gap-2">
-            <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : '')} className={inputClass()}>
-              <option value="">Selecciona producto</option>
-              {products.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name} - ${Number(product.base_price_usd ?? 0).toFixed(2)}
-                </option>
-              ))}
-            </select>
-            <input value={qty} onChange={(e) => setQty(e.target.value)} className={inputClass()} inputMode="numeric" placeholder="Cant." />
+        <Section title="2. Pedido" subtitle="Busca el producto escribiendo y confirma rapido la cantidad.">
+          <div className="relative">
+            <Field label="Producto">
+              <input
+                value={productSearch}
+                onChange={(e) => {
+                  setProductSearch(e.target.value);
+                  setProductActiveIndex(-1);
+                  if (!e.target.value.trim()) setSelectedProductId('');
+                }}
+                onKeyDown={(e) => {
+                  if (!productSearch.trim() || filteredProducts.length === 0) return;
+
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setProductActiveIndex((prev) => {
+                      const next = prev < filteredProducts.length - 1 ? prev + 1 : 0;
+                      setSelectedProductId(filteredProducts[next]?.id ?? '');
+                      return next;
+                    });
+                    return;
+                  }
+
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setProductActiveIndex((prev) => {
+                      const next = prev > 0 ? prev - 1 : filteredProducts.length - 1;
+                      setSelectedProductId(filteredProducts[next]?.id ?? '');
+                      return next;
+                    });
+                    return;
+                  }
+
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const selected =
+                      productActiveIndex >= 0 ? filteredProducts[productActiveIndex] : filteredProducts[0];
+                    if (!selected) return;
+                    chooseProduct(selected);
+                  }
+                }}
+                className={inputClass()}
+                placeholder="Escribe nombre o codigo"
+              />
+            </Field>
+
+            {productSearch.trim() && (!selectedProduct || productSearch !== selectedProduct.name) ? (
+              <div className="absolute z-20 mt-2 max-h-[260px] w-full overflow-y-auto rounded-[18px] border border-[#232632] bg-[#0F131B]">
+                {filteredProducts.length === 0 ? (
+                  <div className="px-3 py-3 text-sm text-[#8B93A7]">Sin resultados</div>
+                ) : (
+                  filteredProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => chooseProduct(product)}
+                      className={[
+                        'w-full border-b border-[#191926] px-3 py-3 text-left last:border-b-0',
+                        filteredProducts[productActiveIndex]?.id === product.id ? 'bg-[#121218]' : 'hover:bg-[#121218]',
+                      ].join(' ')}
+                    >
+                      <div className="text-sm font-medium text-[#F5F7FB]">{product.name}</div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">
+                        {product.sku || 'Sin codigo'} · ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-[1fr_98px] gap-2">
+            <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              {selectedProduct ? selectedProduct.name : 'Selecciona producto'}
+            </div>
+            <input
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addDraftItem();
+                }
+              }}
+              className={inputClass()}
+              inputMode="numeric"
+              placeholder="Cant."
+            />
           </div>
 
           <button type="button" onClick={addDraftItem} className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]">
@@ -1013,6 +1210,7 @@ export default function AdvisorOrderComposer() {
                     <input
                       value={discountPct}
                       onChange={(e) => setDiscountPct(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
                       className={inputClass()}
                       inputMode="decimal"
                       placeholder="0"
@@ -1088,6 +1286,25 @@ export default function AdvisorOrderComposer() {
 
           {fulfillment === 'delivery' ? (
             <>
+              {selectedClientAddresses.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedClientAddresses.map((address, index) => (
+                    <button
+                      key={`${address.addressText}-${index}`}
+                      type="button"
+                      onClick={() => applyClientAddress(address)}
+                      className={[
+                        'rounded-[14px] border px-3 py-2 text-sm',
+                        deliveryAddress.trim() === address.addressText.trim()
+                          ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                          : 'border-[#232632] bg-[#0F131B] text-[#F5F7FB]',
+                      ].join(' ')}
+                    >
+                      Direccion {index + 1}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <Field label="Direccion" hint="Solo este campo puede crecer mas cuando haga falta.">
                 <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className={inputClass(true)} placeholder="Direccion completa" />
               </Field>
@@ -1145,42 +1362,6 @@ export default function AdvisorOrderComposer() {
           <Field label="Observaciones del pedido">
             <textarea value={orderNote} onChange={(e) => setOrderNote(e.target.value)} className={inputClass(true)} placeholder="Notas operativas utiles" />
           </Field>
-
-          <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
-            <input type="checkbox" checked={quoteOnly} onChange={(e) => setQuoteOnly(e.target.checked)} />
-            <span>Solo presupuesto. No crea la orden todavia.</span>
-          </label>
-        </Section>
-
-        <Section title="5. Resumen" subtitle="Lectura rapida antes de guardar.">
-          <div className="grid gap-2 text-sm text-[#AAB2C5]">
-            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-              <span>Cliente</span>
-              <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">{selectedClient?.full_name || newClientName || 'Falta cliente'}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-              <span>Entrega</span>
-              <span className="text-[#F5F7FB]">{fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-              <span>Momento</span>
-              <span className="text-[#F5F7FB]">{isAsap ? 'Lo antes posible' : `${deliveryDate} ${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`}</span>
-            </div>
-            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-              <span>Pago</span>
-              <span className="text-[#F5F7FB]">{paymentMethod}</span>
-            </div>
-            {discountEnabled ? (
-              <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-                <span>Descuento</span>
-                <span className="text-[#F5F7FB]">{discountPctNumber}%</span>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-              <span>Total</span>
-              <span className="text-base font-semibold text-[#F0D000]">{formatUsd(finalTotalUsd)}</span>
-            </div>
-          </div>
         </Section>
 
         <div className="fixed inset-x-0 bottom-[68px] z-20 border-t border-[#1A1D26] bg-[#090B10]/96 px-4 py-3 backdrop-blur">
@@ -1189,16 +1370,31 @@ export default function AdvisorOrderComposer() {
               <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
               <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</div>
             </div>
-            <button
-              type="submit"
-              disabled={saving || !createReady}
-              className={[
-                'h-11 rounded-[16px] px-4 text-sm font-semibold',
-                saving || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
-              ].join(' ')}
-            >
-              {saving ? 'Guardando...' : quoteOnly ? 'Guardar presupuesto' : 'Crear pedido'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopyQuote()}
+                disabled={copyingQuote || draftItems.length === 0}
+                className={[
+                  'h-11 rounded-[16px] border px-4 text-sm font-semibold',
+                  copyingQuote || draftItems.length === 0
+                    ? 'border-[#232632] text-[#6F7890]'
+                    : 'border-[#232632] text-[#F5F7FB]',
+                ].join(' ')}
+              >
+                {copyingQuote ? 'Copiando...' : 'Copiar WhatsApp'}
+              </button>
+              <button
+                type="submit"
+                disabled={saving || !createReady}
+                className={[
+                  'h-11 rounded-[16px] px-4 text-sm font-semibold',
+                  saving || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                ].join(' ')}
+              >
+                {saving ? 'Guardando...' : 'Crear pedido'}
+              </button>
+            </div>
           </div>
         </div>
       </form>
