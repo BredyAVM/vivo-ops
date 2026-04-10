@@ -2791,7 +2791,7 @@ const [editIsActive, setEditIsActive] = useState(true);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<'detalle' | 'entrega' | 'pagos' | 'notas' | 'ajustes'>('detalle');
+  const [detailTab, setDetailTab] = useState<'detalle' | 'entrega' | 'pagos' | 'eventos' | 'notas' | 'ajustes'>('detalle');
 
   const [returnMode, setReturnMode] = useState(false);
   const [returnReason, setReturnReason] = useState('');
@@ -11445,6 +11445,7 @@ onClose={() => {
               <Chip active={detailTab === 'detalle'} onClick={() => setDetailTab('detalle')}>Pedido</Chip>
               <Chip active={detailTab === 'entrega'} onClick={() => setDetailTab('entrega')}>Entrega</Chip>
               <Chip active={detailTab === 'pagos'} onClick={() => setDetailTab('pagos')}>Pagos</Chip>
+              <Chip active={detailTab === 'eventos'} onClick={() => setDetailTab('eventos')}>Eventos</Chip>
               <Chip active={detailTab === 'notas'} onClick={() => setDetailTab('notas')}>Notas</Chip>
               {isAdmin ? (
                 <Chip active={detailTab === 'ajustes'} onClick={() => setDetailTab('ajustes')}>Ajustes</Chip>
@@ -12008,12 +12009,11 @@ onClose={() => {
   </div>
 ) : null}
 
-{detailTab === 'notas' ? (
+{detailTab === 'eventos' ? (
   <div className="space-y-3">
     {(() => {
       const orderEvents = selectedOrder.events ?? [];
       return (
-        <>
     <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-[#F5F5F7]">Historial</div>
@@ -12053,16 +12053,17 @@ onClose={() => {
         </div>
       )}
     </div>
-
-    <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
-      <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
-      <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-        {selectedOrder.notes?.trim() ? repairDisplayText(selectedOrder.notes) : '—'}
-      </div>
-    </div>
-        </>
       );
     })()}
+  </div>
+) : null}
+
+{detailTab === 'notas' ? (
+  <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
+    <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
+    <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+      {selectedOrder.notes?.trim() ? repairDisplayText(selectedOrder.notes) : '—'}
+    </div>
   </div>
 ) : null}
 
