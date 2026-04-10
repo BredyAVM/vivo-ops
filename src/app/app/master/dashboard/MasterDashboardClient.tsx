@@ -3695,7 +3695,11 @@ const resetReturnToQueueBox = () => {
 
 const handleSendToKitchen = async (orderId: number) => {
   try {
-    await sendToKitchenAction({ orderId });
+    const result = await sendToKitchenAction({ orderId });
+    if (result && !result.ok) {
+      showToast('error', result.message || 'Error enviando a cocina.');
+      return;
+    }
     showToast('success', 'Enviado a cocina.');
     router.refresh();
   } catch (err) {

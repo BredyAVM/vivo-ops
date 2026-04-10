@@ -1187,30 +1187,38 @@ export async function reapproveQueuedOrderAction(input: {
 export async function sendToKitchenAction(input: {
   orderId: number;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
-  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  try {
+    const { supabase, user } = await requireMasterOrAdmin();
+    const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
-  const { error } = await supabase.rpc('send_to_kitchen', {
-    p_order_id: input.orderId,
-  });
+    const { error } = await supabase.rpc('send_to_kitchen', {
+      p_order_id: input.orderId,
+    });
 
-  if (error) throw new Error(error.message);
-  await appendOrderEvent(supabase, {
-    orderId: input.orderId,
-    context: eventContext,
-    eventType: 'order_sent_to_kitchen',
-    eventGroup: 'kitchen',
-    title: 'Enviada a cocina',
-    message: 'La orden fue enviada a cocina.',
-    severity: 'info',
-    actorUserId: user.id,
-    recipients: [
-      { targetRole: 'kitchen', requiresAction: true },
-      { targetRole: 'master' },
-      { targetUserId: eventContext?.advisorUserId },
-    ],
-  });
-  revalidatePath('/app/master/dashboard');
+    if (error) throw new Error(error.message);
+    await appendOrderEvent(supabase, {
+      orderId: input.orderId,
+      context: eventContext,
+      eventType: 'order_sent_to_kitchen',
+      eventGroup: 'kitchen',
+      title: 'Enviada a cocina',
+      message: 'La orden fue enviada a cocina.',
+      severity: 'info',
+      actorUserId: user.id,
+      recipients: [
+        { targetRole: 'kitchen', requiresAction: true },
+        { targetRole: 'master' },
+        { targetUserId: eventContext?.advisorUserId },
+      ],
+    });
+    revalidatePath('/app/master/dashboard');
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'Error enviando a cocina.',
+    };
+  }
 }
 
 export async function returnToCreatedAction(input: {
