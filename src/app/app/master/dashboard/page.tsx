@@ -725,7 +725,7 @@ const { data: ordersData, error: ordersError } = await supabase
 
   try {
     const { data: orderEventsData, error: orderEventsError } = await supabase
-      .from('order_events')
+      .from('order_timeline_events')
       .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
       .in('order_id', orderIds.length > 0 ? orderIds : [-1])
       .order('created_at', { ascending: false });

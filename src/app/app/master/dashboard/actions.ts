@@ -133,7 +133,7 @@ async function appendOrderEvent(
     const context = input.context ?? (await loadOrderEventContext(supabase, input.orderId));
 
     const { data: insertedEvent, error: insertEventError } = await supabase
-      .from('order_events')
+      .from('order_timeline_events')
       .insert({
         order_id: input.orderId,
         order_number: context?.orderNumber ?? null,
@@ -163,7 +163,7 @@ async function appendOrderEvent(
     if (recipientRows.length === 0) return;
 
     const { error: recipientsError } = await supabase
-      .from('order_event_recipients')
+      .from('order_timeline_event_recipients')
       .insert(recipientRows);
 
     if (recipientsError) {
