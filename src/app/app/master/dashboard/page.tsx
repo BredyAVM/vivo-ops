@@ -707,31 +707,6 @@ const { data: ordersData, error: ordersError } = await supabase
   const rawOrders = (ordersData ?? []) as RawOrderRow[];
   const orderIds = rawOrders.map((o) => o.id);
 
-  const { data: orderEventsData, error: orderEventsError } = await supabase
-    .from('order_events')
-    .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
-    .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-    .order('created_at', { ascending: false });
-
-  const rawOrderEvents = orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[]);
-  const orderEventActorIds = Array.from(
-    new Set(
-      rawOrderEvents
-        .map((event) => event.actor_user_id)
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-
-  const { data: orderEventActorsData } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .in('id', orderEventActorIds.length > 0 ? orderEventActorIds : ['00000000-0000-0000-0000-000000000000']);
-
-  const orderEventActorNameById = new Map<string, string>();
-  for (const row of orderEventActorsData ?? []) {
-    orderEventActorNameById.set(String(row.id), repairDisplayText(row.full_name?.trim() || 'Usuario'));
-  }
-
   const orderEventsByOrder = new Map<
     number,
     Array<{
@@ -748,27 +723,67 @@ const { data: ordersData, error: ordersError } = await supabase
     }>
   >();
 
-  for (const event of rawOrderEvents) {
-    const bucket = orderEventsByOrder.get(Number(event.order_id)) ?? [];
-    bucket.push({
-      id: String(event.id),
-      eventType: String(event.event_type || ''),
-      eventGroup: String(event.event_group || ''),
-      title: repairDisplayText(String(event.title || 'Evento')),
-      message: event.message ? repairDisplayText(String(event.message)) : null,
-      severity:
-        event.severity === 'warning' || event.severity === 'critical'
-          ? event.severity
-          : 'info',
-      actorUserId: event.actor_user_id ?? null,
-      actorName: orderEventActorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
-      payload:
-        event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
-          ? (event.payload as Record<string, unknown>)
-          : {},
-      createdAt: event.created_at,
-    });
-    orderEventsByOrder.set(Number(event.order_id), bucket);
+  try {
+    const { data: orderEventsData, error: orderEventsError } = await supabase
+      .from('order_events')
+      .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
+      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+      .order('created_at', { ascending: false });
+
+    const rawOrderEvents = orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[]);
+    const orderEventActorIds = Array.from(
+      new Set(
+        rawOrderEvents
+          .map((event) => event.actor_user_id)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    const { data: orderEventActorsData } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in(
+        'id',
+        orderEventActorIds.length > 0
+          ? orderEventActorIds
+          : ['00000000-0000-0000-0000-000000000000'],
+      );
+
+    const orderEventActorNameById = new Map<string, string>();
+    for (const row of orderEventActorsData ?? []) {
+      orderEventActorNameById.set(
+        String(row.id),
+        repairDisplayText(row.full_name?.trim() || 'Usuario'),
+      );
+    }
+
+    for (const event of rawOrderEvents) {
+      const orderId = Number(event.order_id);
+      if (!Number.isFinite(orderId) || orderId <= 0) continue;
+
+      const bucket = orderEventsByOrder.get(orderId) ?? [];
+      bucket.push({
+        id: String(event.id ?? ''),
+        eventType: String(event.event_type || ''),
+        eventGroup: String(event.event_group || ''),
+        title: repairDisplayText(String(event.title || 'Evento')),
+        message: event.message ? repairDisplayText(String(event.message)) : null,
+        severity:
+          event.severity === 'warning' || event.severity === 'critical'
+            ? event.severity
+            : 'info',
+        actorUserId: event.actor_user_id ?? null,
+        actorName: orderEventActorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
+        payload:
+          event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+            ? (event.payload as Record<string, unknown>)
+            : {},
+        createdAt: String(event.created_at || ''),
+      });
+      orderEventsByOrder.set(orderId, bucket);
+    }
+  } catch {
+    // If notifications are partially configured or malformed, keep the dashboard usable.
   }
 
   const internalDriverIds = Array.from(
