@@ -11998,21 +11998,25 @@ onClose={() => {
 
 {detailTab === 'notas' ? (
   <div className="space-y-3">
+    {(() => {
+      const orderEvents = selectedOrder.events ?? [];
+      return (
+        <>
     <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-[#F5F5F7]">Historial</div>
         <SmallBadge
-          label={`${selectedOrder.events.length} evento${selectedOrder.events.length === 1 ? '' : 's'}`}
-          tone={selectedOrder.events.length > 0 ? 'brand' : 'muted'}
+          label={`${orderEvents.length} evento${orderEvents.length === 1 ? '' : 's'}`}
+          tone={orderEvents.length > 0 ? 'brand' : 'muted'}
         />
       </div>
-      {selectedOrder.events.length === 0 ? (
+      {orderEvents.length === 0 ? (
         <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
           Sin historial registrado.
         </div>
       ) : (
         <div className="mt-3 space-y-2">
-          {selectedOrder.events.map((event) => (
+          {orderEvents.map((event) => (
             <div
               key={event.id}
               className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3"
@@ -12044,6 +12048,9 @@ onClose={() => {
         {selectedOrder.notes?.trim() ? repairDisplayText(selectedOrder.notes) : '—'}
       </div>
     </div>
+        </>
+      );
+    })()}
   </div>
 ) : null}
 
