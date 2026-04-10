@@ -295,6 +295,18 @@ type Order = {
   lines: OrderLine[];
   draftItems: DraftItem[];
   editMeta: OrderEditMeta;
+  events: Array<{
+    id: string;
+    eventType: string;
+    eventGroup: string;
+    title: string;
+    message: string | null;
+    severity: 'info' | 'warning' | 'critical';
+    actorUserId: string | null;
+    actorName: string;
+    payload: Record<string, unknown>;
+    createdAt: string;
+  }>;
   paymentReports: PaymentReportItem[];
   adminAdjustments: Array<{
     id: number;
@@ -11985,10 +11997,52 @@ onClose={() => {
 ) : null}
 
 {detailTab === 'notas' ? (
-  <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
-    <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
-    <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-      {selectedOrder.notes?.trim() ? repairDisplayText(selectedOrder.notes) : '—'}
+  <div className="space-y-3">
+    <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Historial</div>
+        <SmallBadge
+          label={`${selectedOrder.events.length} evento${selectedOrder.events.length === 1 ? '' : 's'}`}
+          tone={selectedOrder.events.length > 0 ? 'brand' : 'muted'}
+        />
+      </div>
+      {selectedOrder.events.length === 0 ? (
+        <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+          Sin historial registrado.
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {selectedOrder.events.map((event) => (
+            <div
+              key={event.id}
+              className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[#F5F5F7]">{repairDisplayText(event.title)}</div>
+                  <div className="mt-1 text-[11px] text-[#8A8A96]">
+                    {repairDisplayText(event.actorName)} · {fmtDateTimeES(event.createdAt)}
+                  </div>
+                </div>
+                <SmallBadge
+                  label={event.severity === 'critical' ? 'Critica' : event.severity === 'warning' ? 'Atencion' : 'Info'}
+                  tone={event.severity === 'warning' || event.severity === 'critical' ? 'warn' : 'brand'}
+                />
+              </div>
+              {event.message ? (
+                <div className="mt-2 text-[12px] text-[#B7B7C2]">{repairDisplayText(event.message)}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
+      <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
+      <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+        {selectedOrder.notes?.trim() ? repairDisplayText(selectedOrder.notes) : '—'}
+      </div>
     </div>
   </div>
 ) : null}

@@ -331,6 +331,19 @@ component_product:
   | null;
 };
 
+type RawOrderEventRow = {
+  id: string;
+  order_id: number;
+  event_type: string;
+  event_group: string;
+  title: string;
+  message: string | null;
+  severity: 'info' | 'warning' | 'critical' | string;
+  actor_user_id: string | null;
+  payload: any;
+  created_at: string;
+};
+
 function toNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -693,6 +706,70 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const rawOrders = (ordersData ?? []) as RawOrderRow[];
   const orderIds = rawOrders.map((o) => o.id);
+
+  const { data: orderEventsData, error: orderEventsError } = await supabase
+    .from('order_events')
+    .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
+    .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+    .order('created_at', { ascending: false });
+
+  const rawOrderEvents = orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[]);
+  const orderEventActorIds = Array.from(
+    new Set(
+      rawOrderEvents
+        .map((event) => event.actor_user_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  const { data: orderEventActorsData } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .in('id', orderEventActorIds.length > 0 ? orderEventActorIds : ['00000000-0000-0000-0000-000000000000']);
+
+  const orderEventActorNameById = new Map<string, string>();
+  for (const row of orderEventActorsData ?? []) {
+    orderEventActorNameById.set(String(row.id), repairDisplayText(row.full_name?.trim() || 'Usuario'));
+  }
+
+  const orderEventsByOrder = new Map<
+    number,
+    Array<{
+      id: string;
+      eventType: string;
+      eventGroup: string;
+      title: string;
+      message: string | null;
+      severity: 'info' | 'warning' | 'critical';
+      actorUserId: string | null;
+      actorName: string;
+      payload: Record<string, unknown>;
+      createdAt: string;
+    }>
+  >();
+
+  for (const event of rawOrderEvents) {
+    const bucket = orderEventsByOrder.get(Number(event.order_id)) ?? [];
+    bucket.push({
+      id: String(event.id),
+      eventType: String(event.event_type || ''),
+      eventGroup: String(event.event_group || ''),
+      title: repairDisplayText(String(event.title || 'Evento')),
+      message: event.message ? repairDisplayText(String(event.message)) : null,
+      severity:
+        event.severity === 'warning' || event.severity === 'critical'
+          ? event.severity
+          : 'info',
+      actorUserId: event.actor_user_id ?? null,
+      actorName: orderEventActorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
+      payload:
+        event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+          ? (event.payload as Record<string, unknown>)
+          : {},
+      createdAt: event.created_at,
+    });
+    orderEventsByOrder.set(Number(event.order_id), bucket);
+  }
 
   const internalDriverIds = Array.from(
     new Set(
@@ -1700,6 +1777,7 @@ const clientName = repairDisplayText(
 
     const rowItems = itemsByOrder.get(row.id) ?? [];
     const paymentReports = paymentReportsByOrder.get(row.id) ?? [];
+    const orderEvents = orderEventsByOrder.get(row.id) ?? [];
     const adminAdjustments = (adjustmentsByOrder.get(row.id) ?? []).map((adjustment) => ({
       id: Number(adjustment.id),
       orderItemId:
@@ -1934,6 +2012,7 @@ return {
             : null,
       },
       draftItems,
+      events: orderEvents,
       paymentReports,
       adminAdjustments,
       internalDriverUserId: row.internal_driver_user_id ?? null,

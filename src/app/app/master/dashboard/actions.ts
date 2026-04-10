@@ -43,6 +43,205 @@ function toSafeNumber(value: unknown, fallback = 0) {
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 
+type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+type OrderEventSeverity = 'info' | 'warning' | 'critical';
+
+type OrderEventContext = {
+  orderId: number;
+  orderNumber: string | null;
+  advisorUserId: string | null;
+  internalDriverUserId: string | null;
+  fulfillment: 'pickup' | 'delivery' | null;
+  status: string | null;
+};
+
+type OrderEventRecipientInput = {
+  targetRole?: NotificationRole | null;
+  targetUserId?: string | null;
+  requiresAction?: boolean;
+};
+
+async function loadOrderEventContext(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  orderId: number,
+): Promise<OrderEventContext | null> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, order_number, attributed_advisor_id, internal_driver_user_id, fulfillment, status')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return {
+    orderId: Number(data.id),
+    orderNumber: data.order_number == null ? null : String(data.order_number),
+    advisorUserId: data.attributed_advisor_id ?? null,
+    internalDriverUserId: data.internal_driver_user_id ?? null,
+    fulfillment:
+      data.fulfillment === 'pickup' || data.fulfillment === 'delivery' ? data.fulfillment : null,
+    status: data.status == null ? null : String(data.status),
+  };
+}
+
+function dedupeEventRecipients(recipients: OrderEventRecipientInput[]) {
+  const seen = new Set<string>();
+  const out: Array<{
+    target_role: NotificationRole | null;
+    target_user_id: string | null;
+    requires_action: boolean;
+  }> = [];
+
+  for (const recipient of recipients) {
+    const targetRole = recipient.targetRole ?? null;
+    const targetUserId = recipient.targetUserId ?? null;
+
+    if (!targetRole && !targetUserId) continue;
+
+    const key = `${targetRole ?? ''}|${targetUserId ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      target_role: targetRole,
+      target_user_id: targetUserId,
+      requires_action: !!recipient.requiresAction,
+    });
+  }
+
+  return out;
+}
+
+async function appendOrderEvent(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    orderId: number;
+    eventType: string;
+    eventGroup: string;
+    title: string;
+    message?: string | null;
+    severity?: OrderEventSeverity;
+    actorUserId?: string | null;
+    payload?: Record<string, unknown>;
+    context?: OrderEventContext | null;
+    recipients?: OrderEventRecipientInput[];
+  },
+) {
+  try {
+    const context = input.context ?? (await loadOrderEventContext(supabase, input.orderId));
+
+    const { data: insertedEvent, error: insertEventError } = await supabase
+      .from('order_events')
+      .insert({
+        order_id: input.orderId,
+        order_number: context?.orderNumber ?? null,
+        event_type: input.eventType,
+        event_group: input.eventGroup,
+        title: input.title,
+        message: input.message ?? null,
+        severity: input.severity ?? 'info',
+        actor_user_id: input.actorUserId ?? null,
+        payload: input.payload ?? {},
+      })
+      .select('id')
+      .single();
+
+    if (insertEventError || !insertedEvent) {
+      console.warn('appendOrderEvent skipped', insertEventError?.message ?? 'unknown insert error');
+      return;
+    }
+
+    const recipientRows = dedupeEventRecipients(input.recipients ?? []).map((recipient) => ({
+      event_id: insertedEvent.id,
+      target_role: recipient.target_role,
+      target_user_id: recipient.target_user_id,
+      requires_action: recipient.requires_action,
+    }));
+
+    if (recipientRows.length === 0) return;
+
+    const { error: recipientsError } = await supabase
+      .from('order_event_recipients')
+      .insert(recipientRows);
+
+    if (recipientsError) {
+      console.warn('appendOrderEvent recipients skipped', recipientsError.message);
+    }
+  } catch (error) {
+    console.warn(
+      'appendOrderEvent failed',
+      error instanceof Error ? error.message : 'unknown order event error',
+    );
+  }
+}
+
+function getChangeSectionsSummary(params: {
+  changedFields: string[];
+  itemsChanged: boolean;
+}): { sections: string[]; summary: string[] } {
+  const sectionSet = new Set<string>();
+  const summary: string[] = [];
+
+  if (params.itemsChanged) {
+    sectionSet.add('pedido');
+    summary.push('Se modificó el pedido.');
+  }
+
+  for (const field of params.changedFields) {
+    if (field === 'client_id') {
+      sectionSet.add('cliente');
+      summary.push('Se cambió el cliente.');
+      continue;
+    }
+    if (field === 'attributed_advisor_id') {
+      sectionSet.add('cliente');
+      summary.push('Se cambió el asesor.');
+      continue;
+    }
+    if (field === 'fulfillment') {
+      sectionSet.add('entrega');
+      summary.push('Se cambió el tipo de entrega.');
+      continue;
+    }
+    if (field === 'delivery_address') {
+      sectionSet.add('direccion');
+      summary.push('Se cambió la dirección.');
+      continue;
+    }
+    if (field === 'receiver_name' || field === 'receiver_phone') {
+      sectionSet.add('entrega');
+      summary.push('Se cambiaron datos del receptor.');
+      continue;
+    }
+    if (field === 'notes') {
+      sectionSet.add('nota');
+      summary.push('Se modificó la nota de la orden.');
+      continue;
+    }
+    if (field === 'source') {
+      sectionSet.add('cliente');
+      summary.push('Se cambió el origen de la orden.');
+      continue;
+    }
+    if (field === 'total_usd' || field === 'total_bs_snapshot') {
+      sectionSet.add('precio');
+      summary.push('Se modificó el total de la orden.');
+      continue;
+    }
+    if (field === 'extra_fields') {
+      sectionSet.add('entrega');
+      summary.push('Se cambiaron datos de entrega, pago o configuración.');
+    }
+  }
+
+  return {
+    sections: Array.from(sectionSet),
+    summary: Array.from(new Set(summary)),
+  };
+}
+
 function toUsdEquivalentByCurrency(
   amount: number,
   currency: string,
@@ -283,7 +482,7 @@ export async function createPaymentReportAction(input: {
   payerName: string | null;
   notes: string | null;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('create_payment_report', {
     p_order_id: input.orderId,
@@ -297,6 +496,30 @@ export async function createPaymentReportAction(input: {
   });
 
   if (error) throw new Error(error.message);
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'payment_reported',
+    eventGroup: 'payment',
+    title: 'Pago reportado',
+    message: 'Se registro un nuevo reporte de pago.',
+    severity: 'warning',
+    actorUserId: user.id,
+    payload: {
+      reported_money_account_id: input.reportedMoneyAccountId,
+      reported_currency: input.reportedCurrency,
+      reported_amount: input.reportedAmount,
+      exchange_rate_ves_per_usd: input.reportedExchangeRateVesPerUsd,
+      reference_code: input.referenceCode,
+      payer_name: input.payerName,
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: true },
+      { targetRole: 'admin', requiresAction: true },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -339,6 +562,7 @@ export async function confirmPaymentReportAction(input: {
 
   const orderId = Number(input.orderId || 0);
   if (Number.isFinite(orderId) && orderId > 0) {
+    const eventContext = await loadOrderEventContext(supabase, orderId);
     const { data: currentOrder, error: currentOrderError } = await supabase
       .from('orders')
       .select('id, client_id, total_usd, total_bs_snapshot, extra_fields')
@@ -583,6 +807,29 @@ export async function confirmPaymentReportAction(input: {
         throw new Error(adjustmentError.message);
       }
     }
+
+    await appendOrderEvent(supabase, {
+      orderId,
+      context: eventContext,
+      eventType: 'payment_confirmed',
+      eventGroup: 'payment',
+      title: 'Pago confirmado',
+      message: 'El pago reportado fue confirmado.',
+      severity: 'info',
+      actorUserId: user.id,
+      payload: {
+        report_id: input.reportId,
+        confirmed_money_account_id: input.confirmedMoneyAccountId,
+        confirmed_currency: input.confirmedCurrency,
+        confirmed_amount: input.confirmedAmount,
+        movement_date: input.movementDate,
+        exchange_rate_ves_per_usd: input.confirmedExchangeRateVesPerUsd,
+      },
+      recipients: [
+        { targetRole: 'master' },
+        { targetUserId: eventContext?.advisorUserId },
+      ],
+    });
   }
 
   revalidatePath('/app/master/dashboard');
@@ -843,7 +1090,13 @@ export async function rejectPaymentReportAction(input: {
   reportId: number;
   reviewNotes: string;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const { data: currentReport } = await supabase
+    .from('payment_reports')
+    .select('order_id')
+    .eq('id', input.reportId)
+    .maybeSingle();
 
   const { error } = await supabase.rpc('reject_payment_report', {
     p_report_id: input.reportId,
@@ -857,13 +1110,28 @@ export async function rejectPaymentReportAction(input: {
 export async function approveOrderAction(input: {
   orderId: number;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
   const { error } = await supabase.rpc('approve_order', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'order_approved',
+    eventGroup: 'approval',
+    title: 'Orden aprobada',
+    message: 'La orden fue aprobada y ya puede avanzar en operación.',
+    severity: 'info',
+    actorUserId: user.id,
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -871,7 +1139,8 @@ export async function reapproveQueuedOrderAction(input: {
   orderId: number;
   notes: string;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
   const { error } = await supabase.rpc('reapprove_queued_order', {
     p_order_id: input.orderId,
@@ -879,19 +1148,52 @@ export async function reapproveQueuedOrderAction(input: {
   });
 
   if (error) throw new Error(error.message);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'order_reapproved',
+    eventGroup: 'approval',
+    title: 'Orden re-aprobada',
+    message: input.notes?.trim() ? `Notas de revisión: ${input.notes.trim()}` : 'La orden fue re-aprobada.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      review_notes: input.notes?.trim() || null,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
 export async function sendToKitchenAction(input: {
   orderId: number;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
   const { error } = await supabase.rpc('send_to_kitchen', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'order_sent_to_kitchen',
+    eventGroup: 'kitchen',
+    title: 'Enviada a cocina',
+    message: 'La orden fue enviada a cocina.',
+    severity: 'info',
+    actorUserId: user.id,
+    recipients: [
+      { targetRole: 'kitchen', requiresAction: true },
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -944,6 +1246,25 @@ export async function returnToCreatedAction(input: {
   if (updateError) {
     throw new Error(updateError.message);
   }
+
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'order_returned_to_review',
+    eventGroup: 'approval',
+    title: 'Orden devuelta a revisión',
+    message: reason,
+    severity: 'warning',
+    actorUserId: user.id,
+    payload: {
+      reason,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId, requiresAction: true },
+    ],
+  });
 
   revalidatePath('/app/master/dashboard');
 }
@@ -1004,6 +1325,25 @@ export async function cancelOrderAction(input: {
     throw new Error(updateError.message);
   }
 
+  const eventContext = await loadOrderEventContext(supabase, orderId);
+  await appendOrderEvent(supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'order_cancelled',
+    eventGroup: 'approval',
+    title: 'Orden cancelada',
+    message: reason,
+    severity: 'critical',
+    actorUserId: user.id,
+    payload: { reason },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+      { targetUserId: eventContext?.internalDriverUserId },
+      { targetRole: 'kitchen' },
+    ],
+  });
+
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1012,7 +1352,7 @@ export async function assignInternalDriverAction(input: {
   driverUserId: string;
   costUsd?: number | null;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('assign_internal_driver', {
     p_order_id: input.orderId,
@@ -1053,6 +1393,27 @@ export async function assignInternalDriverAction(input: {
     .eq('id', input.orderId);
 
   if (snapshotError) throw new Error(snapshotError.message);
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'driver_assigned',
+    eventGroup: 'delivery',
+    title: 'Driver asignado',
+    message: 'Se asignó un driver interno a la orden.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      driver_user_id: input.driverUserId,
+      cost_usd: input.costUsd ?? null,
+      assignment_kind: 'internal',
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+      { targetUserId: input.driverUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1063,7 +1424,7 @@ export async function assignExternalPartnerAction(input: {
   distanceKm?: number | null;
   costUsd?: number | null;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('assign_external_partner', {
     p_order_id: input.orderId,
@@ -1106,6 +1467,28 @@ export async function assignExternalPartnerAction(input: {
     .eq('id', input.orderId);
 
   if (snapshotError) throw new Error(snapshotError.message);
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'driver_assigned',
+    eventGroup: 'delivery',
+    title: 'Partner externo asignado',
+    message: 'Se asignó un partner externo a la orden.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      partner_id: input.partnerId,
+      reference: input.reference,
+      distance_km: input.distanceKm ?? null,
+      cost_usd: input.costUsd ?? null,
+      assignment_kind: 'external',
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1114,7 +1497,7 @@ export async function reviewOrderChangesAction(input: {
   approved: boolean;
   notes: string;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('review_order_changes', {
     p_order_id: input.orderId,
@@ -1130,7 +1513,7 @@ export async function kitchenTakeAction(input: {
   orderId: number;
   etaMinutes: number;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('kitchen_take', {
     p_order_id: input.orderId,
@@ -1138,13 +1521,31 @@ export async function kitchenTakeAction(input: {
   });
 
   if (error) throw new Error(error.message);
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'kitchen_taken',
+    eventGroup: 'kitchen',
+    title: 'Cocina tomo la orden',
+    message: `Cocina registro ${input.etaMinutes} min de preparacion.`,
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      prep_eta_minutes: input.etaMinutes,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
 export async function markReadyAction(input: {
   orderId: number;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('mark_ready', {
     p_order_id: input.orderId,
@@ -1158,7 +1559,8 @@ export async function outForDeliveryAction(input: {
   orderId: number;
   etaMinutes?: number | null;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
   const normalizedEta =
     input.etaMinutes != null && Number.isFinite(input.etaMinutes) && input.etaMinutes > 0
       ? Math.round(input.etaMinutes)
@@ -1218,6 +1620,27 @@ export async function outForDeliveryAction(input: {
     if (updateError) throw new Error(updateError.message);
   }
 
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'out_for_delivery',
+    eventGroup: 'delivery',
+    title: 'Orden en camino',
+    message:
+      normalizedEta != null
+        ? `La orden salio en camino con ETA de ${normalizedEta} min.`
+        : 'La orden salio en camino.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      delivery_eta_minutes: normalizedEta,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+      { targetUserId: eventContext?.internalDriverUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1275,6 +1698,29 @@ export async function markDeliveredAction(input: {
   if (updateError) throw new Error(updateError.message);
 
   await applyDeliveredOrderInventoryDeductions(supabase, user.id, input.orderId);
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: eventContext?.fulfillment === 'pickup' ? 'pickup_collected' : 'order_delivered',
+    eventGroup: 'delivery',
+    title: eventContext?.fulfillment === 'pickup' ? 'Orden retirada' : 'Orden entregada',
+    message:
+      eventContext?.fulfillment === 'pickup'
+        ? 'La orden fue retirada por el cliente.'
+        : 'La orden fue entregada al cliente.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      fulfillment: eventContext?.fulfillment ?? null,
+      completed_at: nextExtraFields.delivery.completed_at,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+      { targetUserId: eventContext?.internalDriverUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -1282,7 +1728,8 @@ export async function clearDeliveryAssignmentAction(input: {
   orderId: number;
   notes: string;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase, user } = await requireMasterOrAdmin();
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
   const { error } = await supabase.rpc('clear_delivery_assignment', {
     p_order_id: input.orderId,
@@ -1290,6 +1737,23 @@ export async function clearDeliveryAssignmentAction(input: {
   });
 
   if (error) throw new Error(error.message);
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: 'driver_unassigned',
+    eventGroup: 'delivery',
+    title: 'Asignacion removida',
+    message: 'La orden quedo sin driver asignado.',
+    severity: 'warning',
+    actorUserId: user.id,
+    payload: {
+      notes: input.notes,
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: true },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
   revalidatePath('/app/master/dashboard');
 }
 
@@ -2209,7 +2673,7 @@ export async function createInventoryItemAction(input: {
   isActive: boolean;
   notes: string | null;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre del item es obligatorio.');
@@ -2550,7 +3014,7 @@ export async function createDeliveryPartnerAction(input: {
   whatsappPhone: string;
   isActive: boolean;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre del partner es obligatorio.');
@@ -3657,7 +4121,7 @@ export async function createOrderClientQuickAction(input: {
   phone: string;
   clientType: 'assigned' | 'own' | 'legacy';
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
 
   const fullName = String(input.fullName || '').trim();
   const phone = normalizePhone(String(input.phone || ''));
@@ -4939,6 +5403,27 @@ export async function createOrderAction(input: {
     });
   }
 
+  await appendOrderEvent(supabase, {
+    orderId,
+    eventType: 'order_created',
+    eventGroup: 'approval',
+    title: 'Orden creada',
+    message: 'La orden fue creada y quedo pendiente de aprobacion.',
+    severity: 'warning',
+    actorUserId: user.id,
+    payload: {
+      order_number: orderNumber,
+      fulfillment,
+      source,
+      urgent: Boolean(input.isAsap),
+      delivery_time: `${input.deliveryDate} ${deliveryTime24}`,
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: true },
+      { targetUserId: attributedAdvisorId },
+    ],
+  });
+
   revalidatePath('/app/master/dashboard');
 
   return { id: orderId, orderNumber };
@@ -5601,6 +6086,92 @@ export async function updateOrderAction(input: {
   if (currentOrder.status === 'delivered') {
     await resetDeliveredOrderInventoryDeductions(supabase, orderId);
     await applyDeliveredOrderInventoryDeductions(supabase, user.id, orderId);
+  }
+
+  const beforeExtraFields =
+    currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object' && !Array.isArray(currentOrder.extra_fields)
+      ? currentOrder.extra_fields
+      : {};
+
+  const beforeSnapshot = {
+    source: currentOrder.source ?? null,
+    fulfillment: currentOrder.fulfillment ?? null,
+    client_id: currentOrder.client_id ?? null,
+    attributed_advisor_id: currentOrder.attributed_advisor_id ?? null,
+    delivery_address: currentOrder.delivery_address ?? null,
+    receiver_name: currentOrder.receiver_name ?? null,
+    receiver_phone: currentOrder.receiver_phone ?? null,
+    notes: currentOrder.notes ?? null,
+    total_usd: Number(currentOrder.total_usd ?? 0),
+    total_bs_snapshot: Number(currentOrder.total_bs_snapshot ?? 0),
+    extra_fields: beforeExtraFields,
+  };
+
+  const afterSnapshot = {
+    source,
+    fulfillment,
+    client_id: clientId,
+    attributed_advisor_id: attributedAdvisorId,
+    delivery_address: fulfillment === 'delivery' ? input.deliveryAddress.trim() || null : null,
+    receiver_name: input.receiverName.trim() || null,
+    receiver_phone: input.receiverPhone.trim() ? normalizePhone(input.receiverPhone) : null,
+    notes: input.note.trim() || null,
+    total_usd: totalUsd,
+    total_bs_snapshot: totalBs,
+    extra_fields: extraFields,
+  };
+
+  const changedFields = Object.keys(afterSnapshot).filter((key) => {
+    const beforeValue = beforeSnapshot[key as keyof typeof beforeSnapshot];
+    const afterValue = afterSnapshot[key as keyof typeof afterSnapshot];
+    return !valuesEquivalent(key, beforeValue, afterValue);
+  });
+
+  const previousItemsSignature = stableStringify(
+    (previousOrderItems ?? []).map((item) => ({
+      product_name_snapshot: item.product_name_snapshot,
+      qty: Number(item.qty || 0),
+      line_total_usd: Number(item.line_total_usd || 0),
+    })),
+  );
+  const nextItemsSignature = stableStringify(
+    input.items.map((item) => ({
+      product_name_snapshot: item.productNameSnapshot,
+      qty: Number(item.qty || 0),
+      line_total_usd: Number(item.lineTotalUsd || 0),
+    })),
+  );
+  const itemsChanged = previousItemsSignature !== nextItemsSignature;
+  const changeMeta = getChangeSectionsSummary({
+    changedFields,
+    itemsChanged,
+  });
+
+  if (changedFields.length > 0 || itemsChanged) {
+    const eventContext = await loadOrderEventContext(supabase, orderId);
+    await appendOrderEvent(supabase, {
+      orderId,
+      context: eventContext,
+      eventType: 'order_modified',
+      eventGroup: 'modification',
+      title: currentOrder.status === 'queued' ? 'Orden modificada para re-aprobacion' : 'Orden modificada',
+      message:
+        changeMeta.summary.length > 0
+          ? changeMeta.summary.join(' ')
+          : 'Se realizaron cambios en la orden.',
+      severity: currentOrder.status === 'queued' ? 'warning' : 'info',
+      actorUserId: user.id,
+      payload: {
+        changed_sections: changeMeta.sections,
+        change_summary: changeMeta.summary,
+        reason: String(input.adminEditReason || '').trim() || null,
+        queued_needs_reapproval: currentOrder.status === 'queued',
+      },
+      recipients: [
+        { targetRole: 'master', requiresAction: currentOrder.status === 'queued' },
+        { targetUserId: attributedAdvisorId },
+      ],
+    });
   }
 
   revalidatePath('/app/master/dashboard');
