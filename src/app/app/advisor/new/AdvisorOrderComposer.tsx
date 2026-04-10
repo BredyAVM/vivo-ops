@@ -37,7 +37,7 @@ type ProductRow = {
 };
 
 type ProductComponentRow = {
-  product_id: number;
+  parent_product_id: number;
   component_product_id: number;
   component_mode: 'fixed' | 'selectable';
   quantity: number | null;
@@ -377,7 +377,7 @@ export default function AdvisorOrderComposer() {
   const configOptions = useMemo(() => {
     if (!configProductId) return [];
     return productComponents
-      .filter((row) => row.product_id === configProductId && row.component_mode === 'selectable')
+      .filter((row) => row.parent_product_id === configProductId && row.component_mode === 'selectable')
       .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
       .map((row) => productById.get(row.component_product_id))
       .filter((row): row is ProductRow => !!row);
@@ -424,8 +424,10 @@ export default function AdvisorOrderComposer() {
           supabase
             .from('product_components')
             .select(
-              'product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order'
-            ),
+              'parent_product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order'
+            )
+            .order('parent_product_id', { ascending: true })
+            .order('sort_order', { ascending: true }),
         ]);
 
       if (productError) setError(productError.message);
@@ -577,7 +579,7 @@ export default function AdvisorOrderComposer() {
     }
 
     const nextOptions = productComponents
-      .filter((row) => row.product_id === product.id && row.component_mode === 'selectable')
+      .filter((row) => row.parent_product_id === product.id && row.component_mode === 'selectable')
       .map((row) => productById.get(row.component_product_id))
       .filter((row): row is ProductRow => !!row);
 
@@ -617,7 +619,7 @@ export default function AdvisorOrderComposer() {
     }
 
     const hasSelectableComponents = productComponents.some(
-      (row) => row.product_id === selectedProduct.id && row.component_mode === 'selectable'
+      (row) => row.parent_product_id === selectedProduct.id && row.component_mode === 'selectable'
     );
 
     if (selectedProduct.is_detail_editable || hasSelectableComponents) {

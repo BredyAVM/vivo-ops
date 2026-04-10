@@ -20,16 +20,16 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function firstName(value: string, fallbackEmail: string) {
-  const source = value.trim() || fallbackEmail.trim();
-  return source.split(/\s+/)[0] || 'Asesor';
+function firstName(value: string) {
+  const source = value.trim();
+  return source ? source.split(/\s+/)[0] || 'Asesor' : 'Asesor';
 }
 
-export default function AdvisorShell({ children, email, fullName }: AdvisorShellProps) {
+export default function AdvisorShell(props: AdvisorShellProps) {
+  const { children, fullName } = props;
   const pathname = usePathname();
-  const advisorName = firstName(fullName, email);
+  const advisorName = firstName(fullName);
   const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
-  const showFab = !isNewOrderRoute;
 
   return (
     <div className="min-h-screen bg-[#090B10] text-[#F5F7FB]">
@@ -72,15 +72,6 @@ export default function AdvisorShell({ children, email, fullName }: AdvisorShell
 
         <main className="flex-1 px-4 py-4">{children}</main>
       </div>
-
-      {showFab ? (
-        <Link
-          href="/app/advisor/new"
-          className="fixed bottom-5 right-4 z-30 inline-flex h-12 items-center rounded-full bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E] shadow-[0_18px_32px_rgba(240,208,0,0.22)]"
-        >
-          Nuevo pedido
-        </Link>
-      ) : null}
     </div>
   );
 }
