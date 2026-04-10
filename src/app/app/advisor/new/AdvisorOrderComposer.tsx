@@ -22,6 +22,7 @@ type ClientRow = {
   full_name: string;
   phone: string | null;
   client_type: string | null;
+  fund_balance_usd?: number | string | null;
 };
 
 type ProductRow = {
@@ -127,6 +128,13 @@ function normalizePhone(value: string) {
 
 function formatUsd(value: number) {
   return `$${value.toFixed(2)}`;
+}
+
+function clientTypeLabel(value: string | null | undefined) {
+  if (value === 'assigned') return 'Asignado';
+  if (value === 'own') return 'Propio';
+  if (value === 'legacy') return 'Antiguo';
+  return 'Sin clasificar';
 }
 
 function inputClass(multiline = false) {
@@ -336,6 +344,8 @@ export default function AdvisorOrderComposer() {
   const [paymentChangeFor, setPaymentChangeFor] = useState('');
   const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<CurrencyCode>('USD');
   const [paymentNote, setPaymentNote] = useState('');
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountPct, setDiscountPct] = useState('0');
 
   const [configOpen, setConfigOpen] = useState(false);
   const [configEditingLocalId, setConfigEditingLocalId] = useState<string | null>(null);
@@ -354,6 +364,10 @@ export default function AdvisorOrderComposer() {
     () => draftItems.reduce((sum, item) => sum + Number(item.line_total_usd || 0), 0),
     [draftItems]
   );
+  const selectedClientFundUsd = Number(selectedClient?.fund_balance_usd ?? 0) || 0;
+  const discountPctNumber = Math.max(0, Math.min(100, Number(discountPct || 0) || 0));
+  const discountAmountUsd = discountEnabled ? Number((draftTotalUsd * (discountPctNumber / 100)).toFixed(2)) : 0;
+  const finalTotalUsd = Number(Math.max(0, draftTotalUsd - discountAmountUsd).toFixed(2));
 
   const configProduct = useMemo(
     () => (configProductId ? productById.get(configProductId) ?? null : null),
@@ -453,7 +467,7 @@ export default function AdvisorOrderComposer() {
 
     const { data, error: searchError } = await supabase
       .from('clients')
-      .select('id, full_name, phone, client_type')
+      .select('id, full_name, phone, client_type, fund_balance_usd')
       .or(`phone.ilike.%${query}%,full_name.ilike.%${query}%`)
       .order('id', { ascending: false })
       .limit(12);
@@ -482,7 +496,7 @@ export default function AdvisorOrderComposer() {
     try {
       const { data: existing, error: existingError } = await supabase
         .from('clients')
-        .select('id, full_name, phone, client_type')
+        .select('id, full_name, phone, client_type, fund_balance_usd')
         .eq('phone', phone)
         .limit(1);
 
@@ -501,7 +515,7 @@ export default function AdvisorOrderComposer() {
       const { data: created, error: createError } = await supabase
         .from('clients')
         .insert({ full_name, phone, client_type: newClientType })
-        .select('id, full_name, phone, client_type')
+        .select('id, full_name, phone, client_type, fund_balance_usd')
         .single();
 
       if (createError) throw new Error(createError.message);
@@ -707,6 +721,13 @@ export default function AdvisorOrderComposer() {
         change_currency: paymentRequiresChange ? paymentChangeCurrency : null,
         notes: paymentNote.trim() || null,
       },
+      pricing: {
+        discount_enabled: discountEnabled,
+        discount_pct: discountEnabled ? discountPctNumber : 0,
+        discount_amount_usd: discountEnabled ? discountAmountUsd : 0,
+        subtotal_usd: draftTotalUsd,
+        total_usd: finalTotalUsd,
+      },
       note: orderNote.trim() || null,
       ui: {
         quote_only: quoteOnly,
@@ -732,7 +753,7 @@ export default function AdvisorOrderComposer() {
     }
 
     if (quoteOnly) {
-      setInfo(`Presupuesto listo por ${formatUsd(draftTotalUsd)}. Aun no se creo la orden.`);
+      setInfo(`Presupuesto listo por ${formatUsd(finalTotalUsd)}. Aun no se creo la orden.`);
       return;
     }
 
@@ -752,7 +773,7 @@ export default function AdvisorOrderComposer() {
           source: 'advisor',
           status: 'created',
           fulfillment,
-          total_usd: draftTotalUsd,
+          total_usd: finalTotalUsd,
           is_price_locked: false,
           delivery_address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
           receiver_name: receiverName.trim() || null,
@@ -841,6 +862,20 @@ export default function AdvisorOrderComposer() {
             <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
               <div className="font-medium">{selectedClient.full_name}</div>
               <div className="mt-1 text-xs text-[#8B93A7]">{selectedClient.phone || 'Sin telefono'}</div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
+                  <div className="text-[#8B93A7]">Tipo</div>
+                  <div className="mt-1 font-medium text-[#F5F7FB]">
+                    {clientTypeLabel(selectedClient.client_type)}
+                  </div>
+                </div>
+                <div className="rounded-[14px] border border-[#232632] bg-[#12151d] px-3 py-2">
+                  <div className="text-[#8B93A7]">Fondo</div>
+                  <div className="mt-1 font-medium text-[#F5F7FB]">
+                    {selectedClientFundUsd > 0 ? formatUsd(selectedClientFundUsd) : 'Sin fondo'}
+                  </div>
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -902,7 +937,7 @@ export default function AdvisorOrderComposer() {
           ) : null}
         </Section>
 
-        <Section title="2. Pedido" subtitle="Soporta productos simples y configurables.">
+        <Section title="2. Pedido" subtitle="Misma base operativa del master para items y total.">
           <div className="grid grid-cols-[1fr_88px] gap-2">
             <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : '')} className={inputClass()}>
               <option value="">Selecciona producto</option>
@@ -957,6 +992,49 @@ export default function AdvisorOrderComposer() {
                   </div>
                 </div>
               ))}
+
+              <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                <label className="flex items-center gap-3 text-sm text-[#F5F7FB]">
+                  <input
+                    type="checkbox"
+                    checked={discountEnabled}
+                    onChange={(e) => {
+                      setDiscountEnabled(e.target.checked);
+                      if (!e.target.checked) setDiscountPct('0');
+                    }}
+                  />
+                  <span>Aplicar descuento</span>
+                </label>
+
+                {discountEnabled ? (
+                  <Field label="% Descuento">
+                    <input
+                      value={discountPct}
+                      onChange={(e) => setDiscountPct(e.target.value)}
+                      className={inputClass()}
+                      inputMode="decimal"
+                      placeholder="0"
+                    />
+                  </Field>
+                ) : null}
+
+                <div className="grid gap-2 text-sm text-[#AAB2C5]">
+                  <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                    <span>Subtotal</span>
+                    <span className="text-[#F5F7FB]">{formatUsd(draftTotalUsd)}</span>
+                  </div>
+                  {discountEnabled ? (
+                    <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                      <span>Descuento</span>
+                      <span className="text-[#F5F7FB]">-{formatUsd(discountAmountUsd)}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                    <span>Total</span>
+                    <span className="font-semibold text-[#F0D000]">{formatUsd(finalTotalUsd)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </Section>
@@ -982,21 +1060,20 @@ export default function AdvisorOrderComposer() {
             Lo antes posible
           </button>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Fecha">
-              <input type="date" value={deliveryDate} onChange={(e) => { setDeliveryDate(e.target.value); setIsAsap(false); }} className={inputClass()} />
-            </Field>
-            <Field label="Hora">
-              <div className="grid grid-cols-[1fr_1fr_78px] gap-2">
-                <input value={deliveryHour12} onChange={(e) => { setDeliveryHour12(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
-                <input value={deliveryMinute} onChange={(e) => { setDeliveryMinute(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
-                <select value={deliveryAmPm} onChange={(e) => { setDeliveryAmPm(e.target.value as 'AM' | 'PM'); setIsAsap(false); }} className={inputClass()}>
-                  <option value="AM">AM</option>
-                  <option value="PM">PM</option>
-                </select>
-              </div>
-            </Field>
-          </div>
+          <Field label="Fecha">
+            <input type="date" value={deliveryDate} onChange={(e) => { setDeliveryDate(e.target.value); setIsAsap(false); }} className={inputClass()} />
+          </Field>
+
+          <Field label="Hora">
+            <div className="grid grid-cols-[72px_72px_minmax(92px,1fr)] gap-2">
+              <input value={deliveryHour12} onChange={(e) => { setDeliveryHour12(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+              <input value={deliveryMinute} onChange={(e) => { setDeliveryMinute(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+              <select value={deliveryAmPm} onChange={(e) => { setDeliveryAmPm(e.target.value as 'AM' | 'PM'); setIsAsap(false); }} className={inputClass()}>
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+          </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Recibe">
@@ -1091,9 +1168,15 @@ export default function AdvisorOrderComposer() {
               <span>Pago</span>
               <span className="text-[#F5F7FB]">{paymentMethod}</span>
             </div>
+            {discountEnabled ? (
+              <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+                <span>Descuento</span>
+                <span className="text-[#F5F7FB]">{discountPctNumber}%</span>
+              </div>
+            ) : null}
             <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
               <span>Total</span>
-              <span className="text-base font-semibold text-[#F0D000]">{formatUsd(draftTotalUsd)}</span>
+              <span className="text-base font-semibold text-[#F0D000]">{formatUsd(finalTotalUsd)}</span>
             </div>
           </div>
         </Section>
@@ -1102,7 +1185,7 @@ export default function AdvisorOrderComposer() {
           <div className="mx-auto flex max-w-screen-md items-center justify-between gap-3">
             <div>
               <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
-              <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(draftTotalUsd)}</div>
+              <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</div>
             </div>
             <button
               type="submit"

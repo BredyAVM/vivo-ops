@@ -28,7 +28,8 @@ function firstName(value: string, fallbackEmail: string) {
 export default function AdvisorShell({ children, email, fullName }: AdvisorShellProps) {
   const pathname = usePathname();
   const advisorName = firstName(fullName, email);
-  const showFab = pathname !== '/app/advisor/new';
+  const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
+  const showFab = !isNewOrderRoute;
 
   return (
     <div className="min-h-screen bg-[#090B10] text-[#F5F7FB]">
@@ -39,12 +40,14 @@ export default function AdvisorShell({ children, email, fullName }: AdvisorShell
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[#8B93A7]">VIVO OPS</p>
               <h1 className="mt-1 truncate text-[20px] font-semibold tracking-[-0.04em]">{advisorName}</h1>
             </div>
-            <Link
-              href="/app/advisor/new"
-              className="inline-flex h-10 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-sm font-semibold text-[#17191E]"
-            >
-              Nuevo pedido
-            </Link>
+            {!isNewOrderRoute ? (
+              <Link
+                href="/app/advisor/new"
+                className="inline-flex h-10 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-sm font-semibold text-[#17191E]"
+              >
+                Nuevo pedido
+              </Link>
+            ) : null}
           </div>
 
           <div className="mt-3 grid grid-cols-3 gap-2">
