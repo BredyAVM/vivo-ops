@@ -1110,62 +1110,78 @@ export async function rejectPaymentReportAction(input: {
 export async function approveOrderAction(input: {
   orderId: number;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
-  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  try {
+    const { supabase, user } = await requireMasterOrAdmin();
+    const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
-  const { error } = await supabase.rpc('approve_order', {
-    p_order_id: input.orderId,
-  });
+    const { error } = await supabase.rpc('approve_order', {
+      p_order_id: input.orderId,
+    });
 
-  if (error) throw new Error(error.message);
-  await appendOrderEvent(supabase, {
-    orderId: input.orderId,
-    context: eventContext,
-    eventType: 'order_approved',
-    eventGroup: 'approval',
-    title: 'Orden aprobada',
-    message: 'La orden fue aprobada y ya puede avanzar en operación.',
-    severity: 'info',
-    actorUserId: user.id,
-    recipients: [
-      { targetRole: 'master' },
-      { targetUserId: eventContext?.advisorUserId },
-    ],
-  });
-  revalidatePath('/app/master/dashboard');
+    if (error) throw new Error(error.message);
+    await appendOrderEvent(supabase, {
+      orderId: input.orderId,
+      context: eventContext,
+      eventType: 'order_approved',
+      eventGroup: 'approval',
+      title: 'Orden aprobada',
+      message: 'La orden fue aprobada y ya puede avanzar en operación.',
+      severity: 'info',
+      actorUserId: user.id,
+      recipients: [
+        { targetRole: 'master' },
+        { targetUserId: eventContext?.advisorUserId },
+      ],
+    });
+    revalidatePath('/app/master/dashboard');
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'Error aprobando la orden.',
+    };
+  }
 }
 
 export async function reapproveQueuedOrderAction(input: {
   orderId: number;
   notes: string;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
-  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  try {
+    const { supabase, user } = await requireMasterOrAdmin();
+    const eventContext = await loadOrderEventContext(supabase, input.orderId);
 
-  const { error } = await supabase.rpc('reapprove_queued_order', {
-    p_order_id: input.orderId,
-    p_notes: input.notes,
-  });
+    const { error } = await supabase.rpc('reapprove_queued_order', {
+      p_order_id: input.orderId,
+      p_notes: input.notes,
+    });
 
-  if (error) throw new Error(error.message);
-  await appendOrderEvent(supabase, {
-    orderId: input.orderId,
-    context: eventContext,
-    eventType: 'order_reapproved',
-    eventGroup: 'approval',
-    title: 'Orden re-aprobada',
-    message: input.notes?.trim() ? `Notas de revisión: ${input.notes.trim()}` : 'La orden fue re-aprobada.',
-    severity: 'info',
-    actorUserId: user.id,
-    payload: {
-      review_notes: input.notes?.trim() || null,
-    },
-    recipients: [
-      { targetRole: 'master' },
-      { targetUserId: eventContext?.advisorUserId },
-    ],
-  });
-  revalidatePath('/app/master/dashboard');
+    if (error) throw new Error(error.message);
+    await appendOrderEvent(supabase, {
+      orderId: input.orderId,
+      context: eventContext,
+      eventType: 'order_reapproved',
+      eventGroup: 'approval',
+      title: 'Orden re-aprobada',
+      message: input.notes?.trim() ? `Notas de revisión: ${input.notes.trim()}` : 'La orden fue re-aprobada.',
+      severity: 'info',
+      actorUserId: user.id,
+      payload: {
+        review_notes: input.notes?.trim() || null,
+      },
+      recipients: [
+        { targetRole: 'master' },
+        { targetUserId: eventContext?.advisorUserId },
+      ],
+    });
+    revalidatePath('/app/master/dashboard');
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'Error re-aprobando la orden.',
+    };
+  }
 }
 
 export async function sendToKitchenAction(input: {

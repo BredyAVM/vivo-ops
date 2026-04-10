@@ -3788,7 +3788,11 @@ const handleAssignExternal = async (o: Order) => {
 const handleApprove = async (o: Order) => {
   try {
     if (o.status === 'created') {
-      await approveOrderAction({ orderId: o.id });
+      const result = await approveOrderAction({ orderId: o.id });
+      if (result && !result.ok) {
+        showToast('error', result.message || 'Error aprobando la orden.');
+        return;
+      }
       showToast('success', 'Pedido aprobado.');
       resetReviewActionBox();
       router.refresh();
@@ -3796,10 +3800,14 @@ const handleApprove = async (o: Order) => {
     }
 
     if (o.status === 'queued' && o.queuedNeedsReapproval) {
-      await reapproveQueuedOrderAction({
+      const result = await reapproveQueuedOrderAction({
         orderId: o.id,
         notes: reviewActionNotes.trim(),
       });
+      if (result && !result.ok) {
+        showToast('error', result.message || 'Error re-aprobando la orden.');
+        return;
+      }
       showToast('success', 'Pedido re-aprobado.');
       resetReviewActionBox();
       router.refresh();
