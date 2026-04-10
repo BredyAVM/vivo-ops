@@ -174,39 +174,28 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
       .map((order) => order.id),
     ...unpaidOrders.map((order) => order.id),
   ]).size;
-  const salesVisible = agendaOrders.reduce((sum, order) => sum + Number(order.total_usd || 0), 0);
   const calendarDays = buildCalendarDays(selectedDayKey);
   const advisorName = firstName(profile?.full_name?.trim() || ctx.user.user_metadata?.full_name || ctx.user.email || 'Asesor');
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[28px] border border-[#232632] bg-[#12151d] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.2)]">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
-              {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
-            </div>
-            <h2 className="mt-1 text-[26px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{advisorName}</h2>
-            <p className="mt-1 text-sm leading-5 text-[#AAB2C5]">Agenda del dia, pagos pendientes y seguimiento operativo.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/app/advisor/orders?day=${selectedDayKey}&bucket=alerts`}
-              className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
-            >
-              <span className="text-lg">!</span>
-              <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
-                {alertsCount}
-              </span>
-            </Link>
-            <Link
-              href="/app/advisor/new"
-              className="inline-flex h-11 items-center rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
-            >
-              Nuevo pedido
-            </Link>
+      <section className="flex items-center justify-between gap-3 rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">Hoy</div>
+          <div className="mt-1 truncate text-sm font-medium text-[#F5F7FB]">
+            {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
           </div>
         </div>
+        <Link
+          href={`/app/advisor/orders?day=${selectedDayKey}&bucket=alerts`}
+          className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
+          aria-label={`Notificaciones de ${advisorName}`}
+        >
+          <span className="text-lg">!</span>
+          <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
+            {alertsCount}
+          </span>
+        </Link>
       </section>
 
       <section className="overflow-x-auto pb-1">
@@ -256,9 +245,8 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
       </section>
 
       <SectionCard
-        title="Agenda del dia"
-        subtitle={`Vista corta del ${formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}.`}
-        action={<div className="text-sm font-medium text-[#F0D000]">{formatUsd(salesVisible)}</div>}
+        title="Agenda"
+        subtitle={formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
       >
         {agendaOrders.length === 0 ? (
           <EmptyBlock title="Sin pedidos agendados" detail="Este dia no tiene pedidos visibles para este asesor." href="/app/advisor/new" cta="Crear pedido" />

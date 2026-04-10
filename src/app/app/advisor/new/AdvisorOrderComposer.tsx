@@ -493,6 +493,7 @@ export default function AdvisorOrderComposer() {
         setSelectedClient(current);
         setSearchTerm(current.phone ?? current.full_name);
         setIsNewClientMode(false);
+        setClientResults([]);
         setInfo(`Cliente listo: ${current.full_name}`);
         return current.id;
       }
@@ -799,18 +800,15 @@ export default function AdvisorOrderComposer() {
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-4 pb-28">
-        <section className="rounded-[26px] border border-[#232632] bg-[#12151d] px-4 py-4">
-          <div className="flex items-start justify-between gap-3">
+        <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">
                 Nuevo pedido
               </p>
-              <h1 className="mt-1 text-[22px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
-                Captura del asesor
+              <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
+                Crear pedido
               </h1>
-              <p className="mt-2 text-sm leading-5 text-[#AAB2C5]">
-                Replica la operacion clave de master, pero aterrizada al telefono.
-              </p>
             </div>
             <Link
               href="/app/advisor/orders"
@@ -855,6 +853,8 @@ export default function AdvisorOrderComposer() {
                   onClick={() => {
                     setSelectedClient(client);
                     setIsNewClientMode(false);
+                    setClientResults([]);
+                    setSearchTerm(client.phone ?? client.full_name);
                     setInfo(`Cliente seleccionado: ${client.full_name}`);
                   }}
                   className="flex w-full items-center justify-between rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-left"
