@@ -168,7 +168,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
               const unpaid = reports.length === 0 || reports.every((status) => status === 'rejected');
 
               return (
-                <article key={order.id} className="rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                <Link key={order.id} href={`/app/advisor/orders/${order.id}`} className="block rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">{order.client?.full_name?.trim() || order.order_number}</div>
@@ -185,9 +185,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
                     <span>{formatDate(order.created_at)}</span>
-                    <span className="font-medium text-[#F0D000]">{formatUsd(order.total_usd)}</span>
+                    <span className="font-medium text-[#F0D000]">Abrir · {formatUsd(order.total_usd)}</span>
                   </div>
-                </article>
+                </Link>
               );
             })}
           </div>

@@ -347,10 +347,10 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         ) : (
           <div className="space-y-2.5">
             {inboxEvents.map((event) => (
-              <article key={event.id} className="rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[#F5F7FB]">{event.clientName}</div>
+                <Link key={event.id} href={`/app/advisor/orders/${event.orderId}`} className="block rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#F5F7FB]">{event.clientName}</div>
                     <div className="mt-1 text-xs text-[#8B93A7]">{event.orderNumber}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
@@ -369,11 +369,9 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
 
                 <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
                   <span>{formatEventTime(event.createdAt)}</span>
-                  <Link href={`/app/advisor/orders`} className="font-medium text-[#F0D000]">
-                    Ver pedidos
-                  </Link>
+                  <span className="font-medium text-[#F0D000]">Abrir pedido</span>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         )}
