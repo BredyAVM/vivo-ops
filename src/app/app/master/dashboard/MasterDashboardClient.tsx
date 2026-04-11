@@ -928,16 +928,14 @@ function mapAdjustmentFieldLabel(field: string) {
   return labels[field] || field;
 }
 
-function getOrderEventDetailLines(event: Order['events'][number]) {
+function getOrderEventDetailLines(order: Order, event: Order['events'][number]) {
   const payload = event.payload ?? {};
   const lines: string[] = [];
 
-  const orderNumber =
-    typeof payload.order_number === 'string' && payload.order_number.trim()
-      ? repairDisplayText(payload.order_number)
-      : null;
-  if (orderNumber) {
-    lines.push(`Orden: ${orderNumber}`);
+  const explicitOrderId = Number(payload.order_id ?? Number.NaN);
+  const orderIdToShow = Number.isFinite(explicitOrderId) && explicitOrderId > 0 ? explicitOrderId : order.id;
+  if (Number.isFinite(orderIdToShow) && orderIdToShow > 0) {
+    lines.push(`Orden: ${orderIdToShow}`);
   }
 
   const etaMinutes = Number(payload.eta_minutes ?? payload.delivery_eta_minutes ?? NaN);
@@ -963,6 +961,30 @@ function getOrderEventDetailLines(event: Order['events'][number]) {
       : null;
   if (deliveredByRole) {
     lines.push(`Cierre: ${deliveredByRole}`);
+  }
+
+  const driverName =
+    typeof payload.driver_name === 'string' && payload.driver_name.trim()
+      ? repairDisplayText(payload.driver_name)
+      : typeof payload.internal_driver_name === 'string' && payload.internal_driver_name.trim()
+        ? repairDisplayText(payload.internal_driver_name)
+        : event.eventType === 'internal_driver_assigned' && order.riderName
+          ? repairDisplayText(order.riderName)
+          : null;
+  if (driverName) {
+    lines.push(`Motorizado: ${driverName}`);
+  }
+
+  const partnerName =
+    typeof payload.partner_name === 'string' && payload.partner_name.trim()
+      ? repairDisplayText(payload.partner_name)
+      : typeof payload.external_partner_name === 'string' && payload.external_partner_name.trim()
+        ? repairDisplayText(payload.external_partner_name)
+        : event.eventType === 'external_partner_assigned' && order.externalPartner
+          ? repairDisplayText(order.externalPartner)
+          : null;
+  if (partnerName) {
+    lines.push(`Partner: ${partnerName}`);
   }
 
   const changedSections = Array.isArray(payload.changed_sections)
@@ -12089,7 +12111,7 @@ onClose={() => {
               className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3"
             >
               {(() => {
-                const detailLines = getOrderEventDetailLines(event);
+                const detailLines = getOrderEventDetailLines(selectedOrder, event);
                 return (
                   <>
               <div className="flex items-start justify-between gap-3">
