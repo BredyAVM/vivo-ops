@@ -21,8 +21,13 @@ export function isMasterOrAdminRole(roles: readonly string[]) {
   return roles.includes('admin') || roles.includes('master');
 }
 
+export function isAdvisorRole(roles: readonly string[]) {
+  return roles.includes('advisor');
+}
+
 export function resolveHomePath(roles: readonly string[]) {
   if (isMasterOrAdminRole(roles)) return '/app/master/dashboard';
+  if (isAdvisorRole(roles)) return '/app/advisor/orders';
   return '/orders';
 }
 

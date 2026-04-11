@@ -1,0 +1,246 @@
+'use client';
+
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { type ReactNode, useMemo, useState, useTransition } from 'react';
+import { createAdvisorPaymentReportAction } from './actions';
+
+type MoneyAccountOption = {
+  id: number;
+  name: string;
+  currencyCode: string;
+  isActive: boolean;
+};
+
+function inputClass(multiline = false) {
+  return [
+    'w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
+    multiline ? 'min-h-[88px] py-3' : 'h-11',
+  ].join(' ');
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1.5 text-[12px] font-medium text-[#AAB2C5]">{label}</div>
+      {children}
+    </label>
+  );
+}
+
+export default function OrderDetailActions({
+  orderId,
+  balanceUsd,
+  canCorrectOrder,
+  canRetryPayment,
+  moneyAccounts,
+}: {
+  orderId: number;
+  balanceUsd: number;
+  canCorrectOrder: boolean;
+  canRetryPayment: boolean;
+  moneyAccounts: MoneyAccountOption[];
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [reportBoxOpen, setReportBoxOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [moneyAccountId, setMoneyAccountId] = useState('');
+  const [amount, setAmount] = useState(balanceUsd > 0 ? String(Number(balanceUsd.toFixed(2))) : '');
+  const [exchangeRate, setExchangeRate] = useState('');
+  const [referenceCode, setReferenceCode] = useState('');
+  const [payerName, setPayerName] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const activeAccounts = useMemo(
+    () => moneyAccounts.filter((account) => account.isActive),
+    [moneyAccounts],
+  );
+  const selectedAccount = useMemo(
+    () => activeAccounts.find((account) => account.id === Number(moneyAccountId)) ?? null,
+    [activeAccounts, moneyAccountId],
+  );
+
+  if (!canCorrectOrder && !canRetryPayment) return null;
+
+  return (
+    <div className="space-y-3">
+      {(error || success) ? (
+        <div
+          className={[
+            'rounded-[18px] border px-4 py-3 text-sm',
+            error ? 'border-[#5E2229] bg-[#261114] text-[#F0A6AE]' : 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]',
+          ].join(' ')}
+        >
+          {error || success}
+        </div>
+      ) : null}
+
+      <div className="grid gap-2">
+        {canCorrectOrder ? (
+          <Link
+            href={`/app/advisor/new?fromOrder=${orderId}`}
+            className="inline-flex h-11 items-center justify-center rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
+          >
+            Corregir pedido
+          </Link>
+        ) : null}
+
+        {canRetryPayment ? (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setSuccess(null);
+              setReportBoxOpen((current) => !current);
+            }}
+            className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+          >
+            {reportBoxOpen ? 'Cerrar reporte' : 'Reportar pago de nuevo'}
+          </button>
+        ) : null}
+      </div>
+
+      {canRetryPayment && reportBoxOpen ? (
+        <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+          <div className="text-sm font-medium text-[#F5F7FB]">Nuevo reporte de pago</div>
+          <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
+            El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviara otra vez a revision.
+          </div>
+
+          <div className="mt-3 space-y-3">
+            <Field label="Cuenta">
+              <select
+                value={moneyAccountId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setMoneyAccountId(nextId);
+                  const account = activeAccounts.find((row) => row.id === Number(nextId)) ?? null;
+                  if (account?.currencyCode === 'USD') {
+                    setAmount(balanceUsd > 0 ? String(Number(balanceUsd.toFixed(2))) : '');
+                    setExchangeRate('');
+                  }
+                }}
+                className={inputClass()}
+              >
+                <option value="">Selecciona una cuenta</option>
+                {activeAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name} ({account.currencyCode})
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Monto reportado">
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                className={inputClass()}
+                inputMode="decimal"
+                placeholder="0"
+              />
+            </Field>
+
+            {selectedAccount?.currencyCode === 'VES' ? (
+              <Field label="Tasa VES por USD">
+                <input
+                  value={exchangeRate}
+                  onChange={(e) => setExchangeRate(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className={inputClass()}
+                  inputMode="decimal"
+                  placeholder="Tasa"
+                />
+              </Field>
+            ) : null}
+
+            <Field label="Referencia">
+              <input
+                value={referenceCode}
+                onChange={(e) => setReferenceCode(e.target.value)}
+                className={inputClass()}
+                placeholder="Opcional"
+              />
+            </Field>
+
+            <Field label="Pagador">
+              <input
+                value={payerName}
+                onChange={(e) => setPayerName(e.target.value)}
+                className={inputClass()}
+                placeholder="Opcional"
+              />
+            </Field>
+
+            <Field label="Notas">
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className={inputClass(true)}
+                placeholder="Motivo o aclaratoria"
+              />
+            </Field>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => {
+                  setError(null);
+                  setSuccess(null);
+
+                  startTransition(async () => {
+                    try {
+                      await createAdvisorPaymentReportAction({
+                        orderId,
+                        reportedMoneyAccountId: Number(moneyAccountId || 0),
+                        reportedCurrency: selectedAccount?.currencyCode || '',
+                        reportedAmount: Number(amount || 0),
+                        reportedExchangeRateVesPerUsd:
+                          selectedAccount?.currencyCode === 'VES' ? Number(exchangeRate || 0) : null,
+                        referenceCode: referenceCode.trim() || null,
+                        payerName: payerName.trim() || null,
+                        notes: notes.trim() || null,
+                      });
+
+                      setSuccess('Pago reenviado a revision.');
+                      setReportBoxOpen(false);
+                      router.refresh();
+                    } catch (submitError) {
+                      setError(
+                        submitError instanceof Error ? submitError.message : 'No se pudo reportar el pago.',
+                      );
+                    }
+                  });
+                }}
+                className={[
+                  'h-11 rounded-[16px] px-4 text-sm font-semibold',
+                  isPending ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                ].join(' ')}
+              >
+                {isPending ? 'Enviando...' : 'Enviar reporte'}
+              </button>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setReportBoxOpen(false)}
+                className="h-11 rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
