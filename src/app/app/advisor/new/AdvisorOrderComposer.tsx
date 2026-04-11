@@ -71,6 +71,56 @@ type ClientAddress = {
   gpsUrl: string;
 };
 
+type ExistingOrderRow = {
+  id: number;
+  status: string | null;
+  fulfillment: FulfillmentType;
+  delivery_address: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  notes: string | null;
+  extra_fields: {
+    schedule?: {
+      date?: string | null;
+      time_12?: string | null;
+      asap?: boolean | null;
+    } | null;
+    delivery?: {
+      gps_url?: string | null;
+    } | null;
+    payment?: {
+      method?: PaymentMethod | null;
+      currency?: CurrencyCode | null;
+      requires_change?: boolean | null;
+      change_for?: string | number | null;
+      change_currency?: CurrencyCode | null;
+      notes?: string | null;
+    } | null;
+    pricing?: {
+      discount_enabled?: boolean | null;
+      discount_pct?: number | string | null;
+    } | null;
+    note?: string | null;
+  } | null;
+  client:
+    | ClientRow[]
+    | ClientRow
+    | null;
+};
+
+type ExistingOrderItemRow = {
+  id: number;
+  product_id: number;
+  qty: number | string;
+  pricing_origin_currency: CurrencyCode | null;
+  pricing_origin_amount: number | string | null;
+  unit_price_usd_snapshot: number | string | null;
+  line_total_usd: number | string | null;
+  sku_snapshot: string | null;
+  product_name_snapshot: string | null;
+  notes: string | null;
+};
+
 function pad2(n: number) {
   return String(n).padStart(2, '0');
 }
@@ -126,6 +176,20 @@ function from12hTo24h(hour12: string, minute: string, ampm: 'AM' | 'PM') {
   }
 
   return `${pad2(hour)}:${pad2(mins)}`;
+}
+
+function parseStoredTime12(value: string | null | undefined, fallback: { hour12: string; minute: string; ampm: 'AM' | 'PM' }) {
+  const match = String(value || '')
+    .trim()
+    .match(/^(\d{1,2})[:.](\d{2})\s*(AM|PM)$/i);
+
+  if (!match) return fallback;
+
+  return {
+    hour12: String(Number(match[1] || fallback.hour12)),
+    minute: pad2(Number(match[2] || fallback.minute)),
+    ampm: String(match[3] || fallback.ampm).toUpperCase() === 'PM' ? 'PM' : 'AM',
+  } as const;
 }
 
 function normalizePhone(value: string) {
@@ -318,7 +382,11 @@ function ConfigSheet(props: {
   );
 }
 
-export default function AdvisorOrderComposer() {
+export default function AdvisorOrderComposer({
+  existingOrderId = null,
+}: {
+  existingOrderId?: number | null;
+}) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const rounded = useMemo(() => to12h(getRoundedTime()), []);
@@ -374,6 +442,7 @@ export default function AdvisorOrderComposer() {
   const [configQty, setConfigQty] = useState(1);
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
+  const isEditingOrder = Number.isFinite(existingOrderId) && Number(existingOrderId) > 0;
 
   const selectedProduct = useMemo(() => {
     if (selectedProductId === '') return null;
@@ -447,23 +516,58 @@ export default function AdvisorOrderComposer() {
 
       setAuthUserId(user.id);
 
-      const [{ data: productData, error: productError }, { data: componentData, error: componentError }] =
-        await Promise.all([
-          supabase
-            .from('products')
-            .select(
-              'id, sku, name, base_price_usd, source_price_currency, source_price_amount, is_detail_editable, detail_units_limit'
-            )
-            .eq('is_active', true)
-            .order('name', { ascending: true }),
-          supabase
-            .from('product_components')
-            .select(
-              'parent_product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order'
-            )
-            .order('parent_product_id', { ascending: true })
-            .order('sort_order', { ascending: true }),
-        ]);
+      const baseRequests = [
+        supabase
+          .from('products')
+          .select(
+            'id, sku, name, base_price_usd, source_price_currency, source_price_amount, is_detail_editable, detail_units_limit'
+          )
+          .eq('is_active', true)
+          .order('name', { ascending: true }),
+        supabase
+          .from('product_components')
+          .select(
+            'parent_product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order'
+          )
+          .order('parent_product_id', { ascending: true })
+          .order('sort_order', { ascending: true }),
+      ] as const;
+
+      const editRequests = isEditingOrder
+        ? ([
+            supabase
+              .from('orders')
+              .select(
+                'id, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses)'
+              )
+              .eq('id', Number(existingOrderId))
+              .eq('attributed_advisor_id', user.id)
+              .maybeSingle(),
+            supabase
+              .from('order_items')
+              .select(
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes'
+              )
+              .eq('order_id', Number(existingOrderId))
+              .order('id', { ascending: true }),
+          ] as const)
+        : null;
+
+      const results = editRequests
+        ? await Promise.all([...baseRequests, ...editRequests])
+        : await Promise.all(baseRequests);
+
+      const [productResult, componentResult, existingOrderResult, existingItemsResult] = results as [
+        Awaited<(typeof baseRequests)[0]>,
+        Awaited<(typeof baseRequests)[1]>,
+        | Awaited<NonNullable<typeof editRequests>[0]>
+        | undefined,
+        | Awaited<NonNullable<typeof editRequests>[1]>
+        | undefined,
+      ];
+
+      const { data: productData, error: productError } = productResult;
+      const { data: componentData, error: componentError } = componentResult;
 
       if (productError) setError(productError.message);
       else setProducts((productData ?? []) as ProductRow[]);
@@ -471,11 +575,68 @@ export default function AdvisorOrderComposer() {
       if (componentError) setError(componentError.message);
       else setProductComponents((componentData ?? []) as ProductComponentRow[]);
 
+      if (isEditingOrder) {
+        if (existingOrderResult?.error) {
+          setError(existingOrderResult.error.message);
+        } else if (!existingOrderResult?.data) {
+          setError('No se pudo cargar la orden para corregir.');
+        } else {
+          const order = existingOrderResult.data as ExistingOrderRow;
+          const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
+          const orderItems = ((existingItemsResult?.data ?? []) as ExistingOrderItemRow[]).map((item) => ({
+            localId: `existing-${item.id}`,
+            product_id: Number(item.product_id),
+            sku_snapshot: item.sku_snapshot,
+            product_name_snapshot: String(item.product_name_snapshot || 'Item'),
+            qty: Number(item.qty || 0),
+            source_price_currency: (item.pricing_origin_currency || 'USD') as CurrencyCode,
+            source_price_amount: Number(item.pricing_origin_amount ?? item.unit_price_usd_snapshot ?? 0) || 0,
+            unit_price_usd_snapshot: Number(item.unit_price_usd_snapshot ?? 0) || 0,
+            line_total_usd: Number(item.line_total_usd ?? 0) || 0,
+            editable_detail_lines: item.notes?.trim() ? item.notes.split('\n').map((line) => line.trim()).filter(Boolean) : [],
+          }));
+          const schedule = order.extra_fields?.schedule;
+          const paymentData = order.extra_fields?.payment;
+          const pricing = order.extra_fields?.pricing;
+          const parsedTime = parseStoredTime12(schedule?.time_12, rounded);
+
+          setSelectedClient(orderClient ? (orderClient as ClientRow) : null);
+          setSearchTerm(orderClient?.phone || orderClient?.full_name || '');
+          setClientResults([]);
+          setIsNewClientMode(false);
+          setDraftItems(orderItems);
+          setFulfillment(order.fulfillment || 'pickup');
+          setDeliveryDate(schedule?.date || getTodayInputValue());
+          setDeliveryHour12(parsedTime.hour12);
+          setDeliveryMinute(parsedTime.minute);
+          setDeliveryAmPm(parsedTime.ampm);
+          setIsAsap(Boolean(schedule?.asap));
+          setReceiverName(order.receiver_name || '');
+          setReceiverPhone(order.receiver_phone || '');
+          setDeliveryAddress(order.delivery_address || '');
+          setDeliveryGpsUrl(order.extra_fields?.delivery?.gps_url || '');
+          setOrderNote(order.notes || order.extra_fields?.note || '');
+          setPaymentMethod((paymentData?.method as PaymentMethod) || 'pending');
+          setPaymentCurrency((paymentData?.currency as CurrencyCode) || 'USD');
+          setPaymentRequiresChange(Boolean(paymentData?.requires_change));
+          setPaymentChangeFor(
+            paymentData?.change_for == null ? '' : String(paymentData.change_for)
+          );
+          setPaymentChangeCurrency((paymentData?.change_currency as CurrencyCode) || 'USD');
+          setPaymentNote(paymentData?.notes || '');
+          setDiscountEnabled(Boolean(pricing?.discount_enabled));
+          setDiscountPct(
+            pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+          );
+          setInfo('Pedido listo para corregir.');
+        }
+      }
+
       setLoading(false);
     }
 
     void boot();
-  }, [router, supabase]);
+  }, [existingOrderId, isEditingOrder, rounded, router, supabase]);
 
   useEffect(() => {
     if (paymentMethod === 'cash_ves' || paymentMethod === 'transfer' || paymentMethod === 'payment_mobile') {
@@ -876,33 +1037,56 @@ export default function AdvisorOrderComposer() {
 
     try {
       const clientId = await ensureClientId();
-      const orderNumber = await generateOrderNumber();
+      const payload = {
+        client_id: clientId,
+        attributed_advisor_id: authUserId,
+        source: 'advisor',
+        status: 'created',
+        fulfillment,
+        total_usd: finalTotalUsd,
+        is_price_locked: false,
+        delivery_address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
+        receiver_name: receiverName.trim() || null,
+        receiver_phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
+        notes: orderNote.trim() || null,
+        extra_fields: buildExtraFields(),
+      };
 
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_number: orderNumber,
-          client_id: clientId,
-          created_by_user_id: authUserId,
-          attributed_advisor_id: authUserId,
-          source: 'advisor',
-          status: 'created',
-          fulfillment,
-          total_usd: finalTotalUsd,
-          is_price_locked: false,
-          delivery_address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
-          receiver_name: receiverName.trim() || null,
-          receiver_phone: receiverPhone.trim() ? normalizePhone(receiverPhone.trim()) : null,
-          notes: orderNote.trim() || null,
-          extra_fields: buildExtraFields(),
-        })
-        .select('id')
-        .single();
+      let targetOrderId = Number(existingOrderId || 0);
 
-      if (orderError) throw new Error(orderError.message);
+      if (isEditingOrder) {
+        const { error: updateOrderError } = await supabase
+          .from('orders')
+          .update(payload)
+          .eq('id', Number(existingOrderId))
+          .eq('attributed_advisor_id', authUserId);
+
+        if (updateOrderError) throw new Error(updateOrderError.message);
+
+        const { error: deleteItemsError } = await supabase
+          .from('order_items')
+          .delete()
+          .eq('order_id', Number(existingOrderId));
+
+        if (deleteItemsError) throw new Error(deleteItemsError.message);
+      } else {
+        const orderNumber = await generateOrderNumber();
+        const { data: order, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            ...payload,
+            order_number: orderNumber,
+            created_by_user_id: authUserId,
+          })
+          .select('id')
+          .single();
+
+        if (orderError) throw new Error(orderError.message);
+        targetOrderId = Number(order.id);
+      }
 
       const itemsPayload = draftItems.map((item) => ({
-        order_id: order.id,
+        order_id: targetOrderId,
         product_id: item.product_id,
         qty: item.qty,
         pricing_origin_currency: item.source_price_currency,
@@ -917,9 +1101,15 @@ export default function AdvisorOrderComposer() {
       const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
       if (itemsError) throw new Error(itemsError.message);
 
-      router.push(`/orders/${order.id}`);
+      router.push(`/app/advisor/orders/${targetOrderId}`);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'No se pudo crear la orden.');
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : isEditingOrder
+            ? 'No se pudo actualizar la orden.'
+            : 'No se pudo crear la orden.'
+      );
     } finally {
       setSaving(false);
     }
@@ -928,7 +1118,7 @@ export default function AdvisorOrderComposer() {
   if (loading) {
     return (
       <div className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-5 text-sm text-[#AAB2C5]">
-        Cargando captura del asesor...
+        {isEditingOrder ? 'Cargando pedido para corregir...' : 'Cargando captura del asesor...'}
       </div>
     );
   }
@@ -939,9 +1129,11 @@ export default function AdvisorOrderComposer() {
         <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">Pedidos / Nuevo pedido</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">
+                {isEditingOrder ? 'Pedidos / Corregir pedido' : 'Pedidos / Nuevo pedido'}
+              </p>
               <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
-                Crear pedido
+                {isEditingOrder ? 'Corregir pedido' : 'Crear pedido'}
               </h1>
             </div>
             <Link
@@ -1392,7 +1584,7 @@ export default function AdvisorOrderComposer() {
                   saving || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
-                {saving ? 'Guardando...' : 'Crear pedido'}
+                {saving ? 'Guardando...' : isEditingOrder ? 'Guardar cambios' : 'Crear pedido'}
               </button>
             </div>
           </div>

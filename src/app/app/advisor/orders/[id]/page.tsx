@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
+import OrderDetailActions from './OrderDetailActions';
 
 type PageParams = Promise<{
   id: string;
@@ -88,11 +89,20 @@ type RawTimelineEvent = {
 
 type TimelineEvent = {
   id: string;
+  eventType: string;
   title: string;
   message: string;
   createdAt: string;
   tone: 'neutral' | 'warning' | 'success' | 'danger';
   detailLines: string[];
+  requiresAction: boolean;
+};
+
+type MoneyAccountRow = {
+  id: number;
+  name: string | null;
+  currency_code: string | null;
+  is_active: boolean | null;
 };
 
 const ACTION_EVENT_TYPES = new Set([
@@ -153,6 +163,11 @@ function paymentTone(status: PaymentReportRow['status']): 'warning' | 'success' 
   return 'warning';
 }
 
+function toSafeNumber(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : fallback;
+}
+
 function eventTitle(eventType: string, fallbackTitle: string) {
   const titles: Record<string, string> = {
     order_approved: 'Orden aprobada',
@@ -161,7 +176,7 @@ function eventTitle(eventType: string, fallbackTitle: string) {
     order_changes_rejected: 'Cambios rechazados',
     order_changes_approved: 'Cambios aprobados',
     order_sent_to_kitchen: 'Enviada a cocina',
-    kitchen_taken: 'Cocina tomó la orden',
+    kitchen_taken: 'Cocina tomo la orden',
     kitchen_eta_updated: 'Tiempo estimado actualizado',
     kitchen_delayed_prep: 'Retraso en cocina',
     order_ready: 'Orden preparada',
@@ -175,6 +190,7 @@ function eventTitle(eventType: string, fallbackTitle: string) {
     payment_confirmed: 'Pago confirmado',
     payment_rejected: 'Pago rechazado',
   };
+
   return titles[eventType] || safeText(fallbackTitle, 'Evento');
 }
 
@@ -191,19 +207,32 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
   const etaMinutes = payload.eta_minutes ?? payload.etaMinutes;
   const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
 
-  if ((eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected' || eventType === 'payment_rejected') && reason) {
+  if (
+    (eventType === 'order_returned_to_review' ||
+      eventType === 'order_changes_rejected' ||
+      eventType === 'payment_rejected') &&
+    reason
+  ) {
     details.push(`Motivo: ${reason}`);
   }
 
   if (
-    (eventType === 'kitchen_eta_updated' || eventType === 'kitchen_delayed_prep' || eventType === 'out_for_delivery' || eventType === 'delivery_delayed') &&
+    (eventType === 'kitchen_eta_updated' ||
+      eventType === 'kitchen_delayed_prep' ||
+      eventType === 'out_for_delivery' ||
+      eventType === 'delivery_delayed') &&
     etaMinutes != null &&
     String(etaMinutes).trim()
   ) {
     details.push(`ETA: ${String(etaMinutes).trim()} min`);
   }
 
-  if ((eventType === 'driver_assigned' || eventType === 'out_for_delivery' || eventType === 'delivery_delayed') && driver) {
+  if (
+    (eventType === 'driver_assigned' ||
+      eventType === 'out_for_delivery' ||
+      eventType === 'delivery_delayed') &&
+    driver
+  ) {
     details.push(`Motorizado: ${driver}`);
   }
 
@@ -234,33 +263,43 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
     redirect('/app/advisor/orders');
   }
 
+  const orderRow = orderData as OrderRow;
+  const orderClientData = orderRow.client;
   const order = {
-    ...(orderData as OrderRow),
-    client: Array.isArray((orderData as OrderRow).client) ? (orderData as OrderRow).client[0] ?? null : (orderData as OrderRow).client,
+    ...orderRow,
+    client: Array.isArray(orderClientData) ? orderClientData[0] ?? null : orderClientData ?? null,
   };
 
-  const [itemsResult, paymentsResult, timelineResult, legacyResult] = await Promise.all([
-    ctx.supabase
-      .from('order_items')
-      .select('id, qty, product_name_snapshot, line_total_usd, notes')
-      .eq('order_id', orderId)
-      .order('id', { ascending: true }),
-    ctx.supabase
-      .from('payment_reports')
-      .select('id, status, reported_currency_code, reported_amount, reported_amount_usd_equivalent, reference_code, notes, created_at')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false }),
-    ctx.supabase
-      .from('order_timeline_events')
-      .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false }),
-    ctx.supabase
-      .from('order_events')
-      .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at, event, meta')
-      .eq('order_id', orderId)
-      .order('created_at', { ascending: false }),
-  ]);
+  const [itemsResult, paymentsResult, timelineResult, legacyResult, moneyAccountsResult] =
+    await Promise.all([
+      ctx.supabase
+        .from('order_items')
+        .select('id, qty, product_name_snapshot, line_total_usd, notes')
+        .eq('order_id', orderId)
+        .order('id', { ascending: true }),
+      ctx.supabase
+        .from('payment_reports')
+        .select(
+          'id, status, reported_currency_code, reported_amount, reported_amount_usd_equivalent, reference_code, notes, created_at'
+        )
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false }),
+      ctx.supabase
+        .from('order_timeline_events')
+        .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false }),
+      ctx.supabase
+        .from('order_events')
+        .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at, event, meta')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false }),
+      ctx.supabase
+        .from('money_accounts')
+        .select('id, name, currency_code, is_active')
+        .eq('is_active', true)
+        .order('name', { ascending: true }),
+    ]);
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
@@ -279,29 +318,55 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
             ? (event.meta as Record<string, unknown>)
             : {};
       const detailLines = buildDetailLines(eventType, payload);
+
       return {
         id: `${eventType}-${String(event.id ?? '')}`,
+        eventType,
         title: eventTitle(eventType, String(event.title || '')),
         message: safeText(event.message, detailLines[0] || 'Sin detalle adicional.'),
         createdAt: String(event.created_at || order.created_at),
         tone: eventTone(eventType),
         detailLines,
+        requiresAction: ACTION_EVENT_TYPES.has(eventType),
       } satisfies TimelineEvent;
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
   const confirmedPaidUsd =
     payments
-      .filter((payment) => payment.status === 'confirmed')
-      .reduce((sum, payment) => sum + Number(payment.reported_amount_usd_equivalent || 0), 0) +
+      .filter((paymentReport) => paymentReport.status === 'confirmed')
+      .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0) +
     Number(order.extra_fields?.payment?.client_fund_used_usd || 0);
   const pendingPaidUsd = payments
-    .filter((payment) => payment.status === 'pending')
-    .reduce((sum, payment) => sum + Number(payment.reported_amount_usd_equivalent || 0), 0);
+    .filter((paymentReport) => paymentReport.status === 'pending')
+    .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
   const balanceUsd = Math.max(0, Number(order.total_usd || 0) - confirmedPaidUsd);
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
   const schedule = order.extra_fields?.schedule;
   const payment = order.extra_fields?.payment;
+  const moneyAccounts = ((moneyAccountsResult.data ?? []) as MoneyAccountRow[]).map((account) => ({
+    id: Number(account.id),
+    name: safeText(account.name, 'Cuenta'),
+    currencyCode: safeText(account.currency_code, 'USD'),
+    isActive: Boolean(account.is_active),
+  }));
+  const latestPaymentEvent = timeline.find((event) =>
+    ['payment_rejected', 'payment_reported', 'payment_confirmed'].includes(event.eventType)
+  );
+  const latestReviewEvent = timeline.find((event) =>
+    [
+      'order_returned_to_review',
+      'order_changes_rejected',
+      'order_changes_approved',
+      'order_reapproved',
+      'order_approved',
+    ].includes(event.eventType)
+  );
+  const canRetryPayment = latestPaymentEvent?.eventType === 'payment_rejected' && balanceUsd > 0.005;
+  const canCorrectOrder =
+    latestReviewEvent?.eventType === 'order_returned_to_review' ||
+    latestReviewEvent?.eventType === 'order_changes_rejected';
+  const actionableEvents = timeline.filter((event) => event.requiresAction).length;
 
   return (
     <div className="space-y-4">
@@ -310,7 +375,10 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
         title={safeText(order.order_number, `Orden ${order.id}`)}
         description={client?.full_name?.trim() || 'Cliente sin nombre'}
         action={
-          <Link href="/app/advisor/orders" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
+          <Link
+            href="/app/advisor/orders"
+            className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
+          >
             Volver
           </Link>
         }
@@ -319,26 +387,40 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
       <SectionCard
         title="Resumen"
         subtitle={formatDateTime(order.created_at)}
-        action={<StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />}
+        action={
+          <div className="flex flex-col items-end gap-1.5">
+            <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
+            {actionableEvents > 0 ? (
+              <StatusBadge label={`${actionableEvents} por atender`} tone="warning" />
+            ) : null}
+          </div>
+        }
       >
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Cliente</span>
-            <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">{client?.full_name?.trim() || 'Sin nombre'}</span>
+            <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">
+              {client?.full_name?.trim() || 'Sin nombre'}
+            </span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Teléfono</span>
-            <span className="text-[#F5F7FB]">{client?.phone?.trim() || 'Sin teléfono'}</span>
+            <span>Telefono</span>
+            <span className="text-[#F5F7FB]">{client?.phone?.trim() || 'Sin telefono'}</span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Entrega</span>
             <span className="text-right text-[#F5F7FB]">
-              {schedule?.asap ? 'Lo antes posible' : `${safeText(schedule?.date, '')} ${safeText(schedule?.time_12, '')}`.trim() || 'Sin horario'}
+              {schedule?.asap
+                ? 'Lo antes posible'
+                : `${safeText(schedule?.date, '')} ${safeText(schedule?.time_12, '')}`.trim() ||
+                  'Sin horario'}
             </span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Tipo</span>
-            <span className="text-[#F5F7FB]">{order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</span>
+            <span className="text-[#F5F7FB]">
+              {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
+            </span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Total</span>
@@ -347,23 +429,42 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
         </div>
       </SectionCard>
 
+      <SectionCard
+        title="Acciones"
+        subtitle="Desde aqui corriges el pedido o vuelves a reportar el pago cuando haga falta."
+      >
+        <OrderDetailActions
+          orderId={order.id}
+          balanceUsd={toSafeNumber(balanceUsd, 0)}
+          canCorrectOrder={canCorrectOrder}
+          canRetryPayment={canRetryPayment}
+          moneyAccounts={moneyAccounts}
+        />
+      </SectionCard>
+
       <SectionCard title="Entrega y notas" subtitle="Lectura rapida de operacion.">
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Dirección</div>
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Direccion</div>
             <div className="mt-1 text-[#F5F7FB]">
-              {order.fulfillment === 'delivery' ? order.delivery_address?.trim() || 'Sin direccion' : 'Retiro en tienda'}
+              {order.fulfillment === 'delivery'
+                ? order.delivery_address?.trim() || 'Sin direccion'
+                : 'Retiro en tienda'}
             </div>
           </div>
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Recibe</div>
             <div className="mt-1 text-[#F5F7FB]">
-              {[order.receiver_name?.trim(), order.receiver_phone?.trim()].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
+              {[order.receiver_name?.trim(), order.receiver_phone?.trim()]
+                .filter(Boolean)
+                .join(' · ') || 'Sin datos adicionales'}
             </div>
           </div>
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">GPS</div>
-            <div className="mt-1 break-all text-[#F5F7FB]">{safeText(order.extra_fields?.delivery?.gps_url, 'Sin enlace')}</div>
+            <div className="mt-1 break-all text-[#F5F7FB]">
+              {safeText(order.extra_fields?.delivery?.gps_url, 'Sin enlace')}
+            </div>
           </div>
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Nota</div>
@@ -372,16 +473,21 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
         </div>
       </SectionCard>
 
-      <SectionCard title="Pedido" subtitle={`${items.length} ítems cargados`}>
+      <SectionCard title="Pedido" subtitle={`${items.length} items cargados`}>
         {items.length === 0 ? (
-          <EmptyBlock title="Sin ítems" detail="Esta orden no tiene ítems visibles." />
+          <EmptyBlock title="Sin items" detail="Esta orden no tiene items visibles." />
         ) : (
           <div className="space-y-2.5">
             {items.map((item) => (
-              <article key={item.id} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <article
+                key={item.id}
+                className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[#F5F7FB]">{safeText(item.product_name_snapshot, 'Ítem')}</div>
+                    <div className="truncate text-sm font-medium text-[#F5F7FB]">
+                      {safeText(item.product_name_snapshot, 'Item')}
+                    </div>
                     <div className="mt-1 text-xs text-[#8B93A7]">Cantidad: {Number(item.qty || 0)}</div>
                   </div>
                   <div className="font-medium text-[#F0D000]">{formatUsd(item.line_total_usd)}</div>
@@ -400,7 +506,7 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
       <SectionCard title="Pago" subtitle="Estado de cobro y reportes.">
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Método</span>
+            <span>Metodo</span>
             <span className="text-[#F5F7FB]">{safeText(payment?.method, 'Sin definir')}</span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
@@ -430,18 +536,30 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
         {payments.length > 0 ? (
           <div className="mt-3 space-y-2.5">
             {payments.map((paymentReport) => (
-              <article key={paymentReport.id} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <article
+                key={paymentReport.id}
+                className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-medium text-[#F5F7FB]">
-                      {safeText(paymentReport.reported_currency_code, 'USD')} {formatUsd(paymentReport.reported_amount_usd_equivalent)}
+                      {safeText(paymentReport.reported_currency_code, 'USD')}{' '}
+                      {formatUsd(paymentReport.reported_amount_usd_equivalent)}
                     </div>
-                    <div className="mt-1 text-xs text-[#8B93A7]">{formatDateTime(paymentReport.created_at)}</div>
+                    <div className="mt-1 text-xs text-[#8B93A7]">
+                      {formatDateTime(paymentReport.created_at)}
+                    </div>
                   </div>
-                  <StatusBadge label={paymentLabel(paymentReport.status)} tone={paymentTone(paymentReport.status)} />
+                  <StatusBadge
+                    label={paymentLabel(paymentReport.status)}
+                    tone={paymentTone(paymentReport.status)}
+                  />
                 </div>
                 <div className="mt-2 grid gap-1 text-xs leading-5 text-[#AAB2C5]">
-                  <div>Monto reportado: {safeText(paymentReport.reported_currency_code, 'USD')} {safeText(paymentReport.reported_amount, '0')}</div>
+                  <div>
+                    Monto reportado: {safeText(paymentReport.reported_currency_code, 'USD')}{' '}
+                    {safeText(paymentReport.reported_amount, '0')}
+                  </div>
                   <div>Referencia: {paymentReport.reference_code?.trim() || 'Sin referencia'}</div>
                   <div>{paymentReport.notes?.trim() || 'Sin nota adicional.'}</div>
                 </div>
@@ -453,17 +571,28 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
 
       <SectionCard title="Timeline" subtitle="Historial del pedido y eventos del proceso.">
         {timeline.length === 0 ? (
-          <EmptyBlock title="Sin historial todavía" detail="Cuando esta orden reciba eventos, aparecerán aquí." />
+          <EmptyBlock
+            title="Sin historial todavia"
+            detail="Cuando esta orden reciba eventos, apareceran aqui."
+          />
         ) : (
           <div className="space-y-2.5">
             {timeline.map((event) => (
-              <article key={event.id} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <article
+                key={event.id}
+                className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-[#F5F7FB]">{event.title}</div>
                     <div className="mt-1 text-xs text-[#8B93A7]">{formatDateTime(event.createdAt)}</div>
                   </div>
-                  <StatusBadge label={event.title} tone={event.tone} />
+                  <div className="flex flex-col items-end gap-1.5">
+                    <StatusBadge label={event.title} tone={event.tone} />
+                    {event.requiresAction ? (
+                      <StatusBadge label="Requiere accion" tone="warning" />
+                    ) : null}
+                  </div>
                 </div>
                 <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">{event.message}</div>
                 {event.detailLines.length > 0 ? (
