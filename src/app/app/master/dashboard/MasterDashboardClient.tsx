@@ -324,6 +324,8 @@ type Order = {
   riderName?: string;
   externalPartner?: string;
 };
+type OrderDetailTab = 'detalle' | 'entrega' | 'pagos' | 'eventos' | 'notas' | 'ajustes';
+
 type MasterTray =
   | 'pending_created'
   | 'reapproval'
@@ -333,15 +335,34 @@ type MasterTray =
   | 'finalized'
   | 'all';
 
-type NotificationType = 'APROBAR' | 'RE-APROBAR' | 'CONFIRMAR PAGO';
+type MasterTaskType = 'APROBAR' | 'RE-APROBAR' | 'CONFIRMAR PAGO';
 
-type MasterNotification = {
+type MasterInboxTask = {
   id: string;
-  type: NotificationType;
+  type: MasterTaskType;
   orderId: number;
   label: string;
   deliveryText: string;
   advisorName: string;
+  title: string;
+  message: string;
+  severity: 'info' | 'warning' | 'critical';
+  openTab: OrderDetailTab;
+  createdAtISO: string;
+};
+
+type MasterInboxEvent = {
+  id: string;
+  orderId: number;
+  label: string;
+  deliveryText: string;
+  advisorName: string;
+  title: string;
+  message: string | null;
+  severity: 'info' | 'warning' | 'critical';
+  openTab: OrderDetailTab;
+  createdAtISO: string;
+  detailLines: string[];
 };
 
 type ViewMode = 'operations' | 'settings' | 'calculations';
@@ -2949,7 +2970,7 @@ const [editIsActive, setEditIsActive] = useState(true);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<'detalle' | 'entrega' | 'pagos' | 'eventos' | 'notas' | 'ajustes'>('detalle');
+  const [detailTab, setDetailTab] = useState<OrderDetailTab>('detalle');
 
   const [returnMode, setReturnMode] = useState(false);
   const [returnReason, setReturnReason] = useState('');
@@ -3300,43 +3321,89 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [taskPanelOpen, setTaskPanelOpen] = useState(false);
   const [taskPanelKind, setTaskPanelKind] = useState<'approve' | 'reapprove' | 'kitchen' | 'driver'>('approve');
 
-  const notifications: MasterNotification[] = useMemo(() => {
-    const out: MasterNotification[] = [];
+  const masterInbox = useMemo(() => {
+    const tasks: MasterInboxTask[] = [];
     for (const o of orders) {
       const delText = fmtDeliveryTextES(o.deliveryAtISO);
       if (o.status === 'created') {
-        out.push({
+        tasks.push({
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
           orderId: o.id,
           label: `${o.id} · ${repairDisplayText(o.clientName)}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
+          title: 'Orden por aprobar',
+          message: 'La orden está pendiente de aprobación.',
+          severity: 'warning',
+          openTab: 'detalle',
+          createdAtISO: o.createdAtISO,
         });
       }
       if (o.status === 'queued' && o.queuedNeedsReapproval) {
-        out.push({
+        tasks.push({
           id: `n-re-${o.id}`,
           type: 'RE-APROBAR',
           orderId: o.id,
           label: `${o.id} · ${repairDisplayText(o.clientName)}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
+          title: 'Orden por re-aprobar',
+          message: 'La orden requiere revisión y re-aprobación.',
+          severity: 'warning',
+          openTab: 'eventos',
+          createdAtISO: o.createdAtISO,
         });
       }
       if (o.paymentVerify === 'pending') {
-        out.push({
+        tasks.push({
           id: `n-pay-${o.id}`,
           type: 'CONFIRMAR PAGO',
           orderId: o.id,
           label: `${o.id} · ${repairDisplayText(o.clientName)}`,
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
+          title: 'Pago por confirmar',
+          message: 'Hay un pago pendiente de revisión.',
+          severity: 'warning',
+          openTab: 'pagos',
+          createdAtISO: o.createdAtISO,
         });
       }
     }
-    const pr = (t: NotificationType) => (t === 'RE-APROBAR' ? 0 : t === 'CONFIRMAR PAGO' ? 1 : 2);
-    return out.sort((a, b) => pr(a.type) - pr(b.type));
+    const activity: MasterInboxEvent[] = orders
+      .flatMap((order) =>
+        (order.events ?? []).map((event) => {
+          const display = getOrderEventDisplay(order, event);
+          return {
+            id: `evt-${event.id}`,
+            orderId: order.id,
+            label: `${order.id} · ${repairDisplayText(order.clientName)}`,
+            deliveryText: `Entrega: ${fmtDeliveryTextES(order.deliveryAtISO)}`,
+            advisorName: order.advisorName,
+            title: repairDisplayText(display.title),
+            message: display.message ? repairDisplayText(display.message) : null,
+            severity: event.severity,
+            openTab: 'eventos' as OrderDetailTab,
+            createdAtISO: event.createdAt,
+            detailLines: getOrderEventDetailLines(order, event),
+          };
+        })
+      )
+      .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime())
+      .slice(0, 20);
+
+    const pr = (t: MasterTaskType) => (t === 'RE-APROBAR' ? 0 : t === 'CONFIRMAR PAGO' ? 1 : 2);
+
+    return {
+      tasks: tasks.sort((a, b) => {
+        const priority = pr(a.type) - pr(b.type);
+        if (priority !== 0) return priority;
+        return new Date(a.createdAtISO).getTime() - new Date(b.createdAtISO).getTime();
+      }),
+      activity,
+      count: tasks.length,
+    };
   }, [orders]);
 
   const committedProductsRows =
@@ -8279,7 +8346,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           {isAdmin ? (
             <TopNavButton label="Cálculos" icon={<TopNavIcon kind="calculations" />} active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
           ) : null}
-          <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={notifications.length} />
+          <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={masterInbox.count} />
         </div>
 
         <div className="w-[200px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
@@ -10521,31 +10588,95 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </div>
       )}
 
-      <Drawer open={notifOpen} title={`Notificaciones (${notifications.length})`} onClose={() => setNotifOpen(false)} widthClass="w-[420px]">
-        {notifications.length === 0 ? (
-          <div className="text-sm text-[#B7B7C2]">Sin notificaciones.</div>
+      <Drawer open={notifOpen} title="Alertas y actividad" onClose={() => setNotifOpen(false)} widthClass="w-[460px]">
+        {masterInbox.tasks.length === 0 && masterInbox.activity.length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin alertas ni actividad reciente.</div>
         ) : (
           <div className="space-y-3">
-            {notifications.map((n) => (
-              <div key={n.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+            {masterInbox.tasks.length > 0 ? (
+              <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <SmallBadge label={n.type} tone={n.type === 'APROBAR' ? 'brand' : 'warn'} />
-                  <div className="text-xs text-[#B7B7C2]">{n.deliveryText}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Tareas pendientes</div>
+                  <SmallBadge label={`${masterInbox.tasks.length}`} tone="warn" />
                 </div>
-                <div className="mt-2 text-sm font-semibold">{n.label}</div>
-                  <div className="mt-1 text-xs text-[#B7B7C2]">Asesor: {repairDisplayText(n.advisorName)}</div>
+                {masterInbox.tasks.map((n) => (
+                  <div key={n.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <SmallBadge label={n.type} tone={n.type === 'APROBAR' ? 'brand' : 'warn'} />
+                      <div className="text-xs text-[#B7B7C2]">{n.deliveryText}</div>
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{n.title}</div>
+                    <div className="mt-1 text-[12px] text-[#B7B7C2]">{n.message}</div>
+                    <div className="mt-2 text-sm font-semibold">{n.label}</div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      Asesor: {repairDisplayText(n.advisorName)} · {fmtDateTimeES(n.createdAtISO)}
+                    </div>
 
-                <button
-                  className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                  onClick={() => {
-                    setNotifOpen(false);
-                    openOrderPanel(n.orderId, n.type === 'CONFIRMAR PAGO' ? 'pagos' : 'detalle');
-                  }}
-                >
-                  Abrir
-                </button>
+                    <button
+                      className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => {
+                        setNotifOpen(false);
+                        openOrderPanel(n.orderId, n.openTab);
+                      }}
+                    >
+                      Abrir
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : null}
+
+            {masterInbox.activity.length > 0 ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Actividad reciente</div>
+                  <div className="text-[11px] text-[#8A8A96]">{masterInbox.activity.length} eventos</div>
+                </div>
+                {masterInbox.activity.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
+                        <div className="mt-1 text-xs text-[#8A8A96]">
+                          {item.label} · {fmtDateTimeES(item.createdAtISO)}
+                        </div>
+                      </div>
+                      <SmallBadge
+                        label={item.severity === 'critical' ? 'Crítica' : item.severity === 'warning' ? 'Atención' : 'Info'}
+                        tone={item.severity === 'warning' || item.severity === 'critical' ? 'warn' : 'brand'}
+                      />
+                    </div>
+                    {item.message ? (
+                      <div className="mt-2 text-[12px] text-[#B7B7C2]">{item.message}</div>
+                    ) : null}
+                    {item.detailLines.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {item.detailLines.slice(0, 4).map((line) => (
+                          <span
+                            key={`${item.id}-${line}`}
+                            className="rounded-full border border-[#242433] bg-[#101014] px-2 py-0.5 text-[10px] text-[#8A8A96]"
+                          >
+                            {line}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="mt-2 text-[11px] text-[#8A8A96]">
+                      Asesor: {repairDisplayText(item.advisorName)} · {item.deliveryText}
+                    </div>
+                    <button
+                      className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => {
+                        setNotifOpen(false);
+                        openOrderPanel(item.orderId, item.openTab);
+                      }}
+                    >
+                      Ver orden
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
       </Drawer>
