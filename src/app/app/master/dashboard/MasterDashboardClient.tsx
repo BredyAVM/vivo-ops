@@ -335,7 +335,14 @@ type MasterTray =
   | 'finalized'
   | 'all';
 
-type MasterTaskType = 'APROBAR' | 'RE-APROBAR' | 'CONFIRMAR PAGO';
+type MasterTaskType =
+  | 'APROBAR'
+  | 'RE-APROBAR'
+  | 'CONFIRMAR PAGO'
+  | 'ENVIAR_COCINA'
+  | 'ASIGNAR_DRIVER'
+  | 'COCINA_RETRASADA'
+  | 'DELIVERY_RETRASADO';
 
 type MasterInboxTask = {
   id: string;
@@ -3325,6 +3332,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const tasks: MasterInboxTask[] = [];
     for (const o of orders) {
       const delText = fmtDeliveryTextES(o.deliveryAtISO);
+      const currentKey = getProcessCurrentKey(o);
+      const alertReason = getCurrentProcessAlertReason(o, currentKey, currentTimeMs);
+      const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
+      const hasDriverAssigned = Boolean(o.riderName?.trim() || o.externalPartner?.trim());
       if (o.status === 'created') {
         tasks.push({
           id: `n-ap-${o.id}`,
@@ -3370,6 +3381,78 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           createdAtISO: o.createdAtISO,
         });
       }
+      if (canSendToKitchen(o)) {
+        tasks.push({
+          id: `n-kitchen-send-${o.id}`,
+          type: 'ENVIAR_COCINA',
+          orderId: o.id,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
+          deliveryText: `Entrega: ${delText}`,
+          advisorName: o.advisorName,
+          title: 'Pendiente de enviar a cocina',
+          message: 'La orden ya está aprobada y falta enviarla a cocina.',
+          severity: 'warning',
+          openTab: 'detalle',
+          createdAtISO: o.createdAtISO,
+        });
+      }
+      if (
+        o.fulfillment === 'delivery' &&
+        ['queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status) &&
+        !hasDriverAssigned
+      ) {
+        tasks.push({
+          id: `n-driver-${o.id}`,
+          type: 'ASIGNAR_DRIVER',
+          orderId: o.id,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
+          deliveryText: `Entrega: ${delText}`,
+          advisorName: o.advisorName,
+          title: 'Pendiente de asignar driver',
+          message: 'La orden de delivery no tiene asignación de motorizado.',
+          severity: 'warning',
+          openTab: 'entrega',
+          createdAtISO: o.readyAtISO || o.sentToKitchenAtISO || o.createdAtISO,
+        });
+      }
+      if (alertLevel === 'danger' && alertReason) {
+        if (
+          (o.status === 'confirmed' || o.status === 'in_kitchen') &&
+          ['Cocina aún no la toma', 'Se excedió el tiempo de preparación'].includes(alertReason)
+        ) {
+          tasks.push({
+            id: `n-kitchen-late-${o.id}`,
+            type: 'COCINA_RETRASADA',
+            orderId: o.id,
+            label: `${o.id} · ${repairDisplayText(o.clientName)}`,
+            deliveryText: `Entrega: ${delText}`,
+            advisorName: o.advisorName,
+            title: 'Cocina con retraso',
+            message: alertReason,
+            severity: 'critical',
+            openTab: 'entrega',
+            createdAtISO: o.kitchenStartedAtISO || o.sentToKitchenAtISO || o.createdAtISO,
+          });
+        }
+        if (
+          (o.status === 'ready' && o.fulfillment === 'delivery' && alertReason === 'Falta salir en camino') ||
+          (o.status === 'out_for_delivery' && alertReason === 'Se excedió el tiempo de entrega')
+        ) {
+          tasks.push({
+            id: `n-delivery-late-${o.id}`,
+            type: 'DELIVERY_RETRASADO',
+            orderId: o.id,
+            label: `${o.id} · ${repairDisplayText(o.clientName)}`,
+            deliveryText: `Entrega: ${delText}`,
+            advisorName: o.advisorName,
+            title: o.status === 'ready' ? 'Pendiente de salir en camino' : 'Delivery con retraso',
+            message: alertReason,
+            severity: 'critical',
+            openTab: 'entrega',
+            createdAtISO: o.readyAtISO || o.createdAtISO,
+          });
+        }
+      }
     }
     const activity: MasterInboxEvent[] = orders
       .flatMap((order) =>
@@ -3393,7 +3476,14 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime())
       .slice(0, 20);
 
-    const pr = (t: MasterTaskType) => (t === 'RE-APROBAR' ? 0 : t === 'CONFIRMAR PAGO' ? 1 : 2);
+    const pr = (t: MasterTaskType) => {
+      if (t === 'COCINA_RETRASADA' || t === 'DELIVERY_RETRASADO') return 0;
+      if (t === 'RE-APROBAR') return 1;
+      if (t === 'CONFIRMAR PAGO') return 2;
+      if (t === 'ASIGNAR_DRIVER') return 3;
+      if (t === 'ENVIAR_COCINA') return 4;
+      return 5;
+    };
 
     return {
       tasks: tasks.sort((a, b) => {
@@ -3404,7 +3494,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       activity,
       count: tasks.length,
     };
-  }, [orders]);
+  }, [orders, currentTimeMs]);
 
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
@@ -10602,7 +10692,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 {masterInbox.tasks.map((n) => (
                   <div key={n.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <SmallBadge label={n.type} tone={n.type === 'APROBAR' ? 'brand' : 'warn'} />
+                      <SmallBadge
+                        label={n.type.replace(/_/g, ' ')}
+                        tone={n.severity === 'critical' || n.type !== 'APROBAR' ? 'warn' : 'brand'}
+                      />
                       <div className="text-xs text-[#B7B7C2]">{n.deliveryText}</div>
                     </div>
                     <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{n.title}</div>
