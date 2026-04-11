@@ -372,6 +372,8 @@ type MasterInboxEvent = {
   detailLines: string[];
 };
 
+type MasterInboxFilter = 'tasks' | 'delays' | 'payments' | 'changes' | 'all';
+
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
@@ -1112,6 +1114,53 @@ function getOrderEventDisplay(order: Order, event: Order['events'][number]) {
         message: event.message,
       };
   }
+}
+
+function getMasterInboxActivityGroup(event: MasterInboxEvent) {
+  const title = normalizeLooseText(event.title);
+  const message = normalizeLooseText(event.message || '');
+  const details = normalizeLooseText(event.detailLines.join(' '));
+
+  if (title.includes('pago') || message.includes('pago') || details.includes('pago')) {
+    return { key: 'payments', label: 'Pagos' };
+  }
+
+  if (
+    title.includes('modific') ||
+    title.includes('re-aprob') ||
+    title.includes('reaprob') ||
+    title.includes('devol') ||
+    message.includes('modific') ||
+    details.includes('cambio') ||
+    details.includes('revision')
+  ) {
+    return { key: 'changes', label: 'Cambios' };
+  }
+
+  if (
+    title.includes('cocina') ||
+    title.includes('preparad') ||
+    title.includes('cola') ||
+    message.includes('cocina') ||
+    details.includes('eta')
+  ) {
+    return { key: 'kitchen', label: 'Cocina' };
+  }
+
+  if (
+    title.includes('driver') ||
+    title.includes('motorizado') ||
+    title.includes('partner') ||
+    title.includes('entregad') ||
+    title.includes('retirad') ||
+    title.includes('camino') ||
+    message.includes('driver') ||
+    message.includes('delivery')
+  ) {
+    return { key: 'delivery', label: 'Delivery' };
+  }
+
+  return { key: 'approval', label: 'Aprobación' };
 }
 
 function getAdjustmentChangedFields(payload: Record<string, unknown>) {
@@ -3319,6 +3368,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [productsExpanded, setProductsExpanded] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
+  const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('tasks');
   const [paymentsPanelOpen, setPaymentsPanelOpen] = useState(false);
   const [paymentsPanelKind, setPaymentsPanelKind] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
   const [deliveryPanelOpen, setDeliveryPanelOpen] = useState(false);
@@ -3495,6 +3545,47 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       count: tasks.length,
     };
   }, [orders, currentTimeMs]);
+
+  const masterInboxFilteredTasks = useMemo(() => {
+    if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return masterInbox.tasks;
+    if (masterInboxFilter === 'delays') {
+      return masterInbox.tasks.filter((task) =>
+        task.type === 'COCINA_RETRASADA' || task.type === 'DELIVERY_RETRASADO'
+      );
+    }
+    if (masterInboxFilter === 'payments') {
+      return masterInbox.tasks.filter((task) => task.type === 'CONFIRMAR PAGO');
+    }
+    if (masterInboxFilter === 'changes') {
+      return masterInbox.tasks.filter((task) => task.type === 'RE-APROBAR');
+    }
+    return [];
+  }, [masterInbox.tasks, masterInboxFilter]);
+
+  const masterInboxFilteredActivityGroups = useMemo(() => {
+    const activity = masterInbox.activity.filter((item) => {
+      const group = getMasterInboxActivityGroup(item);
+      if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return true;
+      if (masterInboxFilter === 'delays') {
+        return item.severity === 'critical' || item.title.includes('retras');
+      }
+      if (masterInboxFilter === 'payments') return group.key === 'payments';
+      if (masterInboxFilter === 'changes') return group.key === 'changes';
+      return true;
+    });
+
+    const groups = new Map<string, { label: string; items: MasterInboxEvent[] }>();
+    for (const item of activity) {
+      const group = getMasterInboxActivityGroup(item);
+      const entry = groups.get(group.key);
+      if (entry) {
+        entry.items.push(item);
+      } else {
+        groups.set(group.key, { label: group.label, items: [item] });
+      }
+    }
+    return Array.from(groups.values());
+  }, [masterInbox.activity, masterInboxFilter]);
 
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
@@ -10683,13 +10774,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <div className="text-sm text-[#B7B7C2]">Sin alertas ni actividad reciente.</div>
         ) : (
           <div className="space-y-3">
-            {masterInbox.tasks.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              <Chip active={masterInboxFilter === 'tasks'} onClick={() => setMasterInboxFilter('tasks')}>Tareas</Chip>
+              <Chip active={masterInboxFilter === 'delays'} onClick={() => setMasterInboxFilter('delays')}>Retrasos</Chip>
+              <Chip active={masterInboxFilter === 'payments'} onClick={() => setMasterInboxFilter('payments')}>Pagos</Chip>
+              <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
+              <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
+            </div>
+
+            {masterInboxFilteredTasks.length > 0 ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Tareas pendientes</div>
-                  <SmallBadge label={`${masterInbox.tasks.length}`} tone="warn" />
+                  <SmallBadge label={`${masterInboxFilteredTasks.length}`} tone="warn" />
                 </div>
-                {masterInbox.tasks.map((n) => (
+                {masterInboxFilteredTasks.map((n) => (
                   <div key={n.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
                     <div className="flex items-center justify-between gap-2">
                       <SmallBadge
@@ -10719,53 +10818,60 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
             ) : null}
 
-            {masterInbox.activity.length > 0 ? (
+            {masterInboxFilteredActivityGroups.length > 0 ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Actividad reciente</div>
-                  <div className="text-[11px] text-[#8A8A96]">{masterInbox.activity.length} eventos</div>
+                  <div className="text-[11px] text-[#8A8A96]">
+                    {masterInboxFilteredActivityGroups.reduce((sum, group) => sum + group.items.length, 0)} eventos
+                  </div>
                 </div>
-                {masterInbox.activity.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
-                        <div className="mt-1 text-xs text-[#8A8A96]">
-                          {item.label} · {fmtDateTimeES(item.createdAtISO)}
+                {masterInboxFilteredActivityGroups.map((group) => (
+                  <div key={group.label} className="space-y-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">{group.label}</div>
+                    {group.items.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
+                            <div className="mt-1 text-xs text-[#8A8A96]">
+                              {item.label} · {fmtDateTimeES(item.createdAtISO)}
+                            </div>
+                          </div>
+                          <SmallBadge
+                            label={item.severity === 'critical' ? 'Crítica' : item.severity === 'warning' ? 'Atención' : 'Info'}
+                            tone={item.severity === 'warning' || item.severity === 'critical' ? 'warn' : 'brand'}
+                          />
                         </div>
+                        {item.message ? (
+                          <div className="mt-2 text-[12px] text-[#B7B7C2]">{item.message}</div>
+                        ) : null}
+                        {item.detailLines.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {item.detailLines.slice(0, 4).map((line) => (
+                              <span
+                                key={`${item.id}-${line}`}
+                                className="rounded-full border border-[#242433] bg-[#101014] px-2 py-0.5 text-[10px] text-[#8A8A96]"
+                              >
+                                {line}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="mt-2 text-[11px] text-[#8A8A96]">
+                          Asesor: {repairDisplayText(item.advisorName)} · {item.deliveryText}
+                        </div>
+                        <button
+                          className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => {
+                            setNotifOpen(false);
+                            openOrderPanel(item.orderId, item.openTab);
+                          }}
+                        >
+                          Ver orden
+                        </button>
                       </div>
-                      <SmallBadge
-                        label={item.severity === 'critical' ? 'Crítica' : item.severity === 'warning' ? 'Atención' : 'Info'}
-                        tone={item.severity === 'warning' || item.severity === 'critical' ? 'warn' : 'brand'}
-                      />
-                    </div>
-                    {item.message ? (
-                      <div className="mt-2 text-[12px] text-[#B7B7C2]">{item.message}</div>
-                    ) : null}
-                    {item.detailLines.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {item.detailLines.slice(0, 4).map((line) => (
-                          <span
-                            key={`${item.id}-${line}`}
-                            className="rounded-full border border-[#242433] bg-[#101014] px-2 py-0.5 text-[10px] text-[#8A8A96]"
-                          >
-                            {line}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="mt-2 text-[11px] text-[#8A8A96]">
-                      Asesor: {repairDisplayText(item.advisorName)} · {item.deliveryText}
-                    </div>
-                    <button
-                      className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => {
-                        setNotifOpen(false);
-                        openOrderPanel(item.orderId, item.openTab);
-                      }}
-                    >
-                      Ver orden
-                    </button>
+                    ))}
                   </div>
                 ))}
               </div>
