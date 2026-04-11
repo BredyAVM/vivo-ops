@@ -987,10 +987,17 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
     lines.push(`Partner: ${partnerName}`);
   }
 
+  const changeSummary = Array.isArray(payload.change_summary)
+    ? payload.change_summary.map((value) => repairDisplayText(String(value))).filter(Boolean)
+    : [];
+  for (const summary of changeSummary) {
+    lines.push(summary);
+  }
+
   const changedSections = Array.isArray(payload.changed_sections)
     ? payload.changed_sections.map((value) => repairDisplayText(String(value))).filter(Boolean)
     : [];
-  if (changedSections.length > 0) {
+  if (changedSections.length > 0 && changeSummary.length === 0) {
     lines.push(`Bloques: ${changedSections.join(', ')}`);
   }
 
@@ -1003,6 +1010,80 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
   }
 
   return lines;
+}
+
+function getOrderEventDisplay(order: Order, event: Order['events'][number]) {
+  const eventType = String(event.eventType || '').trim();
+  const genericMessage =
+    !event.message ||
+    event.message === 'Evento registrado.' ||
+    event.message === 'assign internal driver' ||
+    event.message === 'assign external partner' ||
+    event.message === 'driver unassigned' ||
+    event.message === 'clear delivery assignment' ||
+    event.message === 'returned to queue' ||
+    event.message === 'reapproved';
+
+  switch (eventType) {
+    case 'assign_internal_driver':
+    case 'internal_driver_assigned':
+      return {
+        title: 'Motorizado interno asignado',
+        message: genericMessage ? 'Se asignó un motorizado interno a la orden.' : event.message,
+      };
+    case 'assign_external_partner':
+    case 'external_partner_assigned':
+      return {
+        title: 'Partner externo asignado',
+        message: genericMessage ? 'Se asignó un partner externo a la orden.' : event.message,
+      };
+    case 'clear_delivery_assignment':
+    case 'driver_unassigned':
+      return {
+        title: 'Asignación removida',
+        message: genericMessage ? 'La orden quedó sin asignación de delivery.' : event.message,
+      };
+    case 'returned_to_queue':
+      return {
+        title: 'Regresada a cola',
+        message: genericMessage ? 'La orden regresó a cola de revisión.' : event.message,
+      };
+    case 'reapproved':
+      return {
+        title: 'Orden re-aprobada',
+        message: genericMessage ? 'La orden fue re-aprobada.' : event.message,
+      };
+    case 'kitchen_started':
+      return {
+        title: 'Cocina tomó la orden',
+        message: genericMessage ? event.message || 'Cocina inició la preparación.' : event.message,
+      };
+    case 'ready':
+      return {
+        title: order.fulfillment === 'pickup' ? 'Lista para retiro' : 'Orden preparada',
+        message:
+          genericMessage
+            ? order.fulfillment === 'pickup'
+              ? 'La orden quedó lista para retiro.'
+              : 'La orden quedó preparada para despacho.'
+            : event.message,
+      };
+    case 'delivered':
+      return {
+        title: order.fulfillment === 'pickup' ? 'Orden retirada' : 'Orden entregada',
+        message:
+          genericMessage
+            ? order.fulfillment === 'pickup'
+              ? 'La orden fue retirada.'
+              : 'La orden fue entregada.'
+            : event.message,
+      };
+    default:
+      return {
+        title: event.title,
+        message: event.message,
+      };
+  }
 }
 
 function getAdjustmentChangedFields(payload: Record<string, unknown>) {
@@ -12112,11 +12193,12 @@ onClose={() => {
             >
               {(() => {
                 const detailLines = getOrderEventDetailLines(selectedOrder, event);
+                const display = getOrderEventDisplay(selectedOrder, event);
                 return (
                   <>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-[#F5F5F7]">{repairDisplayText(event.title)}</div>
+                  <div className="text-sm font-medium text-[#F5F5F7]">{repairDisplayText(display.title)}</div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
                     {repairDisplayText(event.actorName)} · {fmtDateTimeES(event.createdAt)}
                   </div>
@@ -12126,8 +12208,8 @@ onClose={() => {
                   tone={event.severity === 'warning' || event.severity === 'critical' ? 'warn' : 'brand'}
                 />
               </div>
-              {event.message ? (
-                <div className="mt-2 text-[12px] text-[#B7B7C2]">{repairDisplayText(event.message)}</div>
+              {display.message ? (
+                <div className="mt-2 text-[12px] text-[#B7B7C2]">{repairDisplayText(display.message)}</div>
               ) : null}
               {detailLines.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
