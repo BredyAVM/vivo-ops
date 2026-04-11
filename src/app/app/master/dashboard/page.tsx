@@ -334,14 +334,18 @@ component_product:
 type RawOrderEventRow = {
   id: string;
   order_id: number;
-  event_type: string;
-  event_group: string;
-  title: string;
+  event_type: string | null;
+  event_group: string | null;
+  title: string | null;
   message: string | null;
   severity: 'info' | 'warning' | 'critical' | string;
   actor_user_id: string | null;
   payload: any;
   created_at: string;
+  event?: string | null;
+  performed_by?: string | null;
+  meta?: any;
+  order_number?: string | null;
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -367,6 +371,110 @@ function repairDisplayText(value: string | null | undefined) {
     .replace(/Ãš/g, 'Ú')
     .replace(/Ã‘/g, 'Ñ')
     .trim();
+}
+
+function normalizeLegacyOrderEvent(params: {
+  event: RawOrderEventRow;
+  fulfillment: 'pickup' | 'delivery';
+}) {
+  const legacyType = String(params.event.event || '').trim();
+  const meta =
+    params.event.meta && typeof params.event.meta === 'object' && !Array.isArray(params.event.meta)
+      ? (params.event.meta as Record<string, unknown>)
+      : {};
+
+  switch (legacyType) {
+    case 'approved':
+      return {
+        eventType: 'approved',
+        eventGroup: 'approval',
+        title: 'Orden aprobada',
+        message: 'La orden fue aprobada.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'sent_to_kitchen':
+      return {
+        eventType: 'sent_to_kitchen',
+        eventGroup: 'kitchen',
+        title: 'Enviada a cocina',
+        message: 'La orden fue enviada a cocina.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'kitchen_started':
+      return {
+        eventType: 'kitchen_started',
+        eventGroup: 'kitchen',
+        title: 'Cocina tomó la orden',
+        message:
+          typeof meta.eta_minutes === 'number'
+            ? `Tiempo estimado de preparación: ${meta.eta_minutes} min.`
+            : 'Cocina inició la preparación.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'ready':
+      return {
+        eventType: 'ready',
+        eventGroup: 'kitchen',
+        title: params.fulfillment === 'pickup' ? 'Lista para retiro' : 'Orden preparada',
+        message:
+          params.fulfillment === 'pickup'
+            ? 'La orden quedó lista para retiro.'
+            : 'La orden quedó preparada para despacho.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'out_for_delivery':
+      return {
+        eventType: 'out_for_delivery',
+        eventGroup: 'delivery',
+        title: 'En camino',
+        message: 'La orden salió en camino.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'delivered':
+      return {
+        eventType: 'delivered',
+        eventGroup: 'delivery',
+        title: params.fulfillment === 'pickup' ? 'Orden retirada' : 'Orden entregada',
+        message:
+          params.fulfillment === 'pickup'
+            ? 'La orden fue retirada.'
+            : 'La orden fue entregada.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'internal_driver_assigned':
+      return {
+        eventType: 'internal_driver_assigned',
+        eventGroup: 'delivery',
+        title: 'Motorizado interno asignado',
+        message: 'Se asignó un motorizado interno a la orden.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    case 'external_partner_assigned':
+      return {
+        eventType: 'external_partner_assigned',
+        eventGroup: 'delivery',
+        title: 'Partner externo asignado',
+        message: 'Se asignó un partner externo a la orden.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+    default:
+      return {
+        eventType: legacyType || 'legacy',
+        eventGroup: 'legacy',
+        title: 'Evento de orden',
+        message: legacyType ? repairDisplayText(legacyType.replace(/_/g, ' ')) : 'Evento registrado.',
+        severity: 'info' as const,
+        payload: meta,
+      };
+  }
 }
 
 function buildDeliveryISO(extraFields: any, fallbackISO: string) {
@@ -730,11 +838,20 @@ const { data: ordersData, error: ordersError } = await supabase
       .in('order_id', orderIds.length > 0 ? orderIds : [-1])
       .order('created_at', { ascending: false });
 
-    const rawOrderEvents = orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[]);
+    const { data: legacyOrderEventsData, error: legacyOrderEventsError } = await supabase
+      .from('order_events')
+      .select('id, order_id, order_number, event_type, event_group, title, message, severity, actor_user_id, payload, created_at, event, performed_by, meta')
+      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+      .order('created_at', { ascending: false });
+
+    const rawOrderEvents = [
+      ...(orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[])),
+      ...(legacyOrderEventsError ? [] : ((legacyOrderEventsData ?? []) as RawOrderEventRow[])),
+    ];
     const orderEventActorIds = Array.from(
       new Set(
         rawOrderEvents
-          .map((event) => event.actor_user_id)
+          .flatMap((event) => [event.actor_user_id, event.performed_by ?? null])
           .filter((value): value is string => Boolean(value)),
       ),
     );
@@ -761,25 +878,44 @@ const { data: ordersData, error: ordersError } = await supabase
       const orderId = Number(event.order_id);
       if (!Number.isFinite(orderId) || orderId <= 0) continue;
 
+      const sourceOrder = rawOrders.find((row) => row.id === orderId);
+      const isLegacyEvent = !event.event_type && !!event.event;
+      const normalizedLegacy = isLegacyEvent
+        ? normalizeLegacyOrderEvent({
+            event,
+            fulfillment: sourceOrder?.fulfillment === 'delivery' ? 'delivery' : 'pickup',
+          })
+        : null;
+      const actorUserId = event.actor_user_id ?? event.performed_by ?? null;
       const bucket = orderEventsByOrder.get(orderId) ?? [];
       bucket.push({
-        id: String(event.id ?? ''),
-        eventType: String(event.event_type || ''),
-        eventGroup: String(event.event_group || ''),
-        title: repairDisplayText(String(event.title || 'Evento')),
-        message: event.message ? repairDisplayText(String(event.message)) : null,
+        id: `${isLegacyEvent ? 'legacy' : 'timeline'}-${String(event.id ?? '')}`,
+        eventType: normalizedLegacy?.eventType ?? String(event.event_type || ''),
+        eventGroup: normalizedLegacy?.eventGroup ?? String(event.event_group || ''),
+        title: repairDisplayText(normalizedLegacy?.title ?? String(event.title || 'Evento')),
+        message: normalizedLegacy?.message
+          ? repairDisplayText(normalizedLegacy.message)
+          : event.message
+            ? repairDisplayText(String(event.message))
+            : null,
         severity:
-          event.severity === 'warning' || event.severity === 'critical'
-            ? event.severity
+          (normalizedLegacy?.severity ?? event.severity) === 'warning' || (normalizedLegacy?.severity ?? event.severity) === 'critical'
+            ? ((normalizedLegacy?.severity ?? event.severity) as 'warning' | 'critical')
             : 'info',
-        actorUserId: event.actor_user_id ?? null,
-        actorName: orderEventActorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
-        payload:
+        actorUserId,
+        actorName: orderEventActorNameById.get(String(actorUserId || '')) || 'Sistema',
+        payload: normalizedLegacy?.payload ?? (
           event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
             ? (event.payload as Record<string, unknown>)
-            : {},
+            : {}
+        ),
         createdAt: String(event.created_at || ''),
       });
+      orderEventsByOrder.set(orderId, bucket);
+    }
+
+    for (const [orderId, bucket] of orderEventsByOrder.entries()) {
+      bucket.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
       orderEventsByOrder.set(orderId, bucket);
     }
   } catch {
