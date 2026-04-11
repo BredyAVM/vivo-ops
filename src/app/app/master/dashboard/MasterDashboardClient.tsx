@@ -928,6 +928,61 @@ function mapAdjustmentFieldLabel(field: string) {
   return labels[field] || field;
 }
 
+function getOrderEventDetailLines(event: Order['events'][number]) {
+  const payload = event.payload ?? {};
+  const lines: string[] = [];
+
+  const orderNumber =
+    typeof payload.order_number === 'string' && payload.order_number.trim()
+      ? repairDisplayText(payload.order_number)
+      : null;
+  if (orderNumber) {
+    lines.push(`Orden: ${orderNumber}`);
+  }
+
+  const etaMinutes = Number(payload.eta_minutes ?? payload.delivery_eta_minutes ?? NaN);
+  if (Number.isFinite(etaMinutes) && etaMinutes > 0) {
+    lines.push(`ETA: ${fmtUnitsValue(etaMinutes)} min`);
+  }
+
+  const fulfillment =
+    typeof payload.fulfillment === 'string' && payload.fulfillment.trim()
+      ? payload.fulfillment === 'pickup'
+        ? 'Pickup'
+        : payload.fulfillment === 'delivery'
+          ? 'Delivery'
+          : repairDisplayText(payload.fulfillment)
+      : null;
+  if (fulfillment) {
+    lines.push(`Tipo: ${fulfillment}`);
+  }
+
+  const deliveredByRole =
+    typeof payload.delivered_by_role === 'string' && payload.delivered_by_role.trim()
+      ? repairDisplayText(String(payload.delivered_by_role).replace(/_/g, ' '))
+      : null;
+  if (deliveredByRole) {
+    lines.push(`Cierre: ${deliveredByRole}`);
+  }
+
+  const changedSections = Array.isArray(payload.changed_sections)
+    ? payload.changed_sections.map((value) => repairDisplayText(String(value))).filter(Boolean)
+    : [];
+  if (changedSections.length > 0) {
+    lines.push(`Bloques: ${changedSections.join(', ')}`);
+  }
+
+  const reviewNotes =
+    typeof payload.review_notes === 'string' && payload.review_notes.trim()
+      ? repairDisplayText(payload.review_notes)
+      : null;
+  if (reviewNotes) {
+    lines.push(`Revisión: ${reviewNotes}`);
+  }
+
+  return lines;
+}
+
 function getAdjustmentChangedFields(payload: Record<string, unknown>) {
   const explicit = Array.isArray(payload.changed_fields)
     ? payload.changed_fields.map((value) => String(value)).filter(Boolean)
@@ -12033,6 +12088,10 @@ onClose={() => {
               key={event.id}
               className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3"
             >
+              {(() => {
+                const detailLines = getOrderEventDetailLines(event);
+                return (
+                  <>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">{repairDisplayText(event.title)}</div>
@@ -12048,6 +12107,21 @@ onClose={() => {
               {event.message ? (
                 <div className="mt-2 text-[12px] text-[#B7B7C2]">{repairDisplayText(event.message)}</div>
               ) : null}
+              {detailLines.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {detailLines.map((line) => (
+                    <span
+                      key={`${event.id}-${line}`}
+                      className="rounded-full border border-[#242433] bg-[#101014] px-2 py-0.5 text-[10px] text-[#8A8A96]"
+                    >
+                      {line}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+                  </>
+                );
+              })()}
             </div>
           ))}
         </div>
