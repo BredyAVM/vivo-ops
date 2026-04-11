@@ -187,7 +187,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           </div>
         </div>
         <Link
-          href={`/app/advisor/orders?day=${selectedDayKey}&bucket=alerts`}
+          href="/app/advisor/inbox?filter=pending"
           className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
           aria-label={`Notificaciones de ${advisorName}`}
         >
