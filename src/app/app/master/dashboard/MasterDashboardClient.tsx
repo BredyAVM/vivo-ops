@@ -356,6 +356,7 @@ type MasterInboxTask = {
   severity: 'info' | 'warning' | 'critical';
   openTab: OrderDetailTab;
   createdAtISO: string;
+  isUrgent: boolean;
 };
 
 type MasterInboxEvent = {
@@ -370,6 +371,7 @@ type MasterInboxEvent = {
   openTab: OrderDetailTab;
   createdAtISO: string;
   detailLines: string[];
+  isUrgent: boolean;
 };
 
 type MasterInboxFilter = 'tasks' | 'delays' | 'payments' | 'changes' | 'all';
@@ -958,6 +960,31 @@ function mapAdjustmentFieldLabel(field: string) {
   return labels[field] || field;
 }
 
+function mapOrderChangeSectionLabel(section: string) {
+  const normalized = normalizeLooseText(section);
+  const labels: Record<string, string> = {
+    pedido: 'pedido',
+    cliente: 'cliente',
+    entrega: 'entrega',
+    hora: 'hora',
+    direccion: 'dirección',
+    pago: 'pago',
+    precio: 'precio',
+    nota: 'nota',
+    notas: 'nota',
+    asignacion_delivery: 'asignación delivery',
+    asignacion: 'asignación',
+  };
+  return labels[normalized] || repairDisplayText(section);
+}
+
+function buildHumanChangeSummaryFromSections(sections: string[]) {
+  return sections
+    .map(mapOrderChangeSectionLabel)
+    .filter(Boolean)
+    .map((label) => `Se cambió ${label}.`);
+}
+
 function getOrderEventDetailLines(order: Order, event: Order['events'][number]) {
   const payload = event.payload ?? {};
   const lines: string[] = [];
@@ -1028,7 +1055,7 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
     ? payload.changed_sections.map((value) => repairDisplayText(String(value))).filter(Boolean)
     : [];
   if (changedSections.length > 0 && changeSummary.length === 0) {
-    lines.push(`Bloques: ${changedSections.join(', ')}`);
+    lines.push(...buildHumanChangeSummaryFromSections(changedSections));
   }
 
   const reviewNotes =
@@ -1161,6 +1188,10 @@ function getMasterInboxActivityGroup(event: MasterInboxEvent) {
   }
 
   return { key: 'approval', label: 'Aprobación' };
+}
+
+function isOrderUrgentForInbox(order: Order, severity: 'info' | 'warning' | 'critical') {
+  return Boolean(order.editMeta?.isAsap) || severity === 'critical';
 }
 
 function getAdjustmentChangedFields(payload: Record<string, unknown>) {
@@ -3399,6 +3430,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           severity: 'warning',
           openTab: 'detalle',
           createdAtISO: o.createdAtISO,
+          isUrgent: isOrderUrgentForInbox(o, 'warning'),
         });
       }
       if (o.status === 'queued' && o.queuedNeedsReapproval) {
@@ -3414,6 +3446,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           severity: 'warning',
           openTab: 'eventos',
           createdAtISO: o.createdAtISO,
+          isUrgent: isOrderUrgentForInbox(o, 'warning'),
         });
       }
       if (o.paymentVerify === 'pending') {
@@ -3429,6 +3462,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           severity: 'warning',
           openTab: 'pagos',
           createdAtISO: o.createdAtISO,
+          isUrgent: isOrderUrgentForInbox(o, 'warning'),
         });
       }
       if (canSendToKitchen(o)) {
@@ -3444,6 +3478,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           severity: 'warning',
           openTab: 'detalle',
           createdAtISO: o.createdAtISO,
+          isUrgent: isOrderUrgentForInbox(o, 'warning'),
         });
       }
       if (
@@ -3463,6 +3498,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           severity: 'warning',
           openTab: 'entrega',
           createdAtISO: o.readyAtISO || o.sentToKitchenAtISO || o.createdAtISO,
+          isUrgent: isOrderUrgentForInbox(o, 'warning'),
         });
       }
       if (alertLevel === 'danger' && alertReason) {
@@ -3482,6 +3518,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
             severity: 'critical',
             openTab: 'entrega',
             createdAtISO: o.kitchenStartedAtISO || o.sentToKitchenAtISO || o.createdAtISO,
+            isUrgent: isOrderUrgentForInbox(o, 'critical'),
           });
         }
         if (
@@ -3500,6 +3537,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
             severity: 'critical',
             openTab: 'entrega',
             createdAtISO: o.readyAtISO || o.createdAtISO,
+            isUrgent: isOrderUrgentForInbox(o, 'critical'),
           });
         }
       }
@@ -3520,6 +3558,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
             openTab: 'eventos' as OrderDetailTab,
             createdAtISO: event.createdAt,
             detailLines: getOrderEventDetailLines(order, event),
+            isUrgent: isOrderUrgentForInbox(order, event.severity),
           };
         })
       )
@@ -10791,11 +10830,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 {masterInboxFilteredTasks.map((n) => (
                   <div key={n.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <SmallBadge
-                        label={n.type.replace(/_/g, ' ')}
-                        tone={n.severity === 'critical' || n.type !== 'APROBAR' ? 'warn' : 'brand'}
-                      />
-                      <div className="text-xs text-[#B7B7C2]">{n.deliveryText}</div>
+                      <div className="flex items-center gap-2">
+                        <SmallBadge
+                          label={n.type.replace(/_/g, ' ')}
+                          tone={n.severity === 'critical' || n.type !== 'APROBAR' ? 'warn' : 'brand'}
+                        />
+                        {n.isUrgent ? <SmallBadge label="Urgente" tone="warn" /> : null}
+                      </div>
+                      <div className={`text-xs ${n.isUrgent ? 'font-semibold text-red-300' : 'text-[#B7B7C2]'}`}>{n.deliveryText}</div>
                     </div>
                     <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{n.title}</div>
                     <div className="mt-1 text-[12px] text-[#B7B7C2]">{n.message}</div>
@@ -10833,7 +10875,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <div key={item.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
+                              {item.isUrgent ? <SmallBadge label="Urgente" tone="warn" /> : null}
+                            </div>
                             <div className="mt-1 text-xs text-[#8A8A96]">
                               {item.label} · {fmtDateTimeES(item.createdAtISO)}
                             </div>
