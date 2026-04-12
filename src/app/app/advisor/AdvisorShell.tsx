@@ -59,7 +59,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
   }, [pathname]);
 
   return (
-    <div className="min-h-screen bg-[#090B10] text-[#F5F7FB]">
+    <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
       <div className="mx-auto flex min-h-screen max-w-screen-md flex-col pb-10">
         <header className="sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2.5 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
