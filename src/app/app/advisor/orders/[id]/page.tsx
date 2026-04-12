@@ -265,6 +265,7 @@ function buildWhatsAppOrderSummary({
 
 function eventTitle(eventType: string, fallbackTitle: string) {
   const titles: Record<string, string> = {
+    order_modified: 'Orden modificada',
     order_approved: 'Orden aprobada',
     order_returned_to_review: 'Orden devuelta',
     order_reapproved: 'Orden re-aprobada',

@@ -150,6 +150,48 @@ type ExistingOrderItemRow = {
   notes: string | null;
 };
 
+type OrderEditSnapshot = {
+  clientId: number | null;
+  fulfillment: FulfillmentType;
+  deliveryDate: string;
+  deliveryTime12: string;
+  isAsap: boolean;
+  receiverName: string;
+  receiverPhone: string;
+  deliveryAddress: string;
+  deliveryGpsUrl: string;
+  orderNote: string;
+  paymentMethod: PaymentMethod;
+  paymentCurrency: CurrencyCode;
+  paymentRequiresChange: boolean;
+  paymentChangeFor: string;
+  paymentChangeCurrency: CurrencyCode;
+  paymentNote: string;
+  fxRate: string;
+  discountEnabled: boolean;
+  discountPct: string;
+  hasInvoice: boolean;
+  invoiceTaxPct: string;
+  hasDeliveryNote: boolean;
+  invoiceCompanyName: string;
+  invoiceTaxId: string;
+  invoiceAddress: string;
+  invoicePhone: string;
+  deliveryNoteName: string;
+  deliveryNoteDocumentId: string;
+  deliveryNoteAddress: string;
+  deliveryNotePhone: string;
+  totalUsd: number;
+  totalBs: number;
+  items: Array<{
+    productId: number;
+    productName: string;
+    qty: number;
+    lineTotalUsd: number;
+    detailLines: string[];
+  }>;
+};
+
 function pad2(n: number) {
   return String(n).padStart(2, '0');
 }
@@ -292,6 +334,109 @@ function mergeRecentAddresses(currentValue: unknown, nextAddressText: string, ne
         ),
     ),
   ].slice(0, 2);
+}
+
+function normalizeSnapshotText(value: string | null | undefined) {
+  return String(value || '').trim();
+}
+
+function buildDraftItemsSnapshot(items: DraftItem[]) {
+  return items.map((item) => ({
+    productId: Number(item.product_id || 0),
+    productName: normalizeSnapshotText(item.product_name_snapshot),
+    qty: Number(item.qty || 0),
+    lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
+    detailLines: item.editable_detail_lines.map((line) => normalizeSnapshotText(line)).filter(Boolean),
+  }));
+}
+
+function buildOrderEditChangeSummary(before: OrderEditSnapshot, after: OrderEditSnapshot) {
+  const sections = new Set<string>();
+  const summary: string[] = [];
+
+  if (JSON.stringify(before.items) !== JSON.stringify(after.items)) {
+    sections.add('pedido');
+    summary.push('Se modificó el pedido.');
+  }
+
+  if (before.clientId !== after.clientId) {
+    sections.add('cliente');
+    summary.push('Se cambió el cliente.');
+  }
+
+  if (
+    before.fulfillment !== after.fulfillment ||
+    before.deliveryDate !== after.deliveryDate ||
+    before.deliveryTime12 !== after.deliveryTime12 ||
+    before.isAsap !== after.isAsap ||
+    before.receiverName !== after.receiverName ||
+    before.receiverPhone !== after.receiverPhone
+  ) {
+    sections.add('entrega');
+    summary.push('Se modificaron datos de entrega.');
+  }
+
+  if (before.deliveryAddress !== after.deliveryAddress || before.deliveryGpsUrl !== after.deliveryGpsUrl) {
+    sections.add('direccion');
+    summary.push('Se modificó la dirección.');
+  }
+
+  if (
+    before.paymentMethod !== after.paymentMethod ||
+    before.paymentCurrency !== after.paymentCurrency ||
+    before.paymentRequiresChange !== after.paymentRequiresChange ||
+    before.paymentChangeFor !== after.paymentChangeFor ||
+    before.paymentChangeCurrency !== after.paymentChangeCurrency ||
+    before.paymentNote !== after.paymentNote
+  ) {
+    sections.add('pago');
+    summary.push('Se modificaron datos de pago.');
+  }
+
+  if (
+    before.fxRate !== after.fxRate ||
+    before.discountEnabled !== after.discountEnabled ||
+    before.discountPct !== after.discountPct ||
+    before.hasInvoice !== after.hasInvoice ||
+    before.invoiceTaxPct !== after.invoiceTaxPct ||
+    before.totalUsd !== after.totalUsd ||
+    before.totalBs !== after.totalBs
+  ) {
+    sections.add('precio');
+    summary.push('Se modificó el total de la orden.');
+  }
+
+  if (
+    before.hasInvoice !== after.hasInvoice ||
+    before.invoiceCompanyName !== after.invoiceCompanyName ||
+    before.invoiceTaxId !== after.invoiceTaxId ||
+    before.invoiceAddress !== after.invoiceAddress ||
+    before.invoicePhone !== after.invoicePhone
+  ) {
+    sections.add('factura');
+    summary.push('Se modificaron datos de factura.');
+  }
+
+  if (
+    before.hasDeliveryNote !== after.hasDeliveryNote ||
+    before.deliveryNoteName !== after.deliveryNoteName ||
+    before.deliveryNoteDocumentId !== after.deliveryNoteDocumentId ||
+    before.deliveryNoteAddress !== after.deliveryNoteAddress ||
+    before.deliveryNotePhone !== after.deliveryNotePhone
+  ) {
+    sections.add('nota_entrega');
+    summary.push('Se modificaron datos de nota de entrega.');
+  }
+
+  if (before.orderNote !== after.orderNote) {
+    sections.add('nota');
+    summary.push('Se modificó la nota de la orden.');
+  }
+
+  return {
+    sections: Array.from(sections),
+    summary: Array.from(new Set(summary)),
+  };
 }
 
 function inputClass(multiline = false) {
@@ -522,6 +667,9 @@ export default function AdvisorOrderComposer({
   const [deliveryNoteAddress, setDeliveryNoteAddress] = useState('');
   const [deliveryNotePhone, setDeliveryNotePhone] = useState('');
   const [copyingQuote, setCopyingQuote] = useState(false);
+  const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
+  const [existingOrderNumber, setExistingOrderNumber] = useState('');
+  const [existingOrderStatus, setExistingOrderStatus] = useState('');
 
   const [configOpen, setConfigOpen] = useState(false);
   const [configEditingLocalId, setConfigEditingLocalId] = useState<string | null>(null);
@@ -707,6 +855,12 @@ export default function AdvisorOrderComposer({
         setFxRate(String(Number(activeRate.toFixed(2))));
       }
 
+      if (!isEditingOrder) {
+        setOriginalEditSnapshot(null);
+        setExistingOrderNumber('');
+        setExistingOrderStatus('');
+      }
+
       if (isEditingOrder) {
         if (existingOrderResult?.error) {
           setError(existingOrderResult.error.message);
@@ -797,6 +951,82 @@ export default function AdvisorOrderComposer({
           setDeliveryNotePhone(
             documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone || ''
           );
+          setExistingOrderNumber(String(order.order_number || ''));
+          setExistingOrderStatus(String(order.status || ''));
+          setOriginalEditSnapshot({
+            clientId: orderClient?.id ? Number(orderClient.id) : null,
+            fulfillment: (order.fulfillment || 'pickup') as FulfillmentType,
+            deliveryDate: normalizeSnapshotText(schedule?.date || getTodayInputValue()),
+            deliveryTime12: normalizeSnapshotText(`${parsedTime.hour12}:${parsedTime.minute} ${parsedTime.ampm}`),
+            isAsap: Boolean(schedule?.asap),
+            receiverName: normalizeSnapshotText(order.receiver_name),
+            receiverPhone: normalizeSnapshotText(order.receiver_phone),
+            deliveryAddress: normalizeSnapshotText(order.delivery_address),
+            deliveryGpsUrl: normalizeSnapshotText(order.extra_fields?.delivery?.gps_url),
+            orderNote: normalizeSnapshotText(order.notes || order.extra_fields?.note),
+            paymentMethod: ((paymentData?.method as PaymentMethod) || 'pending'),
+            paymentCurrency: ((paymentData?.currency as CurrencyCode) || 'USD'),
+            paymentRequiresChange: Boolean(paymentData?.requires_change),
+            paymentChangeFor: normalizeSnapshotText(
+              paymentData?.change_for == null ? '' : String(paymentData.change_for)
+            ),
+            paymentChangeCurrency: ((paymentData?.change_currency as CurrencyCode) || 'USD'),
+            paymentNote: normalizeSnapshotText(paymentData?.notes),
+            fxRate: normalizeSnapshotText(
+              pricing?.fx_rate == null
+                ? activeRate > 0
+                  ? String(Number(activeRate.toFixed(2)))
+                  : ''
+                : String(pricing.fx_rate)
+            ),
+            discountEnabled: Boolean(pricing?.discount_enabled),
+            discountPct: normalizeSnapshotText(
+              pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+            ),
+            hasInvoice: Boolean(documents?.has_invoice),
+            invoiceTaxPct: normalizeSnapshotText(
+              pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
+            ),
+            hasDeliveryNote: Boolean(documents?.has_delivery_note),
+            invoiceCompanyName: normalizeSnapshotText(
+              documents?.invoice_snapshot?.company_name || orderClient?.billing_company_name
+            ),
+            invoiceTaxId: normalizeSnapshotText(
+              documents?.invoice_snapshot?.tax_id || orderClient?.billing_tax_id
+            ),
+            invoiceAddress: normalizeSnapshotText(
+              documents?.invoice_snapshot?.address || orderClient?.billing_address
+            ),
+            invoicePhone: normalizeSnapshotText(
+              documents?.invoice_snapshot?.phone || orderClient?.billing_phone
+            ),
+            deliveryNoteName: normalizeSnapshotText(
+              documents?.delivery_note_snapshot?.name || orderClient?.delivery_note_name
+            ),
+            deliveryNoteDocumentId: normalizeSnapshotText(
+              documents?.delivery_note_snapshot?.document_id ||
+                orderClient?.delivery_note_document_id
+            ),
+            deliveryNoteAddress: normalizeSnapshotText(
+              documents?.delivery_note_snapshot?.address || orderClient?.delivery_note_address
+            ),
+            deliveryNotePhone: normalizeSnapshotText(
+              documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone
+            ),
+            totalUsd: Number(Number(order.total_usd || 0).toFixed(2)),
+            totalBs: Number(
+              toSafeNumber(pricing?.total_bs, activeRate > 0 ? Number(order.total_usd || 0) * activeRate : 0).toFixed(2)
+            ),
+            items: orderItems.map((item) => ({
+              productId: Number(item.product_id || 0),
+              productName: normalizeSnapshotText(item.product_name_snapshot),
+              qty: Number(item.qty || 0),
+              lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
+              detailLines: item.editable_detail_lines
+                .map((line) => normalizeSnapshotText(line))
+                .filter(Boolean),
+            })),
+          });
           setInfo('Pedido listo para corregir.');
         }
       }
@@ -829,6 +1059,44 @@ export default function AdvisorOrderComposer({
   function clearMessages() {
     setError(null);
     setInfo(null);
+  }
+
+  function buildCurrentEditSnapshot(clientId: number | null): OrderEditSnapshot {
+    return {
+      clientId,
+      fulfillment,
+      deliveryDate: normalizeSnapshotText(deliveryDate),
+      deliveryTime12: normalizeSnapshotText(`${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`),
+      isAsap,
+      receiverName: normalizeSnapshotText(receiverName),
+      receiverPhone: normalizeSnapshotText(receiverPhone),
+      deliveryAddress: normalizeSnapshotText(deliveryAddress),
+      deliveryGpsUrl: normalizeSnapshotText(deliveryGpsUrl),
+      orderNote: normalizeSnapshotText(orderNote),
+      paymentMethod,
+      paymentCurrency,
+      paymentRequiresChange,
+      paymentChangeFor: normalizeSnapshotText(paymentChangeFor),
+      paymentChangeCurrency,
+      paymentNote: normalizeSnapshotText(paymentNote),
+      fxRate: normalizeSnapshotText(fxRate),
+      discountEnabled,
+      discountPct: normalizeSnapshotText(discountPct),
+      hasInvoice,
+      invoiceTaxPct: normalizeSnapshotText(invoiceTaxPct),
+      hasDeliveryNote,
+      invoiceCompanyName: normalizeSnapshotText(invoiceCompanyName),
+      invoiceTaxId: normalizeSnapshotText(invoiceTaxId),
+      invoiceAddress: normalizeSnapshotText(invoiceAddress),
+      invoicePhone: normalizeSnapshotText(invoicePhone),
+      deliveryNoteName: normalizeSnapshotText(deliveryNoteName),
+      deliveryNoteDocumentId: normalizeSnapshotText(deliveryNoteDocumentId),
+      deliveryNoteAddress: normalizeSnapshotText(deliveryNoteAddress),
+      deliveryNotePhone: normalizeSnapshotText(deliveryNotePhone),
+      totalUsd: Number(finalTotalUsd.toFixed(2)),
+      totalBs: Number(finalTotalBs.toFixed(2)),
+      items: buildDraftItemsSnapshot(draftItems),
+    };
   }
 
   function applyClientProfile(client: ClientRow) {
@@ -1305,6 +1573,7 @@ export default function AdvisorOrderComposer({
 
     try {
       const clientId = await ensureClientId();
+      const nextEditSnapshot = isEditingOrder ? buildCurrentEditSnapshot(clientId) : null;
       const recentAddresses = mergeRecentAddresses(
         selectedClient?.recent_addresses,
         fulfillment === 'delivery' ? deliveryAddress : '',
@@ -1400,6 +1669,32 @@ export default function AdvisorOrderComposer({
 
       const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
       if (itemsError) throw new Error(itemsError.message);
+
+      if (isEditingOrder && nextEditSnapshot && originalEditSnapshot) {
+        const changeMeta = buildOrderEditChangeSummary(originalEditSnapshot, nextEditSnapshot);
+
+        if (changeMeta.summary.length > 0) {
+          const { error: timelineError } = await supabase.from('order_timeline_events').insert({
+            order_id: targetOrderId,
+            order_number: existingOrderNumber || null,
+            event_type: 'order_modified',
+            event_group: 'modification',
+            title: existingOrderStatus === 'queued' ? 'Orden modificada para re-aprobacion' : 'Orden modificada',
+            message: changeMeta.summary.join(' '),
+            severity: existingOrderStatus === 'queued' ? 'warning' : 'info',
+            actor_user_id: authUserId || null,
+            payload: {
+              changed_sections: changeMeta.sections,
+              change_summary: changeMeta.summary,
+              source: 'advisor_mobile',
+            },
+          });
+
+          if (timelineError) {
+            console.warn('No se pudo registrar el evento de modificacion.', timelineError.message);
+          }
+        }
+      }
 
       router.push(`/app/advisor/orders/${targetOrderId}`);
     } catch (submitError) {
