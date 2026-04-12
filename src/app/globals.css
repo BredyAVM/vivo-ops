@@ -30,6 +30,18 @@ body {
   touch-action: manipulation;
 }
 
+.advisor-safe-shell {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.advisor-safe-header {
+  padding-top: calc(env(safe-area-inset-top) + 10px);
+}
+
+.advisor-safe-content {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
+}
+
 .advisor-app input,
 .advisor-app select,
 .advisor-app textarea,

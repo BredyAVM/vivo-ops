@@ -60,8 +60,8 @@ export default function AdvisorShell(props: AdvisorShellProps) {
 
   return (
     <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
-      <div className="mx-auto flex min-h-screen max-w-screen-md flex-col pb-10">
-        <header className="sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2.5 backdrop-blur">
+      <div className="advisor-safe-shell mx-auto flex min-h-screen max-w-screen-md flex-col">
+        <header className="advisor-safe-header sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2.5 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#6F7890]">
@@ -135,7 +135,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
           ) : null}
         </header>
 
-        <main className="flex-1 px-4 py-4">{children}</main>
+        <main className="advisor-safe-content flex-1 px-4 py-4">{children}</main>
       </div>
     </div>
   );
