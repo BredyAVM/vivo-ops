@@ -40,12 +40,14 @@ export default function OrderDetailActions({
   canCorrectOrder,
   canRetryPayment,
   moneyAccounts,
+  whatsappSummary,
 }: {
   orderId: number;
   balanceUsd: number;
   canCorrectOrder: boolean;
   canRetryPayment: boolean;
   moneyAccounts: MoneyAccountOption[];
+  whatsappSummary: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -68,7 +70,7 @@ export default function OrderDetailActions({
     [activeAccounts, moneyAccountId],
   );
 
-  if (!canCorrectOrder && !canRetryPayment) return null;
+  if (!canCorrectOrder && !canRetryPayment && !whatsappSummary.trim()) return null;
 
   return (
     <div className="space-y-3">
@@ -84,12 +86,30 @@ export default function OrderDetailActions({
       ) : null}
 
       <div className="grid gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            setError(null);
+            setSuccess(null);
+
+            try {
+              await navigator.clipboard.writeText(whatsappSummary);
+              setSuccess('Resumen copiado para WhatsApp.');
+            } catch {
+              setError('No se pudo copiar el resumen.');
+            }
+          }}
+          className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+        >
+          Copiar WhatsApp
+        </button>
+
         {canCorrectOrder ? (
           <Link
             href={`/app/advisor/new?fromOrder=${orderId}`}
             className="inline-flex h-11 items-center justify-center rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
           >
-            Corregir pedido
+            Modificar pedido
           </Link>
         ) : null}
 

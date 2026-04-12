@@ -37,6 +37,9 @@ type OrderRow = {
       change_currency?: string | null;
       client_fund_used_usd?: number | string | null;
     } | null;
+    pricing?: {
+      total_bs?: number | string | null;
+    } | null;
   } | null;
   client:
     | {
@@ -121,6 +124,11 @@ function formatUsd(value: number | string | null | undefined) {
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
 }
 
+function formatBs(value: number | string | null | undefined) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `Bs ${amount.toFixed(2)}` : 'Bs 0.00';
+}
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return 'Sin fecha';
   return new Date(value).toLocaleString('es-VE', {
@@ -166,6 +174,93 @@ function paymentTone(status: PaymentReportRow['status']): 'warning' | 'success' 
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function getVisibleEditableDetailLines(value: string | null | undefined) {
+  return String(value || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('@sel|'));
+}
+
+function lineTextWhatsAppStyle(item: OrderItemRow) {
+  return `• ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`;
+}
+
+function deliveryText(
+  schedule:
+    | {
+        date?: string | null;
+        time_12?: string | null;
+        asap?: boolean | null;
+      }
+    | null
+    | undefined,
+) {
+  if (schedule?.asap) return 'Lo antes posible';
+
+  const date = safeText(schedule?.date, '');
+  const time = safeText(schedule?.time_12, '');
+  return `${date} ${time}`.trim() || 'Sin horario';
+}
+
+function buildWhatsAppOrderSummary({
+  order,
+  items,
+  advisorLabel,
+}: {
+  order: OrderRow & {
+    client: {
+      full_name: string | null;
+      phone: string | null;
+      client_type: string | null;
+      fund_balance_usd: number | string | null;
+    } | null;
+  };
+  items: OrderItemRow[];
+  advisorLabel: string;
+}) {
+  const parts: string[] = [];
+  const totalBs = order.extra_fields?.pricing?.total_bs;
+
+  parts.push('*Resumen de Pedido*');
+  parts.push('');
+  parts.push(`*Orden:* ${order.id}`);
+  parts.push(`*Asesor:* ${advisorLabel}`);
+  parts.push(`*Cliente:* ${order.client?.full_name?.trim() || 'Cliente'}`);
+  parts.push('');
+  parts.push('*Pedido:*');
+  parts.push('');
+
+  if (items.length === 0) {
+    parts.push('- Sin items cargados');
+  } else {
+    for (const item of items) {
+      parts.push(lineTextWhatsAppStyle(item));
+      for (const detail of getVisibleEditableDetailLines(item.notes)) {
+        parts.push(`- ${detail}`);
+      }
+    }
+  }
+
+  parts.push('');
+  parts.push(
+    `*TOTAL:* ${totalBs != null ? `${formatBs(totalBs)} / ` : ''}${formatUsd(order.total_usd)}`,
+  );
+  parts.push('');
+  parts.push(`*Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
+  parts.push(`*Dia de entrega:* ${deliveryText(order.extra_fields?.schedule)}`);
+
+  if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
+    parts.push(`*Direccion:* ${order.delivery_address.trim()}`);
+  }
+
+  if (order.notes?.trim()) {
+    parts.push('');
+    parts.push(`*Notas:* ${order.notes.trim()}`);
+  }
+
+  return parts.join('\n');
 }
 
 function eventTitle(eventType: string, fallbackTitle: string) {
@@ -350,6 +445,12 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
     currencyCode: safeText(account.currency_code, 'USD'),
     isActive: Boolean(account.is_active),
   }));
+  const advisorLabel = safeText(
+    ctx.user.user_metadata?.full_name ??
+      ctx.user.user_metadata?.name ??
+      ctx.user.email?.split('@')[0],
+    'Asesor'
+  );
   const latestPaymentEvent = timeline.find((event) =>
     ['payment_rejected', 'payment_reported', 'payment_confirmed'].includes(event.eventType)
   );
@@ -364,16 +465,28 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
   );
   const canRetryPayment = latestPaymentEvent?.eventType === 'payment_rejected' && balanceUsd > 0.005;
   const canCorrectOrder =
-    latestReviewEvent?.eventType === 'order_returned_to_review' ||
-    latestReviewEvent?.eventType === 'order_changes_rejected';
+    order.status !== 'delivered' &&
+    order.status !== 'cancelled' &&
+    (latestReviewEvent?.eventType === 'order_returned_to_review' ||
+      latestReviewEvent?.eventType === 'order_changes_rejected' ||
+      order.status === 'created' ||
+      order.status === 'queued' ||
+      order.status === 'confirmed' ||
+      order.status === 'in_kitchen' ||
+      order.status === 'ready');
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
+  const whatsappSummary = buildWhatsAppOrderSummary({
+    order,
+    items,
+    advisorLabel,
+  });
 
   return (
     <div className="space-y-4">
       <PageIntro
-        eyebrow="Pedido"
-        title={safeText(order.order_number, `Orden ${order.id}`)}
-        description={client?.full_name?.trim() || 'Cliente sin nombre'}
+        eyebrow="Orden"
+        title={`Orden #${order.id}`}
+        description={client?.full_name?.trim() || safeText(order.order_number, 'Sin localizador')}
         action={
           <Link
             href="/app/advisor/orders"
@@ -397,6 +510,16 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
         }
       >
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
+          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+            <span>Orden</span>
+            <span className="text-[#F5F7FB]">#{order.id}</span>
+          </div>
+          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+            <span>Localizador</span>
+            <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">
+              {safeText(order.order_number, 'Sin localizador')}
+            </span>
+          </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Cliente</span>
             <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">
@@ -439,6 +562,7 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
           canCorrectOrder={canCorrectOrder}
           canRetryPayment={canRetryPayment}
           moneyAccounts={moneyAccounts}
+          whatsappSummary={whatsappSummary}
         />
       </SectionCard>
 
@@ -457,7 +581,7 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
             <div className="mt-1 text-[#F5F7FB]">
               {[order.receiver_name?.trim(), order.receiver_phone?.trim()]
                 .filter(Boolean)
-                .join(' · ') || 'Sin datos adicionales'}
+                .join(' | ') || 'Sin datos adicionales'}
             </div>
           </div>
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
@@ -610,3 +734,4 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
     </div>
   );
 }
+
