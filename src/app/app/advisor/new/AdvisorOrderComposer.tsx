@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 
@@ -24,6 +23,14 @@ type ClientRow = {
   client_type: string | null;
   fund_balance_usd?: number | string | null;
   recent_addresses?: unknown;
+  billing_company_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_address?: string | null;
+  billing_phone?: string | null;
+  delivery_note_name?: string | null;
+  delivery_note_document_id?: string | null;
+  delivery_note_address?: string | null;
+  delivery_note_phone?: string | null;
 };
 
 type ProductRow = {
@@ -99,6 +106,28 @@ type ExistingOrderRow = {
     pricing?: {
       discount_enabled?: boolean | null;
       discount_pct?: number | string | null;
+      fx_rate?: number | string | null;
+      invoice_tax_pct?: number | string | null;
+      invoice_tax_amount_usd?: number | string | null;
+      invoice_tax_amount_bs?: number | string | null;
+      total_bs?: number | string | null;
+    } | null;
+    documents?: {
+      has_delivery_note?: boolean | null;
+      has_invoice?: boolean | null;
+      invoice_data_note?: string | null;
+      invoice_snapshot?: {
+        company_name?: string | null;
+        tax_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
+      delivery_note_snapshot?: {
+        name?: string | null;
+        document_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
     } | null;
     note?: string | null;
   } | null;
@@ -200,6 +229,22 @@ function formatUsd(value: number) {
   return `$${value.toFixed(2)}`;
 }
 
+function formatBs(value: number) {
+  return `Bs ${value.toFixed(2)}`;
+}
+
+function formatBsWhatsApp(value: number) {
+  return `Bs ${new Intl.NumberFormat('es-VE', {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value)}`;
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : fallback;
+}
+
 function clientTypeLabel(value: string | null | undefined) {
   if (value === 'assigned') return 'Asignado';
   if (value === 'own') return 'Propio';
@@ -220,9 +265,38 @@ function normalizeClientAddresses(input: unknown): ClientAddress[] {
     .slice(0, 2);
 }
 
+function mergeRecentAddresses(currentValue: unknown, nextAddressText: string, nextGpsUrl: string) {
+  const current = normalizeClientAddresses(currentValue).map((row) => ({
+    address_text: row.addressText,
+    gps_url: row.gpsUrl || null,
+  }));
+  const normalizedAddressText = String(nextAddressText || '').trim();
+  const normalizedGpsUrl = String(nextGpsUrl || '').trim() || null;
+
+  if (!normalizedAddressText && !normalizedGpsUrl) {
+    return current.slice(0, 2);
+  }
+
+  const nextEntry = {
+    address_text: normalizedAddressText,
+    gps_url: normalizedGpsUrl,
+  };
+
+  return [
+    nextEntry,
+    ...current.filter(
+      (row) =>
+        !(
+          String(row.address_text || '').trim() === normalizedAddressText &&
+          String(row.gps_url || '').trim() === String(normalizedGpsUrl || '').trim()
+        ),
+    ),
+  ].slice(0, 2);
+}
+
 function inputClass(multiline = false) {
   return [
-    'w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
+    'min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
     multiline ? 'min-h-[92px] py-3' : 'h-11',
   ].join(' ');
 }
@@ -234,7 +308,7 @@ function Field({
 }: {
   label: string;
   hint?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <label className="block">
@@ -252,7 +326,7 @@ function Section({
 }: {
   title: string;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-4">
@@ -399,6 +473,7 @@ export default function AdvisorOrderComposer({
   const [info, setInfo] = useState<string | null>(null);
 
   const [authUserId, setAuthUserId] = useState('');
+  const [authUserLabel, setAuthUserLabel] = useState('Asesor');
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [productComponents, setProductComponents] = useState<ProductComponentRow[]>([]);
   const [productSearch, setProductSearch] = useState('');
@@ -432,8 +507,20 @@ export default function AdvisorOrderComposer({
   const [paymentChangeFor, setPaymentChangeFor] = useState('');
   const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<CurrencyCode>('USD');
   const [paymentNote, setPaymentNote] = useState('');
+  const [fxRate, setFxRate] = useState('');
   const [discountEnabled, setDiscountEnabled] = useState(false);
   const [discountPct, setDiscountPct] = useState('0');
+  const [invoiceTaxPct, setInvoiceTaxPct] = useState('16');
+  const [hasDeliveryNote, setHasDeliveryNote] = useState(false);
+  const [hasInvoice, setHasInvoice] = useState(false);
+  const [invoiceCompanyName, setInvoiceCompanyName] = useState('');
+  const [invoiceTaxId, setInvoiceTaxId] = useState('');
+  const [invoiceAddress, setInvoiceAddress] = useState('');
+  const [invoicePhone, setInvoicePhone] = useState('');
+  const [deliveryNoteName, setDeliveryNoteName] = useState('');
+  const [deliveryNoteDocumentId, setDeliveryNoteDocumentId] = useState('');
+  const [deliveryNoteAddress, setDeliveryNoteAddress] = useState('');
+  const [deliveryNotePhone, setDeliveryNotePhone] = useState('');
   const [copyingQuote, setCopyingQuote] = useState(false);
 
   const [configOpen, setConfigOpen] = useState(false);
@@ -459,9 +546,32 @@ export default function AdvisorOrderComposer({
     () => normalizeClientAddresses(selectedClient?.recent_addresses),
     [selectedClient]
   );
+  const fxRateNumber = Math.max(0, Number(String(fxRate || '0').replace(',', '.')) || 0);
   const discountPctNumber = Math.max(0, Math.min(100, Number(discountPct || 0) || 0));
-  const discountAmountUsd = discountEnabled ? Number((draftTotalUsd * (discountPctNumber / 100)).toFixed(2)) : 0;
-  const finalTotalUsd = Number(Math.max(0, draftTotalUsd - discountAmountUsd).toFixed(2));
+  const invoiceTaxPctNumber = hasInvoice
+    ? Math.max(0, Number(String(invoiceTaxPct || '0').replace(',', '.')) || 0)
+    : 0;
+  const draftSubtotalBs = useMemo(
+    () =>
+      draftItems.reduce((sum, item) => {
+        const lineBs =
+          item.source_price_currency === 'VES'
+            ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
+            : Number(item.line_total_usd || 0) * fxRateNumber;
+        return sum + lineBs;
+      }, 0),
+    [draftItems, fxRateNumber]
+  );
+  const discountAmountBs = discountEnabled ? draftSubtotalBs * (discountPctNumber / 100) : 0;
+  const subtotalAfterDiscountBs = Math.max(0, draftSubtotalBs - discountAmountBs);
+  const invoiceTaxAmountBs = hasInvoice ? subtotalAfterDiscountBs * (invoiceTaxPctNumber / 100) : 0;
+  const finalTotalBs = subtotalAfterDiscountBs + invoiceTaxAmountBs;
+  const discountAmountUsd = fxRateNumber > 0 ? Number((discountAmountBs / fxRateNumber).toFixed(2)) : 0;
+  const invoiceTaxAmountUsd = fxRateNumber > 0 ? Number((invoiceTaxAmountBs / fxRateNumber).toFixed(2)) : 0;
+  const finalTotalUsd =
+    fxRateNumber > 0
+      ? Number((finalTotalBs / fxRateNumber).toFixed(2))
+      : Number(Math.max(0, draftTotalUsd - discountAmountUsd).toFixed(2));
 
   const configProduct = useMemo(
     () => (configProductId ? productById.get(configProductId) ?? null : null),
@@ -484,7 +594,8 @@ export default function AdvisorOrderComposer({
   const createReady =
     draftItems.length > 0 &&
     (!!selectedClient || (isNewClientMode && newClientName.trim() && newClientPhone.trim())) &&
-    (fulfillment === 'pickup' || deliveryAddress.trim().length > 0);
+    (fulfillment === 'pickup' || deliveryAddress.trim().length > 0) &&
+    fxRateNumber > 0;
   const filteredProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
     if (!query) return [];
@@ -515,6 +626,14 @@ export default function AdvisorOrderComposer({
       }
 
       setAuthUserId(user.id);
+      setAuthUserLabel(
+        String(
+          user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.email?.split('@')[0] ||
+            'Asesor'
+        ).trim() || 'Asesor'
+      );
 
       const baseRequests = [
         supabase
@@ -531,6 +650,13 @@ export default function AdvisorOrderComposer({
           )
           .order('parent_product_id', { ascending: true })
           .order('sort_order', { ascending: true }),
+        supabase
+          .from('exchange_rates')
+          .select('rate_bs_per_usd')
+          .eq('is_active', true)
+          .order('effective_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ] as const;
 
       const editRequests = isEditingOrder
@@ -538,7 +664,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('orders')
               .select(
-                'id, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses)'
+                'id, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
               )
               .eq('id', Number(existingOrderId))
               .eq('attributed_advisor_id', user.id)
@@ -557,9 +683,10 @@ export default function AdvisorOrderComposer({
         ? await Promise.all([...baseRequests, ...editRequests])
         : await Promise.all(baseRequests);
 
-      const [productResult, componentResult, existingOrderResult, existingItemsResult] = results as [
+      const [productResult, componentResult, exchangeRateResult, existingOrderResult, existingItemsResult] = results as [
         Awaited<(typeof baseRequests)[0]>,
         Awaited<(typeof baseRequests)[1]>,
+        Awaited<(typeof baseRequests)[2]>,
         | Awaited<NonNullable<typeof editRequests>[0]>
         | undefined,
         | Awaited<NonNullable<typeof editRequests>[1]>
@@ -568,12 +695,17 @@ export default function AdvisorOrderComposer({
 
       const { data: productData, error: productError } = productResult;
       const { data: componentData, error: componentError } = componentResult;
+      const activeRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
 
       if (productError) setError(productError.message);
       else setProducts((productData ?? []) as ProductRow[]);
 
       if (componentError) setError(componentError.message);
       else setProductComponents((componentData ?? []) as ProductComponentRow[]);
+
+      if (!isEditingOrder && activeRate > 0) {
+        setFxRate(String(Number(activeRate.toFixed(2))));
+      }
 
       if (isEditingOrder) {
         if (existingOrderResult?.error) {
@@ -598,6 +730,7 @@ export default function AdvisorOrderComposer({
           const schedule = order.extra_fields?.schedule;
           const paymentData = order.extra_fields?.payment;
           const pricing = order.extra_fields?.pricing;
+          const documents = order.extra_fields?.documents;
           const parsedTime = parseStoredTime12(schedule?.time_12, rounded);
 
           setSelectedClient(orderClient ? (orderClient as ClientRow) : null);
@@ -624,9 +757,45 @@ export default function AdvisorOrderComposer({
           );
           setPaymentChangeCurrency((paymentData?.change_currency as CurrencyCode) || 'USD');
           setPaymentNote(paymentData?.notes || '');
+          setFxRate(pricing?.fx_rate == null ? (activeRate > 0 ? String(Number(activeRate.toFixed(2))) : '') : String(pricing.fx_rate));
           setDiscountEnabled(Boolean(pricing?.discount_enabled));
           setDiscountPct(
             pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+          );
+          setInvoiceTaxPct(
+            pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
+          );
+          setHasDeliveryNote(Boolean(documents?.has_delivery_note));
+          setHasInvoice(Boolean(documents?.has_invoice));
+          setInvoiceCompanyName(
+            documents?.invoice_snapshot?.company_name ||
+              orderClient?.billing_company_name ||
+              ''
+          );
+          setInvoiceTaxId(
+            documents?.invoice_snapshot?.tax_id || orderClient?.billing_tax_id || ''
+          );
+          setInvoiceAddress(
+            documents?.invoice_snapshot?.address || orderClient?.billing_address || ''
+          );
+          setInvoicePhone(
+            documents?.invoice_snapshot?.phone || orderClient?.billing_phone || ''
+          );
+          setDeliveryNoteName(
+            documents?.delivery_note_snapshot?.name || orderClient?.delivery_note_name || ''
+          );
+          setDeliveryNoteDocumentId(
+            documents?.delivery_note_snapshot?.document_id ||
+              orderClient?.delivery_note_document_id ||
+              ''
+          );
+          setDeliveryNoteAddress(
+            documents?.delivery_note_snapshot?.address ||
+              orderClient?.delivery_note_address ||
+              ''
+          );
+          setDeliveryNotePhone(
+            documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone || ''
           );
           setInfo('Pedido listo para corregir.');
         }
@@ -662,6 +831,17 @@ export default function AdvisorOrderComposer({
     setInfo(null);
   }
 
+  function applyClientProfile(client: ClientRow) {
+    setInvoiceCompanyName(client.billing_company_name || '');
+    setInvoiceTaxId(client.billing_tax_id || '');
+    setInvoiceAddress(client.billing_address || '');
+    setInvoicePhone(client.billing_phone || '');
+    setDeliveryNoteName(client.delivery_note_name || '');
+    setDeliveryNoteDocumentId(client.delivery_note_document_id || '');
+    setDeliveryNoteAddress(client.delivery_note_address || '');
+    setDeliveryNotePhone(client.delivery_note_phone || '');
+  }
+
   async function handleSearchClients(e?: FormEvent) {
     e?.preventDefault();
     clearMessages();
@@ -676,7 +856,7 @@ export default function AdvisorOrderComposer({
 
     const { data, error: searchError } = await supabase
       .from('clients')
-      .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses')
+      .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
       .or(`phone.ilike.%${query}%,full_name.ilike.%${query}%`)
       .order('id', { ascending: false })
       .limit(12);
@@ -705,7 +885,7 @@ export default function AdvisorOrderComposer({
     try {
       const { data: existing, error: existingError } = await supabase
         .from('clients')
-        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses')
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
         .eq('phone', phone)
         .limit(1);
 
@@ -714,6 +894,7 @@ export default function AdvisorOrderComposer({
       if (existing && existing.length > 0) {
         const current = existing[0] as ClientRow;
         setSelectedClient(current);
+        applyClientProfile(current);
         setSearchTerm(current.phone ?? current.full_name);
         setIsNewClientMode(false);
         setClientResults([]);
@@ -724,13 +905,14 @@ export default function AdvisorOrderComposer({
       const { data: created, error: createError } = await supabase
         .from('clients')
         .insert({ full_name, phone, client_type: newClientType })
-        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses')
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
         .single();
 
       if (createError) throw new Error(createError.message);
 
       const client = created as ClientRow;
       setSelectedClient(client);
+      applyClientProfile(client);
       setSearchTerm(client.phone ?? client.full_name);
       setIsNewClientMode(false);
       setClientResults([]);
@@ -910,40 +1092,84 @@ export default function AdvisorOrderComposer({
 
   function buildQuoteSummary() {
     const parts: string[] = [];
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
+    const clientPhone = selectedClient?.phone || newClientPhone.trim();
+    const deliveryDayLabel = new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      timeZone: 'America/Caracas',
+    });
+    const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
+    const paymentLabelMap: Record<PaymentMethod, string> = {
+      pending: 'pendiente',
+      payment_mobile: 'pago movil',
+      transfer: 'transferencia',
+      cash_usd: 'efectivo USD',
+      cash_ves: 'efectivo Bs',
+      zelle: 'zelle',
+      mixed: 'mixto',
+    };
+
     parts.push('*Resumen de Pedido*');
     parts.push('');
-    parts.push(`*Cliente:* ${selectedClient?.full_name || newClientName.trim() || 'Cliente'}`);
-    parts.push(`*Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro en tienda'}`);
-    parts.push(`*Momento:* ${isAsap ? 'Lo antes posible' : `${deliveryDate} ${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`}`);
+    parts.push(`✅ Vendedor: ${authUserLabel}`);
     parts.push('');
-    parts.push('*Pedido:*');
+    parts.push(`✅ Cliente: ${clientName}`);
+
+    if (clientPhone) {
+      parts.push('');
+      parts.push(`✅ Telefono: ${clientPhone}`);
+    }
+
+    parts.push('');
+    parts.push('✅ Pedido:');
     parts.push('');
 
     if (draftItems.length === 0) {
       parts.push('- Sin items cargados');
     } else {
       for (const item of draftItems) {
-        parts.push(`• ${item.qty} ${item.product_name_snapshot}: ${formatUsd(item.line_total_usd)}`);
+        const lineBs =
+          item.source_price_currency === 'VES'
+            ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
+            : Number(item.line_total_usd || 0) * fxRateNumber;
+        parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
         if (item.editable_detail_lines.length > 0) {
           for (const detail of item.editable_detail_lines) {
-            parts.push(`- ${detail}`);
+            parts.push(`▪ ${detail}`);
           }
         }
       }
     }
 
+    parts.push('');
+    parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${finalTotalUsd.toFixed(2)}$`);
+    parts.push('');
+    parts.push(`✅ Forma de pago: ${paymentLabelMap[paymentMethod]}`);
+    parts.push('');
+    parts.push('✅ Estatus de pago: Pendiente');
+    parts.push('');
+    parts.push(
+      `✅ Dia de entrega ${isAsap ? 'lo antes posible' : deliveryDayLabel}`
+    );
+
+    if (!isAsap) {
+      parts.push('');
+      parts.push(`✅ Hora: ${deliveryHourLabel}`);
+    }
+
     if (fulfillment === 'delivery' && deliveryAddress.trim()) {
       parts.push('');
-      parts.push(`*Direccion:* ${deliveryAddress.trim()}`);
+      parts.push(`✅ Direccion: ${deliveryAddress.trim()}`);
     }
 
     if (orderNote.trim()) {
       parts.push('');
-      parts.push(`*Nota:* ${orderNote.trim()}`);
+      parts.push(`✅ Nota: ${orderNote.trim()}`);
     }
 
-    parts.push('');
-    parts.push(`*TOTAL:* ${formatUsd(finalTotalUsd)}`);
     return parts.join('\n');
   }
 
@@ -978,6 +1204,14 @@ export default function AdvisorOrderComposer({
 
   function buildExtraFields() {
     const deliveryTime24 = from12hTo24h(deliveryHour12, deliveryMinute, deliveryAmPm);
+    const invoiceDataNote = [
+      invoiceCompanyName.trim(),
+      invoiceTaxId.trim(),
+      invoiceAddress.trim(),
+      invoicePhone.trim(),
+    ]
+      .filter(Boolean)
+      .join(' | ');
 
     return {
       schedule: {
@@ -1003,11 +1237,40 @@ export default function AdvisorOrderComposer({
         notes: paymentNote.trim() || null,
       },
       pricing: {
+        fx_rate: fxRateNumber > 0 ? fxRateNumber : null,
         discount_enabled: discountEnabled,
         discount_pct: discountEnabled ? discountPctNumber : 0,
         discount_amount_usd: discountEnabled ? discountAmountUsd : 0,
+        discount_amount_bs: discountEnabled ? Number(discountAmountBs.toFixed(2)) : 0,
         subtotal_usd: draftTotalUsd,
+        subtotal_bs: Number(draftSubtotalBs.toFixed(2)),
+        subtotal_after_discount_bs: Number(subtotalAfterDiscountBs.toFixed(2)),
+        invoice_tax_pct: hasInvoice ? invoiceTaxPctNumber : 0,
+        invoice_tax_amount_usd: hasInvoice ? invoiceTaxAmountUsd : 0,
+        invoice_tax_amount_bs: hasInvoice ? Number(invoiceTaxAmountBs.toFixed(2)) : 0,
         total_usd: finalTotalUsd,
+        total_bs: Number(finalTotalBs.toFixed(2)),
+      },
+      documents: {
+        has_delivery_note: hasDeliveryNote,
+        has_invoice: hasInvoice,
+        invoice_data_note: hasInvoice ? invoiceDataNote || null : null,
+        invoice_snapshot: hasInvoice
+          ? {
+              company_name: invoiceCompanyName.trim() || null,
+              tax_id: invoiceTaxId.trim() || null,
+              address: invoiceAddress.trim() || null,
+              phone: normalizePhone(invoicePhone.trim()) || null,
+            }
+          : null,
+        delivery_note_snapshot: hasDeliveryNote
+          ? {
+              name: deliveryNoteName.trim() || null,
+              document_id: deliveryNoteDocumentId.trim() || null,
+              address: deliveryNoteAddress.trim() || null,
+              phone: normalizePhone(deliveryNotePhone.trim()) || null,
+            }
+          : null,
       },
       note: orderNote.trim() || null,
       ui: {
@@ -1033,10 +1296,38 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    if (fxRateNumber <= 0) {
+      setError('Falta una tasa valida para la orden.');
+      return;
+    }
+
     setSaving(true);
 
     try {
       const clientId = await ensureClientId();
+      const recentAddresses = mergeRecentAddresses(
+        selectedClient?.recent_addresses,
+        fulfillment === 'delivery' ? deliveryAddress : '',
+        fulfillment === 'delivery' ? deliveryGpsUrl : ''
+      );
+
+      const { error: clientProfileError } = await supabase
+        .from('clients')
+        .update({
+          billing_company_name: hasInvoice ? invoiceCompanyName.trim() || null : null,
+          billing_tax_id: hasInvoice ? invoiceTaxId.trim() || null : null,
+          billing_address: hasInvoice ? invoiceAddress.trim() || null : null,
+          billing_phone: hasInvoice ? normalizePhone(invoicePhone) || null : null,
+          delivery_note_name: hasDeliveryNote ? deliveryNoteName.trim() || null : null,
+          delivery_note_document_id: hasDeliveryNote ? deliveryNoteDocumentId.trim() || null : null,
+          delivery_note_address: hasDeliveryNote ? deliveryNoteAddress.trim() || null : null,
+          delivery_note_phone: hasDeliveryNote ? normalizePhone(deliveryNotePhone) || null : null,
+          recent_addresses: recentAddresses,
+        })
+        .eq('id', clientId);
+
+      if (clientProfileError) throw new Error(clientProfileError.message);
+
       const payload = {
         client_id: clientId,
         attributed_advisor_id: authUserId,
@@ -1044,6 +1335,7 @@ export default function AdvisorOrderComposer({
         status: 'created',
         fulfillment,
         total_usd: finalTotalUsd,
+        total_bs_snapshot: Number(finalTotalBs.toFixed(2)),
         is_price_locked: false,
         delivery_address: fulfillment === 'delivery' ? deliveryAddress.trim() || null : null,
         receiver_name: receiverName.trim() || null,
@@ -1093,6 +1385,14 @@ export default function AdvisorOrderComposer({
         pricing_origin_amount: item.source_price_amount,
         unit_price_usd_snapshot: item.unit_price_usd_snapshot,
         line_total_usd: item.line_total_usd,
+        unit_price_bs_snapshot:
+          item.source_price_currency === 'VES'
+            ? Number(item.source_price_amount || 0)
+            : Number((item.unit_price_usd_snapshot * fxRateNumber).toFixed(2)),
+        line_total_bs_snapshot:
+          item.source_price_currency === 'VES'
+            ? Number((Number(item.source_price_amount || 0) * Number(item.qty || 0)).toFixed(2))
+            : Number((Number(item.line_total_usd || 0) * fxRateNumber).toFixed(2)),
         sku_snapshot: item.sku_snapshot,
         product_name_snapshot: item.product_name_snapshot,
         notes: item.editable_detail_lines.length > 0 ? item.editable_detail_lines.join('\n') : null,
@@ -1126,25 +1426,6 @@ export default function AdvisorOrderComposer({
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-4 pb-32">
-        <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">
-                {isEditingOrder ? 'Pedidos / Corregir pedido' : 'Pedidos / Nuevo pedido'}
-              </p>
-              <h1 className="mt-1 text-[20px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
-                {isEditingOrder ? 'Corregir pedido' : 'Crear pedido'}
-              </h1>
-            </div>
-            <Link
-              href="/app/advisor/orders"
-              className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
-            >
-              Volver
-            </Link>
-          </div>
-        </section>
-
         {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
@@ -1199,6 +1480,7 @@ export default function AdvisorOrderComposer({
                   type="button"
                   onClick={() => {
                     setSelectedClient(client);
+                    applyClientProfile(client);
                     setIsNewClientMode(false);
                     setClientResults([]);
                     setSearchTerm(client.phone ?? client.full_name);
@@ -1249,7 +1531,7 @@ export default function AdvisorOrderComposer({
           ) : null}
         </Section>
 
-        <Section title="2. Pedido" subtitle="Busca el producto escribiendo y confirma rapido la cantidad.">
+        <Section title="2. Pedido" subtitle="Misma logica base de master, compacta para telefono.">
           <div className="relative">
             <Field label="Producto">
               <input
@@ -1312,7 +1594,7 @@ export default function AdvisorOrderComposer({
                     >
                       <div className="text-sm font-medium text-[#F5F7FB]">{product.name}</div>
                       <div className="mt-1 text-xs text-[#8B93A7]">
-                        {product.sku || 'Sin codigo'} · ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                        {product.sku || 'Sin codigo'} | ${Number(product.base_price_usd ?? 0).toFixed(2)}
                       </div>
                     </button>
                   ))
@@ -1321,7 +1603,7 @@ export default function AdvisorOrderComposer({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-[1fr_98px] gap-2">
+          <div className="grid grid-cols-[1fr_104px] gap-2">
             <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
               {selectedProduct ? selectedProduct.name : 'Selecciona producto'}
             </div>
@@ -1341,8 +1623,15 @@ export default function AdvisorOrderComposer({
             />
           </div>
 
-          <button type="button" onClick={addDraftItem} className="h-10 rounded-[14px] border border-[#232632] text-sm font-medium text-[#F5F7FB]">
-            Agregar item
+          <button
+            type="button"
+            onClick={addDraftItem}
+            className={[
+              'h-10 rounded-[14px] text-sm font-medium',
+              selectedProduct ? 'bg-[#F0D000] text-[#17191E]' : 'border border-[#232632] text-[#F5F7FB]',
+            ].join(' ')}
+          >
+            Confirmar item
           </button>
 
           {draftItems.length === 0 ? (
@@ -1366,7 +1655,7 @@ export default function AdvisorOrderComposer({
                   {item.editable_detail_lines.length > 0 ? (
                     <div className="mt-2 space-y-1 rounded-[14px] bg-[#0B0F15] px-3 py-2 text-xs text-[#AAB2C5]">
                       {item.editable_detail_lines.map((line, index) => (
-                        <div key={`${item.localId}-${index}`}>• {line}</div>
+                        <div key={`${item.localId}-${index}`}>- {line}</div>
                       ))}
                     </div>
                   ) : null}
@@ -1385,17 +1674,30 @@ export default function AdvisorOrderComposer({
               ))}
 
               <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-                <label className="flex items-center gap-3 text-sm text-[#F5F7FB]">
-                  <input
-                    type="checkbox"
-                    checked={discountEnabled}
-                    onChange={(e) => {
-                      setDiscountEnabled(e.target.checked);
-                      if (!e.target.checked) setDiscountPct('0');
-                    }}
-                  />
-                  <span>Aplicar descuento</span>
-                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Tasa del dia (Bs/USD)">
+                    <input
+                      value={fxRate}
+                      onChange={(e) => setFxRate(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className={inputClass()}
+                      inputMode="decimal"
+                      placeholder="0"
+                    />
+                  </Field>
+
+                  <label className="flex items-end gap-3 rounded-[16px] border border-[#232632] bg-[#12151d] px-3.5 py-3 text-sm text-[#F5F7FB]">
+                    <input
+                      type="checkbox"
+                      checked={discountEnabled}
+                      onChange={(e) => {
+                        setDiscountEnabled(e.target.checked);
+                        if (!e.target.checked) setDiscountPct('0');
+                      }}
+                    />
+                    <span>Aplicar descuento</span>
+                  </label>
+                </div>
 
                 {discountEnabled ? (
                   <Field label="% Descuento">
@@ -1412,18 +1714,40 @@ export default function AdvisorOrderComposer({
 
                 <div className="grid gap-2 text-sm text-[#AAB2C5]">
                   <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
-                    <span>Subtotal</span>
+                    <span>Subtotal USD</span>
                     <span className="text-[#F5F7FB]">{formatUsd(draftTotalUsd)}</span>
                   </div>
+                  <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                    <span>Subtotal Bs</span>
+                    <span className="text-[#F5F7FB]">{fxRateNumber > 0 ? formatBs(draftSubtotalBs) : 'Define la tasa'}</span>
+                  </div>
                   {discountEnabled ? (
+                    <>
+                      <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                        <span>Descuento USD</span>
+                        <span className="text-[#F5F7FB]">-{formatUsd(discountAmountUsd)}</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
+                        <span>Descuento Bs</span>
+                        <span className="text-[#F5F7FB]">-{fxRateNumber > 0 ? formatBs(discountAmountBs) : 'Define la tasa'}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  {hasInvoice ? (
                     <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
-                      <span>Descuento</span>
-                      <span className="text-[#F5F7FB]">-{formatUsd(discountAmountUsd)}</span>
+                      <span>IVA</span>
+                      <span className="text-[#F5F7FB]">
+                        {formatUsd(invoiceTaxAmountUsd)}
+                        {fxRateNumber > 0 ? ` / ${formatBs(invoiceTaxAmountBs)}` : ''}
+                      </span>
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between rounded-[14px] bg-[#12151d] px-3 py-2">
                     <span>Total</span>
-                    <span className="font-semibold text-[#F0D000]">{formatUsd(finalTotalUsd)}</span>
+                    <span className="font-semibold text-[#F0D000]">
+                      {formatUsd(finalTotalUsd)}
+                      {fxRateNumber > 0 ? ` / ${formatBs(finalTotalBs)}` : ''}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1433,10 +1757,10 @@ export default function AdvisorOrderComposer({
 
         <Section title="3. Entrega" subtitle="Con soporte para fecha fija o lo antes posible.">
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setFulfillment('pickup')} className={['h-10 rounded-[14px] border text-sm font-medium', fulfillment === 'pickup' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
+            <button type="button" onClick={() => setFulfillment('pickup')} className={['h-10 rounded-[14px] border px-4 text-sm font-medium', fulfillment === 'pickup' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
               Retiro
             </button>
-            <button type="button" onClick={() => setFulfillment('delivery')} className={['h-10 rounded-[14px] border text-sm font-medium', fulfillment === 'delivery' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
+            <button type="button" onClick={() => setFulfillment('delivery')} className={['h-10 rounded-[14px] border px-4 text-sm font-medium', fulfillment === 'delivery' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
               Delivery
             </button>
           </div>
@@ -1445,7 +1769,7 @@ export default function AdvisorOrderComposer({
             type="button"
             onClick={() => setIsAsap((current) => !current)}
             className={[
-              'h-10 rounded-[14px] border text-sm font-medium',
+              'h-10 rounded-[14px] border px-4 text-sm font-medium',
               isAsap ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]',
             ].join(' ')}
           >
@@ -1453,7 +1777,15 @@ export default function AdvisorOrderComposer({
           </button>
 
           <Field label="Fecha">
-            <input type="date" value={deliveryDate} onChange={(e) => { setDeliveryDate(e.target.value); setIsAsap(false); }} className={inputClass()} />
+            <input
+              type="date"
+              value={deliveryDate}
+              onChange={(e) => {
+                setDeliveryDate(e.target.value);
+                setIsAsap(false);
+              }}
+              className={`${inputClass()} [color-scheme:dark]`}
+            />
           </Field>
 
           <Field label="Hora">
@@ -1533,6 +1865,46 @@ export default function AdvisorOrderComposer({
             <span>Requiere cambio</span>
           </label>
 
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              <input
+                type="checkbox"
+                checked={hasDeliveryNote}
+                onChange={(e) => {
+                  setHasDeliveryNote(e.target.checked);
+                  if (!e.target.checked) {
+                    setDeliveryNoteName('');
+                    setDeliveryNoteDocumentId('');
+                    setDeliveryNoteAddress('');
+                    setDeliveryNotePhone('');
+                  }
+                }}
+              />
+              <span>Lleva nota de entrega</span>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
+              <input
+                type="checkbox"
+                checked={hasInvoice}
+                onChange={(e) => {
+                  setHasInvoice(e.target.checked);
+                  if (e.target.checked && !String(invoiceTaxPct || '').trim()) {
+                    setInvoiceTaxPct('16');
+                  }
+                  if (!e.target.checked) {
+                    setInvoiceCompanyName('');
+                    setInvoiceTaxId('');
+                    setInvoiceAddress('');
+                    setInvoicePhone('');
+                    setInvoiceTaxPct('16');
+                  }
+                }}
+              />
+              <span>Lleva factura</span>
+            </label>
+          </div>
+
           {paymentRequiresChange ? (
             <div className="grid grid-cols-2 gap-3">
               <Field label="Cambio para">
@@ -1544,6 +1916,81 @@ export default function AdvisorOrderComposer({
                   <option value="VES">Bs</option>
                 </select>
               </Field>
+            </div>
+          ) : null}
+
+          {hasInvoice ? (
+            <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <div className="text-sm font-medium text-[#F5F7FB]">Datos de factura</div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nombre o razon social">
+                  <input value={invoiceCompanyName} onChange={(e) => setInvoiceCompanyName(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="RIF o documento">
+                  <input value={invoiceTaxId} onChange={(e) => setInvoiceTaxId(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="Telefono">
+                  <input value={invoicePhone} onChange={(e) => setInvoicePhone(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="% IVA">
+                  <input
+                    value={invoiceTaxPct}
+                    onChange={(e) => setInvoiceTaxPct(e.target.value)}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className={inputClass()}
+                    inputMode="decimal"
+                  />
+                </Field>
+              </div>
+              <Field label="Direccion fiscal">
+                <textarea value={invoiceAddress} onChange={(e) => setInvoiceAddress(e.target.value)} className={inputClass(true)} />
+              </Field>
+            </div>
+          ) : null}
+
+          {hasDeliveryNote ? (
+            <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <div className="text-sm font-medium text-[#F5F7FB]">Datos de nota de entrega</div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Nombre">
+                  <input value={deliveryNoteName} onChange={(e) => setDeliveryNoteName(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="Documento">
+                  <input value={deliveryNoteDocumentId} onChange={(e) => setDeliveryNoteDocumentId(e.target.value)} className={inputClass()} />
+                </Field>
+                <Field label="Telefono">
+                  <input value={deliveryNotePhone} onChange={(e) => setDeliveryNotePhone(e.target.value)} className={inputClass()} />
+                </Field>
+              </div>
+              <Field label="Direccion">
+                <textarea value={deliveryNoteAddress} onChange={(e) => setDeliveryNoteAddress(e.target.value)} className={inputClass(true)} />
+              </Field>
+            </div>
+          ) : null}
+
+          {(hasInvoice || hasDeliveryNote) && selectedClient ? (
+            <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
+              {hasInvoice ? (
+                <div>
+                  <span className="text-[#F5F7FB]">Factura:</span>{' '}
+                  {[invoiceCompanyName.trim(), invoiceTaxId.trim(), invoiceAddress.trim(), invoicePhone.trim()]
+                    .filter(Boolean)
+                    .join(' | ') || 'Sin datos'}
+                </div>
+              ) : null}
+              {hasDeliveryNote ? (
+                <div className={hasInvoice ? 'mt-2' : ''}>
+                  <span className="text-[#F5F7FB]">Nota de entrega:</span>{' '}
+                  {[
+                    deliveryNoteName.trim(),
+                    deliveryNoteDocumentId.trim(),
+                    deliveryNoteAddress.trim(),
+                    deliveryNotePhone.trim(),
+                  ]
+                    .filter(Boolean)
+                    .join(' | ') || 'Sin datos'}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1561,6 +2008,7 @@ export default function AdvisorOrderComposer({
             <div>
               <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
               <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</div>
+              <div className="text-xs text-[#8B93A7]">{fxRateNumber > 0 ? formatBs(finalTotalBs) : 'Falta tasa del dia'}</div>
             </div>
             <div className="flex gap-2">
               <button
@@ -1608,3 +2056,4 @@ export default function AdvisorOrderComposer({
     </>
   );
 }
+

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 type AdvisorShellProps = {
@@ -23,7 +23,9 @@ function isActive(pathname: string, href: string) {
 export default function AdvisorShell(props: AdvisorShellProps) {
   const { children } = props;
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
+  const isEditingOrder = isNewOrderRoute && Number(searchParams.get('fromOrder') || 0) > 0;
 
   return (
     <div className="min-h-screen bg-[#090B10] text-[#F5F7FB]">
@@ -32,7 +34,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[#8B93A7]">VIVO OPS</p>
-              <h1 className="mt-1 truncate text-[20px] font-semibold tracking-[-0.04em]">Asesor</h1>
+              <h1 className="mt-1 truncate text-[18px] font-semibold tracking-[-0.04em]">Asesor</h1>
             </div>
             {!isNewOrderRoute ? (
               <Link
@@ -62,6 +64,25 @@ export default function AdvisorShell(props: AdvisorShellProps) {
               );
             })}
           </div>
+
+          {isNewOrderRoute ? (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-[16px] border border-[#232632] bg-[#12151d] px-3.5 py-2.5">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
+                  Pedidos
+                </div>
+                <div className="truncate text-sm font-semibold text-[#F5F7FB]">
+                  {isEditingOrder ? 'Modificar pedido' : 'Crear pedido'}
+                </div>
+              </div>
+              <Link
+                href="/app/advisor/orders"
+                className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-sm font-medium text-[#F5F7FB]"
+              >
+                Volver
+              </Link>
+            </div>
+          ) : null}
         </header>
 
         <main className="flex-1 px-4 py-4">{children}</main>
