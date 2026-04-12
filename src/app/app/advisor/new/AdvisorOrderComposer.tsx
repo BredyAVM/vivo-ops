@@ -80,6 +80,7 @@ type ClientAddress = {
 
 type ExistingOrderRow = {
   id: number;
+  order_number?: string | null;
   status: string | null;
   fulfillment: FulfillmentType;
   delivery_address: string | null;
