@@ -81,6 +81,7 @@ type ClientAddress = {
 type ExistingOrderRow = {
   id: number;
   order_number?: string | null;
+  total_usd?: number | string | null;
   status: string | null;
   fulfillment: FulfillmentType;
   delivery_address: string | null;
@@ -813,7 +814,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('orders')
               .select(
-                'id, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
+                'id, order_number, total_usd, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
               )
               .eq('id', Number(existingOrderId))
               .eq('attributed_advisor_id', user.id)
