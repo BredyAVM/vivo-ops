@@ -5,6 +5,18 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
 
+function isStandaloneMode() {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as Navigator & {
+    standalone?: boolean;
+  }).standalone === true;
+}
+
+function isIPhoneLike() {
+  if (typeof navigator === 'undefined') return false;
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -29,9 +41,12 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<PushSubscription | null>(null);
+  const [showInstallHint, setShowInstallHint] = useState(false);
 
   useEffect(() => {
     async function boot() {
+      setShowInstallHint(isIPhoneLike() && !isStandaloneMode());
+
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
         setPushState('unsupported');
         return;
@@ -241,6 +256,13 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
           </>
         )}
       </div>
+
+      {showInstallHint ? (
+        <div className="mt-3 rounded-[16px] border border-[#3B3220] bg-[#1C170C] px-3 py-3 text-xs leading-5 text-[#EED991]">
+          En iPhone, las push solo funcionan desde la app instalada en pantalla de inicio. Abrela como app,
+          no desde Safari, y luego toca <span className="font-semibold text-[#FFF3BE]">Activar push</span>.
+        </div>
+      ) : null}
 
       {message ? <div className="mt-3 text-sm text-[#7CE0A9]">{message}</div> : null}
       {error ? <div className="mt-3 text-sm text-[#F0A6AE]">{error}</div> : null}
