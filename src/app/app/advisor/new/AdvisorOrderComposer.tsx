@@ -1443,6 +1443,86 @@ export default function AdvisorOrderComposer({
     return parts.join('\n');
   }
 
+  function buildCleanQuoteSummary() {
+    const parts: string[] = [];
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
+    const clientPhone = selectedClient?.phone || newClientPhone.trim();
+    const deliveryDayLabel = new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      timeZone: 'America/Caracas',
+    });
+    const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
+    const paymentLabelMap: Record<PaymentMethod, string> = {
+      pending: 'pendiente',
+      payment_mobile: 'pago móvil',
+      transfer: 'transferencia',
+      cash_usd: 'efectivo USD',
+      cash_ves: 'efectivo Bs',
+      zelle: 'zelle',
+      mixed: 'mixto',
+    };
+
+    parts.push('*Resumen de Pedido*');
+    parts.push('');
+    parts.push(`✅ Vendedor: ${authUserLabel}`);
+    parts.push('');
+    parts.push(`✅ Cliente: ${clientName}`);
+
+    if (clientPhone) {
+      parts.push('');
+      parts.push(`✅ Teléfono: ${clientPhone}`);
+    }
+
+    parts.push('');
+    parts.push('✅ Pedido:');
+    parts.push('');
+
+    if (draftItems.length === 0) {
+      parts.push('- Sin items cargados');
+    } else {
+      for (const item of draftItems) {
+        const lineBs =
+          item.source_price_currency === 'VES'
+            ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
+            : Number(item.line_total_usd || 0) * fxRateNumber;
+        parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
+        for (const detail of item.editable_detail_lines) {
+          const normalizedDetail = String(detail || '').trim();
+          if (normalizedDetail) parts.push(`▪ ${normalizedDetail}`);
+        }
+      }
+    }
+
+    parts.push('');
+    parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${finalTotalUsd.toFixed(2)}$`);
+    parts.push('');
+    parts.push(`✅ Forma de pago: ${paymentLabelMap[paymentMethod]}`);
+    parts.push('');
+    parts.push('✅ Estatus de pago: Pendiente');
+    parts.push('');
+    parts.push(`✅ Día de entrega ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
+
+    if (!isAsap) {
+      parts.push('');
+      parts.push(`✅ Hora: ${deliveryHourLabel}`);
+    }
+
+    if (fulfillment === 'delivery' && deliveryAddress.trim()) {
+      parts.push('');
+      parts.push(`✅ Dirección: ${deliveryAddress.trim()}`);
+    }
+
+    if (orderNote.trim()) {
+      parts.push('');
+      parts.push(`✅ Nota: ${orderNote.trim()}`);
+    }
+
+    return parts.join('\n');
+  }
+
   async function handleCopyQuote() {
     clearMessages();
     if (draftItems.length === 0) {
@@ -1452,7 +1532,8 @@ export default function AdvisorOrderComposer({
 
     setCopyingQuote(true);
     try {
-      await navigator.clipboard.writeText(buildQuoteSummary());
+      void buildQuoteSummary;
+      await navigator.clipboard.writeText(buildCleanQuoteSummary());
       setInfo('Resumen copiado para WhatsApp.');
     } catch {
       setError('No se pudo copiar el resumen.');

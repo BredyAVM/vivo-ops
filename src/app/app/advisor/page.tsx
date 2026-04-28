@@ -14,6 +14,14 @@ type OrderRow = {
   total_usd: number | string;
   created_at: string;
   delivery_address: string | null;
+  extra_fields: {
+    schedule?: {
+      date?: string | null;
+      time_12?: string | null;
+      time_24?: string | null;
+      asap?: boolean | null;
+    } | null;
+  } | null;
   client: { full_name: string | null; phone: string | null }[] | { full_name: string | null; phone: string | null } | null;
 };
 
@@ -70,13 +78,6 @@ function getIsoDayKey(value: string) {
   });
 }
 
-function getDayRange(key: string) {
-  return {
-    startIso: `${key}T00:00:00-04:00`,
-    endIso: `${key}T23:59:59-04:00`,
-  };
-}
-
 function buildCalendarDays(activeKey: string) {
   const base = new Date(`${activeKey}T12:00:00-04:00`);
   return Array.from({ length: 6 }, (_, idx) => {
@@ -93,6 +94,31 @@ function buildCalendarDays(activeKey: string) {
 
 function firstName(fullName: string) {
   return fullName.trim().split(/\s+/)[0] || 'Asesor';
+}
+
+function isDayKey(value: string | null | undefined) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function getAgendaDayKey(order: Pick<OrderRow, 'created_at' | 'extra_fields'>) {
+  const scheduledDay = order.extra_fields?.schedule?.date;
+  return isDayKey(scheduledDay) ? String(scheduledDay) : getIsoDayKey(order.created_at);
+}
+
+function getAgendaSortKey(order: Pick<OrderRow, 'created_at' | 'extra_fields'>) {
+  const schedule = order.extra_fields?.schedule;
+  const dayKey = getAgendaDayKey(order);
+  const timeKey = schedule?.asap ? '00:00' : String(schedule?.time_24 || '').trim() || '99:99';
+
+  return `${dayKey}|${timeKey}|${order.created_at}`;
+}
+
+function getAgendaTimeLabel(order: Pick<OrderRow, 'created_at' | 'extra_fields'>) {
+  const schedule = order.extra_fields?.schedule;
+  if (schedule?.asap) return 'Lo antes posible';
+
+  const time12 = String(schedule?.time_12 || '').trim();
+  return time12 || formatDateTime(order.created_at);
 }
 
 function statusLabel(status: string) {
@@ -129,18 +155,16 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .maybeSingle();
 
   const selectedDayKey = params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
-  const { startIso, endIso } = getDayRange(selectedDayKey);
 
   const [{ data: ordersData }, { data: paymentsData }] = await Promise.all([
     ctx.supabase
       .from('orders')
       .select(
-        'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, client:clients!orders_client_id_fkey(full_name, phone)'
+        'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
       )
       .eq('attributed_advisor_id', ctx.user.id)
-      .gte('created_at', startIso)
-      .lte('created_at', endIso)
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: false })
+      .limit(300),
     ctx.supabase
       .from('payment_reports')
       .select('order_id, status')
@@ -160,7 +184,9 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     paymentStatusByOrderId.set(report.order_id, current);
   }
 
-  const agendaOrders = orders.filter((order) => getIsoDayKey(order.created_at) === selectedDayKey);
+  const agendaOrders = orders
+    .filter((order) => getAgendaDayKey(order) === selectedDayKey)
+    .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
   const openOrders = agendaOrders.filter((order) => !['delivered', 'cancelled'].includes(order.status));
   const unpaidOrders = agendaOrders.filter((order) => {
     if (order.status === 'cancelled') return false;
@@ -271,7 +297,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   {order.fulfillment === 'delivery' ? order.delivery_address?.trim() || 'Delivery sin direccion' : 'Retiro en tienda'}
                 </div>
                 <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
-                  <span>{formatDateTime(order.created_at)}</span>
+                  <span>{getAgendaTimeLabel(order)}</span>
                   <span className="font-medium text-[#F0D000]">{formatUsd(order.total_usd)}</span>
                 </div>
               </Link>

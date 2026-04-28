@@ -157,7 +157,38 @@ function getFilterForEvent(eventType: string): InboxFilter {
   return 'all';
 }
 
+function normalizeEventType(event: RawTimelineEvent) {
+  return safeText(event.event_type ?? event.event, '');
+}
+
+function buildEventDedupKey(event: RawTimelineEvent) {
+  return [
+    Number(event.order_id || 0),
+    normalizeEventType(event),
+    safeText(event.created_at, ''),
+    safeText(event.title, ''),
+    safeText(event.message, ''),
+  ].join('|');
+}
+
+function dedupeEvents(events: RawTimelineEvent[]) {
+  const seen = new Set<string>();
+
+  return events.filter((event) => {
+    const eventType = normalizeEventType(event);
+    if (!eventType) return false;
+
+    const dedupKey = buildEventDedupKey(event);
+    if (seen.has(dedupKey)) return false;
+
+    seen.add(dedupKey);
+    return true;
+  });
+}
+
 function eventTitle(eventType: string, fallbackTitle: string) {
+  if (eventType === 'kitchen_taken') return 'Cocina tomó la orden';
+
   const titles: Record<string, string> = {
     order_approved: 'Orden aprobada',
     order_returned_to_review: 'Orden devuelta',
@@ -257,10 +288,10 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       .order('created_at', { ascending: false }),
   ]);
 
-  const rawEvents = [
+  const rawEvents = dedupeEvents([
     ...((timelineResult.data ?? []) as RawTimelineEvent[]),
     ...((legacyResult.data ?? []) as RawTimelineEvent[]),
-  ];
+  ]);
 
   const inboxEvents: InboxEvent[] = rawEvents
     .map((event) => {
@@ -268,7 +299,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       const order = orderById.get(orderId);
       if (!order) return null;
 
-      const eventType = safeText(event.event_type ?? event.event, '');
+      const eventType = normalizeEventType(event);
       if (!INCLUDED_EVENT_TYPES.has(eventType)) return null;
 
       const payload =
@@ -302,7 +333,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
   const pendingCount = rawEvents.filter((event) =>
-    ACTION_EVENT_TYPES.has(safeText(event.event_type ?? event.event, ''))
+    ACTION_EVENT_TYPES.has(normalizeEventType(event))
   ).length;
 
   return (

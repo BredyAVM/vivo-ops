@@ -263,6 +263,96 @@ function buildWhatsAppOrderSummary({
   return parts.join('\n');
 }
 
+function buildCleanWhatsAppOrderSummary({
+  order,
+  items,
+  advisorLabel,
+}: {
+  order: OrderRow & {
+    client: {
+      full_name: string | null;
+      phone: string | null;
+      client_type: string | null;
+      fund_balance_usd: number | string | null;
+    } | null;
+  };
+  items: OrderItemRow[];
+  advisorLabel: string;
+}) {
+  const parts: string[] = [];
+  const totalBs = order.extra_fields?.pricing?.total_bs;
+
+  parts.push('*Resumen de Pedido*');
+  parts.push('');
+  parts.push(`✅ Asesor: ${advisorLabel}`);
+  parts.push(`✅ Cliente: ${order.client?.full_name?.trim() || 'Cliente'}`);
+
+  if (order.client?.phone?.trim()) {
+    parts.push(`✅ Teléfono: ${order.client.phone.trim()}`);
+  }
+
+  parts.push('');
+  parts.push('✅ Pedido:');
+  parts.push('');
+
+  if (items.length === 0) {
+    parts.push('- Sin items cargados');
+  } else {
+    for (const item of items) {
+      parts.push(`▪ ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`);
+      for (const detail of getVisibleEditableDetailLines(item.notes)) {
+        parts.push(`▪ ${detail}`);
+      }
+    }
+  }
+
+  parts.push('');
+  parts.push(`TOTAL: ${totalBs != null ? `${formatBs(totalBs)} / ` : ''}${formatUsd(order.total_usd)}`);
+  parts.push('');
+  parts.push(`✅ Entrega: ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
+  parts.push(`✅ Día de entrega: ${deliveryText(order.extra_fields?.schedule)}`);
+
+  if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
+    parts.push(`✅ Dirección: ${order.delivery_address.trim()}`);
+  }
+
+  if (order.notes?.trim()) {
+    parts.push('');
+    parts.push(`✅ Notas: ${order.notes.trim()}`);
+  }
+
+  return parts.join('\n');
+}
+
+function normalizeEventType(event: RawTimelineEvent) {
+  return safeText(event.event_type ?? event.event, '');
+}
+
+function buildEventDedupKey(event: RawTimelineEvent) {
+  return [
+    Number(event.order_id || 0),
+    normalizeEventType(event),
+    safeText(event.created_at, ''),
+    safeText(event.title, ''),
+    safeText(event.message, ''),
+  ].join('|');
+}
+
+function dedupeEvents(events: RawTimelineEvent[]) {
+  const seen = new Set<string>();
+
+  return events.filter((event) => {
+    const eventType = normalizeEventType(event);
+    if (!eventType) return false;
+
+    const dedupKey = buildEventDedupKey(event);
+    if (seen.has(dedupKey)) return false;
+
+    seen.add(dedupKey);
+    return true;
+  });
+}
+
 function eventTitle(eventType: string, fallbackTitle: string) {
   const titles: Record<string, string> = {
     order_modified: 'Orden modificada',
@@ -399,14 +489,14 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
-  const rawTimeline = [
+  const rawTimeline = dedupeEvents([
     ...((timelineResult.data ?? []) as RawTimelineEvent[]),
     ...((legacyResult.data ?? []) as RawTimelineEvent[]),
-  ];
+  ]);
 
   const timeline: TimelineEvent[] = rawTimeline
     .map((event) => {
-      const eventType = safeText(event.event_type ?? event.event, '');
+      const eventType = normalizeEventType(event);
       const payload =
         event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
           ? (event.payload as Record<string, unknown>)
@@ -476,7 +566,8 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
       order.status === 'in_kitchen' ||
       order.status === 'ready');
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
-  const whatsappSummary = buildWhatsAppOrderSummary({
+  void buildWhatsAppOrderSummary;
+  const whatsappSummary = buildCleanWhatsAppOrderSummary({
     order,
     items,
     advisorLabel,
