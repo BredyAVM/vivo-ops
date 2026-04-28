@@ -473,7 +473,7 @@ export default async function AdvisorOrderDetailPage({
     client: Array.isArray(orderClientData) ? orderClientData[0] ?? null : orderClientData ?? null,
   };
 
-  const [itemsResult, paymentsResult, timelineResult, legacyResult, moneyAccountsResult] =
+  const [itemsResult, paymentsResult, timelineResult, legacyResult, moneyAccountsResult, exchangeRateResult] =
     await Promise.all([
       ctx.supabase
         .from('order_items')
@@ -502,6 +502,13 @@ export default async function AdvisorOrderDetailPage({
         .select('id, name, currency_code, is_active')
         .eq('is_active', true)
         .order('name', { ascending: true }),
+      ctx.supabase
+        .from('exchange_rates')
+        .select('rate_bs_per_usd')
+        .eq('is_active', true)
+        .order('effective_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
@@ -559,6 +566,7 @@ export default async function AdvisorOrderDetailPage({
     currencyCode: safeText(account.currency_code, 'USD'),
     isActive: Boolean(account.is_active),
   }));
+  const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
   const advisorLabel = safeText(
     ctx.user.user_metadata?.full_name ??
       ctx.user.user_metadata?.name ??
@@ -695,6 +703,7 @@ export default async function AdvisorOrderDetailPage({
           canDuplicateOrder={canDuplicateOrder}
           canReportPayment={canReportPayment}
           moneyAccounts={moneyAccounts}
+          activeBsRate={activeBsRate}
           whatsappSummary={whatsappSummary}
           whatsappContactHref={whatsappContactHref}
           whatsappContactLabel={contactPhoneRaw || ''}

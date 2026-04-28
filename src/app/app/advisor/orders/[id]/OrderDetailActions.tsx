@@ -12,6 +12,20 @@ type MoneyAccountOption = {
   isActive: boolean;
 };
 
+function getSuggestedAccountAmount(
+  usdAmount: number,
+  currencyCode: string | null | undefined,
+  activeBsRate: number,
+) {
+  if (!Number.isFinite(usdAmount) || usdAmount <= 0) return '';
+
+  if (currencyCode === 'VES' && Number.isFinite(activeBsRate) && activeBsRate > 0) {
+    return String(Number((usdAmount * activeBsRate).toFixed(2)));
+  }
+
+  return String(Number(usdAmount.toFixed(2)));
+}
+
 function inputClass(multiline = false) {
   return [
     'w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
@@ -41,6 +55,7 @@ export default function OrderDetailActions({
   canDuplicateOrder,
   canReportPayment,
   moneyAccounts,
+  activeBsRate,
   whatsappSummary,
   whatsappContactHref,
   whatsappContactLabel,
@@ -52,6 +67,7 @@ export default function OrderDetailActions({
   canDuplicateOrder: boolean;
   canReportPayment: boolean;
   moneyAccounts: MoneyAccountOption[];
+  activeBsRate: number;
   whatsappSummary: string;
   whatsappContactHref?: string;
   whatsappContactLabel?: string;
@@ -63,7 +79,7 @@ export default function OrderDetailActions({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [moneyAccountId, setMoneyAccountId] = useState('');
-  const [amount, setAmount] = useState(balanceUsd > 0 ? String(Number(balanceUsd.toFixed(2))) : '');
+  const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
   const [referenceCode, setReferenceCode] = useState('');
   const [payerName, setPayerName] = useState('');
@@ -162,6 +178,16 @@ export default function OrderDetailActions({
           <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
             El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviara a revision.
           </div>
+          {selectedAccount?.currencyCode === 'VES' && activeBsRate > 0 ? (
+            <div className="mt-2 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#8B93A7]">
+              Sugerido en Bs:{' '}
+              <span className="font-medium text-[#F5F7FB]">
+                {getSuggestedAccountAmount(balanceUsd, 'VES', activeBsRate)}
+              </span>{' '}
+              · Tasa activa:{' '}
+              <span className="font-medium text-[#F5F7FB]">{Number(activeBsRate.toFixed(2))}</span>
+            </div>
+          ) : null}
 
           <div className="mt-3 space-y-3">
             <Field label="Cuenta">
@@ -171,10 +197,12 @@ export default function OrderDetailActions({
                   const nextId = e.target.value;
                   setMoneyAccountId(nextId);
                   const account = activeAccounts.find((row) => row.id === Number(nextId)) ?? null;
-                  if (account?.currencyCode === 'USD') {
-                    setAmount(balanceUsd > 0 ? String(Number(balanceUsd.toFixed(2))) : '');
-                    setExchangeRate('');
-                  }
+                  setAmount(getSuggestedAccountAmount(balanceUsd, account?.currencyCode, activeBsRate));
+                  setExchangeRate(
+                    account?.currencyCode === 'VES' && activeBsRate > 0
+                      ? String(Number(activeBsRate.toFixed(2)))
+                      : '',
+                  );
                 }}
                 className={inputClass()}
               >
