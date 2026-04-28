@@ -1,44 +1,14 @@
-'use client';
-
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { advisorInboxStorageKey } from './inbox/inbox-shared';
-
-function readStoredIds(userId: string) {
-  if (typeof window === 'undefined') return new Set<string>();
-
-  try {
-    const raw = window.localStorage.getItem(advisorInboxStorageKey(userId));
-    if (!raw) return new Set<string>();
-    const parsed = JSON.parse(raw) as string[];
-    return new Set(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return new Set<string>();
-  }
-}
 
 export default function AdvisorInboxBell({
-  userId,
   advisorName,
-  eventIds,
+  unreadCount,
   href = '/app/advisor/inbox?filter=pending',
 }: {
-  userId: string;
   advisorName: string;
-  eventIds: string[];
+  unreadCount: number;
   href?: string;
 }) {
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    setReadIds(readStoredIds(userId));
-  }, [userId]);
-
-  const unreadCount = useMemo(
-    () => eventIds.filter((eventId) => !readIds.has(eventId)).length,
-    [eventIds, readIds]
-  );
-
   return (
     <Link
       href={href}

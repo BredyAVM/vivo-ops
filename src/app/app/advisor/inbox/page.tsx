@@ -4,15 +4,12 @@ import { PageIntro } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
 import {
   type InboxEvent,
-  type RawTimelineEvent,
   ACTION_EVENT_TYPES,
   INCLUDED_EVENT_TYPES,
   buildDetailLines,
-  dedupeEvents,
   eventTitle,
   eventTone,
   getFilterForEvent,
-  normalizeEventType,
   normalizeFilter,
   safeText,
   shortMessage,
@@ -36,6 +33,34 @@ type OrderRow = {
   client:
     | { full_name: string | null; phone: string | null }[]
     | { full_name: string | null; phone: string | null }
+    | null;
+};
+
+type TimelineRecipientRow = {
+  id: number;
+  requires_action: boolean;
+  read_at: string | null;
+  event:
+    | {
+        id: number | string | null;
+        order_id: number | string | null;
+        order_number: string | null;
+        event_type: string | null;
+        title: string | null;
+        message: string | null;
+        payload: Record<string, unknown> | null;
+        created_at: string | null;
+      }[]
+    | {
+        id: number | string | null;
+        order_id: number | string | null;
+        order_number: string | null;
+        event_type: string | null;
+        title: string | null;
+        message: string | null;
+        payload: Record<string, unknown> | null;
+        created_at: string | null;
+      }
     | null;
 };
 
@@ -80,49 +105,39 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
-
-  const orderIds = orders.map((order) => order.id);
   const orderById = new Map(orders.map((order) => [order.id, order]));
 
-  const [timelineResult, legacyResult] = await Promise.all([
-    ctx.supabase
-      .from('order_timeline_events')
-      .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
-      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-      .order('created_at', { ascending: false }),
-    ctx.supabase
-      .from('order_events')
-      .select('id, order_id, order_number, event_type, event_group, title, message, severity, actor_user_id, payload, created_at, event, performed_by, meta')
-      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-      .order('created_at', { ascending: false }),
-  ]);
+  const { data: recipientsData } = await ctx.supabase
+    .from('order_timeline_event_recipients')
+    .select(
+      'id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, order_number, event_type, title, message, payload, created_at)'
+    )
+    .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
+    .limit(200);
 
-  const rawEvents = dedupeEvents([
-    ...((timelineResult.data ?? []) as RawTimelineEvent[]),
-    ...((legacyResult.data ?? []) as RawTimelineEvent[]),
-  ]);
+  const inboxEvents: InboxEvent[] = ((recipientsData ?? []) as TimelineRecipientRow[])
+    .map((recipient) => {
+      const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
+      if (!event) return null;
 
-  const inboxEvents: InboxEvent[] = rawEvents
-    .map((event) => {
+      const eventType = safeText(event.event_type, '');
+      if (!INCLUDED_EVENT_TYPES.has(eventType)) return null;
+
       const orderId = Number(event.order_id || 0);
       const order = orderById.get(orderId);
       if (!order) return null;
 
-      const eventType = normalizeEventType(event);
-      if (!INCLUDED_EVENT_TYPES.has(eventType)) return null;
-
       const payload =
         event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
           ? (event.payload as Record<string, unknown>)
-          : event.meta && typeof event.meta === 'object' && !Array.isArray(event.meta)
-            ? (event.meta as Record<string, unknown>)
-            : {};
+          : {};
       const detailLines = buildDetailLines(eventType, payload);
 
       return {
-        id: `${eventType}-${String(event.id ?? '')}`,
+        id: `recipient-${recipient.id}`,
+        recipientId: Number(recipient.id),
         orderId,
-        orderNumber: safeText(order.order_number, `Orden ${orderId}`),
+        orderNumber: safeText(event.order_number || order.order_number, `Orden ${orderId}`),
         clientName: getClientName(order),
         deliveryLabel: getDeliveryLabel(order),
         title: eventTitle(eventType, String(event.title || '')),
@@ -130,7 +145,8 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         eventType,
         createdAt: String(event.created_at || order.created_at),
         detailLines,
-        requiresAction: ACTION_EVENT_TYPES.has(eventType),
+        requiresAction: Boolean(recipient.requires_action) || ACTION_EVENT_TYPES.has(eventType),
+        readAt: recipient.read_at,
         tone: eventTone(eventType),
       } satisfies InboxEvent;
     })
@@ -157,7 +173,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         }
       />
 
-      <AdvisorInboxClient userId={ctx.user.id} activeFilter={activeFilter} events={inboxEvents} />
+      <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} />
     </div>
   );
 }

@@ -18,6 +18,7 @@ export type RawTimelineEvent = {
 
 export type InboxEvent = {
   id: string;
+  recipientId: number;
   orderId: number;
   orderNumber: string;
   clientName: string;
@@ -28,6 +29,7 @@ export type InboxEvent = {
   createdAt: string;
   detailLines: string[];
   requiresAction: boolean;
+  readAt: string | null;
   tone: 'neutral' | 'warning' | 'success' | 'danger';
 };
 
@@ -209,8 +211,4 @@ export function shortMessage(rawMessage: string | null, details: string[]) {
   const message = safeText(rawMessage, '');
   if (message) return message;
   return details[0] || 'Sin detalle adicional.';
-}
-
-export function advisorInboxStorageKey(userId: string) {
-  return `advisor_inbox_read_v1:${userId}`;
 }

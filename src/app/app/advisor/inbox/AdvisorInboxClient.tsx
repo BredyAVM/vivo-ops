@@ -1,79 +1,87 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
 import {
   type InboxEvent,
   FILTERS,
   type InboxFilter,
-  advisorInboxStorageKey,
   formatEventTime,
 } from './inbox-shared';
 
-function readStoredIds(userId: string) {
-  if (typeof window === 'undefined') return new Set<string>();
-
-  try {
-    const raw = window.localStorage.getItem(advisorInboxStorageKey(userId));
-    if (!raw) return new Set<string>();
-    const parsed = JSON.parse(raw) as string[];
-    return new Set(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return new Set<string>();
-  }
-}
-
-function saveStoredIds(userId: string, ids: Set<string>) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(advisorInboxStorageKey(userId), JSON.stringify(Array.from(ids)));
-}
-
 export default function AdvisorInboxClient({
-  userId,
   activeFilter,
-  events,
+  initialEvents,
 }: {
-  userId: string;
   activeFilter: InboxFilter;
-  events: InboxEvent[];
+  initialEvents: InboxEvent[];
 }) {
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    setReadIds(readStoredIds(userId));
-  }, [userId]);
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
+  const [events, setEvents] = useState(initialEvents);
+  const [savingIds, setSavingIds] = useState<number[]>([]);
 
   const unreadCount = useMemo(
-    () => events.filter((event) => !readIds.has(event.id)).length,
-    [events, readIds]
+    () => events.filter((event) => !event.readAt).length,
+    [events]
   );
   const unreadActionCount = useMemo(
-    () => events.filter((event) => event.requiresAction && !readIds.has(event.id)).length,
-    [events, readIds]
+    () => events.filter((event) => event.requiresAction && !event.readAt).length,
+    [events]
   );
 
-  function updateReadIds(next: Set<string>) {
-    setReadIds(new Set(next));
-    saveStoredIds(userId, next);
+  function isSaving(recipientId: number) {
+    return savingIds.includes(recipientId);
   }
 
-  function markRead(eventId: string) {
-    const next = new Set(readIds);
-    next.add(eventId);
-    updateReadIds(next);
+  async function setRecipientReadState(recipientId: number, read: boolean) {
+    setSavingIds((current) => [...current, recipientId]);
+
+    const nextReadAt = read ? new Date().toISOString() : null;
+    const previousEvents = events;
+    setEvents((current) =>
+      current.map((event) =>
+        event.recipientId === recipientId ? { ...event, readAt: nextReadAt } : event
+      )
+    );
+
+    const { error } = await supabase
+      .from('order_timeline_event_recipients')
+      .update({ read_at: nextReadAt })
+      .eq('id', recipientId);
+
+    if (error) {
+      setEvents(previousEvents);
+    }
+
+    setSavingIds((current) => current.filter((id) => id !== recipientId));
   }
 
-  function markUnread(eventId: string) {
-    const next = new Set(readIds);
-    next.delete(eventId);
-    updateReadIds(next);
-  }
+  async function markAllVisibleAsRead() {
+    const recipientIds = events.filter((event) => !event.readAt).map((event) => event.recipientId);
+    if (recipientIds.length === 0) return;
 
-  function markAllVisibleAsRead() {
-    const next = new Set(readIds);
-    for (const event of events) next.add(event.id);
-    updateReadIds(next);
+    setSavingIds((current) => [...current, ...recipientIds]);
+
+    const nextReadAt = new Date().toISOString();
+    const previousEvents = events;
+    setEvents((current) =>
+      current.map((event) =>
+        recipientIds.includes(event.recipientId) ? { ...event, readAt: nextReadAt } : event
+      )
+    );
+
+    const { error } = await supabase
+      .from('order_timeline_event_recipients')
+      .update({ read_at: nextReadAt })
+      .in('id', recipientIds);
+
+    if (error) {
+      setEvents(previousEvents);
+    }
+
+    setSavingIds((current) => current.filter((id) => !recipientIds.includes(id)));
   }
 
   return (
@@ -112,7 +120,7 @@ export default function AdvisorInboxClient({
             {unreadCount > 0 ? (
               <button
                 type="button"
-                onClick={markAllVisibleAsRead}
+                onClick={() => void markAllVisibleAsRead()}
                 className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
               >
                 Marcar visibles
@@ -129,7 +137,7 @@ export default function AdvisorInboxClient({
         ) : (
           <div className="space-y-2.5">
             {events.map((event) => {
-              const isRead = readIds.has(event.id);
+              const isRead = Boolean(event.readAt);
 
               return (
                 <article
@@ -168,14 +176,23 @@ export default function AdvisorInboxClient({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => (isRead ? markUnread(event.id) : markRead(event.id))}
-                        className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2.5 text-xs font-medium text-[#CCD3E2]"
+                        onClick={() => void setRecipientReadState(event.recipientId, isRead ? false : true)}
+                        disabled={isSaving(event.recipientId)}
+                        className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2.5 text-xs font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
                       >
-                        {isRead ? 'No leida' : 'Marcar leida'}
+                        {isSaving(event.recipientId)
+                          ? 'Guardando...'
+                          : isRead
+                            ? 'No leida'
+                            : 'Marcar leida'}
                       </button>
                       <Link
                         href={`/app/advisor/orders/${event.orderId}`}
-                        onClick={() => markRead(event.id)}
+                        onClick={() => {
+                          if (!isRead && !isSaving(event.recipientId)) {
+                            void setRecipientReadState(event.recipientId, true);
+                          }
+                        }}
                         className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2.5 text-xs font-medium text-[#F0D000]"
                       >
                         Abrir pedido
