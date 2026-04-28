@@ -2410,11 +2410,11 @@ export default function AdvisorOrderComposer({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-[1fr_124px] gap-2">
+          <div className="grid grid-cols-[1fr_156px] gap-2">
             <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
               {selectedProduct ? selectedProduct.name : 'Selecciona producto'}
             </div>
-            <div className="grid grid-cols-[40px_1fr_40px] gap-2">
+            <div className="grid grid-cols-[44px_minmax(52px,1fr)_44px] gap-2">
               <button
                 type="button"
                 onClick={() => updateQty(Math.max(1, Number(qty || 1) - 1))}
@@ -2432,7 +2432,7 @@ export default function AdvisorOrderComposer({
                     addDraftItem();
                   }
                 }}
-                className={inputClass()}
+                className="h-11 min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
                 inputMode="numeric"
                 placeholder="Cant."
               />
