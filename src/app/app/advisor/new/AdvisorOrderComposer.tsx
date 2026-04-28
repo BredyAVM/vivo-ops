@@ -595,6 +595,11 @@ function ConfigSheet(props: {
 }) {
   if (!props.open) return null;
 
+  const remaining = props.totalLimit > 0 ? props.totalLimit - props.totalSelected : 0;
+  const canConfirm =
+    props.options.length === 0 ||
+    (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : props.selections.length > 0);
+
   return (
     <div className="fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
       <div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border border-[#232632] bg-[#0C1017] px-4 pb-6 pt-4">
@@ -606,7 +611,9 @@ function ConfigSheet(props: {
               </div>
               <h3 className="mt-1 text-lg font-semibold text-[#F5F7FB]">{props.title}</h3>
               <div className="mt-1 text-xs text-[#8B93A7]">
-                Seleccionado {props.totalSelected} de {props.totalLimit || 0} piezas
+                {props.totalLimit > 0
+                  ? `Seleccionado ${props.totalSelected} de ${props.totalLimit} piezas`
+                  : `${props.selections.length} opciones marcadas`}
               </div>
             </div>
             <button
@@ -617,6 +624,17 @@ function ConfigSheet(props: {
               Cerrar
             </button>
           </div>
+
+          {props.totalLimit > 0 ? (
+            <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[#AAB2C5]">Piezas por completar</span>
+                <span className={remaining === 0 ? 'font-semibold text-emerald-400' : 'font-semibold text-[#F7DA66]'}>
+                  {remaining > 0 ? `${remaining} pendientes` : 'Completo'}
+                </span>
+              </div>
+            </div>
+          ) : null}
 
           <Field label="Para">
             <input
@@ -640,18 +658,35 @@ function ConfigSheet(props: {
                 return (
                   <div
                     key={option.id}
-                    className="grid grid-cols-[1fr_88px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                    className="grid grid-cols-[1fr_112px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
                   >
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
                       <div className="mt-1 text-xs text-[#8B93A7]">{option.sku || 'Sin codigo'}</div>
                     </div>
-                    <input
-                      value={String(currentQty)}
-                      onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
-                      className={inputClass()}
-                      inputMode="numeric"
-                    />
+                    <div className="grid grid-cols-[32px_1fr_32px] gap-2">
+                      <button
+                        type="button"
+                        onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
+                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-sm font-semibold text-[#F5F7FB]"
+                      >
+                        -
+                      </button>
+                      <input
+                        value={String(currentQty)}
+                        onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
+                        onFocus={(e) => e.currentTarget.select()}
+                        className={inputClass()}
+                        inputMode="numeric"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => props.onChangeQty(option, currentQty + 1)}
+                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-sm font-semibold text-[#F5F7FB]"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                 );
               })
@@ -661,7 +696,11 @@ function ConfigSheet(props: {
           <button
             type="button"
             onClick={props.onConfirm}
-            className="h-11 w-full rounded-[16px] bg-[#F0D000] text-sm font-semibold text-[#17191E]"
+            disabled={!canConfirm}
+            className={[
+              'h-11 w-full rounded-[16px] text-sm font-semibold',
+              canConfirm ? 'bg-[#F0D000] text-[#17191E]' : 'bg-[#232632] text-[#6F7890]',
+            ].join(' ')}
           >
             {props.isEditing ? 'Guardar composicion' : 'Confirmar composicion'}
           </button>
@@ -742,6 +781,8 @@ export default function AdvisorOrderComposer({
   const [deliveryNoteDocumentId, setDeliveryNoteDocumentId] = useState('');
   const [deliveryNoteAddress, setDeliveryNoteAddress] = useState('');
   const [deliveryNotePhone, setDeliveryNotePhone] = useState('');
+  const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
+  const [deliveryNotePanelOpen, setDeliveryNotePanelOpen] = useState(false);
   const [copyingQuote, setCopyingQuote] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderNumber, setExistingOrderNumber] = useState('');
@@ -1057,6 +1098,8 @@ export default function AdvisorOrderComposer({
           );
           setHasDeliveryNote(Boolean(documents?.has_delivery_note));
           setHasInvoice(Boolean(documents?.has_invoice));
+          setDeliveryNotePanelOpen(Boolean(documents?.has_delivery_note));
+          setInvoicePanelOpen(Boolean(documents?.has_invoice));
           setInvoiceCompanyName(
             documents?.invoice_snapshot?.company_name ||
               orderClient?.billing_company_name ||
@@ -2399,9 +2442,9 @@ export default function AdvisorOrderComposer({
                     <div className="text-sm font-medium text-[#F0D000]">{formatUsd(item.line_total_usd)}</div>
                   </div>
 
-                  {item.editable_detail_lines.length > 0 ? (
+                  {getVisibleDetailLines(item.editable_detail_lines).length > 0 ? (
                     <div className="mt-2 space-y-1 rounded-[14px] bg-[#0B0F15] px-3 py-2 text-xs text-[#AAB2C5]">
-                      {item.editable_detail_lines.map((line, index) => (
+                      {getVisibleDetailLines(item.editable_detail_lines).map((line, index) => (
                         <div key={`${item.localId}-${index}`}>- {line}</div>
                       ))}
                     </div>
@@ -2619,6 +2662,7 @@ export default function AdvisorOrderComposer({
                 checked={hasDeliveryNote}
                 onChange={(e) => {
                   setHasDeliveryNote(e.target.checked);
+                  setDeliveryNotePanelOpen(e.target.checked);
                   if (!e.target.checked) {
                     setDeliveryNoteName('');
                     setDeliveryNoteDocumentId('');
@@ -2636,6 +2680,7 @@ export default function AdvisorOrderComposer({
                 checked={hasInvoice}
                 onChange={(e) => {
                   setHasInvoice(e.target.checked);
+                  setInvoicePanelOpen(e.target.checked);
                   if (e.target.checked && !String(invoiceTaxPct || '').trim()) {
                     setInvoiceTaxPct('16');
                   }
@@ -2668,7 +2713,21 @@ export default function AdvisorOrderComposer({
 
           {hasInvoice ? (
             <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-              <div className="text-sm font-medium text-[#F5F7FB]">Datos de factura</div>
+              <button
+                type="button"
+                onClick={() => setInvoicePanelOpen((current) => !current)}
+                className="flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-sm font-medium text-[#F5F7FB]">Datos de factura</div>
+                  <div className="mt-1 text-xs text-[#8B93A7]">
+                    {invoiceCompanyName.trim() || invoiceTaxId.trim() ? 'Con datos cargados' : 'Toca para completar'}
+                  </div>
+                </div>
+                <span className="text-xs text-[#AAB2C5]">{invoicePanelOpen ? 'Ocultar' : 'Abrir'}</span>
+              </button>
+              {invoicePanelOpen ? (
+                <>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Nombre o razon social">
                   <input value={invoiceCompanyName} onChange={(e) => setInvoiceCompanyName(e.target.value)} className={inputClass()} />
@@ -2692,12 +2751,28 @@ export default function AdvisorOrderComposer({
               <Field label="Direccion fiscal">
                 <textarea value={invoiceAddress} onChange={(e) => setInvoiceAddress(e.target.value)} className={inputClass(true)} />
               </Field>
+                </>
+              ) : null}
             </div>
           ) : null}
 
           {hasDeliveryNote ? (
             <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-              <div className="text-sm font-medium text-[#F5F7FB]">Datos de nota de entrega</div>
+              <button
+                type="button"
+                onClick={() => setDeliveryNotePanelOpen((current) => !current)}
+                className="flex items-center justify-between text-left"
+              >
+                <div>
+                  <div className="text-sm font-medium text-[#F5F7FB]">Datos de nota de entrega</div>
+                  <div className="mt-1 text-xs text-[#8B93A7]">
+                    {deliveryNoteName.trim() || deliveryNoteDocumentId.trim() ? 'Con datos cargados' : 'Toca para completar'}
+                  </div>
+                </div>
+                <span className="text-xs text-[#AAB2C5]">{deliveryNotePanelOpen ? 'Ocultar' : 'Abrir'}</span>
+              </button>
+              {deliveryNotePanelOpen ? (
+                <>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Nombre">
                   <input value={deliveryNoteName} onChange={(e) => setDeliveryNoteName(e.target.value)} className={inputClass()} />
@@ -2712,6 +2787,8 @@ export default function AdvisorOrderComposer({
               <Field label="Direccion">
                 <textarea value={deliveryNoteAddress} onChange={(e) => setDeliveryNoteAddress(e.target.value)} className={inputClass(true)} />
               </Field>
+                </>
+              ) : null}
             </div>
           ) : null}
 
