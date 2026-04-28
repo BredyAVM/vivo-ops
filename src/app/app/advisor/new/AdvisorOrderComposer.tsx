@@ -308,6 +308,38 @@ function formatBsWhatsApp(value: number) {
   }).format(value)}`;
 }
 
+const HIDDEN_DETAIL_PREFIX = '@sel|';
+const WHATSAPP_BULLET = '\u2022';
+
+function getPaymentMethodLabel(method: PaymentMethod) {
+  const labels: Record<PaymentMethod, string> = {
+    pending: 'pendiente',
+    payment_mobile: 'pago movil',
+    transfer: 'transferencia',
+    cash_usd: 'efectivo USD',
+    cash_ves: 'efectivo Bs',
+    zelle: 'zelle',
+    mixed: 'mixto',
+  };
+
+  return labels[method];
+}
+
+function getVisibleDetailLines(lines: string[]) {
+  return lines
+    .map((line) => normalizeSnapshotText(line))
+    .filter((line) => line && !line.startsWith(HIDDEN_DETAIL_PREFIX));
+}
+
+function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
+  const lineBs =
+    item.source_price_currency === 'VES'
+      ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
+      : Number(item.line_total_usd || 0) * fxRateNumber;
+
+  return `${WHATSAPP_BULLET} ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`;
+}
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
@@ -1472,6 +1504,17 @@ export default function AdvisorOrderComposer({
     setDraftItems((current) => current.filter((item) => item.localId !== localId));
   }
 
+  function updateQty(nextValue: number | string) {
+    const raw = String(nextValue ?? '').trim();
+    if (!raw) {
+      setQty('');
+      return;
+    }
+
+    const normalized = Math.max(1, Math.floor(Number(raw) || 1));
+    setQty(String(normalized));
+  }
+
   function setConfigSelectionQty(product: ProductRow, quantity: number) {
     const nextQty = Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 0;
 
@@ -1688,6 +1731,68 @@ export default function AdvisorOrderComposer({
     return parts.join('\n');
   }
 
+  function buildMasterStyleQuoteSummary() {
+    const parts: string[] = [];
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
+    const clientPhone = selectedClient?.phone || newClientPhone.trim();
+    const deliveryDayLabel = new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      timeZone: 'America/Caracas',
+    });
+    const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
+
+    parts.push('*Resumen de Pedido*');
+    parts.push('');
+    parts.push(`*Vendedor:* ${authUserLabel}`);
+    parts.push(`*Cliente:* ${clientName}`);
+
+    if (clientPhone) {
+      parts.push(`*Telefono:* ${clientPhone}`);
+    }
+
+    parts.push('');
+    parts.push('*Pedido:*');
+    parts.push('');
+
+    if (draftItems.length === 0) {
+      parts.push('- Sin items cargados');
+    } else {
+      for (const item of draftItems) {
+        parts.push(formatDraftItemWhatsAppLine(item, fxRateNumber));
+
+        for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
+          parts.push(`- ${detail}`);
+        }
+      }
+    }
+
+    parts.push('');
+    parts.push(`*TOTAL:* ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
+    parts.push('');
+    parts.push(`*Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
+    parts.push(`*Forma de pago:* ${getPaymentMethodLabel(paymentMethod)}`);
+    parts.push(`*Estatus de pago:* Pendiente`);
+    parts.push(`*Dia de entrega:* ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
+
+    if (!isAsap) {
+      parts.push(`*Hora:* ${deliveryHourLabel}`);
+    }
+
+    if (fulfillment === 'delivery' && deliveryAddress.trim()) {
+      parts.push(`*Direccion:* ${deliveryAddress.trim()}`);
+    }
+
+    if (orderNote.trim()) {
+      parts.push('');
+      parts.push(`*Nota:* ${orderNote.trim()}`);
+    }
+
+    return parts.join('\n');
+  }
+
   async function handleCopyQuote() {
     clearMessages();
     if (draftItems.length === 0) {
@@ -1698,7 +1803,8 @@ export default function AdvisorOrderComposer({
     setCopyingQuote(true);
     try {
       void buildQuoteSummary;
-      await navigator.clipboard.writeText(buildCleanQuoteSummary());
+      void buildCleanQuoteSummary;
+      await navigator.clipboard.writeText(buildMasterStyleQuoteSummary());
       setInfo('Resumen copiado para WhatsApp.');
     } catch {
       setError('No se pudo copiar el resumen.');
@@ -2211,24 +2317,40 @@ export default function AdvisorOrderComposer({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-[1fr_104px] gap-2">
+          <div className="grid grid-cols-[1fr_124px] gap-2">
             <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
               {selectedProduct ? selectedProduct.name : 'Selecciona producto'}
             </div>
-            <input
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              onFocus={(e) => e.currentTarget.select()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addDraftItem();
-                }
-              }}
-              className={inputClass()}
-              inputMode="numeric"
-              placeholder="Cant."
-            />
+            <div className="grid grid-cols-[40px_1fr_40px] gap-2">
+              <button
+                type="button"
+                onClick={() => updateQty(Math.max(1, Number(qty || 1) - 1))}
+                className="h-11 rounded-[16px] border border-[#232632] bg-[#0F131B] text-base font-semibold text-[#F5F7FB]"
+              >
+                -
+              </button>
+              <input
+                value={qty}
+                onChange={(e) => updateQty(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addDraftItem();
+                  }
+                }}
+                className={inputClass()}
+                inputMode="numeric"
+                placeholder="Cant."
+              />
+              <button
+                type="button"
+                onClick={() => updateQty(Number(qty || 0) + 1)}
+                className="h-11 rounded-[16px] border border-[#232632] bg-[#0F131B] text-base font-semibold text-[#F5F7FB]"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           {selectedProduct ? (
