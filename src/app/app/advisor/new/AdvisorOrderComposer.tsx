@@ -216,6 +216,8 @@ const STORAGE_KEYS = {
   recentProducts: 'advisor_recent_products_v1',
   favoriteProducts: 'advisor_favorite_products_v1',
   recentAddresses: 'advisor_recent_addresses_v1',
+  clientUsage: 'advisor_client_usage_v1',
+  productUsage: 'advisor_product_usage_v1',
 } as const;
 
 function pad2(n: number) {
@@ -404,6 +406,76 @@ function readStoredJson<T>(key: string, fallback: T) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeSearchValue(value: string | null | undefined) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function productSearchScore(params: {
+  product: ProductRow;
+  query: string;
+  favoriteIds: number[];
+  recentIds: number[];
+  usageById: Record<string, number>;
+}) {
+  const normalizedQuery = normalizeSearchValue(params.query);
+  if (!normalizedQuery) return Number.NEGATIVE_INFINITY;
+
+  const normalizedName = normalizeSearchValue(params.product.name);
+  const normalizedSku = normalizeSearchValue(params.product.sku);
+  const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+
+  let score = 0;
+
+  if (normalizedName.startsWith(normalizedQuery)) score += 160;
+  else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 145;
+  else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 120;
+  else if (normalizedSku.startsWith(normalizedQuery)) score += 105;
+  else if (normalizedName.includes(normalizedQuery)) score += 90;
+  else if (normalizedSku.includes(normalizedQuery)) score += 70;
+  else return Number.NEGATIVE_INFINITY;
+
+  const favoriteBoost = params.favoriteIds.includes(params.product.id) ? 24 : 0;
+  const recentIndex = params.recentIds.indexOf(params.product.id);
+  const recentBoost = recentIndex >= 0 ? Math.max(0, 18 - recentIndex * 2) : 0;
+  const usageBoost = Math.min(40, Number(params.usageById[String(params.product.id)] || 0) * 4);
+
+  return score + favoriteBoost + recentBoost + usageBoost;
+}
+
+function clientSearchScore(params: {
+  client: ClientRow;
+  query: string;
+  recentIds: number[];
+  usageById: Record<string, number>;
+}) {
+  const normalizedQuery = normalizeSearchValue(params.query);
+  if (!normalizedQuery) return Number.NEGATIVE_INFINITY;
+
+  const normalizedName = normalizeSearchValue(params.client.full_name);
+  const normalizedPhone = normalizeSearchValue(params.client.phone);
+  const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+
+  let score = 0;
+
+  if (normalizedPhone.startsWith(normalizedQuery)) score += 170;
+  else if (normalizedName.startsWith(normalizedQuery)) score += 150;
+  else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 140;
+  else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 115;
+  else if (normalizedPhone.includes(normalizedQuery)) score += 95;
+  else if (normalizedName.includes(normalizedQuery)) score += 85;
+  else return Number.NEGATIVE_INFINITY;
+
+  const recentIndex = params.recentIds.indexOf(params.client.id);
+  const recentBoost = recentIndex >= 0 ? Math.max(0, 16 - recentIndex * 2) : 0;
+  const usageBoost = Math.min(36, Number(params.usageById[String(params.client.id)] || 0) * 4);
+
+  return score + recentBoost + usageBoost;
 }
 
 function normalizeSnapshotText(value: string | null | undefined) {
@@ -737,6 +809,7 @@ export default function AdvisorOrderComposer({
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [recentProductIds, setRecentProductIds] = useState<number[]>([]);
   const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
+  const [productUsageById, setProductUsageById] = useState<Record<string, number>>({});
   const [qty, setQty] = useState('1');
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
 
@@ -744,6 +817,7 @@ export default function AdvisorOrderComposer({
   const [clientResults, setClientResults] = useState<ClientRow[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [recentClients, setRecentClients] = useState<RecentClientChip[]>([]);
+  const [clientUsageById, setClientUsageById] = useState<Record<string, number>>({});
   const [isNewClientMode, setIsNewClientMode] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
@@ -809,20 +883,6 @@ export default function AdvisorOrderComposer({
   }, [products, selectedProductId]);
 
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
-  const favoriteProducts = useMemo(
-    () =>
-      favoriteProductIds
-        .map((id) => productById.get(id))
-        .filter((product): product is ProductRow => !!product),
-    [favoriteProductIds, productById]
-  );
-  const recentProducts = useMemo(
-    () =>
-      recentProductIds
-        .map((id) => productById.get(id))
-        .filter((product): product is ProductRow => !!product && !favoriteProductIds.includes(product.id)),
-    [favoriteProductIds, productById, recentProductIds]
-  );
   const draftTotalUsd = useMemo(
     () => draftItems.reduce((sum, item) => sum + Number(item.line_total_usd || 0), 0),
     [draftItems]
@@ -895,19 +955,32 @@ export default function AdvisorOrderComposer({
   const filteredProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
     if (!query) return [];
-    return products.filter((product) => {
-      return (
-        product.name.toLowerCase().includes(query) ||
-        String(product.sku || '').toLowerCase().includes(query)
-      );
-    });
-  }, [productSearch, products]);
+    return products
+      .map((product) => ({
+        product,
+        score: productSearchScore({
+          product,
+          query,
+          favoriteIds: favoriteProductIds,
+          recentIds: recentProductIds,
+          usageById: productUsageById,
+        }),
+      }))
+      .filter((row) => Number.isFinite(row.score))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.product.name.localeCompare(b.product.name, 'es', { sensitivity: 'base' });
+      })
+      .map((row) => row.product);
+  }, [favoriteProductIds, productSearch, productUsageById, products, recentProductIds]);
 
   useEffect(() => {
     setRecentClients(readStoredJson<RecentClientChip[]>(STORAGE_KEYS.recentClients, []));
     setRecentProductIds(readStoredJson<number[]>(STORAGE_KEYS.recentProducts, []));
     setFavoriteProductIds(readStoredJson<number[]>(STORAGE_KEYS.favoriteProducts, []));
     setRecentAddresses(readStoredJson<ClientAddress[]>(STORAGE_KEYS.recentAddresses, []));
+    setClientUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.clientUsage, {}));
+    setProductUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.productUsage, {}));
   }, []);
 
   useEffect(() => {
@@ -929,6 +1002,16 @@ export default function AdvisorOrderComposer({
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(STORAGE_KEYS.recentAddresses, JSON.stringify(recentAddresses.slice(0, 6)));
   }, [recentAddresses]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.clientUsage, JSON.stringify(clientUsageById));
+  }, [clientUsageById]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.productUsage, JSON.stringify(productUsageById));
+  }, [productUsageById]);
 
   useEffect(() => {
     async function boot() {
@@ -1270,10 +1353,18 @@ export default function AdvisorOrderComposer({
       nextClient,
       ...current.filter((row) => row.id !== nextClient.id),
     ].slice(0, 6));
+    setClientUsageById((current) => ({
+      ...current,
+      [String(nextClient.id)]: Number(current[String(nextClient.id)] || 0) + 1,
+    }));
   }
 
   function rememberProduct(productId: number) {
     setRecentProductIds((current) => [productId, ...current.filter((id) => id !== productId)].slice(0, 8));
+    setProductUsageById((current) => ({
+      ...current,
+      [String(productId)]: Number(current[String(productId)] || 0) + 1,
+    }));
   }
 
   function rememberAddress(addressText: string, gpsUrl: string) {
@@ -1373,8 +1464,25 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    setClientResults((data ?? []) as ClientRow[]);
-    setInfo((data ?? []).length > 0 ? 'Cliente encontrado.' : 'No hubo coincidencias.');
+    const sortedResults = ((data ?? []) as ClientRow[])
+      .map((client) => ({
+        client,
+        score: clientSearchScore({
+          client,
+          query,
+          recentIds: recentClients.map((row) => row.id),
+          usageById: clientUsageById,
+        }),
+      }))
+      .filter((row) => Number.isFinite(row.score))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.client.full_name.localeCompare(b.client.full_name, 'es', { sensitivity: 'base' });
+      })
+      .map((row) => row.client);
+
+    setClientResults(sortedResults);
+    setInfo(sortedResults.length > 0 ? 'Cliente encontrado.' : 'No hubo coincidencias.');
   }
 
   async function createClientNow() {
@@ -2128,28 +2236,6 @@ export default function AdvisorOrderComposer({
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
         <Section title="1. Cliente" subtitle="Busca primero y crea solo si no existe.">
-          {recentClients.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {recentClients.map((client) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedClient(client as ClientRow);
-                    applyClientProfile(client as ClientRow);
-                    setSearchTerm(client.phone || client.full_name);
-                    setClientResults([]);
-                    setIsNewClientMode(false);
-                    setInfo(`Cliente rapido: ${client.full_name}`);
-                  }}
-                  className="rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB]"
-                >
-                  {client.full_name}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
           <Field label="Buscar cliente">
             <div className="flex gap-2">
               <input
@@ -2253,42 +2339,6 @@ export default function AdvisorOrderComposer({
         </Section>
 
         <Section title="2. Pedido" subtitle="Misma logica base de master, compacta para telefono.">
-          {favoriteProducts.length > 0 ? (
-            <div className="space-y-2">
-              <div className="text-[12px] font-medium text-[#AAB2C5]">Favoritos</div>
-              <div className="flex flex-wrap gap-2">
-                {favoriteProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => chooseProduct(product)}
-                    className="rounded-[14px] border border-[#564511] bg-[#2A2209] px-3 py-2 text-sm text-[#F7DA66]"
-                  >
-                    {product.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {recentProducts.length > 0 ? (
-            <div className="space-y-2">
-              <div className="text-[12px] font-medium text-[#AAB2C5]">Recientes</div>
-              <div className="flex flex-wrap gap-2">
-                {recentProducts.slice(0, 6).map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => chooseProduct(product)}
-                    className="rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB]"
-                  >
-                    {product.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           <div className="relative">
             <Field label="Producto">
               <input
