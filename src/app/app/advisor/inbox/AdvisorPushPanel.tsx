@@ -5,6 +5,8 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
 
+const PUSH_TIMEOUT_MS = 12000;
+
 function isStandaloneMode() {
   if (typeof window === 'undefined') return false;
   return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as Navigator & {
@@ -34,6 +36,30 @@ function subscriptionToJson(subscription: PushSubscription) {
   };
 }
 
+async function withTimeout<T>(promise: Promise<T>, message: string) {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), PUSH_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function getAdvisorServiceWorker() {
+  const existing = await navigator.serviceWorker.getRegistration('/app/advisor/');
+  if (existing) return existing;
+
+  return navigator.serviceWorker.register('/advisor-sw.js', {
+    scope: '/app/advisor/',
+    updateViaCache: 'none',
+  });
+}
+
 export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: string }) {
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [pushState, setPushState] = useState<PushState>('checking');
@@ -42,6 +68,7 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
   const [error, setError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<PushSubscription | null>(null);
   const [showInstallHint, setShowInstallHint] = useState(false);
+  const [stepLabel, setStepLabel] = useState<string | null>(null);
 
   useEffect(() => {
     async function boot() {
@@ -64,13 +91,19 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
       }
 
       try {
-        const registration = await navigator.serviceWorker.ready;
-        const currentSubscription = await registration.pushManager.getSubscription();
+        const registration = await withTimeout(
+          getAdvisorServiceWorker(),
+          'La app tardo demasiado en registrar las notificaciones.'
+        );
+        const currentSubscription = await withTimeout(
+          registration.pushManager.getSubscription(),
+          'La app tardo demasiado en revisar la suscripcion push.'
+        );
         setSubscription(currentSubscription);
         setPushState(currentSubscription ? 'subscribed' : 'ready');
-      } catch {
+      } catch (err) {
         setPushState('error');
-        setError('No se pudo revisar el estado de notificaciones.');
+        setError(err instanceof Error ? err.message : 'No se pudo revisar el estado de notificaciones.');
       }
     }
 
@@ -86,8 +119,13 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
     setBusy(true);
     setError(null);
     setMessage(null);
+    setStepLabel('Pidiendo permiso...');
 
     try {
+      if (isIPhoneLike() && !isStandaloneMode()) {
+        throw new Error('En iPhone debes abrir VIVO OPS desde la app instalada en pantalla de inicio.');
+      }
+
       const permission = await Notification.requestPermission();
       if (permission === 'denied') {
         setPushState('denied');
@@ -95,24 +133,41 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
         return;
       }
 
-      const registration = await navigator.serviceWorker.ready;
-      let nextSubscription = await registration.pushManager.getSubscription();
+      setStepLabel('Registrando la app...');
+      const registration = await withTimeout(
+        getAdvisorServiceWorker(),
+        'La app tardo demasiado en registrar el servicio de notificaciones.'
+      );
+
+      setStepLabel('Revisando suscripcion...');
+      let nextSubscription = await withTimeout(
+        registration.pushManager.getSubscription(),
+        'La app tardo demasiado en revisar si este telefono ya estaba suscrito.'
+      );
       if (!nextSubscription) {
-        nextSubscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
-        });
+        setStepLabel('Creando suscripcion push...');
+        nextSubscription = await withTimeout(
+          registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
+          }),
+          'La suscripcion push tardo demasiado en responder.'
+        );
       }
 
+      setStepLabel('Guardando telefono...');
       const accessToken = await getAccessToken();
-      const response = await fetch('/api/advisor/push-subscriptions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken,
-          subscription: subscriptionToJson(nextSubscription),
+      const response = await withTimeout(
+        fetch('/api/advisor/push-subscriptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accessToken,
+            subscription: subscriptionToJson(nextSubscription),
+          }),
         }),
-      });
+        'Guardar la suscripcion tardo demasiado. Revisa conexion y variables de entorno.'
+      );
 
       const payload = (await response.json()) as { error?: string; code?: string };
       if (!response.ok) {
@@ -129,6 +184,7 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
       setPushState('error');
       setError(err instanceof Error ? err.message : 'No se pudo activar push.');
     } finally {
+      setStepLabel(null);
       setBusy(false);
     }
   }
@@ -141,6 +197,7 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
     setMessage(null);
 
     try {
+      setStepLabel('Quitando suscripcion...');
       const accessToken = await getAccessToken();
       await fetch('/api/advisor/push-subscriptions', {
         method: 'DELETE',
@@ -159,6 +216,7 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
       setPushState('error');
       setError(err instanceof Error ? err.message : 'No se pudo desactivar push.');
     } finally {
+      setStepLabel(null);
       setBusy(false);
     }
   }
@@ -169,12 +227,16 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
     setMessage(null);
 
     try {
+      setStepLabel('Enviando prueba...');
       const accessToken = await getAccessToken();
-      const response = await fetch('/api/advisor/push-notifications/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken }),
-      });
+      const response = await withTimeout(
+        fetch('/api/advisor/push-notifications/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken }),
+        }),
+        'La prueba tardo demasiado en responder desde el servidor.'
+      );
 
       const payload = (await response.json()) as { error?: string; code?: string; delivered?: number };
       if (!response.ok) {
@@ -192,6 +254,7 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
     } finally {
+      setStepLabel(null);
       setBusy(false);
     }
   }
@@ -264,6 +327,7 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
         </div>
       ) : null}
 
+      {busy && stepLabel ? <div className="mt-3 text-xs text-[#CCD3E2]">{stepLabel}</div> : null}
       {message ? <div className="mt-3 text-sm text-[#7CE0A9]">{message}</div> : null}
       {error ? <div className="mt-3 text-sm text-[#F0A6AE]">{error}</div> : null}
     </section>
