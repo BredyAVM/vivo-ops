@@ -1,6 +1,13 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
+import AdvisorInboxBell from './AdvisorInboxBell';
+import {
+  type RawTimelineEvent,
+  INCLUDED_EVENT_TYPES,
+  dedupeEvents,
+  normalizeEventType,
+} from './inbox/inbox-shared';
 
 type SearchParams = Promise<{
   day?: string;
@@ -211,6 +218,29 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
+  const orderIds = orders.map((order) => order.id);
+
+  const [timelineResult, legacyResult] = await Promise.all([
+    ctx.supabase
+      .from('order_timeline_events')
+      .select('id, order_id, event_type, event, created_at, title, message')
+      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+      .order('created_at', { ascending: false })
+      .limit(200),
+    ctx.supabase
+      .from('order_events')
+      .select('id, order_id, event_type, event, created_at, title, message')
+      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+      .order('created_at', { ascending: false })
+      .limit(200),
+  ]);
+
+  const alertEventIds = dedupeEvents([
+    ...((timelineResult.data ?? []) as RawTimelineEvent[]),
+    ...((legacyResult.data ?? []) as RawTimelineEvent[]),
+  ])
+    .filter((event) => INCLUDED_EVENT_TYPES.has(normalizeEventType(event)))
+    .map((event) => `${normalizeEventType(event)}-${String(event.id ?? '')}`);
 
   const paymentStatusByOrderId = new Map<number, PaymentRow['status'][]>();
   for (const report of paymentReports) {
@@ -241,12 +271,6 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     })
     .slice(0, 3);
 
-  const alertsCount = new Set([
-    ...overdueOrders.map((order) => order.id),
-    ...unpaidOrders.map((order) => order.id),
-    ...asapOrders.map((order) => order.id),
-  ]).size;
-
   const calendarDays = buildCalendarDays(selectedDayKey);
   const advisorName = firstName(
     profile?.full_name?.trim() || ctx.user.user_metadata?.full_name || ctx.user.email || 'Asesor'
@@ -270,16 +294,12 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           >
             Nuevo
           </Link>
-          <Link
-            href="/app/advisor/inbox?filter=pending"
-            className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
-            aria-label={`Notificaciones de ${advisorName}`}
-          >
-            <span className="text-lg">!</span>
-            <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
-              {alertsCount}
-            </span>
-          </Link>
+          <AdvisorInboxBell
+            userId={ctx.user.id}
+            advisorName={advisorName}
+            eventIds={alertEventIds}
+            href="/app/advisor/inbox?filter=all"
+          />
         </div>
       </section>
 
