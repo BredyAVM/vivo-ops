@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
 import {
@@ -14,13 +15,59 @@ import {
 export default function AdvisorInboxClient({
   activeFilter,
   initialEvents,
+  userId,
 }: {
   activeFilter: InboxFilter;
   initialEvents: InboxEvent[];
+  userId: string;
 }) {
+  const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [events, setEvents] = useState(initialEvents);
   const [savingIds, setSavingIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    setEvents(initialEvents);
+  }, [initialEvents]);
+
+  useEffect(() => {
+    const refreshInbox = () => {
+      router.refresh();
+    };
+
+    const ownChannel = supabase
+      .channel(`advisor-inbox-user-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: `target_user_id=eq.${userId}`,
+        },
+        refreshInbox,
+      )
+      .subscribe();
+
+    const roleChannel = supabase
+      .channel(`advisor-inbox-role-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: 'target_role=eq.advisor',
+        },
+        refreshInbox,
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(ownChannel);
+      void supabase.removeChannel(roleChannel);
+    };
+  }, [router, supabase, userId]);
 
   const unreadCount = useMemo(
     () => events.filter((event) => !event.readAt).length,

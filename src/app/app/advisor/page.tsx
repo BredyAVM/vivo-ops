@@ -289,6 +289,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           </Link>
           <AdvisorInboxBell
             advisorName={advisorName}
+            userId={ctx.user.id}
             unreadCount={unreadInboxCount}
             href="/app/advisor/inbox?filter=all"
           />

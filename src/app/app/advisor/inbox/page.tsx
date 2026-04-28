@@ -177,7 +177,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
 
       <AdvisorPushPanel publicVapidKey={getPublicVapidKey()} />
 
-      <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} />
+      <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} userId={ctx.user.id} />
     </div>
   );
 }
