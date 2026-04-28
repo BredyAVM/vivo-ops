@@ -8,7 +8,6 @@ import AdvisorRealtimeNotifier from './AdvisorRealtimeNotifier';
 
 type AdvisorShellProps = {
   children: ReactNode;
-  email: string;
   fullName: string;
   userId: string;
   unreadCount: number;
