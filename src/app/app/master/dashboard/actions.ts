@@ -115,6 +115,32 @@ function dedupeEventRecipients(recipients: OrderEventRecipientInput[]) {
   return out;
 }
 
+function getAdvisorPushTargets(params: {
+  contextAdvisorUserId?: string | null;
+  recipients?: OrderEventRecipientInput[];
+}) {
+  const ids = new Set<string>();
+
+  const contextAdvisorUserId = String(params.contextAdvisorUserId || '').trim();
+  if (contextAdvisorUserId) ids.add(contextAdvisorUserId);
+
+  for (const recipient of params.recipients ?? []) {
+    const targetUserId = String(recipient.targetUserId || '').trim();
+    const targetRole = String(recipient.targetRole || '').trim();
+
+    if (targetUserId) {
+      ids.add(targetUserId);
+      continue;
+    }
+
+    if (targetRole === 'advisor' && contextAdvisorUserId) {
+      ids.add(contextAdvisorUserId);
+    }
+  }
+
+  return Array.from(ids);
+}
+
 async function appendOrderEvent(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
   input: {
@@ -171,20 +197,28 @@ async function appendOrderEvent(
       console.warn('appendOrderEvent recipients skipped', recipientsError.message);
     }
 
-    if (context?.advisorUserId) {
-      try {
-        await sendPushToAdvisorDevices({
-          advisorUserId: context.advisorUserId,
-          orderId: input.orderId,
-          eventType: input.eventType,
-          title: input.title,
-          body: input.message,
-        });
-      } catch (pushError) {
-        console.warn(
-          'appendOrderEvent push skipped',
-          pushError instanceof Error ? pushError.message : 'unknown push error',
-        );
+    const advisorPushTargets = getAdvisorPushTargets({
+      contextAdvisorUserId: context?.advisorUserId,
+      recipients: input.recipients,
+    });
+
+    if (advisorPushTargets.length > 0) {
+      for (const advisorUserId of advisorPushTargets) {
+        try {
+          await sendPushToAdvisorDevices({
+            advisorUserId,
+            orderId: input.orderId,
+            eventType: input.eventType,
+            title: input.title,
+            body: input.message,
+            tag: `advisor-order-${input.orderId}-${input.eventType}`,
+          });
+        } catch (pushError) {
+          console.warn(
+            'appendOrderEvent push skipped',
+            pushError instanceof Error ? pushError.message : 'unknown push error',
+          );
+        }
       }
     }
   } catch (error) {

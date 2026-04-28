@@ -76,6 +76,7 @@ export async function sendPushToAdvisorDevices(input: {
   eventType: string;
   title: string;
   body?: string | null;
+  tag?: string | null;
 }) {
   if (!hasPushEnv()) return { skipped: true, reason: 'missing_env' as const };
   if (!ADVISOR_PUSH_EVENT_TYPES.has(String(input.eventType || '').trim())) {
@@ -102,7 +103,7 @@ export async function sendPushToAdvisorDevices(input: {
     title: input.title || 'VIVO OPS',
     body: String(input.body || '').trim() || 'Tienes una actualizacion en una orden.',
     url: `/app/advisor/orders/${input.orderId}`,
-    tag: `advisor-order-${input.orderId}`,
+    tag: String(input.tag || '').trim() || `advisor-order-${input.orderId}-${input.eventType}-${Date.now()}`,
   });
 
   const results = await Promise.allSettled(
