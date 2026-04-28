@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
@@ -179,6 +178,47 @@ function paymentTone(status: PaymentReportRow['status']): 'warning' | 'success' 
   if (status === 'confirmed') return 'success';
   if (status === 'rejected') return 'danger';
   return 'warning';
+}
+
+function isMovingOrderStatus(status: string) {
+  return ['confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(status);
+}
+
+function getPaymentSummary(
+  totalUsd: number,
+  confirmedPaidUsd: number,
+  pendingPaidUsd: number,
+  balanceUsd: number,
+) {
+  if (balanceUsd <= 0.005) {
+    return {
+      label: 'Pagado',
+      tone: 'success' as const,
+      detail: `Cobro completo por ${formatUsd(totalUsd)}.`,
+    };
+  }
+
+  if (pendingPaidUsd > 0.005) {
+    return {
+      label: 'Por validar',
+      tone: 'warning' as const,
+      detail: `${formatUsd(pendingPaidUsd)} enviados a revisión.`,
+    };
+  }
+
+  if (confirmedPaidUsd > 0.005) {
+    return {
+      label: 'Saldo pendiente',
+      tone: 'warning' as const,
+      detail: `Faltan ${formatUsd(balanceUsd)} por cobrar.`,
+    };
+  }
+
+  return {
+    label: 'Sin cobro',
+    tone: 'danger' as const,
+    detail: `Pedido completo pendiente por ${formatUsd(balanceUsd)}.`,
+  };
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {
@@ -603,6 +643,13 @@ export default async function AdvisorOrderDetailPage({
   const canDuplicateOrder = order.status !== 'cancelled';
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
   const openPaymentOnLoad = resolvedSearchParams.reportPayment === '1';
+  const paymentSummary = getPaymentSummary(
+    toSafeNumber(order.total_usd, 0),
+    toSafeNumber(confirmedPaidUsd, 0),
+    toSafeNumber(pendingPaidUsd, 0),
+    toSafeNumber(balanceUsd, 0),
+  );
+  const shouldHighlightWhatsApp = Boolean(whatsappContactHref) && isMovingOrderStatus(order.status);
   void buildWhatsAppOrderSummary;
   const whatsappSummary = buildCleanWhatsAppOrderSummary({
     order,
@@ -616,15 +663,51 @@ export default async function AdvisorOrderDetailPage({
         eyebrow="Orden"
         title={`Orden #${order.id}`}
         description={client?.full_name?.trim() || safeText(order.order_number, 'Sin localizador')}
-        action={
-          <Link
-            href="/app/advisor/orders"
-            className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
-          >
-            Volver
-          </Link>
-        }
       />
+
+      <SectionCard
+        title="Mover ahora"
+        subtitle="Acciones y lectura rapida para operar este pedido desde el telefono."
+      >
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Estado del pedido</div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-[#F5F7FB]">{statusLabel(order.status)}</div>
+              <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
+            </div>
+            <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
+              {schedule?.asap
+                ? 'Entrega lo antes posible.'
+                : `${safeText(schedule?.date, '')} ${safeText(schedule?.time_12, '')}`.trim() || 'Sin horario cargado.'}
+            </div>
+          </div>
+          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Cobro</div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-[#F5F7FB]">{paymentSummary.label}</div>
+              <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
+            </div>
+            <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">{paymentSummary.detail}</div>
+          </div>
+        </div>
+        <div className="mt-3">
+          <OrderDetailActions
+            orderId={order.id}
+            balanceUsd={toSafeNumber(balanceUsd, 0)}
+            canCorrectOrder={canCorrectOrder}
+            canDuplicateOrder={canDuplicateOrder}
+            canReportPayment={canReportPayment}
+            moneyAccounts={moneyAccounts}
+            activeBsRate={activeBsRate}
+            whatsappSummary={whatsappSummary}
+            whatsappContactHref={whatsappContactHref}
+            whatsappContactLabel={contactPhoneRaw || ''}
+            preferWhatsApp={shouldHighlightWhatsApp}
+            initialReportBoxOpen={openPaymentOnLoad}
+          />
+        </div>
+      </SectionCard>
 
       <SectionCard
         title="Resumen"
@@ -692,25 +775,6 @@ export default async function AdvisorOrderDetailPage({
         </div>
       </SectionCard>
 
-      <SectionCard
-        title="Acciones"
-        subtitle="Desde aqui corriges el pedido o vuelves a reportar el pago cuando haga falta."
-      >
-        <OrderDetailActions
-          orderId={order.id}
-          balanceUsd={toSafeNumber(balanceUsd, 0)}
-          canCorrectOrder={canCorrectOrder}
-          canDuplicateOrder={canDuplicateOrder}
-          canReportPayment={canReportPayment}
-          moneyAccounts={moneyAccounts}
-          activeBsRate={activeBsRate}
-          whatsappSummary={whatsappSummary}
-          whatsappContactHref={whatsappContactHref}
-          whatsappContactLabel={contactPhoneRaw || ''}
-          initialReportBoxOpen={openPaymentOnLoad}
-        />
-      </SectionCard>
-
       <SectionCard title="Entrega y notas" subtitle="Lectura rapida de operacion.">
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
@@ -773,6 +837,16 @@ export default async function AdvisorOrderDetailPage({
       </SectionCard>
 
       <SectionCard title="Pago" subtitle="Estado de cobro y reportes.">
+        <div className="mb-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Estado de pago</div>
+              <div className="mt-1 text-base font-semibold text-[#F5F7FB]">{paymentSummary.label}</div>
+              <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">{paymentSummary.detail}</div>
+            </div>
+            <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
+          </div>
+        </div>
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Metodo</span>

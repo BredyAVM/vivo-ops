@@ -59,6 +59,7 @@ export default function OrderDetailActions({
   whatsappSummary,
   whatsappContactHref,
   whatsappContactLabel,
+  preferWhatsApp = false,
   initialReportBoxOpen = false,
 }: {
   orderId: number;
@@ -71,6 +72,7 @@ export default function OrderDetailActions({
   whatsappSummary: string;
   whatsappContactHref?: string;
   whatsappContactLabel?: string;
+  preferWhatsApp?: boolean;
   initialReportBoxOpen?: boolean;
 }) {
   const router = useRouter();
@@ -93,6 +95,9 @@ export default function OrderDetailActions({
     () => activeAccounts.find((account) => account.id === Number(moneyAccountId)) ?? null,
     [activeAccounts, moneyAccountId],
   );
+  const whatsappButtonClass = preferWhatsApp
+    ? 'inline-flex h-11 items-center justify-center rounded-[16px] bg-[#25D366] px-4 text-sm font-semibold text-[#07150C]'
+    : 'inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#25D366]';
 
   if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !whatsappSummary.trim()) return null;
 
@@ -109,7 +114,18 @@ export default function OrderDetailActions({
         </div>
       ) : null}
 
-      <div className="grid gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        {whatsappContactHref ? (
+          <a
+            href={whatsappContactHref}
+            target="_blank"
+            rel="noreferrer"
+            className={whatsappButtonClass}
+          >
+            {whatsappContactLabel ? `Conversar por WhatsApp` : 'Abrir WhatsApp'}
+          </a>
+        ) : null}
+
         <button
           type="button"
           onClick={async () => {
@@ -127,17 +143,6 @@ export default function OrderDetailActions({
         >
           Copiar WhatsApp
         </button>
-
-        {whatsappContactHref ? (
-          <a
-            href={whatsappContactHref}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#25D366]"
-          >
-            {whatsappContactLabel ? `Conversar por WhatsApp` : 'Abrir WhatsApp'}
-          </a>
-        ) : null}
 
         {canCorrectOrder ? (
           <Link
@@ -165,7 +170,10 @@ export default function OrderDetailActions({
               setSuccess(null);
               setReportBoxOpen((current) => !current);
             }}
-            className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+            className={[
+              'inline-flex h-11 items-center justify-center rounded-[16px] px-4 text-sm font-semibold',
+              reportBoxOpen ? 'border border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border border-[#232632] text-[#F5F7FB]',
+            ].join(' ')}
           >
             {reportBoxOpen ? 'Cerrar reporte' : 'Reportar pago'}
           </button>
