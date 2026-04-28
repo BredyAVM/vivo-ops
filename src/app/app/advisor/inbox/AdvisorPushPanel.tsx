@@ -60,6 +60,41 @@ async function getAdvisorServiceWorker() {
   });
 }
 
+async function waitForActiveServiceWorker(registration: ServiceWorkerRegistration) {
+  if (registration.active) return registration;
+
+  const worker = registration.installing || registration.waiting;
+  if (!worker) {
+    return navigator.serviceWorker.ready;
+  }
+
+  await withTimeout(
+    new Promise<void>((resolve, reject) => {
+      const onStateChange = () => {
+        if (worker.state === 'activated') {
+          worker.removeEventListener('statechange', onStateChange);
+          resolve();
+        }
+      };
+
+      worker.addEventListener('statechange', onStateChange);
+
+      if (worker.state === 'activated') {
+        worker.removeEventListener('statechange', onStateChange);
+        resolve();
+      }
+
+      if (worker.state === 'redundant') {
+        worker.removeEventListener('statechange', onStateChange);
+        reject(new Error('El servicio de notificaciones no pudo activarse.'));
+      }
+    }),
+    'La app tardo demasiado en activar el servicio de notificaciones.'
+  );
+
+  return navigator.serviceWorker.ready;
+}
+
 export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: string }) {
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [pushState, setPushState] = useState<PushState>('checking');
@@ -91,10 +126,11 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
       }
 
       try {
-        const registration = await withTimeout(
+        const initialRegistration = await withTimeout(
           getAdvisorServiceWorker(),
           'La app tardo demasiado en registrar las notificaciones.'
         );
+        const registration = await waitForActiveServiceWorker(initialRegistration);
         const currentSubscription = await withTimeout(
           registration.pushManager.getSubscription(),
           'La app tardo demasiado en revisar la suscripcion push.'
@@ -134,10 +170,11 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
       }
 
       setStepLabel('Registrando la app...');
-      const registration = await withTimeout(
+      const initialRegistration = await withTimeout(
         getAdvisorServiceWorker(),
         'La app tardo demasiado en registrar el servicio de notificaciones.'
       );
+      const registration = await waitForActiveServiceWorker(initialRegistration);
 
       setStepLabel('Revisando suscripcion...');
       let nextSubscription = await withTimeout(
