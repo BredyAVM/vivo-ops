@@ -8,6 +8,10 @@ type PageParams = Promise<{
   id: string;
 }>;
 
+type PageSearchParams = Promise<{
+  reportPayment?: string;
+}>;
+
 type OrderRow = {
   id: number;
   order_number: string;
@@ -425,11 +429,18 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
   return details;
 }
 
-export default async function AdvisorOrderDetailPage({ params }: { params: PageParams }) {
+export default async function AdvisorOrderDetailPage({
+  params,
+  searchParams,
+}: {
+  params: PageParams;
+  searchParams?: PageSearchParams;
+}) {
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
   const resolved = await params;
+  const resolvedSearchParams = (await searchParams) ?? {};
   const orderId = Number(resolved.id);
 
   if (!Number.isFinite(orderId) || orderId <= 0) {
@@ -554,7 +565,11 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
       'order_approved',
     ].includes(event.eventType)
   );
-  const canRetryPayment = latestPaymentEvent?.eventType === 'payment_rejected' && balanceUsd > 0.005;
+  const canReportPayment =
+    balanceUsd > 0.005 &&
+    pendingPaidUsd <= 0.005 &&
+    order.status !== 'cancelled' &&
+    latestPaymentEvent?.eventType !== 'payment_confirmed';
   const canCorrectOrder =
     order.status !== 'delivered' &&
     order.status !== 'cancelled' &&
@@ -566,6 +581,7 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
       order.status === 'in_kitchen' ||
       order.status === 'ready');
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
+  const openPaymentOnLoad = resolvedSearchParams.reportPayment === '1';
   void buildWhatsAppOrderSummary;
   const whatsappSummary = buildCleanWhatsAppOrderSummary({
     order,
@@ -652,9 +668,10 @@ export default async function AdvisorOrderDetailPage({ params }: { params: PageP
           orderId={order.id}
           balanceUsd={toSafeNumber(balanceUsd, 0)}
           canCorrectOrder={canCorrectOrder}
-          canRetryPayment={canRetryPayment}
+          canReportPayment={canReportPayment}
           moneyAccounts={moneyAccounts}
           whatsappSummary={whatsappSummary}
+          initialReportBoxOpen={openPaymentOnLoad}
         />
       </SectionCard>
 

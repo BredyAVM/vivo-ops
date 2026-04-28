@@ -38,20 +38,22 @@ export default function OrderDetailActions({
   orderId,
   balanceUsd,
   canCorrectOrder,
-  canRetryPayment,
+  canReportPayment,
   moneyAccounts,
   whatsappSummary,
+  initialReportBoxOpen = false,
 }: {
   orderId: number;
   balanceUsd: number;
   canCorrectOrder: boolean;
-  canRetryPayment: boolean;
+  canReportPayment: boolean;
   moneyAccounts: MoneyAccountOption[];
   whatsappSummary: string;
+  initialReportBoxOpen?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [reportBoxOpen, setReportBoxOpen] = useState(false);
+  const [reportBoxOpen, setReportBoxOpen] = useState(initialReportBoxOpen && canReportPayment);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [moneyAccountId, setMoneyAccountId] = useState('');
@@ -70,7 +72,7 @@ export default function OrderDetailActions({
     [activeAccounts, moneyAccountId],
   );
 
-  if (!canCorrectOrder && !canRetryPayment && !whatsappSummary.trim()) return null;
+  if (!canCorrectOrder && !canReportPayment && !whatsappSummary.trim()) return null;
 
   return (
     <div className="space-y-3">
@@ -113,7 +115,7 @@ export default function OrderDetailActions({
           </Link>
         ) : null}
 
-        {canRetryPayment ? (
+        {canReportPayment ? (
           <button
             type="button"
             onClick={() => {
@@ -123,16 +125,16 @@ export default function OrderDetailActions({
             }}
             className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
           >
-            {reportBoxOpen ? 'Cerrar reporte' : 'Reportar pago de nuevo'}
+            {reportBoxOpen ? 'Cerrar reporte' : 'Reportar pago'}
           </button>
         ) : null}
       </div>
 
-      {canRetryPayment && reportBoxOpen ? (
+      {canReportPayment && reportBoxOpen ? (
         <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-          <div className="text-sm font-medium text-[#F5F7FB]">Nuevo reporte de pago</div>
+          <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>
           <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
-            El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviara otra vez a revision.
+            El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviará a revisión.
           </div>
 
           <div className="mt-3 space-y-3">
@@ -232,7 +234,7 @@ export default function OrderDetailActions({
                         notes: notes.trim() || null,
                       });
 
-                      setSuccess('Pago reenviado a revision.');
+                      setSuccess('Pago enviado a revisión.');
                       setReportBoxOpen(false);
                       router.refresh();
                     } catch (submitError) {
