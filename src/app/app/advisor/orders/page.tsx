@@ -24,10 +24,7 @@ type OrderRow = {
       asap?: boolean | null;
     } | null;
   } | null;
-  client:
-    | { full_name: string | null; phone: string | null }[]
-    | { full_name: string | null; phone: string | null }
-    | null;
+  client: { full_name: string | null; phone: string | null } | null;
 };
 
 type PaymentRow = {
