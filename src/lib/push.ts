@@ -9,6 +9,8 @@ export type StoredPushSubscription = {
   };
 };
 
+type AdvisorPushTone = 'info' | 'warning' | 'critical' | 'success';
+
 export const ADVISOR_PUSH_EVENT_TYPES = new Set([
   'order_approved',
   'order_returned_to_review',
@@ -29,6 +31,135 @@ export const ADVISOR_PUSH_EVENT_TYPES = new Set([
   'payment_confirmed',
   'payment_rejected',
 ]);
+
+function safeText(value: unknown, fallback = '') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
+}
+
+function eventPushTone(eventType: string): AdvisorPushTone {
+  if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected' || eventType === 'order_returned_to_review') {
+    return 'critical';
+  }
+  if (eventType === 'payment_confirmed' || eventType === 'order_delivered' || eventType === 'pickup_collected') {
+    return 'success';
+  }
+  if (eventType.includes('delayed') || eventType === 'driver_assigned' || eventType === 'out_for_delivery') {
+    return 'warning';
+  }
+  return 'info';
+}
+
+function buildAdvisorPushCopy(input: {
+  eventType: string;
+  orderId: number;
+  orderNumber?: string | null;
+  clientName?: string | null;
+  body?: string | null;
+  payload?: Record<string, unknown> | null;
+}) {
+  const orderLabel = safeText(input.orderNumber, `Orden #${input.orderId}`);
+  const clientName = safeText(input.clientName, 'Cliente');
+  const payload = input.payload && typeof input.payload === 'object' ? input.payload : {};
+  const reason = safeText(payload.reason ?? payload.review_notes ?? payload.notes ?? payload.note, '');
+  const eta = safeText(payload.eta_minutes ?? payload.etaMinutes ?? payload.prep_eta_minutes, '');
+  const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
+
+  const defaultLine = safeText(input.body, 'Tienes una actualizacion en una orden.');
+
+  const map: Record<string, { title: string; body: string }> = {
+    order_approved: {
+      title: `${orderLabel} aprobada`,
+      body: `${clientName}. La orden ya puede avanzar.`,
+    },
+    order_returned_to_review: {
+      title: `${orderLabel} devuelta`,
+      body: reason ? `${clientName}. Motivo: ${reason}` : `${clientName}. Revisa la orden.`,
+    },
+    order_reapproved: {
+      title: `${orderLabel} re-aprobada`,
+      body: `${clientName}. La orden volvio a aprobarse.`,
+    },
+    order_changes_rejected: {
+      title: `${orderLabel} con cambios rechazados`,
+      body: reason ? `${clientName}. Motivo: ${reason}` : `${clientName}. Revisa los cambios.`,
+    },
+    order_changes_approved: {
+      title: `${orderLabel} con cambios aprobados`,
+      body: `${clientName}. Los cambios ya fueron aceptados.`,
+    },
+    order_sent_to_kitchen: {
+      title: `${orderLabel} en cocina`,
+      body: `${clientName}. La orden fue enviada a cocina.`,
+    },
+    kitchen_taken: {
+      title: `${orderLabel} tomada por cocina`,
+      body: eta ? `${clientName}. Cocina marco ${eta} min.` : `${clientName}. Cocina ya la tomo.`,
+    },
+    kitchen_eta_updated: {
+      title: `${orderLabel} con nuevo tiempo`,
+      body: eta ? `${clientName}. Nuevo estimado: ${eta} min.` : `${clientName}. Se actualizo el tiempo.`,
+    },
+    kitchen_delayed_prep: {
+      title: `${orderLabel} con retraso`,
+      body: eta ? `${clientName}. Cocina reporta retraso. ETA ${eta} min.` : `${clientName}. Cocina reporta retraso.`,
+    },
+    order_ready: {
+      title: `${orderLabel} preparada`,
+      body: `${clientName}. La orden esta lista para salir.`,
+    },
+    pickup_ready: {
+      title: `${orderLabel} lista para retiro`,
+      body: `${clientName}. Ya puede retirarse.`,
+    },
+    driver_assigned: {
+      title: `${orderLabel} con motorizado`,
+      body: driver ? `${clientName}. Motorizado: ${driver}` : `${clientName}. Ya tiene motorizado asignado.`,
+    },
+    out_for_delivery: {
+      title: `${orderLabel} en camino`,
+      body: eta
+        ? `${clientName}. Va en camino con ETA ${eta} min.`
+        : driver
+          ? `${clientName}. Va en camino con ${driver}.`
+          : `${clientName}. La orden ya va en camino.`,
+    },
+    delivery_delayed: {
+      title: `${orderLabel} con retraso en entrega`,
+      body: eta ? `${clientName}. Nuevo ETA ${eta} min.` : `${clientName}. Se reporto retraso en entrega.`,
+    },
+    pickup_collected: {
+      title: `${orderLabel} retirada`,
+      body: `${clientName}. La orden ya fue retirada.`,
+    },
+    order_delivered: {
+      title: `${orderLabel} entregada`,
+      body: `${clientName}. La entrega se completo.`,
+    },
+    payment_confirmed: {
+      title: `Pago confirmado ${orderLabel}`,
+      body: `${clientName}. El pago quedo validado.`,
+    },
+    payment_rejected: {
+      title: `Pago rechazado ${orderLabel}`,
+      body: reason ? `${clientName}. Motivo: ${reason}` : `${clientName}. Debes reportar el pago de nuevo.`,
+    },
+  };
+
+  const tone = eventPushTone(input.eventType);
+  const copy = map[input.eventType] ?? {
+    title: orderLabel,
+    body: `${clientName}. ${defaultLine}`,
+  };
+
+  return {
+    title: copy.title,
+    body: copy.body,
+    tone,
+    requireInteraction: tone === 'critical',
+    tag: `advisor-order-${input.orderId}-${input.eventType}`,
+  };
+}
 
 function requireEnv(name: string) {
   const value = process.env[name];
@@ -77,6 +208,9 @@ export async function sendPushToAdvisorDevices(input: {
   title: string;
   body?: string | null;
   tag?: string | null;
+  orderNumber?: string | null;
+  clientName?: string | null;
+  payload?: Record<string, unknown> | null;
 }) {
   if (!hasPushEnv()) return { skipped: true, reason: 'missing_env' as const };
   if (!ADVISOR_PUSH_EVENT_TYPES.has(String(input.eventType || '').trim())) {
@@ -99,11 +233,21 @@ export async function sendPushToAdvisorDevices(input: {
   }
 
   const webPush = configureWebPush();
+  const copy = buildAdvisorPushCopy({
+    eventType: input.eventType,
+    orderId: input.orderId,
+    orderNumber: input.orderNumber,
+    clientName: input.clientName,
+    body: input.body,
+    payload: input.payload,
+  });
   const payload = JSON.stringify({
-    title: input.title || 'VIVO OPS',
-    body: String(input.body || '').trim() || 'Tienes una actualizacion en una orden.',
+    title: copy.title || input.title || 'VIVO OPS',
+    body: copy.body || String(input.body || '').trim() || 'Tienes una actualizacion en una orden.',
     url: `/app/advisor/orders/${input.orderId}`,
-    tag: String(input.tag || '').trim() || `advisor-order-${input.orderId}-${input.eventType}-${Date.now()}`,
+    tag: String(input.tag || '').trim() || copy.tag,
+    tone: copy.tone,
+    requireInteraction: copy.requireInteraction,
   });
 
   const results = await Promise.allSettled(
@@ -117,6 +261,16 @@ export async function sendPushToAdvisorDevices(input: {
           },
         },
         payload,
+        {
+          TTL: copy.requireInteraction ? 300 : 120,
+          urgency:
+            copy.tone === 'critical'
+              ? 'high'
+              : copy.tone === 'warning'
+                ? 'normal'
+                : 'low',
+          topic: String(input.tag || '').trim() || copy.tag,
+        },
       ),
     ),
   );

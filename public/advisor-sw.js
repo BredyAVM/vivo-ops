@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vivo-ops-advisor-v2';
+const CACHE_NAME = 'vivo-ops-advisor-v3';
 const PRECACHE_URLS = [
   '/app/advisor/manifest.webmanifest',
   '/pwa/advisor-180.png',
@@ -83,6 +83,9 @@ self.addEventListener('push', (event) => {
     body: payload.body || 'Tienes una actualizacion nueva.',
     icon: '/pwa/advisor-192.png',
     badge: '/pwa/advisor-192.png',
+    renotify: true,
+    requireInteraction: Boolean(payload.requireInteraction),
+    vibrate: payload.tone === 'critical' ? [120, 60, 120] : [80],
     data: {
       url: payload.url || '/app/advisor/inbox?filter=all',
     },

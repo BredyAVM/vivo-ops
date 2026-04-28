@@ -54,6 +54,7 @@ type OrderEventContext = {
   internalDriverUserId: string | null;
   fulfillment: 'pickup' | 'delivery' | null;
   status: string | null;
+  clientName: string | null;
 };
 
 type OrderEventRecipientInput = {
@@ -68,13 +69,15 @@ async function loadOrderEventContext(
 ): Promise<OrderEventContext | null> {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, attributed_advisor_id, internal_driver_user_id, fulfillment, status')
+    .select('id, order_number, attributed_advisor_id, internal_driver_user_id, fulfillment, status, client:clients!orders_client_id_fkey(full_name)')
     .eq('id', orderId)
     .maybeSingle();
 
   if (error || !data) {
     return null;
   }
+
+  const client = Array.isArray(data.client) ? data.client[0] ?? null : data.client;
 
   return {
     orderId: Number(data.id),
@@ -84,6 +87,7 @@ async function loadOrderEventContext(
     fulfillment:
       data.fulfillment === 'pickup' || data.fulfillment === 'delivery' ? data.fulfillment : null,
     status: data.status == null ? null : String(data.status),
+    clientName: client?.full_name == null ? null : String(client.full_name),
   };
 }
 
@@ -211,6 +215,9 @@ async function appendOrderEvent(
             eventType: input.eventType,
             title: input.title,
             body: input.message,
+            orderNumber: context?.orderNumber,
+            clientName: context?.clientName,
+            payload: input.payload,
             tag: `advisor-order-${input.orderId}-${input.eventType}`,
           });
         } catch (pushError) {
