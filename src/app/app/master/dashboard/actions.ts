@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireMasterOrAdminContext } from '@/lib/auth';
+import { sendPushToAdvisorDevices } from '@/lib/push';
 
 async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
@@ -168,6 +169,23 @@ async function appendOrderEvent(
 
     if (recipientsError) {
       console.warn('appendOrderEvent recipients skipped', recipientsError.message);
+    }
+
+    if (context?.advisorUserId) {
+      try {
+        await sendPushToAdvisorDevices({
+          advisorUserId: context.advisorUserId,
+          orderId: input.orderId,
+          eventType: input.eventType,
+          title: input.title,
+          body: input.message,
+        });
+      } catch (pushError) {
+        console.warn(
+          'appendOrderEvent push skipped',
+          pushError instanceof Error ? pushError.message : 'unknown push error',
+        );
+      }
     }
   } catch (error) {
     console.warn(
