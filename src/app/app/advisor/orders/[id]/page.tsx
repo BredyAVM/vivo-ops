@@ -580,6 +580,7 @@ export default async function AdvisorOrderDetailPage({
       order.status === 'confirmed' ||
       order.status === 'in_kitchen' ||
       order.status === 'ready');
+  const canDuplicateOrder = order.status !== 'cancelled';
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
   const openPaymentOnLoad = resolvedSearchParams.reportPayment === '1';
   void buildWhatsAppOrderSummary;
@@ -668,6 +669,7 @@ export default async function AdvisorOrderDetailPage({
           orderId={order.id}
           balanceUsd={toSafeNumber(balanceUsd, 0)}
           canCorrectOrder={canCorrectOrder}
+          canDuplicateOrder={canDuplicateOrder}
           canReportPayment={canReportPayment}
           moneyAccounts={moneyAccounts}
           whatsappSummary={whatsappSummary}

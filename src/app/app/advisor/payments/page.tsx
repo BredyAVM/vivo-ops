@@ -141,7 +141,7 @@ export default async function AdvisorPaymentsPage() {
       <PageIntro
         eyebrow="Cobranza"
         title="Pagos reportados"
-        description="Aquí el asesor revisa qué cobros faltan por cargar, cuáles ya pasaron y cuáles deben corregirse."
+        description="Aqui el asesor revisa que cobros faltan por cargar, cuales ya pasaron y cuales deben corregirse."
         action={
           <Link href="/app/advisor/new" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
             Nuevo pedido
@@ -151,10 +151,10 @@ export default async function AdvisorPaymentsPage() {
 
       <SectionCard
         title="Por cargar"
-        subtitle="Órdenes con saldo pendiente para reportar pago."
+        subtitle="Ordenes con saldo pendiente para reportar pago."
       >
         {ordersPendingPayment.length === 0 ? (
-          <EmptyBlock title="Sin órdenes por cobrar" detail="Cuando haya saldo pendiente, aparecerá aquí para cargar el pago." />
+          <EmptyBlock title="Sin ordenes por cobrar" detail="Cuando haya saldo pendiente, aparecera aqui para cargar el pago." />
         ) : (
           <div className="space-y-2.5">
             {ordersPendingPayment.map((order) => (
@@ -197,12 +197,12 @@ export default async function AdvisorPaymentsPage() {
       </SectionCard>
 
       {payments.length === 0 ? (
-        <EmptyBlock title="Sin reportes todavía" detail="Cuando este asesor cargue pagos, la trazabilidad aparecerá aquí." />
+        <EmptyBlock title="Sin reportes todavia" detail="Cuando este asesor cargue pagos, la trazabilidad aparecera aqui." />
       ) : (
         sections.map((section) => (
-          <SectionCard key={section.title} title={section.title} subtitle="Lectura compacta para teléfono.">
+          <SectionCard key={section.title} title={section.title} subtitle="Lectura compacta para telefono.">
             {section.rows.length === 0 ? (
-              <EmptyBlock title="Sin movimientos" detail="No hay registros en esta categoría." />
+              <EmptyBlock title="Sin movimientos" detail="No hay registros en esta categoria." />
             ) : (
               <div className="space-y-2.5">
                 {section.rows.map((payment) => (
@@ -218,6 +218,22 @@ export default async function AdvisorPaymentsPage() {
                       <div>Referencia: {payment.reference_code?.trim() || 'Sin referencia'}</div>
                       <div>Monto: {formatMoney(payment.reported_currency_code, payment.reported_amount)}</div>
                       <div>Equivalente: ${Number(payment.reported_amount_usd_equivalent || 0).toFixed(2)}</div>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <Link
+                        href={`/app/advisor/orders/${payment.order_id}`}
+                        className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                      >
+                        Ver orden
+                      </Link>
+                      {payment.status === 'rejected' ? (
+                        <Link
+                          href={`/app/advisor/orders/${payment.order_id}?reportPayment=1`}
+                          className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                        >
+                          Reenviar
+                        </Link>
+                      ) : null}
                     </div>
                   </article>
                 ))}

@@ -38,6 +38,7 @@ export default function OrderDetailActions({
   orderId,
   balanceUsd,
   canCorrectOrder,
+  canDuplicateOrder,
   canReportPayment,
   moneyAccounts,
   whatsappSummary,
@@ -46,6 +47,7 @@ export default function OrderDetailActions({
   orderId: number;
   balanceUsd: number;
   canCorrectOrder: boolean;
+  canDuplicateOrder: boolean;
   canReportPayment: boolean;
   moneyAccounts: MoneyAccountOption[];
   whatsappSummary: string;
@@ -72,7 +74,7 @@ export default function OrderDetailActions({
     [activeAccounts, moneyAccountId],
   );
 
-  if (!canCorrectOrder && !canReportPayment && !whatsappSummary.trim()) return null;
+  if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !whatsappSummary.trim()) return null;
 
   return (
     <div className="space-y-3">
@@ -115,6 +117,15 @@ export default function OrderDetailActions({
           </Link>
         ) : null}
 
+        {canDuplicateOrder ? (
+          <Link
+            href={`/app/advisor/new?duplicateFrom=${orderId}`}
+            className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+          >
+            Repetir pedido
+          </Link>
+        ) : null}
+
         {canReportPayment ? (
           <button
             type="button"
@@ -134,7 +145,7 @@ export default function OrderDetailActions({
         <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
           <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>
           <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
-            El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviará a revisión.
+            El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviara a revision.
           </div>
 
           <div className="mt-3 space-y-3">
@@ -234,7 +245,7 @@ export default function OrderDetailActions({
                         notes: notes.trim() || null,
                       });
 
-                      setSuccess('Pago enviado a revisión.');
+                      setSuccess('Pago enviado a revision.');
                       setReportBoxOpen(false);
                       router.refresh();
                     } catch (submitError) {

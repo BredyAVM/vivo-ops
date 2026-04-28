@@ -78,6 +78,23 @@ type ClientAddress = {
   gpsUrl: string;
 };
 
+type RecentClientChip = {
+  id: number;
+  full_name: string;
+  phone: string | null;
+  client_type: string | null;
+  fund_balance_usd?: number | string | null;
+  recent_addresses?: unknown;
+  billing_company_name?: string | null;
+  billing_tax_id?: string | null;
+  billing_address?: string | null;
+  billing_phone?: string | null;
+  delivery_note_name?: string | null;
+  delivery_note_document_id?: string | null;
+  delivery_note_address?: string | null;
+  delivery_note_phone?: string | null;
+};
+
 type ExistingOrderRow = {
   id: number;
   order_number?: string | null;
@@ -193,6 +210,13 @@ type OrderEditSnapshot = {
     detailLines: string[];
   }>;
 };
+
+const STORAGE_KEYS = {
+  recentClients: 'advisor_recent_clients_v1',
+  recentProducts: 'advisor_recent_products_v1',
+  favoriteProducts: 'advisor_favorite_products_v1',
+  recentAddresses: 'advisor_recent_addresses_v1',
+} as const;
 
 function pad2(n: number) {
   return String(n).padStart(2, '0');
@@ -336,6 +360,18 @@ function mergeRecentAddresses(currentValue: unknown, nextAddressText: string, ne
         ),
     ),
   ].slice(0, 2);
+}
+
+function readStoredJson<T>(key: string, fallback: T) {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function normalizeSnapshotText(value: string | null | undefined) {
@@ -605,8 +641,10 @@ function ConfigSheet(props: {
 
 export default function AdvisorOrderComposer({
   existingOrderId = null,
+  templateOrderId = null,
 }: {
   existingOrderId?: number | null;
+  templateOrderId?: number | null;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
@@ -626,12 +664,15 @@ export default function AdvisorOrderComposer({
   const [productSearch, setProductSearch] = useState('');
   const [productActiveIndex, setProductActiveIndex] = useState<number>(-1);
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
+  const [recentProductIds, setRecentProductIds] = useState<number[]>([]);
+  const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
   const [qty, setQty] = useState('1');
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [clientResults, setClientResults] = useState<ClientRow[]>([]);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
+  const [recentClients, setRecentClients] = useState<RecentClientChip[]>([]);
   const [isNewClientMode, setIsNewClientMode] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
@@ -647,6 +688,7 @@ export default function AdvisorOrderComposer({
   const [receiverPhone, setReceiverPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryGpsUrl, setDeliveryGpsUrl] = useState('');
+  const [recentAddresses, setRecentAddresses] = useState<ClientAddress[]>([]);
   const [orderNote, setOrderNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pending');
   const [paymentCurrency, setPaymentCurrency] = useState<CurrencyCode>('USD');
@@ -680,6 +722,13 @@ export default function AdvisorOrderComposer({
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
   const isEditingOrder = Number.isFinite(existingOrderId) && Number(existingOrderId) > 0;
+  const sourceOrderId =
+    Number.isFinite(existingOrderId) && Number(existingOrderId) > 0
+      ? Number(existingOrderId)
+      : Number.isFinite(templateOrderId) && Number(templateOrderId) > 0
+        ? Number(templateOrderId)
+        : null;
+  const isRepeatingOrder = !isEditingOrder && sourceOrderId != null;
 
   const selectedProduct = useMemo(() => {
     if (selectedProductId === '') return null;
@@ -687,6 +736,20 @@ export default function AdvisorOrderComposer({
   }, [products, selectedProductId]);
 
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const favoriteProducts = useMemo(
+    () =>
+      favoriteProductIds
+        .map((id) => productById.get(id))
+        .filter((product): product is ProductRow => !!product),
+    [favoriteProductIds, productById]
+  );
+  const recentProducts = useMemo(
+    () =>
+      recentProductIds
+        .map((id) => productById.get(id))
+        .filter((product): product is ProductRow => !!product && !favoriteProductIds.includes(product.id)),
+    [favoriteProductIds, productById, recentProductIds]
+  );
   const draftTotalUsd = useMemo(
     () => draftItems.reduce((sum, item) => sum + Number(item.line_total_usd || 0), 0),
     [draftItems]
@@ -696,6 +759,16 @@ export default function AdvisorOrderComposer({
     () => normalizeClientAddresses(selectedClient?.recent_addresses),
     [selectedClient]
   );
+  const quickAddresses = useMemo(() => {
+    const seen = new Set<string>();
+    return [...selectedClientAddresses, ...recentAddresses].filter((address) => {
+      const key = `${address.addressText.trim()}|${address.gpsUrl.trim()}`;
+      if (!address.addressText.trim() && !address.gpsUrl.trim()) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [recentAddresses, selectedClientAddresses]);
   const fxRateNumber = Math.max(0, Number(String(fxRate || '0').replace(',', '.')) || 0);
   const discountPctNumber = Math.max(0, Math.min(100, Number(discountPct || 0) || 0));
   const invoiceTaxPctNumber = hasInvoice
@@ -758,6 +831,33 @@ export default function AdvisorOrderComposer({
   }, [productSearch, products]);
 
   useEffect(() => {
+    setRecentClients(readStoredJson<RecentClientChip[]>(STORAGE_KEYS.recentClients, []));
+    setRecentProductIds(readStoredJson<number[]>(STORAGE_KEYS.recentProducts, []));
+    setFavoriteProductIds(readStoredJson<number[]>(STORAGE_KEYS.favoriteProducts, []));
+    setRecentAddresses(readStoredJson<ClientAddress[]>(STORAGE_KEYS.recentAddresses, []));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.recentClients, JSON.stringify(recentClients.slice(0, 6)));
+  }, [recentClients]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.recentProducts, JSON.stringify(recentProductIds.slice(0, 8)));
+  }, [recentProductIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.favoriteProducts, JSON.stringify(favoriteProductIds.slice(0, 8)));
+  }, [favoriteProductIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEYS.recentAddresses, JSON.stringify(recentAddresses.slice(0, 6)));
+  }, [recentAddresses]);
+
+  useEffect(() => {
     async function boot() {
       setLoading(true);
       setError(null);
@@ -809,14 +909,14 @@ export default function AdvisorOrderComposer({
           .maybeSingle(),
       ] as const;
 
-      const editRequests = isEditingOrder
+      const editRequests = sourceOrderId
         ? ([
             supabase
               .from('orders')
               .select(
                 'id, order_number, total_usd, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
               )
-              .eq('id', Number(existingOrderId))
+              .eq('id', Number(sourceOrderId))
               .eq('attributed_advisor_id', user.id)
               .maybeSingle(),
             supabase
@@ -824,7 +924,7 @@ export default function AdvisorOrderComposer({
               .select(
                 'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes'
               )
-              .eq('order_id', Number(existingOrderId))
+              .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
           ] as const)
         : null;
@@ -863,11 +963,11 @@ export default function AdvisorOrderComposer({
         setExistingOrderStatus('');
       }
 
-      if (isEditingOrder) {
+      if (sourceOrderId) {
         if (existingOrderResult?.error) {
           setError(existingOrderResult.error.message);
         } else if (!existingOrderResult?.data) {
-          setError('No se pudo cargar la orden para corregir.');
+          setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
           const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
@@ -890,6 +990,7 @@ export default function AdvisorOrderComposer({
           const parsedTime = parseStoredTime12(schedule?.time_12, rounded);
 
           setSelectedClient(orderClient ? (orderClient as ClientRow) : null);
+          if (orderClient) rememberClient(orderClient as ClientRow);
           setSearchTerm(orderClient?.phone || orderClient?.full_name || '');
           setClientResults([]);
           setIsNewClientMode(false);
@@ -904,6 +1005,7 @@ export default function AdvisorOrderComposer({
           setReceiverPhone(order.receiver_phone || '');
           setDeliveryAddress(order.delivery_address || '');
           setDeliveryGpsUrl(order.extra_fields?.delivery?.gps_url || '');
+          rememberAddress(order.delivery_address || '', order.extra_fields?.delivery?.gps_url || '');
           setOrderNote(order.notes || order.extra_fields?.note || '');
           setPaymentMethod((paymentData?.method as PaymentMethod) || 'pending');
           setPaymentCurrency((paymentData?.currency as CurrencyCode) || 'USD');
@@ -955,81 +1057,89 @@ export default function AdvisorOrderComposer({
           );
           setExistingOrderNumber(String(order.order_number || ''));
           setExistingOrderStatus(String(order.status || ''));
-          setOriginalEditSnapshot({
-            clientId: orderClient?.id ? Number(orderClient.id) : null,
-            fulfillment: (order.fulfillment || 'pickup') as FulfillmentType,
-            deliveryDate: normalizeSnapshotText(schedule?.date || getTodayInputValue()),
-            deliveryTime12: normalizeSnapshotText(`${parsedTime.hour12}:${parsedTime.minute} ${parsedTime.ampm}`),
-            isAsap: Boolean(schedule?.asap),
-            receiverName: normalizeSnapshotText(order.receiver_name),
-            receiverPhone: normalizeSnapshotText(order.receiver_phone),
-            deliveryAddress: normalizeSnapshotText(order.delivery_address),
-            deliveryGpsUrl: normalizeSnapshotText(order.extra_fields?.delivery?.gps_url),
-            orderNote: normalizeSnapshotText(order.notes || order.extra_fields?.note),
-            paymentMethod: ((paymentData?.method as PaymentMethod) || 'pending'),
-            paymentCurrency: ((paymentData?.currency as CurrencyCode) || 'USD'),
-            paymentRequiresChange: Boolean(paymentData?.requires_change),
-            paymentChangeFor: normalizeSnapshotText(
-              paymentData?.change_for == null ? '' : String(paymentData.change_for)
-            ),
-            paymentChangeCurrency: ((paymentData?.change_currency as CurrencyCode) || 'USD'),
-            paymentNote: normalizeSnapshotText(paymentData?.notes),
-            fxRate: normalizeSnapshotText(
-              pricing?.fx_rate == null
-                ? activeRate > 0
-                  ? String(Number(activeRate.toFixed(2)))
-                  : ''
-                : String(pricing.fx_rate)
-            ),
-            discountEnabled: Boolean(pricing?.discount_enabled),
-            discountPct: normalizeSnapshotText(
-              pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
-            ),
-            hasInvoice: Boolean(documents?.has_invoice),
-            invoiceTaxPct: normalizeSnapshotText(
-              pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
-            ),
-            hasDeliveryNote: Boolean(documents?.has_delivery_note),
-            invoiceCompanyName: normalizeSnapshotText(
-              documents?.invoice_snapshot?.company_name || orderClient?.billing_company_name
-            ),
-            invoiceTaxId: normalizeSnapshotText(
-              documents?.invoice_snapshot?.tax_id || orderClient?.billing_tax_id
-            ),
-            invoiceAddress: normalizeSnapshotText(
-              documents?.invoice_snapshot?.address || orderClient?.billing_address
-            ),
-            invoicePhone: normalizeSnapshotText(
-              documents?.invoice_snapshot?.phone || orderClient?.billing_phone
-            ),
-            deliveryNoteName: normalizeSnapshotText(
-              documents?.delivery_note_snapshot?.name || orderClient?.delivery_note_name
-            ),
-            deliveryNoteDocumentId: normalizeSnapshotText(
-              documents?.delivery_note_snapshot?.document_id ||
-                orderClient?.delivery_note_document_id
-            ),
-            deliveryNoteAddress: normalizeSnapshotText(
-              documents?.delivery_note_snapshot?.address || orderClient?.delivery_note_address
-            ),
-            deliveryNotePhone: normalizeSnapshotText(
-              documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone
-            ),
-            totalUsd: Number(Number(order.total_usd || 0).toFixed(2)),
-            totalBs: Number(
-              toSafeNumber(pricing?.total_bs, activeRate > 0 ? Number(order.total_usd || 0) * activeRate : 0).toFixed(2)
-            ),
-            items: orderItems.map((item) => ({
-              productId: Number(item.product_id || 0),
-              productName: normalizeSnapshotText(item.product_name_snapshot),
-              qty: Number(item.qty || 0),
-              lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
-              detailLines: item.editable_detail_lines
-                .map((line) => normalizeSnapshotText(line))
-                .filter(Boolean),
-            })),
-          });
-          setInfo('Pedido listo para corregir.');
+
+          if (isEditingOrder) {
+            setOriginalEditSnapshot({
+              clientId: orderClient?.id ? Number(orderClient.id) : null,
+              fulfillment: (order.fulfillment || 'pickup') as FulfillmentType,
+              deliveryDate: normalizeSnapshotText(schedule?.date || getTodayInputValue()),
+              deliveryTime12: normalizeSnapshotText(`${parsedTime.hour12}:${parsedTime.minute} ${parsedTime.ampm}`),
+              isAsap: Boolean(schedule?.asap),
+              receiverName: normalizeSnapshotText(order.receiver_name),
+              receiverPhone: normalizeSnapshotText(order.receiver_phone),
+              deliveryAddress: normalizeSnapshotText(order.delivery_address),
+              deliveryGpsUrl: normalizeSnapshotText(order.extra_fields?.delivery?.gps_url),
+              orderNote: normalizeSnapshotText(order.notes || order.extra_fields?.note),
+              paymentMethod: ((paymentData?.method as PaymentMethod) || 'pending'),
+              paymentCurrency: ((paymentData?.currency as CurrencyCode) || 'USD'),
+              paymentRequiresChange: Boolean(paymentData?.requires_change),
+              paymentChangeFor: normalizeSnapshotText(
+                paymentData?.change_for == null ? '' : String(paymentData.change_for)
+              ),
+              paymentChangeCurrency: ((paymentData?.change_currency as CurrencyCode) || 'USD'),
+              paymentNote: normalizeSnapshotText(paymentData?.notes),
+              fxRate: normalizeSnapshotText(
+                pricing?.fx_rate == null
+                  ? activeRate > 0
+                    ? String(Number(activeRate.toFixed(2)))
+                    : ''
+                  : String(pricing.fx_rate)
+              ),
+              discountEnabled: Boolean(pricing?.discount_enabled),
+              discountPct: normalizeSnapshotText(
+                pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+              ),
+              hasInvoice: Boolean(documents?.has_invoice),
+              invoiceTaxPct: normalizeSnapshotText(
+                pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
+              ),
+              hasDeliveryNote: Boolean(documents?.has_delivery_note),
+              invoiceCompanyName: normalizeSnapshotText(
+                documents?.invoice_snapshot?.company_name || orderClient?.billing_company_name
+              ),
+              invoiceTaxId: normalizeSnapshotText(
+                documents?.invoice_snapshot?.tax_id || orderClient?.billing_tax_id
+              ),
+              invoiceAddress: normalizeSnapshotText(
+                documents?.invoice_snapshot?.address || orderClient?.billing_address
+              ),
+              invoicePhone: normalizeSnapshotText(
+                documents?.invoice_snapshot?.phone || orderClient?.billing_phone
+              ),
+              deliveryNoteName: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.name || orderClient?.delivery_note_name
+              ),
+              deliveryNoteDocumentId: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.document_id ||
+                  orderClient?.delivery_note_document_id
+              ),
+              deliveryNoteAddress: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.address || orderClient?.delivery_note_address
+              ),
+              deliveryNotePhone: normalizeSnapshotText(
+                documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone
+              ),
+              totalUsd: Number(Number(order.total_usd || 0).toFixed(2)),
+              totalBs: Number(
+                toSafeNumber(pricing?.total_bs, activeRate > 0 ? Number(order.total_usd || 0) * activeRate : 0).toFixed(2)
+              ),
+              items: orderItems.map((item) => ({
+                productId: Number(item.product_id || 0),
+                productName: normalizeSnapshotText(item.product_name_snapshot),
+                qty: Number(item.qty || 0),
+                lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
+                detailLines: item.editable_detail_lines
+                  .map((line) => normalizeSnapshotText(line))
+                  .filter(Boolean),
+              })),
+            });
+            setInfo('Pedido listo para corregir.');
+          } else {
+            setOriginalEditSnapshot(null);
+            setExistingOrderNumber('');
+            setExistingOrderStatus('');
+            setInfo('Pedido base listo para repetir.');
+          }
         }
       }
 
@@ -1037,7 +1147,7 @@ export default function AdvisorOrderComposer({
     }
 
     void boot();
-  }, [existingOrderId, isEditingOrder, rounded, router, supabase]);
+  }, [isEditingOrder, rounded, router, sourceOrderId, supabase]);
 
   useEffect(() => {
     if (paymentMethod === 'cash_ves' || paymentMethod === 'transfer' || paymentMethod === 'payment_mobile') {
@@ -1061,6 +1171,56 @@ export default function AdvisorOrderComposer({
   function clearMessages() {
     setError(null);
     setInfo(null);
+  }
+
+  function rememberClient(client: ClientRow | RecentClientChip) {
+    const nextClient = {
+      id: Number(client.id),
+      full_name: String(client.full_name || 'Cliente'),
+      phone: client.phone || null,
+      client_type: client.client_type || null,
+      fund_balance_usd: client.fund_balance_usd ?? null,
+      recent_addresses: client.recent_addresses,
+      billing_company_name: client.billing_company_name ?? null,
+      billing_tax_id: client.billing_tax_id ?? null,
+      billing_address: client.billing_address ?? null,
+      billing_phone: client.billing_phone ?? null,
+      delivery_note_name: client.delivery_note_name ?? null,
+      delivery_note_document_id: client.delivery_note_document_id ?? null,
+      delivery_note_address: client.delivery_note_address ?? null,
+      delivery_note_phone: client.delivery_note_phone ?? null,
+    } satisfies RecentClientChip;
+
+    setRecentClients((current) => [
+      nextClient,
+      ...current.filter((row) => row.id !== nextClient.id),
+    ].slice(0, 6));
+  }
+
+  function rememberProduct(productId: number) {
+    setRecentProductIds((current) => [productId, ...current.filter((id) => id !== productId)].slice(0, 8));
+  }
+
+  function rememberAddress(addressText: string, gpsUrl: string) {
+    const normalized = {
+      addressText: String(addressText || '').trim(),
+      gpsUrl: String(gpsUrl || '').trim(),
+    };
+    if (!normalized.addressText && !normalized.gpsUrl) return;
+
+    setRecentAddresses((current) => [
+      normalized,
+      ...current.filter(
+        (row) =>
+          row.addressText.trim() !== normalized.addressText || row.gpsUrl.trim() !== normalized.gpsUrl
+      ),
+    ].slice(0, 6));
+  }
+
+  function toggleFavoriteProduct(productId: number) {
+    setFavoriteProductIds((current) =>
+      current.includes(productId) ? current.filter((id) => id !== productId) : [productId, ...current].slice(0, 8)
+    );
   }
 
   function buildCurrentEditSnapshot(clientId: number | null): OrderEditSnapshot {
@@ -1164,6 +1324,7 @@ export default function AdvisorOrderComposer({
       if (existing && existing.length > 0) {
         const current = existing[0] as ClientRow;
         setSelectedClient(current);
+        rememberClient(current);
         applyClientProfile(current);
         setSearchTerm(current.phone ?? current.full_name);
         setIsNewClientMode(false);
@@ -1182,6 +1343,7 @@ export default function AdvisorOrderComposer({
 
       const client = created as ClientRow;
       setSelectedClient(client);
+      rememberClient(client);
       applyClientProfile(client);
       setSearchTerm(client.phone ?? client.full_name);
       setIsNewClientMode(false);
@@ -1205,6 +1367,7 @@ export default function AdvisorOrderComposer({
   function applyClientAddress(address: ClientAddress) {
     setDeliveryAddress(address.addressText);
     setDeliveryGpsUrl(address.gpsUrl);
+    rememberAddress(address.addressText, address.gpsUrl);
   }
 
   function chooseProduct(product: ProductRow) {
@@ -1297,6 +1460,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    rememberProduct(selectedProduct.id);
     setDraftItems((current) => [...current, buildDraftItem(selectedProduct, quantity, [])]);
     setQty('1');
     setSelectedProductId('');
@@ -1350,6 +1514,7 @@ export default function AdvisorOrderComposer({
         )
       );
     } else {
+      rememberProduct(configProduct.id);
       setDraftItems((current) => [...current, item]);
     }
 
@@ -1657,6 +1822,8 @@ export default function AdvisorOrderComposer({
     try {
       const clientId = await ensureClientId();
       const nextEditSnapshot = isEditingOrder ? buildCurrentEditSnapshot(clientId) : null;
+      if (selectedClient) rememberClient(selectedClient);
+      if (fulfillment === 'delivery') rememberAddress(deliveryAddress, deliveryGpsUrl);
       const recentAddresses = mergeRecentAddresses(
         selectedClient?.recent_addresses,
         fulfillment === 'delivery' ? deliveryAddress : '',
@@ -1796,7 +1963,11 @@ export default function AdvisorOrderComposer({
   if (loading) {
     return (
       <div className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-5 text-sm text-[#AAB2C5]">
-        {isEditingOrder ? 'Cargando pedido para corregir...' : 'Cargando captura del asesor...'}
+        {isEditingOrder
+          ? 'Cargando pedido para corregir...'
+          : isRepeatingOrder
+            ? 'Cargando pedido base para repetir...'
+            : 'Cargando captura del asesor...'}
       </div>
     );
   }
@@ -1808,6 +1979,28 @@ export default function AdvisorOrderComposer({
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
         <Section title="1. Cliente" subtitle="Busca primero y crea solo si no existe.">
+          {recentClients.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {recentClients.map((client) => (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedClient(client as ClientRow);
+                    applyClientProfile(client as ClientRow);
+                    setSearchTerm(client.phone || client.full_name);
+                    setClientResults([]);
+                    setIsNewClientMode(false);
+                    setInfo(`Cliente rapido: ${client.full_name}`);
+                  }}
+                  className="rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB]"
+                >
+                  {client.full_name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <Field label="Buscar cliente">
             <div className="flex gap-2">
               <input
@@ -1858,6 +2051,7 @@ export default function AdvisorOrderComposer({
                   type="button"
                   onClick={() => {
                     setSelectedClient(client);
+                    rememberClient(client);
                     applyClientProfile(client);
                     setIsNewClientMode(false);
                     setClientResults([]);
@@ -1910,6 +2104,42 @@ export default function AdvisorOrderComposer({
         </Section>
 
         <Section title="2. Pedido" subtitle="Misma logica base de master, compacta para telefono.">
+          {favoriteProducts.length > 0 ? (
+            <div className="space-y-2">
+              <div className="text-[12px] font-medium text-[#AAB2C5]">Favoritos</div>
+              <div className="flex flex-wrap gap-2">
+                {favoriteProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => chooseProduct(product)}
+                    className="rounded-[14px] border border-[#564511] bg-[#2A2209] px-3 py-2 text-sm text-[#F7DA66]"
+                  >
+                    {product.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {recentProducts.length > 0 ? (
+            <div className="space-y-2">
+              <div className="text-[12px] font-medium text-[#AAB2C5]">Recientes</div>
+              <div className="flex flex-wrap gap-2">
+                {recentProducts.slice(0, 6).map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => chooseProduct(product)}
+                    className="rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB]"
+                  >
+                    {product.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="relative">
             <Field label="Producto">
               <input
@@ -2000,6 +2230,23 @@ export default function AdvisorOrderComposer({
               placeholder="Cant."
             />
           </div>
+
+          {selectedProduct ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => toggleFavoriteProduct(selectedProduct.id)}
+                className={[
+                  'h-9 rounded-[12px] px-3 text-xs font-medium',
+                  favoriteProductIds.includes(selectedProduct.id)
+                    ? 'border border-[#564511] bg-[#2A2209] text-[#F7DA66]'
+                    : 'border border-[#232632] text-[#F5F7FB]',
+                ].join(' ')}
+              >
+                {favoriteProductIds.includes(selectedProduct.id) ? 'Quitar favorito' : 'Marcar favorito'}
+              </button>
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -2188,9 +2435,9 @@ export default function AdvisorOrderComposer({
 
           {fulfillment === 'delivery' ? (
             <>
-              {selectedClientAddresses.length > 0 ? (
+              {quickAddresses.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
-                  {selectedClientAddresses.map((address, index) => (
+                  {quickAddresses.map((address, index) => (
                     <button
                       key={`${address.addressText}-${index}`}
                       type="button"
