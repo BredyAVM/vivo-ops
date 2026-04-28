@@ -81,6 +81,7 @@ export async function POST(req: Request) {
 
     let delivered = 0;
     let invalid = 0;
+    const failures: string[] = [];
 
     for (const result of results) {
       if (result.status === 'fulfilled') {
@@ -88,8 +89,26 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const statusCode = Number((result.reason as { statusCode?: number })?.statusCode || 0);
+      const reason = result.reason as {
+        statusCode?: number;
+        body?: string;
+        message?: string;
+        headers?: Record<string, string>;
+      };
+      const statusCode = Number(reason?.statusCode || 0);
       if (statusCode === 404 || statusCode === 410) invalid += 1;
+
+      const apnsReason =
+        typeof reason?.body === 'string'
+          ? reason.body.slice(0, 240)
+          : typeof reason?.message === 'string'
+            ? reason.message
+            : 'unknown push rejection';
+      failures.push(
+        statusCode > 0
+          ? `Push reject ${statusCode}: ${apnsReason}`
+          : `Push reject: ${apnsReason}`,
+      );
     }
 
     if (invalid > 0) {
@@ -110,7 +129,12 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, delivered, invalid });
+    return NextResponse.json({
+      ok: true,
+      delivered,
+      invalid,
+      failures: failures.slice(0, 3),
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },

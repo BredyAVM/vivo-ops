@@ -275,7 +275,12 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
         'La prueba tardo demasiado en responder desde el servidor.'
       );
 
-      const payload = (await response.json()) as { error?: string; code?: string; delivered?: number };
+      const payload = (await response.json()) as {
+        error?: string;
+        code?: string;
+        delivered?: number;
+        failures?: string[];
+      };
       if (!response.ok) {
         if (payload.code === 'missing_table') {
           throw new Error('Falta crear la tabla de suscripciones push en Supabase.');
@@ -286,7 +291,9 @@ export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: s
       setMessage(
         payload.delivered && payload.delivered > 0
           ? 'Prueba enviada al telefono.'
-          : 'La suscripcion quedo guardada, pero no se entrego ninguna prueba.'
+          : payload.failures && payload.failures.length > 0
+            ? `La suscripcion quedo guardada, pero Apple rechazo la push: ${payload.failures[0]}`
+            : 'La suscripcion quedo guardada, pero no se entrego ninguna prueba.'
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
