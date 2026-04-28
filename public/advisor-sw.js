@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vivo-ops-advisor-v1';
+const CACHE_NAME = 'vivo-ops-advisor-v2';
 const PRECACHE_URLS = [
   '/app/advisor/manifest.webmanifest',
   '/pwa/advisor-180.png',
@@ -9,7 +9,23 @@ const PRECACHE_URLS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting())
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await Promise.allSettled(
+        PRECACHE_URLS.map(async (url) => {
+          try {
+            const response = await fetch(url, { cache: 'no-store' });
+            if (response && response.ok) {
+              await cache.put(url, response.clone());
+            }
+          } catch {
+            // Never block activation because of a failed precache asset.
+          }
+        })
+      );
+
+      await self.skipWaiting();
+    })()
   );
 });
 
