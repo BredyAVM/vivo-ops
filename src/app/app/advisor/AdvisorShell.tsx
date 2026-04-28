@@ -81,15 +81,6 @@ export default function AdvisorShell(props: AdvisorShellProps) {
     [pathname, searchParams],
   );
 
-  const headerTag = useMemo(() => {
-    if (pathname.startsWith('/app/advisor/new')) return 'Pedido';
-    if (pathname.startsWith('/app/advisor/orders/')) return 'Seguimiento';
-    if (pathname.startsWith('/app/advisor/orders')) return 'Pedidos';
-    if (pathname.startsWith('/app/advisor/payments')) return 'Pagos';
-    if (pathname.startsWith('/app/advisor/inbox')) return 'Alertas';
-    return advisorName;
-  }, [advisorName, pathname]);
-
   return (
     <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
       <div className="advisor-safe-shell mx-auto flex min-h-screen max-w-screen-md flex-col">
@@ -143,12 +134,6 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                 </span>
               </button>
             </div>
-          </div>
-
-          <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-0.5">
-            <div className="inline-flex h-8 items-center rounded-[11px] border border-[#232632] bg-[#10131A] px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8B93A7]">
-                {headerTag}
-              </div>
           </div>
 
           {menuOpen ? (
