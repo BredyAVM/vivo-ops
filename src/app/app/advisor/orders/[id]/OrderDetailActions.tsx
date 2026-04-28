@@ -42,6 +42,8 @@ export default function OrderDetailActions({
   canReportPayment,
   moneyAccounts,
   whatsappSummary,
+  whatsappContactHref,
+  whatsappContactLabel,
   initialReportBoxOpen = false,
 }: {
   orderId: number;
@@ -51,6 +53,8 @@ export default function OrderDetailActions({
   canReportPayment: boolean;
   moneyAccounts: MoneyAccountOption[];
   whatsappSummary: string;
+  whatsappContactHref?: string;
+  whatsappContactLabel?: string;
   initialReportBoxOpen?: boolean;
 }) {
   const router = useRouter();
@@ -107,6 +111,17 @@ export default function OrderDetailActions({
         >
           Copiar WhatsApp
         </button>
+
+        {whatsappContactHref ? (
+          <a
+            href={whatsappContactHref}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#25D366]"
+          >
+            {whatsappContactLabel ? `Conversar por WhatsApp` : 'Abrir WhatsApp'}
+          </a>
+        ) : null}
 
         {canCorrectOrder ? (
           <Link

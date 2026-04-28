@@ -123,6 +123,12 @@ function safeText(value: unknown, fallback = 'Sin dato') {
   return text || fallback;
 }
 
+function normalizePhoneForWhatsApp(value: string | null | undefined) {
+  const normalized = String(value || '').replace(/[^\d+]/g, '').trim();
+  if (!normalized) return '';
+  return normalized.startsWith('+') ? normalized.slice(1) : normalized;
+}
+
 function formatUsd(value: number | string | null | undefined) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
@@ -539,6 +545,12 @@ export default async function AdvisorOrderDetailPage({
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
   const balanceUsd = Math.max(0, Number(order.total_usd || 0) - confirmedPaidUsd);
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
+  const contactPhoneRaw = order.receiver_phone?.trim() || client?.phone?.trim() || '';
+  const whatsappPhone = normalizePhoneForWhatsApp(contactPhoneRaw);
+  const contactName = order.receiver_name?.trim() || client?.full_name?.trim() || 'cliente';
+  const whatsappContactHref = whatsappPhone
+    ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Hola ${contactName}, te escribimos por tu pedido #${order.id} en VIVO OPS.`)}`
+    : '';
   const schedule = order.extra_fields?.schedule;
   const payment = order.extra_fields?.payment;
   const moneyAccounts = ((moneyAccountsResult.data ?? []) as MoneyAccountRow[]).map((account) => ({
@@ -637,7 +649,18 @@ export default async function AdvisorOrderDetailPage({
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Telefono</span>
-            <span className="text-[#F5F7FB]">{client?.phone?.trim() || 'Sin telefono'}</span>
+            {whatsappContactHref ? (
+              <a
+                href={whatsappContactHref}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#F0D000] underline underline-offset-2"
+              >
+                {contactPhoneRaw}
+              </a>
+            ) : (
+              <span className="text-[#F5F7FB]">{client?.phone?.trim() || 'Sin telefono'}</span>
+            )}
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Entrega</span>
@@ -673,6 +696,8 @@ export default async function AdvisorOrderDetailPage({
           canReportPayment={canReportPayment}
           moneyAccounts={moneyAccounts}
           whatsappSummary={whatsappSummary}
+          whatsappContactHref={whatsappContactHref}
+          whatsappContactLabel={contactPhoneRaw || ''}
           initialReportBoxOpen={openPaymentOnLoad}
         />
       </SectionCard>
