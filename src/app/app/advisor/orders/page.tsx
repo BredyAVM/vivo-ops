@@ -27,6 +27,13 @@ type OrderRow = {
   client: { full_name: string | null; phone: string | null } | null;
 };
 
+type RawOrderRow = Omit<OrderRow, 'client'> & {
+  client:
+    | { full_name: string | null; phone: string | null }[]
+    | { full_name: string | null; phone: string | null }
+    | null;
+};
+
 type PaymentRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
@@ -186,7 +193,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
       .eq('created_by_user_id', ctx.user.id),
   ]);
 
-  const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
+  const orders = ((ordersData ?? []) as RawOrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
