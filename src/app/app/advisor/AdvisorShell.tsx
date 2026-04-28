@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
+import AdvisorInboxBell from './AdvisorInboxBell';
 import AdvisorRealtimeNotifier from './AdvisorRealtimeNotifier';
 
 type AdvisorShellProps = {
@@ -10,6 +11,7 @@ type AdvisorShellProps = {
   email: string;
   fullName: string;
   userId: string;
+  unreadCount: number;
 };
 
 const navItems = [
@@ -22,7 +24,25 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function formatHeaderDate(value: Date) {
+  return value.toLocaleDateString('es-VE', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function getHeaderDate(pathname: string, dayParam: string | null) {
+  if (pathname === '/app/advisor' && dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam)) {
+    return new Date(`${dayParam}T12:00:00-04:00`);
+  }
+
+  return new Date();
+}
+
 function resolveHeaderTitle(pathname: string, isEditingOrder: boolean) {
+  if (pathname === '/app/advisor') return 'Agenda del dia';
   if (pathname.startsWith('/app/advisor/new')) {
     return isEditingOrder ? 'Modificar pedido' : 'Crear pedido';
   }
@@ -37,45 +57,72 @@ function resolveBackHref(pathname: string) {
   if (pathname.startsWith('/app/advisor/new')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/inbox')) return '/app/advisor';
+  if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
   return null;
 }
 
 export default function AdvisorShell(props: AdvisorShellProps) {
-  const { children, userId } = props;
+  const { children, userId, fullName, unreadCount } = props;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
+  const isOrderDetailRoute = pathname.startsWith('/app/advisor/orders/');
   const isEditingOrder = isNewOrderRoute && Number(searchParams.get('fromOrder') || 0) > 0;
   const headerTitle = resolveHeaderTitle(pathname, isEditingOrder);
   const backHref = resolveBackHref(pathname);
+  const showCreateButton = !isNewOrderRoute && !isOrderDetailRoute;
+  const advisorName = useMemo(() => {
+    const normalized = String(fullName || '').trim();
+    return normalized ? normalized.split(/\s+/)[0] || 'Asesor' : 'Asesor';
+  }, [fullName]);
+  const headerDateLabel = useMemo(
+    () => formatHeaderDate(getHeaderDate(pathname, searchParams.get('day'))).replace('.', ''),
+    [pathname, searchParams],
+  );
 
   const headerTag = useMemo(() => {
-    if (pathname.startsWith('/app/advisor/new')) return 'Pedidos';
+    if (pathname.startsWith('/app/advisor/new')) return 'Pedido';
     if (pathname.startsWith('/app/advisor/orders/')) return 'Seguimiento';
-    if (pathname.startsWith('/app/advisor/orders')) return 'Agenda';
-    if (pathname.startsWith('/app/advisor/payments')) return 'Cobros';
+    if (pathname.startsWith('/app/advisor/orders')) return 'Pedidos';
+    if (pathname.startsWith('/app/advisor/payments')) return 'Pagos';
     if (pathname.startsWith('/app/advisor/inbox')) return 'Alertas';
-    return 'Asesor';
-  }, [pathname]);
+    return advisorName;
+  }, [advisorName, pathname]);
 
   return (
     <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
       <div className="advisor-safe-shell mx-auto flex min-h-screen max-w-screen-md flex-col">
         <header className="advisor-safe-header sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2.5 backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#6F7890]">
-                {headerTag}
-              </div>
-              <div className="truncate text-[15px] font-semibold text-[#F5F7FB]">
-                {headerTitle}
+            <div className="flex min-w-0 items-center gap-2.5">
+              {backHref ? (
+                <Link
+                  href={backHref}
+                  className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] bg-[#10131A] px-3 text-sm font-medium text-[#F5F7FB]"
+                >
+                  Volver
+                </Link>
+              ) : null}
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#6F7890]">
+                  {headerDateLabel}
+                </div>
+                <div className="truncate text-[15px] font-semibold text-[#F5F7FB]">
+                  {headerTitle}
+                </div>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              {!isNewOrderRoute ? (
+              <AdvisorInboxBell
+                advisorName={advisorName}
+                userId={userId}
+                unreadCount={unreadCount}
+                href="/app/advisor/inbox?filter=all"
+              />
+              {showCreateButton ? (
                 <Link
                   href="/app/advisor/new"
                   className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-sm font-semibold text-[#17191E]"
@@ -83,7 +130,6 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                   Nuevo
                 </Link>
               ) : null}
-
               <button
                 type="button"
                 onClick={() => setMenuOpen((current) => !current)}
@@ -98,6 +144,12 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                 </span>
               </button>
             </div>
+          </div>
+
+          <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-0.5">
+            <div className="inline-flex h-8 items-center rounded-[11px] border border-[#232632] bg-[#10131A] px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8B93A7]">
+                {headerTag}
+              </div>
           </div>
 
           {menuOpen ? (

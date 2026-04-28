@@ -1,8 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
-import AdvisorInboxBell from './AdvisorInboxBell';
-import { INCLUDED_EVENT_TYPES, safeText } from './inbox/inbox-shared';
 
 type SearchParams = Promise<{
   day?: string;
@@ -34,15 +32,6 @@ type OrderRow = {
 type PaymentRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
-};
-
-type InboxRecipientRow = {
-  id: number;
-  read_at: string | null;
-  event:
-    | { event_type: string | null }[]
-    | { event_type: string | null }
-    | null;
 };
 
 function formatUsd(value: number | string) {
@@ -97,10 +86,6 @@ function buildCalendarDays(activeKey: string) {
       isToday: getDateKey(new Date()) === getDateKey(current),
     };
   });
-}
-
-function firstName(fullName: string) {
-  return fullName.trim().split(/\s+/)[0] || 'Asesor';
 }
 
 function isDayKey(value: string | null | undefined) {
@@ -193,12 +178,6 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const { data: profile } = await ctx.supabase
-    .from('profiles')
-    .select('full_name')
-    .eq('id', ctx.user.id)
-    .maybeSingle();
-
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
 
@@ -222,18 +201,6 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
-
-  const { data: recipientsData } = await ctx.supabase
-    .from('order_timeline_event_recipients')
-    .select('id, read_at, event:order_timeline_events!inner(event_type)')
-    .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
-    .limit(200);
-
-  const unreadInboxCount = ((recipientsData ?? []) as InboxRecipientRow[]).filter((recipient) => {
-    const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-    const eventType = safeText(event?.event_type, '');
-    return INCLUDED_EVENT_TYPES.has(eventType) && !recipient.read_at;
-  }).length;
 
   const paymentStatusByOrderId = new Map<number, PaymentRow['status'][]>();
   for (const report of paymentReports) {
@@ -265,37 +232,8 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .slice(0, 3);
 
   const calendarDays = buildCalendarDays(selectedDayKey);
-  const advisorName = firstName(
-    profile?.full_name?.trim() || ctx.user.user_metadata?.full_name || ctx.user.email || 'Asesor'
-  );
-
   return (
     <div className="space-y-4">
-      <section className="flex items-center justify-between gap-3 rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
-            Hoy
-          </div>
-          <div className="mt-1 truncate text-sm font-medium text-[#F5F7FB]">
-            {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/app/advisor/new"
-            className="inline-flex h-11 items-center rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
-          >
-            Nuevo
-          </Link>
-          <AdvisorInboxBell
-            advisorName={advisorName}
-            userId={ctx.user.id}
-            unreadCount={unreadInboxCount}
-            href="/app/advisor/inbox?filter=all"
-          />
-        </div>
-      </section>
-
       <section className="overflow-x-auto pb-1">
         <div className="flex min-w-max gap-2">
           {calendarDays.map((day) => {
