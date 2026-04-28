@@ -3,7 +3,7 @@ import Link from 'next/link';
 export default function AdvisorInboxBell({
   advisorName,
   unreadCount,
-  href = '/app/advisor/inbox?filter=pending',
+  href = '/app/advisor/inbox?filter=all',
 }: {
   advisorName: string;
   unreadCount: number;

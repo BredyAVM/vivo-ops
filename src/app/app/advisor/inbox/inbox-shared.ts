@@ -73,7 +73,7 @@ export function normalizeFilter(value: string | undefined): InboxFilter {
   if (value === 'pending' || value === 'kitchen' || value === 'delivery' || value === 'payments' || value === 'all') {
     return value;
   }
-  return 'pending';
+  return 'all';
 }
 
 export function safeText(value: unknown, fallback = 'Sin dato') {

@@ -290,7 +290,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           <AdvisorInboxBell
             advisorName={advisorName}
             unreadCount={unreadInboxCount}
-            href="/app/advisor/inbox?filter=pending"
+            href="/app/advisor/inbox?filter=all"
           />
         </div>
       </section>
