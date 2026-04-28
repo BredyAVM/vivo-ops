@@ -48,6 +48,7 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
 
   return (
     <AdvisorShell
+      userId={ctx.user.id}
       email={ctx.user.email ?? 'sin-correo'}
       fullName={profile?.full_name?.trim() || ctx.user.user_metadata?.full_name || ctx.user.email || 'Asesor'}
     >

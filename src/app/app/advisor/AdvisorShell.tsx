@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
+import AdvisorRealtimeNotifier from './AdvisorRealtimeNotifier';
 
 type AdvisorShellProps = {
   children: ReactNode;
   email: string;
   fullName: string;
+  userId: string;
 };
 
 const navItems = [
@@ -39,7 +41,7 @@ function resolveBackHref(pathname: string) {
 }
 
 export default function AdvisorShell(props: AdvisorShellProps) {
-  const { children } = props;
+  const { children, userId } = props;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -136,6 +138,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
         </header>
 
         <main className="advisor-safe-content flex-1 px-4 py-4">{children}</main>
+        <AdvisorRealtimeNotifier userId={userId} />
       </div>
     </div>
   );
