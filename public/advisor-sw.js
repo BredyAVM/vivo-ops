@@ -52,3 +52,48 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || 'VIVO OPS';
+  const options = {
+    body: payload.body || 'Tienes una actualizacion nueva.',
+    icon: '/pwa/advisor-192.png',
+    badge: '/pwa/advisor-192.png',
+    data: {
+      url: payload.url || '/app/advisor/inbox?filter=all',
+    },
+    tag: payload.tag || 'advisor-notification',
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || '/app/advisor/inbox?filter=all';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client && client.url.includes('/app/advisor')) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+
+      return undefined;
+    })
+  );
+});

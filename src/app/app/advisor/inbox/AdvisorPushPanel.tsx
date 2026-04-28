@@ -1,0 +1,249 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
+
+type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
+}
+
+function subscriptionToJson(subscription: PushSubscription) {
+  return subscription.toJSON() as {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  };
+}
+
+export default function AdvisorPushPanel({ publicVapidKey }: { publicVapidKey: string }) {
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
+  const [pushState, setPushState] = useState<PushState>('checking');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<PushSubscription | null>(null);
+
+  useEffect(() => {
+    async function boot() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        setPushState('unsupported');
+        return;
+      }
+
+      if (!publicVapidKey) {
+        setPushState('error');
+        setError('Falta configurar la clave publica de notificaciones.');
+        return;
+      }
+
+      if (Notification.permission === 'denied') {
+        setPushState('denied');
+        return;
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const currentSubscription = await registration.pushManager.getSubscription();
+        setSubscription(currentSubscription);
+        setPushState(currentSubscription ? 'subscribed' : 'ready');
+      } catch {
+        setPushState('error');
+        setError('No se pudo revisar el estado de notificaciones.');
+      }
+    }
+
+    void boot();
+  }, [publicVapidKey]);
+
+  async function getAccessToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || '';
+  }
+
+  async function enablePush() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'denied') {
+        setPushState('denied');
+        setError('El navegador bloqueo las notificaciones.');
+        return;
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      let nextSubscription = await registration.pushManager.getSubscription();
+      if (!nextSubscription) {
+        nextSubscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
+        });
+      }
+
+      const accessToken = await getAccessToken();
+      const response = await fetch('/api/advisor/push-subscriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken,
+          subscription: subscriptionToJson(nextSubscription),
+        }),
+      });
+
+      const payload = (await response.json()) as { error?: string; code?: string };
+      if (!response.ok) {
+        if (payload.code === 'missing_table') {
+          throw new Error('Falta crear la tabla de suscripciones push en Supabase.');
+        }
+        throw new Error(payload.error || 'No se pudo guardar la suscripcion.');
+      }
+
+      setSubscription(nextSubscription);
+      setPushState('subscribed');
+      setMessage('Notificaciones activadas en este telefono.');
+    } catch (err) {
+      setPushState('error');
+      setError(err instanceof Error ? err.message : 'No se pudo activar push.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disablePush() {
+    if (!subscription) return;
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const accessToken = await getAccessToken();
+      await fetch('/api/advisor/push-subscriptions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken,
+          subscription: subscriptionToJson(subscription),
+        }),
+      });
+
+      await subscription.unsubscribe();
+      setSubscription(null);
+      setPushState(Notification.permission === 'granted' ? 'ready' : 'checking');
+      setMessage('Notificaciones desactivadas en este telefono.');
+    } catch (err) {
+      setPushState('error');
+      setError(err instanceof Error ? err.message : 'No se pudo desactivar push.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendTestPush() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const accessToken = await getAccessToken();
+      const response = await fetch('/api/advisor/push-notifications/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      const payload = (await response.json()) as { error?: string; code?: string; delivered?: number };
+      if (!response.ok) {
+        if (payload.code === 'missing_table') {
+          throw new Error('Falta crear la tabla de suscripciones push en Supabase.');
+        }
+        throw new Error(payload.error || 'No se pudo enviar la notificacion de prueba.');
+      }
+
+      setMessage(
+        payload.delivered && payload.delivered > 0
+          ? 'Prueba enviada al telefono.'
+          : 'La suscripcion quedo guardada, pero no se entrego ninguna prueba.'
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-[#F5F7FB]">Notificaciones push</h3>
+          <p className="mt-1 text-xs leading-5 text-[#8B93A7]">
+            Activa avisos reales en el telefono para pedidos, cambios y pagos.
+          </p>
+        </div>
+        <span
+          className={[
+            'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+            pushState === 'subscribed'
+              ? 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]'
+              : pushState === 'denied' || pushState === 'error'
+                ? 'border-[#5E2229] bg-[#261114] text-[#F0A6AE]'
+                : 'border-[#2A3040] bg-[#151925] text-[#CCD3E2]',
+          ].join(' ')}
+        >
+          {pushState === 'subscribed'
+            ? 'Activas'
+            : pushState === 'denied'
+              ? 'Bloqueadas'
+              : pushState === 'unsupported'
+                ? 'No disponibles'
+                : 'Pendientes'}
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {pushState !== 'subscribed' ? (
+          <button
+            type="button"
+            onClick={() => void enablePush()}
+            disabled={busy || pushState === 'unsupported'}
+            className="inline-flex h-10 items-center rounded-[14px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E] disabled:bg-[#232632] disabled:text-[#6F7890]"
+          >
+            {busy ? 'Activando...' : 'Activar push'}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => void sendTestPush()}
+              disabled={busy}
+              className="inline-flex h-10 items-center rounded-[14px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E] disabled:bg-[#232632] disabled:text-[#6F7890]"
+            >
+              {busy ? 'Enviando...' : 'Enviar prueba'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void disablePush()}
+              disabled={busy}
+              className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-4 text-sm font-medium text-[#F5F7FB] disabled:text-[#6F7890]"
+            >
+              Desactivar
+            </button>
+          </>
+        )}
+      </div>
+
+      {message ? <div className="mt-3 text-sm text-[#7CE0A9]">{message}</div> : null}
+      {error ? <div className="mt-3 text-sm text-[#F0A6AE]">{error}</div> : null}
+    </section>
+  );
+}

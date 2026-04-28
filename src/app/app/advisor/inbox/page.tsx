@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { PageIntro } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
+import AdvisorPushPanel from './AdvisorPushPanel';
 import {
   type InboxEvent,
   ACTION_EVENT_TYPES,
@@ -14,6 +15,7 @@ import {
   safeText,
   shortMessage,
 } from './inbox-shared';
+import { getPublicVapidKey } from '@/lib/push';
 
 type SearchParams = Promise<{
   filter?: string;
@@ -172,6 +174,8 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
           </Link>
         }
       />
+
+      <AdvisorPushPanel publicVapidKey={getPublicVapidKey()} />
 
       <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} />
     </div>
