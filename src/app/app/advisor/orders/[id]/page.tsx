@@ -572,12 +572,6 @@ export default async function AdvisorOrderDetailPage({
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const { data: profileData } = await ctx.supabase
-    .from('profiles')
-    .select('full_name')
-    .eq('id', ctx.user.id)
-    .maybeSingle();
-
   const resolved = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
   const orderId = Number(resolved.id);
@@ -701,8 +695,7 @@ export default async function AdvisorOrderDetailPage({
   }));
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
   const advisorLabel = safeText(
-    profileData?.full_name ??
-      ctx.user.user_metadata?.full_name ??
+    ctx.user.user_metadata?.full_name ??
       ctx.user.user_metadata?.name ??
       null,
     'Asesor'

@@ -126,6 +126,7 @@ export default function OrderDetailActions({
         const stored = window.localStorage.getItem(ADVISOR_DISPLAY_NAME_KEY)?.trim();
         if (stored && !cancelled) {
           setAdvisorLabel(stored);
+          return;
         }
       }
 
@@ -135,15 +136,8 @@ export default function OrderDetailActions({
 
       if (!user || cancelled) return;
 
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', user.id)
-        .maybeSingle();
-
       const nextLabel = normalizeAdvisorLabel(
-        profileData?.full_name ||
-          user.user_metadata?.full_name ||
+        user.user_metadata?.full_name ||
           user.user_metadata?.name ||
           'Asesor',
       );

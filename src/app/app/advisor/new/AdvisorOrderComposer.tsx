@@ -1240,16 +1240,9 @@ export default function AdvisorOrderComposer({
       }
 
       setAuthUserId(user.id);
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('full_name')
-        .eq('id', user.id)
-        .maybeSingle();
-
       setAuthUserLabel(
         readStoredString(STORAGE_KEYS.displayName, '') ||
           String(
-          profileData?.full_name ||
             user.user_metadata?.full_name ||
             user.user_metadata?.name ||
             'Asesor'

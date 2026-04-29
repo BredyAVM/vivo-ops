@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
@@ -56,6 +56,7 @@ export default function AdvisorInboxClient({
   const [events, setEvents] = useState(initialEvents);
   const [savingIds, setSavingIds] = useState<number[]>([]);
   const [markingAll, setMarkingAll] = useState(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setEvents(initialEvents);
@@ -63,7 +64,14 @@ export default function AdvisorInboxClient({
 
   useEffect(() => {
     const refreshInbox = () => {
-      router.refresh();
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+
+      refreshTimerRef.current = setTimeout(() => {
+        router.refresh();
+        refreshTimerRef.current = null;
+      }, 220);
     };
 
     const ownChannel = supabase
@@ -95,6 +103,10 @@ export default function AdvisorInboxClient({
       .subscribe();
 
     return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
       void supabase.removeChannel(ownChannel);
       void supabase.removeChannel(roleChannel);
     };
