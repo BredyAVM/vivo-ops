@@ -416,6 +416,20 @@ function normalizeSearchValue(value: string | null | undefined) {
     .trim();
 }
 
+function extractInitials(value: string) {
+  return normalizeSearchValue(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => token[0] || '')
+    .join('');
+}
+
+function compactAddressLabel(value: string, maxLength = 46) {
+  const text = String(value || '').trim().replace(/\s+/g, ' ');
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trimEnd()}...`;
+}
+
 function productSearchScore(params: {
   product: ProductRow;
   query: string;
@@ -429,21 +443,23 @@ function productSearchScore(params: {
   const normalizedName = normalizeSearchValue(params.product.name);
   const normalizedSku = normalizeSearchValue(params.product.sku);
   const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+  const initials = extractInitials(params.product.name);
 
   let score = 0;
 
   if (normalizedName.startsWith(normalizedQuery)) score += 160;
   else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 145;
   else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 120;
+  else if (initials.startsWith(normalizedQuery)) score += 118;
   else if (normalizedSku.startsWith(normalizedQuery)) score += 105;
   else if (normalizedName.includes(normalizedQuery)) score += 90;
   else if (normalizedSku.includes(normalizedQuery)) score += 70;
   else return Number.NEGATIVE_INFINITY;
 
-  const favoriteBoost = params.favoriteIds.includes(params.product.id) ? 24 : 0;
+  const favoriteBoost = params.favoriteIds.includes(params.product.id) ? 30 : 0;
   const recentIndex = params.recentIds.indexOf(params.product.id);
-  const recentBoost = recentIndex >= 0 ? Math.max(0, 18 - recentIndex * 2) : 0;
-  const usageBoost = Math.min(40, Number(params.usageById[String(params.product.id)] || 0) * 4);
+  const recentBoost = recentIndex >= 0 ? Math.max(0, 24 - recentIndex * 3) : 0;
+  const usageBoost = Math.min(60, Number(params.usageById[String(params.product.id)] || 0) * 6);
 
   return score + favoriteBoost + recentBoost + usageBoost;
 }
@@ -952,6 +968,22 @@ export default function AdvisorOrderComposer({
     (!!selectedClient || (isNewClientMode && newClientName.trim() && newClientPhone.trim())) &&
     (fulfillment === 'pickup' || deliveryAddress.trim().length > 0) &&
     fxRateNumber > 0;
+  const createReadyHint = !draftItems.length
+    ? 'Agrega al menos un item.'
+    : !selectedClient && !(isNewClientMode && newClientName.trim() && newClientPhone.trim())
+      ? 'Selecciona o crea el cliente.'
+      : fulfillment === 'delivery' && !deliveryAddress.trim().length
+        ? 'Falta la direccion de entrega.'
+        : !fxRateNumber
+          ? 'Falta la tasa del dia.'
+          : isEditingOrder
+            ? 'Listo para guardar cambios.'
+            : 'Listo para copiar y crear.';
+  const footerSummary = [
+    `${draftItems.length} item${draftItems.length === 1 ? '' : 's'}`,
+    fulfillment === 'delivery' ? 'Delivery' : 'Retiro',
+    getPaymentMethodLabel(paymentMethod),
+  ].join(' · ');
   const filteredProducts = useMemo(() => {
     const query = productSearch.trim().toLowerCase();
     if (!query) return [];
@@ -973,6 +1005,21 @@ export default function AdvisorOrderComposer({
       })
       .map((row) => row.product);
   }, [favoriteProductIds, productSearch, productUsageById, products, recentProductIds]);
+
+  useEffect(() => {
+    if (!productSearch.trim()) {
+      setProductActiveIndex(-1);
+      return;
+    }
+
+    if (filteredProducts.length === 0) {
+      setProductActiveIndex(-1);
+      return;
+    }
+
+    setProductActiveIndex(0);
+    setSelectedProductId(filteredProducts[0]?.id ?? '');
+  }, [filteredProducts, productSearch]);
 
   useEffect(() => {
     setRecentClients(readStoredJson<RecentClientChip[]>(STORAGE_KEYS.recentClients, []));
@@ -2399,9 +2446,28 @@ export default function AdvisorOrderComposer({
                         filteredProducts[productActiveIndex]?.id === product.id ? 'bg-[#121218]' : 'hover:bg-[#121218]',
                       ].join(' ')}
                     >
-                      <div className="text-sm font-medium text-[#F5F7FB]">{product.name}</div>
-                      <div className="mt-1 text-xs text-[#8B93A7]">
-                        {product.sku || 'Sin codigo'} | ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-[#F5F7FB]">{product.name}</div>
+                          <div className="mt-1 text-xs text-[#8B93A7]">
+                            {product.sku || 'Sin codigo'} | ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                          {favoriteProductIds.includes(product.id) ? (
+                            <span className="rounded-full border border-[#564511] bg-[#2A2209] px-2 py-0.5 text-[10px] font-medium text-[#F7DA66]">
+                              Favorito
+                            </span>
+                          ) : null}
+                          {recentProductIds.includes(product.id) ? (
+                            <span className="rounded-full border border-[#2A3040] bg-[#151925] px-2 py-0.5 text-[10px] font-medium text-[#CCD3E2]">
+                              Reciente
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[10px] uppercase tracking-[0.18em] text-[#6F7890]">
+                        Enter para elegir
                       </div>
                     </button>
                   ))
@@ -2658,13 +2724,17 @@ export default function AdvisorOrderComposer({
                       type="button"
                       onClick={() => applyClientAddress(address)}
                       className={[
-                        'rounded-[14px] border px-3 py-2 text-sm',
+                        'max-w-full rounded-[14px] border px-3 py-2 text-left',
                         deliveryAddress.trim() === address.addressText.trim()
                           ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
                           : 'border-[#232632] bg-[#0F131B] text-[#F5F7FB]',
                       ].join(' ')}
                     >
-                      Direccion {index + 1}
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8B93A7]">
+                        {index === 0 ? 'Sugerida' : `Direccion ${index + 1}`}
+                      </div>
+                      <div className="mt-1 text-sm">{compactAddressLabel(address.addressText || 'Sin direccion')}</div>
+                      {address.gpsUrl ? <div className="mt-1 text-[11px] text-[#8B93A7]">Con GPS</div> : null}
                     </button>
                   ))}
                 </div>
@@ -2883,6 +2953,8 @@ export default function AdvisorOrderComposer({
               <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
               <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</div>
               <div className="text-xs text-[#8B93A7]">{fxRateNumber > 0 ? formatBs(finalTotalBs) : 'Falta tasa del dia'}</div>
+              <div className="mt-1 text-[11px] text-[#6F7890]">{footerSummary}</div>
+              <div className="text-[11px] text-[#8B93A7]">{createReadyHint}</div>
             </div>
             <div className="flex gap-2">
               <button
