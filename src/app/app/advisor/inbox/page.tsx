@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
-import { PageIntro } from '../advisor-ui';
+import { PageIntro, SectionCard } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
-import AdvisorPushPanel from './AdvisorPushPanel';
 import {
   type InboxEvent,
   ACTION_EVENT_TYPES,
@@ -15,7 +14,6 @@ import {
   safeText,
   shortMessage,
 } from './inbox-shared';
-import { getPublicVapidKey } from '@/lib/push';
 
 type SearchParams = Promise<{
   filter?: string;
@@ -175,7 +173,22 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         }
       />
 
-      <AdvisorPushPanel publicVapidKey={getPublicVapidKey()} />
+      <SectionCard
+        title="Alertas y ajustes"
+        subtitle="Las notificaciones push y la sesion ahora viven en configuracion."
+        action={
+          <Link
+            href="/app/advisor/settings"
+            className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+          >
+            Abrir
+          </Link>
+        }
+      >
+        <div className="text-sm leading-5 text-[#AAB2C5]">
+          Desde ahi puedes activar push, revisar el estado de la app y cerrar sesion.
+        </div>
+      </SectionCard>
 
       <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} userId={ctx.user.id} />
     </div>

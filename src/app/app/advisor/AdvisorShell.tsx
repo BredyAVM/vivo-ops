@@ -17,6 +17,7 @@ const navItems = [
   { href: '/app/advisor', label: 'Inicio' },
   { href: '/app/advisor/orders', label: 'Pedidos' },
   { href: '/app/advisor/payments', label: 'Pagos' },
+  { href: '/app/advisor/settings', label: 'Configuracion' },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -49,6 +50,7 @@ function resolveHeaderTitle(pathname: string, isEditingOrder: boolean) {
   if (pathname.startsWith('/app/advisor/orders')) return 'Pedidos';
   if (pathname.startsWith('/app/advisor/payments')) return 'Pagos';
   if (pathname.startsWith('/app/advisor/inbox')) return 'Inbox';
+  if (pathname.startsWith('/app/advisor/settings')) return 'Configuracion';
   return 'Inicio';
 }
 
@@ -57,6 +59,7 @@ function resolveBackHref(pathname: string) {
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/inbox')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
+  if (pathname.startsWith('/app/advisor/settings')) return '/app/advisor';
   return null;
 }
 
@@ -71,7 +74,10 @@ export default function AdvisorShell(props: AdvisorShellProps) {
   const isEditingOrder = isNewOrderRoute && Number(searchParams.get('fromOrder') || 0) > 0;
   const headerTitle = resolveHeaderTitle(pathname, isEditingOrder);
   const backHref = resolveBackHref(pathname);
-  const showCreateButton = !isNewOrderRoute && !isOrderDetailRoute;
+  const showCreateButton =
+    !isNewOrderRoute &&
+    !isOrderDetailRoute &&
+    !pathname.startsWith('/app/advisor/settings');
   const advisorName = useMemo(() => {
     const normalized = String(fullName || '').trim();
     return normalized ? normalized.split(/\s+/)[0] || 'Asesor' : 'Asesor';
