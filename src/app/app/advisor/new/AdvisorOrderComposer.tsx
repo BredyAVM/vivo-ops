@@ -1225,11 +1225,17 @@ export default function AdvisorOrderComposer({
       }
 
       setAuthUserId(user.id);
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .maybeSingle();
+
       setAuthUserLabel(
         String(
-          user.user_metadata?.full_name ||
+          profileData?.full_name ||
+            user.user_metadata?.full_name ||
             user.user_metadata?.name ||
-            user.email?.split('@')[0] ||
             'Asesor'
         ).trim() || 'Asesor'
       );
@@ -1953,9 +1959,9 @@ export default function AdvisorOrderComposer({
       mixed: 'mixto',
     };
 
-    parts.push('*Resumen de Pedido*');
+    parts.push('*Presupuesto*');
     parts.push('');
-    parts.push(`✅ Vendedor: ${authUserLabel}`);
+    parts.push(`✅ Asesor: ${authUserLabel}`);
     parts.push('');
     parts.push(`✅ Cliente: ${clientName}`);
 
@@ -2036,9 +2042,9 @@ export default function AdvisorOrderComposer({
       mixed: 'mixto',
     };
 
-    parts.push('*Resumen de Pedido*');
+    parts.push('*Presupuesto*');
     parts.push('');
-    parts.push(`✅ Vendedor: ${authUserLabel}`);
+    parts.push(`✅ Asesor: ${authUserLabel}`);
     parts.push('');
     parts.push(`✅ Cliente: ${clientName}`);
 
@@ -2107,9 +2113,9 @@ export default function AdvisorOrderComposer({
     });
     const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
 
-    parts.push('*Resumen de Pedido*');
+    parts.push('*Presupuesto*');
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Vendedor:* ${authUserLabel}`);
+    parts.push(`${WHATSAPP_CHECK} *Asesor:* ${authUserLabel}`);
     parts.push('');
     parts.push(`${WHATSAPP_CHECK} *Cliente:* ${clientName}`);
 
@@ -3159,7 +3165,7 @@ export default function AdvisorOrderComposer({
                     : 'border-[#232632] text-[#F5F7FB]',
                 ].join(' ')}
               >
-                {copyingQuote ? 'Copiando...' : 'Copiar WhatsApp'}
+                {copyingQuote ? 'Copiando...' : 'Presupuesto WS'}
               </button>
               <button
                 type="submit"

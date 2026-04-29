@@ -40,10 +40,49 @@ export default function AdvisorSettingsClient({
   const [pushPermission] = useState<NotificationPermission | 'unsupported'>(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
   );
+  const [displayName, setDisplayName] = useState(fullName);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  function handleSaveDisplayName() {
+    const nextName = displayName.trim();
+    if (!nextName) {
+      setError('Escribe el nombre que quieres mostrar.');
+      setInfo(null);
+      return;
+    }
+
+    setError(null);
+    setInfo(null);
+    startTransition(async () => {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        setError(authError?.message || 'No se pudo validar la sesion.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ full_name: nextName })
+        .eq('id', user.id);
+
+      if (updateError) {
+        setError(updateError.message);
+        return;
+      }
+
+      setInfo('Nombre actualizado para presupuestos y detalle.');
+      router.refresh();
+    });
+  }
 
   function handleLogout() {
     setError(null);
+    setInfo(null);
     startTransition(async () => {
       const { error: signOutError } = await supabase.auth.signOut();
       if (signOutError) {
@@ -67,6 +106,34 @@ export default function AdvisorSettingsClient({
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Correo</span>
             <span className="max-w-[62%] truncate text-right text-[#F5F7FB]">{email}</span>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          <label className="block">
+            <div className="mb-1.5 text-[12px] font-medium text-[#AAB2C5]">Nombre para mostrar</div>
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 h-11 text-sm text-[#F5F7FB] placeholder:text-[#636C80]"
+              placeholder="Como quieres aparecer"
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSaveDisplayName}
+              disabled={isPending}
+              className={[
+                'inline-flex h-10 items-center rounded-[14px] px-4 text-sm font-semibold',
+                isPending ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+              ].join(' ')}
+            >
+              {isPending ? 'Guardando...' : 'Guardar nombre'}
+            </button>
+            <div className="text-xs leading-5 text-[#8B93A7]">
+              Este nombre se usa en presupuesto y detalle.
+            </div>
           </div>
         </div>
       </SectionCard>
@@ -119,6 +186,11 @@ export default function AdvisorSettingsClient({
         {error ? (
           <div className="mb-3 rounded-[16px] border border-[#5E2229] bg-[#261114] px-3.5 py-3 text-sm text-[#F0A6AE]">
             {error}
+          </div>
+        ) : null}
+        {info ? (
+          <div className="mb-3 rounded-[16px] border border-[#1C5036] bg-[#0F2119] px-3.5 py-3 text-sm text-[#7CE0A9]">
+            {info}
           </div>
         ) : null}
         <button

@@ -316,7 +316,7 @@ function buildWhatsAppOrderSummary({
   const parts: string[] = [];
   const totalBs = order.extra_fields?.pricing?.total_bs;
 
-  parts.push('*Resumen de Pedido*');
+  parts.push('*Presupuesto*');
   parts.push('');
   parts.push(`*Orden:* ${order.id}`);
   parts.push(`*Asesor:* ${advisorLabel}`);
@@ -378,9 +378,9 @@ function buildCleanWhatsAppOrderSummary({
   const primaryBullet = '\u25AA';
   const secondaryBullet = '\u25AB';
 
-  parts.push('*Resumen de Pedido*');
+  parts.push('*Presupuesto*');
   parts.push('');
-  parts.push(`${check} *Vendedor:* ${advisorLabel}`);
+  parts.push(`${check} *Asesor:* ${advisorLabel}`);
   parts.push('');
   parts.push(`${check} *Cliente:* ${order.client?.full_name?.trim() || 'Cliente'}`);
 
@@ -572,6 +572,12 @@ export default async function AdvisorOrderDetailPage({
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
+  const { data: profileData } = await ctx.supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', ctx.user.id)
+    .maybeSingle();
+
   const resolved = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
   const orderId = Number(resolved.id);
@@ -695,9 +701,10 @@ export default async function AdvisorOrderDetailPage({
   }));
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
   const advisorLabel = safeText(
-    ctx.user.user_metadata?.full_name ??
+    profileData?.full_name ??
+      ctx.user.user_metadata?.full_name ??
       ctx.user.user_metadata?.name ??
-      ctx.user.email?.split('@')[0],
+      null,
     'Asesor'
   );
   const latestPaymentEvent = timeline.find((event) =>
