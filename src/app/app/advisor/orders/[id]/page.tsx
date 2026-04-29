@@ -180,6 +180,21 @@ function paymentTone(status: PaymentReportRow['status']): 'warning' | 'success' 
   return 'warning';
 }
 
+function paymentMethodCopyLabel(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    pending: 'pendiente',
+    payment_mobile: 'pago movil',
+    transfer: 'transferencia',
+    cash_usd: 'efectivo USD',
+    cash_ves: 'efectivo Bs',
+    zelle: 'zelle',
+    mixed: 'mixto',
+  };
+
+  const key = String(value || '').trim();
+  return labels[key] || 'pendiente';
+}
+
 function isMovingOrderStatus(status: string) {
   return ['confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(status);
 }
@@ -331,27 +346,32 @@ function buildCleanWhatsAppOrderSummary({
 }) {
   const parts: string[] = [];
   const totalBs = order.extra_fields?.pricing?.total_bs;
+  const check = '✅';
+  const primaryBullet = '▪';
+  const secondaryBullet = '▫';
 
   parts.push('*Resumen de Pedido*');
   parts.push('');
-  parts.push(`Vendedor: ${advisorLabel}`);
-  parts.push(`Cliente: ${order.client?.full_name?.trim() || 'Cliente'}`);
+  parts.push(`${check} Vendedor: ${advisorLabel}`);
+  parts.push('');
+  parts.push(`${check} Cliente: ${order.client?.full_name?.trim() || 'Cliente'}`);
 
   if (order.client?.phone?.trim()) {
-    parts.push(`Telefono: ${order.client.phone.trim()}`);
+    parts.push('');
+    parts.push(`${check} Telefono: ${order.client.phone.trim()}`);
   }
 
   parts.push('');
-  parts.push('Pedido:');
+  parts.push(`${check} Pedido:`);
   parts.push('');
 
   if (items.length === 0) {
     parts.push('- Sin items cargados');
   } else {
     for (const item of items) {
-      parts.push(`- ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`);
+      parts.push(`${primaryBullet} ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`);
       for (const detail of getVisibleEditableDetailLines(item.notes)) {
-        parts.push(`  - ${detail}`);
+        parts.push(`${secondaryBullet} ${detail}`);
       }
     }
   }
@@ -359,11 +379,17 @@ function buildCleanWhatsAppOrderSummary({
   parts.push('');
   parts.push(`TOTAL: ${totalBs != null ? `${formatBs(totalBs)} / ` : ''}${formatUsd(order.total_usd)}`);
   parts.push('');
-  parts.push(`Entrega: ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
-  parts.push(`Dia de entrega: ${deliveryText(order.extra_fields?.schedule)}`);
+  parts.push(`${check} Entrega: ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
+  parts.push('');
+  parts.push(`${check} Forma de pago: ${paymentMethodCopyLabel(order.extra_fields?.payment?.method)}`);
+  parts.push('');
+  parts.push(`${check} Estatus de pago: Pendiente`);
+  parts.push('');
+  parts.push(`${check} Dia de entrega: ${deliveryText(order.extra_fields?.schedule)}`);
 
   if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
-    parts.push(`Direccion: ${order.delivery_address.trim()}`);
+    parts.push('');
+    parts.push(`${check} Direccion: ${order.delivery_address.trim()}`);
   }
 
   if (order.notes?.trim()) {

@@ -311,7 +311,9 @@ function formatBsWhatsApp(value: number) {
 }
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
-const WHATSAPP_BULLET = '\u2022';
+const WHATSAPP_CHECK = '✅';
+const WHATSAPP_PRIMARY_BULLET = '▪';
+const WHATSAPP_SECONDARY_BULLET = '▫';
 
 function getPaymentMethodLabel(method: PaymentMethod) {
   const labels: Record<PaymentMethod, string> = {
@@ -339,7 +341,7 @@ function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
       ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
       : Number(item.line_total_usd || 0) * fxRateNumber;
 
-  return `${WHATSAPP_BULLET} ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`;
+  return `${WHATSAPP_PRIMARY_BULLET} ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`;
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {
@@ -746,17 +748,17 @@ function ConfigSheet(props: {
                 return (
                   <div
                     key={option.id}
-                    className="grid grid-cols-[1fr_112px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                    className="grid grid-cols-[1fr_136px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
                   >
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
                       <div className="mt-1 text-xs text-[#8B93A7]">{option.sku || 'Sin codigo'}</div>
                     </div>
-                    <div className="grid grid-cols-[32px_1fr_32px] gap-2">
+                    <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
                       <button
                         type="button"
                         onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
-                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-sm font-semibold text-[#F5F7FB]"
+                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
                       >
                         -
                       </button>
@@ -764,13 +766,13 @@ function ConfigSheet(props: {
                         value={String(currentQty)}
                         onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
                         onFocus={(e) => e.currentTarget.select()}
-                        className={inputClass()}
+                        className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
                         inputMode="numeric"
                       />
                       <button
                         type="button"
                         onClick={() => props.onChangeQty(option, currentQty + 1)}
-                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-sm font-semibold text-[#F5F7FB]"
+                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
                       >
                         +
                       </button>
@@ -1944,15 +1946,17 @@ export default function AdvisorOrderComposer({
 
     parts.push('*Resumen de Pedido*');
     parts.push('');
-    parts.push(`*Vendedor:* ${authUserLabel}`);
-    parts.push(`*Cliente:* ${clientName}`);
+    parts.push(`${WHATSAPP_CHECK} Vendedor: ${authUserLabel}`);
+    parts.push('');
+    parts.push(`${WHATSAPP_CHECK} Cliente: ${clientName}`);
 
     if (clientPhone) {
-      parts.push(`*Telefono:* ${clientPhone}`);
+      parts.push('');
+      parts.push(`${WHATSAPP_CHECK} Telefono: ${clientPhone}`);
     }
 
     parts.push('');
-    parts.push('*Pedido:*');
+    parts.push(`${WHATSAPP_CHECK} Pedido:`);
     parts.push('');
 
     if (draftItems.length === 0) {
@@ -1962,30 +1966,35 @@ export default function AdvisorOrderComposer({
         parts.push(formatDraftItemWhatsAppLine(item, fxRateNumber));
 
         for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
-          parts.push(`- ${detail}`);
+          parts.push(`${WHATSAPP_SECONDARY_BULLET} ${detail}`);
         }
       }
     }
 
     parts.push('');
-    parts.push(`*TOTAL:* ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
+    parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
     parts.push('');
-    parts.push(`*Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-    parts.push(`*Forma de pago:* ${getPaymentMethodLabel(paymentMethod)}`);
-    parts.push(`*Estatus de pago:* Pendiente`);
-    parts.push(`*Dia de entrega:* ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
+    parts.push(`${WHATSAPP_CHECK} Entrega: ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
+    parts.push('');
+    parts.push(`${WHATSAPP_CHECK} Forma de pago: ${getPaymentMethodLabel(paymentMethod)}`);
+    parts.push('');
+    parts.push(`${WHATSAPP_CHECK} Estatus de pago: Pendiente`);
+    parts.push('');
+    parts.push(`${WHATSAPP_CHECK} Dia de entrega: ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
 
     if (!isAsap) {
-      parts.push(`*Hora:* ${deliveryHourLabel}`);
+      parts.push('');
+      parts.push(`${WHATSAPP_CHECK} Hora: ${deliveryHourLabel}`);
     }
 
     if (fulfillment === 'delivery' && deliveryAddress.trim()) {
-      parts.push(`*Direccion:* ${deliveryAddress.trim()}`);
+      parts.push('');
+      parts.push(`${WHATSAPP_CHECK} Direccion: ${deliveryAddress.trim()}`);
     }
 
     if (orderNote.trim()) {
       parts.push('');
-      parts.push(`*Nota:* ${orderNote.trim()}`);
+      parts.push(`Nota: ${orderNote.trim()}`);
     }
 
     return parts.join('\n');
@@ -2513,18 +2522,18 @@ export default function AdvisorOrderComposer({
           </div>
 
           {selectedProduct ? (
-            <div className="flex gap-2">
+            <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => toggleFavoriteProduct(selectedProduct.id)}
                 className={[
-                  'h-9 rounded-[12px] px-3 text-xs font-medium',
+                  'inline-flex h-8 items-center rounded-full px-3 text-[11px] font-medium',
                   favoriteProductIds.includes(selectedProduct.id)
                     ? 'border border-[#564511] bg-[#2A2209] text-[#F7DA66]'
-                    : 'border border-[#232632] text-[#F5F7FB]',
+                    : 'border border-[#232632] bg-[#0F131B] text-[#AAB2C5]',
                 ].join(' ')}
               >
-                {favoriteProductIds.includes(selectedProduct.id) ? 'Quitar favorito' : 'Marcar favorito'}
+                {favoriteProductIds.includes(selectedProduct.id) ? '★ Favorito' : '☆ Fav'}
               </button>
             </div>
           ) : null}
