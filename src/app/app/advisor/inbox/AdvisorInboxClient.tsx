@@ -12,6 +12,36 @@ import {
   formatEventTime,
 } from './inbox-shared';
 
+function getDayKey(value: string) {
+  return new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function isTodayEvent(value: string) {
+  return getDayKey(value) === getDayKey(new Date().toISOString());
+}
+
+function actionHref(event: InboxEvent) {
+  if (event.eventType === 'payment_rejected') {
+    return `/app/advisor/orders/${event.orderId}?reportPayment=1`;
+  }
+
+  if (event.eventType === 'order_returned_to_review' || event.eventType === 'order_changes_rejected') {
+    return `/app/advisor/new?fromOrder=${event.orderId}`;
+  }
+
+  return `/app/advisor/orders/${event.orderId}`;
+}
+
+function actionLabel(event: InboxEvent) {
+  if (event.eventType === 'payment_rejected') return 'Corregir pago';
+  if (event.eventType === 'order_returned_to_review' || event.eventType === 'order_changes_rejected') {
+    return 'Corregir pedido';
+  }
+  return 'Abrir pedido';
+}
+
 export default function AdvisorInboxClient({
   activeFilter,
   initialEvents,
@@ -77,6 +107,12 @@ export default function AdvisorInboxClient({
     () => events.filter((event) => event.requiresAction && !event.readAt).length,
     [events]
   );
+  const pendingEvents = useMemo(
+    () => events.filter((event) => event.requiresAction),
+    [events],
+  );
+  const todayEvents = useMemo(() => events.filter((event) => isTodayEvent(event.createdAt)), [events]);
+  const earlierEvents = useMemo(() => events.filter((event) => !isTodayEvent(event.createdAt)), [events]);
 
   function isSaving(recipientId: number) {
     return savingIds.includes(recipientId);
@@ -131,6 +167,19 @@ export default function AdvisorInboxClient({
     setSavingIds((current) => current.filter((id) => !recipientIds.includes(id)));
   }
 
+  const groupedSections: Array<{ key: string; title: string; rows: InboxEvent[] }> = activeFilter === 'pending'
+    ? [{ key: 'pending', title: 'Requieren accion', rows: pendingEvents }]
+    : activeFilter === 'all'
+      ? [
+          { key: 'pending', title: 'Requieren accion', rows: pendingEvents },
+          { key: 'today', title: 'Hoy', rows: todayEvents.filter((event) => !event.requiresAction) },
+          { key: 'earlier', title: 'Antes', rows: earlierEvents.filter((event) => !event.requiresAction) },
+        ]
+      : [
+          { key: 'today', title: 'Hoy', rows: todayEvents },
+          { key: 'earlier', title: 'Antes', rows: earlierEvents },
+        ];
+
   return (
     <>
       <section className="overflow-x-auto pb-1">
@@ -170,7 +219,7 @@ export default function AdvisorInboxClient({
                 onClick={() => void markAllVisibleAsRead()}
                 className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
               >
-                Marcar visibles
+                Marcar todo leido
               </button>
             ) : null}
           </div>
@@ -182,73 +231,93 @@ export default function AdvisorInboxClient({
             detail="Cuando entren eventos de orden, apareceran aqui con prioridad y contexto."
           />
         ) : (
-          <div className="space-y-2.5">
-            {events.map((event) => {
-              const isRead = Boolean(event.readAt);
-
-              return (
-                <article
-                  key={event.id}
-                  className={[
-                    'rounded-[20px] border px-3.5 py-3 transition',
-                    isRead
-                      ? 'border-[#232632] bg-[#0F131B]'
-                      : 'border-[#33405A] bg-[#101722] shadow-[0_0_0_1px_rgba(240,208,0,0.05)]',
-                  ].join(' ')}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        {!isRead ? <span className="h-2.5 w-2.5 rounded-full bg-[#F0D000]" /> : null}
-                        <div className="truncate text-sm font-medium text-[#F5F7FB]">{event.clientName}</div>
-                      </div>
-                      <div className="mt-1 text-xs text-[#8B93A7]">{event.orderNumber}</div>
+          <div className="space-y-4">
+            {groupedSections
+              .filter((section) => section.rows.length > 0)
+              .map((section) => (
+                <div key={section.key} className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8B93A7]">
+                      {section.title}
                     </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                      <StatusBadge label={event.title} tone={event.tone} />
-                      {event.requiresAction ? <StatusBadge label="Requiere accion" tone="warning" /> : null}
-                    </div>
+                    <StatusBadge label={String(section.rows.length)} tone={section.key === 'pending' ? 'warning' : 'neutral'} />
                   </div>
 
-                  <div className="mt-3 grid gap-1.5 text-xs leading-5 text-[#AAB2C5]">
-                    <div>Entrega: {event.deliveryLabel}</div>
-                    <div>{event.message}</div>
-                    {event.detailLines.map((line) => (
-                      <div key={`${event.id}-${line}`}>{line}</div>
-                    ))}
-                  </div>
+                  {section.rows.map((event) => {
+                    const isRead = Boolean(event.readAt);
 
-                  <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                    <span>{formatEventTime(event.createdAt)}</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void setRecipientReadState(event.recipientId, isRead ? false : true)}
-                        disabled={isSaving(event.recipientId)}
-                        className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2.5 text-xs font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
+                    return (
+                      <article
+                        key={event.id}
+                        className={[
+                          'rounded-[20px] border px-3.5 py-3 transition',
+                          event.requiresAction
+                            ? 'border-[#564511] bg-[#151208]'
+                            : isRead
+                              ? 'border-[#232632] bg-[#0F131B]'
+                              : 'border-[#33405A] bg-[#101722] shadow-[0_0_0_1px_rgba(240,208,0,0.05)]',
+                        ].join(' ')}
                       >
-                        {isSaving(event.recipientId)
-                          ? 'Guardando...'
-                          : isRead
-                            ? 'No leida'
-                            : 'Marcar leida'}
-                      </button>
-                      <Link
-                        href={`/app/advisor/orders/${event.orderId}`}
-                        onClick={() => {
-                          if (!isRead && !isSaving(event.recipientId)) {
-                            void setRecipientReadState(event.recipientId, true);
-                          }
-                        }}
-                        className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2.5 text-xs font-medium text-[#F0D000]"
-                      >
-                        Abrir pedido
-                      </Link>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              {!isRead ? <span className="h-2.5 w-2.5 rounded-full bg-[#F0D000]" /> : null}
+                              <div className="truncate text-sm font-medium text-[#F5F7FB]">{event.clientName}</div>
+                            </div>
+                            <div className="mt-1 text-xs text-[#8B93A7]">{event.orderNumber}</div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5">
+                            <StatusBadge label={event.title} tone={event.tone} />
+                            {event.requiresAction ? <StatusBadge label="Requiere accion" tone="warning" /> : null}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2 text-xs leading-5 text-[#AAB2C5]">
+                          <div>Entrega: {event.deliveryLabel}</div>
+                          <div className="mt-1">{event.message}</div>
+                          {event.detailLines.map((line) => (
+                            <div key={`${event.id}-${line}`}>{line}</div>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                          <span>{formatEventTime(event.createdAt)}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void setRecipientReadState(event.recipientId, isRead ? false : true)}
+                              disabled={isSaving(event.recipientId)}
+                              className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2.5 text-xs font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
+                            >
+                              {isSaving(event.recipientId)
+                                ? 'Guardando...'
+                                : isRead
+                                  ? 'No leida'
+                                  : 'Marcar leida'}
+                            </button>
+                            <Link
+                              href={actionHref(event)}
+                              onClick={() => {
+                                if (!isRead && !isSaving(event.recipientId)) {
+                                  void setRecipientReadState(event.recipientId, true);
+                                }
+                              }}
+                              className={[
+                                'inline-flex h-8 items-center rounded-[10px] px-2.5 text-xs font-medium',
+                                event.requiresAction
+                                  ? 'bg-[#F0D000] text-[#17191E]'
+                                  : 'border border-[#232632] text-[#F0D000]',
+                              ].join(' ')}
+                            >
+                              {actionLabel(event)}
+                            </Link>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ))}
           </div>
         )}
       </SectionCard>

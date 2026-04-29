@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
-import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type OrderRow = {
   id: number;
@@ -73,6 +73,10 @@ function getAgendaLabel(order: OrderRow) {
   return `${date} ${time}`.trim() || formatDate(order.created_at);
 }
 
+function sortPaymentRows(rows: PaymentRow[]) {
+  return [...rows].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+
 export default async function AdvisorPaymentsPage() {
   const ctx = await getAuthContext();
   if (!ctx) return null;
@@ -131,9 +135,9 @@ export default async function AdvisorPaymentsPage() {
     .sort((a, b) => getAgendaLabel(a).localeCompare(getAgendaLabel(b)));
 
   const sections = [
-    { title: 'Por validar', rows: payments.filter((payment) => payment.status === 'pending') },
-    { title: 'Confirmados', rows: payments.filter((payment) => payment.status === 'confirmed') },
-    { title: 'Rechazados', rows: payments.filter((payment) => payment.status === 'rejected') },
+    { title: 'Por validar', subtitle: 'Pendientes por confirmacion del master.', rows: sortPaymentRows(payments.filter((payment) => payment.status === 'pending')) },
+    { title: 'Confirmados', subtitle: 'Cobros ya aceptados.', rows: sortPaymentRows(payments.filter((payment) => payment.status === 'confirmed')) },
+    { title: 'Rechazados', subtitle: 'Reportes que necesitan correccion o reenvio.', rows: sortPaymentRows(payments.filter((payment) => payment.status === 'rejected')) },
   ];
 
   return (
@@ -149,6 +153,24 @@ export default async function AdvisorPaymentsPage() {
         }
       />
 
+      <section className="grid grid-cols-3 gap-3">
+        <MetricCard
+          label="Por cargar"
+          value={String(ordersPendingPayment.length)}
+          detail="Ordenes con saldo listo para reportar."
+        />
+        <MetricCard
+          label="Por validar"
+          value={String(sections[0]?.rows.length || 0)}
+          detail="Reportes esperando revision."
+        />
+        <MetricCard
+          label="Rechazados"
+          value={String(sections[2]?.rows.length || 0)}
+          detail="Cobros que necesitan correccion."
+        />
+      </section>
+
       <SectionCard
         title="Por cargar"
         subtitle="Ordenes con saldo pendiente para reportar pago."
@@ -158,7 +180,13 @@ export default async function AdvisorPaymentsPage() {
         ) : (
           <div className="space-y-2.5">
             {ordersPendingPayment.map((order) => (
-              <article key={order.id} className="rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+              <article
+                key={order.id}
+                className={[
+                  'rounded-[20px] border px-3.5 py-3',
+                  order.hasRejected ? 'border-[#5E2229] bg-[#171118]' : 'border-[#564511] bg-[#151208]',
+                ].join(' ')}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-[#F5F7FB]">
@@ -172,9 +200,15 @@ export default async function AdvisorPaymentsPage() {
                     {order.hasPending ? <StatusBadge label="Ya enviado" tone="neutral" /> : null}
                   </div>
                 </div>
-                <div className="mt-3 grid gap-2 text-xs leading-5 text-[#AAB2C5]">
-                  <div>Entrega: {getAgendaLabel(order)}</div>
-                  <div>Total orden: {formatUsd(order.total_usd)}</div>
+                <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                  <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                    <span>Entrega</span>
+                    <span>{getAgendaLabel(order)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <span className="text-xs text-[#8B93A7]">Total orden</span>
+                    <span className="text-sm font-semibold text-[#F5F7FB]">{formatUsd(order.total_usd)}</span>
+                  </div>
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Link
@@ -200,13 +234,23 @@ export default async function AdvisorPaymentsPage() {
         <EmptyBlock title="Sin reportes todavia" detail="Cuando este asesor cargue pagos, la trazabilidad aparecera aqui." />
       ) : (
         sections.map((section) => (
-          <SectionCard key={section.title} title={section.title} subtitle="Lectura compacta para telefono.">
+          <SectionCard key={section.title} title={section.title} subtitle={section.subtitle}>
             {section.rows.length === 0 ? (
               <EmptyBlock title="Sin movimientos" detail="No hay registros en esta categoria." />
             ) : (
               <div className="space-y-2.5">
                 {section.rows.map((payment) => (
-                  <article key={payment.id} className="rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                  <article
+                    key={payment.id}
+                    className={[
+                      'rounded-[20px] border px-3.5 py-3',
+                      payment.status === 'rejected'
+                        ? 'border-[#5E2229] bg-[#171118]'
+                        : payment.status === 'pending'
+                          ? 'border-[#564511] bg-[#151208]'
+                          : 'border-[#1C5036] bg-[#0F2119]',
+                    ].join(' ')}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-medium text-[#F5F7FB]">Orden #{payment.order_id}</div>
@@ -214,10 +258,20 @@ export default async function AdvisorPaymentsPage() {
                       </div>
                       <StatusBadge label={label(payment.status)} tone={tone(payment.status)} />
                     </div>
-                    <div className="mt-3 grid gap-2 text-xs leading-5 text-[#AAB2C5]">
-                      <div>Referencia: {payment.reference_code?.trim() || 'Sin referencia'}</div>
-                      <div>Monto: {formatMoney(payment.reported_currency_code, payment.reported_amount)}</div>
-                      <div>Equivalente: ${Number(payment.reported_amount_usd_equivalent || 0).toFixed(2)}</div>
+                    <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                      <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                        <span>Monto</span>
+                        <span className="text-sm font-semibold text-[#F5F7FB]">
+                          {formatMoney(payment.reported_currency_code, payment.reported_amount)}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                        <span>Equivalente</span>
+                        <span>${Number(payment.reported_amount_usd_equivalent || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-[#AAB2C5]">
+                        Referencia: {payment.reference_code?.trim() || 'Sin referencia'}
+                      </div>
                     </div>
                     <div className="mt-3 flex gap-2">
                       <Link
