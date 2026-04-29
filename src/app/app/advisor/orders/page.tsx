@@ -52,6 +52,15 @@ function formatDate(value: string) {
   });
 }
 
+function formatDayHeader(dayKey: string) {
+  return new Date(`${dayKey}T12:00:00-04:00`).toLocaleDateString('es-VE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Caracas',
+  });
+}
+
 function getDateKey(date: Date) {
   return date.toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -169,6 +178,11 @@ function subtitleForBucket(bucket: string) {
   return 'Agenda compacta del dia activo.';
 }
 
+function paymentBadge(unpaid: boolean, order: OrderRow) {
+  if (order.status === 'cancelled') return null;
+  return unpaid ? 'Sin pago' : 'Cobro al dia';
+}
+
 export default async function AdvisorOrdersPage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
   const ctx = await getAuthContext();
@@ -243,13 +257,21 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     { key: 'upcoming', title: 'Proximas', subtitle: 'Siguen en la agenda.', rows: grouped.upcoming },
     { key: 'closed', title: 'Cerradas', subtitle: 'Ya entregadas o canceladas.', rows: grouped.closed },
   ];
+  const bucketLinks = [
+    { key: 'priority', label: 'Prioridad' },
+    { key: 'overdue', label: 'Vencidas' },
+    { key: 'unpaid', label: 'Sin pago' },
+    { key: 'asap', label: 'ASAP' },
+    { key: 'open', label: 'Activas' },
+    { key: 'delivered', label: 'Entregadas' },
+  ] as const;
 
   return (
     <div className="space-y-4">
       <PageIntro
         eyebrow="Agenda"
         title={titleForBucket(bucket)}
-        description={subtitleForBucket(bucket)}
+        description={`${subtitleForBucket(bucket)} ${formatDayHeader(selectedDayKey)}.`}
         action={
           <Link
             href={`/app/advisor?day=${selectedDayKey}`}
@@ -259,6 +281,28 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
           </Link>
         }
       />
+
+      <section className="overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-2">
+          {bucketLinks.map((item) => {
+            const active = bucket === item.key;
+            return (
+              <Link
+                key={item.key}
+                href={`/app/advisor/orders?day=${selectedDayKey}&bucket=${item.key}`}
+                className={[
+                  'inline-flex h-10 items-center rounded-[14px] border px-3.5 text-sm font-medium transition',
+                  active
+                    ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                    : 'border-[#232632] bg-[#12151d] text-[#CCD3E2]',
+                ].join(' ')}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </section>
 
       {sections.map((section) => (
         <SectionCard
@@ -275,11 +319,17 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                 const unpaid = isUnpaidOrder(order, paymentStatusByOrderId);
                 const overdue = isOverdueOrder(order, selectedDayKey);
                 const asap = Boolean(order.extra_fields?.schedule?.asap) && isOpenStatus(order.status);
+                const urgencyClass = overdue
+                  ? 'border-[#5E2229] bg-[#171118]'
+                  : unpaid || asap
+                    ? 'border-[#564511] bg-[#151208]'
+                    : 'border-[#232632] bg-[#0F131B]';
+                const paymentLabel = paymentBadge(unpaid, order);
 
                 return (
                   <article
                     key={order.id}
-                    className="rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                    className={`advisor-fade-in rounded-[20px] border px-3.5 py-3 ${urgencyClass}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -296,6 +346,17 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       </div>
                     </div>
 
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <StatusBadge
+                        label={order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
+                        tone="neutral"
+                      />
+                      {paymentLabel ? (
+                        <StatusBadge label={paymentLabel} tone={unpaid ? 'warning' : 'success'} />
+                      ) : null}
+                      {asap && !overdue ? <StatusBadge label="Mover ya" tone="warning" /> : null}
+                    </div>
+
                     <div className="mt-3 grid gap-2 text-xs leading-5 text-[#AAB2C5]">
                       <div>
                         {order.fulfillment === 'delivery'
@@ -305,40 +366,54 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       <div>{order.notes?.trim() || 'Sin notas adicionales.'}</div>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
-                      <span>{getAgendaTimeLabel(order)}</span>
-                      <span className="font-medium text-[#F0D000]">{formatUsd(order.total_usd)}</span>
+                    <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                      <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                        <span>{overdue ? 'Hora vencida' : 'Hora operativa'}</span>
+                        <span>{getAgendaTimeLabel(order)}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-3">
+                        <span className="text-xs text-[#8B93A7]">Total</span>
+                        <span className="text-sm font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</span>
+                      </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 grid grid-cols-2 gap-2">
                       <Link
                         href={`/app/advisor/orders/${order.id}`}
-                        className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                        className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                       >
-                        Ver
+                        Abrir
                       </Link>
                       {isOpenStatus(order.status) ? (
                         <Link
                           href={`/app/advisor/new?fromOrder=${order.id}`}
-                          className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                          className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                         >
-                          Editar
+                          Modificar
                         </Link>
-                      ) : null}
-                      <Link
-                        href={`/app/advisor/new?duplicateFrom=${order.id}`}
-                        className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
-                      >
-                        Repetir
-                      </Link>
-                      {unpaid ? (
+                      ) : (
                         <Link
-                          href={`/app/advisor/orders/${order.id}?reportPayment=1`}
-                          className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                          href={`/app/advisor/new?duplicateFrom=${order.id}`}
+                          className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                         >
-                          Pago
+                          Repetir
                         </Link>
-                      ) : null}
+                      )}
+                      <Link
+                        href={
+                          unpaid
+                            ? `/app/advisor/orders/${order.id}?reportPayment=1`
+                            : `/app/advisor/new?duplicateFrom=${order.id}`
+                        }
+                        className={[
+                          'inline-flex h-9 items-center justify-center rounded-[12px] px-3 text-xs',
+                          unpaid
+                            ? 'bg-[#F0D000] font-semibold text-[#17191E]'
+                            : 'border border-[#232632] font-medium text-[#F5F7FB]',
+                        ].join(' ')}
+                      >
+                        {unpaid ? 'Reportar pago' : 'Repetir'}
+                      </Link>
                     </div>
                   </article>
                 );

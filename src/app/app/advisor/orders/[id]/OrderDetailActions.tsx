@@ -179,7 +179,7 @@ export default function OrderDetailActions({
       </div>
 
       {canReportPayment && reportBoxOpen ? (
-        <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+        <div className="advisor-fade-in rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>

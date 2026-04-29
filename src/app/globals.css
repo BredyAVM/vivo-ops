@@ -30,6 +30,60 @@ body {
   touch-action: manipulation;
 }
 
+.advisor-app a,
+.advisor-app button {
+  transition:
+    transform 140ms ease,
+    opacity 140ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.advisor-app a:active,
+.advisor-app button:active {
+  transform: scale(0.98);
+  opacity: 0.92;
+}
+
+.advisor-app button:disabled,
+.advisor-app a[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.advisor-fade-in {
+  animation: advisor-fade-in 180ms ease-out;
+}
+
+.advisor-slide-up {
+  animation: advisor-slide-up 220ms ease-out;
+}
+
+@keyframes advisor-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes advisor-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .advisor-safe-shell {
   padding-bottom: env(safe-area-inset-bottom);
 }

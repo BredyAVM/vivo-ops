@@ -311,9 +311,9 @@ function formatBsWhatsApp(value: number) {
 }
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
-const WHATSAPP_CHECK = '✅';
-const WHATSAPP_PRIMARY_BULLET = '▪';
-const WHATSAPP_SECONDARY_BULLET = '▫';
+const WHATSAPP_CHECK = '\u2705';
+const WHATSAPP_PRIMARY_BULLET = '\u25AA';
+const WHATSAPP_SECONDARY_BULLET = '\u25AB';
 
 function getPaymentMethodLabel(method: PaymentMethod) {
   const labels: Record<PaymentMethod, string> = {
@@ -696,8 +696,8 @@ function ConfigSheet(props: {
     (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : props.selections.length > 0);
 
   return (
-    <div className="fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
-      <div className="absolute inset-x-0 bottom-0 rounded-t-[28px] border border-[#232632] bg-[#0C1017] px-4 pb-6 pt-4">
+    <div className="advisor-fade-in fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
+      <div className="advisor-slide-up absolute inset-x-0 bottom-0 rounded-t-[28px] border border-[#232632] bg-[#0C1017] px-4 pb-6 pt-4">
         <div className="mx-auto max-w-screen-md space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -881,6 +881,7 @@ export default function AdvisorOrderComposer({
   const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [deliveryNotePanelOpen, setDeliveryNotePanelOpen] = useState(false);
   const [copyingQuote, setCopyingQuote] = useState(false);
+  const [itemJustAdded, setItemJustAdded] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderNumber, setExistingOrderNumber] = useState('');
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
@@ -1608,6 +1609,11 @@ export default function AdvisorOrderComposer({
     setConfigSelections([]);
   }
 
+  function pulseAddedItemFeedback() {
+    setItemJustAdded(true);
+    window.setTimeout(() => setItemJustAdded(false), 900);
+  }
+
   function applyClientAddress(address: ClientAddress) {
     setDeliveryAddress(address.addressText);
     setDeliveryGpsUrl(address.gpsUrl);
@@ -1706,6 +1712,8 @@ export default function AdvisorOrderComposer({
 
     rememberProduct(selectedProduct.id);
     setDraftItems((current) => [...current, buildDraftItem(selectedProduct, quantity, [])]);
+    pulseAddedItemFeedback();
+    setInfo(`Item agregado: ${selectedProduct.name}`);
     setQty('1');
     setSelectedProductId('');
     setProductSearch('');
@@ -1768,9 +1776,12 @@ export default function AdvisorOrderComposer({
           draft.localId === configEditingLocalId ? { ...item, localId: draft.localId } : draft
         )
       );
+      setInfo(`Composicion actualizada: ${configProduct.name}`);
     } else {
       rememberProduct(configProduct.id);
       setDraftItems((current) => [...current, item]);
+      pulseAddedItemFeedback();
+      setInfo(`Item agregado: ${configProduct.name}`);
     }
 
     setQty('1');
@@ -2559,10 +2570,14 @@ export default function AdvisorOrderComposer({
             onClick={addDraftItem}
             className={[
               'h-10 rounded-[14px] text-sm font-medium',
-              selectedProduct ? 'bg-[#F0D000] text-[#17191E]' : 'border border-[#232632] text-[#F5F7FB]',
+              itemJustAdded
+                ? 'bg-[#163322] text-[#7CE0A9]'
+                : selectedProduct
+                  ? 'bg-[#F0D000] text-[#17191E]'
+                  : 'border border-[#232632] text-[#F5F7FB]',
             ].join(' ')}
           >
-            Confirmar item
+            {itemJustAdded ? 'Item agregado' : 'Confirmar item'}
           </button>
 
           {draftItems.length === 0 ? (

@@ -55,6 +55,7 @@ export default function AdvisorInboxClient({
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [events, setEvents] = useState(initialEvents);
   const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [markingAll, setMarkingAll] = useState(false);
 
   useEffect(() => {
     setEvents(initialEvents);
@@ -145,6 +146,7 @@ export default function AdvisorInboxClient({
     const recipientIds = events.filter((event) => !event.readAt).map((event) => event.recipientId);
     if (recipientIds.length === 0) return;
 
+    setMarkingAll(true);
     setSavingIds((current) => [...current, ...recipientIds]);
 
     const nextReadAt = new Date().toISOString();
@@ -165,6 +167,7 @@ export default function AdvisorInboxClient({
     }
 
     setSavingIds((current) => current.filter((id) => !recipientIds.includes(id)));
+    setMarkingAll(false);
   }
 
   const groupedSections: Array<{ key: string; title: string; rows: InboxEvent[] }> = activeFilter === 'pending'
@@ -217,9 +220,10 @@ export default function AdvisorInboxClient({
               <button
                 type="button"
                 onClick={() => void markAllVisibleAsRead()}
-                className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                disabled={markingAll}
+                className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB] disabled:text-[#6F7890]"
               >
-                Marcar todo leido
+                {markingAll ? 'Marcando...' : 'Marcar todo leido'}
               </button>
             ) : null}
           </div>
@@ -252,7 +256,7 @@ export default function AdvisorInboxClient({
                       <article
                         key={event.id}
                         className={[
-                          'rounded-[20px] border px-3.5 py-3 transition',
+                          'advisor-fade-in rounded-[20px] border px-3.5 py-3 transition',
                           event.requiresAction
                             ? 'border-[#564511] bg-[#151208]'
                             : isRead

@@ -188,7 +188,7 @@ export default async function AdvisorPaymentsPage() {
               <article
                 key={order.id}
                 className={[
-                  'rounded-[20px] border px-3.5 py-3',
+                  'advisor-fade-in rounded-[20px] border px-3.5 py-3',
                   order.hasRejected ? 'border-[#5E2229] bg-[#171118]' : 'border-[#564511] bg-[#151208]',
                 ].join(' ')}
               >
@@ -218,13 +218,13 @@ export default async function AdvisorPaymentsPage() {
                 <div className="mt-3 flex gap-2">
                   <Link
                     href={`/app/advisor/orders/${order.id}?reportPayment=1`}
-                    className="inline-flex h-10 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-sm font-semibold text-[#17191E]"
+                    className="inline-flex h-9 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-xs font-semibold text-[#17191E]"
                   >
                     Cargar pago
                   </Link>
                   <Link
                     href={`/app/advisor/orders/${order.id}`}
-                    className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
+                    className="inline-flex h-9 items-center rounded-[14px] border border-[#232632] px-3.5 text-xs font-medium text-[#F5F7FB]"
                   >
                     Ver orden
                   </Link>
@@ -253,7 +253,7 @@ export default async function AdvisorPaymentsPage() {
                   <article
                     key={payment.id}
                     className={[
-                      'rounded-[20px] border px-3.5 py-3',
+                      'advisor-fade-in rounded-[20px] border px-3.5 py-3',
                       payment.status === 'rejected'
                         ? 'border-[#5E2229] bg-[#171118]'
                         : payment.status === 'pending'
