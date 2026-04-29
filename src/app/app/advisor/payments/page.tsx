@@ -145,7 +145,7 @@ export default async function AdvisorPaymentsPage() {
       <PageIntro
         eyebrow="Cobranza"
         title="Pagos reportados"
-        description="Aqui el asesor revisa que cobros faltan por cargar, cuales ya pasaron y cuales deben corregirse."
+        description="Aqui se ve rapido que falta cobrar, que sigue en revision y que toca corregir."
         action={
           <Link href="/app/advisor/new" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
             Nuevo pedido
@@ -176,7 +176,12 @@ export default async function AdvisorPaymentsPage() {
         subtitle="Ordenes con saldo pendiente para reportar pago."
       >
         {ordersPendingPayment.length === 0 ? (
-          <EmptyBlock title="Sin ordenes por cobrar" detail="Cuando haya saldo pendiente, aparecera aqui para cargar el pago." />
+          <EmptyBlock
+            title="Sin ordenes por cobrar"
+            detail="Cuando haya saldo pendiente, aparecera aqui para cargar el pago."
+            href="/app/advisor/orders"
+            cta="Ver pedidos"
+          />
         ) : (
           <div className="space-y-2.5">
             {ordersPendingPayment.map((order) => (
@@ -231,12 +236,17 @@ export default async function AdvisorPaymentsPage() {
       </SectionCard>
 
       {payments.length === 0 ? (
-        <EmptyBlock title="Sin reportes todavia" detail="Cuando este asesor cargue pagos, la trazabilidad aparecera aqui." />
+        <EmptyBlock
+          title="Sin reportes todavia"
+          detail="Cuando este asesor cargue pagos, la trazabilidad aparecera aqui."
+          href="/app/advisor/orders"
+          cta="Abrir pedidos"
+        />
       ) : (
         sections.map((section) => (
           <SectionCard key={section.title} title={section.title} subtitle={section.subtitle}>
             {section.rows.length === 0 ? (
-              <EmptyBlock title="Sin movimientos" detail="No hay registros en esta categoria." />
+              <EmptyBlock title="Sin movimientos" detail="No hay registros en esta categoria todavia." />
             ) : (
               <div className="space-y-2.5">
                 {section.rows.map((payment) => (

@@ -13,12 +13,12 @@ export function PageIntro({
   action?: ReactNode;
 }) {
   return (
-    <section className="rounded-[26px] border border-[#232632] bg-[#12151d] px-4 py-4 shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
+    <section className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-3.5 shadow-[0_14px_28px_rgba(0,0,0,0.16)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8B93A7]">{eyebrow}</p>
-          <h2 className="mt-1 text-[22px] font-semibold tracking-[-0.03em] text-[#F5F7FB]">{title}</h2>
-          <p className="mt-2 text-sm leading-5 text-[#AAB2C5]">{description}</p>
+          <h2 className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-[#F5F7FB]">{title}</h2>
+          <p className="mt-1.5 text-[13px] leading-5 text-[#AAB2C5]">{description}</p>
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
@@ -85,7 +85,7 @@ export function SectionCard({
   action?: ReactNode;
 }) {
   return (
-    <section className="rounded-[24px] border border-[#232632] bg-[#12151d] px-4 py-4">
+    <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3.5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-[#F5F7FB]">{title}</h3>
@@ -93,7 +93,7 @@ export function SectionCard({
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div className="mt-3">{children}</div>
+      <div className="mt-2.5">{children}</div>
     </section>
   );
 }
@@ -129,7 +129,7 @@ export function EmptyBlock({
   cta?: string;
 }) {
   return (
-    <div className="rounded-[20px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
+    <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
       <div className="font-medium text-[#F5F7FB]">{title}</div>
       <div className="mt-1 leading-5">{detail}</div>
       {href && cta ? (

@@ -202,7 +202,7 @@ function getPaymentSummary(
     return {
       label: 'Por validar',
       tone: 'warning' as const,
-      detail: `${formatUsd(pendingPaidUsd)} enviados a revisión.`,
+      detail: `${formatUsd(pendingPaidUsd)} enviados a revision.`,
     };
   }
 
@@ -234,7 +234,7 @@ function getVisibleEditableDetailLines(value: string | null | undefined) {
 }
 
 function lineTextWhatsAppStyle(item: OrderItemRow) {
-  return `• ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`;
+  return `- ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`;
 }
 
 function deliveryText(
@@ -334,24 +334,24 @@ function buildCleanWhatsAppOrderSummary({
 
   parts.push('*Resumen de Pedido*');
   parts.push('');
-  parts.push(`✅ Asesor: ${advisorLabel}`);
-  parts.push(`✅ Cliente: ${order.client?.full_name?.trim() || 'Cliente'}`);
+  parts.push(`Vendedor: ${advisorLabel}`);
+  parts.push(`Cliente: ${order.client?.full_name?.trim() || 'Cliente'}`);
 
   if (order.client?.phone?.trim()) {
-    parts.push(`✅ Teléfono: ${order.client.phone.trim()}`);
+    parts.push(`Telefono: ${order.client.phone.trim()}`);
   }
 
   parts.push('');
-  parts.push('✅ Pedido:');
+  parts.push('Pedido:');
   parts.push('');
 
   if (items.length === 0) {
     parts.push('- Sin items cargados');
   } else {
     for (const item of items) {
-      parts.push(`▪ ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`);
+      parts.push(`- ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`);
       for (const detail of getVisibleEditableDetailLines(item.notes)) {
-        parts.push(`▪ ${detail}`);
+        parts.push(`  - ${detail}`);
       }
     }
   }
@@ -359,16 +359,16 @@ function buildCleanWhatsAppOrderSummary({
   parts.push('');
   parts.push(`TOTAL: ${totalBs != null ? `${formatBs(totalBs)} / ` : ''}${formatUsd(order.total_usd)}`);
   parts.push('');
-  parts.push(`✅ Entrega: ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
-  parts.push(`✅ Día de entrega: ${deliveryText(order.extra_fields?.schedule)}`);
+  parts.push(`Entrega: ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
+  parts.push(`Dia de entrega: ${deliveryText(order.extra_fields?.schedule)}`);
 
   if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
-    parts.push(`✅ Dirección: ${order.delivery_address.trim()}`);
+    parts.push(`Direccion: ${order.delivery_address.trim()}`);
   }
 
   if (order.notes?.trim()) {
     parts.push('');
-    parts.push(`✅ Notas: ${order.notes.trim()}`);
+    parts.push(`Notas: ${order.notes.trim()}`);
   }
 
   return parts.join('\n');
@@ -808,7 +808,7 @@ export default async function AdvisorOrderDetailPage({
 
       <SectionCard title="Pedido" subtitle={`${items.length} items cargados`}>
         {items.length === 0 ? (
-          <EmptyBlock title="Sin items" detail="Esta orden no tiene items visibles." />
+          <EmptyBlock title="Sin items" detail="Todavia no hay productos visibles en esta orden." />
         ) : (
           <div className="space-y-2.5">
             {items.map((item) => (
@@ -916,7 +916,7 @@ export default async function AdvisorOrderDetailPage({
         {timeline.length === 0 ? (
           <EmptyBlock
             title="Sin historial todavia"
-            detail="Cuando esta orden reciba eventos, apareceran aqui."
+            detail="Cuando esta orden reciba movimientos, el seguimiento aparecera aqui."
           />
         ) : (
           <div className="space-y-2.5">

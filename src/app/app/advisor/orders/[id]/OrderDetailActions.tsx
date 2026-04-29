@@ -192,7 +192,7 @@ export default function OrderDetailActions({
               <span className="font-medium text-[#F5F7FB]">
                 {getSuggestedAccountAmount(balanceUsd, 'VES', activeBsRate)}
               </span>{' '}
-              · Tasa activa:{' '}
+              | Tasa activa:{' '}
               <span className="font-medium text-[#F5F7FB]">{Number(activeBsRate.toFixed(2))}</span>
             </div>
           ) : null}
@@ -252,7 +252,7 @@ export default function OrderDetailActions({
                 value={referenceCode}
                 onChange={(e) => setReferenceCode(e.target.value)}
                 className={inputClass()}
-                placeholder="Opcional"
+                placeholder="Ultimos digitos o numero"
               />
             </Field>
 
@@ -261,7 +261,7 @@ export default function OrderDetailActions({
                 value={payerName}
                 onChange={(e) => setPayerName(e.target.value)}
                 className={inputClass()}
-                placeholder="Opcional"
+                placeholder="Nombre de quien pago"
               />
             </Field>
 

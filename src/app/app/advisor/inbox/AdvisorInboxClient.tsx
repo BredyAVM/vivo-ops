@@ -229,6 +229,8 @@ export default function AdvisorInboxClient({
           <EmptyBlock
             title="Sin eventos para este filtro"
             detail="Cuando entren eventos de orden, apareceran aqui con prioridad y contexto."
+            href="/app/advisor/orders"
+            cta="Ver pedidos"
           />
         ) : (
           <div className="space-y-4">
