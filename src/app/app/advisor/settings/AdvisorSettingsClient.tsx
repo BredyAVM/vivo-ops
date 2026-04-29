@@ -78,7 +78,7 @@ export default function AdvisorSettingsClient({
         return;
       }
 
-      const response = await fetch('/app/api/advisor/profile/display-name', {
+      const response = await fetch('/api/advisor/profile/display-name', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

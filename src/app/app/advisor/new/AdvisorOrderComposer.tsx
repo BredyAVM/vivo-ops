@@ -411,6 +411,16 @@ function readStoredJson<T>(key: string, fallback: T) {
   }
 }
 
+function readStoredString(key: string, fallback = '') {
+  if (typeof window === 'undefined') return fallback;
+
+  try {
+    return window.localStorage.getItem(key)?.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function normalizeSearchValue(value: string | null | undefined) {
   return String(value || '')
     .normalize('NFD')
@@ -1175,7 +1185,7 @@ export default function AdvisorOrderComposer({
     setRecentAddresses(readStoredJson<ClientAddress[]>(STORAGE_KEYS.recentAddresses, []));
     setClientUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.clientUsage, {}));
     setProductUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.productUsage, {}));
-    const storedDisplayName = readStoredJson<string>(STORAGE_KEYS.displayName, '').trim();
+    const storedDisplayName = readStoredString(STORAGE_KEYS.displayName, '');
     if (storedDisplayName) {
       setAuthUserLabel(storedDisplayName);
     }
@@ -1237,7 +1247,7 @@ export default function AdvisorOrderComposer({
         .maybeSingle();
 
       setAuthUserLabel(
-        readStoredJson<string>(STORAGE_KEYS.displayName, '').trim() ||
+        readStoredString(STORAGE_KEYS.displayName, '') ||
           String(
           profileData?.full_name ||
             user.user_metadata?.full_name ||
