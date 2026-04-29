@@ -102,3 +102,28 @@ body {
 .advisor-app button {
   font-size: 16px;
 }
+
+.advisor-app .advisor-date-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: block;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.advisor-app .advisor-date-input::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: left;
+}
+
+.advisor-app .advisor-date-input::-webkit-datetime-edit {
+  min-width: 0;
+  padding: 0;
+}
+
+.advisor-app .advisor-date-input::-webkit-calendar-picker-indicator {
+  margin-left: 8px;
+  flex-shrink: 0;
+}

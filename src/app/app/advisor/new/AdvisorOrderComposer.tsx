@@ -2872,15 +2872,17 @@ export default function AdvisorOrderComposer({
           </button>
 
           <Field label="Fecha">
-            <input
-              type="date"
-              value={deliveryDate}
-              onChange={(e) => {
-                setDeliveryDate(e.target.value);
-                setIsAsap(false);
-              }}
-              className={`${inputClass()} min-w-0 max-w-full overflow-hidden [color-scheme:dark]`}
-            />
+            <div className="min-w-0 overflow-hidden rounded-[16px]">
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => {
+                  setDeliveryDate(e.target.value);
+                  setIsAsap(false);
+                }}
+                className={`${inputClass()} advisor-date-input min-w-0 max-w-full overflow-hidden [color-scheme:dark]`}
+              />
+            </div>
           </Field>
 
           <Field label="Hora">
