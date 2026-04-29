@@ -286,38 +286,38 @@ export default function AdvisorInboxClient({
                           ))}
                         </div>
 
-                        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                          <span className="max-w-[34%] leading-5">{formatEventTime(event.createdAt)}</span>
-                          <div className="flex min-w-0 items-center justify-end gap-2">
+                        <div className="mt-3 grid grid-cols-[minmax(64px,1fr)_auto_auto] items-center gap-2 text-xs text-[#8B93A7]">
+                          <span className="min-w-0 leading-5">{formatEventTime(event.createdAt)}</span>
+                          <div className="justify-self-end">
                             <button
                               type="button"
                               onClick={() => void setRecipientReadState(event.recipientId, isRead ? false : true)}
                               disabled={isSaving(event.recipientId)}
-                              className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2 text-[11px] font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
+                              className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2 text-[10px] font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
                             >
                               {isSaving(event.recipientId)
                                 ? 'Guardando...'
                                 : isRead
                                   ? 'No leida'
-                                  : 'Marcar leida'}
+                                  : 'Leida'}
                             </button>
-                            <Link
-                              href={actionHref(event)}
-                              onClick={() => {
-                                if (!isRead && !isSaving(event.recipientId)) {
-                                  void setRecipientReadState(event.recipientId, true);
-                                }
-                              }}
-                              className={[
-                                'inline-flex h-8 items-center rounded-[10px] px-2 text-[11px] font-medium',
-                                event.requiresAction
-                                  ? 'bg-[#F0D000] text-[#17191E]'
-                                  : 'border border-[#232632] text-[#F0D000]',
-                              ].join(' ')}
-                            >
-                              {actionLabel(event)}
-                            </Link>
                           </div>
+                          <Link
+                            href={actionHref(event)}
+                            onClick={() => {
+                              if (!isRead && !isSaving(event.recipientId)) {
+                                void setRecipientReadState(event.recipientId, true);
+                              }
+                            }}
+                            className={[
+                              'inline-flex h-8 items-center rounded-[10px] px-2 text-[10px] font-medium justify-self-end',
+                              event.requiresAction
+                                ? 'bg-[#F0D000] text-[#17191E]'
+                                : 'border border-[#232632] text-[#F0D000]',
+                            ].join(' ')}
+                          >
+                            {actionLabel(event)}
+                          </Link>
                         </div>
                       </article>
                     );
