@@ -1969,17 +1969,17 @@ export default function AdvisorOrderComposer({
 
     parts.push('*Resumen de Pedido*');
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Vendedor: ${authUserLabel}`);
+    parts.push(`${WHATSAPP_CHECK} *Vendedor:* ${authUserLabel}`);
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Cliente: ${clientName}`);
+    parts.push(`${WHATSAPP_CHECK} *Cliente:* ${clientName}`);
 
     if (clientPhone) {
       parts.push('');
-      parts.push(`${WHATSAPP_CHECK} Telefono: ${clientPhone}`);
+      parts.push(`${WHATSAPP_CHECK} *Telefono:* ${clientPhone}`);
     }
 
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Pedido:`);
+    parts.push(`${WHATSAPP_CHECK} *Pedido:*`);
     parts.push('');
 
     if (draftItems.length === 0) {
@@ -1989,35 +1989,35 @@ export default function AdvisorOrderComposer({
         parts.push(formatDraftItemWhatsAppLine(item, fxRateNumber));
 
         for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
-          parts.push(`${WHATSAPP_SECONDARY_BULLET} ${detail}`);
+          parts.push(`   ${WHATSAPP_SECONDARY_BULLET} ${detail}`);
         }
       }
     }
 
     parts.push('');
-    parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
+    parts.push(`*TOTAL:* ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Entrega: ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
+    parts.push(`${WHATSAPP_CHECK} *Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Forma de pago: ${getPaymentMethodLabel(paymentMethod)}`);
+    parts.push(`${WHATSAPP_CHECK} *Forma de pago:* ${getPaymentMethodLabel(paymentMethod)}`);
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Estatus de pago: Pendiente`);
+    parts.push(`${WHATSAPP_CHECK} *Estatus de pago:* Pendiente`);
     parts.push('');
-    parts.push(`${WHATSAPP_CHECK} Dia de entrega: ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
+    parts.push(`${WHATSAPP_CHECK} *Dia de entrega:* ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
 
     if (!isAsap) {
       parts.push('');
-      parts.push(`${WHATSAPP_CHECK} Hora: ${deliveryHourLabel}`);
+      parts.push(`${WHATSAPP_CHECK} *Hora:* ${deliveryHourLabel}`);
     }
 
     if (fulfillment === 'delivery' && deliveryAddress.trim()) {
       parts.push('');
-      parts.push(`${WHATSAPP_CHECK} Direccion: ${deliveryAddress.trim()}`);
+      parts.push(`${WHATSAPP_CHECK} *Direccion:* ${deliveryAddress.trim()}`);
     }
 
     if (orderNote.trim()) {
       parts.push('');
-      parts.push(`Nota: ${orderNote.trim()}`);
+      parts.push(`*Nota:* ${orderNote.trim()}`);
     }
 
     return parts.join('\n');
