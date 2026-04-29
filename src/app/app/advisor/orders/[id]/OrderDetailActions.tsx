@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useMemo, useState, useTransition } from 'react';
+import { type ReactNode, useEffect, useMemo, useState, useTransition } from 'react';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { createAdvisorPaymentReportAction } from './actions';
 
 type MoneyAccountOption = {
@@ -31,6 +32,18 @@ function inputClass(multiline = false) {
     'w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
     multiline ? 'min-h-[88px] py-3' : 'h-11',
   ].join(' ');
+}
+
+function normalizeAdvisorLabel(value: string | null | undefined) {
+  return String(value || '').trim() || 'Asesor';
+}
+
+function patchAdvisorLabelInSummary(summary: string, advisorLabel: string) {
+  const nextLabel = normalizeAdvisorLabel(advisorLabel);
+
+  return summary
+    .replace(/\*Asesor:\*.*$/m, `*Asesor:* ${nextLabel}`)
+    .replace(/✅ Asesor:.*$/m, `✅ Asesor: ${nextLabel}`);
 }
 
 function Field({
@@ -74,10 +87,12 @@ export default function OrderDetailActions({
   initialReportBoxOpen?: boolean;
 }) {
   const router = useRouter();
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
   const [reportBoxOpen, setReportBoxOpen] = useState(initialReportBoxOpen && canReportPayment);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [advisorLabel, setAdvisorLabel] = useState('Asesor');
   const [moneyAccountId, setMoneyAccountId] = useState('');
   const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
@@ -96,6 +111,45 @@ export default function OrderDetailActions({
   const whatsappButtonClass = preferWhatsApp
     ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'
     : 'inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#25D366]';
+  const effectiveWhatsappSummary = useMemo(
+    () => patchAdvisorLabelInSummary(whatsappSummary, advisorLabel),
+    [advisorLabel, whatsappSummary],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAdvisorLabel() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user || cancelled) return;
+
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const nextLabel = normalizeAdvisorLabel(
+        profileData?.full_name ||
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          'Asesor',
+      );
+
+      if (!cancelled) {
+        setAdvisorLabel(nextLabel);
+      }
+    }
+
+    void loadAdvisorLabel();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !whatsappSummary.trim()) return null;
 
@@ -131,10 +185,10 @@ export default function OrderDetailActions({
             setSuccess(null);
 
             try {
-              await navigator.clipboard.writeText(whatsappSummary);
-              setSuccess('Resumen copiado para WhatsApp.');
+              await navigator.clipboard.writeText(effectiveWhatsappSummary);
+              setSuccess('Presupuesto copiado para WhatsApp.');
             } catch {
-              setError('No se pudo copiar el resumen.');
+              setError('No se pudo copiar el presupuesto.');
             }
           }}
           className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
