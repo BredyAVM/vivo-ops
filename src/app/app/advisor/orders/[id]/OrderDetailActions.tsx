@@ -6,6 +6,8 @@ import { type ReactNode, useEffect, useMemo, useState, useTransition } from 'rea
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { createAdvisorPaymentReportAction } from './actions';
 
+const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
+
 type MoneyAccountOption = {
   id: number;
   name: string;
@@ -120,6 +122,13 @@ export default function OrderDetailActions({
     let cancelled = false;
 
     async function loadAdvisorLabel() {
+      if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem(ADVISOR_DISPLAY_NAME_KEY)?.trim();
+        if (stored && !cancelled) {
+          setAdvisorLabel(stored);
+        }
+      }
+
       const {
         data: { user },
       } = await supabase.auth.getUser();

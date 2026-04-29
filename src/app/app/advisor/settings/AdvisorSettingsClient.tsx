@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { QuickLink, SectionCard, StatusBadge } from '../advisor-ui';
 
+const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
+
 function isStandaloneMode() {
   if (typeof window === 'undefined') return false;
   return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as Navigator & {
@@ -40,7 +42,10 @@ export default function AdvisorSettingsClient({
   const [pushPermission] = useState<NotificationPermission | 'unsupported'>(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
   );
-  const [displayName, setDisplayName] = useState(fullName);
+  const [displayName, setDisplayName] = useState(() => {
+    if (typeof window === 'undefined') return fullName;
+    return window.localStorage.getItem(ADVISOR_DISPLAY_NAME_KEY)?.trim() || fullName;
+  });
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
@@ -93,6 +98,10 @@ export default function AdvisorSettingsClient({
       if (!response.ok || !payload.ok) {
         setError(payload.error || 'No se pudo guardar el nombre.');
         return;
+      }
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(ADVISOR_DISPLAY_NAME_KEY, nextName);
       }
 
       setDisplayName(nextName);

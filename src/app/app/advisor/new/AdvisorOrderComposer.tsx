@@ -218,6 +218,7 @@ const STORAGE_KEYS = {
   recentAddresses: 'advisor_recent_addresses_v1',
   clientUsage: 'advisor_client_usage_v1',
   productUsage: 'advisor_product_usage_v1',
+  displayName: 'advisor_display_name_v1',
 } as const;
 
 function pad2(n: number) {
@@ -1174,6 +1175,10 @@ export default function AdvisorOrderComposer({
     setRecentAddresses(readStoredJson<ClientAddress[]>(STORAGE_KEYS.recentAddresses, []));
     setClientUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.clientUsage, {}));
     setProductUsageById(readStoredJson<Record<string, number>>(STORAGE_KEYS.productUsage, {}));
+    const storedDisplayName = readStoredJson<string>(STORAGE_KEYS.displayName, '').trim();
+    if (storedDisplayName) {
+      setAuthUserLabel(storedDisplayName);
+    }
   }, []);
 
   useEffect(() => {
@@ -1232,7 +1237,8 @@ export default function AdvisorOrderComposer({
         .maybeSingle();
 
       setAuthUserLabel(
-        String(
+        readStoredJson<string>(STORAGE_KEYS.displayName, '').trim() ||
+          String(
           profileData?.full_name ||
             user.user_metadata?.full_name ||
             user.user_metadata?.name ||
