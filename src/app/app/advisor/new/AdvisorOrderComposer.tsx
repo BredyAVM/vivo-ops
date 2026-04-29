@@ -432,6 +432,11 @@ function compactAddressLabel(value: string, maxLength = 46) {
   return `${text.slice(0, maxLength).trimEnd()}...`;
 }
 
+function isDeliveryCatalogItemName(value: string | null | undefined) {
+  const normalized = normalizeSearchValue(value);
+  return normalized.includes('delivery');
+}
+
 function productSearchScore(params: {
   product: ProductRow;
   query: string;
@@ -964,11 +969,16 @@ export default function AdvisorOrderComposer({
   const configBaseLimit = Number(configProduct?.detail_units_limit || 0);
   const configTotalLimit = configBaseLimit > 0 ? configBaseLimit * Math.max(1, configQty) : 0;
   const configSelectedUnits = configSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const hasDeliveryItem = useMemo(
+    () => draftItems.some((item) => isDeliveryCatalogItemName(item.product_name_snapshot)),
+    [draftItems]
+  );
 
   const createReady =
     draftItems.length > 0 &&
     (!!selectedClient || (isNewClientMode && newClientName.trim() && newClientPhone.trim())) &&
     (fulfillment === 'pickup' || deliveryAddress.trim().length > 0) &&
+    (fulfillment !== 'delivery' || hasDeliveryItem) &&
     fxRateNumber > 0;
   const createReadyHint = !draftItems.length
     ? 'Agrega al menos un item.'
@@ -976,6 +986,8 @@ export default function AdvisorOrderComposer({
       ? 'Selecciona o crea el cliente.'
       : fulfillment === 'delivery' && !deliveryAddress.trim().length
         ? 'Falta la direccion de entrega.'
+        : fulfillment === 'delivery' && !hasDeliveryItem
+          ? 'Agrega el item de delivery para cerrar la orden.'
         : !fxRateNumber
           ? 'Falta la tasa del dia.'
           : isEditingOrder
@@ -2006,6 +2018,10 @@ export default function AdvisorOrderComposer({
       setError('Agrega al menos un item para copiar el presupuesto.');
       return;
     }
+    if (fulfillment === 'delivery' && !hasDeliveryItem) {
+      setError('Agrega el item de delivery antes de copiar el presupuesto.');
+      return;
+    }
 
     setCopyingQuote(true);
     try {
@@ -2588,6 +2604,12 @@ export default function AdvisorOrderComposer({
                 </div>
               ))}
 
+              {fulfillment === 'delivery' && !hasDeliveryItem ? (
+                <div className="rounded-[18px] border border-[#564511] bg-[#151208] px-3.5 py-3 text-sm text-[#F7DA66]">
+                  Este pedido es delivery. Agrega tambien el item de delivery antes de copiar o crear la orden.
+                </div>
+              ) : null}
+
               <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Tasa del dia (Bs/USD)">
@@ -2699,7 +2721,7 @@ export default function AdvisorOrderComposer({
                 setDeliveryDate(e.target.value);
                 setIsAsap(false);
               }}
-              className={`${inputClass()} [color-scheme:dark]`}
+              className={`${inputClass()} min-w-0 max-w-full overflow-hidden [color-scheme:dark]`}
             />
           </Field>
 
