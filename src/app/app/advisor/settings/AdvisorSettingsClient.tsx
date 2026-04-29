@@ -65,16 +65,34 @@ export default function AdvisorSettingsClient({
         return;
       }
 
-      const { error: updateError } = await supabase
+      const { error: profileError } = await supabase
         .from('profiles')
-        .update({ full_name: nextName })
-        .eq('id', user.id);
+        .upsert(
+          {
+            id: user.id,
+            full_name: nextName,
+          },
+          { onConflict: 'id' }
+        );
 
-      if (updateError) {
-        setError(updateError.message);
+      if (profileError) {
+        setError(profileError.message);
         return;
       }
 
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: {
+          full_name: nextName,
+          name: nextName,
+        },
+      });
+
+      if (metadataError) {
+        setError(metadataError.message);
+        return;
+      }
+
+      setDisplayName(nextName);
       setInfo('Nombre actualizado para presupuestos y detalle.');
       router.refresh();
     });
@@ -101,7 +119,7 @@ export default function AdvisorSettingsClient({
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Asesor</span>
-            <span className="max-w-[62%] truncate text-right text-[#F5F7FB]">{fullName}</span>
+            <span className="max-w-[62%] truncate text-right text-[#F5F7FB]">{displayName.trim() || fullName}</span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Correo</span>
