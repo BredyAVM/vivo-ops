@@ -418,6 +418,10 @@ function normalizeSearchValue(value: string | null | undefined) {
     .trim();
 }
 
+function splitSearchTokens(value: string | null | undefined) {
+  return normalizeSearchValue(value).split(/\s+/).filter(Boolean);
+}
+
 function extractInitials(value: string) {
   return normalizeSearchValue(value)
     .split(/\s+/)
@@ -437,6 +441,94 @@ function isDeliveryCatalogItemName(value: string | null | undefined) {
   return normalized.includes('delivery');
 }
 
+function buildNormalizedIndexMap(value: string) {
+  let normalized = '';
+  const indexMap: number[] = [];
+
+  Array.from(value).forEach((char, index) => {
+    const partial = char
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    if (!partial) return;
+
+    normalized += partial;
+    for (let i = 0; i < partial.length; i += 1) {
+      indexMap.push(index);
+    }
+  });
+
+  return { normalized, indexMap };
+}
+
+function buildHighlightRanges(value: string, query: string) {
+  const { normalized, indexMap } = buildNormalizedIndexMap(value);
+  const tokens = splitSearchTokens(query);
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  tokens.forEach((token) => {
+    let searchFrom = 0;
+
+    while (searchFrom < normalized.length) {
+      const matchIndex = normalized.indexOf(token, searchFrom);
+      if (matchIndex === -1) break;
+
+      const start = indexMap[matchIndex];
+      const end = indexMap[Math.min(indexMap.length - 1, matchIndex + token.length - 1)] + 1;
+
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        ranges.push({ start, end });
+      }
+
+      searchFrom = matchIndex + token.length;
+    }
+  });
+
+  return ranges.sort((a, b) => a.start - b.start).reduce<Array<{ start: number; end: number }>>((merged, range) => {
+    const last = merged[merged.length - 1];
+    if (!last || range.start > last.end) {
+      merged.push(range);
+      return merged;
+    }
+
+    last.end = Math.max(last.end, range.end);
+    return merged;
+  }, []);
+}
+
+function renderHighlightedText(value: string, query: string, keyPrefix: string) {
+  const text = String(value || '');
+  const ranges = buildHighlightRanges(text, query);
+
+  if (ranges.length === 0) return text;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  ranges.forEach((range, index) => {
+    if (range.start > cursor) {
+      nodes.push(<span key={`${keyPrefix}-plain-${index}`}>{text.slice(cursor, range.start)}</span>);
+    }
+
+    nodes.push(
+      <span
+        key={`${keyPrefix}-hit-${index}`}
+        className="rounded-[6px] bg-[#2A2209] px-0.5 text-[#F7DA66]"
+      >
+        {text.slice(range.start, range.end)}
+      </span>,
+    );
+    cursor = range.end;
+  });
+
+  if (cursor < text.length) {
+    nodes.push(<span key={`${keyPrefix}-tail`}>{text.slice(cursor)}</span>);
+  }
+
+  return nodes;
+}
+
 function productSearchScore(params: {
   product: ProductRow;
   query: string;
@@ -450,11 +542,18 @@ function productSearchScore(params: {
   const normalizedName = normalizeSearchValue(params.product.name);
   const normalizedSku = normalizeSearchValue(params.product.sku);
   const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+  const queryTokens = splitSearchTokens(params.query);
   const initials = extractInitials(params.product.name);
 
   let score = 0;
 
-  if (normalizedName.startsWith(normalizedQuery)) score += 160;
+  if (normalizedName === normalizedQuery || normalizedSku === normalizedQuery) score += 220;
+  else if (
+    queryTokens.length > 1 &&
+    queryTokens.every((token) => nameTokens.some((nameToken) => nameToken.startsWith(token)))
+  ) {
+    score += 190;
+  } else if (normalizedName.startsWith(normalizedQuery)) score += 160;
   else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 145;
   else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 120;
   else if (initials.startsWith(normalizedQuery)) score += 118;
@@ -462,6 +561,14 @@ function productSearchScore(params: {
   else if (normalizedName.includes(normalizedQuery)) score += 90;
   else if (normalizedSku.includes(normalizedQuery)) score += 70;
   else return Number.NEGATIVE_INFINITY;
+
+  if (queryTokens.length > 1) {
+    score += queryTokens.reduce((sum, token) => {
+      if (nameTokens.some((nameToken) => nameToken.startsWith(token))) return sum + 12;
+      if (normalizedName.includes(token)) return sum + 6;
+      return sum;
+    }, 0);
+  }
 
   const favoriteBoost = params.favoriteIds.includes(params.product.id) ? 30 : 0;
   const recentIndex = params.recentIds.indexOf(params.product.id);
@@ -483,16 +590,32 @@ function clientSearchScore(params: {
   const normalizedName = normalizeSearchValue(params.client.full_name);
   const normalizedPhone = normalizeSearchValue(params.client.phone);
   const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+  const queryTokens = splitSearchTokens(params.query);
 
   let score = 0;
 
-  if (normalizedPhone.startsWith(normalizedQuery)) score += 170;
+  if (normalizedPhone === normalizedQuery || normalizedName === normalizedQuery) score += 220;
+  else if (normalizedPhone.startsWith(normalizedQuery)) score += 170;
+  else if (
+    queryTokens.length > 1 &&
+    queryTokens.every((token) => nameTokens.some((nameToken) => nameToken.startsWith(token)))
+  ) {
+    score += 165;
+  }
   else if (normalizedName.startsWith(normalizedQuery)) score += 150;
   else if (nameTokens[0]?.startsWith(normalizedQuery)) score += 140;
   else if (nameTokens.some((token) => token.startsWith(normalizedQuery))) score += 115;
   else if (normalizedPhone.includes(normalizedQuery)) score += 95;
   else if (normalizedName.includes(normalizedQuery)) score += 85;
   else return Number.NEGATIVE_INFINITY;
+
+  if (queryTokens.length > 1) {
+    score += queryTokens.reduce((sum, token) => {
+      if (nameTokens.some((nameToken) => nameToken.startsWith(token))) return sum + 10;
+      if (normalizedName.includes(token)) return sum + 5;
+      return sum;
+    }, 0);
+  }
 
   const recentIndex = params.recentIds.indexOf(params.client.id);
   const recentBoost = recentIndex >= 0 ? Math.max(0, 16 - recentIndex * 2) : 0;
@@ -513,6 +636,14 @@ function buildDraftItemsSnapshot(items: DraftItem[]) {
     lineTotalUsd: Number(Number(item.line_total_usd || 0).toFixed(2)),
     detailLines: item.editable_detail_lines.map((line) => normalizeSnapshotText(line)).filter(Boolean),
   }));
+}
+
+function exactClientMatch(client: ClientRow, query: string) {
+  const normalizedQuery = normalizeSearchValue(query);
+  const normalizedName = normalizeSearchValue(client.full_name);
+  const normalizedPhone = normalizeSearchValue(client.phone);
+
+  return normalizedQuery.length > 0 && (normalizedName === normalizedQuery || normalizedPhone === normalizedQuery);
 }
 
 function buildOrderEditChangeSummary(before: OrderEditSnapshot, after: OrderEditSnapshot) {
@@ -992,8 +1123,8 @@ export default function AdvisorOrderComposer({
         : !fxRateNumber
           ? 'Falta la tasa del dia.'
           : isEditingOrder
-            ? 'Listo para guardar cambios.'
-            : 'Listo para copiar y crear.';
+            ? 'Todo listo para guardar los cambios.'
+            : 'Todo listo para copiar y crear.';
   const footerSummary = [
     `${draftItems.length} item${draftItems.length === 1 ? '' : 's'}`,
     fulfillment === 'delivery' ? 'Delivery' : 'Retiro',
@@ -1500,6 +1631,16 @@ export default function AdvisorOrderComposer({
     setDeliveryNotePhone(client.delivery_note_phone || '');
   }
 
+  function selectClient(client: ClientRow, notice?: string) {
+    setSelectedClient(client);
+    rememberClient(client);
+    applyClientProfile(client);
+    setIsNewClientMode(false);
+    setClientResults([]);
+    setSearchTerm(client.phone ?? client.full_name);
+    setInfo(notice || `Cliente listo: ${client.full_name}`);
+  }
+
   async function handleSearchClients(e?: FormEvent) {
     e?.preventDefault();
     clearMessages();
@@ -1543,8 +1684,19 @@ export default function AdvisorOrderComposer({
       })
       .map((row) => row.client);
 
+    if (sortedResults.length === 1 && exactClientMatch(sortedResults[0], query)) {
+      selectClient(sortedResults[0]);
+      return;
+    }
+
     setClientResults(sortedResults);
-    setInfo(sortedResults.length > 0 ? 'Cliente encontrado.' : 'No hubo coincidencias.');
+    setInfo(
+      sortedResults.length === 0
+        ? `No hubo coincidencias para "${query}".`
+        : sortedResults.length === 1
+          ? '1 cliente listo para elegir.'
+          : `${sortedResults.length} clientes listos para elegir.`
+    );
   }
 
   async function createClientNow() {
@@ -1568,13 +1720,7 @@ export default function AdvisorOrderComposer({
 
       if (existing && existing.length > 0) {
         const current = existing[0] as ClientRow;
-        setSelectedClient(current);
-        rememberClient(current);
-        applyClientProfile(current);
-        setSearchTerm(current.phone ?? current.full_name);
-        setIsNewClientMode(false);
-        setClientResults([]);
-        setInfo(`Cliente listo: ${current.full_name}`);
+        selectClient(current);
         return current.id;
       }
 
@@ -1587,13 +1733,7 @@ export default function AdvisorOrderComposer({
       if (createError) throw new Error(createError.message);
 
       const client = created as ClientRow;
-      setSelectedClient(client);
-      rememberClient(client);
-      applyClientProfile(client);
-      setSearchTerm(client.phone ?? client.full_name);
-      setIsNewClientMode(false);
-      setClientResults([]);
-      setInfo(`Cliente creado: ${client.full_name}`);
+      selectClient(client, `Cliente creado: ${client.full_name}`);
       return client.id;
     } finally {
       setCreatingClient(false);
@@ -2367,20 +2507,16 @@ export default function AdvisorOrderComposer({
                 <button
                   key={client.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedClient(client);
-                    rememberClient(client);
-                    applyClientProfile(client);
-                    setIsNewClientMode(false);
-                    setClientResults([]);
-                    setSearchTerm(client.phone ?? client.full_name);
-                    setInfo(`Cliente seleccionado: ${client.full_name}`);
-                  }}
+                  onClick={() => selectClient(client, `Cliente seleccionado: ${client.full_name}`)}
                   className="flex w-full items-center justify-between rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-left"
                 >
                   <div>
-                    <div className="text-sm font-medium text-[#F5F7FB]">{client.full_name}</div>
-                    <div className="mt-1 text-xs text-[#8B93A7]">{client.phone || 'Sin telefono'}</div>
+                    <div className="text-sm font-medium text-[#F5F7FB]">
+                      {renderHighlightedText(client.full_name, searchTerm, `client-name-${client.id}`)}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8B93A7]">
+                      {renderHighlightedText(client.phone || 'Sin telefono', searchTerm, `client-phone-${client.id}`)}
+                    </div>
                   </div>
                   <div className="text-xs text-[#AAB2C5]">Usar</div>
                 </button>
@@ -2484,9 +2620,11 @@ export default function AdvisorOrderComposer({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-[#F5F7FB]">{product.name}</div>
+                          <div className="truncate text-sm font-medium text-[#F5F7FB]">
+                            {renderHighlightedText(product.name, productSearch, `product-name-${product.id}`)}
+                          </div>
                           <div className="mt-1 text-xs text-[#8B93A7]">
-                            {product.sku || 'Sin codigo'} | ${Number(product.base_price_usd ?? 0).toFixed(2)}
+                            {renderHighlightedText(product.sku || 'Sin codigo', productSearch, `product-sku-${product.id}`)} | ${Number(product.base_price_usd ?? 0).toFixed(2)}
                           </div>
                         </div>
                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
@@ -2498,6 +2636,11 @@ export default function AdvisorOrderComposer({
                           {recentProductIds.includes(product.id) ? (
                             <span className="rounded-full border border-[#2A3040] bg-[#151925] px-2 py-0.5 text-[10px] font-medium text-[#CCD3E2]">
                               Reciente
+                            </span>
+                          ) : null}
+                          {Number(productUsageById[String(product.id)] || 0) >= 3 ? (
+                            <span className="rounded-full border border-[#1C5036] bg-[#0F2119] px-2 py-0.5 text-[10px] font-medium text-[#7CE0A9]">
+                              Muy usado
                             </span>
                           ) : null}
                         </div>

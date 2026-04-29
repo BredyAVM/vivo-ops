@@ -141,7 +141,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         clientName: getClientName(order),
         deliveryLabel: getDeliveryLabel(order),
         title: eventTitle(eventType, String(event.title || '')),
-        message: shortMessage(event.message, detailLines),
+        message: shortMessage(eventType, event.message, detailLines),
         eventType,
         createdAt: String(event.created_at || order.created_at),
         detailLines,

@@ -25,7 +25,7 @@ export default async function AdvisorSettingsPage() {
       <PageIntro
         eyebrow="Sistema"
         title="Configuracion"
-        description="Aqui viven los permisos, la sesion y los ajustes de la app del asesor."
+        description="Aqui viven los permisos, la sesion y las revisiones utiles para que la app siga operativa."
       />
 
       <AdvisorPushPanel publicVapidKey={getPublicVapidKey()} />

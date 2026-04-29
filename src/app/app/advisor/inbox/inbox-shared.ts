@@ -157,7 +157,7 @@ export function eventTitle(eventType: string, fallbackTitle: string) {
     order_changes_rejected: 'Cambios rechazados',
     order_changes_approved: 'Cambios aprobados',
     order_sent_to_kitchen: 'Enviada a cocina',
-    kitchen_taken: 'Cocina tomo la orden',
+    kitchen_taken: 'Cocina tomó la orden',
     kitchen_eta_updated: 'Tiempo estimado actualizado',
     kitchen_delayed_prep: 'Retraso en cocina',
     order_ready: 'Orden preparada',
@@ -207,8 +207,35 @@ export function buildDetailLines(eventType: string, payload: Record<string, unkn
   return details;
 }
 
-export function shortMessage(rawMessage: string | null, details: string[]) {
+function fallbackMessageByType(eventType: string) {
+  const messages: Record<string, string> = {
+    order_approved: 'La orden ya esta aprobada y sigue su curso.',
+    order_returned_to_review: 'La orden necesita una revision del asesor.',
+    order_reapproved: 'La orden volvio a quedar aprobada.',
+    order_changes_rejected: 'Se rechazaron cambios y toca revisarlos.',
+    order_changes_approved: 'Los cambios solicitados fueron aprobados.',
+    order_sent_to_kitchen: 'La orden ya fue enviada a cocina.',
+    kitchen_taken: 'Cocina ya tomo la orden y comenzo a moverla.',
+    kitchen_eta_updated: 'Cocina actualizo el tiempo estimado.',
+    kitchen_delayed_prep: 'La preparacion va con retraso.',
+    order_ready: 'La orden esta lista para salir.',
+    pickup_ready: 'La orden esta lista para retiro.',
+    driver_assigned: 'Ya hay motorizado asignado para esta entrega.',
+    out_for_delivery: 'La orden ya va en camino.',
+    delivery_delayed: 'La entrega se esta retrasando.',
+    pickup_collected: 'La orden ya fue retirada.',
+    order_delivered: 'La entrega ya fue completada.',
+    payment_reported: 'Se reporto un pago y esta en revision.',
+    payment_confirmed: 'El pago ya quedo confirmado.',
+    payment_rejected: 'El pago fue rechazado y necesita correccion.',
+  };
+
+  return messages[eventType] || 'Sin detalle adicional.';
+}
+
+export function shortMessage(eventType: string, rawMessage: string | null, details: string[]) {
   const message = safeText(rawMessage, '');
   if (message) return message;
-  return details[0] || 'Sin detalle adicional.';
+  if (details[0]) return details[0];
+  return fallbackMessageByType(eventType);
 }

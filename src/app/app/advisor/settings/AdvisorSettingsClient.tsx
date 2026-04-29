@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
-import { SectionCard, StatusBadge } from '../advisor-ui';
+import { QuickLink, SectionCard, StatusBadge } from '../advisor-ui';
 
 function isStandaloneMode() {
   if (typeof window === 'undefined') return false;
@@ -93,6 +93,24 @@ export default function AdvisorSettingsClient({
             <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
               Aqui puedes revisar rapido si el telefono tiene listas las notificaciones.
             </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Ayuda rapida" subtitle="Atajos y revisiones utiles cuando estas operando desde el telefono.">
+        <div className="grid gap-2">
+          <QuickLink
+            href="/app/advisor/inbox?filter=all"
+            title="Revisar alertas"
+            detail="Abre la bandeja completa para confirmar si hay algo pendiente o nuevo."
+          />
+          <QuickLink
+            href="/app/advisor/orders"
+            title="Ver pedidos"
+            detail="Entra a la bandeja operativa para revisar vencidas, ASAP, pagos o entregas."
+          />
+          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-xs leading-5 text-[#AAB2C5]">
+            Si una alerta no llega como push, primero revisa que la app siga instalada, que el permiso este activo y que el telefono no haya bloqueado las notificaciones.
           </div>
         </div>
       </SectionCard>
