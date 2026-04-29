@@ -21,9 +21,16 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    user = session?.user ?? null;
+  } catch {
+    user = null;
+  }
 
   if (req.nextUrl.pathname.startsWith('/orders') || req.nextUrl.pathname.startsWith('/app')) {
     if (!user) {
