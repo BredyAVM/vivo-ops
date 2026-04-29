@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
@@ -102,11 +103,18 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                 </Link>
               ) : null}
               <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#6F7890]">
-                  {headerDateLabel}
-                </div>
-                <div className="truncate text-[15px] font-semibold text-[#F5F7FB]">
-                  {headerTitle}
+                <Image
+                  src="/brand/vivo-fritos-horizontal.png"
+                  alt="Vivo Fritos"
+                  width={2080}
+                  height={500}
+                  priority
+                  className="h-5 w-auto max-w-[138px] object-contain"
+                />
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#6F7890]">
+                  <span className="truncate font-medium text-[#9CA6BD]">{headerTitle}</span>
+                  <span className="text-[#4D5568]">•</span>
+                  <span className="truncate uppercase tracking-[0.16em]">{headerDateLabel}</span>
                 </div>
               </div>
             </div>
