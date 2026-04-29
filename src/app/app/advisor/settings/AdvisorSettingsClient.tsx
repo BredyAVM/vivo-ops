@@ -65,35 +65,42 @@ export default function AdvisorSettingsClient({
         return;
       }
 
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert(
-          {
-            id: user.id,
-            full_name: nextName,
-          },
-          { onConflict: 'id' }
-        );
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
 
-      if (profileError) {
-        setError(profileError.message);
+      if (!accessToken) {
+        setError('No se pudo recuperar la sesion activa.');
         return;
       }
 
-      const { error: metadataError } = await supabase.auth.updateUser({
-        data: {
-          full_name: nextName,
-          name: nextName,
+      const response = await fetch('/app/api/advisor/profile/display-name', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          accessToken,
+          displayName: nextName,
+        }),
       });
 
-      if (metadataError) {
-        setError(metadataError.message);
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        profileWarning?: string | null;
+      };
+
+      if (!response.ok || !payload.ok) {
+        setError(payload.error || 'No se pudo guardar el nombre.');
         return;
       }
 
       setDisplayName(nextName);
-      setInfo('Nombre actualizado para presupuestos y detalle.');
+      setInfo(
+        payload.profileWarning
+          ? 'Nombre actualizado. El perfil principal no se pudo sincronizar completo, pero la app ya usara este nombre.'
+          : 'Nombre actualizado para presupuestos y detalle.'
+      );
       router.refresh();
     });
   }
