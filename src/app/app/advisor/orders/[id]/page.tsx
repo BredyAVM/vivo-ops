@@ -728,7 +728,6 @@ export default async function AdvisorOrderDetailPage({
             activeBsRate={activeBsRate}
             whatsappSummary={whatsappSummary}
             whatsappContactHref={whatsappContactHref}
-            whatsappContactLabel={contactPhoneRaw || ''}
             preferWhatsApp={shouldHighlightWhatsApp}
             initialReportBoxOpen={openPaymentOnLoad}
           />

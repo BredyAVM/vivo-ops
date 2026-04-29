@@ -58,7 +58,6 @@ export default function OrderDetailActions({
   activeBsRate,
   whatsappSummary,
   whatsappContactHref,
-  whatsappContactLabel,
   preferWhatsApp = false,
   initialReportBoxOpen = false,
 }: {
@@ -71,7 +70,6 @@ export default function OrderDetailActions({
   activeBsRate: number;
   whatsappSummary: string;
   whatsappContactHref?: string;
-  whatsappContactLabel?: string;
   preferWhatsApp?: boolean;
   initialReportBoxOpen?: boolean;
 }) {
@@ -96,8 +94,8 @@ export default function OrderDetailActions({
     [activeAccounts, moneyAccountId],
   );
   const whatsappButtonClass = preferWhatsApp
-    ? 'inline-flex h-11 items-center justify-center rounded-[16px] bg-[#25D366] px-4 text-sm font-semibold text-[#07150C]'
-    : 'inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#25D366]';
+    ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'
+    : 'inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#25D366]';
 
   if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !whatsappSummary.trim()) return null;
 
@@ -114,7 +112,7 @@ export default function OrderDetailActions({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex flex-wrap gap-2">
         {whatsappContactHref ? (
           <a
             href={whatsappContactHref}
@@ -122,7 +120,7 @@ export default function OrderDetailActions({
             rel="noreferrer"
             className={whatsappButtonClass}
           >
-            {whatsappContactLabel ? `Conversar por WhatsApp` : 'Abrir WhatsApp'}
+            WhatsApp
           </a>
         ) : null}
 
@@ -139,26 +137,26 @@ export default function OrderDetailActions({
               setError('No se pudo copiar el resumen.');
             }
           }}
-          className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+          className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
         >
-          Copiar WhatsApp
+          Copiar
         </button>
 
         {canCorrectOrder ? (
           <Link
             href={`/app/advisor/new?fromOrder=${orderId}`}
-            className="inline-flex h-11 items-center justify-center rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
+            className="inline-flex h-9 items-center justify-center rounded-full bg-[#F0D000] px-3.5 text-xs font-semibold text-[#17191E]"
           >
-            Modificar pedido
+            Editar
           </Link>
         ) : null}
 
         {canDuplicateOrder ? (
           <Link
             href={`/app/advisor/new?duplicateFrom=${orderId}`}
-            className="inline-flex h-11 items-center justify-center rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+            className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
           >
-            Repetir pedido
+            Repetir
           </Link>
         ) : null}
 
@@ -171,20 +169,31 @@ export default function OrderDetailActions({
               setReportBoxOpen((current) => !current);
             }}
             className={[
-              'inline-flex h-11 items-center justify-center rounded-[16px] px-4 text-sm font-semibold',
+              'inline-flex h-9 items-center justify-center rounded-full px-3.5 text-xs font-semibold',
               reportBoxOpen ? 'border border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border border-[#232632] text-[#F5F7FB]',
             ].join(' ')}
           >
-            {reportBoxOpen ? 'Cerrar reporte' : 'Reportar pago'}
+            {reportBoxOpen ? 'Pago abierto' : 'Pago'}
           </button>
         ) : null}
       </div>
 
       {canReportPayment && reportBoxOpen ? (
         <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-          <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>
-          <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
-            El saldo pendiente actual es ${balanceUsd.toFixed(2)}. Este reporte se enviara a revision.
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>
+              <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
+                Saldo pendiente: ${balanceUsd.toFixed(2)}. Se enviara a revision.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReportBoxOpen(false)}
+              className="inline-flex h-8 items-center rounded-full border border-[#232632] px-3 text-[11px] font-medium text-[#CCD3E2]"
+            >
+              Ocultar
+            </button>
           </div>
           {selectedAccount?.currencyCode === 'VES' && activeBsRate > 0 ? (
             <div className="mt-2 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#8B93A7]">
@@ -311,7 +320,7 @@ export default function OrderDetailActions({
                   isPending ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
-                {isPending ? 'Enviando...' : 'Enviar reporte'}
+                {isPending ? 'Enviando...' : 'Enviar'}
               </button>
               <button
                 type="button"
@@ -319,7 +328,7 @@ export default function OrderDetailActions({
                 onClick={() => setReportBoxOpen(false)}
                 className="h-11 rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
               >
-                Cancelar
+                Cerrar
               </button>
             </div>
           </div>
