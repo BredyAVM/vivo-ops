@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import MasterDashboardClient from './MasterDashboardClient';
 
@@ -179,6 +180,52 @@ type RawUserRoleRow = {
   user_id: string;
   role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 };
+
+async function loadAuthUserEmailById() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const emailById = new Map<string, string>();
+
+  if (!url || !key) {
+    return emailById;
+  }
+
+  try {
+    const adminSupabase = createClient(url, key, {
+      auth: { persistSession: false },
+    });
+    const perPage = 1000;
+
+    for (let page = 1; page <= 10; page += 1) {
+      const { data, error } = await adminSupabase.auth.admin.listUsers({
+        page,
+        perPage,
+      });
+
+      if (error) {
+        console.warn('loadAuthUserEmailById skipped', error.message);
+        break;
+      }
+
+      for (const authUser of data.users ?? []) {
+        if (authUser.id && authUser.email) {
+          emailById.set(authUser.id, authUser.email);
+        }
+      }
+
+      if (!data.users || data.users.length < perPage) {
+        break;
+      }
+    }
+  } catch (error) {
+    console.warn(
+      'loadAuthUserEmailById failed',
+      error instanceof Error ? error.message : 'unknown auth users error'
+    );
+  }
+
+  return emailById;
+}
 
 type RawProductRow = {
   id: number;
@@ -620,9 +667,12 @@ if (userRolesError) {
   );
 }
 
+const authUserEmailById = await loadAuthUserEmailById();
+
 const dashboardUsers = ((userProfilesData ?? []) as RawProfileRow[]).map((row) => ({
   id: String(row.id),
   fullName: row.full_name?.trim() || '',
+  email: authUserEmailById.get(String(row.id)) ?? null,
   isActive: Boolean(row.is_active ?? true),
   createdAt: row.created_at ?? null,
 }));

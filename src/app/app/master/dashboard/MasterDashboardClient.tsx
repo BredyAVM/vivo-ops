@@ -393,6 +393,7 @@ type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
 type DashboardUser = {
   id: string;
   fullName: string;
+  email: string | null;
   isActive: boolean;
   createdAt: string | null;
 };
@@ -3171,6 +3172,7 @@ const isMaster = roles.includes('master');
       const userRoles = dashboardRolesByUserId.get(userItem.id) ?? [];
       return (
         userItem.fullName.toLowerCase().includes(term) ||
+        String(userItem.email || '').toLowerCase().includes(term) ||
         userItem.id.toLowerCase().includes(term) ||
         userRoles.some((role) => APP_USER_ROLE_LABEL[role].toLowerCase().includes(term))
       );
@@ -10887,6 +10889,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   >
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{userItem.fullName || 'Sin nombre'}</div>
+                      <div className="mt-1 max-w-[360px] truncate text-[11px] text-[#B7B7C2]">
+                        {userItem.email || 'Sin correo visible'}
+                      </div>
                       <div className="mt-1 max-w-[360px] truncate font-mono text-[11px] text-[#8A8A96]">{userItem.id}</div>
                     </td>
                     <td className="px-3 py-3">
@@ -17540,6 +17545,9 @@ return (
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
         <div className="text-sm font-semibold text-[#F5F5F7]">
           {selectedDashboardUser.fullName || 'Sin nombre'}
+        </div>
+        <div className="mt-1 truncate text-[12px] text-[#B7B7C2]">
+          {selectedDashboardUser.email || 'Sin correo visible'}
         </div>
         <div className="mt-1 truncate font-mono text-[11px] text-[#8A8A96]">{selectedDashboardUser.id}</div>
       </div>
