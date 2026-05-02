@@ -168,6 +168,18 @@ type RawClientRow = {
   updated_at: string;
 };
 
+type RawProfileRow = {
+  id: string;
+  full_name: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+};
+
+type RawUserRoleRow = {
+  user_id: string;
+  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+};
+
 type RawProductRow = {
   id: number;
   sku: string | null;
@@ -567,6 +579,58 @@ if (currentProfileError) {
     </div>
   );
 }
+
+const { data: userProfilesData, error: userProfilesError } = await supabase
+  .from('profiles')
+  .select('id, full_name, is_active, created_at')
+  .order('created_at', { ascending: false })
+  .limit(500);
+
+if (userProfilesError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando usuarios</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los perfiles de usuarios.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {userProfilesError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const { data: userRolesData, error: userRolesError } = await supabase.rpc('admin_list_user_roles');
+
+if (userRolesError) {
+  return (
+    <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+      <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-lg font-semibold">Error cargando roles de usuarios</div>
+        <div className="mt-2 text-sm text-[#B7B7C2]">
+          No se pudieron obtener los roles administrativos.
+        </div>
+        <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+          {userRolesError.message}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+const dashboardUsers = ((userProfilesData ?? []) as RawProfileRow[]).map((row) => ({
+  id: String(row.id),
+  fullName: row.full_name?.trim() || '',
+  isActive: Boolean(row.is_active ?? true),
+  createdAt: row.created_at ?? null,
+}));
+
+const dashboardUserRoles = ((userRolesData ?? []) as RawUserRoleRow[]).map((row) => ({
+  userId: String(row.user_id),
+  role: row.role,
+}));
 
 
 const { data: deliveryPartnersData, error: deliveryPartnersError } = await supabase
@@ -2191,6 +2255,8 @@ currentUser={{
 
 
       roles={roles}
+      dashboardUsers={dashboardUsers}
+      dashboardUserRoles={dashboardUserRoles}
       advisors={advisorOptions}
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}

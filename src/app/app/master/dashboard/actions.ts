@@ -46,6 +46,22 @@ const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
+type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+
+const APP_USER_ROLES = new Set<AppUserRole>(['admin', 'master', 'advisor', 'kitchen', 'driver']);
+
+function normalizeUserRoles(input: unknown): AppUserRole[] {
+  if (!Array.isArray(input)) return [];
+
+  const seen = new Set<AppUserRole>();
+  for (const value of input) {
+    if (typeof value !== 'string') continue;
+    if (!APP_USER_ROLES.has(value as AppUserRole)) continue;
+    seen.add(value as AppUserRole);
+  }
+
+  return Array.from(seen);
+}
 
 type OrderEventContext = {
   orderId: number;
@@ -62,6 +78,52 @@ type OrderEventRecipientInput = {
   targetUserId?: string | null;
   requiresAction?: boolean;
 };
+
+export async function updateDashboardUserAction(input: {
+  userId: string;
+  fullName: string;
+  isActive: boolean;
+  roles: AppUserRole[];
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const userId = String(input.userId || '').trim();
+  if (!userId) {
+    throw new Error('Usuario inválido.');
+  }
+
+  const nextRoles = normalizeUserRoles(input.roles);
+  if (nextRoles.length === 0) {
+    throw new Error('Selecciona al menos un rol.');
+  }
+
+  if (userId === user.id && !nextRoles.some((role) => role === 'admin' || role === 'master')) {
+    throw new Error('No puedes quitarte tu propio acceso al dashboard master.');
+  }
+
+  const fullName = String(input.fullName || '').trim();
+
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .update({
+      full_name: fullName || null,
+      is_active: Boolean(input.isActive),
+    })
+    .eq('id', userId);
+
+  if (profileError) throw new Error(profileError.message);
+
+  const { error: deleteRolesError } = await supabase.from('user_roles').delete().eq('user_id', userId);
+  if (deleteRolesError) throw new Error(deleteRolesError.message);
+
+  const { error: insertRolesError } = await supabase
+    .from('user_roles')
+    .insert(nextRoles.map((role) => ({ user_id: userId, role })));
+
+  if (insertRolesError) throw new Error(insertRolesError.message);
+
+  revalidatePath('/app/master/dashboard');
+}
 
 async function loadOrderEventContext(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,

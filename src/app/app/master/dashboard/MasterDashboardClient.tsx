@@ -32,6 +32,7 @@ import {
   createInventoryMovementAction,
   createExtraMoneyMovementAction,
   updateExchangeRateAction,
+  updateDashboardUserAction,
   createCatalogItemAction,
   createClientAction,
   createOrderClientQuickAction,
@@ -383,10 +384,23 @@ type ToastState = {
   type: 'success' | 'error';
   message: string;
 } | null;
-type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'adjustments';
+type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'users' | 'adjustments';
+type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type CalculationsTab = 'general' | 'commissions' | 'deliveries';
 type DeliveriesTab = 'overview' | 'internal' | 'external' | 'partners';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
+
+type DashboardUser = {
+  id: string;
+  fullName: string;
+  isActive: boolean;
+  createdAt: string | null;
+};
+
+type DashboardUserRole = {
+  userId: string;
+  role: AppUserRole;
+};
 
 type QuickCatalogPriceRow = {
   productId: number;
@@ -574,6 +588,16 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   out_for_delivery: 'En camino',
   delivered: 'Entregado / Retirado',
   cancelled: 'Cancelado',
+};
+
+const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
+
+const APP_USER_ROLE_LABEL: Record<AppUserRole, string> = {
+  admin: 'Admin',
+  master: 'Master',
+  advisor: 'Asesor',
+  kitchen: 'Cocina',
+  driver: 'Motorizado',
 };
 
 const fmtUSD = (n: number) => `$${n.toFixed(2)}`;
@@ -2777,6 +2801,8 @@ function validateCatalogBeforeSave(params: {
 export default function MasterDashboardClient({
   currentUser,
   roles,
+  dashboardUsers = [],
+  dashboardUserRoles = [],
   advisors = [],
   initialOrders,
   moneyAccounts,
@@ -2797,6 +2823,8 @@ export default function MasterDashboardClient({
 }: {
   currentUser: { id: string; email: string; fullName?: string };
   roles: string[];
+  dashboardUsers?: DashboardUser[];
+  dashboardUserRoles?: DashboardUserRole[];
   advisors?: AdvisorOption[];
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
@@ -2828,6 +2856,19 @@ export default function MasterDashboardClient({
   });
   const [viewMode, setViewMode] = useState<ViewMode>('operations');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('catalog');
+  const [userSearch, setUserSearch] = useState('');
+  const [selectedDashboardUserId, setSelectedDashboardUserId] = useState<string | null>(null);
+  const [userEditOpen, setUserEditOpen] = useState(false);
+  const [userSaving, setUserSaving] = useState(false);
+  const [userFormFullName, setUserFormFullName] = useState('');
+  const [userFormIsActive, setUserFormIsActive] = useState(true);
+  const [userFormRoles, setUserFormRoles] = useState<Record<AppUserRole, boolean>>({
+    admin: false,
+    master: false,
+    advisor: false,
+    kitchen: false,
+    driver: false,
+  });
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryGroupFilter, setInventoryGroupFilter] = useState<
     '' | 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
@@ -3106,6 +3147,53 @@ const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
 
   const isAdmin = roles.includes('admin');
 const isMaster = roles.includes('master');
+
+  const dashboardRolesByUserId = useMemo(() => {
+    const map = new Map<string, AppUserRole[]>();
+    for (const row of dashboardUserRoles) {
+      const current = map.get(row.userId) ?? [];
+      if (!current.includes(row.role)) current.push(row.role);
+      map.set(row.userId, current);
+    }
+    return map;
+  }, [dashboardUserRoles]);
+
+  const selectedDashboardUser = useMemo(
+    () => dashboardUsers.find((userItem) => userItem.id === selectedDashboardUserId) ?? null,
+    [dashboardUsers, selectedDashboardUserId]
+  );
+
+  const filteredDashboardUsers = useMemo(() => {
+    const term = userSearch.trim().toLowerCase();
+    if (!term) return dashboardUsers;
+
+    return dashboardUsers.filter((userItem) => {
+      const userRoles = dashboardRolesByUserId.get(userItem.id) ?? [];
+      return (
+        userItem.fullName.toLowerCase().includes(term) ||
+        userItem.id.toLowerCase().includes(term) ||
+        userRoles.some((role) => APP_USER_ROLE_LABEL[role].toLowerCase().includes(term))
+      );
+    });
+  }, [dashboardRolesByUserId, dashboardUsers, userSearch]);
+
+  const dashboardUserStats = useMemo(() => {
+    const active = dashboardUsers.filter((userItem) => userItem.isActive).length;
+    const byRole = APP_USER_ROLES.reduce(
+      (acc, role) => {
+        acc[role] = dashboardUserRoles.filter((row) => row.role === role).length;
+        return acc;
+      },
+      {} as Record<AppUserRole, number>
+    );
+
+    return {
+      total: dashboardUsers.length,
+      active,
+      inactive: dashboardUsers.length - active,
+      byRole,
+    };
+  }, [dashboardUserRoles, dashboardUsers]);
 
 const [createOrderSource, setCreateOrderSource] = useState<'advisor' | 'master' | 'walk_in'>('master');
 const [createOrderAdvisorUserId, setCreateOrderAdvisorUserId] = useState('');
@@ -4033,6 +4121,63 @@ const openEditOrderDrawer = (order: Order) => {
 
 const showToast = (type: 'success' | 'error', message: string) => {
   setToast({ type, message });
+};
+
+const openEditDashboardUser = (userItem: DashboardUser) => {
+  const userRoles = new Set(dashboardRolesByUserId.get(userItem.id) ?? []);
+
+  setSelectedDashboardUserId(userItem.id);
+  setUserFormFullName(userItem.fullName);
+  setUserFormIsActive(userItem.isActive);
+  setUserFormRoles({
+    admin: userRoles.has('admin'),
+    master: userRoles.has('master'),
+    advisor: userRoles.has('advisor'),
+    kitchen: userRoles.has('kitchen'),
+    driver: userRoles.has('driver'),
+  });
+  setUserEditOpen(true);
+};
+
+const closeEditDashboardUser = () => {
+  setUserEditOpen(false);
+  setSelectedDashboardUserId(null);
+  setUserFormFullName('');
+  setUserFormIsActive(true);
+  setUserFormRoles({
+    admin: false,
+    master: false,
+    advisor: false,
+    kitchen: false,
+    driver: false,
+  });
+};
+
+const handleSaveDashboardUser = async () => {
+  if (!selectedDashboardUser) return;
+
+  const nextRoles = APP_USER_ROLES.filter((role) => userFormRoles[role]);
+  if (nextRoles.length === 0) {
+    showToast('error', 'Selecciona al menos un rol.');
+    return;
+  }
+
+  try {
+    setUserSaving(true);
+    await updateDashboardUserAction({
+      userId: selectedDashboardUser.id,
+      fullName: userFormFullName,
+      isActive: userFormIsActive,
+      roles: nextRoles,
+    });
+    showToast('success', 'Usuario actualizado.');
+    closeEditDashboardUser();
+    router.refresh();
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudo actualizar el usuario.');
+  } finally {
+    setUserSaving(false);
+  }
 };
 
 const handleCopyOrderWhatsApp = async (order: Order) => {
@@ -8615,6 +8760,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
           Clientes
         </Chip>
+        <Chip active={settingsTab === 'users'} onClick={() => setSettingsTab('users')}>
+          Usuarios
+        </Chip>
         {isAdmin ? (
           <Chip active={settingsTab === 'adjustments'} onClick={() => setSettingsTab('adjustments')}>
             Ajustes
@@ -10660,6 +10808,111 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       )}
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">Abrir ficha</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+) : null}
+
+          {settingsTab === 'users' ? (
+  <div className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 xl:col-span-2">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Resumen usuarios</div>
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <InfoCell label="Total" value={String(dashboardUserStats.total)} />
+          <InfoCell label="Activos" value={String(dashboardUserStats.active)} />
+          <InfoCell label="Inactivos" value={String(dashboardUserStats.inactive)} />
+          <InfoCell label="Master/Admin" value={String(dashboardUserStats.byRole.admin + dashboardUserStats.byRole.master)} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Roles</div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {APP_USER_ROLES.map((role) => (
+            <SmallBadge
+              key={role}
+              label={`${APP_USER_ROLE_LABEL[role]} ${dashboardUserStats.byRole[role]}`}
+              tone={role === 'admin' || role === 'master' ? 'brand' : 'muted'}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+
+    <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-end md:justify-between">
+      <div className="flex-1">
+        <FieldInput label="Buscar usuario" value={userSearch} onChange={setUserSearch} />
+      </div>
+      <div className="pb-2 text-[12px] text-[#8A8A96]">
+        La creación queda en Supabase/Auth; aquí se administra perfil y roles.
+      </div>
+    </div>
+
+    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+            <tr>
+              <th className="px-3 py-3 text-left font-medium">Usuario</th>
+              <th className="px-3 py-3 text-left font-medium">Roles</th>
+              <th className="px-3 py-3 text-left font-medium">Estado</th>
+              <th className="px-3 py-3 text-left font-medium">Creado</th>
+              <th className="px-3 py-3 text-left font-medium">Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredDashboardUsers.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
+                  No hay usuarios que coincidan con el filtro.
+                </td>
+              </tr>
+            ) : (
+              filteredDashboardUsers.map((userItem, idx) => {
+                const userRoles = dashboardRolesByUserId.get(userItem.id) ?? [];
+                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+
+                return (
+                  <tr
+                    key={userItem.id}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
+                    onClick={() => openEditDashboardUser(userItem)}
+                  >
+                    <td className="px-3 py-3">
+                      <div className="font-semibold text-[#F5F5F7]">{userItem.fullName || 'Sin nombre'}</div>
+                      <div className="mt-1 max-w-[360px] truncate font-mono text-[11px] text-[#8A8A96]">{userItem.id}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      {userRoles.length > 0 ? (
+                        <div className="flex max-w-[320px] flex-wrap gap-1">
+                          {APP_USER_ROLES.filter((role) => userRoles.includes(role)).map((role) => (
+                            <SmallBadge
+                              key={role}
+                              label={APP_USER_ROLE_LABEL[role]}
+                              tone={role === 'admin' || role === 'master' ? 'brand' : 'muted'}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {userItem.isActive ? (
+                        <span className="text-emerald-400">Activo</span>
+                      ) : (
+                        <span className="text-[#8A8A96]">Inactivo</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">{userItem.createdAt ? fmtDateTimeES(userItem.createdAt) : '—'}</td>
+                    <td className="px-3 py-3 text-[#B7B7C2]">Editar roles</td>
                   </tr>
                 );
               })
@@ -17274,6 +17527,71 @@ return (
 </button>
     </div>
   </div>
+</Drawer>
+
+<Drawer
+  open={userEditOpen && !!selectedDashboardUser}
+  title="Editar usuario"
+  widthClass="w-[520px]"
+  onClose={userSaving ? () => {} : closeEditDashboardUser}
+>
+  {selectedDashboardUser ? (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+        <div className="text-sm font-semibold text-[#F5F5F7]">
+          {selectedDashboardUser.fullName || 'Sin nombre'}
+        </div>
+        <div className="mt-1 truncate font-mono text-[11px] text-[#8A8A96]">{selectedDashboardUser.id}</div>
+      </div>
+
+      <FieldInput label="Nombre" value={userFormFullName} onChange={setUserFormFullName} />
+      <FieldCheckbox label="Activo" checked={userFormIsActive} onChange={setUserFormIsActive} />
+
+      <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Roles</div>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {APP_USER_ROLES.map((role) => (
+            <label
+              key={role}
+              className={[
+                'flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-[13px]',
+                userFormRoles[role]
+                  ? 'border-[#FEEF00]/60 bg-[#262400] text-[#FEEF00]'
+                  : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+              ].join(' ')}
+            >
+              <input
+                type="checkbox"
+                checked={userFormRoles[role]}
+                onChange={(e) => setUserFormRoles((prev) => ({ ...prev, [role]: e.target.checked }))}
+                disabled={userSaving}
+              />
+              <span>{APP_USER_ROLE_LABEL[role]}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+          onClick={closeEditDashboardUser}
+          disabled={userSaving}
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D] disabled:opacity-60"
+          onClick={handleSaveDashboardUser}
+          disabled={userSaving}
+        >
+          {userSaving ? 'Guardando...' : 'Guardar'}
+        </button>
+      </div>
+    </div>
+  ) : null}
 </Drawer>
 
 {toast ? (
