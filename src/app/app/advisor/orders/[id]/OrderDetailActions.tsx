@@ -13,6 +13,7 @@ type MoneyAccountOption = {
   name: string;
   currencyCode: string;
   isActive: boolean;
+  paymentMethodCodes?: string[];
 };
 
 function getSuggestedAccountAmount(
@@ -38,6 +39,16 @@ function inputClass(multiline = false) {
 
 function normalizeAdvisorLabel(value: string | null | undefined) {
   return String(value || '').trim() || 'Asesor';
+}
+
+function getPaymentMethodLabel(method: string) {
+  const labels: Record<string, string> = {
+    payment_mobile: 'Pago movil',
+    transfer: 'Transferencia',
+    zelle: 'Zelle',
+  };
+
+  return labels[method] || method;
 }
 
 function patchAdvisorLabelInSummary(summary: string, advisorLabel: string) {
@@ -284,6 +295,9 @@ export default function OrderDetailActions({
                 {activeAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.name} ({account.currencyCode})
+                    {account.paymentMethodCodes?.length
+                      ? ` - ${account.paymentMethodCodes.map(getPaymentMethodLabel).join(' / ')}`
+                      : ''}
                   </option>
                 ))}
               </select>

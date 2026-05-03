@@ -5,6 +5,8 @@ import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/au
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 
+const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle']);
+
 type OrderEventContext = {
   orderId: number;
   orderNumber: string | null;
@@ -134,7 +136,8 @@ export async function createAdvisorPaymentReportAction(input: {
   notes: string | null;
 }) {
   const ctx = await requireAuthContext();
-  if (!isAdvisorRole(ctx.roles) && !isMasterOrAdminRole(ctx.roles)) {
+  const isMasterOrAdmin = isMasterOrAdminRole(ctx.roles);
+  if (!isAdvisorRole(ctx.roles) && !isMasterOrAdmin) {
     throw new Error('No autorizado.');
   }
 
@@ -145,7 +148,7 @@ export async function createAdvisorPaymentReportAction(input: {
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id')
+    .select('id, attributed_advisor_id, extra_fields')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -153,7 +156,7 @@ export async function createAdvisorPaymentReportAction(input: {
     throw new Error(orderError?.message || 'No se pudo cargar la orden.');
   }
 
-  if (!isMasterOrAdminRole(ctx.roles) && order.attributed_advisor_id !== ctx.user.id) {
+  if (!isMasterOrAdmin && order.attributed_advisor_id !== ctx.user.id) {
     throw new Error('No puedes reportar pagos para esta orden.');
   }
 
@@ -171,6 +174,58 @@ export async function createAdvisorPaymentReportAction(input: {
   if (reportedAmount <= 0) throw new Error('El monto debe ser mayor a cero.');
   if (reportedCurrency === 'VES' && (!reportedExchangeRate || reportedExchangeRate <= 0)) {
     throw new Error('La tasa es obligatoria para reportes en bolivares.');
+  }
+
+  const { data: reportedAccount, error: reportedAccountError } = await ctx.supabase
+    .from('money_accounts')
+    .select('id, currency_code, is_active')
+    .eq('id', reportedMoneyAccountId)
+    .maybeSingle();
+
+  if (reportedAccountError || !reportedAccount || !reportedAccount.is_active) {
+    throw new Error(reportedAccountError?.message || 'La cuenta seleccionada no esta disponible.');
+  }
+
+  if (String(reportedAccount.currency_code || '').toUpperCase() !== reportedCurrency) {
+    throw new Error('La moneda reportada no coincide con la cuenta seleccionada.');
+  }
+
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as { payment?: { method?: unknown } })
+      : {};
+  const orderPaymentMethod = String(extraFields.payment?.method || '').trim();
+  const shouldMatchOrderPaymentMethod = ADVISOR_REPORT_PAYMENT_METHODS.has(orderPaymentMethod);
+
+  if (
+    !isMasterOrAdmin &&
+    orderPaymentMethod &&
+    orderPaymentMethod !== 'pending' &&
+    orderPaymentMethod !== 'mixed' &&
+    !shouldMatchOrderPaymentMethod
+  ) {
+    throw new Error('Este metodo de pago no puede ser reportado por asesor.');
+  }
+
+  let rulesQuery = ctx.supabase
+    .from('money_account_payment_rules')
+    .select('id')
+    .eq('money_account_id', reportedMoneyAccountId)
+    .eq('is_active', true)
+    .eq('can_report_payment', true)
+    .in('role', isMasterOrAdmin ? ['master', 'admin'] : ['advisor']);
+
+  if (!isMasterOrAdmin) {
+    rulesQuery = rulesQuery.in(
+      'payment_method_code',
+      shouldMatchOrderPaymentMethod ? [orderPaymentMethod] : Array.from(ADVISOR_REPORT_PAYMENT_METHODS)
+    );
+  }
+
+  const { data: allowedRules, error: allowedRulesError } = await rulesQuery.limit(1);
+
+  if (allowedRulesError || !allowedRules || allowedRules.length === 0) {
+    throw new Error(allowedRulesError?.message || 'No tienes permiso para reportar pagos en esta cuenta.');
   }
 
   const { error } = await ctx.supabase.rpc('create_payment_report', {
