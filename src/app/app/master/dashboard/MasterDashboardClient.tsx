@@ -555,7 +555,7 @@ const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   cash_count_adjustment: 'Ajuste de caja',
   change_given: 'Cambio entregado',
   expense_payment: 'Pago de gasto',
-  fee_charge: 'Comisiï¿½n',
+  fee_charge: 'Comisión',
   order_payment: 'Pago de orden',
   other_income: 'Otro ingreso',
   withdrawal: 'Retiro',
@@ -973,9 +973,9 @@ function mapAdjustmentFieldLabel(field: string) {
     fulfillment: 'Tipo de entrega',
     client_id: 'Cliente',
     attributed_advisor_id: 'Asesor',
-    delivery_address: 'DirecciÃ³n',
+    delivery_address: 'Dirección',
     receiver_name: 'Recibe',
-    receiver_phone: 'TelÃ©fono receptor',
+    receiver_phone: 'Teléfono receptor',
     notes: 'Notas',
     total_usd: 'Total USD',
     total_bs_snapshot: 'Total Bs',
@@ -1918,6 +1918,28 @@ function getCurrentProcessAlertReason(order: Order, currentKey: string, nowMs: n
   }
 
   return null;
+}
+
+function getOrderFocusTab(order: Order, nowMs: number): OrderDetailTab {
+  if (order.paymentVerify === 'pending') return 'pagos';
+
+  const currentKey = getProcessCurrentKey(order);
+  const alertReason = getCurrentProcessAlertReason(order, currentKey, nowMs);
+  const reason = String(alertReason || '').toLowerCase();
+
+  if (
+    order.fulfillment === 'delivery' &&
+    (!hasDeliveryAssignment(order) ||
+      currentKey === 'ready' ||
+      currentKey === 'out_for_delivery' ||
+      reason.includes('entrega') ||
+      reason.includes('delivery') ||
+      reason.includes('camino'))
+  ) {
+    return 'entrega';
+  }
+
+  return 'detalle';
 }
 
 function getDeliveryTimingSummary(order: Order, nowMs: number) {
@@ -8391,6 +8413,49 @@ const resetCreateOrderForm = () => {
   setAdminEditReason('');
 };
 
+const hasBlockingOverlay =
+  calendarOpen ||
+  userEditOpen ||
+  inventoryItemCreateOpen ||
+  inventoryItemEditOpen ||
+  inventoryMovementOpen ||
+  inventoryProductionOpen ||
+  deliveryPartnerDetailOpen ||
+  deliveryPartnerEditOpen ||
+  deliveryPartnerCreateOpen ||
+  deliveryPartnerRateEditOpen ||
+  deliveryPartnerRateCreateOpen ||
+  accountDetailOpen ||
+  accountCreateOpen ||
+  accountEditOpen ||
+  clientDetailOpen ||
+  clientCreateOpen ||
+  clientEditOpen ||
+  catalogDetailOpen ||
+  catalogEditMode ||
+  createCatalogOpen ||
+  quickCatalogOpen ||
+  detailOpen ||
+  notifOpen ||
+  productsExpanded ||
+  taskPanelOpen ||
+  paymentsPanelOpen ||
+  deliveryPanelOpen ||
+  kitchenPanelOpen ||
+  movementOpen ||
+  createOrderOpen ||
+  createOrderConfigOpen ||
+  priceAdjustOpen ||
+  paymentReportBoxOpen ||
+  paymentGiveChangeBoxOpen ||
+  paymentConfirmBoxOpen ||
+  kitchenTakeBoxOpen ||
+  deliveryEtaBoxOpen ||
+  deliveryAssignMode !== null ||
+  reviewActionMode !== null ||
+  returnToQueueBoxOpen ||
+  cancelOrderBoxOpen;
+
 useEffect(() => {
   if (!toast) return;
 
@@ -8405,22 +8470,6 @@ useEffect(() => {
   if (!isMounted) return;
 
   const interval = window.setInterval(() => {
-    const hasBlockingOverlay =
-      createOrderOpen ||
-      accountCreateOpen ||
-      accountEditOpen ||
-      clientCreateOpen ||
-      clientEditOpen ||
-      createCatalogOpen ||
-      quickCatalogOpen ||
-      catalogEditMode ||
-      paymentReportBoxOpen ||
-      kitchenTakeBoxOpen ||
-      deliveryEtaBoxOpen ||
-      reviewActionMode !== null ||
-      returnToQueueBoxOpen ||
-      cancelOrderBoxOpen;
-
     if (document.hidden || hasBlockingOverlay) return;
 
     router.refresh();
@@ -8430,20 +8479,7 @@ useEffect(() => {
 }, [
   isMounted,
   router,
-  createOrderOpen,
-  accountCreateOpen,
-  accountEditOpen,
-  clientCreateOpen,
-  clientEditOpen,
-  createCatalogOpen,
-  quickCatalogOpen,
-  catalogEditMode,
-  paymentReportBoxOpen,
-  kitchenTakeBoxOpen,
-  deliveryEtaBoxOpen,
-  reviewActionMode,
-  returnToQueueBoxOpen,
-  cancelOrderBoxOpen,
+  hasBlockingOverlay,
 ]);
 
 useEffect(() => {
@@ -8451,22 +8487,6 @@ useEffect(() => {
 
   const handleVisibilityChange = () => {
     if (document.hidden) return;
-
-    const hasBlockingOverlay =
-      createOrderOpen ||
-      accountCreateOpen ||
-      accountEditOpen ||
-      clientCreateOpen ||
-      clientEditOpen ||
-      createCatalogOpen ||
-      quickCatalogOpen ||
-      catalogEditMode ||
-      paymentReportBoxOpen ||
-      kitchenTakeBoxOpen ||
-      deliveryEtaBoxOpen ||
-      reviewActionMode !== null ||
-      returnToQueueBoxOpen ||
-      cancelOrderBoxOpen;
 
     if (hasBlockingOverlay) return;
 
@@ -8481,20 +8501,7 @@ useEffect(() => {
 }, [
   isMounted,
   router,
-  createOrderOpen,
-  accountCreateOpen,
-  accountEditOpen,
-  clientCreateOpen,
-  clientEditOpen,
-  createCatalogOpen,
-  quickCatalogOpen,
-  catalogEditMode,
-  paymentReportBoxOpen,
-  kitchenTakeBoxOpen,
-  deliveryEtaBoxOpen,
-  reviewActionMode,
-  returnToQueueBoxOpen,
-  cancelOrderBoxOpen,
+  hasBlockingOverlay,
 ]);
 
 useEffect(() => {
@@ -8800,7 +8807,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             <Card title="Estado">
               <div className="hidden">
               <StatRow label="Cierres" value={dayStats.cierres} />
-              <StatRow label="FacturaciÃ³n" value={fmtUSD(dayStats.fact)} />
+              <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
               <div className="mt-3 border-t border-[#242433] pt-3">
@@ -8836,7 +8843,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <Card title="Semana" className="hidden">
               <StatRow label="Cierres" value={weekStats.cierres} />
-              <StatRow label="FacturaciÃ³n" value={fmtUSD(weekStats.fact)} />
+              <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
@@ -9177,6 +9184,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <th className="px-2 py-2 text-left font-medium">Tipo</th>
                     <th className="px-2 py-2 text-left font-medium">Total</th>
                     <th className="px-2 py-2 text-left font-medium">Pendiente</th>
+                    <th className="px-2 py-2 text-left font-medium">Acción</th>
                     <th className="px-2 py-2 text-left font-medium">Ruta</th>
                   </tr>
                 </thead>
@@ -9184,7 +9192,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <tbody>
                   {tableOrders.length === 0 ? (
                     <tr>
-                      <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={8}>
+                      <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={9}>
                         Sin pedidos para este filtro.
                       </td>
                     </tr>
@@ -9193,6 +9201,17 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
+                      const currentKey = getProcessCurrentKey(o);
+                      const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
+                      const alertReason = getCurrentProcessAlertReason(o, currentKey, currentTimeMs);
+                      const focusTab = getOrderFocusTab(o, currentTimeMs);
+                      const flag = processFlag(o);
+                      const actionLabel =
+                        o.paymentVerify === 'pending'
+                          ? 'Confirmar pago'
+                          : o.fulfillment === 'delivery' && canManageDeliveryAssignment(o) && !hasDeliveryAssignment(o)
+                            ? 'Asignar delivery'
+                            : getNextPrimaryActionLabel(o);
 
                       return (
                         <tr
@@ -9201,7 +9220,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           onClick={() => onRowClick(o.id)}
                         >
                           <td className="px-2 py-2">{fmtTimeAMPM(o.deliveryAtISO)}</td>
-                          <td className="px-2 py-2 font-medium">{o.id}</td>
+                          <td className="min-w-[118px] px-2 py-2">
+                            <div className="font-semibold text-[#F5F5F7]">{o.id}</div>
+                            <div className="mt-1 flex max-w-[160px] flex-wrap gap-1">
+                              <SmallBadge
+                                label={ORDER_STATUS_LABEL[o.status]}
+                                tone={alertLevel === 'danger' || alertLevel === 'warning' ? 'warn' : 'muted'}
+                              />
+                              {flag ? <SmallBadge label={flag} tone={flag === 'APROBAR' ? 'brand' : 'warn'} /> : null}
+                              {o.paymentVerify === 'pending' ? <SmallBadge label="Pago" tone="warn" /> : null}
+                              {o.editMeta?.isAsap ? <SmallBadge label="Urgente" tone="warn" /> : null}
+                            </div>
+                            {alertReason ? (
+                              <div className="mt-1 max-w-[170px] truncate text-[10px] text-orange-300">{alertReason}</div>
+                            ) : null}
+                          </td>
                           <td className="min-w-[122px] px-2 py-2 leading-4">
                             <div>{aName.line1}</div>
                             <div className="text-[#B7B7C2]">{aName.line2}</div>
@@ -9218,6 +9251,25 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <td className="px-2 py-2">{fmtUSD(o.totalUsd)}</td>
                           <td className={['px-2 py-2 font-medium', paymentToneClass(o.balanceUsd)].join(' ')}>
                             {fmtUSD(o.balanceUsd)}
+                          </td>
+                          <td className="min-w-[132px] px-2 py-2">
+                            <button
+                              className={[
+                                'rounded-lg border px-2 py-1 text-[11px] font-medium transition',
+                                focusTab === 'pagos'
+                                  ? 'border-orange-500/50 bg-orange-500/10 text-orange-300'
+                                  : focusTab === 'entrega'
+                                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+                                    : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7] hover:border-[#FEEF00]/40',
+                              ].join(' ')}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openOrderPanel(o.id, focusTab);
+                              }}
+                              type="button"
+                            >
+                              {actionLabel}
+                            </button>
                           </td>
                           <td className="px-2 py-2 min-w-[400px]">
                             <RowProcessTimeline order={o} nowMs={currentTimeMs} />
@@ -9238,9 +9290,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[#F5F5F7]">AnÃ¡lisis de asesores</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Análisis de asesores</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cierres, facturaciÃ³n, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
+                      Revisa cierres, facturación, puntualidad de pago, clientes nuevos y pendientes por cobrar por asesor.
                     </div>
                   </div>
 
@@ -9288,11 +9340,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <Card title="Resumen General" className="p-3">
-                  <StatRow label="FacturaciÃ³n" value={fmtUSD(advisorCalculatedData.facturacion)} />
+                  <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
-                  <StatRow label="ComisiÃ³n estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
-                  <StatRow label="Ã“rdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
+                  <StatRow label="Comisión estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.filteredDeliveredOrders.length} />
                 </Card>
 
                 <Card title="Pagos" className="p-3">
@@ -9309,12 +9361,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                 <Card title="Pagos Pendientes" className="p-3">
                   <StatRow label="Total" value={fmtUSD(advisorCalculatedData.pendientesPorCobrarTotal)} highlightTone="warn" />
-                  <StatRow label="Ã“rdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
+                  <StatRow label="Órdenes" value={advisorCalculatedData.pendingOrders.length} highlightTone="warn" />
                 </Card>
 
-                <Card title="PerÃ­odo" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || 'â€”'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || 'â€”'} />
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                   <StatRow
                     label="Asesor"
                     value={
@@ -9347,7 +9399,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">FacturaciÃ³n</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación</div>
                     <div className="text-sm font-semibold text-emerald-400">{fmtUSD(advisorCalculatedData.facturacion)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">
@@ -9357,7 +9409,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <th className="px-3 py-2 text-left font-medium">Nro# Control</th>
                           <th className="px-3 py-2 text-left font-medium">Cliente</th>
                           <th className="px-3 py-2 text-left font-medium">Origen</th>
-                          <th className="px-3 py-2 text-right font-medium">ComisiÃ³n</th>
+                          <th className="px-3 py-2 text-right font-medium">Comisión</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                         </tr>
                       </thead>
@@ -9365,7 +9417,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {advisorCalculatedData.filteredDeliveredOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                              Sin cierres entregados en el perÃ­odo.
+                              Sin cierres entregados en el período.
                             </td>
                           </tr>
                         ) : (
@@ -9468,7 +9520,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {advisorCalculatedData.newClientOrders.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin clientes nuevos en el perÃ­odo.
+                              Sin clientes nuevos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -9646,7 +9698,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div>
                     <div className="text-sm font-semibold text-[#F5F5F7]">Control de deliveries</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Revisa cantidad de deliveries, costo total, liquidaciÃ³n de internos y auditorÃ­a de externos.
+                      Revisa cantidad de deliveries, costo total, liquidación de internos y auditoría de externos.
                     </div>
                   </div>
 
@@ -9700,23 +9752,23 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                 <Card title="Sin snapshot" className="p-3">
                   <StatRow
-                    label="Ã“rdenes"
+                    label="Órdenes"
                     value={deliveryCalculatedData.rows.filter((row) => row.costUsd <= 0).length}
                     highlightTone="warn"
                   />
                   <StatRow label="Sin asignar" value={deliveryCalculatedData.unassignedCount} highlightTone="warn" />
                 </Card>
 
-                <Card title="PerÃ­odo" className="p-3">
-                  <StatRow label="Desde" value={advisorCalcDateFrom || 'â€”'} />
-                  <StatRow label="Hasta" value={advisorCalcDateTo || 'â€”'} />
+                <Card title="Período" className="p-3">
+                  <StatRow label="Desde" value={advisorCalcDateFrom || '—'} />
+                  <StatRow label="Hasta" value={advisorCalcDateTo || '—'} />
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃ³n Internos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación Internos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.internalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -9732,7 +9784,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {deliveryCalculatedData.internalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={3}>
-                              Sin deliveries internos en el perÃ­odo.
+                              Sin deliveries internos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -9754,7 +9806,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃ­a Externos</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría Externos</div>
                     <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(deliveryCalculatedData.externalCostUsd)}</div>
                   </div>
                   <div className="max-h-[320px] overflow-auto">
@@ -9771,7 +9823,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {deliveryCalculatedData.externalSummary.length === 0 ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                              Sin deliveries externos en el perÃ­odo.
+                              Sin deliveries externos en el período.
                             </td>
                           </tr>
                         ) : (
@@ -9804,9 +9856,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                         <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-3 py-2 text-left font-medium">Ã­tem delivery</th>
+                        <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                         <th className="px-3 py-2 text-left font-medium">Tipo</th>
-                        <th className="px-3 py-2 text-left font-medium">AsignaciÃ³n</th>
+                        <th className="px-3 py-2 text-left font-medium">Asignación</th>
                         <th className="px-3 py-2 text-right font-medium">Km</th>
                         <th className="px-3 py-2 text-right font-medium">Costo</th>
                       </tr>
@@ -9815,7 +9867,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       {deliveryCalculatedData.rows.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
-                            Sin deliveries entregados en el perÃ­odo.
+                            Sin deliveries entregados en el período.
                           </td>
                         </tr>
                       ) : (
@@ -9890,7 +9942,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">LiquidaciÃ³n por motorizado</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Liquidación por motorizado</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredInternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -9938,7 +9990,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">Ã­tem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Pago</th>
                             </tr>
                           </thead>
@@ -9946,7 +9998,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             {filteredDeliveryRows.filter((row) => row.mode === 'internal').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                                  Sin deliveries internos en el perÃ­odo.
+                                  Sin deliveries internos en el período.
                                 </td>
                               </tr>
                             ) : (
@@ -10001,7 +10053,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                       <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                        <div className="text-sm font-semibold text-[#F5F5F7]">AuditorÃ­a por empresa</div>
+                        <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría por empresa</div>
                         <div className="text-sm font-semibold text-[#FEEF00]">
                           {fmtUSD(filteredExternalDeliverySummary.reduce((sum, row) => sum + row.totalCostUsd, 0))}
                         </div>
@@ -10051,7 +10103,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             <tr>
                               <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
                               <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                              <th className="px-3 py-2 text-left font-medium">Ã­tem delivery</th>
+                              <th className="px-3 py-2 text-left font-medium">Ítem delivery</th>
                               <th className="px-3 py-2 text-right font-medium">Km</th>
                               <th className="px-3 py-2 text-right font-medium">Costo</th>
                             </tr>
@@ -10060,7 +10112,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             {filteredDeliveryRows.filter((row) => row.mode === 'external').length === 0 ? (
                               <tr>
                                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
-                                  Sin deliveries externos en el perÃ­odo.
+                                  Sin deliveries externos en el período.
                                 </td>
                               </tr>
                             ) : (
@@ -10517,7 +10569,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
     <div className="text-sm font-semibold text-[#F5F5F7]">Actualizar tasa</div>
 
     <div className="mt-2 text-sm text-[#B7B7C2]">
-      Esta tasa recalcula precios base en el catÃ¡logo segÃºn la lÃ³gica actual.
+      Esta tasa recalcula precios base en el catálogo según la lógica actual.
     </div>
 
     <div className="mt-4 max-w-sm">
@@ -10555,11 +10607,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
             />
             <InfoCell
-              label={`Ingresos perÃ­odo (${currency})`}
+              label={`Ingresos período (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
             />
             <InfoCell
-              label={`Egresos perÃ­odo (${currency})`}
+              label={`Egresos período (${currency})`}
               value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
             />
             <InfoCell
@@ -10596,12 +10648,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <th className="px-3 py-3 text-left font-medium">Cuenta</th>
               <th className="px-3 py-3 text-left font-medium">Moneda</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">InstituciÃ³n</th>
+              <th className="px-3 py-3 text-left font-medium">Institución</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos perÃ­odo</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos perÃ­odo</th>
+              <th className="px-3 py-3 text-left font-medium">Ingresos período</th>
+              <th className="px-3 py-3 text-left font-medium">Egresos período</th>
               <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
           </thead>
@@ -10641,8 +10693,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </td>
                     <td className="px-3 py-3">{account.currencyCode}</td>
                     <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
-                    <td className="px-3 py-3">{account.institutionName || 'â€”'}</td>
-                    <td className="px-3 py-3">{account.ownerName || 'â€”'}</td>
+                    <td className="px-3 py-3">{account.institutionName || '—'}</td>
+                    <td className="px-3 py-3">{account.ownerName || '—'}</td>
                     <td className="px-3 py-3">
                       {account.isActive ? (
                         <span className="text-emerald-400">Activa</span>
@@ -10694,17 +10746,17 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <div className="mt-4 grid grid-cols-2 gap-3">
           <InfoCell label="Total" value={String(clientStats.total)} />
           <InfoCell label="Activos" value={String(clientStats.active)} />
-          <InfoCell label="Con facturaciÃ³n" value={String(clientStats.withBilling)} />
+          <InfoCell label="Con facturación" value={String(clientStats.withBilling)} />
           <InfoCell label="Con nota de entrega" value={String(clientStats.withDeliveryNote)} />
           <InfoCell label="Con direcciones" value={String(clientStats.withAddresses)} />
         </div>
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo usarlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo usarlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>Guarda aquÃ­ la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
-          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorÃ­as que usan en la operaciÃ³n.</div>
+          <div>Guarda aquí la ficha base del cliente, sus etiquetas CRM y los datos para factura o nota de entrega.</div>
+          <div>Las etiquetas se cargan libres, separadas por coma, para que ustedes mismos creen las categorías que usan en la operación.</div>
           <div>Las dos direcciones recientes guardan solo texto + GPS, como me pediste, para no complicar el flujo.</div>
         </div>
       </div>
@@ -10726,7 +10778,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
             <tr>
               <th className="px-3 py-3 text-left font-medium">Cliente</th>
-              <th className="px-3 py-3 text-left font-medium">TelÃ©fono</th>
+              <th className="px-3 py-3 text-left font-medium">Teléfono</th>
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Asesor principal</th>
               <th className="px-3 py-3 text-left font-medium">Fondo USD</th>
@@ -10943,10 +10995,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-        <div className="text-sm font-semibold text-[#F5F5F7]">CÃ³mo leerlo</div>
+        <div className="text-sm font-semibold text-[#F5F5F7]">Cómo leerlo</div>
         <div className="mt-4 space-y-2 text-sm text-[#B7B7C2]">
-          <div>AquÃ­ ves todos los ajustes administrativos registrados en las Ã“rdenes cargadas en el dashboard.</div>
-          <div>Un impacto negativo significa que la empresa asumiÃ³ un descuento o cortesÃ­a.</div>
+          <div>Aquí ves todos los ajustes administrativos registrados en las órdenes cargadas en el dashboard.</div>
+          <div>Un impacto negativo significa que la empresa asumió un descuento o cortesía.</div>
           <div>Un impacto positivo significa un recargo o aumento sobre el valor original.</div>
         </div>
       </div>
