@@ -9201,11 +9201,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
                       const aName = splitTwoWordsCompact(o.advisorName);
                       const cName = splitTwoWordsCompact(o.clientName);
-                      const currentKey = getProcessCurrentKey(o);
-                      const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
-                      const alertReason = getCurrentProcessAlertReason(o, currentKey, currentTimeMs);
                       const focusTab = getOrderFocusTab(o, currentTimeMs);
-                      const flag = processFlag(o);
                       const actionLabel =
                         o.paymentVerify === 'pending'
                           ? 'Confirmar pago'
@@ -9220,20 +9216,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           onClick={() => onRowClick(o.id)}
                         >
                           <td className="px-2 py-2">{fmtTimeAMPM(o.deliveryAtISO)}</td>
-                          <td className="min-w-[118px] px-2 py-2">
+                          <td className="min-w-[104px] px-2 py-2">
                             <div className="font-semibold text-[#F5F5F7]">{o.id}</div>
-                            <div className="mt-1 flex max-w-[160px] flex-wrap gap-1">
-                              <SmallBadge
-                                label={ORDER_STATUS_LABEL[o.status]}
-                                tone={alertLevel === 'danger' || alertLevel === 'warning' ? 'warn' : 'muted'}
-                              />
-                              {flag ? <SmallBadge label={flag} tone={flag === 'APROBAR' ? 'brand' : 'warn'} /> : null}
-                              {o.paymentVerify === 'pending' ? <SmallBadge label="Pago" tone="warn" /> : null}
-                              {o.editMeta?.isAsap ? <SmallBadge label="Urgente" tone="warn" /> : null}
-                            </div>
-                            {alertReason ? (
-                              <div className="mt-1 max-w-[170px] truncate text-[10px] text-orange-300">{alertReason}</div>
-                            ) : null}
+                            <div className="mt-0.5 text-[10px] text-[#8A8A96]">{ORDER_STATUS_LABEL[o.status]}</div>
                           </td>
                           <td className="min-w-[122px] px-2 py-2 leading-4">
                             <div>{aName.line1}</div>
@@ -9255,12 +9240,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <td className="min-w-[132px] px-2 py-2">
                             <button
                               className={[
-                                'rounded-lg border px-2 py-1 text-[11px] font-medium transition',
+                                'rounded-lg border border-[#242433] bg-[#0B0B0D] px-2 py-1 text-[11px] font-medium transition hover:border-[#FEEF00]/40',
                                 focusTab === 'pagos'
-                                  ? 'border-orange-500/50 bg-orange-500/10 text-orange-300'
+                                  ? 'text-orange-200'
                                   : focusTab === 'entrega'
-                                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-200'
-                                    : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7] hover:border-[#FEEF00]/40',
+                                    ? 'text-sky-200'
+                                    : 'text-[#F5F5F7]',
                               ].join(' ')}
                               onClick={(event) => {
                                 event.stopPropagation();
