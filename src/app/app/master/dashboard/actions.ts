@@ -2673,6 +2673,7 @@ export async function createExtraMoneyMovementAction(input: {
   direction: 'inflow' | 'outflow';
   moneyAccountId: number;
   amount: number;
+  feeAmount?: number | null;
   movementDate: string;
   exchangeRateVesPerUsd: number | null;
   referenceCode: string;
@@ -2685,6 +2686,7 @@ export async function createExtraMoneyMovementAction(input: {
   const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
   const moneyAccountId = Number(input.moneyAccountId || 0);
   const amount = Number(input.amount || 0);
+  const feeAmount = direction === 'outflow' ? Number(input.feeAmount || 0) : 0;
   const movementDate = String(input.movementDate || '').trim();
   const referenceCode = String(input.referenceCode || '').trim() || null;
   const counterpartyName = String(input.counterpartyName || '').trim() || null;
@@ -2697,6 +2699,10 @@ export async function createExtraMoneyMovementAction(input: {
 
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error('El monto debe ser mayor a 0.');
+  }
+
+  if (!Number.isFinite(feeAmount) || feeAmount < 0) {
+    throw new Error('La comisión no es válida.');
   }
 
   if (!movementDate) {
@@ -2739,10 +2745,16 @@ export async function createExtraMoneyMovementAction(input: {
     currencyCode === 'USD'
       ? Number(amount.toFixed(2))
       : Number((amount / (exchangeRate ?? 1)).toFixed(2));
+  const feeAmountUsdEquivalent =
+    currencyCode === 'USD'
+      ? Number(feeAmount.toFixed(2))
+      : Number((feeAmount / (exchangeRate ?? 1)).toFixed(2));
 
   const movementType = direction === 'inflow' ? 'other_income' : 'expense_payment';
+  const movementGroupId = feeAmount > 0 ? crypto.randomUUID() : null;
 
-  const { error } = await supabase.from('money_movements').insert({
+  const movementRows = [
+    {
     movement_date: movementDate,
     created_by_user_id: user.id,
     confirmed_at: new Date().toISOString(),
@@ -2760,8 +2772,34 @@ export async function createExtraMoneyMovementAction(input: {
     notes,
     order_id: null,
     payment_report_id: null,
-    movement_group_id: null,
-  });
+      movement_group_id: movementGroupId,
+    },
+  ];
+
+  if (direction === 'outflow' && feeAmount > 0) {
+    movementRows.push({
+      movement_date: movementDate,
+      created_by_user_id: user.id,
+      confirmed_at: new Date().toISOString(),
+      confirmed_by_user_id: user.id,
+      direction,
+      movement_type: 'fee_charge',
+      money_account_id: moneyAccountId,
+      currency_code: currencyCode,
+      amount: Number(feeAmount.toFixed(2)),
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+      amount_usd_equivalent: feeAmountUsdEquivalent,
+      reference_code: referenceCode,
+      counterparty_name: counterpartyName,
+      description: `Comisión · ${description}`,
+      notes,
+      order_id: null,
+      payment_report_id: null,
+      movement_group_id: movementGroupId,
+    });
+  }
+
+  const { error } = await supabase.from('money_movements').insert(movementRows);
 
   if (error) throw new Error(error.message);
 

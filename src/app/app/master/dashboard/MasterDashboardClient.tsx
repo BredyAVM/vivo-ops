@@ -3147,6 +3147,7 @@ export default function MasterDashboardClient({
   const [movementSaving, setMovementSaving] = useState(false);
   const [movementMoneyAccountId, setMovementMoneyAccountId] = useState('');
   const [movementAmount, setMovementAmount] = useState('');
+  const [movementFeeAmount, setMovementFeeAmount] = useState('');
   const [movementExchangeRate, setMovementExchangeRate] = useState('');
   const [movementDate, setMovementDate] = useState(new Date().toISOString().slice(0, 10));
   const [movementReferenceCode, setMovementReferenceCode] = useState('');
@@ -5511,6 +5512,7 @@ const handleSaveQuickCatalog = async () => {
     setMovementType('Ingreso');
     setMovementMoneyAccountId('');
     setMovementAmount('');
+    setMovementFeeAmount('');
     setMovementExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
     setMovementDate(new Date().toISOString().slice(0, 10));
     setMovementReferenceCode('');
@@ -5729,6 +5731,13 @@ const handleSaveQuickCatalog = async () => {
         return;
       }
 
+      const feeAmount =
+        movementType === 'Egreso' ? Number(String(movementFeeAmount || '0').replace(',', '.')) : 0;
+      if (!Number.isFinite(feeAmount) || feeAmount < 0) {
+        showToast('error', 'La comisión no es válida.');
+        return;
+      }
+
       const exchangeRate =
         selectedMovementAccount?.currencyCode === 'VES'
           ? Number(String(movementExchangeRate || '').replace(',', '.'))
@@ -5757,6 +5766,7 @@ const handleSaveQuickCatalog = async () => {
         direction: movementType === 'Ingreso' ? 'inflow' : 'outflow',
         moneyAccountId,
         amount,
+        feeAmount,
         movementDate,
         exchangeRateVesPerUsd: exchangeRate,
         referenceCode: movementReferenceCode,
@@ -14964,7 +14974,10 @@ deliveryAssignMode === 'external' ? (
               {(['Ingreso', 'Egreso'] as const).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setMovementType(t)}
+                  onClick={() => {
+                    setMovementType(t);
+                    if (t === 'Ingreso') setMovementFeeAmount('');
+                  }}
                   className={[
                     'rounded-full border bg-[#121218] px-3 py-1.5 text-sm',
                     movementType === t ? 'border-[#FEEF00] text-[#F5F5F7]' : 'border-[#242433] text-[#B7B7C2]',
@@ -15004,6 +15017,14 @@ deliveryAssignMode === 'external' ? (
                 onChange={setMovementAmount}
                 hint="Monto real del ingreso o egreso."
               />
+              {movementType === 'Egreso' ? (
+                <FieldInput
+                  label="Comisión"
+                  value={movementFeeAmount}
+                  onChange={setMovementFeeAmount}
+                  hint="Opcional. Se guarda ligada al egreso."
+                />
+              ) : null}
               <FieldInput
                 label="Referencia / control"
                 value={movementReferenceCode}
@@ -15059,6 +15080,20 @@ deliveryAssignMode === 'external' ? (
                   {movementType === 'Ingreso' ? 'Ingreso' : 'Egreso'}
                 </span>
               </div>
+              {movementType === 'Egreso' ? (
+                <div className="mt-1">
+                  Total a descontar:{' '}
+                  <span className="font-medium text-[#F5F5F7]">
+                    {selectedMovementAccount
+                      ? fmtMoneyByCurrency(
+                          (Number(String(movementAmount || '0').replace(',', '.')) || 0) +
+                            (Number(String(movementFeeAmount || '0').replace(',', '.')) || 0),
+                          selectedMovementAccount.currencyCode
+                        )
+                      : '—'}
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
 
