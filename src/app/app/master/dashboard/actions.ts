@@ -4891,6 +4891,182 @@ export async function toggleCatalogItemActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createMoneyTransferAction(input: {
+  sourceMoneyAccountId: number;
+  targetMoneyAccountId: number;
+  sourceAmount: number;
+  targetAmount: number;
+  feeAmount?: number | null;
+  movementDate: string;
+  sourceExchangeRateVesPerUsd: number | null;
+  targetExchangeRateVesPerUsd: number | null;
+  referenceCode: string;
+  counterpartyName: string;
+  description: string;
+  notes: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const sourceMoneyAccountId = Number(input.sourceMoneyAccountId || 0);
+  const targetMoneyAccountId = Number(input.targetMoneyAccountId || 0);
+  const sourceAmount = Number(input.sourceAmount || 0);
+  const targetAmount = Number(input.targetAmount || 0);
+  const feeAmount = Number(input.feeAmount || 0);
+  const movementDate = String(input.movementDate || '').trim();
+  const referenceCode = String(input.referenceCode || '').trim() || null;
+  const counterpartyName = String(input.counterpartyName || '').trim() || null;
+  const description = String(input.description || '').trim() || 'Traspaso entre cuentas';
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(sourceMoneyAccountId) || sourceMoneyAccountId <= 0) {
+    throw new Error('Debes seleccionar la cuenta origen.');
+  }
+
+  if (!Number.isFinite(targetMoneyAccountId) || targetMoneyAccountId <= 0) {
+    throw new Error('Debes seleccionar la cuenta destino.');
+  }
+
+  if (sourceMoneyAccountId === targetMoneyAccountId) {
+    throw new Error('La cuenta origen y destino deben ser distintas.');
+  }
+
+  if (!Number.isFinite(sourceAmount) || sourceAmount <= 0) {
+    throw new Error('El monto de salida debe ser mayor a 0.');
+  }
+
+  if (!Number.isFinite(targetAmount) || targetAmount <= 0) {
+    throw new Error('El monto de entrada debe ser mayor a 0.');
+  }
+
+  if (!Number.isFinite(feeAmount) || feeAmount < 0) {
+    throw new Error('La comisión no es válida.');
+  }
+
+  if (!movementDate) {
+    throw new Error('Debes indicar la fecha del traspaso.');
+  }
+
+  const { data: accounts, error: accountsError } = await supabase
+    .from('money_accounts')
+    .select('id, currency_code, is_active')
+    .in('id', [sourceMoneyAccountId, targetMoneyAccountId]);
+
+  if (accountsError) throw new Error(accountsError.message);
+
+  const sourceAccount = (accounts ?? []).find((account) => Number(account.id) === sourceMoneyAccountId);
+  const targetAccount = (accounts ?? []).find((account) => Number(account.id) === targetMoneyAccountId);
+
+  if (!sourceAccount || !targetAccount) {
+    throw new Error('No se pudieron cargar las cuentas del traspaso.');
+  }
+
+  if (!sourceAccount.is_active || !targetAccount.is_active) {
+    throw new Error('Ambas cuentas deben estar activas.');
+  }
+
+  const sourceCurrency = String(sourceAccount.currency_code || '').toUpperCase();
+  const targetCurrency = String(targetAccount.currency_code || '').toUpperCase();
+  if (!['USD', 'VES'].includes(sourceCurrency) || !['USD', 'VES'].includes(targetCurrency)) {
+    throw new Error('Las monedas de las cuentas no son válidas.');
+  }
+
+  const sourceExchangeRate = sourceCurrency === 'VES' ? Number(input.sourceExchangeRateVesPerUsd || 0) : null;
+  const targetExchangeRate = targetCurrency === 'VES' ? Number(input.targetExchangeRateVesPerUsd || 0) : null;
+
+  if (sourceCurrency === 'VES' && (!Number.isFinite(sourceExchangeRate ?? NaN) || (sourceExchangeRate ?? 0) <= 0)) {
+    throw new Error('Debes indicar la tasa de la cuenta origen.');
+  }
+
+  if (targetCurrency === 'VES' && (!Number.isFinite(targetExchangeRate ?? NaN) || (targetExchangeRate ?? 0) <= 0)) {
+    throw new Error('Debes indicar la tasa de la cuenta destino.');
+  }
+
+  const sourceAmountUsdEquivalent =
+    sourceCurrency === 'USD'
+      ? Number(sourceAmount.toFixed(2))
+      : Number((sourceAmount / (sourceExchangeRate ?? 1)).toFixed(2));
+  const targetAmountUsdEquivalent =
+    targetCurrency === 'USD'
+      ? Number(targetAmount.toFixed(2))
+      : Number((targetAmount / (targetExchangeRate ?? 1)).toFixed(2));
+  const feeAmountUsdEquivalent =
+    sourceCurrency === 'USD' ? Number(feeAmount.toFixed(2)) : Number((feeAmount / (sourceExchangeRate ?? 1)).toFixed(2));
+  const groupId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const movementRows = [
+    {
+      movement_date: movementDate,
+      created_by_user_id: user.id,
+      confirmed_at: now,
+      confirmed_by_user_id: user.id,
+      direction: 'outflow',
+      movement_type: 'withdrawal',
+      money_account_id: sourceMoneyAccountId,
+      currency_code: sourceCurrency,
+      amount: Number(sourceAmount.toFixed(2)),
+      exchange_rate_ves_per_usd: sourceCurrency === 'VES' ? sourceExchangeRate : null,
+      amount_usd_equivalent: sourceAmountUsdEquivalent,
+      reference_code: referenceCode,
+      counterparty_name: counterpartyName,
+      description: `Traspaso salida · ${description}`,
+      notes,
+      order_id: null,
+      payment_report_id: null,
+      movement_group_id: groupId,
+    },
+    {
+      movement_date: movementDate,
+      created_by_user_id: user.id,
+      confirmed_at: now,
+      confirmed_by_user_id: user.id,
+      direction: 'inflow',
+      movement_type: 'other_income',
+      money_account_id: targetMoneyAccountId,
+      currency_code: targetCurrency,
+      amount: Number(targetAmount.toFixed(2)),
+      exchange_rate_ves_per_usd: targetCurrency === 'VES' ? targetExchangeRate : null,
+      amount_usd_equivalent: targetAmountUsdEquivalent,
+      reference_code: referenceCode,
+      counterparty_name: counterpartyName,
+      description: `Traspaso entrada · ${description}`,
+      notes,
+      order_id: null,
+      payment_report_id: null,
+      movement_group_id: groupId,
+    },
+  ];
+
+  if (feeAmount > 0) {
+    movementRows.push({
+      movement_date: movementDate,
+      created_by_user_id: user.id,
+      confirmed_at: now,
+      confirmed_by_user_id: user.id,
+      direction: 'outflow',
+      movement_type: 'fee_charge',
+      money_account_id: sourceMoneyAccountId,
+      currency_code: sourceCurrency,
+      amount: Number(feeAmount.toFixed(2)),
+      exchange_rate_ves_per_usd: sourceCurrency === 'VES' ? sourceExchangeRate : null,
+      amount_usd_equivalent: feeAmountUsdEquivalent,
+      reference_code: referenceCode,
+      counterparty_name: counterpartyName,
+      description: `Comisión · ${description}`,
+      notes,
+      order_id: null,
+      payment_report_id: null,
+      movement_group_id: groupId,
+    });
+  }
+
+  const { error } = await supabase.from('money_movements').insert(movementRows);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createInventoryMovementAction(input: {
   inventoryItemId: number;
   movementType:

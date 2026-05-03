@@ -31,6 +31,7 @@ import {
   updateCatalogPricesQuickAction,
   createInventoryMovementAction,
   createExtraMoneyMovementAction,
+  createMoneyTransferAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
   markMasterInboxItemsReviewedAction,
@@ -173,6 +174,33 @@ type MoneyMovementItem = {
   orderId: number | null;
   paymentReportId: number | null;
   movementGroupId: string | null;
+};
+
+type AccountMovementFilter =
+  | 'all'
+  | 'inflows'
+  | 'outflows'
+  | 'fees'
+  | 'order_payments'
+  | 'changes'
+  | 'adjustments'
+  | 'transfers';
+
+type AccountMovementGroup = {
+  key: string;
+  movements: MoneyMovementItem[];
+  selectedMovements: MoneyMovementItem[];
+  primaryMovement: MoneyMovementItem;
+  feeMovements: MoneyMovementItem[];
+  transferIn: MoneyMovementItem | null;
+  transferOut: MoneyMovementItem | null;
+  isTransfer: boolean;
+  amountNative: number;
+  amountUsd: number;
+  feeNative: number;
+  feeUsd: number;
+  netNative: number;
+  netUsd: number;
 };
 
 type ClientAddress = {
@@ -600,6 +628,17 @@ const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   order_payment: 'Pago de orden',
   other_income: 'Otro ingreso',
   withdrawal: 'Retiro',
+};
+
+const ACCOUNT_MOVEMENT_FILTER_LABEL: Record<AccountMovementFilter, string> = {
+  all: 'Todos',
+  inflows: 'Ingresos',
+  outflows: 'Egresos',
+  fees: 'Comisiones',
+  order_payments: 'Pagos',
+  changes: 'Cambios',
+  adjustments: 'Ajustes',
+  transfers: 'Traspasos',
 };
 
 type EditableComponentRow = {
@@ -3336,6 +3375,23 @@ const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
 
   const [movementOpen, setMovementOpen] = useState(false);
   const [movementType, setMovementType] = useState<'Ingreso' | 'Egreso'>('Ingreso');
+  const [accountMovementFilter, setAccountMovementFilter] = useState<AccountMovementFilter>('all');
+  const [selectedMovementGroupKey, setSelectedMovementGroupKey] = useState<string | null>(null);
+  const [movementDetailOpen, setMovementDetailOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferSaving, setTransferSaving] = useState(false);
+  const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
+  const [transferTargetAccountId, setTransferTargetAccountId] = useState('');
+  const [transferSourceAmount, setTransferSourceAmount] = useState('');
+  const [transferTargetAmount, setTransferTargetAmount] = useState('');
+  const [transferFeeAmount, setTransferFeeAmount] = useState('');
+  const [transferDate, setTransferDate] = useState(new Date().toISOString().slice(0, 10));
+  const [transferSourceExchangeRate, setTransferSourceExchangeRate] = useState('');
+  const [transferTargetExchangeRate, setTransferTargetExchangeRate] = useState('');
+  const [transferReferenceCode, setTransferReferenceCode] = useState('');
+  const [transferCounterpartyName, setTransferCounterpartyName] = useState('');
+  const [transferDescription, setTransferDescription] = useState('');
+  const [transferNotes, setTransferNotes] = useState('');
 
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
@@ -5521,6 +5577,21 @@ const handleSaveQuickCatalog = async () => {
     setMovementNotes('');
   };
 
+  const resetMoneyTransferForm = () => {
+    setTransferSourceAccountId('');
+    setTransferTargetAccountId('');
+    setTransferSourceAmount('');
+    setTransferTargetAmount('');
+    setTransferFeeAmount('');
+    setTransferDate(new Date().toISOString().slice(0, 10));
+    setTransferSourceExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+    setTransferTargetExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+    setTransferReferenceCode('');
+    setTransferCounterpartyName('');
+    setTransferDescription('');
+    setTransferNotes('');
+  };
+
   const openCreateAccount = () => {
     resetAccountForm();
     setAccountCreateOpen(true);
@@ -5533,6 +5604,15 @@ const handleSaveQuickCatalog = async () => {
       setMovementMoneyAccountId(String(accountId));
     }
     setMovementOpen(true);
+  };
+
+  const openMoneyTransferDrawer = (accountId?: number | null) => {
+    resetMoneyTransferForm();
+    setAccountDetailOpen(false);
+    if (accountId && Number.isFinite(accountId) && accountId > 0) {
+      setTransferSourceAccountId(String(accountId));
+    }
+    setTransferOpen(true);
   };
 
   const openEditAccount = (account: MoneyAccountOption) => {
@@ -5783,6 +5863,101 @@ const handleSaveQuickCatalog = async () => {
       showToast('error', err instanceof Error ? err.message : 'No se pudo guardar el movimiento.');
     } finally {
       setMovementSaving(false);
+    }
+  };
+
+  const handleCreateMoneyTransfer = async () => {
+    try {
+      const sourceMoneyAccountId = Number(transferSourceAccountId || 0);
+      const targetMoneyAccountId = Number(transferTargetAccountId || 0);
+      const sourceAmount = Number(String(transferSourceAmount || '').replace(',', '.'));
+      const targetAmount = Number(String(transferTargetAmount || '').replace(',', '.'));
+      const feeAmount = Number(String(transferFeeAmount || '0').replace(',', '.'));
+
+      if (!Number.isFinite(sourceMoneyAccountId) || sourceMoneyAccountId <= 0) {
+        showToast('error', 'Debes seleccionar la cuenta origen.');
+        return;
+      }
+
+      if (!Number.isFinite(targetMoneyAccountId) || targetMoneyAccountId <= 0) {
+        showToast('error', 'Debes seleccionar la cuenta destino.');
+        return;
+      }
+
+      if (sourceMoneyAccountId === targetMoneyAccountId) {
+        showToast('error', 'La cuenta origen y destino deben ser distintas.');
+        return;
+      }
+
+      if (!Number.isFinite(sourceAmount) || sourceAmount <= 0) {
+        showToast('error', 'El monto de salida debe ser mayor a 0.');
+        return;
+      }
+
+      if (!Number.isFinite(targetAmount) || targetAmount <= 0) {
+        showToast('error', 'El monto de entrada debe ser mayor a 0.');
+        return;
+      }
+
+      if (!Number.isFinite(feeAmount) || feeAmount < 0) {
+        showToast('error', 'La comisión no es válida.');
+        return;
+      }
+
+      const sourceExchangeRate =
+        selectedTransferSourceAccount?.currencyCode === 'VES'
+          ? Number(String(transferSourceExchangeRate || '').replace(',', '.'))
+          : null;
+      const targetExchangeRate =
+        selectedTransferTargetAccount?.currencyCode === 'VES'
+          ? Number(String(transferTargetExchangeRate || '').replace(',', '.'))
+          : null;
+
+      if (
+        selectedTransferSourceAccount?.currencyCode === 'VES' &&
+        (!Number.isFinite(sourceExchangeRate) || Number(sourceExchangeRate) <= 0)
+      ) {
+        showToast('error', 'Debes indicar la tasa de la cuenta origen.');
+        return;
+      }
+
+      if (
+        selectedTransferTargetAccount?.currencyCode === 'VES' &&
+        (!Number.isFinite(targetExchangeRate) || Number(targetExchangeRate) <= 0)
+      ) {
+        showToast('error', 'Debes indicar la tasa de la cuenta destino.');
+        return;
+      }
+
+      if (!transferDate) {
+        showToast('error', 'Debes indicar la fecha del traspaso.');
+        return;
+      }
+
+      setTransferSaving(true);
+      await createMoneyTransferAction({
+        sourceMoneyAccountId,
+        targetMoneyAccountId,
+        sourceAmount,
+        targetAmount,
+        feeAmount,
+        movementDate: transferDate,
+        sourceExchangeRateVesPerUsd: sourceExchangeRate,
+        targetExchangeRateVesPerUsd: targetExchangeRate,
+        referenceCode: transferReferenceCode,
+        counterpartyName: transferCounterpartyName,
+        description: transferDescription,
+        notes: transferNotes,
+      });
+
+      showToast('success', 'Traspaso registrado.');
+      setTransferOpen(false);
+      resetMoneyTransferForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el traspaso.');
+    } finally {
+      setTransferSaving(false);
     }
   };
 
@@ -7681,6 +7856,12 @@ const selectedGiveChangeAccount =
 const selectedMovementAccount =
   moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ?? null;
 
+const selectedTransferSourceAccount =
+  moneyAccounts.find((account) => account.id === Number(transferSourceAccountId || 0)) ?? null;
+
+const selectedTransferTargetAccount =
+  moneyAccounts.find((account) => account.id === Number(transferTargetAccountId || 0)) ?? null;
+
 const activeBsRate = Number(activeExchangeRate?.rateBsPerUsd ?? 0);
 
 const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | null | undefined) => {
@@ -7935,6 +8116,85 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!selectedAccountId) return [];
     return filteredMoneyMovements.filter((movement) => movement.moneyAccountId === selectedAccountId);
   }, [filteredMoneyMovements, selectedAccountId]);
+
+  const selectedAccountMovementGroups = useMemo<AccountMovementGroup[]>(() => {
+    if (!selectedAccountId) return [];
+
+    const groups = new Map<string, MoneyMovementItem[]>();
+    for (const movement of filteredMoneyMovements) {
+      const key = movement.movementGroupId || `movement-${movement.id}`;
+      const list = groups.get(key) ?? [];
+      list.push(movement);
+      groups.set(key, list);
+    }
+
+    const out: AccountMovementGroup[] = [];
+
+    for (const [key, movements] of groups) {
+      const selectedMovements = movements.filter((movement) => movement.moneyAccountId === selectedAccountId);
+      if (selectedMovements.length === 0) continue;
+
+      const transferOut = movements.find((movement) => movement.direction === 'outflow' && movement.movementType === 'withdrawal') ?? null;
+      const transferIn = movements.find((movement) => movement.direction === 'inflow' && movement.movementType === 'other_income') ?? null;
+      const isTransfer = Boolean(transferOut && transferIn);
+      const feeMovements = selectedMovements.filter((movement) => movement.movementType === 'fee_charge');
+      const primaryMovement =
+        selectedMovements.find((movement) => movement.movementType !== 'fee_charge') ?? selectedMovements[0];
+      const amountMovements = selectedMovements.filter((movement) => movement.movementType !== 'fee_charge');
+      const signedNative = (movement: MoneyMovementItem) =>
+        movement.direction === 'inflow' ? movement.amount : -movement.amount;
+      const signedUsd = (movement: MoneyMovementItem) =>
+        movement.direction === 'inflow' ? movement.amountUsdEquivalent : -movement.amountUsdEquivalent;
+      const amountNative = amountMovements.reduce((sum, movement) => sum + Math.abs(movement.amount), 0);
+      const amountUsd = amountMovements.reduce((sum, movement) => sum + Math.abs(movement.amountUsdEquivalent), 0);
+      const feeNative = feeMovements.reduce((sum, movement) => sum + movement.amount, 0);
+      const feeUsd = feeMovements.reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
+
+      out.push({
+        key,
+        movements,
+        selectedMovements,
+        primaryMovement,
+        feeMovements,
+        transferIn,
+        transferOut,
+        isTransfer,
+        amountNative,
+        amountUsd,
+        feeNative,
+        feeUsd,
+        netNative: selectedMovements.reduce((sum, movement) => sum + signedNative(movement), 0),
+        netUsd: selectedMovements.reduce((sum, movement) => sum + signedUsd(movement), 0),
+      });
+    }
+
+    return out
+      .filter((group) => {
+        if (accountMovementFilter === 'all') return true;
+        if (accountMovementFilter === 'inflows') return group.selectedMovements.some((movement) => movement.direction === 'inflow');
+        if (accountMovementFilter === 'outflows') return group.selectedMovements.some((movement) => movement.direction === 'outflow');
+        if (accountMovementFilter === 'fees') return group.feeMovements.length > 0;
+        if (accountMovementFilter === 'order_payments') return group.selectedMovements.some((movement) => movement.movementType === 'order_payment');
+        if (accountMovementFilter === 'changes') return group.selectedMovements.some((movement) => movement.movementType === 'change_given');
+        if (accountMovementFilter === 'adjustments') {
+          return group.selectedMovements.some((movement) =>
+            movement.movementType === 'adjustment' || movement.movementType === 'cash_count_adjustment'
+          );
+        }
+        if (accountMovementFilter === 'transfers') return group.isTransfer;
+        return true;
+      })
+      .sort((a, b) => {
+        const byDate = String(b.primaryMovement.movementDate).localeCompare(String(a.primaryMovement.movementDate));
+        if (byDate !== 0) return byDate;
+        return String(b.primaryMovement.createdAt).localeCompare(String(a.primaryMovement.createdAt));
+      });
+  }, [accountMovementFilter, filteredMoneyMovements, selectedAccountId]);
+
+  const selectedMovementGroup = useMemo(() => {
+    if (!selectedMovementGroupKey) return null;
+    return selectedAccountMovementGroups.find((group) => group.key === selectedMovementGroupKey) ?? null;
+  }, [selectedAccountMovementGroups, selectedMovementGroupKey]);
 
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
@@ -9020,6 +9280,8 @@ const hasBlockingOverlay =
   deliveryPanelOpen ||
   kitchenPanelOpen ||
   movementOpen ||
+  transferOpen ||
+  movementDetailOpen ||
   createOrderOpen ||
   createOrderConfigOpen ||
   priceAdjustOpen ||
@@ -9735,6 +9997,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 type="button"
               >
                 Ingreso / Egreso
+              </button>
+              <button
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
+                onClick={() => openMoneyTransferDrawer()}
+                type="button"
+              >
+                Traspaso
               </button>
             </div>
           </div>
@@ -15120,6 +15389,170 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
 
       <Drawer
+        open={transferOpen}
+        title="Traspaso entre cuentas"
+        onClose={() => {
+          setTransferOpen(false);
+          resetMoneyTransferForm();
+        }}
+        widthClass="w-[720px]"
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-[#B7B7C2]">
+            Registra salida, entrada y comisión como una sola operación con huella compartida.
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FieldSelect
+                label="Cuenta origen"
+                value={transferSourceAccountId}
+                onChange={(value) => {
+                  setTransferSourceAccountId(value);
+                  if (value === transferTargetAccountId) setTransferTargetAccountId('');
+                }}
+                options={[
+                  { value: '', label: '— seleccionar origen —' },
+                  ...moneyAccounts
+                    .filter((account) => account.isActive)
+                    .map((account) => ({
+                      value: String(account.id),
+                      label: `${account.name} · ${account.currencyCode}`,
+                    })),
+                ]}
+              />
+              <FieldSelect
+                label="Cuenta destino"
+                value={transferTargetAccountId}
+                onChange={setTransferTargetAccountId}
+                options={[
+                  { value: '', label: '— seleccionar destino —' },
+                  ...moneyAccounts
+                    .filter((account) => account.isActive && account.id !== Number(transferSourceAccountId || 0))
+                    .map((account) => ({
+                      value: String(account.id),
+                      label: `${account.name} · ${account.currencyCode}`,
+                    })),
+                ]}
+              />
+              <FieldInput
+                label="Fecha"
+                value={transferDate}
+                onChange={setTransferDate}
+                type="date"
+              />
+              <FieldInput
+                label="Referencia / control"
+                value={transferReferenceCode}
+                onChange={setTransferReferenceCode}
+                hint="Opcional."
+              />
+              <FieldInput
+                label={`Monto salida ${selectedTransferSourceAccount?.currencyCode || ''}`.trim()}
+                value={transferSourceAmount}
+                onChange={(value) => {
+                  setTransferSourceAmount(value);
+                  if (selectedTransferSourceAccount?.currencyCode === selectedTransferTargetAccount?.currencyCode) {
+                    setTransferTargetAmount(value);
+                  }
+                }}
+              />
+              <FieldInput
+                label={`Monto entrada ${selectedTransferTargetAccount?.currencyCode || ''}`.trim()}
+                value={transferTargetAmount}
+                onChange={setTransferTargetAmount}
+              />
+              <FieldInput
+                label="Comisión"
+                value={transferFeeAmount}
+                onChange={setTransferFeeAmount}
+                hint="Opcional. Se descuenta de origen."
+              />
+              <FieldInput
+                label="Contraparte"
+                value={transferCounterpartyName}
+                onChange={setTransferCounterpartyName}
+                hint="Banco, operador o referencia interna."
+              />
+              {selectedTransferSourceAccount?.currencyCode === 'VES' ? (
+                <FieldInput
+                  label="Tasa origen Bs/USD"
+                  value={transferSourceExchangeRate}
+                  onChange={setTransferSourceExchangeRate}
+                />
+              ) : null}
+              {selectedTransferTargetAccount?.currencyCode === 'VES' ? (
+                <FieldInput
+                  label="Tasa destino Bs/USD"
+                  value={transferTargetExchangeRate}
+                  onChange={setTransferTargetExchangeRate}
+                />
+              ) : null}
+              <FieldInput
+                label="Motivo"
+                value={transferDescription}
+                onChange={setTransferDescription}
+                hint="Ej. reposición de caja, fondeo de punto, cambio de banco."
+              />
+            </div>
+
+            <div className="mt-3">
+              <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+              <textarea
+                value={transferNotes}
+                onChange={(e) => setTransferNotes(e.target.value)}
+                rows={3}
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+              />
+            </div>
+
+            <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+              <div>
+                Origen:{' '}
+                <span className="font-medium text-[#F5F5F7]">{selectedTransferSourceAccount?.name || '—'}</span>
+              </div>
+              <div className="mt-1">
+                Destino:{' '}
+                <span className="font-medium text-[#F5F5F7]">{selectedTransferTargetAccount?.name || '—'}</span>
+              </div>
+              <div className="mt-1">
+                Salida total:{' '}
+                <span className="font-medium text-red-300">
+                  {selectedTransferSourceAccount
+                    ? fmtMoneyByCurrency(
+                        (Number(String(transferSourceAmount || '0').replace(',', '.')) || 0) +
+                          (Number(String(transferFeeAmount || '0').replace(',', '.')) || 0),
+                        selectedTransferSourceAccount.currencyCode
+                      )
+                    : '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+              onClick={() => {
+                setTransferOpen(false);
+                resetMoneyTransferForm();
+              }}
+              disabled={transferSaving}
+            >
+              Cancelar
+            </button>
+            <button
+              className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              onClick={handleCreateMoneyTransfer}
+              disabled={transferSaving}
+            >
+              {transferSaving ? 'Guardando...' : 'Guardar traspaso'}
+            </button>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
         open={accountDetailOpen}
         title={selectedAccount ? `Cuenta: ${selectedAccount.name}` : 'Cuenta'}
         onClose={() => setAccountDetailOpen(false)}
@@ -15162,6 +15595,13 @@ deliveryAssignMode === 'external' ? (
                       onClick={() => openMoneyMovementDrawer(selectedAccount.id)}
                     >
                       Movimiento
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
+                    >
+                      Traspaso
                     </button>
                     <button
                       type="button"
@@ -15229,9 +15669,31 @@ deliveryAssignMode === 'external' ? (
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-              <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">Operaciones agrupadas por huella financiera.</div>
+                </div>
+                <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
+                  {(Object.keys(ACCOUNT_MOVEMENT_FILTER_LABEL) as AccountMovementFilter[]).map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setAccountMovementFilter(filter)}
+                      className={[
+                        'whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px]',
+                        accountMovementFilter === filter
+                          ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                          : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                      ].join(' ')}
+                    >
+                      {ACCOUNT_MOVEMENT_FILTER_LABEL[filter]}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="mt-3 overflow-x-auto">
-                {selectedAccountMovements.length === 0 ? (
+                {selectedAccountMovementGroups.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
                   <table className="w-full text-[12px]">
@@ -15239,6 +15701,8 @@ deliveryAssignMode === 'external' ? (
                       <tr>
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
+                        <th className="px-2 py-2 text-left font-medium">Comisión</th>
+                        <th className="px-2 py-2 text-left font-medium">Total</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
                         <th className="px-2 py-2 text-left font-medium">N° Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
@@ -15246,29 +15710,61 @@ deliveryAssignMode === 'external' ? (
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedAccountMovements.map((movement, idx) => {
+                      {selectedAccountMovementGroups.map((group, idx) => {
+                        const movement = group.primaryMovement;
                         const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                        const primaryAmount = fmtMoneyByCurrency(movement.amount, selectedAccount.currencyCode);
+                        const primaryAmount = fmtMoneyByCurrency(group.amountNative, selectedAccount.currencyCode);
+                        const feeAmount = group.feeNative > 0 ? fmtMoneyByCurrency(group.feeNative, selectedAccount.currencyCode) : '—';
+                        const totalAmount = fmtMoneyByCurrency(Math.abs(group.netNative), selectedAccount.currencyCode);
                         const secondaryAmount =
                           selectedAccount.currencyCode === 'VES'
-                            ? fmtUSD(movement.amountUsdEquivalent)
-                            : fmtBs(movement.amount * (activeExchangeRate?.rateBsPerUsd ?? 0));
+                            ? fmtUSD(group.amountUsd)
+                            : fmtBs(group.amountNative * (activeExchangeRate?.rateBsPerUsd ?? 0));
+                        const groupLabel = group.isTransfer
+                          ? 'Traspaso'
+                          : movement.direction === 'inflow'
+                            ? 'Ingreso'
+                            : 'Retiro';
+                        const counterpartMovement =
+                          group.movements.find((item) => item.moneyAccountId !== selectedAccount.id) ?? null;
+                        const counterpartAccount = counterpartMovement
+                          ? moneyAccounts.find((account) => account.id === counterpartMovement.moneyAccountId) ?? null
+                          : null;
 
                         return (
-                          <tr key={movement.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                          <tr
+                            key={group.key}
+                            className={`${zebra} cursor-pointer border-b border-[#242433] align-top hover:bg-[#1A1A28]`}
+                            onClick={() => {
+                              setSelectedMovementGroupKey(group.key);
+                              setMovementDetailOpen(true);
+                            }}
+                          >
                             <td className="px-2 py-2">
-                              {movement.direction === 'inflow' ? 'Ingreso' : 'Retiro'}
+                              {groupLabel}
                               <div className="mt-1 text-[11px] text-[#8A8A96]">
                                 {MOVEMENT_TYPE_LABEL[movement.movementType]}
+                                {group.isTransfer && counterpartAccount ? ` · ${counterpartAccount.name}` : ''}
                               </div>
                             </td>
                             <td className="px-2 py-2">
-                              <div className={movement.direction === 'inflow' ? 'text-emerald-400' : 'text-red-400'}>
-                                {movement.direction === 'inflow' ? '' : '-'}
+                              <div className={group.netNative >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                {group.netNative >= 0 ? '' : '-'}
                                 {primaryAmount}
                               </div>
                               <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className={group.feeNative > 0 ? 'text-red-300' : 'text-[#8A8A96]'}>
+                                {group.feeNative > 0 ? `-${feeAmount}` : '—'}
+                              </div>
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className={group.netNative >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                {group.netNative >= 0 ? '' : '-'}
+                                {totalAmount}
+                              </div>
                             </td>
                             <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
                             <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
@@ -15286,6 +15782,85 @@ deliveryAssignMode === 'external' ? (
                 )}
               </div>
             </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={movementDetailOpen}
+        title="Detalle de movimiento"
+        onClose={() => setMovementDetailOpen(false)}
+        widthClass="w-[720px]"
+      >
+        {!selectedMovementGroup ? (
+          <div className="text-sm text-[#B7B7C2]">Sin movimiento seleccionado.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell label="Huella" value={selectedMovementGroup.key} />
+                <InfoCell
+                  label="Tipo"
+                  value={selectedMovementGroup.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[selectedMovementGroup.primaryMovement.movementType]}
+                />
+                <InfoCell label="Fecha" value={selectedMovementGroup.primaryMovement.movementDate} />
+                <InfoCell
+                  label="Total en esta cuenta"
+                  value={`${selectedMovementGroup.netNative >= 0 ? '' : '-'}${fmtMoneyByCurrency(
+                    Math.abs(selectedMovementGroup.netNative),
+                    selectedAccount?.currencyCode ?? selectedMovementGroup.primaryMovement.currencyCode
+                  )}`}
+                />
+                <InfoCell
+                  label="Creado por"
+                  value={selectedMovementGroup.primaryMovement.createdByUserId || '—'}
+                />
+                <InfoCell
+                  label="Confirmado por"
+                  value={selectedMovementGroup.primaryMovement.confirmedByUserId || '—'}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Líneas del movimiento</div>
+              <div className="mt-3 space-y-2">
+                {selectedMovementGroup.movements.map((movement) => {
+                  const account = moneyAccounts.find((item) => item.id === movement.moneyAccountId) ?? null;
+                  return (
+                    <div key={movement.id} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-[#F5F5F7]">
+                            {MOVEMENT_TYPE_LABEL[movement.movementType]} · {account?.name || `Cuenta #${movement.moneyAccountId}`}
+                          </div>
+                          <div className="mt-1 text-xs text-[#8A8A96]">
+                            {movement.description || 'Sin descripción'}
+                          </div>
+                        </div>
+                        <div className={movement.direction === 'inflow' ? 'text-emerald-400' : 'text-red-400'}>
+                          {movement.direction === 'inflow' ? '' : '-'}
+                          {fmtMoneyByCurrency(movement.amount, movement.currencyCode)}
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-[#B7B7C2] md:grid-cols-2">
+                        <div>Referencia: {movement.referenceCode || movement.paymentReportId || movement.id}</div>
+                        <div>Contraparte: {movement.counterpartyName || '—'}</div>
+                        <div>USD ref: {fmtUSD(movement.amountUsdEquivalent)}</div>
+                        <div>Confirmado: {movement.confirmedAt ? fmtDateTimeES(movement.confirmedAt) : '—'}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {selectedMovementGroup.primaryMovement.notes ? (
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
+                <div className="mt-2 text-sm text-[#B7B7C2]">{selectedMovementGroup.primaryMovement.notes}</div>
+              </div>
+            ) : null}
           </div>
         )}
       </Drawer>
