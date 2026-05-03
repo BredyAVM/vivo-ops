@@ -47,8 +47,17 @@ const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
 type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos';
 
 const APP_USER_ROLES = new Set<AppUserRole>(['admin', 'master', 'advisor', 'kitchen', 'driver']);
+const PAYMENT_METHOD_CODES = new Set<PaymentMethodCode>([
+  'payment_mobile',
+  'transfer',
+  'zelle',
+  'cash_usd',
+  'cash_ves',
+  'pos',
+]);
 
 function normalizeUserRoles(input: unknown): AppUserRole[] {
   if (!Array.isArray(input)) return [];
@@ -61,6 +70,11 @@ function normalizeUserRoles(input: unknown): AppUserRole[] {
   }
 
   return Array.from(seen);
+}
+
+function normalizePaymentMethodCode(input: unknown): PaymentMethodCode | null {
+  if (typeof input !== 'string') return null;
+  return PAYMENT_METHOD_CODES.has(input as PaymentMethodCode) ? (input as PaymentMethodCode) : null;
 }
 
 type OrderEventContext = {
@@ -2569,6 +2583,86 @@ export async function toggleMoneyAccountActiveAction(input: {
     .from('money_accounts')
     .update({ is_active: input.nextIsActive })
     .eq('id', accountId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateMoneyAccountPaymentRulesAction(input: {
+  accountId: number;
+  rules: Array<{
+    role: AppUserRole;
+    paymentMethodCode: string;
+    canViewAccount: boolean;
+    canShareWithClient: boolean;
+    canReportPayment: boolean;
+    canConfirmPayment: boolean;
+    autoConfirmsReport: boolean;
+    reviewRequired: boolean;
+    reviewRoles: AppUserRole[];
+    isActive: boolean;
+  }>;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const accountId = Number(input.accountId);
+  if (!Number.isFinite(accountId) || accountId <= 0) {
+    throw new Error('Cuenta inválida.');
+  }
+
+  const rawRules = Array.isArray(input.rules) ? input.rules : [];
+  const now = new Date().toISOString();
+  const rows = rawRules
+    .map((rule) => {
+      const role = typeof rule.role === 'string' && APP_USER_ROLES.has(rule.role) ? rule.role : null;
+      const paymentMethodCode = normalizePaymentMethodCode(rule.paymentMethodCode);
+      if (!role || !paymentMethodCode) return null;
+
+      const autoConfirmsReport = Boolean(rule.autoConfirmsReport);
+      const reviewRequired = autoConfirmsReport ? false : Boolean(rule.reviewRequired);
+      const reviewRoles = reviewRequired ? normalizeUserRoles(rule.reviewRoles) : [];
+      const normalizedReviewRoles = reviewRequired && reviewRoles.length === 0 ? ['master', 'admin'] : reviewRoles;
+      const canReportPayment = Boolean(rule.canReportPayment);
+      const canConfirmPayment = autoConfirmsReport ? true : Boolean(rule.canConfirmPayment);
+      const canViewAccount =
+        Boolean(rule.canViewAccount) ||
+        Boolean(rule.canShareWithClient) ||
+        canReportPayment ||
+        canConfirmPayment ||
+        reviewRequired;
+
+      return {
+        money_account_id: accountId,
+        role,
+        payment_method_code: paymentMethodCode,
+        can_view_account: canViewAccount,
+        can_share_with_client: Boolean(rule.canShareWithClient),
+        can_report_payment: canReportPayment,
+        can_confirm_payment: canConfirmPayment,
+        auto_confirms_report: autoConfirmsReport,
+        review_required: reviewRequired,
+        review_roles: normalizedReviewRoles,
+        is_active: Boolean(rule.isActive),
+        updated_at: now,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  if (rows.length === 0) {
+    throw new Error('No hay reglas válidas para guardar.');
+  }
+
+  const { error: deactivateError } = await supabase
+    .from('money_account_payment_rules')
+    .update({ is_active: false, updated_at: now })
+    .eq('money_account_id', accountId);
+
+  if (deactivateError) throw new Error(deactivateError.message);
+
+  const { error } = await supabase
+    .from('money_account_payment_rules')
+    .upsert(rows, { onConflict: 'money_account_id,role,payment_method_code' });
 
   if (error) throw new Error(error.message);
 

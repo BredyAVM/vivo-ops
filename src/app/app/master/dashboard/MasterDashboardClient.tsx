@@ -46,6 +46,7 @@ import {
   deleteCatalogItemAction,
   updateClientAction,
   updateMoneyAccountAction,
+  updateMoneyAccountPaymentRulesAction,
   createOrderAction,
   updateOrderAction,
   logoutAction,
@@ -118,6 +119,21 @@ type MoneyAccountPaymentRule = {
   moneyAccountId: number;
   role: AppUserRole;
   paymentMethodCode: string;
+  canViewAccount: boolean;
+  canShareWithClient: boolean;
+  canReportPayment: boolean;
+  canConfirmPayment: boolean;
+  autoConfirmsReport: boolean;
+  reviewRequired: boolean;
+  reviewRoles: AppUserRole[];
+  isActive: boolean;
+};
+
+type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos';
+
+type AccountRuleDraft = {
+  role: AppUserRole;
+  paymentMethodCode: PaymentMethodCode;
   canViewAccount: boolean;
   canShareWithClient: boolean;
   canReportPayment: boolean;
@@ -617,6 +633,8 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
 };
 
 const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
+const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos'];
+const ACCOUNT_REVIEW_ROLES: AppUserRole[] = ['master', 'admin', 'kitchen'];
 
 const APP_USER_ROLE_LABEL: Record<AppUserRole, string> = {
   admin: 'Admin',
@@ -1465,6 +1483,91 @@ function getPaymentMethodLabel(method: string) {
   if (method === 'pos') return 'Punto de venta';
   if (method === 'mixed') return 'Mixto';
   return '—';
+}
+
+function isPaymentMethodCode(value: string): value is PaymentMethodCode {
+  return PAYMENT_METHOD_CODES.includes(value as PaymentMethodCode);
+}
+
+function isPaymentMethodApplicableToAccount(method: PaymentMethodCode, account: MoneyAccountOption) {
+  if (method === 'payment_mobile') return account.currencyCode === 'VES' && ['bank', 'wallet'].includes(account.accountKind);
+  if (method === 'transfer') return account.accountKind === 'bank';
+  if (method === 'zelle') return account.currencyCode === 'USD' && ['bank', 'wallet'].includes(account.accountKind);
+  if (method === 'cash_usd') return account.currencyCode === 'USD' && account.accountKind === 'cash';
+  if (method === 'cash_ves') return account.currencyCode === 'VES' && account.accountKind === 'cash';
+  if (method === 'pos') return account.accountKind === 'pos';
+  return false;
+}
+
+function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode): AccountRuleDraft {
+  const remoteMethod = method === 'payment_mobile' || method === 'transfer' || method === 'zelle';
+  const counterMethod = method === 'cash_usd' || method === 'cash_ves' || method === 'pos';
+  const driverCashMethod = method === 'cash_usd' || method === 'cash_ves';
+
+  const draft: AccountRuleDraft = {
+    role,
+    paymentMethodCode: method,
+    canViewAccount: false,
+    canShareWithClient: false,
+    canReportPayment: false,
+    canConfirmPayment: false,
+    autoConfirmsReport: false,
+    reviewRequired: false,
+    reviewRoles: [],
+    isActive: false,
+  };
+
+  if (role === 'advisor' && remoteMethod) {
+    return {
+      ...draft,
+      canViewAccount: true,
+      canShareWithClient: true,
+      canReportPayment: true,
+      reviewRequired: true,
+      reviewRoles: ['master', 'admin'],
+      isActive: true,
+    };
+  }
+
+  if ((role === 'master' || role === 'admin') && (remoteMethod || counterMethod)) {
+    return {
+      ...draft,
+      canViewAccount: true,
+      canShareWithClient: remoteMethod,
+      canReportPayment: true,
+      canConfirmPayment: true,
+      autoConfirmsReport: counterMethod,
+      reviewRequired: remoteMethod,
+      reviewRoles: remoteMethod ? ['master', 'admin'] : [],
+      isActive: true,
+    };
+  }
+
+  if (role === 'kitchen' && (method === 'payment_mobile' || counterMethod)) {
+    return {
+      ...draft,
+      canViewAccount: true,
+      canReportPayment: true,
+      canConfirmPayment: counterMethod,
+      autoConfirmsReport: counterMethod,
+      reviewRequired: method === 'payment_mobile',
+      reviewRoles: method === 'payment_mobile' ? ['master', 'admin'] : [],
+      isActive: true,
+    };
+  }
+
+  if (role === 'driver' && driverCashMethod) {
+    return {
+      ...draft,
+      canViewAccount: true,
+      canReportPayment: true,
+      reviewRequired: true,
+      reviewRoles: ['kitchen', 'master', 'admin'],
+      isActive: true,
+    };
+  }
+
+  return draft;
 }
 
 function getCurrentOperatorLabel(
@@ -3031,6 +3134,9 @@ export default function MasterDashboardClient({
   const [accountEditOpen, setAccountEditOpen] = useState(false);
   const [accountCreateOpen, setAccountCreateOpen] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
+  const [accountRulesOpen, setAccountRulesOpen] = useState(false);
+  const [accountRulesSaving, setAccountRulesSaving] = useState(false);
+  const [accountRuleDrafts, setAccountRuleDrafts] = useState<AccountRuleDraft[]>([]);
   const [accountFormName, setAccountFormName] = useState('');
   const [accountFormCurrencyCode, setAccountFormCurrencyCode] = useState<'USD' | 'VES'>('VES');
   const [accountFormKind, setAccountFormKind] = useState<MoneyAccountOption['accountKind']>('bank');
@@ -5439,6 +5545,96 @@ const handleSaveQuickCatalog = async () => {
     setAccountEditOpen(true);
   };
 
+  const buildAccountRuleDrafts = (account: MoneyAccountOption): AccountRuleDraft[] => {
+    const existingRules = moneyAccountPaymentRules.filter(
+      (rule) => rule.moneyAccountId === account.id && isPaymentMethodCode(rule.paymentMethodCode)
+    );
+    const existingByKey = new Map(existingRules.map((rule) => [`${rule.role}:${rule.paymentMethodCode}`, rule]));
+    const drafts: AccountRuleDraft[] = [];
+
+    for (const method of PAYMENT_METHOD_CODES) {
+      if (!isPaymentMethodApplicableToAccount(method, account)) continue;
+
+      for (const role of APP_USER_ROLES) {
+        const existing = existingByKey.get(`${role}:${method}`);
+        const fallback = getDefaultAccountRuleDraft(role, method);
+
+        drafts.push(
+          existing
+            ? {
+                role,
+                paymentMethodCode: method,
+                canViewAccount: existing.canViewAccount,
+                canShareWithClient: existing.canShareWithClient,
+                canReportPayment: existing.canReportPayment,
+                canConfirmPayment: existing.canConfirmPayment,
+                autoConfirmsReport: existing.autoConfirmsReport,
+                reviewRequired: existing.reviewRequired,
+                reviewRoles: existing.reviewRoles,
+                isActive: existing.isActive,
+              }
+            : fallback
+        );
+      }
+    }
+
+    return drafts;
+  };
+
+  const openAccountRulesEditor = (account: MoneyAccountOption) => {
+    setSelectedAccountId(account.id);
+    setAccountRuleDrafts(buildAccountRuleDrafts(account));
+    setAccountRulesOpen(true);
+  };
+
+  const updateAccountRuleDraft = (index: number, patch: Partial<AccountRuleDraft>) => {
+    setAccountRuleDrafts((current) =>
+      current.map((draft, draftIndex) => {
+        if (draftIndex !== index) return draft;
+
+        const next: AccountRuleDraft = { ...draft, ...patch };
+        if (next.autoConfirmsReport) {
+          next.canConfirmPayment = true;
+          next.reviewRequired = false;
+          next.reviewRoles = [];
+        }
+        if (next.reviewRequired && next.reviewRoles.length === 0) {
+          next.reviewRoles = ['master', 'admin'];
+        }
+        if (
+          next.canShareWithClient ||
+          next.canReportPayment ||
+          next.canConfirmPayment ||
+          next.autoConfirmsReport ||
+          next.reviewRequired
+        ) {
+          next.canViewAccount = true;
+        }
+        if (!next.isActive) {
+          next.canShareWithClient = false;
+          next.canReportPayment = false;
+          next.canConfirmPayment = false;
+          next.autoConfirmsReport = false;
+          next.reviewRequired = false;
+          next.reviewRoles = [];
+        }
+
+        return next;
+      })
+    );
+  };
+
+  const toggleAccountRuleReviewRole = (index: number, role: AppUserRole) => {
+    const draft = accountRuleDrafts[index];
+    if (!draft) return;
+
+    const hasRole = draft.reviewRoles.includes(role);
+    updateAccountRuleDraft(index, {
+      reviewRequired: true,
+      reviewRoles: hasRole ? draft.reviewRoles.filter((item) => item !== role) : [...draft.reviewRoles, role],
+    });
+  };
+
   const handleCreateMoneyAccount = async () => {
     try {
       setAccountSaving(true);
@@ -5497,6 +5693,25 @@ const handleSaveQuickCatalog = async () => {
       router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado.');
+    }
+  };
+
+  const handleSaveAccountRules = async () => {
+    if (!selectedAccount) return;
+
+    try {
+      setAccountRulesSaving(true);
+      await updateMoneyAccountPaymentRulesAction({
+        accountId: selectedAccount.id,
+        rules: accountRuleDrafts,
+      });
+      showToast('success', 'Reglas de la cuenta actualizadas.');
+      setAccountRulesOpen(false);
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudieron guardar las reglas.');
+    } finally {
+      setAccountRulesSaving(false);
     }
   };
 
@@ -8779,6 +8994,7 @@ const hasBlockingOverlay =
   accountDetailOpen ||
   accountCreateOpen ||
   accountEditOpen ||
+  accountRulesOpen ||
   clientDetailOpen ||
   clientCreateOpen ||
   clientEditOpen ||
@@ -14922,6 +15138,13 @@ deliveryAssignMode === 'external' ? (
                     <button
                       type="button"
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => openAccountRulesEditor(selectedAccount)}
+                    >
+                      Reglas
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
                       onClick={() => handleToggleMoneyAccountActive(selectedAccount)}
                     >
                       {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
@@ -14939,6 +15162,38 @@ deliveryAssignMode === 'external' ? (
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Reglas operativas</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Roles, métodos y aprobación permitidos para esta cuenta.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                  onClick={() => openAccountRulesEditor(selectedAccount)}
+                >
+                  Administrar
+                </button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1">
+                {getAccountRuleBadges(selectedAccount.id).length > 0 ? (
+                  getAccountRuleBadges(selectedAccount.id).map((label) => (
+                    <span
+                      key={`${selectedAccount.id}-detail-${label}`}
+                      className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-[#B7B7C2]"
+                    >
+                      {label}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-sm text-[#B7B7C2]">Sin reglas activas.</span>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
               <div className="mt-3 overflow-x-auto">
                 {selectedAccountMovements.length === 0 ? (
@@ -14950,9 +15205,9 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-2 py-2 text-left font-medium">NÂ° Orden</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
-                        <th className="px-2 py-2 text-left font-medium">NÂ° Control</th>
+                        <th className="px-2 py-2 text-left font-medium">N° Control</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -14980,10 +15235,10 @@ deliveryAssignMode === 'external' ? (
                               </div>
                               <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
                             </td>
-                            <td className="px-2 py-2">{linkedOrder?.clientName || '?'}</td>
-                            <td className="px-2 py-2">{movement.orderId ?? '?'}</td>
+                            <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
+                            <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
                             <td className="px-2 py-2">
-                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '?'}
+                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
                             </td>
                             <td className="px-2 py-2">
                               {movement.referenceCode || movement.paymentReportId || movement.id}
@@ -14995,6 +15250,193 @@ deliveryAssignMode === 'external' ? (
                   </table>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={accountRulesOpen}
+        title={selectedAccount ? `Reglas: ${selectedAccount.name}` : 'Reglas de cuenta'}
+        onClose={() => setAccountRulesOpen(false)}
+        widthClass="w-[980px]"
+      >
+        {!selectedAccount ? (
+          <div className="text-sm text-[#B7B7C2]">Sin cuenta seleccionada.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <InfoCell label="Cuenta" value={selectedAccount.name} />
+                <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
+                <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Permisos por método y rol</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Activa solo lo que cada rol puede ver, compartir, registrar o confirmar.
+                  </div>
+                </div>
+                <div className="text-xs text-[#8A8A96]">{accountRuleDrafts.length} reglas</div>
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                {accountRuleDrafts.length === 0 ? (
+                  <div className="text-sm text-[#B7B7C2]">
+                    Esta cuenta no tiene métodos de pago compatibles con su tipo y moneda.
+                  </div>
+                ) : (
+                  <table className="w-full min-w-[880px] text-[12px]">
+                    <thead className="border-b border-[#242433] text-[#B7B7C2]">
+                      <tr>
+                        <th className="px-2 py-2 text-left font-medium">Método</th>
+                        <th className="px-2 py-2 text-left font-medium">Rol</th>
+                        <th className="px-2 py-2 text-center font-medium">Activa</th>
+                        <th className="px-2 py-2 text-center font-medium">Ver</th>
+                        <th className="px-2 py-2 text-center font-medium">Compartir</th>
+                        <th className="px-2 py-2 text-center font-medium">Reportar</th>
+                        <th className="px-2 py-2 text-center font-medium">Confirmar</th>
+                        <th className="px-2 py-2 text-center font-medium">Auto</th>
+                        <th className="px-2 py-2 text-left font-medium">Revisión</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accountRuleDrafts.map((rule, index) => {
+                        const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                        const key = `${rule.role}-${rule.paymentMethodCode}`;
+                        const checkClass = 'h-4 w-4 accent-[#FEEF00]';
+
+                        return (
+                          <tr key={key} className={`${zebra} border-b border-[#242433] align-middle`}>
+                            <td className="px-2 py-2 font-medium text-[#F5F5F7]">
+                              {getPaymentMethodLabel(rule.paymentMethodCode)}
+                            </td>
+                            <td className="px-2 py-2 text-[#B7B7C2]">{APP_USER_ROLE_LABEL[rule.role]}</td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={rule.isActive}
+                                onChange={(event) => updateAccountRuleDraft(index, { isActive: event.target.checked })}
+                                className={checkClass}
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={rule.canViewAccount}
+                                disabled={!rule.isActive}
+                                onChange={(event) =>
+                                  updateAccountRuleDraft(index, { canViewAccount: event.target.checked })
+                                }
+                                className={checkClass}
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={rule.canShareWithClient}
+                                disabled={!rule.isActive}
+                                onChange={(event) =>
+                                  updateAccountRuleDraft(index, { canShareWithClient: event.target.checked })
+                                }
+                                className={checkClass}
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={rule.canReportPayment}
+                                disabled={!rule.isActive}
+                                onChange={(event) =>
+                                  updateAccountRuleDraft(index, { canReportPayment: event.target.checked })
+                                }
+                                className={checkClass}
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={rule.canConfirmPayment}
+                                disabled={!rule.isActive || rule.autoConfirmsReport}
+                                onChange={(event) =>
+                                  updateAccountRuleDraft(index, { canConfirmPayment: event.target.checked })
+                                }
+                                className={checkClass}
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={rule.autoConfirmsReport}
+                                disabled={!rule.isActive}
+                                onChange={(event) =>
+                                  updateAccountRuleDraft(index, { autoConfirmsReport: event.target.checked })
+                                }
+                                className={checkClass}
+                              />
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="flex items-center gap-1 text-[#B7B7C2]">
+                                  <input
+                                    type="checkbox"
+                                    checked={rule.reviewRequired}
+                                    disabled={!rule.isActive || rule.autoConfirmsReport}
+                                    onChange={(event) =>
+                                      updateAccountRuleDraft(index, {
+                                        reviewRequired: event.target.checked,
+                                        reviewRoles: event.target.checked ? rule.reviewRoles : [],
+                                      })
+                                    }
+                                    className={checkClass}
+                                  />
+                                  Requiere
+                                </label>
+                                {rule.reviewRequired
+                                  ? ACCOUNT_REVIEW_ROLES.map((role) => (
+                                      <label key={`${key}-${role}`} className="flex items-center gap-1 text-[#8A8A96]">
+                                        <input
+                                          type="checkbox"
+                                          checked={rule.reviewRoles.includes(role)}
+                                          disabled={!rule.isActive || rule.autoConfirmsReport}
+                                          onChange={() => toggleAccountRuleReviewRole(index, role)}
+                                          className={checkClass}
+                                        />
+                                        {APP_USER_ROLE_LABEL[role]}
+                                      </label>
+                                    ))
+                                  : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+                onClick={() => setAccountRulesOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+                onClick={handleSaveAccountRules}
+                disabled={accountRulesSaving || accountRuleDrafts.length === 0}
+              >
+                {accountRulesSaving ? 'Guardando...' : 'Guardar reglas'}
+              </button>
             </div>
           </div>
         )}
