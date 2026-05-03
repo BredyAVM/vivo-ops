@@ -183,6 +183,8 @@ type RawUserRoleRow = {
 
 type RawMasterInboxItemStateRow = {
   item_id: string;
+  item_type: 'task' | 'event' | string;
+  order_id: number | string | null;
   status: 'reviewed' | 'resolved' | string;
 };
 
@@ -692,7 +694,7 @@ const {
   error: masterInboxStatesError,
 } = await supabase
   .from('master_inbox_item_states')
-  .select('item_id, status')
+  .select('item_id, item_type, order_id, status')
   .in('status', ['reviewed', 'resolved'])
   .limit(1000);
 
@@ -729,6 +731,8 @@ const initialMasterInboxItemStates = ((masterInboxStatesData ?? []) as RawMaster
   .filter((row) => row.status === 'reviewed' || row.status === 'resolved')
   .map((row) => ({
     itemId: String(row.item_id),
+    itemType: row.item_type === 'event' ? 'event' as const : 'task' as const,
+    orderId: row.order_id == null ? null : Number(row.order_id),
     status: row.status === 'resolved' ? 'resolved' as const : 'reviewed' as const,
   }));
 

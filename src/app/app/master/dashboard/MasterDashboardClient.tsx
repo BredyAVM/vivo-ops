@@ -2891,7 +2891,12 @@ export default function MasterDashboardClient({
   roles: string[];
   dashboardUsers?: DashboardUser[];
   dashboardUserRoles?: DashboardUserRole[];
-  initialMasterInboxItemStates?: Array<{ itemId: string; status: MasterInboxItemStatus }>;
+  initialMasterInboxItemStates?: Array<{
+    itemId: string;
+    itemType: 'task' | 'event';
+    orderId: number | null;
+    status: MasterInboxItemStatus;
+  }>;
   advisors?: AdvisorOption[];
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
@@ -3750,6 +3755,11 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
     [masterInbox.activity, masterInbox.tasks]
   );
+  const masterInboxActiveTaskIds = useMemo(
+    () => new Set(masterInbox.tasks.map((item) => item.id)),
+    [masterInbox.tasks]
+  );
+  const autoResolvedMasterInboxTaskIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setMasterInboxItemStatusById((prev) => {
@@ -3763,6 +3773,39 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       return next;
     });
   }, [initialMasterInboxItemStates, masterInboxActiveIds]);
+
+  useEffect(() => {
+    const staleReviewedTasks = initialMasterInboxItemStates.filter((item) => {
+      if (item.itemType !== 'task') return false;
+      if (item.status !== 'reviewed') return false;
+      if (masterInboxActiveTaskIds.has(item.itemId)) return false;
+      if (autoResolvedMasterInboxTaskIdsRef.current.has(item.itemId)) return false;
+      return true;
+    });
+
+    if (staleReviewedTasks.length === 0) return;
+
+    for (const item of staleReviewedTasks) {
+      autoResolvedMasterInboxTaskIdsRef.current.add(item.itemId);
+    }
+
+    void resolveMasterInboxItemsAction({
+      items: staleReviewedTasks.map((item) => ({
+        itemId: item.itemId,
+        itemType: 'task',
+        orderId: item.orderId,
+      })),
+    })
+      .then(() => {
+        router.refresh();
+      })
+      .catch((error) => {
+        for (const item of staleReviewedTasks) {
+          autoResolvedMasterInboxTaskIdsRef.current.delete(item.itemId);
+        }
+        showToast('error', error instanceof Error ? error.message : 'No se pudieron resolver tareas cerradas.');
+      });
+  }, [initialMasterInboxItemStates, masterInboxActiveTaskIds, router]);
 
   const setMasterInboxItemsSaving = useCallback((ids: string[], isSaving: boolean) => {
     setMasterInboxSavingIds((prev) => {
