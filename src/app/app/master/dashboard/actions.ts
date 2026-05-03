@@ -125,6 +125,95 @@ export async function updateDashboardUserAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+type MasterInboxStateItemInput = {
+  itemId: string;
+  itemType: 'task' | 'event';
+  orderId: number | null;
+};
+
+function normalizeMasterInboxStateItems(input: unknown): MasterInboxStateItemInput[] {
+  if (!Array.isArray(input)) return [];
+
+  const seen = new Set<string>();
+  const items: MasterInboxStateItemInput[] = [];
+
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+
+    const record = raw as Record<string, unknown>;
+    const itemId = String(record.itemId || '').trim();
+    const itemType = record.itemType === 'event' ? 'event' : record.itemType === 'task' ? 'task' : null;
+    const orderId = record.orderId == null ? null : Number(record.orderId);
+
+    if (!itemId || !itemType || seen.has(itemId)) continue;
+    if (itemId.length > 160) continue;
+    if (record.orderId != null && !Number.isFinite(orderId)) continue;
+
+    seen.add(itemId);
+    items.push({
+      itemId,
+      itemType,
+      orderId: orderId == null ? null : orderId,
+    });
+  }
+
+  return items;
+}
+
+export async function markMasterInboxItemsReviewedAction(input: { items: MasterInboxStateItemInput[] }) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const items = normalizeMasterInboxStateItems(input.items);
+
+  if (items.length === 0) return;
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('master_inbox_item_states')
+    .upsert(
+      items.map((item) => ({
+        item_id: item.itemId,
+        item_type: item.itemType,
+        order_id: item.orderId,
+        status: 'reviewed',
+        reviewed_by_user_id: user.id,
+        reviewed_at: now,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        reopened_by_user_id: null,
+        reopened_at: null,
+        updated_at: now,
+      })),
+      { onConflict: 'item_id' }
+    );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function reopenMasterInboxItemsAction(input: { itemIds: string[] }) {
+  const { supabase } = await requireMasterOrAdmin();
+  const itemIds = Array.from(
+    new Set(
+      Array.isArray(input.itemIds)
+        ? input.itemIds.map((value) => String(value || '').trim()).filter((value) => value && value.length <= 160)
+        : []
+    )
+  );
+
+  if (itemIds.length === 0) return;
+
+  const { error } = await supabase.from('master_inbox_item_states').delete().in('item_id', itemIds);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+}
+
 async function loadOrderEventContext(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
   orderId: number,

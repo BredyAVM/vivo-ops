@@ -181,6 +181,11 @@ type RawUserRoleRow = {
   role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 };
 
+type RawMasterInboxItemStateRow = {
+  item_id: string;
+  status: 'reviewed' | 'resolved' | string;
+};
+
 async function loadAuthUserEmailById() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -682,6 +687,47 @@ const dashboardUserRoles = ((userRolesData ?? []) as RawUserRoleRow[]).map((row)
   role: row.role,
 }));
 
+const {
+  data: masterInboxStatesData,
+  error: masterInboxStatesError,
+} = await supabase
+  .from('master_inbox_item_states')
+  .select('item_id, status')
+  .in('status', ['reviewed', 'resolved'])
+  .limit(1000);
+
+if (masterInboxStatesError) {
+  const message = masterInboxStatesError.message || '';
+  const code = 'code' in masterInboxStatesError ? String(masterInboxStatesError.code || '') : '';
+  const missingTable =
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    message.toLowerCase().includes('does not exist') ||
+    message.toLowerCase().includes('could not find') ||
+    message.toLowerCase().includes('schema cache');
+
+  if (!missingTable) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando estado del inbox</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los estados revisados del inbox operativo.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {masterInboxStatesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  console.warn('master_inbox_item_states not available yet', masterInboxStatesError.message);
+}
+
+const initialMasterInboxReviewedItemIds = ((masterInboxStatesData ?? []) as RawMasterInboxItemStateRow[])
+  .filter((row) => row.status === 'reviewed' || row.status === 'resolved')
+  .map((row) => String(row.item_id));
 
 const { data: deliveryPartnersData, error: deliveryPartnersError } = await supabase
   .from('delivery_partners')
@@ -2307,6 +2353,7 @@ currentUser={{
       roles={roles}
       dashboardUsers={dashboardUsers}
       dashboardUserRoles={dashboardUserRoles}
+      initialMasterInboxReviewedItemIds={initialMasterInboxReviewedItemIds}
       advisors={advisorOptions}
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}

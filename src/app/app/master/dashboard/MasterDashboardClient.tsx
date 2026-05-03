@@ -33,6 +33,8 @@ import {
   createExtraMoneyMovementAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
+  markMasterInboxItemsReviewedAction,
+  reopenMasterInboxItemsAction,
   createCatalogItemAction,
   createClientAction,
   createOrderClientQuickAction,
@@ -376,11 +378,15 @@ type MasterInboxEvent = {
 };
 
 type MasterInboxFilter = 'tasks' | 'delays' | 'payments' | 'changes' | 'all';
+type MasterInboxStateItemInput = {
+  itemId: string;
+  itemType: 'task' | 'event';
+  orderId: number | null;
+};
 
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
-const MASTER_INBOX_REVIEWED_STORAGE_KEY = 'vivo.masterInbox.reviewed.v1';
 type ToastState = {
   type: 'success' | 'error';
   message: string;
@@ -2859,6 +2865,7 @@ export default function MasterDashboardClient({
   roles,
   dashboardUsers = [],
   dashboardUserRoles = [],
+  initialMasterInboxReviewedItemIds = [],
   advisors = [],
   initialOrders,
   moneyAccounts,
@@ -2881,6 +2888,7 @@ export default function MasterDashboardClient({
   roles: string[];
   dashboardUsers?: DashboardUser[];
   dashboardUserRoles?: DashboardUserRole[];
+  initialMasterInboxReviewedItemIds?: string[];
   advisors?: AdvisorOption[];
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
@@ -3545,8 +3553,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
   const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('tasks');
-  const [masterInboxReviewedLoaded, setMasterInboxReviewedLoaded] = useState(false);
-  const [masterInboxReviewedIds, setMasterInboxReviewedIds] = useState<Set<string>>(() => new Set());
+  const [masterInboxReviewedIds, setMasterInboxReviewedIds] = useState<Set<string>>(
+    () => new Set(initialMasterInboxReviewedItemIds)
+  );
+  const [masterInboxSavingIds, setMasterInboxSavingIds] = useState<Set<string>>(() => new Set());
   const [paymentsPanelOpen, setPaymentsPanelOpen] = useState(false);
   const [paymentsPanelKind, setPaymentsPanelKind] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
   const [deliveryPanelOpen, setDeliveryPanelOpen] = useState(false);
@@ -3738,65 +3748,89 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   );
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(MASTER_INBOX_REVIEWED_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) {
-        setMasterInboxReviewedIds(new Set(parsed.map((value) => String(value)).filter(Boolean)));
-      }
-    } catch {
-      setMasterInboxReviewedIds(new Set());
-    } finally {
-      setMasterInboxReviewedLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!masterInboxReviewedLoaded) return;
-
     setMasterInboxReviewedIds((prev) => {
-      const next = new Set([...prev].filter((id) => masterInboxActiveIds.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [masterInboxActiveIds, masterInboxReviewedLoaded]);
-
-  useEffect(() => {
-    if (!masterInboxReviewedLoaded) return;
-
-    window.localStorage.setItem(
-      MASTER_INBOX_REVIEWED_STORAGE_KEY,
-      JSON.stringify([...masterInboxReviewedIds].slice(-200))
-    );
-  }, [masterInboxReviewedIds, masterInboxReviewedLoaded]);
-
-  const markMasterInboxReviewed = useCallback((id: string) => {
-    setMasterInboxReviewedIds((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
+      const next = new Set(
+        initialMasterInboxReviewedItemIds.filter((id) => masterInboxActiveIds.has(id))
+      );
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
       return next;
     });
-  }, []);
+  }, [initialMasterInboxReviewedItemIds, masterInboxActiveIds]);
 
-  const toggleMasterInboxReviewed = useCallback((id: string) => {
-    setMasterInboxReviewedIds((prev) => {
+  const setMasterInboxItemsSaving = useCallback((ids: string[], isSaving: boolean) => {
+    setMasterInboxSavingIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+      for (const id of ids) {
+        if (isSaving) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
       }
       return next;
     });
   }, []);
 
-  const markVisibleMasterInboxReviewed = useCallback((ids: string[]) => {
+  const markMasterInboxReviewed = useCallback(async (items: MasterInboxStateItemInput[]) => {
+    const normalizedItems = items.filter((item) => item.itemId && masterInboxActiveIds.has(item.itemId));
+    if (normalizedItems.length === 0) return;
+
+    const ids = normalizedItems.map((item) => item.itemId);
+    const previous = masterInboxReviewedIds;
+
     setMasterInboxReviewedIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.add(id);
-      return next.size === prev.size ? prev : next;
+      return next;
     });
-  }, []);
+    setMasterInboxItemsSaving(ids, true);
+
+    try {
+      await markMasterInboxItemsReviewedAction({ items: normalizedItems });
+      router.refresh();
+    } catch (error) {
+      setMasterInboxReviewedIds(previous);
+      showToast('error', error instanceof Error ? error.message : 'No se pudo marcar como revisado.');
+    } finally {
+      setMasterInboxItemsSaving(ids, false);
+    }
+  }, [masterInboxActiveIds, masterInboxReviewedIds, router, setMasterInboxItemsSaving]);
+
+  const reopenMasterInboxItems = useCallback(async (itemIds: string[]) => {
+    const ids = itemIds.filter((id) => id && masterInboxActiveIds.has(id));
+    if (ids.length === 0) return;
+
+    const previous = masterInboxReviewedIds;
+
+    setMasterInboxReviewedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setMasterInboxItemsSaving(ids, true);
+
+    try {
+      await reopenMasterInboxItemsAction({ itemIds: ids });
+      router.refresh();
+    } catch (error) {
+      setMasterInboxReviewedIds(previous);
+      showToast('error', error instanceof Error ? error.message : 'No se pudo reabrir.');
+    } finally {
+      setMasterInboxItemsSaving(ids, false);
+    }
+  }, [masterInboxActiveIds, masterInboxReviewedIds, router, setMasterInboxItemsSaving]);
+
+  const toggleMasterInboxReviewed = useCallback((item: MasterInboxStateItemInput, isReviewed: boolean) => {
+    if (isReviewed) {
+      void reopenMasterInboxItems([item.itemId]);
+    } else {
+      void markMasterInboxReviewed([item]);
+    }
+  }, [markMasterInboxReviewed, reopenMasterInboxItems]);
+
+  const markVisibleMasterInboxReviewed = useCallback((items: MasterInboxStateItemInput[]) => {
+    void markMasterInboxReviewed(items);
+  }, [markMasterInboxReviewed]);
 
   const masterInboxFilteredTasks = useMemo(() => {
     if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return masterInbox.tasks;
@@ -3847,10 +3881,20 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return Array.from(groups.values());
   }, [masterInbox.activity, masterInboxFilter]);
 
-  const masterInboxFilteredItemIds = useMemo(() => {
-    const taskIds = masterInboxFilteredTasks.map((item) => item.id);
-    const activityIds = masterInboxFilteredActivityGroups.flatMap((group) => group.items.map((item) => item.id));
-    return [...taskIds, ...activityIds];
+  const masterInboxFilteredItemsForState = useMemo<MasterInboxStateItemInput[]>(() => {
+    const taskItems = masterInboxFilteredTasks.map((item) => ({
+      itemId: item.id,
+      itemType: 'task' as const,
+      orderId: item.orderId,
+    }));
+    const activityItems = masterInboxFilteredActivityGroups.flatMap((group) =>
+      group.items.map((item) => ({
+        itemId: item.id,
+        itemType: 'event' as const,
+        orderId: item.orderId,
+      }))
+    );
+    return [...taskItems, ...activityItems];
   }, [masterInboxFilteredActivityGroups, masterInboxFilteredTasks]);
 
   const committedProductsRows =
@@ -11238,8 +11282,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
               <button
                 className="rounded-lg border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={masterInboxFilteredItemIds.length === 0}
-                onClick={() => markVisibleMasterInboxReviewed(masterInboxFilteredItemIds)}
+                disabled={masterInboxFilteredItemsForState.length === 0}
+                onClick={() => markVisibleMasterInboxReviewed(masterInboxFilteredItemsForState)}
                 type="button"
               >
                 Marcar visibles
@@ -11254,6 +11298,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
                 {masterInboxFilteredTasks.map((n) => {
                   const isReviewed = masterInboxReviewedIds.has(n.id);
+                  const isSaving = masterInboxSavingIds.has(n.id);
+                  const stateItem: MasterInboxStateItemInput = {
+                    itemId: n.id,
+                    itemType: 'task',
+                    orderId: n.orderId,
+                  };
 
                   return (
                   <div
@@ -11289,20 +11339,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <button
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm transition hover:border-[#FEEF00]/40"
                         onClick={() => {
-                          markMasterInboxReviewed(n.id);
+                          void markMasterInboxReviewed([stateItem]);
                           setNotifOpen(false);
                           openOrderPanel(n.orderId, n.openTab);
                         }}
+                        disabled={isSaving}
                         type="button"
                       >
                         {getMasterInboxTaskActionLabel(n.type)}
                       </button>
                       <button
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
-                        onClick={() => toggleMasterInboxReviewed(n.id)}
+                        onClick={() => toggleMasterInboxReviewed(stateItem, isReviewed)}
+                        disabled={isSaving}
                         type="button"
                       >
-                        {isReviewed ? 'Reabrir' : 'Revisada'}
+                        {isSaving ? '...' : isReviewed ? 'Reabrir' : 'Revisada'}
                       </button>
                     </div>
                   </div>
@@ -11324,6 +11376,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">{group.label}</div>
                     {group.items.map((item) => {
                       const isReviewed = masterInboxReviewedIds.has(item.id);
+                      const isSaving = masterInboxSavingIds.has(item.id);
+                      const stateItem: MasterInboxStateItemInput = {
+                        itemId: item.id,
+                        itemType: 'event',
+                        orderId: item.orderId,
+                      };
 
                       return (
                       <div
@@ -11371,20 +11429,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <button
                             className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm transition hover:border-[#FEEF00]/40"
                             onClick={() => {
-                              markMasterInboxReviewed(item.id);
+                              void markMasterInboxReviewed([stateItem]);
                               setNotifOpen(false);
                               openOrderPanel(item.orderId, item.openTab);
                             }}
+                            disabled={isSaving}
                             type="button"
                           >
                             {getMasterInboxEventActionLabel(item)}
                           </button>
                           <button
                             className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
-                            onClick={() => toggleMasterInboxReviewed(item.id)}
+                            onClick={() => toggleMasterInboxReviewed(stateItem, isReviewed)}
+                            disabled={isSaving}
                             type="button"
                           >
-                            {isReviewed ? 'Reabrir' : 'Revisada'}
+                            {isSaving ? '...' : isReviewed ? 'Reabrir' : 'Revisada'}
                           </button>
                         </div>
                       </div>
