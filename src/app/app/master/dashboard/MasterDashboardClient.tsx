@@ -11474,20 +11474,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           {isSaving ? '...' : inboxStatus ? 'Reabrir' : 'Revisada'}
                         </button>
                       ) : null}
-                      <button
-                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
-                        onClick={() => {
-                          if (isResolved) {
-                            void reopenMasterInboxItems([stateItem.itemId]);
-                          } else {
-                            void resolveMasterInboxItems([stateItem]);
-                          }
-                        }}
-                        disabled={isSaving}
-                        type="button"
-                      >
-                        {isSaving ? '...' : isResolved ? 'Reabrir' : 'Resolver'}
-                      </button>
                     </div>
                   </div>
                   );
@@ -11586,20 +11572,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                               {isSaving ? '...' : inboxStatus ? 'Reabrir' : 'Revisada'}
                             </button>
                           ) : null}
-                          <button
-                            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
-                            onClick={() => {
-                              if (isResolved) {
-                                void reopenMasterInboxItems([stateItem.itemId]);
-                              } else {
-                                void resolveMasterInboxItems([stateItem]);
-                              }
-                            }}
-                            disabled={isSaving}
-                            type="button"
-                          >
-                            {isSaving ? '...' : isResolved ? 'Reabrir' : 'Resolver'}
-                          </button>
                         </div>
                       </div>
                       );
