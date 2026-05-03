@@ -2531,7 +2531,7 @@ export async function updateMoneyAccountAction(input: {
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta inv�lida.');
+    throw new Error('Cuenta inválida.');
   }
 
   const name = String(input.name || '').trim();
@@ -2562,7 +2562,7 @@ export async function toggleMoneyAccountActiveAction(input: {
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
-    throw new Error('Cuenta inv�lida.');
+    throw new Error('Cuenta inválida.');
   }
 
   const { error } = await supabase

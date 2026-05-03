@@ -2508,17 +2508,17 @@ function ComponentCard({
     {pc.componentName}
   </div>
   <div className="mt-1 text-xs text-[#8A8A96]">
-    {pc.componentSku ? `${pc.componentSku} Â· ` : ''}
+    {pc.componentSku ? `${pc.componentSku} · ` : ''}
     {catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService
       ? `${catalogItems.find((p) => p.id === pc.componentProductId)?.unitsPerService} und/serv`
-      : 'â€”'}
+      : '—'}
   </div>
 
   {/* bloque legado movido fuera de contexto
     <div className="mt-4 hidden rounded-xl border border-emerald-500/20 bg-[#0B0B0D] p-3">
-      <div className="text-sm font-semibold text-[#F5F5F7]">AplicaciÃ³n de fondo</div>
+      <div className="text-sm font-semibold text-[#F5F5F7]">Aplicación de fondo</div>
       <div className="mt-1 text-xs text-[#8A8A96]">
-        Disponible: {fmtUSD(createOrderClientFundAvailableUsd)}. Este saldo ya entrÃ³ antes; aquÃ­ solo se aplica a la orden.
+        Disponible: {fmtUSD(createOrderClientFundAvailableUsd)}. Este saldo ya entró antes; aquí solo se aplica a la orden.
       </div>
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
         <FieldCheckbox
@@ -2547,7 +2547,7 @@ function ComponentCard({
           value={createOrderClientFundAmountUsd}
           onChange={setCreateOrderClientFundAmountUsd}
           type="text"
-          hint="MÃ¡ximo: saldo del cliente o total de la orden."
+          hint="Máximo: saldo del cliente o total de la orden."
         />
       </div>
       {createOrderUseClientFund ? (
@@ -2764,7 +2764,7 @@ function getCatalogOperationalModel(
     return {
       kind: 'unknown',
       label: 'Sin definir',
-      summary: 'Sin informaciÃ³n',
+      summary: 'Sin información',
     };
   }
 
@@ -2821,7 +2821,7 @@ function validateCatalogBeforeSave(params: {
   const { item, editIsDetailEditable, editDetailUnitsLimit, editComponents } = params;
 
   if (!item) {
-    return 'Producto invÃ¡lido.';
+    return 'Producto inválido.';
   }
 
   const normalized = editComponents.map((row) => ({
@@ -2832,7 +2832,7 @@ function validateCatalogBeforeSave(params: {
   }));
 
   if (normalized.some((row) => row.componentProductId <= 0)) {
-    return 'Todos los componentes deben tener un producto vÃ¡lido.';
+    return 'Todos los componentes deben tener un producto válido.';
   }
 
   if (normalized.some((row) => row.componentMode === 'fixed' && row.quantity <= 0)) {
@@ -2843,7 +2843,7 @@ function validateCatalogBeforeSave(params: {
   for (const row of normalized) {
     const key = `${row.componentProductId}::${row.componentMode}`;
     if (seen.has(key)) {
-      return 'No repitas el mismo componente con el mismo modo. EdÃ­talo en una sola fila.';
+      return 'No repitas el mismo componente con el mismo modo. Edítalo en una sola fila.';
     }
     seen.add(key);
   }
@@ -2856,7 +2856,7 @@ function validateCatalogBeforeSave(params: {
 
     const detailLimit = Number(editDetailUnitsLimit || 0);
     if (detailLimit <= 0) {
-      return 'El lÃ­mite de detalle debe ser mayor a 0 para un plato editable.';
+      return 'El límite de detalle debe ser mayor a 0 para un plato editable.';
     }
   }
 
@@ -3402,7 +3402,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 7)
       .map((o) => ({
         id: o.id,
-        label: `${o.id} Â· ${o.clientName}`,
+        label: `${o.id} · ${o.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.deliveryAtISO)}`,
       }));
   }, [orders, search]);
@@ -4248,12 +4248,12 @@ const openCreateOrderDrawer = () => {
 const INVENTORY_MOVEMENT_LABEL: Record<InventoryMovementItem['movementType'], string> = {
   inbound: 'Entrada',
   sale_out: 'Salida por venta',
-  damage: 'AverÃ­a',
+  damage: 'Avería',
   waste: 'Merma',
   manual_adjustment: 'Ajuste manual',
-  stock_count: 'Conteo fÃ­sico',
-  production_out: 'Salida por producciÃ³n',
-  production_in: 'Entrada por producciÃ³n',
+  stock_count: 'Conteo físico',
+  production_out: 'Salida por producción',
+  production_in: 'Entrada por producción',
   pack_out: 'Salida por empaque',
   pack_in: 'Entrada por empaque',
 };
@@ -4488,7 +4488,7 @@ const handleLogout = async () => {
   try {
     await logoutAction();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cerrando sesiÃ³n.';
+    const message = err instanceof Error ? err.message : 'Error cerrando sesión.';
     showToast('error', message);
   }
 };
@@ -4689,7 +4689,7 @@ const handleApprove = async (o: Order) => {
       return;
     }
 
-    showToast('error', 'Esta orden no requiere aprobaciÃ³n.');
+    showToast('error', 'Esta orden no requiere aprobación.');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando la orden.';
     showToast('error', message);
@@ -4708,7 +4708,7 @@ const handleReturn = async (o: Order) => {
       reason: reviewActionNotes.trim(),
     });
 
-    showToast('success', 'Pedido devuelto a revisiÃ³n.');
+    showToast('success', 'Pedido devuelto a revisión.');
     resetReviewActionBox();
     router.refresh();
   } catch (err) {
@@ -4734,13 +4734,13 @@ const handleCreatePaymentReport = async (o: Order) => {
     );
 
     if (!selectedAccount) {
-      showToast('error', 'Cuenta invÃ¡lida.');
+      showToast('error', 'Cuenta inválida.');
       return;
     }
 
     const reportedAmount = Number(paymentReportAmount || 0);
     if (!Number.isFinite(reportedAmount) || reportedAmount <= 0) {
-      showToast('error', 'Monto invÃ¡lido.');
+      showToast('error', 'Monto inválido.');
       return;
     }
 
@@ -4749,7 +4749,7 @@ const handleCreatePaymentReport = async (o: Order) => {
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(paymentReportExchangeRate || 0);
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-        showToast('error', 'Debes indicar una tasa vÃ¡lida para pagos en VES.');
+        showToast('error', 'Debes indicar una tasa válida para pagos en VES.');
         return;
       }
     }
@@ -4783,7 +4783,7 @@ const handleApplyClientFundPayment = async (o: Order) => {
 
     const amountUsd = Number(String(paymentApplyFundAmountUsd || '').replace(',', '.'));
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
-      showToast('error', 'El monto del fondo no es vÃ¡lido.');
+      showToast('error', 'El monto del fondo no es válido.');
       return;
     }
 
@@ -4806,13 +4806,13 @@ const handleDeliverClientChange = async (o: Order) => {
   try {
     const moneyAccountId = Number(paymentGiveChangeMoneyAccountId || 0);
     if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
-      showToast('error', 'Debes seleccionar la cuenta desde la cual entregarÃ¡s el cambio.');
+      showToast('error', 'Debes seleccionar la cuenta desde la cual entregarás el cambio.');
       return;
     }
 
     const selectedAccount = moneyAccounts.find((account) => account.id === moneyAccountId);
     if (!selectedAccount) {
-      showToast('error', 'Cuenta invÃ¡lida.');
+      showToast('error', 'Cuenta inválida.');
       return;
     }
 
@@ -4826,7 +4826,7 @@ const handleDeliverClientChange = async (o: Order) => {
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(String(paymentGiveChangeExchangeRate || '').replace(',', '.'));
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
-        showToast('error', 'Debes indicar una tasa vÃ¡lida para el cambio en Bs.');
+        showToast('error', 'Debes indicar una tasa válida para el cambio en Bs.');
         return;
       }
     }
@@ -4904,7 +4904,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
 
     if (predictedExcessUsd > 0.005) {
       if (false && !paymentConfirmOverpaymentHandling) {
-        showToast('error', 'Debes elegir quÃ© hacer con el excedente.');
+        showToast('error', 'Debes elegir qué hacer con el excedente.');
         return;
       }
 
@@ -4922,7 +4922,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
         );
 
         if (!selectedChangeAccount) {
-          showToast('error', 'Debes seleccionar la cuenta desde la cual se darÃ¡ el cambio.');
+          showToast('error', 'Debes seleccionar la cuenta desde la cual se dará el cambio.');
           return;
         }
 
@@ -4935,7 +4935,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
         if (selectedChangeAccount.currencyCode === 'VES') {
           const changeRate = Number(String(paymentConfirmChangeExchangeRate || '').replace(',', '.'));
           if (!Number.isFinite(changeRate) || changeRate <= 0) {
-            showToast('error', 'Debes indicar una tasa vÃ¡lida para el cambio en Bs.');
+            showToast('error', 'Debes indicar una tasa válida para el cambio en Bs.');
             return;
           }
         }
@@ -5033,7 +5033,7 @@ const handleKitchenTake = async (o: Order) => {
     const etaMinutes = Number(kitchenEtaMinutes || 0);
 
     if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
-      showToast('error', 'ETA invÃ¡lido.');
+      showToast('error', 'ETA inválido.');
       return;
     }
 
@@ -5074,7 +5074,7 @@ const handleOutForDelivery = async (o: Order) => {
       o.fulfillment === 'delivery' &&
       (!Number.isFinite(etaMinutes) || etaMinutes == null || etaMinutes <= 0)
     ) {
-      showToast('error', 'Tiempo estimado invÃ¡lido.');
+      showToast('error', 'Tiempo estimado inválido.');
       return;
     }
 
@@ -5175,18 +5175,18 @@ const handleCancelOrder = async (o: Order) => {
 const handleClearDeliveryAssignment = async (o: Order) => {
   try {
     const notes =
-      window.prompt('Motivo para quitar la asignaciÃ³n (opcional):', '') ?? '';
+      window.prompt('Motivo para quitar la asignación (opcional):', '') ?? '';
 
     await clearDeliveryAssignmentAction({
       orderId: o.id,
       notes,
     });
 
-    showToast('success', 'AsignaciÃ³n de delivery quitada.');
+    showToast('success', 'Asignación de delivery quitada.');
     router.refresh();
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Error quitando la asignaciÃ³n.';
+      err instanceof Error ? err.message : 'Error quitando la asignación.';
     showToast('error', message);
   }
 };
@@ -5213,7 +5213,7 @@ const handleSaveCatalog = async () => {
     );
 
     if (!Number.isFinite(normalizedSourcePriceAmount) || normalizedSourcePriceAmount < 0) {
-      showToast('error', 'El monto fuente no es vÃ¡lido.');
+      showToast('error', 'El monto fuente no es válido.');
       return;
     }
 
@@ -5273,11 +5273,11 @@ const handleSaveCatalog = async () => {
       })),
     });
 
-    showToast('success', 'CatÃ¡logo actualizado.');
+    showToast('success', 'Catálogo actualizado.');
     setCatalogEditMode(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error guardando catÃ¡logo.';
+    const message = err instanceof Error ? err.message : 'Error guardando catálogo.';
     showToast('error', message);
   } finally {
     setCatalogSaving(false);
@@ -5337,11 +5337,11 @@ const handleSaveQuickCatalog = async () => {
     await updateCatalogPricesQuickAction({
       items: changedItems,
     });
-    showToast('success', `CatÃ¡logo actualizado por bloque (${changedItems.length}).`);
+    showToast('success', `Catálogo actualizado por bloque (${changedItems.length}).`);
     setQuickCatalogOpen(false);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error actualizando precios rÃ¡pidos.';
+    const message = err instanceof Error ? err.message : 'Error actualizando precios rápidos.';
     showToast('error', message);
   } finally {
     setQuickCatalogSaving(false);
@@ -5505,7 +5505,7 @@ const handleSaveQuickCatalog = async () => {
         selectedMovementAccount?.currencyCode === 'VES' &&
         (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)
       ) {
-        showToast('error', 'Debes indicar una tasa vÃ¡lida para movimientos en Bs.');
+        showToast('error', 'Debes indicar una tasa válida para movimientos en Bs.');
         return;
       }
 
@@ -5515,7 +5515,7 @@ const handleSaveQuickCatalog = async () => {
       }
 
       if (!movementDescription.trim()) {
-        showToast('error', 'Debes indicar el motivo o descripciÃ³n.');
+        showToast('error', 'Debes indicar el motivo o descripción.');
         return;
       }
 
@@ -5815,13 +5815,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde invÃ¡lido.');
+        throw new Error('Km desde inválido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta invÃ¡lido.');
+        throw new Error('Km hasta inválido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa invÃ¡lida.');
+        throw new Error('Tarifa inválida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -5863,13 +5863,13 @@ const handleSaveQuickCatalog = async () => {
       const priceUsd = Number(String(deliveryPartnerRatePriceUsd || '').replace(',', '.'));
 
       if (!Number.isFinite(kmFrom) || kmFrom < 0) {
-        throw new Error('Km desde invÃ¡lido.');
+        throw new Error('Km desde inválido.');
       }
       if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
-        throw new Error('Km hasta invÃ¡lido.');
+        throw new Error('Km hasta inválido.');
       }
       if (!Number.isFinite(priceUsd) || priceUsd < 0) {
-        throw new Error('Tarifa invÃ¡lida.');
+        throw new Error('Tarifa inválida.');
       }
 
       const supabase = createSupabaseBrowser();
@@ -6255,7 +6255,7 @@ const handleCreateInventoryMovement = async () => {
       safePackagingQty * Number(selectedInventoryProduct.packagingSize || 0) + safeUnitQty;
 
     if (!Number.isFinite(quantityUnits) || quantityUnits < 0) {
-      throw new Error('Cantidad invÃ¡lida.');
+      throw new Error('Cantidad inválida.');
     }
 
     await createInventoryMovementAction({
@@ -6285,7 +6285,7 @@ const handleCreateInventoryProduction = async () => {
 
     const batchMultiplier = Number(String(inventoryProductionBatches || '').trim().replace(',', '.'));
     if (!Number.isFinite(batchMultiplier) || batchMultiplier <= 0) {
-      throw new Error('La cantidad a producir es invÃ¡lida.');
+      throw new Error('La cantidad a producir es inválida.');
     }
 
     await createInventoryProductionAction({
@@ -6294,12 +6294,12 @@ const handleCreateInventoryProduction = async () => {
       notes: inventoryProductionNotes.trim() || null,
     });
 
-    showToast('success', 'ProducciÃ³n registrada.');
+    showToast('success', 'Producción registrada.');
     setInventoryProductionOpen(false);
     resetInventoryProductionForm();
     router.refresh();
   } catch (err) {
-    showToast('error', err instanceof Error ? err.message : 'No se pudo registrar la producciÃ³n.');
+    showToast('error', err instanceof Error ? err.message : 'No se pudo registrar la producción.');
   } finally {
     setInventoryProductionSaving(false);
   }
@@ -6356,7 +6356,7 @@ const handleCreateCatalogItem = async () => {
       })),
     });
 
-    showToast('success', 'Ã­tem creado.');
+    showToast('success', 'ítem creado.');
     setCreateCatalogOpen(false);
     resetCreateCatalogForm();
     router.refresh();
@@ -6367,7 +6367,7 @@ const handleCreateCatalogItem = async () => {
       setCatalogEditMode(true);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error creando Ã­tem.';
+    const message = err instanceof Error ? err.message : 'Error creando ítem.';
     showToast('error', message);
   } finally {
     setCreateCatalogSaving(false);
@@ -6385,10 +6385,10 @@ const handleToggleCatalogItemActive = async () => {
       nextIsActive,
     });
 
-    showToast('success', nextIsActive ? 'Ã­tem activado.' : 'Ã­tem desactivado.');
+    showToast('success', nextIsActive ? 'ítem activado.' : 'ítem desactivado.');
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error cambiando estado del Ã­tem.';
+    const message = err instanceof Error ? err.message : 'Error cambiando estado del ítem.';
     showToast('error', message);
   }
 };
@@ -6397,7 +6397,7 @@ const handleDeleteCatalogItem = async () => {
   if (!selectedCatalogItem) return;
 
   const confirmed = window.confirm(
-    `Â¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionarÃ¡ si no tiene uso ni dependencias.`
+    `¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionará si no tiene uso ni dependencias.`
   );
 
   if (!confirmed) return;
@@ -6407,12 +6407,12 @@ const handleDeleteCatalogItem = async () => {
       productId: selectedCatalogItem.id,
     });
 
-    showToast('success', 'Ã­tem eliminado.');
+    showToast('success', 'ítem eliminado.');
     setCatalogDetailOpen(false);
     setSelectedCatalogItemId(null);
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error eliminando Ã­tem.';
+    const message = err instanceof Error ? err.message : 'Error eliminando ítem.';
     showToast('error', message);
   }
 };
@@ -6619,7 +6619,7 @@ const handleCreateOrderClientNow = async () => {
     }
 
     if (!phone) {
-      showToast('error', 'Debes colocar el telÃ©fono del cliente.');
+      showToast('error', 'Debes colocar el teléfono del cliente.');
       return;
     }
 
@@ -6670,7 +6670,7 @@ const handleCreateOrderClientNow = async () => {
     showToast(
       'success',
       quickClient.alreadyExisted
-        ? 'Ese cliente ya existÃ­a y fue seleccionado.'
+        ? 'Ese cliente ya existía y fue seleccionado.'
         : 'Cliente creado.'
     );
     return;
@@ -6713,7 +6713,7 @@ const openEditCreateOrderConfig = (draftItem: DraftItem) => {
   const product = catalogItems.find((item) => item.id === draftItem.productId);
 
   if (!product) {
-    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este Ã­tem.');
+    showToast('error', 'No se pudo encontrar el producto base para reconfigurar este ítem.');
     return;
   }
 
@@ -6967,7 +6967,7 @@ const handleCreateOrder = async () => {
     }
 
     if (createOrderUseClientFund && createOrderAppliedFundUsd <= 0.005) {
-      showToast('error', 'El monto a aplicar del fondo no es vÃ¡lido.');
+      showToast('error', 'El monto a aplicar del fondo no es válido.');
       return;
     }
 
@@ -7061,7 +7061,7 @@ const handleUpdateOrder = async () => {
     }
 
     if (createOrderUseClientFund && createOrderAppliedFundUsd <= 0.005) {
-      showToast('error', 'El monto a aplicar del fondo no es vÃ¡lido.');
+      showToast('error', 'El monto a aplicar del fondo no es válido.');
       return;
     }
 
@@ -7071,7 +7071,7 @@ const handleUpdateOrder = async () => {
       !['created', 'queued'].includes(selectedOrder.status);
 
     if (isAdvancedAdminEdit && !adminEditReason.trim()) {
-      showToast('error', 'Debes indicar el motivo de la modificaciÃ³n administrativa.');
+      showToast('error', 'Debes indicar el motivo de la modificación administrativa.');
       return;
     }
 
@@ -7194,7 +7194,7 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
 
   const nextUnitUsd = Number(String(priceAdjustValue || '').replace(',', '.'));
   if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
-    showToast('error', 'El precio ajustado es invÃ¡lido.');
+    showToast('error', 'El precio ajustado es inválido.');
     return;
   }
 
@@ -7912,7 +7912,7 @@ const selectedCreateOrderClientAddresses = useMemo(
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
-              : 'Ã­tem';
+              : 'ítem';
           const changedFields = getAdjustmentChangedFields(payload);
           const changedFieldLabels = changedFields.map(mapAdjustmentFieldLabel);
 
@@ -10424,7 +10424,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                               >
                                 <td className="px-3 py-2">{partner.name}</td>
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
-                                <td className="px-3 py-2">{partner.whatsappPhone || 'â€”'}</td>
+                                <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
                                 <td className="px-3 py-2">
                                   {(partner.rates ?? []).filter((rate) => rate.isActive).length}
                                 </td>
@@ -10614,7 +10614,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
         <div className="text-sm font-semibold text-[#F5F5F7]">Bajo stock</div>
         <div className="mt-3 text-2xl font-semibold text-[#FEEF00]">{inventorySummary.lowStock}</div>
-        <div className="mt-1 text-xs text-[#8A8A96]">Por debajo del mÃ­nimo configurado</div>
+        <div className="mt-1 text-xs text-[#8A8A96]">Por debajo del mínimo configurado</div>
       </div>
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -10679,8 +10679,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <th className="px-3 py-3 text-left font-medium">Tipo</th>
               <th className="px-3 py-3 text-left font-medium">Empaque</th>
               <th className="px-3 py-3 text-left font-medium">Stock actual</th>
-              <th className="px-3 py-3 text-left font-medium">MÃ­nimo</th>
-              <th className="px-3 py-3 text-left font-medium">Ãšltimo movimiento</th>
+              <th className="px-3 py-3 text-left font-medium">Mínimo</th>
+              <th className="px-3 py-3 text-left font-medium">Último movimiento</th>
             </tr>
           </thead>
           <tbody>
@@ -10765,7 +10765,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             </div>
                           </>
                         )
-                        : 'â€”'}
+                        : '—'}
                     </td>
                     <td className="px-3 py-3 text-[#B7B7C2]">
                       {latestMovement ? (
@@ -11267,7 +11267,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             { value: '', label: 'Todos' },
             ...adjustmentTypeOptions.map((value) => ({
               value,
-              label: value === 'item_price_override' ? 'Ajuste de precio por Ã­tem' : value,
+              label: value === 'item_price_override' ? 'Ajuste de precio por ítem' : value,
             })),
           ]}
         />
@@ -11312,7 +11312,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <td className="px-3 py-3">{row.clientName}</td>
                     <td className="px-3 py-3">
                       {row.adjustmentKind === 'admin_full_edit'
-                        ? 'ModificaciÃ³n admin'
+                        ? 'Modificación admin'
                         : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
                           ? 'Cierre por redondeo'
                           : row.adjustmentType === 'item_price_override'
@@ -11324,20 +11324,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {row.adjustmentKind === 'admin_full_edit'
                           ? row.changedFieldLabels.length > 0
                             ? row.changedFieldLabels.join(', ')
-                            : 'ModificaciÃ³n auditada'
+                            : 'Modificación auditada'
                           : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
                             ? 'Total ajustado al monto confirmado'
                             : row.productName}
                       </div>
                       {row.adjustmentKind === 'admin_full_edit' ? null : (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">
-                          {fmtUSD(row.originalUnitUsd)} ? {fmtUSD(row.overrideUnitUsd)}
-                          {row.qty > 0 ? ` ? x${row.qty}` : ''}
+                          {fmtUSD(row.originalUnitUsd)} -> {fmtUSD(row.overrideUnitUsd)}
+                          {row.qty > 0 ? ` · x${row.qty}` : ''}
                         </div>
                       )}
                     </td>
                     <td className="px-3 py-3">
-                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || 'â€”'}</div>
+                      <div className="max-w-[280px] text-[#F5F5F7]">{row.reason || '—'}</div>
                       {row.notes ? (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">{row.notes}</div>
                       ) : null}
@@ -13039,7 +13039,7 @@ onClose={() => {
           {selectedOrder.editMeta?.paymentRequiresChange
             ? selectedOrder.editMeta?.paymentChangeFor
               ? `Para ${selectedOrder.editMeta.paymentChangeFor} ${selectedOrder.editMeta.paymentChangeCurrency || ''}`
-              : 'SÃ­'
+              : 'Sí'
             : 'No'}
         </div>
       </div>
@@ -13303,7 +13303,7 @@ onClose={() => {
           const productName =
             typeof payload.product_name === 'string' && payload.product_name.trim()
               ? payload.product_name
-              : 'Ã­tem';
+              : 'ítem';
           const qty = Number(payload.qty ?? 0);
           const changedFieldLabels = getAdjustmentChangedFields(payload).map(mapAdjustmentFieldLabel);
           const isAdminFullEdit = payload.kind === 'admin_full_edit';
@@ -13317,15 +13317,15 @@ onClose={() => {
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
                     {isAdminFullEdit
-                      ? 'ModificaciÃ³n administrativa'
+                      ? 'Modificación administrativa'
                       : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
                       ? 'Cierre por redondeo'
                       : adjustment.adjustmentType === 'item_price_override'
-                      ? 'Ajuste de precio por Ã­tem'
+                      ? 'Ajuste de precio por ítem'
                       : adjustment.adjustmentType}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {fmtDateTimeES(adjustment.createdAt)} Â· {adjustment.createdByUserId}
+                    {fmtDateTimeES(adjustment.createdAt)} · {adjustment.createdByUserId}
                   </div>
                 </div>
 
@@ -13338,20 +13338,20 @@ onClose={() => {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
                   <div className="text-[10px] text-[#8A8A96]">Motivo</div>
-                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || 'â€”'}</div>
+                  <div className="mt-1 text-sm text-[#F5F5F7]">{adjustment.reason || '—'}</div>
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">{isAdminFullEdit ? 'Cambios detectados' : 'Ã­tem'}</div>
+                  <div className="text-[10px] text-[#8A8A96]">{isAdminFullEdit ? 'Cambios detectados' : 'ítem'}</div>
                   <div className="mt-1 text-sm text-[#F5F5F7]">
                     {isAdminFullEdit
                       ? changedFieldLabels.length > 0
                         ? changedFieldLabels.join(', ')
-                        : 'ModificaciÃ³n auditada'
+                        : 'Modificación auditada'
                       : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
                         ? 'Total ajustado al monto confirmado'
                         : productName}
-                    {!isAdminFullEdit && qty > 0 ? ` Â· x${qty}` : ''}
+                    {!isAdminFullEdit && qty > 0 ? ` · x${qty}` : ''}
                   </div>
                 </div>
               </div>
@@ -13821,7 +13821,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
       <div>
         <div className="text-[11px] font-semibold text-[#F5F5F7]">Confirmar pago</div>
         <div className="mt-1 text-[11px] text-[#B7B7C2]">
-          Reporte #{selectedConfirmPaymentReport.id} Â· {fmtUSD(selectedConfirmPaymentReport.usdEquivalent)}
+          Reporte #{selectedConfirmPaymentReport.id} · {fmtUSD(selectedConfirmPaymentReport.usdEquivalent)}
         </div>
       </div>
       <SmallBadge
@@ -13836,7 +13836,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
 
     <div className="mt-3 space-y-3">
       <div>
-        <label className="mb-1 block text-[11px] text-[#8A8A96]">Notas de confirmaciÃ³n</label>
+        <label className="mb-1 block text-[11px] text-[#8A8A96]">Notas de confirmación</label>
         <textarea
           value={paymentConfirmReviewNotes}
           onChange={(e) => setPaymentConfirmReviewNotes(e.target.value)}
@@ -13848,9 +13848,9 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
 
       {selectedConfirmPaymentExcessUsd > 0.005 ? (
         <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-3">
-          <div className="text-[11px] font-medium text-[#F5F5F7]">QuÃ© hacer con el excedente</div>
+          <div className="text-[11px] font-medium text-[#F5F5F7]">Qué hacer con el excedente</div>
           <div className="mt-1 text-[11px] text-[#8A8A96]">
-            El cliente estÃ¡ pagando {fmtUSD(selectedConfirmPaymentExcessUsd)} de mÃ¡s.
+            El cliente está pagando {fmtUSD(selectedConfirmPaymentExcessUsd)} de más.
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -13864,8 +13864,8 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
               ].join(' ')}
               onClick={() => setPaymentConfirmOverpaymentHandling('store_fund')}
             >
-              <div className="text-sm font-semibold">Fondo automÃ¡tico</div>
-              <div className="mt-1 text-[11px]">El excedente quedarÃ¡ como saldo a favor y luego podrÃ¡s dar cambio desde la orden.</div>
+              <div className="text-sm font-semibold">Fondo automático</div>
+              <div className="mt-1 text-[11px]">El excedente quedará como saldo a favor y luego podrás dar cambio desde la orden.</div>
             </button>
 
             {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
@@ -13973,7 +13973,7 @@ deliveryAssignMode === 'external' ? (
         onChange={(e) => handleDeliveryAssignPartnerChange(e.target.value)}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
-        <option value="">â€” seleccionar â€”</option>
+        <option value="">— seleccionar —</option>
         {deliveryPartners.filter((p) => p.isActive).map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -14001,7 +14001,7 @@ deliveryAssignMode === 'external' ? (
           </span>
         </>
       ) : (
-        'Sin tarifa automÃ¡tica para esa distancia.'
+        'Sin tarifa automática para esa distancia.'
       )}
     </div>
 
@@ -14069,7 +14069,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar aprobaciÃ³n
+          Confirmar aprobación
         </button>
       ) : null}
 
@@ -14078,7 +14078,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleApprove(selectedOrder)}
         >
-          Confirmar re-aprobaciÃ³n
+          Confirmar re-aprobación
         </button>
       ) : null}
 
@@ -14087,7 +14087,7 @@ deliveryAssignMode === 'external' ? (
           className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
           onClick={() => handleReturn(selectedOrder)}
         >
-          Enviar devoluciÃ³n
+          Enviar devolución
         </button>
       ) : null}
 
@@ -14156,7 +14156,7 @@ deliveryAssignMode === 'external' ? (
         ? `Interno: ${selectedOrder.riderName}`
         : selectedOrder.externalPartner
           ? `Externo: ${selectedOrder.externalPartner}`
-          : 'Sin asignaciÃ³n visible'}
+          : 'Sin asignación visible'}
     </div>
 
     <div className="mt-2 space-y-2">
@@ -14269,7 +14269,7 @@ deliveryAssignMode === 'external' ? (
         value={cancelOrderReason}
         onChange={(e) => setCancelOrderReason(e.target.value)}
         rows={3}
-        placeholder="Motivo de cancelaciÃ³n (obligatorio)"
+        placeholder="Motivo de cancelación (obligatorio)"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
@@ -14279,7 +14279,7 @@ deliveryAssignMode === 'external' ? (
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleCancelOrder(selectedOrder)}
       >
-        Confirmar cancelaciÃ³n
+        Confirmar cancelación
       </button>
 
       <button
@@ -14303,7 +14303,7 @@ deliveryAssignMode === 'external' ? (
 
         <Drawer
   open={quickCatalogOpen}
-  title="ActualizaciÃ³n rÃ¡pida de catÃ¡logo"
+  title="Actualización rápida de catálogo"
   onClose={() => setQuickCatalogOpen(false)}
   widthClass="w-[820px]"
 >
@@ -14315,11 +14315,11 @@ deliveryAssignMode === 'external' ? (
             Montos fuente por bloque
           </div>
           <div className="mt-1 text-sm text-[#B7B7C2]">
-            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rÃ¡pido de un Ã­tem al siguiente.
+            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rápido de un ítem al siguiente.
           </div>
         </div>
 
-        <SmallBadge label={`${quickCatalogRows.length} Ã­tems`} tone="muted" />
+        <SmallBadge label={`${quickCatalogRows.length} ítems`} tone="muted" />
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
@@ -14328,7 +14328,7 @@ deliveryAssignMode === 'external' ? (
             <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#121218] text-[#B7B7C2]">
               <tr>
                 <th className="w-[84px] px-3 py-3 text-left font-medium">SKU</th>
-                <th className="px-3 py-3 text-left font-medium">Ãtem</th>
+                <th className="px-3 py-3 text-left font-medium">Ítem</th>
                 <th className="w-[78px] px-3 py-3 text-left font-medium">Moneda</th>
                 <th className="w-[170px] px-3 py-3 text-left font-medium">Monto fuente</th>
               </tr>
@@ -14339,7 +14339,7 @@ deliveryAssignMode === 'external' ? (
                   key={row.productId}
                   className={`${idx % 2 === 0 ? 'bg-[#0F0F14]' : 'bg-[#13131A]'} border-b border-[#242433]`}
                 >
-                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || 'â€”'}</td>
+                  <td className="px-3 py-2 text-[#8A8A96]">{row.sku || '—'}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.name}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.sourcePriceCurrency}</td>
                   <td className="px-3 py-2">
@@ -14611,7 +14611,7 @@ deliveryAssignMode === 'external' ? (
         onClick={handleCreateCatalogItem}
         disabled={createCatalogSaving}
       >
-        {createCatalogSaving ? 'Creando...' : 'Crear Ã­tem'}
+        {createCatalogSaving ? 'Creando...' : 'Crear ítem'}
       </button>
     </div>
   </div>
@@ -14656,12 +14656,12 @@ deliveryAssignMode === 'external' ? (
                 value={movementMoneyAccountId}
                 onChange={setMovementMoneyAccountId}
                 options={[
-                  { value: '', label: 'â€” seleccionar cuenta â€”' },
+                  { value: '', label: '— seleccionar cuenta —' },
                   ...moneyAccounts
                     .filter((account) => account.isActive)
                     .map((account) => ({
                       value: String(account.id),
-                      label: `${account.name} Â· ${account.currencyCode}`,
+                      label: `${account.name} · ${account.currencyCode}`,
                     })),
                 ]}
               />
@@ -14700,12 +14700,12 @@ deliveryAssignMode === 'external' ? (
                   label="Tasa Bs por USD"
                   value={movementExchangeRate}
                   onChange={setMovementExchangeRate}
-                  hint="Obligatoria si la cuenta estÃ¡ en Bs."
+                  hint="Obligatoria si la cuenta está en Bs."
                 />
               ) : (
                 <InfoCell
                   label="Moneda"
-                  value={selectedMovementAccount?.currencyCode || 'â€”'}
+                  value={selectedMovementAccount?.currencyCode || '—'}
                 />
               )}
             </div>
@@ -14724,7 +14724,7 @@ deliveryAssignMode === 'external' ? (
               <div>
                 Cuenta seleccionada:{' '}
                 <span className="font-medium text-[#F5F5F7]">
-                  {selectedMovementAccount?.name || 'â€”'}
+                  {selectedMovementAccount?.name || '—'}
                 </span>
               </div>
               <div className="mt-1">
@@ -14823,8 +14823,8 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
-              <InfoCell label="InstituciÃ³n" value={selectedAccount.institutionName || 'â€”'} />
-              <InfoCell label="Titular" value={selectedAccount.ownerName || 'â€”'} />
+              <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
+              <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -14920,7 +14920,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -14993,7 +14993,7 @@ deliveryAssignMode === 'external' ? (
                 { value: 'wallet', label: 'Wallet' },
               ]}
             />
-            <FieldInput label="InstituciÃ³n" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
+            <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
 
@@ -15084,7 +15084,7 @@ deliveryAssignMode === 'external' ? (
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || 'â€”'} />
+                <InfoCell label="WhatsApp" value={selectedDeliveryPartner.whatsappPhone || '—'} />
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
@@ -15372,13 +15372,13 @@ deliveryAssignMode === 'external' ? (
                 value: option.value,
                 label: option.label,
               }))}
-              hint="Ãšsalo para agrupar por crudos, fritos, prefritos, salsas o envases."
+              hint="Úsalo para agrupar por crudos, fritos, prefritos, salsas o envases."
             />
             <FieldInput label="Unidad base" value={inventoryItemFormUnitName} onChange={setInventoryItemFormUnitName} />
             <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
             <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
             <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
-            <FieldInput label="Stock mÃ­nimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+            <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
             <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
               <input
                 type="checkbox"
@@ -15441,13 +15441,13 @@ deliveryAssignMode === 'external' ? (
                 value: option.value,
                 label: option.label,
               }))}
-              hint="Ãšsalo para agrupar por crudos, fritos, prefritos, salsas o envases."
+              hint="Úsalo para agrupar por crudos, fritos, prefritos, salsas o envases."
             />
             <FieldInput label="Unidad base" value={inventoryItemFormUnitName} onChange={setInventoryItemFormUnitName} />
             <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
             <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
             <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
-            <FieldInput label="Stock mÃ­nimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+            <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
             <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
               <input
                 type="checkbox"
@@ -15515,7 +15515,7 @@ deliveryAssignMode === 'external' ? (
                     <div className="mt-2 text-lg font-semibold text-emerald-400">
                       {Number(availability.potentialUnits.toFixed(3))}
                     </div>
-                    <div className="mt-1 text-xs text-[#8A8A96]">segÃºn receta activa</div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">según receta activa</div>
                   </div>
                   <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                     <div className="text-xs text-[#8A8A96]">Total posible</div>
@@ -15523,7 +15523,7 @@ deliveryAssignMode === 'external' ? (
                       {Number(availability.totalUnits.toFixed(3))}
                     </div>
                     <div className="mt-1 text-xs text-[#8A8A96]">
-                      listo + capacidad de producciÃ³n
+                      listo + capacidad de producción
                     </div>
                   </div>
                 </div>
@@ -15608,7 +15608,7 @@ deliveryAssignMode === 'external' ? (
                       value={inventoryRecipeFormKind}
                       onChange={(value) => setInventoryRecipeFormKind(value as 'production' | 'packaging')}
                       options={[
-                        { value: 'production', label: 'ProducciÃ³n' },
+                        { value: 'production', label: 'Producción' },
                         { value: 'packaging', label: 'Empaque' },
                       ]}
                     />
@@ -15617,7 +15617,7 @@ deliveryAssignMode === 'external' ? (
                       value={inventoryRecipeFormOutputUnits}
                       onChange={setInventoryRecipeFormOutputUnits}
                       type="text"
-                      hint="CuÃ¡ntas unidades de este item produce un lote."
+                      hint="Cuántas unidades de este item produce un lote."
                     />
                   </div>
                   <div className="mt-3">
@@ -15634,7 +15634,7 @@ deliveryAssignMode === 'external' ? (
                     <div>
                       <div className="text-sm font-semibold text-[#F5F5F7]">Insumos de la receta</div>
                       <div className="mt-1 text-xs text-[#8A8A96]">
-                        AquÃ­ conectas este item con otros items internos, por ejemplo mayonesa y lechuga.
+                        Aquí conectas este item con otros items internos, por ejemplo mayonesa y lechuga.
                       </div>
                     </div>
                     <button
@@ -15664,10 +15664,10 @@ deliveryAssignMode === 'external' ? (
                                 })
                               }
                               options={[
-                                { value: '', label: 'â€” seleccionar â€”' },
+                                { value: '', label: '— seleccionar —' },
                                 ...inventoryItemOptions.filter((option) => Number(option.value) !== selectedInventoryProduct.id),
                               ]}
-                              hint="El insumo real que se consumirÃ¡."
+                              hint="El insumo real que se consumirá."
                             />
                             <FieldInput
                               label="Cantidad"
@@ -15736,13 +15736,13 @@ deliveryAssignMode === 'external' ? (
                       value: option.value,
                       label: option.label,
                     }))}
-                    hint="Ãšsalo para agrupar por crudos, fritos, prefritos, salsas o envases."
+                    hint="Úsalo para agrupar por crudos, fritos, prefritos, salsas o envases."
                   />
                   <FieldInput label="Unidad base" value={inventoryItemFormUnitName} onChange={setInventoryItemFormUnitName} />
                   <FieldInput label="Nombre empaque" value={inventoryItemFormPackagingName} onChange={setInventoryItemFormPackagingName} />
                   <FieldInput label="Tam. empaque" value={inventoryItemFormPackagingSize} onChange={setInventoryItemFormPackagingSize} type="text" />
                   <FieldInput label="Stock actual" value={inventoryItemFormCurrentStock} onChange={setInventoryItemFormCurrentStock} type="text" />
-                  <FieldInput label="Stock mÃ­nimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
+                  <FieldInput label="Stock mínimo" value={inventoryItemFormLowStock} onChange={setInventoryItemFormLowStock} type="text" />
                   <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
                     <input
                       type="checkbox"
@@ -15786,10 +15786,10 @@ deliveryAssignMode === 'external' ? (
                       }
                       options={[
                         { value: 'inbound', label: 'Entrada' },
-                        { value: 'damage', label: 'AverÃ­a' },
+                        { value: 'damage', label: 'Avería' },
                         { value: 'waste', label: 'Merma' },
                         { value: 'manual_adjustment', label: 'Ajuste manual' },
-                        { value: 'stock_count', label: 'Conteo fÃ­sico' },
+                        { value: 'stock_count', label: 'Conteo físico' },
                       ]}
                     />
                     <FieldInput
@@ -15855,7 +15855,7 @@ deliveryAssignMode === 'external' ? (
                 </div>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Ãšltimos movimientos</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Últimos movimientos</div>
                   <div className="mt-3 space-y-2">
                     {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? [])
                       .slice(0, 8)
@@ -15879,11 +15879,11 @@ deliveryAssignMode === 'external' ? (
                                 selectedInventoryProduct.packagingSize,
                                 selectedInventoryProduct.unitName
                               )}
-                              {movement.reasonCode ? ` Â· ${movement.reasonCode}` : ""}
+                              {movement.reasonCode ? ` · ${movement.reasonCode}` : ""}
                             </div>
                             {linkedOrder ? (
                               <div className="mt-1 text-xs text-[#8A8A96]">
-                                Orden {linkedOrder.orderNumber} Â· {linkedOrder.clientName}
+                                Orden {linkedOrder.orderNumber} · {linkedOrder.clientName}
                               </div>
                             ) : null}
                             {movement.notes ? (
@@ -15904,7 +15904,7 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
       <Drawer
         open={inventoryProductionOpen}
-        title={selectedInventoryProduct ? `ProducciÃ³n: ${selectedInventoryProduct.name}` : 'ProducciÃ³n'}
+        title={selectedInventoryProduct ? `Producción: ${selectedInventoryProduct.name}` : 'Producción'}
         onClose={() => {
           setInventoryProductionOpen(false);
           resetInventoryProductionForm();
@@ -15914,7 +15914,7 @@ deliveryAssignMode === 'external' ? (
         {!selectedInventoryProduct ? (
           <div className="text-sm text-[#B7B7C2]">Sin producto seleccionado.</div>
         ) : selectedInventoryRecipes.length === 0 ? (
-          <div className="text-sm text-[#B7B7C2]">Este producto todavÃ­a no tiene una receta activa.</div>
+          <div className="text-sm text-[#B7B7C2]">Este producto todavía no tiene una receta activa.</div>
         ) : (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -15927,8 +15927,8 @@ deliveryAssignMode === 'external' ? (
                       value: String(recipe.id),
                       label:
                         recipe.recipeKind === 'packaging'
-                        ? `Empaque Â· ${recipe.outputQuantityUnits} und`
-                        : `ProducciÃ³n Â· ${recipe.outputQuantityUnits} und`,
+                        ? `Empaque · ${recipe.outputQuantityUnits} und`
+                        : `Producción · ${recipe.outputQuantityUnits} und`,
                     }))}
                 />
                 <FieldInput
@@ -15980,7 +15980,7 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Resultado</div>
               <div className="mt-3 text-sm text-[#B7B7C2]">
-                Se sumarÃ¡n{' '}
+                Se sumarán{' '}
                 <span className="font-semibold text-[#F5F5F7]">
                   {fmtInventoryUnits(
                     (selectedInventoryRecipe?.outputQuantityUnits ?? 0) *
@@ -16010,7 +16010,7 @@ deliveryAssignMode === 'external' ? (
                 onClick={handleCreateInventoryProduction}
                 disabled={inventoryProductionSaving}
               >
-                {inventoryProductionSaving ? 'Guardando...' : 'Registrar producciÃ³n'}
+                {inventoryProductionSaving ? 'Guardando...' : 'Registrar producción'}
               </button>
             </div>
           </div>
@@ -16103,25 +16103,25 @@ deliveryAssignMode === 'external' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="RazÃ³n social" value={selectedClient.billingCompanyName || 'â€”'} />
-                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || 'â€”'} />
-                  <InfoCell label="TelÃ©fono" value={selectedClient.billingPhone || 'â€”'} />
-                  <InfoCell label="DirecciÃ³n fiscal" value={selectedClient.billingAddress || 'â€”'} />
+                  <InfoCell label="Razón social" value={selectedClient.billingCompanyName || '—'} />
+                  <InfoCell label="RIF / documento" value={selectedClient.billingTaxId || '—'} />
+                  <InfoCell label="Teléfono" value={selectedClient.billingPhone || '—'} />
+                  <InfoCell label="Dirección fiscal" value={selectedClient.billingAddress || '—'} />
                 </div>
               </div>
 
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Nota de entrega</div>
                 <div className="mt-4 grid grid-cols-1 gap-3">
-                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || 'â€”'} />
+                  <InfoCell label="Nombre" value={selectedClient.deliveryNoteName || '—'} />
                   <InfoCell
                     label="Documento"
-                    value={selectedClient.deliveryNoteDocumentId || 'â€”'}
+                    value={selectedClient.deliveryNoteDocumentId || '—'}
                   />
-                  <InfoCell label="TelÃ©fono" value={selectedClient.deliveryNotePhone || 'â€”'} />
+                  <InfoCell label="Teléfono" value={selectedClient.deliveryNotePhone || '—'} />
                   <InfoCell
-                    label="DirecciÃ³n"
-                    value={selectedClient.deliveryNoteAddress || 'â€”'}
+                    label="Dirección"
+                    value={selectedClient.deliveryNoteAddress || '—'}
                   />
                 </div>
               </div>
@@ -16135,10 +16135,10 @@ deliveryAssignMode === 'external' ? (
                 ) : (
                   normalizeClientAddresses(selectedClient.recentAddresses).map((address, idx) => (
                     <div key={`${selectedClient.id}-${idx}`} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
-                      <div className="text-xs text-[#8A8A96]">DirecciÃ³n {idx + 1}</div>
-                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || 'â€”'}</div>
+                      <div className="text-xs text-[#8A8A96]">Dirección {idx + 1}</div>
+                      <div className="mt-2 text-sm text-[#F5F5F7]">{address.addressText || '—'}</div>
                       <div className="mt-3 text-xs text-[#8A8A96]">GPS</div>
-                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || 'â€”'}</div>
+                      <div className="mt-1 break-all text-sm text-[#B7B7C2]">{address.gpsUrl || '—'}</div>
                     </div>
                   ))
                 )}
@@ -16156,17 +16156,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃ¡sicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="TelÃ©fono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: 'â€” sin asesor principal â€”' },
+                  { value: '', label: '— sin asesor principal —' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -16196,7 +16196,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="CumpleaÃ±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -16218,14 +16218,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="RazÃ³n social"
+                  label="Razón social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="TelÃ©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -16246,12 +16246,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="TelÃ©fono"
+                  label="Teléfono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -16268,7 +16268,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -16281,7 +16281,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -16321,17 +16321,17 @@ deliveryAssignMode === 'external' ? (
       >
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-            <div className="text-sm font-semibold text-[#F5F5F7]">Datos bÃ¡sicos</div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Datos básicos</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <FieldInput label="Nombre completo" value={clientFormFullName} onChange={setClientFormFullName} />
-              <FieldInput label="TelÃ©fono" value={clientFormPhone} onChange={setClientFormPhone} />
+              <FieldInput label="Teléfono" value={clientFormPhone} onChange={setClientFormPhone} />
               <FieldInput label="Tipo de cliente" value={clientFormType} onChange={setClientFormType} />
               <FieldSelect
                 label="Asesor principal"
                 value={clientFormPrimaryAdvisorId}
                 onChange={setClientFormPrimaryAdvisorId}
                 options={[
-                  { value: '', label: 'â€” sin asesor principal â€”' },
+                  { value: '', label: '— sin asesor principal —' },
                   ...advisors.map((advisor) => ({
                     value: advisor.userId,
                     label: advisor.fullName,
@@ -16361,7 +16361,7 @@ deliveryAssignMode === 'external' ? (
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="text-sm font-semibold text-[#F5F5F7]">CRM</div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <FieldInput label="CumpleaÃ±os" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
+              <FieldInput label="Cumpleaños" value={clientFormBirthDate} onChange={setClientFormBirthDate} type="date" />
               <FieldInput
                 label="Fecha importante"
                 value={clientFormImportantDate}
@@ -16383,14 +16383,14 @@ deliveryAssignMode === 'external' ? (
               <div className="text-sm font-semibold text-[#F5F5F7]">Factura</div>
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <FieldInput
-                  label="RazÃ³n social"
+                  label="Razón social"
                   value={clientFormBillingCompanyName}
                   onChange={setClientFormBillingCompanyName}
                 />
                 <FieldInput label="RIF / documento" value={clientFormBillingTaxId} onChange={setClientFormBillingTaxId} />
-                <FieldInput label="TelÃ©fono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
+                <FieldInput label="Teléfono" value={clientFormBillingPhone} onChange={setClientFormBillingPhone} />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
                   <textarea
                     value={clientFormBillingAddress}
                     onChange={(e) => setClientFormBillingAddress(e.target.value)}
@@ -16411,12 +16411,12 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClientFormDeliveryNoteDocumentId}
                 />
                 <FieldInput
-                  label="TelÃ©fono"
+                  label="Teléfono"
                   value={clientFormDeliveryNotePhone}
                   onChange={setClientFormDeliveryNotePhone}
                 />
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
                   <textarea
                     value={clientFormDeliveryNoteAddress}
                     onChange={(e) => setClientFormDeliveryNoteAddress(e.target.value)}
@@ -16433,7 +16433,7 @@ deliveryAssignMode === 'external' ? (
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 1</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 1</label>
                   <textarea
                     value={clientFormAddress1Text}
                     onChange={(e) => setClientFormAddress1Text(e.target.value)}
@@ -16446,7 +16446,7 @@ deliveryAssignMode === 'external' ? (
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n 2</label>
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Dirección 2</label>
                   <textarea
                     value={clientFormAddress2Text}
                     onChange={(e) => setClientFormAddress2Text(e.target.value)}
@@ -17351,7 +17351,7 @@ deliveryAssignMode === 'external' ? (
           value={createOrderClientFundAmountUsd}
           onChange={setCreateOrderClientFundAmountUsd}
           type="text"
-          hint="MÃ¡ximo: saldo del cliente o total de la orden."
+          hint="Máximo: saldo del cliente o total de la orden."
         />
       </div>
       {createOrderUseClientFund ? (
@@ -17366,7 +17366,7 @@ deliveryAssignMode === 'external' ? (
   {createOrderHasInvoice ? (
     <div className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:grid-cols-2">
       <FieldInput
-        label="Nombre / razÃ³n social"
+        label="Nombre / razón social"
         value={createOrderInvoiceCompanyName}
         onChange={setCreateOrderInvoiceCompanyName}
       />
@@ -17376,7 +17376,7 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderInvoiceTaxId}
       />
       <FieldInput
-        label="TelÃ©fono"
+        label="Teléfono"
         value={createOrderInvoicePhone}
         onChange={setCreateOrderInvoicePhone}
       />
@@ -17387,7 +17387,7 @@ deliveryAssignMode === 'external' ? (
         type="text"
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n fiscal</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección fiscal</label>
         <textarea
           value={createOrderInvoiceAddress}
           onChange={(e) => setCreateOrderInvoiceAddress(e.target.value)}
@@ -17411,12 +17411,12 @@ deliveryAssignMode === 'external' ? (
         onChange={setCreateOrderDeliveryNoteDocumentId}
       />
       <FieldInput
-        label="TelÃ©fono"
+        label="Teléfono"
         value={createOrderDeliveryNotePhone}
         onChange={setCreateOrderDeliveryNotePhone}
       />
       <div className="md:col-span-2">
-        <label className="mb-1 block text-xs text-[#8A8A96]">DirecciÃ³n</label>
+        <label className="mb-1 block text-xs text-[#8A8A96]">Dirección</label>
         <textarea
           value={createOrderDeliveryNoteAddress}
           onChange={(e) => setCreateOrderDeliveryNoteAddress(e.target.value)}
@@ -17460,7 +17460,7 @@ deliveryAssignMode === 'external' ? (
   ) : null}
 
   <div className="mt-3">
-    <label className="mb-1 block text-xs text-[#8A8A96]">ObservaciÃ³n de pago</label>
+    <label className="mb-1 block text-xs text-[#8A8A96]">Observación de pago</label>
     <textarea
       value={createOrderPaymentNote}
       onChange={(e) => setCreateOrderPaymentNote(e.target.value)}
@@ -17477,7 +17477,7 @@ deliveryAssignMode === 'external' ? (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <InfoCell
         label="Cliente"
-        value={createOrderSelectedClientName || createOrderNewClientName || 'â€”'}
+        value={createOrderSelectedClientName || createOrderNewClientName || '—'}
       />
 
       <InfoCell
@@ -17485,7 +17485,7 @@ deliveryAssignMode === 'external' ? (
         value={
           selectedCreateOrderClient && createOrderClientFundAvailableUsd > 0.005
             ? fmtUSD(createOrderClientFundAvailableUsd)
-            : 'â€”'
+            : '—'
         }
       />
 
@@ -17506,7 +17506,7 @@ deliveryAssignMode === 'external' ? (
 
       <InfoCell
         label="Tasa"
-        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : 'â€”'}
+        value={createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : '—'}
       />
 
       <InfoCell
@@ -17551,7 +17551,7 @@ deliveryAssignMode === 'external' ? (
           value={
             createOrderPaymentChangeFor
               ? `Para ${createOrderPaymentChangeFor} ${createOrderPaymentChangeCurrency === 'USD' ? 'USD' : 'Bs'}`
-              : 'SÃ­'
+              : 'Sí'
           }
         />
       ) : null}
@@ -17559,28 +17559,28 @@ deliveryAssignMode === 'external' ? (
       {createOrderHasDeliveryNote ? (
         <InfoCell
           label="Nota de entrega"
-          value="SÃ­"
+          value="Sí"
         />
       ) : null}
 
       {createOrderHasInvoice ? (
         <InfoCell
           label="Factura"
-          value="SÃ­"
+          value="Sí"
         />
       ) : null}
 
       {createOrderDiscountEnabled && createOrderDiscountPctNumber > 0 ? (
         <InfoCell
           label="Descuento"
-          value={`${createOrderDiscountPctNumber}% Â· -${fmtBs(createOrderDiscountAmountBs)}`}
+          value={`${createOrderDiscountPctNumber}% · -${fmtBs(createOrderDiscountAmountBs)}`}
         />
       ) : null}
 
       {createOrderHasInvoice && createOrderInvoiceTaxPctNumber > 0 ? (
         <InfoCell
           label="IVA"
-          value={`${createOrderInvoiceTaxPctNumber}% Â· +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
+          value={`${createOrderInvoiceTaxPctNumber}% · +${fmtBs(createOrderInvoiceTaxAmountBs)}`}
         />
       ) : null}
     </div>
@@ -17611,7 +17611,7 @@ deliveryAssignMode === 'external' ? (
             <span className="text-[#F5F5F7]">Datos factura:</span>{' '}
             {[createOrderInvoiceCompanyName, createOrderInvoiceTaxId, createOrderInvoiceAddress, createOrderInvoicePhone]
               .filter(Boolean)
-              .join(' | ') || 'â€”'}
+              .join(' | ') || '—'}
           </div>
         ) : null}
 
@@ -17625,7 +17625,7 @@ deliveryAssignMode === 'external' ? (
               createOrderDeliveryNotePhone,
             ]
               .filter(Boolean)
-              .join(' | ') || 'â€”'}
+              .join(' | ') || '—'}
           </div>
         ) : null}
       </div>
@@ -18023,5 +18023,3 @@ return (
     </div>
   );
 }
-
-
