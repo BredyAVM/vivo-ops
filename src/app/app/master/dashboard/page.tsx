@@ -725,9 +725,12 @@ if (masterInboxStatesError) {
   console.warn('master_inbox_item_states not available yet', masterInboxStatesError.message);
 }
 
-const initialMasterInboxReviewedItemIds = ((masterInboxStatesData ?? []) as RawMasterInboxItemStateRow[])
+const initialMasterInboxItemStates = ((masterInboxStatesData ?? []) as RawMasterInboxItemStateRow[])
   .filter((row) => row.status === 'reviewed' || row.status === 'resolved')
-  .map((row) => String(row.item_id));
+  .map((row) => ({
+    itemId: String(row.item_id),
+    status: row.status === 'resolved' ? 'resolved' as const : 'reviewed' as const,
+  }));
 
 const { data: deliveryPartnersData, error: deliveryPartnersError } = await supabase
   .from('delivery_partners')
@@ -2353,7 +2356,7 @@ currentUser={{
       roles={roles}
       dashboardUsers={dashboardUsers}
       dashboardUserRoles={dashboardUserRoles}
-      initialMasterInboxReviewedItemIds={initialMasterInboxReviewedItemIds}
+      initialMasterInboxItemStates={initialMasterInboxItemStates}
       advisors={advisorOptions}
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}

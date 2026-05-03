@@ -160,7 +160,10 @@ function normalizeMasterInboxStateItems(input: unknown): MasterInboxStateItemInp
   return items;
 }
 
-export async function markMasterInboxItemsReviewedAction(input: { items: MasterInboxStateItemInput[] }) {
+async function saveMasterInboxItemsState(
+  input: { items: MasterInboxStateItemInput[] },
+  status: 'reviewed' | 'resolved'
+) {
   const { supabase, user } = await requireMasterOrAdmin();
   const items = normalizeMasterInboxStateItems(input.items);
 
@@ -174,11 +177,11 @@ export async function markMasterInboxItemsReviewedAction(input: { items: MasterI
         item_id: item.itemId,
         item_type: item.itemType,
         order_id: item.orderId,
-        status: 'reviewed',
+        status,
         reviewed_by_user_id: user.id,
         reviewed_at: now,
-        resolved_by_user_id: null,
-        resolved_at: null,
+        resolved_by_user_id: status === 'resolved' ? user.id : null,
+        resolved_at: status === 'resolved' ? now : null,
         reopened_by_user_id: null,
         reopened_at: null,
         updated_at: now,
@@ -191,6 +194,14 @@ export async function markMasterInboxItemsReviewedAction(input: { items: MasterI
   }
 
   revalidatePath('/app/master/dashboard');
+}
+
+export async function markMasterInboxItemsReviewedAction(input: { items: MasterInboxStateItemInput[] }) {
+  await saveMasterInboxItemsState(input, 'reviewed');
+}
+
+export async function resolveMasterInboxItemsAction(input: { items: MasterInboxStateItemInput[] }) {
+  await saveMasterInboxItemsState(input, 'resolved');
 }
 
 export async function reopenMasterInboxItemsAction(input: { itemIds: string[] }) {
