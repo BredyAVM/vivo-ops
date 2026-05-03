@@ -113,6 +113,21 @@ type MoneyAccountOption = {
   createdByUserId: string | null;
 };
 
+type MoneyAccountPaymentRule = {
+  id: number;
+  moneyAccountId: number;
+  role: AppUserRole;
+  paymentMethodCode: string;
+  canViewAccount: boolean;
+  canShareWithClient: boolean;
+  canReportPayment: boolean;
+  canConfirmPayment: boolean;
+  autoConfirmsReport: boolean;
+  reviewRequired: boolean;
+  reviewRoles: AppUserRole[];
+  isActive: boolean;
+};
+
 type MoneyMovementItem = {
   id: number;
   movementDate: string;
@@ -1447,6 +1462,7 @@ function getPaymentMethodLabel(method: string) {
   if (method === 'cash_usd') return 'Efectivo USD';
   if (method === 'cash_ves') return 'Efectivo Bs';
   if (method === 'zelle') return 'Zelle';
+  if (method === 'pos') return 'Punto de venta';
   if (method === 'mixed') return 'Mixto';
   return '—';
 }
@@ -2872,6 +2888,7 @@ export default function MasterDashboardClient({
   advisors = [],
   initialOrders,
   moneyAccounts,
+  moneyAccountPaymentRules = [],
   moneyMovements = [],
     inventoryItems = [],
     inventoryMovements = [],
@@ -2900,6 +2917,7 @@ export default function MasterDashboardClient({
   advisors?: AdvisorOption[];
   initialOrders: Order[];
   moneyAccounts: MoneyAccountOption[];
+  moneyAccountPaymentRules?: MoneyAccountPaymentRule[];
   moneyMovements?: MoneyMovementItem[];
     inventoryItems?: InventoryItem[];
     inventoryMovements?: InventoryMovementItem[];
@@ -4729,7 +4747,7 @@ const handleCreatePaymentReport = async (o: Order) => {
       return;
     }
 
-    const selectedAccount = moneyAccounts.find(
+    const selectedAccount = paymentReportAccountOptions.find(
       (a) => a.id === Number(paymentReportMoneyAccountId)
     );
 
@@ -7337,8 +7355,84 @@ const createOrderHasDeliveryChargeItem =
     return isDeliveryCatalogItem(product) || String(item.productNameSnapshot || '').trim().toLowerCase().includes('delivery');
   });
 
+const currentRoleSet = useMemo(() => {
+  return new Set(roles.filter((role): role is AppUserRole => APP_USER_ROLES.includes(role as AppUserRole)));
+}, [roles]);
+
+const accountRulesByAccountId = useMemo(() => {
+  const map = new Map<number, MoneyAccountPaymentRule[]>();
+
+  for (const rule of moneyAccountPaymentRules) {
+    if (!rule.isActive) continue;
+    const list = map.get(rule.moneyAccountId) ?? [];
+    list.push(rule);
+    map.set(rule.moneyAccountId, list);
+  }
+
+  return map;
+}, [moneyAccountPaymentRules]);
+
+const paymentReportAccountOptions = useMemo(() => {
+  const activeAccounts = moneyAccounts.filter((account) => account.isActive);
+  const paymentMethod = selectedOrder?.editMeta?.paymentMethod || '';
+  const methodIsSpecific = paymentMethod && paymentMethod !== 'pending' && paymentMethod !== 'mixed';
+  const allowedAccountIds = new Set<number>();
+
+  for (const rule of moneyAccountPaymentRules) {
+    if (!rule.isActive || !rule.canReportPayment || !currentRoleSet.has(rule.role)) continue;
+    if (methodIsSpecific && rule.paymentMethodCode !== paymentMethod) continue;
+    allowedAccountIds.add(rule.moneyAccountId);
+  }
+
+  if (allowedAccountIds.size === 0) return activeAccounts;
+
+  return activeAccounts.filter((account) => allowedAccountIds.has(account.id));
+}, [currentRoleSet, moneyAccountPaymentRules, moneyAccounts, selectedOrder?.editMeta?.paymentMethod]);
+
+const getAccountRuleBadges = useCallback(
+  (accountId: number) => {
+    const rules = accountRulesByAccountId.get(accountId) ?? [];
+    const shareRoles = new Set<AppUserRole>();
+    const reportMethods = new Set<string>();
+    const autoMethods = new Set<string>();
+    const reviewMethods = new Set<string>();
+
+    for (const rule of rules) {
+      if (rule.canShareWithClient) shareRoles.add(rule.role);
+      if (rule.canReportPayment) reportMethods.add(rule.paymentMethodCode);
+      if (rule.autoConfirmsReport) autoMethods.add(rule.paymentMethodCode);
+      if (rule.reviewRequired) reviewMethods.add(rule.paymentMethodCode);
+    }
+
+    const badges: string[] = [];
+
+    if (shareRoles.size > 0) {
+      badges.push(
+        `Compartir: ${Array.from(shareRoles)
+          .map((role) => APP_USER_ROLE_LABEL[role])
+          .join(', ')}`
+      );
+    }
+
+    if (autoMethods.size > 0) {
+      badges.push(`Auto: ${Array.from(autoMethods).map(getPaymentMethodLabel).join(', ')}`);
+    }
+
+    if (reviewMethods.size > 0) {
+      badges.push(`Revisión: ${Array.from(reviewMethods).map(getPaymentMethodLabel).join(', ')}`);
+    }
+
+    if (badges.length === 0 && reportMethods.size > 0) {
+      badges.push(`Reportes: ${Array.from(reportMethods).map(getPaymentMethodLabel).join(', ')}`);
+    }
+
+    return badges;
+  },
+  [accountRulesByAccountId]
+);
+
 const selectedPaymentReportAccount =
-  moneyAccounts.filter((a) => a.isActive).find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
+  paymentReportAccountOptions.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
 
 const selectedConfirmPaymentReport =
   selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ?? null;
@@ -10893,6 +10987,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <th className="px-3 py-3 text-left font-medium">Institución</th>
               <th className="px-3 py-3 text-left font-medium">Titular</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
+              <th className="px-3 py-3 text-left font-medium">Reglas</th>
               <th className="px-3 py-3 text-left font-medium">Balance actual</th>
               <th className="px-3 py-3 text-left font-medium">Ingresos período</th>
               <th className="px-3 py-3 text-left font-medium">Egresos período</th>
@@ -10902,7 +10997,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <tbody>
             {filteredAccounts.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={10}>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={11}>
                   No hay cuentas que coincidan con el filtro.
                 </td>
               </tr>
@@ -10943,6 +11038,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       ) : (
                         <span className="text-[#8A8A96]">Inactiva</span>
                       )}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex max-w-[280px] flex-wrap gap-1">
+                        {getAccountRuleBadges(account.id).length > 0 ? (
+                          getAccountRuleBadges(account.id).slice(0, 3).map((label) => (
+                            <span
+                              key={`${account.id}-${label}`}
+                              className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-2 py-0.5 text-[10px] text-[#B7B7C2]"
+                            >
+                              {label}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[#8A8A96]">Sin reglas</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-3">
                       <div>{fmtMoneyByCurrency(stats.balanceNative, account.currencyCode)}</div>
@@ -11331,7 +11442,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       </div>
                       {row.adjustmentKind === 'admin_full_edit' ? null : (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">
-                          {fmtUSD(row.originalUnitUsd)} -> {fmtUSD(row.overrideUnitUsd)}
+                          {fmtUSD(row.originalUnitUsd)} {'->'} {fmtUSD(row.overrideUnitUsd)}
                           {row.qty > 0 ? ` · x${row.qty}` : ''}
                         </div>
                       )}
@@ -13585,7 +13696,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
           const nextId = e.target.value;
           setPaymentReportMoneyAccountId(nextId);
 
-          const nextAccount = moneyAccounts.find((a) => a.id === Number(nextId));
+          const nextAccount = paymentReportAccountOptions.find((a) => a.id === Number(nextId));
           if (nextAccount?.currencyCode === 'VES') {
             setPaymentReportAmount(
               getSuggestedAccountAmount(selectedOrder.balanceUsd, nextAccount.currencyCode)
@@ -13601,7 +13712,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
       >
         <option value="">— cuenta —</option>
-        {moneyAccounts.filter((a) => a.isActive).map((a) => (
+        {paymentReportAccountOptions.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name} ({a.currencyCode})
             </option>

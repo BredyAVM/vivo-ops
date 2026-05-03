@@ -112,6 +112,21 @@ type MoneyAccountRow = {
   created_by_user_id: string | null;
 };
 
+type MoneyAccountPaymentRuleRow = {
+  id: number;
+  money_account_id: number;
+  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+  payment_method_code: string;
+  can_view_account: boolean;
+  can_share_with_client: boolean;
+  can_report_payment: boolean;
+  can_confirm_payment: boolean;
+  auto_confirms_report: boolean;
+  review_required: boolean;
+  review_roles: Array<'admin' | 'master' | 'advisor' | 'kitchen' | 'driver'> | null;
+  is_active: boolean;
+};
+
 type RawMoneyMovementRow = {
   id: number;
   movement_date: string;
@@ -1273,6 +1288,26 @@ const { data: ordersData, error: ordersError } = await supabase
     .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
     .order('id', { ascending: true });
 
+  const { data: moneyAccountPaymentRulesData, error: moneyAccountPaymentRulesError } = await supabase
+    .from('money_account_payment_rules')
+    .select(`
+      id,
+      money_account_id,
+      role,
+      payment_method_code,
+      can_view_account,
+      can_share_with_client,
+      can_report_payment,
+      can_confirm_payment,
+      auto_confirms_report,
+      review_required,
+      review_roles,
+      is_active
+    `)
+    .order('money_account_id', { ascending: true })
+    .order('role', { ascending: true })
+    .order('payment_method_code', { ascending: true });
+
   const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
   const reporterIds = Array.from(
     new Set(
@@ -1329,6 +1364,22 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
+  if (moneyAccountPaymentRulesError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando reglas financieras</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las reglas de cuentas y pagos.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {moneyAccountPaymentRulesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   if (movementsError) {
     return (
       <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
@@ -1356,6 +1407,21 @@ const { data: ordersData, error: ordersError } = await supabase
     isActive: a.is_active,
     createdAt: a.created_at,
     createdByUserId: a.created_by_user_id,
+  }));
+
+  const moneyAccountPaymentRules = ((moneyAccountPaymentRulesData ?? []) as MoneyAccountPaymentRuleRow[]).map((rule) => ({
+    id: Number(rule.id),
+    moneyAccountId: Number(rule.money_account_id),
+    role: rule.role,
+    paymentMethodCode: rule.payment_method_code,
+    canViewAccount: Boolean(rule.can_view_account),
+    canShareWithClient: Boolean(rule.can_share_with_client),
+    canReportPayment: Boolean(rule.can_report_payment),
+    canConfirmPayment: Boolean(rule.can_confirm_payment),
+    autoConfirmsReport: Boolean(rule.auto_confirms_report),
+    reviewRequired: Boolean(rule.review_required),
+    reviewRoles: rule.review_roles ?? [],
+    isActive: Boolean(rule.is_active),
   }));
 
   const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => ({
@@ -2366,6 +2432,7 @@ currentUser={{
       deliveryPartners={deliveryPartnerOptions}
       initialOrders={initialOrders}
       moneyAccounts={moneyAccounts}
+      moneyAccountPaymentRules={moneyAccountPaymentRules}
       moneyMovements={moneyMovements}
       inventoryItems={inventoryItems}
       inventoryMovements={inventoryMovements}
