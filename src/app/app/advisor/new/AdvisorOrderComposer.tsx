@@ -296,6 +296,31 @@ function normalizePhone(value: string) {
   return value.replace(/[^\d+]/g, '');
 }
 
+function sanitizeQuantityInput(value: string | number | null | undefined) {
+  const raw = String(value ?? '').trim().replace(',', '.');
+  const cleaned = raw.replace(/[^\d.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+
+  if (firstDot === -1) return cleaned;
+
+  return `${cleaned.slice(0, firstDot + 1)}${cleaned.slice(firstDot + 1).replace(/\./g, '')}`;
+}
+
+function parseQuantityValue(value: string | number | null | undefined) {
+  const normalized = sanitizeQuantityInput(value);
+  if (!normalized || normalized === '.') return Number.NaN;
+
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : Number.NaN;
+}
+
+function formatQuantityValue(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '';
+
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 function formatUsd(value: number) {
   return `$${value.toFixed(2)}`;
 }
@@ -1850,7 +1875,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    const quantity = Number(qty);
+    const quantity = parseQuantityValue(qty);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       setError('La cantidad debe ser mayor que cero.');
       return;
@@ -1881,13 +1906,19 @@ export default function AdvisorOrderComposer({
 
   function updateQty(nextValue: number | string) {
     const raw = String(nextValue ?? '').trim();
-    if (!raw) {
+    const normalized = sanitizeQuantityInput(raw);
+
+    if (!normalized) {
       setQty('');
       return;
     }
 
-    const normalized = Math.max(1, Math.floor(Number(raw) || 1));
-    setQty(String(normalized));
+    if (normalized === '.') {
+      setQty('0.');
+      return;
+    }
+
+    setQty(normalized);
   }
 
   function setConfigSelectionQty(product: ProductRow, quantity: number) {
@@ -2677,7 +2708,11 @@ export default function AdvisorOrderComposer({
             <div className="grid grid-cols-[44px_minmax(52px,1fr)_44px] gap-2">
               <button
                 type="button"
-                onClick={() => updateQty(Math.max(1, Number(qty || 1) - 1))}
+                onClick={() => {
+                  const currentQty = parseQuantityValue(qty);
+                  const baseQty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 1;
+                  updateQty(formatQuantityValue(Math.max(0.5, baseQty - 0.5)));
+                }}
                 className="h-11 rounded-[16px] border border-[#232632] bg-[#0F131B] text-base font-semibold text-[#F5F7FB]"
               >
                 -
@@ -2693,12 +2728,16 @@ export default function AdvisorOrderComposer({
                   }
                 }}
                 className="h-11 min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
-                inputMode="numeric"
-                placeholder="Cant."
+                inputMode="decimal"
+                placeholder="0.50"
               />
               <button
                 type="button"
-                onClick={() => updateQty(Number(qty || 0) + 1)}
+                onClick={() => {
+                  const currentQty = parseQuantityValue(qty);
+                  const baseQty = Number.isFinite(currentQty) && currentQty > 0 ? currentQty : 0;
+                  updateQty(formatQuantityValue(baseQty + 0.5));
+                }}
                 className="h-11 rounded-[16px] border border-[#232632] bg-[#0F131B] text-base font-semibold text-[#F5F7FB]"
               >
                 +
