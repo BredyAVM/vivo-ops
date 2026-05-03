@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
@@ -380,6 +380,7 @@ type MasterInboxFilter = 'tasks' | 'delays' | 'payments' | 'changes' | 'all';
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
+const MASTER_INBOX_REVIEWED_STORAGE_KEY = 'vivo.masterInbox.reviewed.v1';
 type ToastState = {
   type: 'success' | 'error';
   message: string;
@@ -1213,6 +1214,38 @@ function getMasterInboxActivityGroup(event: MasterInboxEvent) {
   }
 
   return { key: 'approval', label: 'Aprobación' };
+}
+
+function getMasterInboxTaskActionLabel(type: MasterTaskType) {
+  switch (type) {
+    case 'APROBAR':
+      return 'Revisar aprobación';
+    case 'RE-APROBAR':
+      return 'Revisar cambios';
+    case 'CONFIRMAR PAGO':
+      return 'Confirmar pago';
+    case 'ENVIAR_COCINA':
+      return 'Enviar a cocina';
+    case 'ASIGNAR_DRIVER':
+      return 'Asignar delivery';
+    case 'COCINA_RETRASADA':
+      return 'Ver cocina';
+    case 'DELIVERY_RETRASADO':
+      return 'Ver entrega';
+    default:
+      return 'Abrir orden';
+  }
+}
+
+function getMasterInboxEventActionLabel(event: MasterInboxEvent) {
+  const group = getMasterInboxActivityGroup(event);
+
+  if (group.key === 'payments') return 'Ver pagos';
+  if (group.key === 'delivery') return 'Ver entrega';
+  if (group.key === 'changes') return 'Ver cambios';
+  if (group.key === 'kitchen') return 'Ver cocina';
+
+  return 'Ver orden';
 }
 
 function isOrderUrgentForInbox(order: Order, severity: 'info' | 'warning' | 'critical') {
@@ -3512,6 +3545,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
   const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('tasks');
+  const [masterInboxReviewedLoaded, setMasterInboxReviewedLoaded] = useState(false);
+  const [masterInboxReviewedIds, setMasterInboxReviewedIds] = useState<Set<string>>(() => new Set());
   const [paymentsPanelOpen, setPaymentsPanelOpen] = useState(false);
   const [paymentsPanelKind, setPaymentsPanelKind] = useState<'pending' | 'confirmed' | 'rejected'>('pending');
   const [deliveryPanelOpen, setDeliveryPanelOpen] = useState(false);
@@ -3697,6 +3732,72 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     };
   }, [orders, currentTimeMs]);
 
+  const masterInboxActiveIds = useMemo(
+    () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
+    [masterInbox.activity, masterInbox.tasks]
+  );
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(MASTER_INBOX_REVIEWED_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        setMasterInboxReviewedIds(new Set(parsed.map((value) => String(value)).filter(Boolean)));
+      }
+    } catch {
+      setMasterInboxReviewedIds(new Set());
+    } finally {
+      setMasterInboxReviewedLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!masterInboxReviewedLoaded) return;
+
+    setMasterInboxReviewedIds((prev) => {
+      const next = new Set([...prev].filter((id) => masterInboxActiveIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [masterInboxActiveIds, masterInboxReviewedLoaded]);
+
+  useEffect(() => {
+    if (!masterInboxReviewedLoaded) return;
+
+    window.localStorage.setItem(
+      MASTER_INBOX_REVIEWED_STORAGE_KEY,
+      JSON.stringify([...masterInboxReviewedIds].slice(-200))
+    );
+  }, [masterInboxReviewedIds, masterInboxReviewedLoaded]);
+
+  const markMasterInboxReviewed = useCallback((id: string) => {
+    setMasterInboxReviewedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleMasterInboxReviewed = useCallback((id: string) => {
+    setMasterInboxReviewedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const markVisibleMasterInboxReviewed = useCallback((ids: string[]) => {
+    setMasterInboxReviewedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
+
   const masterInboxFilteredTasks = useMemo(() => {
     if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return masterInbox.tasks;
     if (masterInboxFilter === 'delays') {
@@ -3712,6 +3813,14 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     }
     return [];
   }, [masterInbox.tasks, masterInboxFilter]);
+
+  const masterInboxUnreviewedCount = useMemo(() => {
+    const taskCount = masterInbox.tasks.filter((item) => !masterInboxReviewedIds.has(item.id)).length;
+    const criticalActivityCount = masterInbox.activity.filter(
+      (item) => item.severity !== 'info' && !masterInboxReviewedIds.has(item.id)
+    ).length;
+    return taskCount + criticalActivityCount;
+  }, [masterInbox.activity, masterInbox.tasks, masterInboxReviewedIds]);
 
   const masterInboxFilteredActivityGroups = useMemo(() => {
     const activity = masterInbox.activity.filter((item) => {
@@ -3737,6 +3846,12 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     }
     return Array.from(groups.values());
   }, [masterInbox.activity, masterInboxFilter]);
+
+  const masterInboxFilteredItemIds = useMemo(() => {
+    const taskIds = masterInboxFilteredTasks.map((item) => item.id);
+    const activityIds = masterInboxFilteredActivityGroups.flatMap((group) => group.items.map((item) => item.id));
+    return [...taskIds, ...activityIds];
+  }, [masterInboxFilteredActivityGroups, masterInboxFilteredTasks]);
 
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
@@ -8720,7 +8835,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           {isAdmin ? (
             <TopNavButton label="Cálculos" icon={<TopNavIcon kind="calculations" />} active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
           ) : null}
-          <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={masterInbox.count} />
+          <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={masterInboxUnreviewedCount} />
         </div>
 
         <div className="w-[200px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
@@ -11116,14 +11231,42 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
             </div>
 
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+              <div className="text-[11px] text-[#B7B7C2]">
+                <span className="font-semibold text-[#F5F5F7]">{masterInboxUnreviewedCount}</span> sin revisar ·{' '}
+                {masterInbox.tasks.length} tareas activas
+              </div>
+              <button
+                className="rounded-lg border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={masterInboxFilteredItemIds.length === 0}
+                onClick={() => markVisibleMasterInboxReviewed(masterInboxFilteredItemIds)}
+                type="button"
+              >
+                Marcar visibles
+              </button>
+            </div>
+
             {masterInboxFilteredTasks.length > 0 ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Tareas pendientes</div>
                   <SmallBadge label={`${masterInboxFilteredTasks.length}`} tone="warn" />
                 </div>
-                {masterInboxFilteredTasks.map((n) => (
-                  <div key={n.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                {masterInboxFilteredTasks.map((n) => {
+                  const isReviewed = masterInboxReviewedIds.has(n.id);
+
+                  return (
+                  <div
+                    key={n.id}
+                    className={[
+                      'rounded-2xl border p-3 transition',
+                      isReviewed
+                        ? 'border-[#242433] bg-[#101014] opacity-75'
+                        : n.severity === 'critical'
+                          ? 'border-red-500/40 bg-[#151217]'
+                          : 'border-[#242433] bg-[#121218]',
+                    ].join(' ')}
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <SmallBadge
@@ -11131,6 +11274,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           tone={n.severity === 'critical' || n.type !== 'APROBAR' ? 'warn' : 'brand'}
                         />
                         {n.isUrgent ? <SmallBadge label="Urgente" tone="warn" /> : null}
+                        {isReviewed ? <SmallBadge label="Revisada" tone="muted" /> : null}
                       </div>
                       <div className={`text-xs ${n.isUrgent ? 'font-semibold text-red-300' : 'text-[#B7B7C2]'}`}>{n.deliveryText}</div>
                     </div>
@@ -11141,17 +11285,29 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       Asesor: {repairDisplayText(n.advisorName)} · {fmtDateTimeES(n.createdAtISO)}
                     </div>
 
-                    <button
-                      className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => {
-                        setNotifOpen(false);
-                        openOrderPanel(n.orderId, n.openTab);
-                      }}
-                    >
-                      Abrir
-                    </button>
+                    <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                      <button
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm transition hover:border-[#FEEF00]/40"
+                        onClick={() => {
+                          markMasterInboxReviewed(n.id);
+                          setNotifOpen(false);
+                          openOrderPanel(n.orderId, n.openTab);
+                        }}
+                        type="button"
+                      >
+                        {getMasterInboxTaskActionLabel(n.type)}
+                      </button>
+                      <button
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
+                        onClick={() => toggleMasterInboxReviewed(n.id)}
+                        type="button"
+                      >
+                        {isReviewed ? 'Reabrir' : 'Revisada'}
+                      </button>
+                    </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
 
@@ -11166,13 +11322,23 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 {masterInboxFilteredActivityGroups.map((group) => (
                   <div key={group.label} className="space-y-2">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">{group.label}</div>
-                    {group.items.map((item) => (
-                      <div key={item.id} className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+                    {group.items.map((item) => {
+                      const isReviewed = masterInboxReviewedIds.has(item.id);
+
+                      return (
+                      <div
+                        key={item.id}
+                        className={[
+                          'rounded-2xl border p-3 transition',
+                          isReviewed ? 'border-[#242433] bg-[#101014] opacity-75' : 'border-[#242433] bg-[#121218]',
+                        ].join(' ')}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
                               {item.isUrgent ? <SmallBadge label="Urgente" tone="warn" /> : null}
+                              {isReviewed ? <SmallBadge label="Revisada" tone="muted" /> : null}
                             </div>
                             <div className="mt-1 text-xs text-[#8A8A96]">
                               {item.label} · {fmtDateTimeES(item.createdAtISO)}
@@ -11201,17 +11367,29 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <div className="mt-2 text-[11px] text-[#8A8A96]">
                           Asesor: {repairDisplayText(item.advisorName)} · {item.deliveryText}
                         </div>
-                        <button
-                          className="mt-3 w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => {
-                            setNotifOpen(false);
-                            openOrderPanel(item.orderId, item.openTab);
-                          }}
-                        >
-                          Ver orden
-                        </button>
+                        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                          <button
+                            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm transition hover:border-[#FEEF00]/40"
+                            onClick={() => {
+                              markMasterInboxReviewed(item.id);
+                              setNotifOpen(false);
+                              openOrderPanel(item.orderId, item.openTab);
+                            }}
+                            type="button"
+                          >
+                            {getMasterInboxEventActionLabel(item)}
+                          </button>
+                          <button
+                            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
+                            onClick={() => toggleMasterInboxReviewed(item.id)}
+                            type="button"
+                          >
+                            {isReviewed ? 'Reabrir' : 'Revisada'}
+                          </button>
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ))}
               </div>
