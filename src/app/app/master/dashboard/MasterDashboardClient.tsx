@@ -379,6 +379,7 @@ type MasterInboxEvent = {
 };
 
 type MasterInboxFilter = 'tasks' | 'delays' | 'payments' | 'changes' | 'all';
+type MasterInboxStatusFilter = 'open' | 'reviewed' | 'resolved' | 'all';
 type MasterInboxItemStatus = 'reviewed' | 'resolved';
 type MasterInboxStateItemInput = {
   itemId: string;
@@ -3555,6 +3556,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
   const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('tasks');
+  const [masterInboxStatusFilter, setMasterInboxStatusFilter] = useState<MasterInboxStatusFilter>('open');
   const [masterInboxItemStatusById, setMasterInboxItemStatusById] = useState<Map<string, MasterInboxItemStatus>>(
     () => new Map(initialMasterInboxItemStates.map((item) => [item.itemId, item.status]))
   );
@@ -3859,21 +3861,31 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     void markMasterInboxReviewed(items);
   }, [markMasterInboxReviewed]);
 
+  const matchesMasterInboxStatusFilter = useCallback((itemId: string) => {
+    const status = masterInboxItemStatusById.get(itemId);
+
+    if (masterInboxStatusFilter === 'all') return true;
+    if (masterInboxStatusFilter === 'open') return !status;
+    return status === masterInboxStatusFilter;
+  }, [masterInboxItemStatusById, masterInboxStatusFilter]);
+
   const masterInboxFilteredTasks = useMemo(() => {
-    if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return masterInbox.tasks;
-    if (masterInboxFilter === 'delays') {
-      return masterInbox.tasks.filter((task) =>
+    let filteredTasks: MasterInboxTask[] = [];
+
+    if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') {
+      filteredTasks = masterInbox.tasks;
+    } else if (masterInboxFilter === 'delays') {
+      filteredTasks = masterInbox.tasks.filter((task) =>
         task.type === 'COCINA_RETRASADA' || task.type === 'DELIVERY_RETRASADO'
       );
+    } else if (masterInboxFilter === 'payments') {
+      filteredTasks = masterInbox.tasks.filter((task) => task.type === 'CONFIRMAR PAGO');
+    } else if (masterInboxFilter === 'changes') {
+      filteredTasks = masterInbox.tasks.filter((task) => task.type === 'RE-APROBAR');
     }
-    if (masterInboxFilter === 'payments') {
-      return masterInbox.tasks.filter((task) => task.type === 'CONFIRMAR PAGO');
-    }
-    if (masterInboxFilter === 'changes') {
-      return masterInbox.tasks.filter((task) => task.type === 'RE-APROBAR');
-    }
-    return [];
-  }, [masterInbox.tasks, masterInboxFilter]);
+
+    return filteredTasks.filter((task) => matchesMasterInboxStatusFilter(task.id));
+  }, [masterInbox.tasks, masterInboxFilter, matchesMasterInboxStatusFilter]);
 
   const masterInboxUnreviewedCount = useMemo(() => {
     const taskCount = masterInbox.tasks.filter((item) => !masterInboxItemStatusById.has(item.id)).length;
@@ -3896,6 +3908,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const masterInboxFilteredActivityGroups = useMemo(() => {
     const activity = masterInbox.activity.filter((item) => {
       const group = getMasterInboxActivityGroup(item);
+      if (!matchesMasterInboxStatusFilter(item.id)) return false;
       if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return true;
       if (masterInboxFilter === 'delays') {
         return item.severity === 'critical' || item.title.includes('retras');
@@ -3916,7 +3929,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       }
     }
     return Array.from(groups.values());
-  }, [masterInbox.activity, masterInboxFilter]);
+  }, [masterInbox.activity, masterInboxFilter, matchesMasterInboxStatusFilter]);
 
   const masterInboxFilteredItemsForState = useMemo<MasterInboxStateItemInput[]>(() => {
     const taskItems = masterInboxFilteredTasks.map((item) => ({
@@ -3933,6 +3946,11 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     );
     return [...taskItems, ...activityItems];
   }, [masterInboxFilteredActivityGroups, masterInboxFilteredTasks]);
+
+  const masterInboxReviewableFilteredItems = useMemo(
+    () => masterInboxFilteredItemsForState.filter((item) => !masterInboxItemStatusById.has(item.itemId)),
+    [masterInboxFilteredItemsForState, masterInboxItemStatusById]
+  );
 
   const committedProductsRows =
     committedProductsScope === 'day' ? committedProductsRowsDay : committedProductsRowsWeek;
@@ -11311,6 +11329,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
               <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
             </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Chip active={masterInboxStatusFilter === 'open'} onClick={() => setMasterInboxStatusFilter('open')}>Pendientes</Chip>
+              <Chip active={masterInboxStatusFilter === 'reviewed'} onClick={() => setMasterInboxStatusFilter('reviewed')}>Revisadas</Chip>
+              <Chip active={masterInboxStatusFilter === 'resolved'} onClick={() => setMasterInboxStatusFilter('resolved')}>Resueltas</Chip>
+              <Chip active={masterInboxStatusFilter === 'all'} onClick={() => setMasterInboxStatusFilter('all')}>Todos</Chip>
+            </div>
 
             <div className="flex items-center justify-between gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
               <div className="text-[11px] text-[#B7B7C2]">
@@ -11319,18 +11343,24 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </div>
               <button
                 className="rounded-lg border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={masterInboxFilteredItemsForState.length === 0}
-                onClick={() => markVisibleMasterInboxReviewed(masterInboxFilteredItemsForState)}
+                disabled={masterInboxReviewableFilteredItems.length === 0}
+                onClick={() => markVisibleMasterInboxReviewed(masterInboxReviewableFilteredItems)}
                 type="button"
               >
-                Marcar visibles
+                Marcar pendientes
               </button>
             </div>
+
+            {masterInboxFilteredTasks.length === 0 && masterInboxFilteredActivityGroups.length === 0 ? (
+              <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-4 text-sm text-[#B7B7C2]">
+                Sin items para este filtro.
+              </div>
+            ) : null}
 
             {masterInboxFilteredTasks.length > 0 ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Tareas pendientes</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Tareas</div>
                   <SmallBadge label={`${masterInboxFilteredTasks.length}`} tone="warn" />
                 </div>
                 {masterInboxFilteredTasks.map((n) => {
