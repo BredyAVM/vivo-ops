@@ -3365,7 +3365,8 @@ export async function updateInventoryItemAction(input: {
   isActive: boolean;
   notes: string | null;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const inventoryItemId = Number(input.inventoryItemId);
   if (!Number.isFinite(inventoryItemId) || inventoryItemId <= 0) {
@@ -3407,7 +3408,8 @@ export async function toggleInventoryItemActiveAction(input: {
   inventoryItemId: number;
   nextIsActive: boolean;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const inventoryItemId = Number(input.inventoryItemId);
   if (!Number.isFinite(inventoryItemId) || inventoryItemId <= 0) {
@@ -3421,6 +3423,117 @@ export async function toggleInventoryItemActiveAction(input: {
 
   if (error) throw new Error(error.message);
   revalidatePath('/app/master/dashboard');
+}
+
+export async function saveInventoryRecipeAction(input: {
+  inventoryItemId: number;
+  recipeId: number | null;
+  recipeKind: 'production' | 'packaging';
+  outputQuantityUnits: number;
+  notes: string | null;
+  components: Array<{
+    inputInventoryItemId: number;
+    quantityUnits: number;
+    sortOrder: number;
+  }>;
+}) {
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const inventoryItemId = toSafeNumber(input.inventoryItemId, 0);
+  const recipeId = input.recipeId == null ? null : toSafeNumber(input.recipeId, 0);
+  const outputQuantityUnits = toSafeNumber(input.outputQuantityUnits, 0);
+
+  if (inventoryItemId <= 0) throw new Error('Item de inventario invalido.');
+  if (recipeId != null && recipeId <= 0) throw new Error('Receta invalida.');
+  if (!['production', 'packaging'].includes(input.recipeKind)) {
+    throw new Error('Tipo de receta invalido.');
+  }
+  if (!Number.isFinite(outputQuantityUnits) || outputQuantityUnits <= 0) {
+    throw new Error('La salida de la receta debe ser mayor a 0.');
+  }
+
+  const normalizedComponents = (input.components ?? [])
+    .map((component, index) => ({
+      inputInventoryItemId: toSafeNumber(component.inputInventoryItemId, 0),
+      quantityUnits: toSafeNumber(component.quantityUnits, 0),
+      sortOrder: toSafeNumber(component.sortOrder, index + 1),
+    }))
+    .filter(
+      (component) =>
+        component.inputInventoryItemId > 0 &&
+        component.inputInventoryItemId !== inventoryItemId &&
+        Number.isFinite(component.quantityUnits) &&
+        component.quantityUnits > 0
+    )
+    .map((component, index) => ({
+      ...component,
+      sortOrder: component.sortOrder > 0 ? component.sortOrder : index + 1,
+    }));
+
+  if (normalizedComponents.length === 0) {
+    throw new Error('Agrega al menos un insumo a la receta.');
+  }
+
+  let nextRecipeId = recipeId;
+
+  if (nextRecipeId) {
+    const { data, error } = await supabase
+      .from('inventory_recipes')
+      .update({
+        recipe_kind: input.recipeKind,
+        output_quantity_units: outputQuantityUnits,
+        notes: input.notes?.trim() ? input.notes.trim() : null,
+        is_active: true,
+      })
+      .eq('id', nextRecipeId)
+      .eq('output_inventory_item_id', inventoryItemId)
+      .select('id')
+      .single();
+
+    if (error) throw new Error(error.message);
+    if (!data?.id) throw new Error('No se pudo actualizar la receta.');
+    nextRecipeId = Number(data.id);
+
+    const { error: deleteError } = await supabase
+      .from('inventory_recipe_components')
+      .delete()
+      .eq('recipe_id', nextRecipeId);
+
+    if (deleteError) throw new Error(deleteError.message);
+  } else {
+    const { data, error } = await supabase
+      .from('inventory_recipes')
+      .insert({
+        output_inventory_item_id: inventoryItemId,
+        recipe_kind: input.recipeKind,
+        output_quantity_units: outputQuantityUnits,
+        notes: input.notes?.trim() ? input.notes.trim() : null,
+        is_active: true,
+      })
+      .select('id')
+      .single();
+
+    if (error) throw new Error(error.message);
+    if (!data?.id) throw new Error('No se pudo crear la receta.');
+    nextRecipeId = Number(data.id);
+  }
+
+  const { error: insertComponentsError } = await supabase
+    .from('inventory_recipe_components')
+    .insert(
+      normalizedComponents.map((component) => ({
+        recipe_id: nextRecipeId,
+        input_inventory_item_id: component.inputInventoryItemId,
+        quantity_units: component.quantityUnits,
+        sort_order: component.sortOrder,
+      }))
+    );
+
+  if (insertComponentsError) throw new Error(insertComponentsError.message);
+
+  revalidatePath('/app/master/dashboard');
+  return { recipeId: nextRecipeId };
 }
 
 export async function createDeliveryPartnerAction(input: {

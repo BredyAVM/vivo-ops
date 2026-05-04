@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -27,6 +26,7 @@ import {
   createDeliveryPartnerAction,
   createDeliveryPartnerRateAction,
   createInventoryItemAction,
+  saveInventoryRecipeAction,
   updateInventoryItemAction,
   toggleInventoryItemActiveAction,
   updateDeliveryPartnerAction,
@@ -3572,11 +3572,16 @@ const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
       setDeliveryPartnerRateCreateOpen(false);
       setDeliveryPartnerRateEditOpen(false);
     }
+    if (!permissions.canManageInventoryItems && (inventoryDrawerMode === 'edit' || inventoryDrawerMode === 'recipe')) {
+      setInventoryDrawerMode('movement');
+    }
   }, [
     permissions.canManageDeliveryPartners,
+    permissions.canManageInventoryItems,
     permissions.canManageUsers,
     permissions.canViewAdjustments,
     permissions.canViewCalculations,
+    inventoryDrawerMode,
     settingsTab,
     viewMode,
   ]);
@@ -6865,6 +6870,10 @@ const openInventoryProductionDrawer = (productId: number) => {
 
 const handleSaveInventoryRecipe = async () => {
   if (!selectedInventoryProduct) return;
+  if (!permissions.canManageInventoryItems) {
+    showToast('error', 'Solo admin puede administrar recetas de inventario.');
+    return;
+  }
 
   try {
     setInventoryRecipeSaving(true);
@@ -6886,63 +6895,17 @@ const handleSaveInventoryRecipe = async () => {
       throw new Error('Agrega al menos un insumo a la receta.');
     }
 
-    const supabase = createSupabaseBrowser();
-    let recipeId = selectedInventoryRecipeId;
-
-    if (recipeId) {
-      const { data, error } = await supabase
-        .from('inventory_recipes')
-        .update({
-          recipe_kind: inventoryRecipeFormKind,
-          output_quantity_units: outputQuantityUnits,
-          notes: inventoryRecipeFormNotes.trim() || null,
-          is_active: true,
-        })
-        .eq('id', recipeId)
-        .select('id')
-        .single();
-
-      if (error) throw new Error(error.message);
-      recipeId = Number(data.id);
-
-      const { error: deleteError } = await supabase
-        .from('inventory_recipe_components')
-        .delete()
-        .eq('recipe_id', recipeId);
-
-      if (deleteError) throw new Error(deleteError.message);
-    } else {
-      const { data, error } = await supabase
-        .from('inventory_recipes')
-        .insert({
-          output_inventory_item_id: selectedInventoryProduct.id,
-          recipe_kind: inventoryRecipeFormKind,
-          output_quantity_units: outputQuantityUnits,
-          notes: inventoryRecipeFormNotes.trim() || null,
-          is_active: true,
-        })
-        .select('id')
-        .single();
-
-      if (error) throw new Error(error.message);
-      recipeId = Number(data.id);
-    }
-
-    const { error: insertComponentsError } = await supabase
-      .from('inventory_recipe_components')
-      .insert(
-        normalizedRows.map((row) => ({
-          recipe_id: recipeId,
-          input_inventory_item_id: row.inputInventoryItemId,
-          quantity_units: row.quantityUnits,
-          sort_order: row.sortOrder,
-        }))
-      );
-
-    if (insertComponentsError) throw new Error(insertComponentsError.message);
+    const result = await saveInventoryRecipeAction({
+      inventoryItemId: selectedInventoryProduct.id,
+      recipeId: selectedInventoryRecipeId,
+      recipeKind: inventoryRecipeFormKind,
+      outputQuantityUnits,
+      notes: inventoryRecipeFormNotes.trim() || null,
+      components: normalizedRows,
+    });
 
     showToast('success', 'Receta guardada.');
-    setSelectedInventoryRecipeId(recipeId ?? null);
+    setSelectedInventoryRecipeId(result.recipeId ?? null);
     setInventoryDrawerMode('movement');
     router.refresh();
   } catch (err) {
@@ -6980,6 +6943,10 @@ const handleCreateInventoryItem = async () => {
 
 const handleUpdateInventoryItem = async () => {
   if (!selectedInventoryProductId) return;
+  if (!permissions.canManageInventoryItems) {
+    showToast('error', 'Solo admin puede editar la estructura del inventario.');
+    return;
+  }
 
   try {
     setInventoryItemSaving(true);
@@ -7009,6 +6976,11 @@ const handleUpdateInventoryItem = async () => {
 };
 
 const handleToggleInventoryItemActive = async (item: InventoryItem) => {
+  if (!permissions.canManageInventoryItems) {
+    showToast('error', 'Solo admin puede activar o desactivar items de inventario.');
+    return;
+  }
+
   try {
     await toggleInventoryItemActiveAction({
       inventoryItemId: item.id,
@@ -17836,28 +17808,32 @@ deliveryAssignMode === 'external' ? (
                 >
                   Movimientos
                 </button>
-                <button
-                  className={[
-                    'rounded-xl border px-3 py-2 text-sm',
-                    inventoryDrawerMode === 'edit'
-                      ? 'border-[#FEEF00] bg-[#FEEF00] font-semibold text-[#0B0B0D]'
-                      : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]',
-                  ].join(' ')}
-                  onClick={() => openInventoryItemEditDrawer(selectedInventoryProduct.id)}
-                >
-                  Editar
-                </button>
-                <button
-                  className={[
-                    'rounded-xl border px-3 py-2 text-sm',
-                    inventoryDrawerMode === 'recipe'
-                      ? 'border-[#FEEF00] bg-[#FEEF00] font-semibold text-[#0B0B0D]'
-                      : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]',
-                  ].join(' ')}
-                  onClick={() => openInventoryRecipeEditor(selectedInventoryProduct.id)}
-                >
-                  Receta
-                </button>
+                {permissions.canManageInventoryItems ? (
+                  <>
+                    <button
+                      className={[
+                        'rounded-xl border px-3 py-2 text-sm',
+                        inventoryDrawerMode === 'edit'
+                          ? 'border-[#FEEF00] bg-[#FEEF00] font-semibold text-[#0B0B0D]'
+                          : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]',
+                      ].join(' ')}
+                      onClick={() => openInventoryItemEditDrawer(selectedInventoryProduct.id)}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className={[
+                        'rounded-xl border px-3 py-2 text-sm',
+                        inventoryDrawerMode === 'recipe'
+                          ? 'border-[#FEEF00] bg-[#FEEF00] font-semibold text-[#0B0B0D]'
+                          : 'border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]',
+                      ].join(' ')}
+                      onClick={() => openInventoryRecipeEditor(selectedInventoryProduct.id)}
+                    >
+                      Receta
+                    </button>
+                  </>
+                ) : null}
                 {(inventoryRecipesByOutputItemId.get(selectedInventoryProduct.id) ?? []).some((recipe) => recipe.isActive) ? (
                   <button
                     className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#FEEF00]"
@@ -17866,12 +17842,14 @@ deliveryAssignMode === 'external' ? (
                     Producir
                   </button>
                 ) : null}
-                <button
-                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
-                  onClick={() => handleToggleInventoryItemActive(selectedInventoryProduct)}
-                >
-                  {selectedInventoryProduct.isActive ? 'Desactivar' : 'Activar'}
-                </button>
+                {permissions.canManageInventoryItems ? (
+                  <button
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                    onClick={() => handleToggleInventoryItemActive(selectedInventoryProduct)}
+                  >
+                    {selectedInventoryProduct.isActive ? 'Desactivar' : 'Activar'}
+                  </button>
+                ) : null}
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <InfoCell label="ID" value={String(selectedInventoryProduct.id)} />
