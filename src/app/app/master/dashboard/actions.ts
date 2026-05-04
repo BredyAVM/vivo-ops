@@ -3519,6 +3519,121 @@ export async function toggleDeliveryPartnerActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function createDeliveryPartnerRateAction(input: {
+  partnerId: number;
+  kmFrom: number;
+  kmTo: number | null;
+  priceUsd: number;
+  isActive: boolean;
+}) {
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const partnerId = Number(input.partnerId);
+  const kmFrom = Number(input.kmFrom);
+  const kmTo = input.kmTo == null ? null : Number(input.kmTo);
+  const priceUsd = Number(input.priceUsd);
+
+  if (!Number.isFinite(partnerId) || partnerId <= 0) {
+    throw new Error('Partner invalido.');
+  }
+  if (!Number.isFinite(kmFrom) || kmFrom < 0) {
+    throw new Error('Km desde invalido.');
+  }
+  if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
+    throw new Error('Km hasta invalido.');
+  }
+  if (!Number.isFinite(priceUsd) || priceUsd < 0) {
+    throw new Error('Tarifa invalida.');
+  }
+
+  const { data, error } = await supabase
+    .from('delivery_partner_rates')
+    .insert({
+      partner_id: partnerId,
+      km_from: kmFrom,
+      km_to: kmTo,
+      price_usd: priceUsd,
+      is_active: !!input.isActive,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(error.message);
+  if (!data?.id) {
+    throw new Error('No se pudo crear la tarifa.');
+  }
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateDeliveryPartnerRateAction(input: {
+  rateId: number;
+  kmFrom: number;
+  kmTo: number | null;
+  priceUsd: number;
+  isActive: boolean;
+}) {
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const rateId = Number(input.rateId);
+  const kmFrom = Number(input.kmFrom);
+  const kmTo = input.kmTo == null ? null : Number(input.kmTo);
+  const priceUsd = Number(input.priceUsd);
+
+  if (!Number.isFinite(rateId) || rateId <= 0) {
+    throw new Error('Tarifa invalida.');
+  }
+  if (!Number.isFinite(kmFrom) || kmFrom < 0) {
+    throw new Error('Km desde invalido.');
+  }
+  if (kmTo != null && (!Number.isFinite(kmTo) || kmTo < kmFrom)) {
+    throw new Error('Km hasta invalido.');
+  }
+  if (!Number.isFinite(priceUsd) || priceUsd < 0) {
+    throw new Error('Tarifa invalida.');
+  }
+
+  const { data, error } = await supabase
+    .from('delivery_partner_rates')
+    .update({
+      km_from: kmFrom,
+      km_to: kmTo,
+      price_usd: priceUsd,
+      is_active: !!input.isActive,
+    })
+    .eq('id', rateId)
+    .select('id')
+    .single();
+
+  if (error) throw new Error(error.message);
+  if (!data?.id) {
+    throw new Error('No se pudo actualizar la tarifa.');
+  }
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function toggleDeliveryPartnerRateActiveAction(input: {
+  rateId: number;
+  nextIsActive: boolean;
+}) {
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const rateId = Number(input.rateId);
+  if (!Number.isFinite(rateId) || rateId <= 0) {
+    throw new Error('Tarifa invalida.');
+  }
+
+  const { error } = await supabase
+    .from('delivery_partner_rates')
+    .update({ is_active: !!input.nextIsActive })
+    .eq('id', rateId);
+
+  if (error) throw new Error(error.message);
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createOrderAdminAdjustmentAction(input: {
   orderId: number;
   kind: 'advisor_change' | 'client_change' | 'schedule_change';

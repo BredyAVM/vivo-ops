@@ -24,9 +24,13 @@ import {
   clearDeliveryAssignmentAction,
   returnFromKitchenToQueueAction,
   cancelOrderAction,
+  createDeliveryPartnerAction,
+  createDeliveryPartnerRateAction,
   createInventoryItemAction,
   updateInventoryItemAction,
   toggleInventoryItemActiveAction,
+  updateDeliveryPartnerAction,
+  updateDeliveryPartnerRateAction,
   updateCatalogItemAction,
   updateCatalogPricesQuickAction,
   createInventoryMovementAction,
@@ -48,6 +52,8 @@ import {
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
   toggleMoneyAccountActiveAction,
+  toggleDeliveryPartnerActiveAction,
+  toggleDeliveryPartnerRateActiveAction,
   deleteCatalogItemAction,
   updateClientAction,
   updateMoneyAccountAction,
@@ -3560,7 +3566,14 @@ const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
     if (settingsTab === 'adjustments' && !permissions.canViewAdjustments) {
       setSettingsTab('catalog');
     }
+    if (!permissions.canManageDeliveryPartners) {
+      setDeliveryPartnerCreateOpen(false);
+      setDeliveryPartnerEditOpen(false);
+      setDeliveryPartnerRateCreateOpen(false);
+      setDeliveryPartnerRateEditOpen(false);
+    }
   }, [
+    permissions.canManageDeliveryPartners,
     permissions.canManageUsers,
     permissions.canViewAdjustments,
     permissions.canViewCalculations,
@@ -6482,9 +6495,6 @@ const handleSaveQuickCatalog = async () => {
     setDeliveryPartnerRateIsActive(true);
   };
 
-  const normalizeDeliveryPartnerPhone = (raw: string) =>
-    String(raw || '').replace(/[^\d+]/g, '');
-
   const handleDeliveryAssignPartnerChange = (value: string) => {
     setDeliveryAssignPartnerId(value);
     setDeliveryAssignCostManuallyEdited(false);
@@ -6501,30 +6511,19 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const handleCreateDeliveryPartner = async () => {
+    if (!permissions.canManageDeliveryPartners) {
+      showToast('error', 'Solo admin puede administrar partners de delivery.');
+      return;
+    }
+
     try {
       setDeliveryPartnerSaving(true);
-      const supabase = createSupabaseBrowser();
-      const { data, error } = await supabase
-        .from('delivery_partners')
-        .insert({
-          name: String(deliveryPartnerFormName || '').trim(),
-          partner_type:
-            deliveryPartnerFormType === 'direct_driver'
-              ? 'direct_driver'
-              : 'company_dispatch',
-          whatsapp_phone:
-            normalizeDeliveryPartnerPhone(deliveryPartnerFormWhatsapp) || null,
-          is_active: !!deliveryPartnerFormIsActive,
-        })
-        .select('id')
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
-      }
-      if (!data?.id) {
-        throw new Error('No se pudo crear el partner externo.');
-      }
+      await createDeliveryPartnerAction({
+        name: String(deliveryPartnerFormName || '').trim(),
+        partnerType: deliveryPartnerFormType,
+        whatsappPhone: deliveryPartnerFormWhatsapp,
+        isActive: deliveryPartnerFormIsActive,
+      });
 
       showToast('success', 'Partner externo creado.');
       setDeliveryPartnerCreateOpen(false);
@@ -6539,32 +6538,20 @@ const handleSaveQuickCatalog = async () => {
 
   const handleUpdateDeliveryPartner = async () => {
     if (!selectedDeliveryPartner) return;
+    if (!permissions.canManageDeliveryPartners) {
+      showToast('error', 'Solo admin puede administrar partners de delivery.');
+      return;
+    }
 
     try {
       setDeliveryPartnerSaving(true);
-      const supabase = createSupabaseBrowser();
-      const { data, error } = await supabase
-        .from('delivery_partners')
-        .update({
-          name: String(deliveryPartnerFormName || '').trim(),
-          partner_type:
-            deliveryPartnerFormType === 'direct_driver'
-              ? 'direct_driver'
-              : 'company_dispatch',
-          whatsapp_phone:
-            normalizeDeliveryPartnerPhone(deliveryPartnerFormWhatsapp) || null,
-          is_active: !!deliveryPartnerFormIsActive,
-        })
-        .eq('id', selectedDeliveryPartner.id)
-        .select('id')
-        .single();
-
-      if (error) {
-        throw new Error(error.message);
-      }
-      if (!data?.id) {
-        throw new Error('No se pudo actualizar el partner externo.');
-      }
+      await updateDeliveryPartnerAction({
+        partnerId: selectedDeliveryPartner.id,
+        name: String(deliveryPartnerFormName || '').trim(),
+        partnerType: deliveryPartnerFormType,
+        whatsappPhone: deliveryPartnerFormWhatsapp,
+        isActive: deliveryPartnerFormIsActive,
+      });
 
       showToast('success', 'Partner externo actualizado.');
       setDeliveryPartnerEditOpen(false);
@@ -6577,21 +6564,16 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const handleToggleDeliveryPartnerActive = async (partner: DeliveryPartnerOption) => {
-    try {
-      const supabase = createSupabaseBrowser();
-      const { data, error } = await supabase
-        .from('delivery_partners')
-        .update({ is_active: !partner.isActive })
-        .eq('id', partner.id)
-        .select('id')
-        .single();
+    if (!permissions.canManageDeliveryPartners) {
+      showToast('error', 'Solo admin puede administrar partners de delivery.');
+      return;
+    }
 
-      if (error) {
-        throw new Error(error.message);
-      }
-      if (!data?.id) {
-        throw new Error('No se pudo cambiar el estado del partner externo.');
-      }
+    try {
+      await toggleDeliveryPartnerActiveAction({
+        partnerId: partner.id,
+        nextIsActive: !partner.isActive,
+      });
 
       showToast('success', partner.isActive ? 'Partner desactivado.' : 'Partner activado.');
       router.refresh();
@@ -6602,6 +6584,10 @@ const handleSaveQuickCatalog = async () => {
 
   const handleCreateDeliveryPartnerRate = async () => {
     if (!selectedDeliveryPartner) return;
+    if (!permissions.canManageDeliveryPartners) {
+      showToast('error', 'Solo admin puede administrar tarifas de delivery.');
+      return;
+    }
 
     try {
       setDeliveryPartnerRateSaving(true);
@@ -6621,21 +6607,13 @@ const handleSaveQuickCatalog = async () => {
         throw new Error('Tarifa inválida.');
       }
 
-      const supabase = createSupabaseBrowser();
-      const { data, error } = await supabase
-        .from('delivery_partner_rates')
-        .insert({
-          partner_id: selectedDeliveryPartner.id,
-          km_from: kmFrom,
-          km_to: kmTo,
-          price_usd: priceUsd,
-          is_active: !!deliveryPartnerRateIsActive,
-        })
-        .select('id')
-        .single();
-
-      if (error) throw new Error(error.message);
-      if (!data?.id) throw new Error('No se pudo crear la tarifa.');
+      await createDeliveryPartnerRateAction({
+        partnerId: selectedDeliveryPartner.id,
+        kmFrom,
+        kmTo,
+        priceUsd,
+        isActive: deliveryPartnerRateIsActive,
+      });
 
       showToast('success', 'Tarifa creada.');
       setDeliveryPartnerRateCreateOpen(false);
@@ -6650,6 +6628,10 @@ const handleSaveQuickCatalog = async () => {
 
   const handleUpdateDeliveryPartnerRate = async () => {
     if (!selectedDeliveryPartnerRate) return;
+    if (!permissions.canManageDeliveryPartners) {
+      showToast('error', 'Solo admin puede administrar tarifas de delivery.');
+      return;
+    }
 
     try {
       setDeliveryPartnerRateSaving(true);
@@ -6669,21 +6651,13 @@ const handleSaveQuickCatalog = async () => {
         throw new Error('Tarifa inválida.');
       }
 
-      const supabase = createSupabaseBrowser();
-      const { data, error } = await supabase
-        .from('delivery_partner_rates')
-        .update({
-          km_from: kmFrom,
-          km_to: kmTo,
-          price_usd: priceUsd,
-          is_active: !!deliveryPartnerRateIsActive,
-        })
-        .eq('id', selectedDeliveryPartnerRate.id)
-        .select('id')
-        .single();
-
-      if (error) throw new Error(error.message);
-      if (!data?.id) throw new Error('No se pudo actualizar la tarifa.');
+      await updateDeliveryPartnerRateAction({
+        rateId: selectedDeliveryPartnerRate.id,
+        kmFrom,
+        kmTo,
+        priceUsd,
+        isActive: deliveryPartnerRateIsActive,
+      });
 
       showToast('success', 'Tarifa actualizada.');
       setDeliveryPartnerRateEditOpen(false);
@@ -6697,17 +6671,16 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const handleToggleDeliveryPartnerRateActive = async (rate: DeliveryPartnerRate) => {
-    try {
-      const supabase = createSupabaseBrowser();
-      const { data, error } = await supabase
-        .from('delivery_partner_rates')
-        .update({ is_active: !rate.isActive })
-        .eq('id', rate.id)
-        .select('id')
-        .single();
+    if (!permissions.canManageDeliveryPartners) {
+      showToast('error', 'Solo admin puede administrar tarifas de delivery.');
+      return;
+    }
 
-      if (error) throw new Error(error.message);
-      if (!data?.id) throw new Error('No se pudo cambiar el estado de la tarifa.');
+    try {
+      await toggleDeliveryPartnerRateActiveAction({
+        rateId: rate.id,
+        nextIsActive: !rate.isActive,
+      });
 
       showToast('success', rate.isActive ? 'Tarifa desactivada.' : 'Tarifa activada.');
       router.refresh();
@@ -11456,16 +11429,18 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
               {deliveriesTab === 'partners' ? (
                 <div className="space-y-4">
-                  <div className="flex justify-end">
-                    <Btn
-                      onClick={() => {
-                        resetDeliveryPartnerForm();
-                        setDeliveryPartnerCreateOpen(true);
-                      }}
-                    >
-                      Nuevo partner externo
-                    </Btn>
-                  </div>
+                  {permissions.canManageDeliveryPartners ? (
+                    <div className="flex justify-end">
+                      <Btn
+                        onClick={() => {
+                          resetDeliveryPartnerForm();
+                          setDeliveryPartnerCreateOpen(true);
+                        }}
+                      >
+                        Nuevo partner externo
+                      </Btn>
+                    </div>
+                  ) : null}
 
                   <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                     <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
@@ -17366,29 +17341,33 @@ deliveryAssignMode === 'external' ? (
                     label={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'}
                     tone={selectedDeliveryPartner.isActive ? 'brand' : 'muted'}
                   />
-                  <button
-                    type="button"
-                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                    onClick={() => {
-                      setSelectedDeliveryPartnerId(selectedDeliveryPartner.id);
-                      setDeliveryPartnerFormName(selectedDeliveryPartner.name);
-                      setDeliveryPartnerFormType(
-                        selectedDeliveryPartner.partnerType === 'direct_driver' ? 'direct_driver' : 'company_dispatch'
-                      );
-                      setDeliveryPartnerFormWhatsapp(selectedDeliveryPartner.whatsappPhone || '');
-                      setDeliveryPartnerFormIsActive(Boolean(selectedDeliveryPartner.isActive));
-                      setDeliveryPartnerEditOpen(true);
-                    }}
-                  >
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                    onClick={() => handleToggleDeliveryPartnerActive(selectedDeliveryPartner)}
-                  >
-                    {selectedDeliveryPartner.isActive ? 'Desactivar' : 'Activar'}
-                  </button>
+                  {permissions.canManageDeliveryPartners ? (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                        onClick={() => {
+                          setSelectedDeliveryPartnerId(selectedDeliveryPartner.id);
+                          setDeliveryPartnerFormName(selectedDeliveryPartner.name);
+                          setDeliveryPartnerFormType(
+                            selectedDeliveryPartner.partnerType === 'direct_driver' ? 'direct_driver' : 'company_dispatch'
+                          );
+                          setDeliveryPartnerFormWhatsapp(selectedDeliveryPartner.whatsappPhone || '');
+                          setDeliveryPartnerFormIsActive(Boolean(selectedDeliveryPartner.isActive));
+                          setDeliveryPartnerEditOpen(true);
+                        }}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                        onClick={() => handleToggleDeliveryPartnerActive(selectedDeliveryPartner)}
+                      >
+                        {selectedDeliveryPartner.isActive ? 'Desactivar' : 'Activar'}
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
 
@@ -17408,16 +17387,18 @@ deliveryAssignMode === 'external' ? (
               <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm font-semibold text-[#F5F5F7]">Tarifas por km</div>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm"
-                    onClick={() => {
-                      resetDeliveryPartnerRateForm();
-                      setDeliveryPartnerRateCreateOpen(true);
-                    }}
-                  >
-                    Nueva tarifa
-                  </button>
+                  {permissions.canManageDeliveryPartners ? (
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm"
+                      onClick={() => {
+                        resetDeliveryPartnerRateForm();
+                        setDeliveryPartnerRateCreateOpen(true);
+                      }}
+                    >
+                      Nueva tarifa
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="mt-3 overflow-x-auto">
@@ -17431,7 +17412,9 @@ deliveryAssignMode === 'external' ? (
                           <th className="px-2 py-2 text-left font-medium">Hasta km</th>
                           <th className="px-2 py-2 text-left font-medium">Tarifa</th>
                           <th className="px-2 py-2 text-left font-medium">Estado</th>
-                          <th className="px-2 py-2 text-right font-medium">Acciones</th>
+                          {permissions.canManageDeliveryPartners ? (
+                            <th className="px-2 py-2 text-right font-medium">Acciones</th>
+                          ) : null}
                         </tr>
                       </thead>
                       <tbody>
@@ -17444,31 +17427,33 @@ deliveryAssignMode === 'external' ? (
                             <td className="px-2 py-2">{rate.kmTo != null ? rate.kmTo : 'Abierto'}</td>
                             <td className="px-2 py-2">{fmtUSD(rate.priceUsd)}</td>
                             <td className="px-2 py-2">{rate.isActive ? 'Activa' : 'Inactiva'}</td>
-                            <td className="px-2 py-2">
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px]"
-                                  onClick={() => {
-                                    setSelectedDeliveryPartnerRateId(rate.id);
-                                    setDeliveryPartnerRateKmFrom(String(rate.kmFrom));
-                                    setDeliveryPartnerRateKmTo(rate.kmTo != null ? String(rate.kmTo) : '');
-                                    setDeliveryPartnerRatePriceUsd(String(rate.priceUsd));
-                                    setDeliveryPartnerRateIsActive(Boolean(rate.isActive));
-                                    setDeliveryPartnerRateEditOpen(true);
-                                  }}
-                                >
-                                  Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px]"
-                                  onClick={() => handleToggleDeliveryPartnerRateActive(rate)}
-                                >
-                                  {rate.isActive ? 'Desactivar' : 'Activar'}
-                                </button>
-                              </div>
-                            </td>
+                            {permissions.canManageDeliveryPartners ? (
+                              <td className="px-2 py-2">
+                                <div className="flex justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px]"
+                                    onClick={() => {
+                                      setSelectedDeliveryPartnerRateId(rate.id);
+                                      setDeliveryPartnerRateKmFrom(String(rate.kmFrom));
+                                      setDeliveryPartnerRateKmTo(rate.kmTo != null ? String(rate.kmTo) : '');
+                                      setDeliveryPartnerRatePriceUsd(String(rate.priceUsd));
+                                      setDeliveryPartnerRateIsActive(Boolean(rate.isActive));
+                                      setDeliveryPartnerRateEditOpen(true);
+                                    }}
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-lg border border-[#242433] bg-[#121218] px-2 py-1 text-[11px]"
+                                    onClick={() => handleToggleDeliveryPartnerRateActive(rate)}
+                                  >
+                                    {rate.isActive ? 'Desactivar' : 'Activar'}
+                                  </button>
+                                </div>
+                              </td>
+                            ) : null}
                           </tr>
                         ))}
                       </tbody>
