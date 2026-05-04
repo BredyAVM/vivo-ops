@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices } from '@/lib/push';
+import { getMasterDashboardPermissions } from './permissions';
 
 async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
@@ -80,12 +81,12 @@ function normalizePaymentMethodCode(input: unknown): PaymentMethodCode | null {
 
 function requiresAdminMovementApproval(roles: readonly string[], direction: 'inflow' | 'outflow', amountUsd: number) {
   if (direction !== 'outflow') return false;
-  if (roles.includes('admin')) return false;
+  if (getMasterDashboardPermissions(roles).isAdmin) return false;
   return amountUsd >= MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD;
 }
 
 function requireAdminRole(roles: readonly string[]) {
-  if (!roles.includes('admin')) {
+  if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Esta acción requiere permisos de administrador.');
   }
 }
@@ -957,7 +958,7 @@ export async function confirmPaymentReportAction(input: {
     }
 
     if (excessUsd > 0.005 && handling === 'close_difference') {
-      if (!roles.includes('admin')) {
+      if (!getMasterDashboardPermissions(roles).isAdmin) {
         throw new Error('Solo admin puede cerrar excedentes por redondeo.');
       }
 
@@ -2971,7 +2972,7 @@ export async function createExtraMoneyMovementAction(input: {
     }
 
     if (excessUsd > 0.005 && handling === 'close_difference') {
-      if (!roles.includes('admin')) {
+      if (!getMasterDashboardPermissions(roles).isAdmin) {
         throw new Error('Solo admin puede cerrar excedentes por redondeo.');
       }
 
@@ -3246,7 +3247,7 @@ export async function createInventoryItemAction(input: {
     }
 
     if (excessUsd > 0.005 && handling === 'close_difference') {
-      if (!roles.includes('admin')) {
+      if (!getMasterDashboardPermissions(roles).isAdmin) {
         throw new Error('Solo admin puede cerrar excedentes por redondeo.');
       }
 
@@ -3428,7 +3429,8 @@ export async function createDeliveryPartnerAction(input: {
   whatsappPhone: string;
   isActive: boolean;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre del partner es obligatorio.');
@@ -3462,7 +3464,8 @@ export async function updateDeliveryPartnerAction(input: {
   whatsappPhone: string;
   isActive: boolean;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const partnerId = Number(input.partnerId);
   if (!Number.isFinite(partnerId) || partnerId <= 0) {
@@ -3499,7 +3502,8 @@ export async function toggleDeliveryPartnerActiveAction(input: {
   partnerId: number;
   nextIsActive: boolean;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const partnerId = Number(input.partnerId);
   if (!Number.isFinite(partnerId) || partnerId <= 0) {
@@ -3529,7 +3533,7 @@ export async function createOrderAdminAdjustmentAction(input: {
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
-  if (!roles.includes('admin')) {
+  if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Solo admin puede crear ajustes administrativos.');
   }
 
@@ -3658,7 +3662,7 @@ export async function closeOrderRoundingBalanceAction(input: {
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
-  if (!roles.includes('admin')) {
+  if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Solo admin puede cerrar diferencias de redondeo.');
   }
 
@@ -5131,7 +5135,7 @@ export async function approveMoneyMovementGroupAction(input: {
   movementGroupId: string | null;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
-  if (!roles.includes('admin')) {
+  if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Solo admin puede aprobar movimientos pendientes.');
   }
 
@@ -5169,7 +5173,7 @@ export async function rejectMoneyMovementGroupAction(input: {
   reason: string;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
-  if (!roles.includes('admin')) {
+  if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Solo admin puede rechazar movimientos pendientes.');
   }
 
@@ -5210,7 +5214,7 @@ export async function voidMoneyMovementGroupAction(input: {
   reason: string;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
-  if (!roles.includes('admin')) {
+  if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Solo admin puede anular movimientos financieros.');
   }
 
@@ -5826,7 +5830,7 @@ export async function createOrderAction(input: {
 
   if (
     input.items.some((item) => item.adminPriceOverrideUsd != null) &&
-    !roles.includes('admin')
+    !getMasterDashboardPermissions(roles).isAdmin
   ) {
     throw new Error('Solo admin puede ajustar precios manualmente.');
   }
@@ -6352,7 +6356,7 @@ export async function updateOrderAction(input: {
 
   if (
     input.items.some((item) => item.adminPriceOverrideUsd != null) &&
-    !roles.includes('admin')
+    !getMasterDashboardPermissions(roles).isAdmin
   ) {
     throw new Error('Solo admin puede ajustar precios manualmente.');
   }
@@ -6380,9 +6384,9 @@ export async function updateOrderAction(input: {
   }
 
   const isAdvancedAdminEdit =
-    roles.includes('admin') && !['created', 'queued'].includes(currentOrder.status);
+    getMasterDashboardPermissions(roles).isAdmin && !['created', 'queued'].includes(currentOrder.status);
 
-  if (!['created', 'queued'].includes(currentOrder.status) && !roles.includes('admin')) {
+  if (!['created', 'queued'].includes(currentOrder.status) && !getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Solo se pueden editar Órdenes en estado created o queued.');
   }
 

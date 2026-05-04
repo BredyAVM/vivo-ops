@@ -56,6 +56,7 @@ import {
   updateOrderAction,
   logoutAction,
 } from './actions';
+import { getMasterDashboardPermissions } from './permissions';
 
 type OrderStatus =
   | 'created'
@@ -3546,8 +3547,26 @@ const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
   const [orderEditorMode, setOrderEditorMode] = useState<'create' | 'edit'>('create');
 const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
 
-  const isAdmin = roles.includes('admin');
-const isMaster = roles.includes('master');
+  const permissions = useMemo(() => getMasterDashboardPermissions(roles), [roles]);
+  const isAdmin = permissions.isAdmin;
+
+  useEffect(() => {
+    if (viewMode === 'calculations' && !permissions.canViewCalculations) {
+      setViewMode('operations');
+    }
+    if (settingsTab === 'users' && !permissions.canManageUsers) {
+      setSettingsTab('catalog');
+    }
+    if (settingsTab === 'adjustments' && !permissions.canViewAdjustments) {
+      setSettingsTab('catalog');
+    }
+  }, [
+    permissions.canManageUsers,
+    permissions.canViewAdjustments,
+    permissions.canViewCalculations,
+    settingsTab,
+    viewMode,
+  ]);
 
   const dashboardRolesByUserId = useMemo(() => {
     const map = new Map<string, AppUserRole[]>();
@@ -5522,6 +5541,10 @@ const handleClearDeliveryAssignment = async (o: Order) => {
 
 const handleSaveCatalog = async () => {
   if (!selectedCatalogItem) return;
+  if (!permissions.canManageCatalogItems) {
+    showToast('error', 'Solo admin puede modificar el catalogo.');
+    return;
+  }
 
   const validationError = validateCatalogBeforeSave({
     item: selectedCatalogItem,
@@ -5614,6 +5637,11 @@ const handleSaveCatalog = async () => {
 };
 
 const openQuickCatalog = () => {
+  if (!permissions.canManageCatalogPrices) {
+    showToast('error', 'Solo admin puede actualizar precios.');
+    return;
+  }
+
   setQuickCatalogRows(
     filteredCatalogItems.map((item) => ({
       productId: item.id,
@@ -5634,6 +5662,11 @@ const handleQuickCatalogRowChange = (productId: number, value: string) => {
 };
 
 const handleSaveQuickCatalog = async () => {
+  if (!permissions.canManageCatalogPrices) {
+    showToast('error', 'Solo admin puede actualizar precios.');
+    return;
+  }
+
   try {
     const changedItems = quickCatalogRows
       .map((row) => {
@@ -5749,11 +5782,21 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const openCreateAccount = () => {
+    if (!permissions.canCreateMoneyAccounts) {
+      showToast('error', 'Solo admin puede crear cuentas.');
+      return;
+    }
+
     resetAccountForm();
     setAccountCreateOpen(true);
   };
 
   const openMoneyMovementDrawer = (accountId?: number | null) => {
+    if (!permissions.canCreateMoneyMovements) {
+      showToast('error', 'No tienes permiso para registrar movimientos.');
+      return;
+    }
+
     resetMoneyMovementForm();
     setAccountDetailOpen(false);
     if (accountId && Number.isFinite(accountId) && accountId > 0) {
@@ -5763,6 +5806,11 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const openMoneyTransferDrawer = (accountId?: number | null) => {
+    if (!permissions.canCreateMoneyTransfers) {
+      showToast('error', 'Solo admin puede registrar traspasos.');
+      return;
+    }
+
     resetMoneyTransferForm();
     setAccountDetailOpen(false);
     if (accountId && Number.isFinite(accountId) && accountId > 0) {
@@ -5772,6 +5820,11 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const openAccountClosureDrawer = (account: MoneyAccountOption) => {
+    if (!permissions.canRegisterAccountClosures) {
+      showToast('error', 'No tienes permiso para registrar cierres.');
+      return;
+    }
+
     setSelectedAccountId(account.id);
     resetClosureForm();
     setClosureCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
@@ -5780,6 +5833,11 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const openEditAccount = (account: MoneyAccountOption) => {
+    if (!permissions.canManageMoneyAccounts) {
+      showToast('error', 'Solo admin puede editar cuentas.');
+      return;
+    }
+
     setSelectedAccountId(account.id);
     setAccountFormName(account.name);
     setAccountFormCurrencyCode(account.currencyCode);
@@ -5828,6 +5886,11 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const openAccountRulesEditor = (account: MoneyAccountOption) => {
+    if (!permissions.canManageMoneyAccountRules) {
+      showToast('error', 'Solo admin puede administrar reglas de cuentas.');
+      return;
+    }
+
     setSelectedAccountId(account.id);
     setAccountRuleDrafts(buildAccountRuleDrafts(account));
     setAccountRulesOpen(true);
@@ -6705,12 +6768,22 @@ const resetInventoryItemForm = () => {
 };
 
 const openInventoryItemCreateDrawer = () => {
+  if (!permissions.canCreateInventoryItems) {
+    showToast('error', 'Solo admin puede crear items de inventario.');
+    return;
+  }
+
   setSelectedInventoryProductId(null);
   resetInventoryItemForm();
   setInventoryItemCreateOpen(true);
 };
 
 const openInventoryItemEditDrawer = (inventoryItemId: number) => {
+  if (!permissions.canManageInventoryItems) {
+    showToast('error', 'Solo admin puede editar la estructura del inventario.');
+    return;
+  }
+
   const item = inventoryItemById.get(inventoryItemId);
   if (!item) return;
 
@@ -7040,6 +7113,11 @@ const handleCreateInventoryProduction = async () => {
 };
 
 const handleCreateCatalogItem = async () => {
+  if (!permissions.canCreateCatalogItems) {
+    showToast('error', 'Solo admin puede crear items de catalogo.');
+    return;
+  }
+
   try {
     setCreateCatalogSaving(true);
 
@@ -7110,6 +7188,10 @@ const handleCreateCatalogItem = async () => {
 
 const handleToggleCatalogItemActive = async () => {
   if (!selectedCatalogItem) return;
+  if (!permissions.canManageCatalogItems) {
+    showToast('error', 'Solo admin puede cambiar el estado del catalogo.');
+    return;
+  }
 
   try {
     const nextIsActive = !selectedCatalogItem.isActive;
@@ -7129,6 +7211,10 @@ const handleToggleCatalogItemActive = async () => {
 
 const handleDeleteCatalogItem = async () => {
   if (!selectedCatalogItem) return;
+  if (!permissions.canManageCatalogItems) {
+    showToast('error', 'Solo admin puede eliminar items de catalogo.');
+    return;
+  }
 
   const confirmed = window.confirm(
     `¿Seguro que deseas eliminar "${selectedCatalogItem.name}"?\n\nEsto solo funcionará si no tiene uso ni dependencias.`
@@ -9957,7 +10043,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <div className="flex items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
           <TopNavButton label="Operación" icon={<TopNavIcon kind="operations" />} active={viewMode === 'operations'} onClick={() => setViewMode('operations')} />
           <TopNavButton label="Config." icon={<TopNavIcon kind="settings" />} active={viewMode === 'settings'} onClick={() => setViewMode('settings')} />
-          {isAdmin ? (
+          {permissions.canViewCalculations ? (
             <TopNavButton label="Cálculos" icon={<TopNavIcon kind="calculations" />} active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
           ) : null}
           <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={masterInboxUnreviewedCount} />
@@ -10009,12 +10095,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
           Clientes
         </Chip>
-        {isAdmin ? (
+        {permissions.canManageUsers ? (
           <Chip active={settingsTab === 'users'} onClick={() => setSettingsTab('users')}>
             Usuarios
           </Chip>
         ) : null}
-        {isAdmin ? (
+        {permissions.canViewAdjustments ? (
           <Chip active={settingsTab === 'adjustments'} onClick={() => setSettingsTab('adjustments')}>
             Ajustes
           </Chip>
@@ -10024,7 +10110,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 ) : null}
 
-{viewMode === 'calculations' && isAdmin ? (
+{viewMode === 'calculations' && permissions.canViewCalculations ? (
   <div className="border-b border-[#242433] bg-[#0B0B0D]">
     <div className="mx-auto max-w-[1400px] px-5 py-2">
       <div className="flex gap-2 overflow-x-auto">
@@ -10517,7 +10603,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </div>
           </div>
         </div>
-      ) : viewMode === 'calculations' && isAdmin ? (
+      ) : viewMode === 'calculations' && permissions.canViewCalculations ? (
         <div className="mx-auto max-w-[1400px] px-5 py-5">
           {calculationsTab === 'general' ? (
             <div className="space-y-5">
@@ -11463,7 +11549,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 
   <div className="flex flex-wrap gap-2">
-    {isAdmin ? (
+    {permissions.canCreateCatalogItems ? (
       <Btn onClick={() => setCreateCatalogOpen(true)}>
         Nuevo ítem
       </Btn>
@@ -11471,7 +11557,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 </div>
 
-              {isAdmin ? (
+              {permissions.canManageCatalogPrices ? (
               <div className="mb-3 flex flex-wrap gap-2">
                 <Btn onClick={openQuickCatalog}>
                   Actualizar precios
@@ -11656,7 +11742,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       <div className="text-xs text-[#8A8A96] md:max-w-[280px]">
         El stock se guarda en unidades base y se muestra usando el empaque configurado del producto.
       </div>
-      {isAdmin ? (
+      {permissions.canCreateInventoryItems ? (
         <button
           className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
           onClick={openInventoryItemCreateDrawer}
@@ -11974,7 +12060,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         >
                           Cierre
                         </button>
-                        {isAdmin ? (
+                        {permissions.canManageMoneyAccountRules ? (
                           <button
                             type="button"
                             className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]"
@@ -12022,12 +12108,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn>
-          {isAdmin ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
+          {permissions.canCreateMoneyMovements ? <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn> : null}
+          {permissions.canCreateMoneyTransfers ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
           <Btn onClick={() => setFinancePendingOpen(true)}>
             Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
           </Btn>
-          {isAdmin ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
+          {permissions.canCreateMoneyAccounts ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
         </div>
       </div>
     </div>
@@ -12172,7 +12258,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]">
                     Abrir
                   </span>
-                  {isAdmin ? (
+                  {permissions.canManageMoneyAccountRules ? (
                     <button
                       type="button"
                       className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]"
@@ -12339,7 +12425,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 ) : null}
 
-          {settingsTab === 'users' && isAdmin ? (
+          {settingsTab === 'users' && permissions.canManageUsers ? (
   <div className="space-y-5">
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 xl:col-span-2">
@@ -12447,7 +12533,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 ) : null}
 
-          {settingsTab === 'adjustments' && isAdmin ? (
+          {settingsTab === 'adjustments' && permissions.canViewAdjustments ? (
   <div className="space-y-5">
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-4">
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -13138,7 +13224,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         onClose={closeCatalogDetail}
         widthClass="w-[860px]"
         headerActions={
-          selectedCatalogItem && isAdmin ? (
+          selectedCatalogItem && permissions.canManageCatalogItems ? (
             catalogEditMode ? (
               <>
                 <button
@@ -16422,7 +16508,7 @@ deliveryAssignMode === 'external' ? (
                     >
                       Movimiento
                     </button>
-                    {isAdmin ? (
+                    {permissions.canCreateMoneyTransfers ? (
                       <button
                         type="button"
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -16445,7 +16531,7 @@ deliveryAssignMode === 'external' ? (
                     >
                       Exportar
                     </button>
-                    {isAdmin ? (
+                    {permissions.canManageMoneyAccounts ? (
                       <>
                         <button
                           type="button"
@@ -16583,7 +16669,7 @@ deliveryAssignMode === 'external' ? (
                     Roles, métodos y aprobación permitidos para esta cuenta.
                   </div>
                 </div>
-                {isAdmin ? (
+                {permissions.canManageMoneyAccountRules ? (
                   <button
                     type="button"
                     className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
@@ -16833,7 +16919,7 @@ deliveryAssignMode === 'external' ? (
               </div>
             ) : null}
 
-            {selectedMovementGroup.primaryMovement.status === 'pending' && roles.includes('admin') ? (
+            {selectedMovementGroup.primaryMovement.status === 'pending' && permissions.canReviewMoneyMovements ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Revisión admin</div>
                 <div className="mt-3">
@@ -16892,7 +16978,7 @@ deliveryAssignMode === 'external' ? (
               </div>
             ) : null}
 
-            {roles.includes('admin') &&
+            {permissions.canReviewMoneyMovements &&
             (selectedMovementGroup.primaryMovement.status === 'pending' ||
               selectedMovementGroup.primaryMovement.status === 'confirmed') ? (
               <div className="rounded-2xl border border-[#5A2626] bg-[#120B0B] p-4">
