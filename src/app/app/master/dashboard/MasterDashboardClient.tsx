@@ -795,6 +795,7 @@ const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
 const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
 const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos'];
 const ACCOUNT_REVIEW_ROLES: AppUserRole[] = ['master', 'admin', 'kitchen'];
+const KITCHEN_COUNTER_METHODS = new Set<PaymentMethodCode>(['cash_usd', 'cash_ves', 'pos']);
 
 const APP_USER_ROLE_LABEL: Record<AppUserRole, string> = {
   admin: 'Admin',
@@ -8503,6 +8504,72 @@ const selectedCreateOrderClientAddresses = useMemo(
   const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
   const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
 
+  const kitchenCashdeskRows = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    return moneyAccounts
+      .map((account) => {
+        const rules = (accountRulesByAccountId.get(account.id) ?? []).filter(
+          (rule) => rule.role === 'kitchen' && (rule.canViewAccount || rule.canReportPayment || rule.canConfirmPayment)
+        );
+        if (rules.length === 0) return null;
+
+        const reportRules = rules.filter((rule) => rule.canReportPayment);
+        const autoRules = rules.filter((rule) => rule.autoConfirmsReport);
+        const reviewRules = rules.filter((rule) => rule.reviewRequired);
+        const counterRules = rules.filter(
+          (rule) => isPaymentMethodCode(rule.paymentMethodCode) && KITCHEN_COUNTER_METHODS.has(rule.paymentMethodCode)
+        );
+        const stats = accountStatsById.get(account.id);
+        const todayInflow = moneyMovements
+          .filter(
+            (movement) =>
+              movement.moneyAccountId === account.id &&
+              movement.status === 'confirmed' &&
+              movement.direction === 'inflow' &&
+              movement.movementDate === today
+          )
+          .reduce((sum, movement) => sum + movement.amount, 0);
+        const pendingReviewUsd = moneyMovements
+          .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
+          .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
+        const lastClosure =
+          moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
+
+        return {
+          account,
+          rules,
+          methods: reportRules.map((rule) => getPaymentMethodLabel(rule.paymentMethodCode)),
+          autoMethods: autoRules.map((rule) => getPaymentMethodLabel(rule.paymentMethodCode)),
+          reviewMethods: reviewRules.map((rule) => getPaymentMethodLabel(rule.paymentMethodCode)),
+          hasCounterOperation: counterRules.length > 0,
+          balanceNative: stats?.balanceNative ?? 0,
+          balanceUsdRef: stats?.balanceUsdRef ?? 0,
+          todayInflow,
+          pendingReviewUsd,
+          lastClosure,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null)
+      .sort((a, b) => {
+        if (a.hasCounterOperation !== b.hasCounterOperation) return a.hasCounterOperation ? -1 : 1;
+        return a.account.name.localeCompare(b.account.name);
+      });
+  }, [accountRulesByAccountId, accountStatsById, moneyAccountClosures, moneyAccounts, moneyMovements]);
+
+  const kitchenCashdeskSummary = useMemo(() => {
+    return kitchenCashdeskRows.reduce(
+      (summary, row) => {
+        summary.accounts += 1;
+        if (row.hasCounterOperation) summary.counterAccounts += 1;
+        if (row.reviewMethods.length > 0) summary.reviewAccounts += 1;
+        summary.pendingReviewUsd += row.pendingReviewUsd;
+        return summary;
+      },
+      { accounts: 0, counterAccounts: 0, reviewAccounts: 0, pendingReviewUsd: 0 }
+    );
+  }, [kitchenCashdeskRows]);
+
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
     const base = {
@@ -11765,6 +11832,131 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           </div>
         </div>
       ))}
+    </div>
+
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Caja local</div>
+          <div className="mt-1 text-xs text-[#8A8A96]">
+            Cuentas y métodos que cocina puede ver, reportar o confirmar.
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
+          <InfoCell label="Cuentas" value={String(kitchenCashdeskSummary.accounts)} />
+          <InfoCell label="Mostrador" value={String(kitchenCashdeskSummary.counterAccounts)} />
+          <InfoCell label="Revisión" value={String(kitchenCashdeskSummary.reviewAccounts)} />
+          <InfoCell label="Pendiente" value={fmtUSD(kitchenCashdeskSummary.pendingReviewUsd)} />
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        {kitchenCashdeskRows.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+            No hay cuentas configuradas para cocina.
+          </div>
+        ) : (
+          <table className="w-full text-[12px]">
+            <thead className="border-b border-[#242433] text-[#B7B7C2]">
+              <tr>
+                <th className="px-2 py-2 text-left font-medium">Cuenta</th>
+                <th className="px-2 py-2 text-left font-medium">Cocina reporta</th>
+                <th className="px-2 py-2 text-left font-medium">Confirmación</th>
+                <th className="px-2 py-2 text-left font-medium">Balance</th>
+                <th className="px-2 py-2 text-left font-medium">Hoy</th>
+                <th className="px-2 py-2 text-left font-medium">Último cierre</th>
+                <th className="px-2 py-2 text-left font-medium">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kitchenCashdeskRows.map((row, index) => {
+                const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                return (
+                  <tr key={row.account.id} className={`${zebra} border-b border-[#242433] align-top`}>
+                    <td className="px-2 py-3">
+                      <div className="font-semibold text-[#F5F5F7]">{row.account.name}</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">
+                        {MONEY_ACCOUNT_KIND_LABEL[row.account.accountKind]} · {row.account.currencyCode}
+                      </div>
+                    </td>
+                    <td className="px-2 py-3">
+                      <div className="flex max-w-[240px] flex-wrap gap-1">
+                        {row.methods.length > 0 ? (
+                          row.methods.map((method) => (
+                            <span
+                              key={`${row.account.id}-${method}`}
+                              className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-2 py-0.5 text-[10px] text-[#B7B7C2]"
+                            >
+                              {method}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[#8A8A96]">Solo visible</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-3">
+                      {row.autoMethods.length > 0 ? (
+                        <div className="text-emerald-300">Auto: {row.autoMethods.join(', ')}</div>
+                      ) : null}
+                      {row.reviewMethods.length > 0 ? (
+                        <div className="mt-1 text-[#FEEF00]">Master: {row.reviewMethods.join(', ')}</div>
+                      ) : null}
+                      {row.autoMethods.length === 0 && row.reviewMethods.length === 0 ? (
+                        <span className="text-[#8A8A96]">Sin confirmación</span>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-3">
+                      <div className="text-[#F5F5F7]">
+                        {fmtMoneyByCurrency(row.balanceNative, row.account.currencyCode)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">{fmtUSD(row.balanceUsdRef)}</div>
+                    </td>
+                    <td className="px-2 py-3 text-emerald-300">
+                      {fmtMoneyByCurrency(row.todayInflow, row.account.currencyCode)}
+                      {row.pendingReviewUsd > 0 ? (
+                        <div className="mt-1 text-[11px] text-[#FEEF00]">
+                          Pendiente {fmtUSD(row.pendingReviewUsd)}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-3">
+                      {row.lastClosure ? (
+                        <div>
+                          <div className="text-[#F5F5F7]">{row.lastClosure.closureDate}</div>
+                          <div className={row.lastClosure.differenceAmount === 0 ? 'mt-1 text-[11px] text-emerald-300' : 'mt-1 text-[11px] text-[#FEEF00]'}>
+                            Dif. {fmtMoneyByCurrency(row.lastClosure.differenceAmount, row.lastClosure.currencyCode)}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[#8A8A96]">Sin cierre</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-1.5 text-xs font-semibold text-[#FEEF00]"
+                          onClick={() => openAccountClosureDrawer(row.account)}
+                        >
+                          Cierre
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]"
+                          onClick={() => openAccountRulesEditor(row.account)}
+                        >
+                          Reglas
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
 
     <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-end md:justify-between">
