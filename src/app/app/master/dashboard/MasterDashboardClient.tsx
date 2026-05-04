@@ -10009,9 +10009,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
           Clientes
         </Chip>
-        <Chip active={settingsTab === 'users'} onClick={() => setSettingsTab('users')}>
-          Usuarios
-        </Chip>
+        {isAdmin ? (
+          <Chip active={settingsTab === 'users'} onClick={() => setSettingsTab('users')}>
+            Usuarios
+          </Chip>
+        ) : null}
         {isAdmin ? (
           <Chip active={settingsTab === 'adjustments'} onClick={() => setSettingsTab('adjustments')}>
             Ajustes
@@ -11461,17 +11463,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 
   <div className="flex flex-wrap gap-2">
-    <Btn onClick={() => setCreateCatalogOpen(true)}>
-      Nuevo ítem
-    </Btn>
+    {isAdmin ? (
+      <Btn onClick={() => setCreateCatalogOpen(true)}>
+        Nuevo ítem
+      </Btn>
+    ) : null}
   </div>
 </div>
 
+              {isAdmin ? (
               <div className="mb-3 flex flex-wrap gap-2">
                 <Btn onClick={openQuickCatalog}>
                   Actualizar precios
                 </Btn>
               </div>
+              ) : null}
 
               <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
                 <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden">
@@ -11650,12 +11656,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       <div className="text-xs text-[#8A8A96] md:max-w-[280px]">
         El stock se guarda en unidades base y se muestra usando el empaque configurado del producto.
       </div>
-      <button
-        className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
-        onClick={openInventoryItemCreateDrawer}
-      >
-        Nuevo item
-      </button>
+      {isAdmin ? (
+        <button
+          className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+          onClick={openInventoryItemCreateDrawer}
+        >
+          Nuevo item
+        </button>
+      ) : null}
     </div>
 
     <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
@@ -11966,13 +11974,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         >
                           Cierre
                         </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]"
-                          onClick={() => openAccountRulesEditor(row.account)}
-                        >
-                          Reglas
-                        </button>
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]"
+                            onClick={() => openAccountRulesEditor(row.account)}
+                          >
+                            Reglas
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -12013,11 +12023,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
         <div className="flex flex-wrap gap-2">
           <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn>
-          <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn>
+          {isAdmin ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
           <Btn onClick={() => setFinancePendingOpen(true)}>
             Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
           </Btn>
-          <Btn onClick={openCreateAccount}>Nueva cuenta</Btn>
+          {isAdmin ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
         </div>
       </div>
     </div>
@@ -12162,16 +12172,18 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <span className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]">
                     Abrir
                   </span>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openAccountRulesEditor(account);
-                    }}
-                  >
-                    Reglas
-                  </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openAccountRulesEditor(account);
+                      }}
+                    >
+                      Reglas
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="rounded-lg border border-[#FEEF00]/40 bg-[#1D1A00] px-2.5 py-1 text-[11px] font-semibold text-[#FEEF00]"
@@ -12327,7 +12339,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 ) : null}
 
-          {settingsTab === 'users' ? (
+          {settingsTab === 'users' && isAdmin ? (
   <div className="space-y-5">
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4 xl:col-span-2">
@@ -13126,7 +13138,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         onClose={closeCatalogDetail}
         widthClass="w-[860px]"
         headerActions={
-          selectedCatalogItem ? (
+          selectedCatalogItem && isAdmin ? (
             catalogEditMode ? (
               <>
                 <button
@@ -16410,13 +16422,15 @@ deliveryAssignMode === 'external' ? (
                     >
                       Movimiento
                     </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
-                    >
-                      Traspaso
-                    </button>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                        onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
+                      >
+                        Traspaso
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -16431,27 +16445,31 @@ deliveryAssignMode === 'external' ? (
                     >
                       Exportar
                     </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => openEditAccount(selectedAccount)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => openAccountRulesEditor(selectedAccount)}
-                    >
-                      Reglas
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => handleToggleMoneyAccountActive(selectedAccount)}
-                    >
-                      {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
-                    </button>
+                    {isAdmin ? (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => openEditAccount(selectedAccount)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => openAccountRulesEditor(selectedAccount)}
+                        >
+                          Reglas
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                          onClick={() => handleToggleMoneyAccountActive(selectedAccount)}
+                        >
+                          {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -16565,13 +16583,15 @@ deliveryAssignMode === 'external' ? (
                     Roles, métodos y aprobación permitidos para esta cuenta.
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
-                  onClick={() => openAccountRulesEditor(selectedAccount)}
-                >
-                  Administrar
-                </button>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                    onClick={() => openAccountRulesEditor(selectedAccount)}
+                  >
+                    Administrar
+                  </button>
+                ) : null}
               </div>
               <div className="mt-3 flex flex-wrap gap-1">
                 {getAccountRuleBadges(selectedAccount.id).length > 0 ? (

@@ -43,7 +43,7 @@ function toSafeNumber(value: unknown, fallback = 0) {
 }
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
-const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 100;
+const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
@@ -84,6 +84,12 @@ function requiresAdminMovementApproval(roles: readonly string[], direction: 'inf
   return amountUsd >= MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD;
 }
 
+function requireAdminRole(roles: readonly string[]) {
+  if (!roles.includes('admin')) {
+    throw new Error('Esta acción requiere permisos de administrador.');
+  }
+}
+
 type OrderEventContext = {
   orderId: number;
   orderNumber: string | null;
@@ -107,6 +113,7 @@ export async function updateDashboardUserAction(input: {
   roles: AppUserRole[];
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const userId = String(input.userId || '').trim();
   if (!userId) {
@@ -2125,7 +2132,8 @@ export async function updateCatalogItemAction(input: {
     notes: string | null;
   }>;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   if (!Number.isFinite(input.productId) || input.productId <= 0) {
     throw new Error('Producto inválido.');
@@ -2422,7 +2430,8 @@ export async function updateCatalogPricesQuickAction(input: {
     sourcePriceAmount: number;
   }>;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const items = (input.items ?? [])
     .map((row) => ({
@@ -2518,7 +2527,8 @@ export async function createMoneyAccountAction(input: {
   notes: string;
   isActive: boolean;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
@@ -2548,7 +2558,8 @@ export async function updateMoneyAccountAction(input: {
   notes: string;
   isActive: boolean;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
@@ -2579,7 +2590,8 @@ export async function toggleMoneyAccountActiveAction(input: {
   accountId: number;
   nextIsActive: boolean;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
@@ -2611,7 +2623,8 @@ export async function updateMoneyAccountPaymentRulesAction(input: {
     isActive: boolean;
   }>;
 }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const accountId = Number(input.accountId);
   if (!Number.isFinite(accountId) || accountId <= 0) {
@@ -3073,7 +3086,8 @@ export async function createInventoryItemAction(input: {
   isActive: boolean;
   notes: string | null;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre del item es obligatorio.');
@@ -4737,7 +4751,8 @@ export async function createCatalogItemAction(input: {
     sortOrder: number;
   }>;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const sku = String(input.sku || '').trim().toUpperCase();
   const name = String(input.name || '').trim();
@@ -4898,7 +4913,8 @@ export async function toggleCatalogItemActiveAction(input: {
   productId: number;
   nextIsActive: boolean;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const { error } = await supabase
     .from('products')
@@ -4929,6 +4945,7 @@ export async function createMoneyTransferAction(input: {
   notes: string;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const sourceMoneyAccountId = Number(input.sourceMoneyAccountId || 0);
   const targetMoneyAccountId = Number(input.targetMoneyAccountId || 0);
@@ -5560,7 +5577,8 @@ export async function createInventoryProductionAction(input: {
 export async function deleteCatalogItemAction(input: {
   productId: number;
 }) {
-  const supabase = await createSupabaseServer();
+  const { supabase, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const productId = Number(input.productId);
   if (!Number.isFinite(productId) || productId <= 0) {
