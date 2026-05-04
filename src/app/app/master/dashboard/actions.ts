@@ -43,6 +43,7 @@ function toSafeNumber(value: unknown, fallback = 0) {
 }
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
+const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 100;
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
@@ -77,6 +78,12 @@ function normalizePaymentMethodCode(input: unknown): PaymentMethodCode | null {
   return PAYMENT_METHOD_CODES.has(input as PaymentMethodCode) ? (input as PaymentMethodCode) : null;
 }
 
+function requiresAdminMovementApproval(roles: readonly string[], direction: 'inflow' | 'outflow', amountUsd: number) {
+  if (direction !== 'outflow') return false;
+  if (roles.includes('admin')) return false;
+  return amountUsd >= MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD;
+}
+
 type OrderEventContext = {
   orderId: number;
   orderNumber: string | null;
@@ -99,7 +106,7 @@ export async function updateDashboardUserAction(input: {
   isActive: boolean;
   roles: AppUserRole[];
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
 
   const userId = String(input.userId || '').trim();
   if (!userId) {
@@ -178,7 +185,7 @@ async function saveMasterInboxItemsState(
   input: { items: MasterInboxStateItemInput[] },
   status: 'reviewed' | 'resolved'
 ) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
   const items = normalizeMasterInboxStateItems(input.items);
 
   if (items.length === 0) return;
@@ -717,7 +724,7 @@ export async function createPaymentReportAction(input: {
   payerName: string | null;
   notes: string | null;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
 
   const { error } = await supabase.rpc('create_payment_report', {
     p_order_id: input.orderId,
@@ -2681,7 +2688,7 @@ export async function createExtraMoneyMovementAction(input: {
   description: string;
   notes: string;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
 
   const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
   const moneyAccountId = Number(input.moneyAccountId || 0);
@@ -2752,13 +2759,26 @@ export async function createExtraMoneyMovementAction(input: {
 
   const movementType = direction === 'inflow' ? 'other_income' : 'expense_payment';
   const movementGroupId = feeAmount > 0 ? crypto.randomUUID() : null;
+  const requiresApproval = requiresAdminMovementApproval(
+    roles,
+    direction,
+    Number((amountUsdEquivalent + feeAmountUsdEquivalent).toFixed(2))
+  );
+  const movementStatus = requiresApproval ? 'pending' : 'confirmed';
+  const confirmedAt = requiresApproval ? null : new Date().toISOString();
+  const approvalReason = requiresApproval
+    ? `Egreso igual o mayor a ${MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD.toFixed(2)} USD requiere aprobación admin.`
+    : null;
 
   const movementRows = [
     {
     movement_date: movementDate,
     created_by_user_id: user.id,
-    confirmed_at: new Date().toISOString(),
-    confirmed_by_user_id: user.id,
+    confirmed_at: confirmedAt,
+    confirmed_by_user_id: requiresApproval ? null : user.id,
+    status: movementStatus,
+    approval_required: requiresApproval,
+    approval_required_reason: approvalReason,
     direction,
     movement_type: movementType,
     money_account_id: moneyAccountId,
@@ -2780,8 +2800,11 @@ export async function createExtraMoneyMovementAction(input: {
     movementRows.push({
       movement_date: movementDate,
       created_by_user_id: user.id,
-      confirmed_at: new Date().toISOString(),
-      confirmed_by_user_id: user.id,
+      confirmed_at: confirmedAt,
+      confirmed_by_user_id: requiresApproval ? null : user.id,
+      status: movementStatus,
+      approval_required: requiresApproval,
+      approval_required_reason: approvalReason,
       direction,
       movement_type: 'fee_charge',
       money_account_id: moneyAccountId,
@@ -4905,7 +4928,7 @@ export async function createMoneyTransferAction(input: {
   description: string;
   notes: string;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
 
   const sourceMoneyAccountId = Number(input.sourceMoneyAccountId || 0);
   const targetMoneyAccountId = Number(input.targetMoneyAccountId || 0);
@@ -4993,13 +5016,26 @@ export async function createMoneyTransferAction(input: {
     sourceCurrency === 'USD' ? Number(feeAmount.toFixed(2)) : Number((feeAmount / (sourceExchangeRate ?? 1)).toFixed(2));
   const groupId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const requiresApproval = requiresAdminMovementApproval(
+    roles,
+    'outflow',
+    Number((sourceAmountUsdEquivalent + feeAmountUsdEquivalent).toFixed(2))
+  );
+  const movementStatus = requiresApproval ? 'pending' : 'confirmed';
+  const confirmedAt = requiresApproval ? null : now;
+  const approvalReason = requiresApproval
+    ? `Traspaso igual o mayor a ${MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD.toFixed(2)} USD requiere aprobación admin.`
+    : null;
 
   const movementRows = [
     {
       movement_date: movementDate,
       created_by_user_id: user.id,
-      confirmed_at: now,
-      confirmed_by_user_id: user.id,
+      confirmed_at: confirmedAt,
+      confirmed_by_user_id: requiresApproval ? null : user.id,
+      status: movementStatus,
+      approval_required: requiresApproval,
+      approval_required_reason: approvalReason,
       direction: 'outflow',
       movement_type: 'withdrawal',
       money_account_id: sourceMoneyAccountId,
@@ -5018,8 +5054,11 @@ export async function createMoneyTransferAction(input: {
     {
       movement_date: movementDate,
       created_by_user_id: user.id,
-      confirmed_at: now,
-      confirmed_by_user_id: user.id,
+      confirmed_at: confirmedAt,
+      confirmed_by_user_id: requiresApproval ? null : user.id,
+      status: movementStatus,
+      approval_required: requiresApproval,
+      approval_required_reason: approvalReason,
       direction: 'inflow',
       movement_type: 'other_income',
       money_account_id: targetMoneyAccountId,
@@ -5041,8 +5080,11 @@ export async function createMoneyTransferAction(input: {
     movementRows.push({
       movement_date: movementDate,
       created_by_user_id: user.id,
-      confirmed_at: now,
-      confirmed_by_user_id: user.id,
+      confirmed_at: confirmedAt,
+      confirmed_by_user_id: requiresApproval ? null : user.id,
+      status: movementStatus,
+      approval_required: requiresApproval,
+      approval_required_reason: approvalReason,
       direction: 'outflow',
       movement_type: 'fee_charge',
       money_account_id: sourceMoneyAccountId,
@@ -5061,6 +5103,84 @@ export async function createMoneyTransferAction(input: {
   }
 
   const { error } = await supabase.from('money_movements').insert(movementRows);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function approveMoneyMovementGroupAction(input: {
+  movementId: number;
+  movementGroupId: string | null;
+}) {
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  if (!roles.includes('admin')) {
+    throw new Error('Solo admin puede aprobar movimientos pendientes.');
+  }
+
+  const movementId = Number(input.movementId || 0);
+  const movementGroupId = String(input.movementGroupId || '').trim() || null;
+  if ((!Number.isFinite(movementId) || movementId <= 0) && !movementGroupId) {
+    throw new Error('Movimiento inválido.');
+  }
+
+  const now = new Date().toISOString();
+  const updatePayload = {
+    status: 'confirmed',
+    confirmed_at: now,
+    confirmed_by_user_id: user.id,
+    reviewed_at: now,
+    reviewed_by_user_id: user.id,
+    rejected_at: null,
+    rejected_by_user_id: null,
+    rejection_reason: null,
+  };
+
+  const query = supabase.from('money_movements').update(updatePayload).eq('status', 'pending');
+  const { error } = movementGroupId
+    ? await query.eq('movement_group_id', movementGroupId)
+    : await query.eq('id', movementId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function rejectMoneyMovementGroupAction(input: {
+  movementId: number;
+  movementGroupId: string | null;
+  reason: string;
+}) {
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  if (!roles.includes('admin')) {
+    throw new Error('Solo admin puede rechazar movimientos pendientes.');
+  }
+
+  const movementId = Number(input.movementId || 0);
+  const movementGroupId = String(input.movementGroupId || '').trim() || null;
+  if ((!Number.isFinite(movementId) || movementId <= 0) && !movementGroupId) {
+    throw new Error('Movimiento inválido.');
+  }
+
+  const reason = String(input.reason || '').trim();
+  if (!reason) {
+    throw new Error('Debes indicar el motivo del rechazo.');
+  }
+
+  const now = new Date().toISOString();
+  const updatePayload = {
+    status: 'rejected',
+    reviewed_at: now,
+    reviewed_by_user_id: user.id,
+    rejected_at: now,
+    rejected_by_user_id: user.id,
+    rejection_reason: reason,
+  };
+
+  const query = supabase.from('money_movements').update(updatePayload).eq('status', 'pending');
+  const { error } = movementGroupId
+    ? await query.eq('movement_group_id', movementGroupId)
+    : await query.eq('id', movementId);
 
   if (error) throw new Error(error.message);
 

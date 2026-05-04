@@ -32,6 +32,8 @@ import {
   createInventoryMovementAction,
   createExtraMoneyMovementAction,
   createMoneyTransferAction,
+  approveMoneyMovementGroupAction,
+  rejectMoneyMovementGroupAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
   markMasterInboxItemsReviewedAction,
@@ -152,6 +154,14 @@ type MoneyMovementItem = {
   createdByUserId: string;
   confirmedAt: string | null;
   confirmedByUserId: string | null;
+  status: 'pending' | 'confirmed' | 'rejected' | 'voided';
+  approvalRequired: boolean;
+  approvalRequiredReason: string | null;
+  reviewedAt: string | null;
+  reviewedByUserId: string | null;
+  rejectedAt: string | null;
+  rejectedByUserId: string | null;
+  rejectionReason: string | null;
   direction: 'inflow' | 'outflow';
   movementType:
     | 'adjustment'
@@ -639,6 +649,13 @@ const ACCOUNT_MOVEMENT_FILTER_LABEL: Record<AccountMovementFilter, string> = {
   changes: 'Cambios',
   adjustments: 'Ajustes',
   transfers: 'Traspasos',
+};
+
+const MONEY_MOVEMENT_STATUS_LABEL: Record<MoneyMovementItem['status'], string> = {
+  pending: 'Pendiente',
+  confirmed: 'Confirmado',
+  rejected: 'Rechazado',
+  voided: 'Anulado',
 };
 
 type EditableComponentRow = {
@@ -3378,6 +3395,8 @@ const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
   const [accountMovementFilter, setAccountMovementFilter] = useState<AccountMovementFilter>('all');
   const [selectedMovementGroupKey, setSelectedMovementGroupKey] = useState<string | null>(null);
   const [movementDetailOpen, setMovementDetailOpen] = useState(false);
+  const [movementReviewSaving, setMovementReviewSaving] = useState(false);
+  const [movementRejectReason, setMovementRejectReason] = useState('');
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
@@ -5961,6 +5980,46 @@ const handleSaveQuickCatalog = async () => {
     }
   };
 
+  const handleApproveSelectedMovementGroup = async () => {
+    if (!selectedMovementGroup) return;
+
+    try {
+      setMovementReviewSaving(true);
+      await approveMoneyMovementGroupAction({
+        movementId: selectedMovementGroup.primaryMovement.id,
+        movementGroupId: selectedMovementGroup.primaryMovement.movementGroupId,
+      });
+      showToast('success', 'Movimiento aprobado.');
+      setMovementDetailOpen(false);
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo aprobar el movimiento.');
+    } finally {
+      setMovementReviewSaving(false);
+    }
+  };
+
+  const handleRejectSelectedMovementGroup = async () => {
+    if (!selectedMovementGroup) return;
+
+    try {
+      setMovementReviewSaving(true);
+      await rejectMoneyMovementGroupAction({
+        movementId: selectedMovementGroup.primaryMovement.id,
+        movementGroupId: selectedMovementGroup.primaryMovement.movementGroupId,
+        reason: movementRejectReason,
+      });
+      showToast('success', 'Movimiento rechazado.');
+      setMovementDetailOpen(false);
+      setMovementRejectReason('');
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo rechazar el movimiento.');
+    } finally {
+      setMovementReviewSaving(false);
+    }
+  };
+
   const resetClientForm = () => {
     setClientFormFullName('');
     setClientFormPhone('');
@@ -7759,6 +7818,20 @@ const currentRoleSet = useMemo(() => {
   return new Set(roles.filter((role): role is AppUserRole => APP_USER_ROLES.includes(role as AppUserRole)));
 }, [roles]);
 
+const dashboardUserById = useMemo(() => {
+  return new Map(dashboardUsers.map((userItem) => [userItem.id, userItem]));
+}, [dashboardUsers]);
+
+const getDashboardUserLabel = useCallback(
+  (userId: string | null | undefined) => {
+    if (!userId) return '—';
+    const userItem = dashboardUserById.get(userId);
+    if (!userItem) return userId;
+    return userItem.fullName || userItem.email || userId;
+  },
+  [dashboardUserById]
+);
+
 const accountRulesByAccountId = useMemo(() => {
   const map = new Map<number, MoneyAccountPaymentRule[]>();
 
@@ -8050,6 +8123,10 @@ const selectedCreateOrderClientAddresses = useMemo(
         balanceUsdRef: number;
         periodInflowUsdRef: number;
         periodOutflowUsdRef: number;
+        periodFeeNative: number;
+        periodTransferInNative: number;
+        periodTransferOutNative: number;
+        pendingOutflowUsdRef: number;
       }
     >();
 
@@ -8061,12 +8138,17 @@ const selectedCreateOrderClientAddresses = useMemo(
         balanceUsdRef: 0,
         periodInflowUsdRef: 0,
         periodOutflowUsdRef: 0,
+        periodFeeNative: 0,
+        periodTransferInNative: 0,
+        periodTransferOutNative: 0,
+        pendingOutflowUsdRef: 0,
       });
     }
 
     for (const movement of moneyMovements) {
       const current = stats.get(movement.moneyAccountId);
       if (!current) continue;
+      if (movement.status !== 'confirmed') continue;
 
       current.balanceNative += movement.direction === 'inflow'
         ? movement.amount
@@ -8079,6 +8161,10 @@ const selectedCreateOrderClientAddresses = useMemo(
     for (const movement of filteredMoneyMovements) {
       const current = stats.get(movement.moneyAccountId);
       if (!current) continue;
+      if (movement.status === 'pending' && movement.direction === 'outflow') {
+        current.pendingOutflowUsdRef += movement.amountUsdEquivalent;
+      }
+      if (movement.status !== 'confirmed') continue;
 
       if (movement.direction === 'inflow') {
         current.periodInflowNative += movement.amount;
@@ -8086,6 +8172,14 @@ const selectedCreateOrderClientAddresses = useMemo(
       } else {
         current.periodOutflowNative += movement.amount;
         current.periodOutflowUsdRef += movement.amountUsdEquivalent;
+      }
+
+      if (movement.movementType === 'fee_charge') current.periodFeeNative += movement.amount;
+      if (movement.movementType === 'withdrawal' && movement.movementGroupId) {
+        current.periodTransferOutNative += movement.amount;
+      }
+      if (movement.movementType === 'other_income' && movement.movementGroupId) {
+        current.periodTransferInNative += movement.amount;
       }
     }
 
@@ -11506,6 +11600,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   balanceUsdRef: 0,
                   periodInflowUsdRef: 0,
                   periodOutflowUsdRef: 0,
+                  periodFeeNative: 0,
+                  periodTransferInNative: 0,
+                  periodTransferOutNative: 0,
+                  pendingOutflowUsdRef: 0,
                 };
 
                 return (
@@ -15637,6 +15735,51 @@ deliveryAssignMode === 'external' ? (
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Resumen del período</div>
+              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+                <InfoCell
+                  label="Ingresos"
+                  value={fmtMoneyByCurrency(
+                    accountStatsById.get(selectedAccount.id)?.periodInflowNative ?? 0,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Egresos"
+                  value={fmtMoneyByCurrency(
+                    accountStatsById.get(selectedAccount.id)?.periodOutflowNative ?? 0,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Comisiones"
+                  value={fmtMoneyByCurrency(
+                    accountStatsById.get(selectedAccount.id)?.periodFeeNative ?? 0,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Traspasos entrada"
+                  value={fmtMoneyByCurrency(
+                    accountStatsById.get(selectedAccount.id)?.periodTransferInNative ?? 0,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Traspasos salida"
+                  value={fmtMoneyByCurrency(
+                    accountStatsById.get(selectedAccount.id)?.periodTransferOutNative ?? 0,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Pendiente aprobación"
+                  value={fmtUSD(accountStatsById.get(selectedAccount.id)?.pendingOutflowUsdRef ?? 0)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-[#F5F5F7]">Reglas operativas</div>
@@ -15703,6 +15846,7 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Comisión</th>
                         <th className="px-2 py-2 text-left font-medium">Total</th>
+                        <th className="px-2 py-2 text-left font-medium">Estado</th>
                         <th className="px-2 py-2 text-left font-medium">Cliente</th>
                         <th className="px-2 py-2 text-left font-medium">N° Orden</th>
                         <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
@@ -15766,6 +15910,20 @@ deliveryAssignMode === 'external' ? (
                                 {totalAmount}
                               </div>
                             </td>
+                            <td className="px-2 py-2">
+                              <span
+                                className={[
+                                  'rounded-full border px-2 py-0.5 text-[11px]',
+                                  movement.status === 'confirmed'
+                                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                    : movement.status === 'pending'
+                                      ? 'border-[#FEEF00]/30 bg-[#1D1A00] text-[#FEEF00]'
+                                      : 'border-red-500/30 bg-red-500/10 text-red-300',
+                                ].join(' ')}
+                              >
+                                {MONEY_MOVEMENT_STATUS_LABEL[movement.status]}
+                              </span>
+                            </td>
                             <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
                             <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
                             <td className="px-2 py-2">
@@ -15803,6 +15961,10 @@ deliveryAssignMode === 'external' ? (
                   label="Tipo"
                   value={selectedMovementGroup.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[selectedMovementGroup.primaryMovement.movementType]}
                 />
+                <InfoCell
+                  label="Estado"
+                  value={MONEY_MOVEMENT_STATUS_LABEL[selectedMovementGroup.primaryMovement.status]}
+                />
                 <InfoCell label="Fecha" value={selectedMovementGroup.primaryMovement.movementDate} />
                 <InfoCell
                   label="Total en esta cuenta"
@@ -15813,13 +15975,22 @@ deliveryAssignMode === 'external' ? (
                 />
                 <InfoCell
                   label="Creado por"
-                  value={selectedMovementGroup.primaryMovement.createdByUserId || '—'}
+                  value={getDashboardUserLabel(selectedMovementGroup.primaryMovement.createdByUserId)}
                 />
                 <InfoCell
                   label="Confirmado por"
-                  value={selectedMovementGroup.primaryMovement.confirmedByUserId || '—'}
+                  value={getDashboardUserLabel(selectedMovementGroup.primaryMovement.confirmedByUserId)}
+                />
+                <InfoCell
+                  label="Revisado por"
+                  value={getDashboardUserLabel(selectedMovementGroup.primaryMovement.reviewedByUserId)}
                 />
               </div>
+              {selectedMovementGroup.primaryMovement.approvalRequiredReason ? (
+                <div className="mt-3 rounded-xl border border-[#3A3212] bg-[#1D1A00] p-3 text-xs text-[#FEEF00]">
+                  {selectedMovementGroup.primaryMovement.approvalRequiredReason}
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -15847,6 +16018,7 @@ deliveryAssignMode === 'external' ? (
                         <div>Referencia: {movement.referenceCode || movement.paymentReportId || movement.id}</div>
                         <div>Contraparte: {movement.counterpartyName || '—'}</div>
                         <div>USD ref: {fmtUSD(movement.amountUsdEquivalent)}</div>
+                        <div>Estado: {MONEY_MOVEMENT_STATUS_LABEL[movement.status]}</div>
                         <div>Confirmado: {movement.confirmedAt ? fmtDateTimeES(movement.confirmedAt) : '—'}</div>
                       </div>
                     </div>
@@ -15859,6 +16031,52 @@ deliveryAssignMode === 'external' ? (
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
                 <div className="mt-2 text-sm text-[#B7B7C2]">{selectedMovementGroup.primaryMovement.notes}</div>
+              </div>
+            ) : null}
+
+            {selectedMovementGroup.primaryMovement.status === 'pending' && roles.includes('admin') ? (
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Revisión admin</div>
+                <div className="mt-3">
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de rechazo</label>
+                  <textarea
+                    value={movementRejectReason}
+                    onChange={(e) => setMovementRejectReason(e.target.value)}
+                    rows={2}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D] disabled:opacity-60"
+                    onClick={handleApproveSelectedMovementGroup}
+                    disabled={movementReviewSaving}
+                  >
+                    Aprobar
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-red-500/40 bg-[#260F13] px-4 py-2 text-sm font-semibold text-red-200 disabled:opacity-60"
+                    onClick={handleRejectSelectedMovementGroup}
+                    disabled={movementReviewSaving || !movementRejectReason.trim()}
+                  >
+                    Rechazar
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {selectedMovementGroup.primaryMovement.status === 'rejected' ? (
+              <div className="rounded-2xl border border-red-500/30 bg-[#260F13] p-4 text-sm text-red-100">
+                <div className="font-semibold">Rechazado</div>
+                <div className="mt-1">{selectedMovementGroup.primaryMovement.rejectionReason || 'Sin motivo registrado.'}</div>
+                <div className="mt-2 text-xs text-red-200/80">
+                  Por {getDashboardUserLabel(selectedMovementGroup.primaryMovement.rejectedByUserId)} ·{' '}
+                  {selectedMovementGroup.primaryMovement.rejectedAt
+                    ? fmtDateTimeES(selectedMovementGroup.primaryMovement.rejectedAt)
+                    : '—'}
+                </div>
               </div>
             ) : null}
           </div>

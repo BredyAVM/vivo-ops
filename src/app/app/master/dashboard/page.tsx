@@ -134,6 +134,14 @@ type RawMoneyMovementRow = {
   created_by_user_id: string;
   confirmed_at: string | null;
   confirmed_by_user_id: string | null;
+  status: 'pending' | 'confirmed' | 'rejected' | 'voided' | null;
+  approval_required: boolean | null;
+  approval_required_reason: string | null;
+  reviewed_at: string | null;
+  reviewed_by_user_id: string | null;
+  rejected_at: string | null;
+  rejected_by_user_id: string | null;
+  rejection_reason: string | null;
   direction: 'inflow' | 'outflow';
   movement_type:
     | 'adjustment'
@@ -1211,6 +1219,14 @@ const { data: ordersData, error: ordersError } = await supabase
       created_by_user_id,
       confirmed_at,
       confirmed_by_user_id,
+      status,
+      approval_required,
+      approval_required_reason,
+      reviewed_at,
+      reviewed_by_user_id,
+      rejected_at,
+      rejected_by_user_id,
+      rejection_reason,
       direction,
       movement_type,
       money_account_id,
@@ -1431,6 +1447,14 @@ const { data: ordersData, error: ordersError } = await supabase
     createdByUserId: mv.created_by_user_id,
     confirmedAt: mv.confirmed_at,
     confirmedByUserId: mv.confirmed_by_user_id,
+    status: mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending'),
+    approvalRequired: Boolean(mv.approval_required),
+    approvalRequiredReason: mv.approval_required_reason ?? null,
+    reviewedAt: mv.reviewed_at ?? null,
+    reviewedByUserId: mv.reviewed_by_user_id ?? null,
+    rejectedAt: mv.rejected_at ?? null,
+    rejectedByUserId: mv.rejected_by_user_id ?? null,
+    rejectionReason: mv.rejection_reason ?? null,
     direction: mv.direction,
     movementType: mv.movement_type,
     moneyAccountId: Number(mv.money_account_id),
