@@ -222,6 +222,8 @@ type AccountMovementFilter =
   | 'adjustments'
   | 'transfers';
 
+type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'advisor' | 'review' | 'pending';
+
 type AccountMovementGroup = {
   key: string;
   movements: MoneyMovementItem[];
@@ -753,6 +755,15 @@ const ACCOUNT_MOVEMENT_FILTER_LABEL: Record<AccountMovementFilter, string> = {
   changes: 'Cambios',
   adjustments: 'Ajustes',
   transfers: 'Traspasos',
+};
+
+const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
+  all: 'Todas',
+  active: 'Activas',
+  kitchen: 'Cocina',
+  advisor: 'Asesor',
+  review: 'Revisión',
+  pending: 'Pendiente',
 };
 
 const MONEY_MOVEMENT_STATUS_LABEL: Record<MoneyMovementItem['status'], string> = {
@@ -3290,6 +3301,7 @@ export default function MasterDashboardClient({
   const [deliveryPartnerRatePriceUsd, setDeliveryPartnerRatePriceUsd] = useState('');
   const [deliveryPartnerRateIsActive, setDeliveryPartnerRateIsActive] = useState(true);
   const [accountSearch, setAccountSearch] = useState('');
+  const [accountQuickFilter, setAccountQuickFilter] = useState<AccountQuickFilter>('all');
   const [accountDateFrom, setAccountDateFrom] = useState('');
   const [accountDateTo, setAccountDateTo] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -8320,6 +8332,19 @@ const selectedCreateOrderClientAddresses = useMemo(
     const query = accountSearch.trim().toLowerCase();
 
     return moneyAccounts.filter((account) => {
+      const rules = accountRulesByAccountId.get(account.id) ?? [];
+      const hasKitchenRule = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
+      const hasAdvisorRule = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
+      const hasReviewRule = rules.some((rule) => rule.reviewRequired);
+      const hasPendingMovement = moneyMovements.some(
+        (movement) => movement.moneyAccountId === account.id && movement.status === 'pending'
+      );
+
+      if (accountQuickFilter === 'active' && !account.isActive) return false;
+      if (accountQuickFilter === 'kitchen' && !hasKitchenRule) return false;
+      if (accountQuickFilter === 'advisor' && !hasAdvisorRule) return false;
+      if (accountQuickFilter === 'review' && !hasReviewRule) return false;
+      if (accountQuickFilter === 'pending' && !hasPendingMovement) return false;
       if (!query) return true;
 
       return [
@@ -8332,7 +8357,7 @@ const selectedCreateOrderClientAddresses = useMemo(
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(query));
     });
-  }, [accountSearch, moneyAccounts]);
+  }, [accountQuickFilter, accountRulesByAccountId, accountSearch, moneyAccounts, moneyMovements]);
 
   const filteredClients = useMemo(() => {
     const query = clientSearch.trim().toLowerCase();
@@ -11959,138 +11984,208 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       </div>
     </div>
 
-    <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-3 md:flex-row md:items-end md:justify-between">
-      <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
-        <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
-        <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
-        <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
-      </div>
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setAccountQuickFilter(filter)}
+                className={[
+                  'whitespace-nowrap rounded-full border px-3 py-1.5 text-xs',
+                  accountQuickFilter === filter
+                    ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                ].join(' ')}
+              >
+                {ACCOUNT_QUICK_FILTER_LABEL[filter]}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+            <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
+            <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
+            <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
+          </div>
+        </div>
 
-      <div className="flex gap-2">
-        <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn>
-        <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn>
-        <Btn onClick={() => setFinancePendingOpen(true)}>
-          Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
-        </Btn>
-        <Btn onClick={openCreateAccount}>Nueva cuenta</Btn>
+        <div className="flex flex-wrap gap-2">
+          <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn>
+          <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn>
+          <Btn onClick={() => setFinancePendingOpen(true)}>
+            Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
+          </Btn>
+          <Btn onClick={openCreateAccount}>Nueva cuenta</Btn>
+        </div>
       </div>
     </div>
 
-    <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
-      <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
-        <table className="w-full text-[12px]">
-          <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
-            <tr>
-              <th className="px-3 py-3 text-left font-medium">Cuenta</th>
-              <th className="px-3 py-3 text-left font-medium">Moneda</th>
-              <th className="px-3 py-3 text-left font-medium">Tipo</th>
-              <th className="px-3 py-3 text-left font-medium">Institución</th>
-              <th className="px-3 py-3 text-left font-medium">Titular</th>
-              <th className="px-3 py-3 text-left font-medium">Estado</th>
-              <th className="px-3 py-3 text-left font-medium">Reglas</th>
-              <th className="px-3 py-3 text-left font-medium">Balance actual</th>
-              <th className="px-3 py-3 text-left font-medium">Ingresos período</th>
-              <th className="px-3 py-3 text-left font-medium">Egresos período</th>
-              <th className="px-3 py-3 text-left font-medium">Detalle</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredAccounts.length === 0 ? (
-              <tr>
-                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={11}>
-                  No hay cuentas que coincidan con el filtro.
-                </td>
-              </tr>
-            ) : (
-              filteredAccounts.map((account, idx) => {
-                const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                const stats = accountStatsById.get(account.id) ?? {
-                  balanceNative: 0,
-                  periodInflowNative: 0,
-                  periodOutflowNative: 0,
-                  balanceUsdRef: 0,
-                  periodInflowUsdRef: 0,
-                  periodOutflowUsdRef: 0,
-                  periodFeeNative: 0,
-                  periodTransferInNative: 0,
-                  periodTransferOutNative: 0,
-                  pendingOutflowUsdRef: 0,
-                };
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Cuentas</div>
+          <div className="mt-1 text-xs text-[#8A8A96]">
+            {filteredAccounts.length} visibles con los filtros actuales.
+          </div>
+        </div>
+      </div>
 
-                return (
-                  <tr
-                    key={account.id}
-                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
-                    onClick={() => {
-                      setSelectedAccountId(account.id);
-                      setAccountDetailOpen(true);
+      {filteredAccounts.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[#242433] bg-[#121218] p-6 text-center text-sm text-[#B7B7C2]">
+          No hay cuentas que coincidan con el filtro.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+          {filteredAccounts.map((account) => {
+            const stats = accountStatsById.get(account.id) ?? {
+              balanceNative: 0,
+              periodInflowNative: 0,
+              periodOutflowNative: 0,
+              balanceUsdRef: 0,
+              periodInflowUsdRef: 0,
+              periodOutflowUsdRef: 0,
+              periodFeeNative: 0,
+              periodTransferInNative: 0,
+              periodTransferOutNative: 0,
+              pendingOutflowUsdRef: 0,
+            };
+            const rules = accountRulesByAccountId.get(account.id) ?? [];
+            const hasAdvisor = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
+            const hasKitchen = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
+            const hasAuto = rules.some((rule) => rule.autoConfirmsReport);
+            const hasReview = rules.some((rule) => rule.reviewRequired);
+            const isShareable = rules.some((rule) => rule.canShareWithClient);
+            const latestClosure = moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
+            const pendingUsd = moneyMovements
+              .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
+              .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
+            const tags = [
+              hasAdvisor ? 'Asesor' : null,
+              hasKitchen ? 'Cocina' : null,
+              hasAuto ? 'Auto' : null,
+              hasReview ? 'Master revisa' : null,
+              isShareable ? 'Compartible' : null,
+              !isShareable ? 'Interna' : null,
+            ].filter((tag): tag is string => Boolean(tag));
+
+            return (
+              <div
+                key={account.id}
+                role="button"
+                tabIndex={0}
+                className="rounded-xl border border-[#242433] bg-[#121218] p-4 text-left transition-colors hover:border-[#3A3A4B] hover:bg-[#171722]"
+                onClick={() => {
+                  setSelectedAccountId(account.id);
+                  setAccountDetailOpen(true);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                  setSelectedAccountId(account.id);
+                  setAccountDetailOpen(true);
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-[#F5F5F7]">{account.name}</div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      {MONEY_ACCOUNT_KIND_LABEL[account.accountKind]} · {account.currencyCode}
+                      {account.institutionName ? ` · ${account.institutionName}` : ''}
+                    </div>
+                  </div>
+                  <span
+                    className={[
+                      'shrink-0 rounded-full border px-2 py-0.5 text-[11px]',
+                      account.isActive
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                        : 'border-[#2A2A38] bg-[#0B0B0D] text-[#8A8A96]',
+                    ].join(' ')}
+                  >
+                    {account.isActive ? 'Activa' : 'Inactiva'}
+                  </span>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-[11px] text-[#8A8A96]">Balance actual</div>
+                  <div className="mt-1 text-2xl font-semibold text-[#F5F5F7]">
+                    {fmtMoneyByCurrency(stats.balanceNative, account.currencyCode)}
+                  </div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    {account.currencyCode === 'VES'
+                      ? fmtUSD(stats.balanceUsdRef)
+                      : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 border-y border-[#242433] py-3">
+                  <div>
+                    <div className="text-[11px] text-[#8A8A96]">Ingresos</div>
+                    <div className="mt-1 text-sm font-medium text-emerald-300">
+                      {fmtMoneyByCurrency(stats.periodInflowNative, account.currencyCode)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[#8A8A96]">Egresos</div>
+                    <div className="mt-1 text-sm font-medium text-red-300">
+                      {fmtMoneyByCurrency(stats.periodOutflowNative, account.currencyCode)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[#8A8A96]">Pendiente</div>
+                    <div className={pendingUsd > 0 ? 'mt-1 text-sm font-medium text-[#FEEF00]' : 'mt-1 text-sm font-medium text-[#B7B7C2]'}>
+                      {fmtUSD(pendingUsd)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[#8A8A96]">Último cierre</div>
+                    <div className="mt-1 text-sm font-medium text-[#B7B7C2]">
+                      {latestClosure ? latestClosure.closureDate : 'Sin cierre'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex min-h-[24px] flex-wrap gap-1">
+                  {tags.slice(0, 5).map((tag) => (
+                    <span
+                      key={`${account.id}-${tag}`}
+                      className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-2 py-0.5 text-[10px] text-[#B7B7C2]"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]">
+                    Abrir
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAccountRulesEditor(account);
                     }}
                   >
-                    <td className="px-3 py-3">
-                      <div className="font-semibold text-[#F5F5F7]">{account.name}</div>
-                      {account.notes ? (
-                        <div className="mt-1 text-[11px] text-[#8A8A96]">{account.notes}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3">{account.currencyCode}</td>
-                    <td className="px-3 py-3">{MONEY_ACCOUNT_KIND_LABEL[account.accountKind]}</td>
-                    <td className="px-3 py-3">{account.institutionName || '—'}</td>
-                    <td className="px-3 py-3">{account.ownerName || '—'}</td>
-                    <td className="px-3 py-3">
-                      {account.isActive ? (
-                        <span className="text-emerald-400">Activa</span>
-                      ) : (
-                        <span className="text-[#8A8A96]">Inactiva</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex max-w-[280px] flex-wrap gap-1">
-                        {getAccountRuleBadges(account.id).length > 0 ? (
-                          getAccountRuleBadges(account.id).slice(0, 3).map((label) => (
-                            <span
-                              key={`${account.id}-${label}`}
-                              className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-2 py-0.5 text-[10px] text-[#B7B7C2]"
-                            >
-                              {label}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-[#8A8A96]">Sin reglas</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div>{fmtMoneyByCurrency(stats.balanceNative, account.currencyCode)}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {account.currencyCode === 'VES'
-                          ? fmtUSD(stats.balanceUsdRef)
-                          : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-emerald-400">
-                      <div>{fmtMoneyByCurrency(stats.periodInflowNative, account.currencyCode)}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {account.currencyCode === 'VES'
-                          ? fmtUSD(stats.periodInflowUsdRef)
-                          : fmtBs(stats.periodInflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-red-400">
-                      <div>{fmtMoneyByCurrency(stats.periodOutflowNative, account.currencyCode)}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {account.currencyCode === 'VES'
-                          ? fmtUSD(stats.periodOutflowUsdRef)
-                          : fmtBs(stats.periodOutflowNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-[#B7B7C2]">Abrir ficha</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                    Reglas
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-1.5 text-xs font-semibold text-[#FEEF00]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openAccountClosureDrawer(account);
+                    }}
+                  >
+                    Cierre
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   </div>
 ) : null}
