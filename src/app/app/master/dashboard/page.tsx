@@ -142,6 +142,9 @@ type RawMoneyMovementRow = {
   rejected_at: string | null;
   rejected_by_user_id: string | null;
   rejection_reason: string | null;
+  voided_at: string | null;
+  voided_by_user_id: string | null;
+  void_reason: string | null;
   direction: 'inflow' | 'outflow';
   movement_type:
     | 'adjustment'
@@ -164,6 +167,27 @@ type RawMoneyMovementRow = {
   order_id: number | null;
   payment_report_id: number | null;
   movement_group_id: string | null;
+};
+
+type RawMoneyAccountClosureRow = {
+  id: number;
+  money_account_id: number;
+  closure_date: string;
+  expected_amount: number | string;
+  counted_amount: number | string;
+  difference_amount: number | string;
+  expected_amount_usd: number | string;
+  counted_amount_usd: number | string;
+  difference_amount_usd: number | string;
+  currency_code: 'USD' | 'VES';
+  exchange_rate_ves_per_usd: number | string | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'recorded' | 'approved' | 'rejected';
+  created_by_user_id: string;
+  created_at: string;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
 };
 
 type RawClientRow = {
@@ -1227,6 +1251,9 @@ const { data: ordersData, error: ordersError } = await supabase
       rejected_at,
       rejected_by_user_id,
       rejection_reason,
+      voided_at,
+      voided_by_user_id,
+      void_reason,
       direction,
       movement_type,
       money_account_id,
@@ -1245,6 +1272,32 @@ const { data: ordersData, error: ordersError } = await supabase
     .order('movement_date', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(1000);
+
+  const { data: moneyAccountClosuresData, error: moneyAccountClosuresError } = await supabase
+    .from('money_account_closures')
+    .select(`
+      id,
+      money_account_id,
+      closure_date,
+      expected_amount,
+      counted_amount,
+      difference_amount,
+      expected_amount_usd,
+      counted_amount_usd,
+      difference_amount_usd,
+      currency_code,
+      exchange_rate_ves_per_usd,
+      reason,
+      notes,
+      status,
+      created_by_user_id,
+      created_at,
+      reviewed_by_user_id,
+      reviewed_at
+    `)
+    .order('closure_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
 
@@ -1412,6 +1465,22 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
+  if (moneyAccountClosuresError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando cierres de cuenta</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los cierres financieros.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {moneyAccountClosuresError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const moneyAccounts = ((moneyAccountsData ?? []) as MoneyAccountRow[]).map((a) => ({
     id: Number(a.id),
     name: a.name,
@@ -1455,6 +1524,9 @@ const { data: ordersData, error: ordersError } = await supabase
     rejectedAt: mv.rejected_at ?? null,
     rejectedByUserId: mv.rejected_by_user_id ?? null,
     rejectionReason: mv.rejection_reason ?? null,
+    voidedAt: mv.voided_at ?? null,
+    voidedByUserId: mv.voided_by_user_id ?? null,
+    voidReason: mv.void_reason ?? null,
     direction: mv.direction,
     movementType: mv.movement_type,
     moneyAccountId: Number(mv.money_account_id),
@@ -1470,6 +1542,28 @@ const { data: ordersData, error: ordersError } = await supabase
     orderId: mv.order_id == null ? null : Number(mv.order_id),
     paymentReportId: mv.payment_report_id == null ? null : Number(mv.payment_report_id),
     movementGroupId: mv.movement_group_id ?? null,
+  }));
+
+  const moneyAccountClosures = ((moneyAccountClosuresData ?? []) as RawMoneyAccountClosureRow[]).map((row) => ({
+    id: Number(row.id),
+    moneyAccountId: Number(row.money_account_id),
+    closureDate: row.closure_date,
+    expectedAmount: toNumber(row.expected_amount, 0),
+    countedAmount: toNumber(row.counted_amount, 0),
+    differenceAmount: toNumber(row.difference_amount, 0),
+    expectedAmountUsd: toNumber(row.expected_amount_usd, 0),
+    countedAmountUsd: toNumber(row.counted_amount_usd, 0),
+    differenceAmountUsd: toNumber(row.difference_amount_usd, 0),
+    currencyCode: row.currency_code,
+    exchangeRateVesPerUsd:
+      row.exchange_rate_ves_per_usd == null ? null : toNumber(row.exchange_rate_ves_per_usd, 0),
+    reason: row.reason ?? null,
+    notes: row.notes ?? null,
+    status: row.status,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+    reviewedByUserId: row.reviewed_by_user_id ?? null,
+    reviewedAt: row.reviewed_at ?? null,
   }));
 
   const { count: clientTotalCount, error: clientTotalCountError } = await supabase
@@ -2458,6 +2552,7 @@ currentUser={{
       moneyAccounts={moneyAccounts}
       moneyAccountPaymentRules={moneyAccountPaymentRules}
       moneyMovements={moneyMovements}
+      moneyAccountClosures={moneyAccountClosures}
       inventoryItems={inventoryItems}
       inventoryMovements={inventoryMovements}
       inventoryRecipes={inventoryRecipes}

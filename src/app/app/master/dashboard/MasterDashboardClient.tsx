@@ -34,6 +34,8 @@ import {
   createMoneyTransferAction,
   approveMoneyMovementGroupAction,
   rejectMoneyMovementGroupAction,
+  voidMoneyMovementGroupAction,
+  createMoneyAccountClosureAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
   markMasterInboxItemsReviewedAction,
@@ -162,6 +164,9 @@ type MoneyMovementItem = {
   rejectedAt: string | null;
   rejectedByUserId: string | null;
   rejectionReason: string | null;
+  voidedAt?: string | null;
+  voidedByUserId?: string | null;
+  voidReason?: string | null;
   direction: 'inflow' | 'outflow';
   movementType:
     | 'adjustment'
@@ -184,6 +189,27 @@ type MoneyMovementItem = {
   orderId: number | null;
   paymentReportId: number | null;
   movementGroupId: string | null;
+};
+
+type MoneyAccountClosureItem = {
+  id: number;
+  moneyAccountId: number;
+  closureDate: string;
+  expectedAmount: number;
+  countedAmount: number;
+  differenceAmount: number;
+  expectedAmountUsd: number;
+  countedAmountUsd: number;
+  differenceAmountUsd: number;
+  currencyCode: 'USD' | 'VES';
+  exchangeRateVesPerUsd: number | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'recorded' | 'approved' | 'rejected';
+  createdByUserId: string;
+  createdAt: string;
+  reviewedByUserId: string | null;
+  reviewedAt: string | null;
 };
 
 type AccountMovementFilter =
@@ -212,6 +238,84 @@ type AccountMovementGroup = {
   netNative: number;
   netUsd: number;
 };
+
+function buildAccountMovementGroups(
+  movementsInput: MoneyMovementItem[],
+  selectedAccountId: number | null,
+  accountMovementFilter: AccountMovementFilter = 'all'
+) {
+  const groups = new Map<string, MoneyMovementItem[]>();
+  for (const movement of movementsInput) {
+    const key = movement.movementGroupId || `movement-${movement.id}`;
+    const list = groups.get(key) ?? [];
+    list.push(movement);
+    groups.set(key, list);
+  }
+
+  const out: AccountMovementGroup[] = [];
+
+  for (const [key, movements] of groups) {
+    const selectedMovements = selectedAccountId
+      ? movements.filter((movement) => movement.moneyAccountId === selectedAccountId)
+      : movements;
+    if (selectedMovements.length === 0) continue;
+
+    const transferOut = movements.find((movement) => movement.direction === 'outflow' && movement.movementType === 'withdrawal') ?? null;
+    const transferIn = movements.find((movement) => movement.direction === 'inflow' && movement.movementType === 'other_income') ?? null;
+    const isTransfer = Boolean(transferOut && transferIn);
+    const feeMovements = selectedMovements.filter((movement) => movement.movementType === 'fee_charge');
+    const primaryMovement =
+      selectedMovements.find((movement) => movement.movementType !== 'fee_charge') ?? selectedMovements[0];
+    const amountMovements = selectedMovements.filter((movement) => movement.movementType !== 'fee_charge');
+    const signedNative = (movement: MoneyMovementItem) =>
+      movement.direction === 'inflow' ? movement.amount : -movement.amount;
+    const signedUsd = (movement: MoneyMovementItem) =>
+      movement.direction === 'inflow' ? movement.amountUsdEquivalent : -movement.amountUsdEquivalent;
+    const amountNative = amountMovements.reduce((sum, movement) => sum + Math.abs(movement.amount), 0);
+    const amountUsd = amountMovements.reduce((sum, movement) => sum + Math.abs(movement.amountUsdEquivalent), 0);
+    const feeNative = feeMovements.reduce((sum, movement) => sum + movement.amount, 0);
+    const feeUsd = feeMovements.reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
+
+    out.push({
+      key,
+      movements,
+      selectedMovements,
+      primaryMovement,
+      feeMovements,
+      transferIn,
+      transferOut,
+      isTransfer,
+      amountNative,
+      amountUsd,
+      feeNative,
+      feeUsd,
+      netNative: selectedMovements.reduce((sum, movement) => sum + signedNative(movement), 0),
+      netUsd: selectedMovements.reduce((sum, movement) => sum + signedUsd(movement), 0),
+    });
+  }
+
+  return out
+    .filter((group) => {
+      if (accountMovementFilter === 'all') return true;
+      if (accountMovementFilter === 'inflows') return group.selectedMovements.some((movement) => movement.direction === 'inflow');
+      if (accountMovementFilter === 'outflows') return group.selectedMovements.some((movement) => movement.direction === 'outflow');
+      if (accountMovementFilter === 'fees') return group.feeMovements.length > 0;
+      if (accountMovementFilter === 'order_payments') return group.selectedMovements.some((movement) => movement.movementType === 'order_payment');
+      if (accountMovementFilter === 'changes') return group.selectedMovements.some((movement) => movement.movementType === 'change_given');
+      if (accountMovementFilter === 'adjustments') {
+        return group.selectedMovements.some((movement) =>
+          movement.movementType === 'adjustment' || movement.movementType === 'cash_count_adjustment'
+        );
+      }
+      if (accountMovementFilter === 'transfers') return group.isTransfer;
+      return true;
+    })
+    .sort((a, b) => {
+      const byDate = String(b.primaryMovement.movementDate).localeCompare(String(a.primaryMovement.movementDate));
+      if (byDate !== 0) return byDate;
+      return String(b.primaryMovement.createdAt).localeCompare(String(a.primaryMovement.createdAt));
+    });
+}
 
 type ClientAddress = {
   addressText: string;
@@ -3049,6 +3153,7 @@ export default function MasterDashboardClient({
   moneyAccounts,
   moneyAccountPaymentRules = [],
   moneyMovements = [],
+  moneyAccountClosures = [],
     inventoryItems = [],
     inventoryMovements = [],
     inventoryRecipes = [],
@@ -3078,6 +3183,7 @@ export default function MasterDashboardClient({
   moneyAccounts: MoneyAccountOption[];
   moneyAccountPaymentRules?: MoneyAccountPaymentRule[];
   moneyMovements?: MoneyMovementItem[];
+  moneyAccountClosures?: MoneyAccountClosureItem[];
     inventoryItems?: InventoryItem[];
     inventoryMovements?: InventoryMovementItem[];
     inventoryRecipes?: InventoryRecipeItem[];
@@ -3397,6 +3503,16 @@ const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
   const [movementDetailOpen, setMovementDetailOpen] = useState(false);
   const [movementReviewSaving, setMovementReviewSaving] = useState(false);
   const [movementRejectReason, setMovementRejectReason] = useState('');
+  const [movementVoidReason, setMovementVoidReason] = useState('');
+  const [movementVoidSaving, setMovementVoidSaving] = useState(false);
+  const [financePendingOpen, setFinancePendingOpen] = useState(false);
+  const [closureOpen, setClosureOpen] = useState(false);
+  const [closureSaving, setClosureSaving] = useState(false);
+  const [closureCountedAmount, setClosureCountedAmount] = useState('');
+  const [closureDate, setClosureDate] = useState(new Date().toISOString().slice(0, 10));
+  const [closureExchangeRate, setClosureExchangeRate] = useState('');
+  const [closureReason, setClosureReason] = useState('');
+  const [closureNotes, setClosureNotes] = useState('');
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
@@ -5611,6 +5727,14 @@ const handleSaveQuickCatalog = async () => {
     setTransferNotes('');
   };
 
+  const resetClosureForm = () => {
+    setClosureDate(new Date().toISOString().slice(0, 10));
+    setClosureCountedAmount('');
+    setClosureExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+    setClosureReason('');
+    setClosureNotes('');
+  };
+
   const openCreateAccount = () => {
     resetAccountForm();
     setAccountCreateOpen(true);
@@ -5632,6 +5756,14 @@ const handleSaveQuickCatalog = async () => {
       setTransferSourceAccountId(String(accountId));
     }
     setTransferOpen(true);
+  };
+
+  const openAccountClosureDrawer = (account: MoneyAccountOption) => {
+    setSelectedAccountId(account.id);
+    resetClosureForm();
+    setClosureCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
+    setAccountDetailOpen(false);
+    setClosureOpen(true);
   };
 
   const openEditAccount = (account: MoneyAccountOption) => {
@@ -6018,6 +6150,118 @@ const handleSaveQuickCatalog = async () => {
     } finally {
       setMovementReviewSaving(false);
     }
+  };
+
+  const handleVoidSelectedMovementGroup = async () => {
+    if (!selectedMovementGroup) return;
+
+    try {
+      setMovementVoidSaving(true);
+      await voidMoneyMovementGroupAction({
+        movementId: selectedMovementGroup.primaryMovement.id,
+        movementGroupId: selectedMovementGroup.primaryMovement.movementGroupId,
+        reason: movementVoidReason,
+      });
+      showToast('success', 'Movimiento anulado.');
+      setMovementDetailOpen(false);
+      setMovementVoidReason('');
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo anular el movimiento.');
+    } finally {
+      setMovementVoidSaving(false);
+    }
+  };
+
+  const handleCreateMoneyAccountClosure = async () => {
+    if (!selectedAccount) return;
+
+    const countedAmount = Number(String(closureCountedAmount || '').replace(',', '.'));
+    const exchangeRate =
+      selectedAccount.currencyCode === 'VES'
+        ? Number(String(closureExchangeRate || '').replace(',', '.'))
+        : null;
+
+    if (!Number.isFinite(countedAmount) || countedAmount < 0) {
+      showToast('error', 'El monto contado no es válido.');
+      return;
+    }
+
+    if (selectedAccount.currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
+      showToast('error', 'Debes indicar una tasa válida para el cierre.');
+      return;
+    }
+
+    try {
+      setClosureSaving(true);
+      await createMoneyAccountClosureAction({
+        moneyAccountId: selectedAccount.id,
+        closureDate,
+        countedAmount,
+        exchangeRateVesPerUsd: exchangeRate,
+        reason: closureReason,
+        notes: closureNotes,
+      });
+      showToast('success', 'Cierre registrado.');
+      setClosureOpen(false);
+      resetClosureForm();
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el cierre.');
+    } finally {
+      setClosureSaving(false);
+    }
+  };
+
+  const downloadSelectedAccountReportCsv = () => {
+    if (!selectedAccount) return;
+
+    const header = [
+      'fecha',
+      'tipo',
+      'estado',
+      'cuenta',
+      'monto',
+      'comision',
+      'neto',
+      'usd_ref',
+      'orden',
+      'referencia',
+      'contraparte',
+      'creado_por',
+      'descripcion',
+    ];
+    const escapeCsv = (value: string | number | null | undefined) => {
+      const raw = String(value ?? '');
+      return `"${raw.replace(/"/g, '""')}"`;
+    };
+    const rows = selectedAccountMovementGroups.map((group) => {
+      const movement = group.primaryMovement;
+      const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+      return [
+        movement.movementDate,
+        group.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[movement.movementType],
+        MONEY_MOVEMENT_STATUS_LABEL[movement.status],
+        selectedAccount.name,
+        group.amountNative.toFixed(2),
+        group.feeNative.toFixed(2),
+        group.netNative.toFixed(2),
+        group.netUsd.toFixed(2),
+        movement.orderId ?? '',
+        movement.referenceCode || movement.paymentReportId || movement.id,
+        movement.counterpartyName || linkedOrder?.clientName || '',
+        getDashboardUserLabel(movement.createdByUserId),
+        movement.description || '',
+      ];
+    });
+    const csv = [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cuenta-${selectedAccount.id}-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const resetClientForm = () => {
@@ -8211,84 +8455,53 @@ const selectedCreateOrderClientAddresses = useMemo(
     return filteredMoneyMovements.filter((movement) => movement.moneyAccountId === selectedAccountId);
   }, [filteredMoneyMovements, selectedAccountId]);
 
+  const allMoneyMovementGroups = useMemo<AccountMovementGroup[]>(() => {
+    return buildAccountMovementGroups(filteredMoneyMovements, null, 'all');
+  }, [filteredMoneyMovements]);
+
   const selectedAccountMovementGroups = useMemo<AccountMovementGroup[]>(() => {
     if (!selectedAccountId) return [];
-
-    const groups = new Map<string, MoneyMovementItem[]>();
-    for (const movement of filteredMoneyMovements) {
-      const key = movement.movementGroupId || `movement-${movement.id}`;
-      const list = groups.get(key) ?? [];
-      list.push(movement);
-      groups.set(key, list);
-    }
-
-    const out: AccountMovementGroup[] = [];
-
-    for (const [key, movements] of groups) {
-      const selectedMovements = movements.filter((movement) => movement.moneyAccountId === selectedAccountId);
-      if (selectedMovements.length === 0) continue;
-
-      const transferOut = movements.find((movement) => movement.direction === 'outflow' && movement.movementType === 'withdrawal') ?? null;
-      const transferIn = movements.find((movement) => movement.direction === 'inflow' && movement.movementType === 'other_income') ?? null;
-      const isTransfer = Boolean(transferOut && transferIn);
-      const feeMovements = selectedMovements.filter((movement) => movement.movementType === 'fee_charge');
-      const primaryMovement =
-        selectedMovements.find((movement) => movement.movementType !== 'fee_charge') ?? selectedMovements[0];
-      const amountMovements = selectedMovements.filter((movement) => movement.movementType !== 'fee_charge');
-      const signedNative = (movement: MoneyMovementItem) =>
-        movement.direction === 'inflow' ? movement.amount : -movement.amount;
-      const signedUsd = (movement: MoneyMovementItem) =>
-        movement.direction === 'inflow' ? movement.amountUsdEquivalent : -movement.amountUsdEquivalent;
-      const amountNative = amountMovements.reduce((sum, movement) => sum + Math.abs(movement.amount), 0);
-      const amountUsd = amountMovements.reduce((sum, movement) => sum + Math.abs(movement.amountUsdEquivalent), 0);
-      const feeNative = feeMovements.reduce((sum, movement) => sum + movement.amount, 0);
-      const feeUsd = feeMovements.reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
-
-      out.push({
-        key,
-        movements,
-        selectedMovements,
-        primaryMovement,
-        feeMovements,
-        transferIn,
-        transferOut,
-        isTransfer,
-        amountNative,
-        amountUsd,
-        feeNative,
-        feeUsd,
-        netNative: selectedMovements.reduce((sum, movement) => sum + signedNative(movement), 0),
-        netUsd: selectedMovements.reduce((sum, movement) => sum + signedUsd(movement), 0),
-      });
-    }
-
-    return out
-      .filter((group) => {
-        if (accountMovementFilter === 'all') return true;
-        if (accountMovementFilter === 'inflows') return group.selectedMovements.some((movement) => movement.direction === 'inflow');
-        if (accountMovementFilter === 'outflows') return group.selectedMovements.some((movement) => movement.direction === 'outflow');
-        if (accountMovementFilter === 'fees') return group.feeMovements.length > 0;
-        if (accountMovementFilter === 'order_payments') return group.selectedMovements.some((movement) => movement.movementType === 'order_payment');
-        if (accountMovementFilter === 'changes') return group.selectedMovements.some((movement) => movement.movementType === 'change_given');
-        if (accountMovementFilter === 'adjustments') {
-          return group.selectedMovements.some((movement) =>
-            movement.movementType === 'adjustment' || movement.movementType === 'cash_count_adjustment'
-          );
-        }
-        if (accountMovementFilter === 'transfers') return group.isTransfer;
-        return true;
-      })
-      .sort((a, b) => {
-        const byDate = String(b.primaryMovement.movementDate).localeCompare(String(a.primaryMovement.movementDate));
-        if (byDate !== 0) return byDate;
-        return String(b.primaryMovement.createdAt).localeCompare(String(a.primaryMovement.createdAt));
-      });
+    return buildAccountMovementGroups(filteredMoneyMovements, selectedAccountId, accountMovementFilter);
   }, [accountMovementFilter, filteredMoneyMovements, selectedAccountId]);
 
   const selectedMovementGroup = useMemo(() => {
     if (!selectedMovementGroupKey) return null;
-    return selectedAccountMovementGroups.find((group) => group.key === selectedMovementGroupKey) ?? null;
-  }, [selectedAccountMovementGroups, selectedMovementGroupKey]);
+    return (
+      selectedAccountMovementGroups.find((group) => group.key === selectedMovementGroupKey) ??
+      allMoneyMovementGroups.find((group) => group.key === selectedMovementGroupKey) ??
+      null
+    );
+  }, [allMoneyMovementGroups, selectedAccountMovementGroups, selectedMovementGroupKey]);
+
+  const selectedAccountClosures = useMemo(() => {
+    if (!selectedAccountId) return [];
+    return moneyAccountClosures.filter((closure) => closure.moneyAccountId === selectedAccountId);
+  }, [moneyAccountClosures, selectedAccountId]);
+
+  const financialPendingMovementGroups = useMemo(() => {
+    return allMoneyMovementGroups.filter((group) =>
+      group.movements.some((movement) => movement.status === 'pending')
+    );
+  }, [allMoneyMovementGroups]);
+
+  const recentRejectedMovementGroups = useMemo(() => {
+    return allMoneyMovementGroups
+      .filter((group) => group.movements.some((movement) => movement.status === 'rejected'))
+      .slice(0, 8);
+  }, [allMoneyMovementGroups]);
+
+  const pendingPaymentOrders = useMemo(() => {
+    return orders
+      .filter((order) => order.paymentVerify === 'pending')
+      .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime());
+  }, [orders]);
+
+  const selectedAccountExpectedAmount = selectedAccount
+    ? accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0
+    : 0;
+
+  const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
+  const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
 
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
@@ -9376,6 +9589,8 @@ const hasBlockingOverlay =
   movementOpen ||
   transferOpen ||
   movementDetailOpen ||
+  financePendingOpen ||
+  closureOpen ||
   createOrderOpen ||
   createOrderConfigOpen ||
   priceAdjustOpen ||
@@ -11561,6 +11776,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
       <div className="flex gap-2">
         <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn>
+        <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn>
+        <Btn onClick={() => setFinancePendingOpen(true)}>
+          Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
+        </Btn>
         <Btn onClick={openCreateAccount}>Nueva cuenta</Btn>
       </div>
     </div>
@@ -15651,6 +15870,214 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
 
       <Drawer
+        open={financePendingOpen}
+        title="Pendientes financieros"
+        onClose={() => setFinancePendingOpen(false)}
+        widthClass="w-[640px]"
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos por aprobar</div>
+              <div className="text-xs text-[#8A8A96]">{financialPendingMovementGroups.length}</div>
+            </div>
+            <div className="mt-3 space-y-2">
+              {financialPendingMovementGroups.length === 0 ? (
+                <div className="text-sm text-[#B7B7C2]">No hay movimientos pendientes.</div>
+              ) : (
+                financialPendingMovementGroups.map((group) => {
+                  const movement = group.primaryMovement;
+                  const account = moneyAccounts.find((item) => item.id === movement.moneyAccountId) ?? null;
+                  return (
+                    <button
+                      key={group.key}
+                      type="button"
+                      className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-left hover:bg-[#1A1A28]"
+                      onClick={() => {
+                        setSelectedAccountId(movement.moneyAccountId);
+                        setSelectedMovementGroupKey(group.key);
+                        setFinancePendingOpen(false);
+                        setMovementDetailOpen(true);
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium text-[#F5F5F7]">
+                            {group.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[movement.movementType]}
+                          </div>
+                          <div className="mt-1 text-xs text-[#8A8A96]">
+                            {account?.name || `Cuenta #${movement.moneyAccountId}`} · {movement.movementDate}
+                          </div>
+                        </div>
+                        <div className={group.netUsd >= 0 ? 'text-emerald-300' : 'text-red-300'}>
+                          {fmtUSD(Math.abs(group.netUsd))}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Pagos por confirmar</div>
+              <div className="text-xs text-[#8A8A96]">{pendingPaymentOrders.length}</div>
+            </div>
+            <div className="mt-3 space-y-2">
+              {pendingPaymentOrders.length === 0 ? (
+                <div className="text-sm text-[#B7B7C2]">No hay pagos reportados pendientes.</div>
+              ) : (
+                pendingPaymentOrders.slice(0, 12).map((order) => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-left hover:bg-[#1A1A28]"
+                    onClick={() => {
+                      setSelectedOrderId(order.id);
+                      setDetailTab('pagos');
+                      setFinancePendingOpen(false);
+                      setDetailOpen(true);
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-[#F5F5F7]">Orden {order.orderNumber}</div>
+                        <div className="mt-1 text-xs text-[#8A8A96]">
+                          {repairDisplayText(order.clientName)} · {repairDisplayText(order.advisorName)}
+                        </div>
+                      </div>
+                      <div className="text-[#FEEF00]">{fmtUSD(order.pendingReportedUsd)}</div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Rechazados recientes</div>
+              <div className="text-xs text-[#8A8A96]">{recentRejectedMovementGroups.length}</div>
+            </div>
+            <div className="mt-3 space-y-2">
+              {recentRejectedMovementGroups.length === 0 ? (
+                <div className="text-sm text-[#B7B7C2]">Sin rechazos recientes.</div>
+              ) : (
+                recentRejectedMovementGroups.map((group) => {
+                  const movement = group.primaryMovement;
+                  const account = moneyAccounts.find((item) => item.id === movement.moneyAccountId) ?? null;
+                  return (
+                    <button
+                      key={group.key}
+                      type="button"
+                      className="w-full rounded-xl border border-[#5A2626] bg-[#120B0B] p-3 text-left hover:bg-[#260F13]"
+                      onClick={() => {
+                        setSelectedAccountId(movement.moneyAccountId);
+                        setSelectedMovementGroupKey(group.key);
+                        setFinancePendingOpen(false);
+                        setMovementDetailOpen(true);
+                      }}
+                    >
+                      <div className="text-sm font-medium text-[#F5F5F7]">
+                        {account?.name || `Cuenta #${movement.moneyAccountId}`} · {fmtUSD(Math.abs(group.netUsd))}
+                      </div>
+                      <div className="mt-1 text-xs text-red-200/80">
+                        {movement.rejectionReason || 'Sin motivo registrado.'}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={closureOpen}
+        title={selectedAccount ? `Cierre: ${selectedAccount.name}` : 'Cierre de cuenta'}
+        onClose={() => {
+          setClosureOpen(false);
+          resetClosureForm();
+        }}
+        widthClass="w-[620px]"
+      >
+        {!selectedAccount ? (
+          <div className="text-sm text-[#B7B7C2]">Sin cuenta seleccionada.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell
+                  label="Esperado"
+                  value={fmtMoneyByCurrency(selectedAccountExpectedAmount, selectedAccount.currencyCode)}
+                />
+                <InfoCell
+                  label="Diferencia"
+                  value={`${closureDifferenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
+                    closureDifferenceAmount,
+                    selectedAccount.currencyCode
+                  )}`}
+                />
+                <FieldInput label="Fecha" value={closureDate} onChange={setClosureDate} type="date" />
+                <FieldInput
+                  label="Monto contado"
+                  value={closureCountedAmount}
+                  onChange={setClosureCountedAmount}
+                />
+                {selectedAccount.currencyCode === 'VES' ? (
+                  <FieldInput
+                    label="Tasa Bs/USD"
+                    value={closureExchangeRate}
+                    onChange={setClosureExchangeRate}
+                  />
+                ) : (
+                  <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
+                )}
+                <FieldInput
+                  label="Motivo"
+                  value={closureReason}
+                  onChange={setClosureReason}
+                  hint="Ej. cierre diario, arqueo, cambio de responsable."
+                />
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+                <textarea
+                  value={closureNotes}
+                  onChange={(e) => setClosureNotes(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+                onClick={() => {
+                  setClosureOpen(false);
+                  resetClosureForm();
+                }}
+                disabled={closureSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+                onClick={handleCreateMoneyAccountClosure}
+                disabled={closureSaving}
+              >
+                {closureSaving ? 'Guardando...' : 'Guardar cierre'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
         open={accountDetailOpen}
         title={selectedAccount ? `Cuenta: ${selectedAccount.name}` : 'Cuenta'}
         onClose={() => setAccountDetailOpen(false)}
@@ -15700,6 +16127,20 @@ deliveryAssignMode === 'external' ? (
                       onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
                     >
                       Traspaso
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={() => openAccountClosureDrawer(selectedAccount)}
+                    >
+                      Cierre
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
+                      onClick={downloadSelectedAccountReportCsv}
+                    >
+                      Exportar
                     </button>
                     <button
                       type="button"
@@ -15776,6 +16217,54 @@ deliveryAssignMode === 'external' ? (
                   label="Pendiente aprobación"
                   value={fmtUSD(accountStatsById.get(selectedAccount.id)?.pendingOutflowUsdRef ?? 0)}
                 />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Cierres y conciliación</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Últimos conteos registrados contra el saldo esperado.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                  onClick={() => openAccountClosureDrawer(selectedAccount)}
+                >
+                  Registrar cierre
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {selectedAccountClosures.length === 0 ? (
+                  <div className="text-sm text-[#B7B7C2]">Sin cierres registrados para esta cuenta.</div>
+                ) : (
+                  selectedAccountClosures.slice(0, 5).map((closure) => (
+                    <div key={closure.id} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-[#F5F5F7]">{closure.closureDate}</div>
+                          <div className="mt-1 text-xs text-[#8A8A96]">
+                            Por {getDashboardUserLabel(closure.createdByUserId)} · {fmtDateTimeES(closure.createdAt)}
+                          </div>
+                        </div>
+                        <div className={closure.differenceAmount === 0 ? 'text-emerald-300' : 'text-[#FEEF00]'}>
+                          {closure.differenceAmount > 0 ? '+' : ''}
+                          {fmtMoneyByCurrency(closure.differenceAmount, closure.currencyCode)}
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[#B7B7C2] md:grid-cols-3">
+                        <div>Esperado: {fmtMoneyByCurrency(closure.expectedAmount, closure.currencyCode)}</div>
+                        <div>Contado: {fmtMoneyByCurrency(closure.countedAmount, closure.currencyCode)}</div>
+                        <div>Diferencia ref: {fmtUSD(closure.differenceAmountUsd)}</div>
+                      </div>
+                      {closure.reason || closure.notes ? (
+                        <div className="mt-2 text-xs text-[#8A8A96]">{closure.reason || closure.notes}</div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -16020,6 +16509,7 @@ deliveryAssignMode === 'external' ? (
                         <div>USD ref: {fmtUSD(movement.amountUsdEquivalent)}</div>
                         <div>Estado: {MONEY_MOVEMENT_STATUS_LABEL[movement.status]}</div>
                         <div>Confirmado: {movement.confirmedAt ? fmtDateTimeES(movement.confirmedAt) : '—'}</div>
+                        <div>Anulado: {movement.voidedAt ? fmtDateTimeES(movement.voidedAt) : '—'}</div>
                       </div>
                     </div>
                   );
@@ -16076,6 +16566,49 @@ deliveryAssignMode === 'external' ? (
                   {selectedMovementGroup.primaryMovement.rejectedAt
                     ? fmtDateTimeES(selectedMovementGroup.primaryMovement.rejectedAt)
                     : '—'}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedMovementGroup.primaryMovement.status === 'voided' ? (
+              <div className="rounded-2xl border border-red-500/30 bg-[#260F13] p-4 text-sm text-red-100">
+                <div className="font-semibold">Anulado</div>
+                <div className="mt-1">{selectedMovementGroup.primaryMovement.voidReason || 'Sin motivo registrado.'}</div>
+                <div className="mt-2 text-xs text-red-200/80">
+                  Por {getDashboardUserLabel(selectedMovementGroup.primaryMovement.voidedByUserId)} ·{' '}
+                  {selectedMovementGroup.primaryMovement.voidedAt
+                    ? fmtDateTimeES(selectedMovementGroup.primaryMovement.voidedAt)
+                    : '—'}
+                </div>
+              </div>
+            ) : null}
+
+            {roles.includes('admin') &&
+            (selectedMovementGroup.primaryMovement.status === 'pending' ||
+              selectedMovementGroup.primaryMovement.status === 'confirmed') ? (
+              <div className="rounded-2xl border border-[#5A2626] bg-[#120B0B] p-4">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Anulación controlada</div>
+                <div className="mt-1 text-xs text-[#8A8A96]">
+                  La anulación deja la huella original visible y excluye el movimiento del saldo.
+                </div>
+                <div className="mt-3">
+                  <label className="mb-1 block text-xs text-[#8A8A96]">Motivo</label>
+                  <textarea
+                    value={movementVoidReason}
+                    onChange={(e) => setMovementVoidReason(e.target.value)}
+                    rows={2}
+                    className="w-full rounded-xl border border-[#5A2626] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  />
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-red-500/40 bg-[#260F13] px-4 py-2 text-sm font-semibold text-red-200 disabled:opacity-60"
+                    onClick={handleVoidSelectedMovementGroup}
+                    disabled={movementVoidSaving || movementVoidReason.trim().length < 6}
+                  >
+                    {movementVoidSaving ? 'Anulando...' : 'Anular movimiento'}
+                  </button>
                 </div>
               </div>
             ) : null}

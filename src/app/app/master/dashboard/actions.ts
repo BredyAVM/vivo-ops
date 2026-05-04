@@ -5187,6 +5187,151 @@ export async function rejectMoneyMovementGroupAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function voidMoneyMovementGroupAction(input: {
+  movementId: number;
+  movementGroupId: string | null;
+  reason: string;
+}) {
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  if (!roles.includes('admin')) {
+    throw new Error('Solo admin puede anular movimientos financieros.');
+  }
+
+  const movementId = Number(input.movementId || 0);
+  const movementGroupId = String(input.movementGroupId || '').trim() || null;
+  if ((!Number.isFinite(movementId) || movementId <= 0) && !movementGroupId) {
+    throw new Error('Movimiento invÃ¡lido.');
+  }
+
+  const reason = String(input.reason || '').trim();
+  if (reason.length < 6) {
+    throw new Error('Debes indicar un motivo claro para anular.');
+  }
+
+  const now = new Date().toISOString();
+  const updatePayload = {
+    status: 'voided',
+    reviewed_at: now,
+    reviewed_by_user_id: user.id,
+    voided_at: now,
+    voided_by_user_id: user.id,
+    void_reason: reason,
+  };
+
+  const query = supabase
+    .from('money_movements')
+    .update(updatePayload)
+    .in('status', ['pending', 'confirmed']);
+  const { data, error } = movementGroupId
+    ? await query.eq('movement_group_id', movementGroupId).select('id')
+    : await query.eq('id', movementId).select('id');
+
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error('No hubo movimientos disponibles para anular.');
+  }
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function createMoneyAccountClosureAction(input: {
+  moneyAccountId: number;
+  closureDate: string;
+  countedAmount: number;
+  exchangeRateVesPerUsd: number | null;
+  reason: string;
+  notes: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const closureDate = String(input.closureDate || '').trim();
+  const countedAmount = Number(input.countedAmount || 0);
+  const reason = String(input.reason || '').trim() || null;
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Cuenta invÃ¡lida.');
+  }
+
+  if (!closureDate) {
+    throw new Error('Debes indicar la fecha del cierre.');
+  }
+
+  if (!Number.isFinite(countedAmount) || countedAmount < 0) {
+    throw new Error('El monto contado no es vÃ¡lido.');
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, currency_code')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
+  }
+
+  const currencyCode = String(account.currency_code || '').toUpperCase();
+  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+    throw new Error('La moneda de la cuenta no es vÃ¡lida.');
+  }
+
+  const exchangeRate =
+    currencyCode === 'VES' ? Number(input.exchangeRateVesPerUsd || 0) : null;
+  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
+    throw new Error('Debes indicar una tasa vÃ¡lida para cerrar una cuenta en Bs.');
+  }
+
+  const { data: movements, error: movementsError } = await supabase
+    .from('money_movements')
+    .select('direction, amount, amount_usd_equivalent')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'confirmed');
+
+  if (movementsError) throw new Error(movementsError.message);
+
+  let expectedAmount = 0;
+  let expectedAmountUsd = 0;
+
+  for (const movement of movements ?? []) {
+    const signed = movement.direction === 'inflow' ? 1 : -1;
+    expectedAmount += signed * toSafeNumber(movement.amount, 0);
+    expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
+  }
+
+  expectedAmount = Number(expectedAmount.toFixed(2));
+  expectedAmountUsd = Number(expectedAmountUsd.toFixed(2));
+  const countedAmountRounded = Number(countedAmount.toFixed(2));
+  const countedAmountUsd =
+    currencyCode === 'USD'
+      ? countedAmountRounded
+      : Number((countedAmountRounded / (exchangeRate ?? 1)).toFixed(2));
+  const differenceAmount = Number((countedAmountRounded - expectedAmount).toFixed(2));
+  const differenceAmountUsd = Number((countedAmountUsd - expectedAmountUsd).toFixed(2));
+
+  const { error } = await supabase.from('money_account_closures').insert({
+    money_account_id: moneyAccountId,
+    closure_date: closureDate,
+    expected_amount: expectedAmount,
+    counted_amount: countedAmountRounded,
+    difference_amount: differenceAmount,
+    expected_amount_usd: expectedAmountUsd,
+    counted_amount_usd: countedAmountUsd,
+    difference_amount_usd: differenceAmountUsd,
+    currency_code: currencyCode,
+    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+    reason,
+    notes,
+    status: 'recorded',
+    created_by_user_id: user.id,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function createInventoryMovementAction(input: {
   inventoryItemId: number;
   movementType:
