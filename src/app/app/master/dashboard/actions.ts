@@ -79,9 +79,15 @@ function normalizePaymentMethodCode(input: unknown): PaymentMethodCode | null {
   return PAYMENT_METHOD_CODES.has(input as PaymentMethodCode) ? (input as PaymentMethodCode) : null;
 }
 
-function requiresAdminMovementApproval(roles: readonly string[], direction: 'inflow' | 'outflow', amountUsd: number) {
+function requiresAdminMovementApproval(
+  roles: readonly string[],
+  direction: 'inflow' | 'outflow',
+  amountUsd: number,
+  movementType?: 'change_given' | 'expense_payment' | 'other_income' | 'withdrawal'
+) {
   if (direction !== 'outflow') return false;
   if (getMasterDashboardPermissions(roles).isAdmin) return false;
+  if (movementType === 'change_given') return false;
   return amountUsd >= MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD;
 }
 
@@ -2692,6 +2698,7 @@ export async function updateMoneyAccountPaymentRulesAction(input: {
 
 export async function createExtraMoneyMovementAction(input: {
   direction: 'inflow' | 'outflow';
+  outflowPurpose?: 'change' | 'expense' | null;
   moneyAccountId: number;
   amount: number;
   feeAmount?: number | null;
@@ -2705,6 +2712,7 @@ export async function createExtraMoneyMovementAction(input: {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
   const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
+  const outflowPurpose = input.outflowPurpose === 'change' ? 'change' : 'expense';
   const moneyAccountId = Number(input.moneyAccountId || 0);
   const amount = Number(input.amount || 0);
   const feeAmount = direction === 'outflow' ? Number(input.feeAmount || 0) : 0;
@@ -2771,17 +2779,23 @@ export async function createExtraMoneyMovementAction(input: {
       ? Number(feeAmount.toFixed(2))
       : Number((feeAmount / (exchangeRate ?? 1)).toFixed(2));
 
-  const movementType = direction === 'inflow' ? 'other_income' : 'expense_payment';
+  const movementType =
+    direction === 'inflow'
+      ? 'other_income'
+      : outflowPurpose === 'change'
+        ? 'change_given'
+        : 'expense_payment';
   const movementGroupId = feeAmount > 0 ? crypto.randomUUID() : null;
   const requiresApproval = requiresAdminMovementApproval(
     roles,
     direction,
-    Number((amountUsdEquivalent + feeAmountUsdEquivalent).toFixed(2))
+    Number((amountUsdEquivalent + feeAmountUsdEquivalent).toFixed(2)),
+    movementType
   );
   const movementStatus = requiresApproval ? 'pending' : 'confirmed';
   const confirmedAt = requiresApproval ? null : new Date().toISOString();
   const approvalReason = requiresApproval
-    ? `Egreso igual o mayor a ${MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD.toFixed(2)} USD requiere aprobación admin.`
+    ? `Gasto igual o mayor a ${MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD.toFixed(2)} USD requiere aprobación admin.`
     : null;
 
   const movementRows = [

@@ -231,6 +231,7 @@ type AccountMovementFilter =
 
 type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'advisor' | 'review' | 'pending';
 type GlobalAuditFocusFilter = 'all' | 'pending' | 'exceptions' | 'transfers' | 'fees' | 'approvals';
+type MoneyMovementOutflowPurpose = 'change' | 'expense';
 
 type AccountMovementGroup = {
   key: string;
@@ -782,6 +783,13 @@ const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   advisor: 'Asesor',
   review: 'Revisión',
   pending: 'Pendiente',
+};
+
+const MASTER_OUTFLOW_AUTO_APPROVAL_MAX_USD = 10;
+
+const MONEY_MOVEMENT_OUTFLOW_PURPOSE_LABEL: Record<MoneyMovementOutflowPurpose, string> = {
+  change: 'Cambio',
+  expense: 'Gasto / pago',
 };
 
 const GLOBAL_AUDIT_FOCUS_LABEL: Record<GlobalAuditFocusFilter, string> = {
@@ -3362,6 +3370,7 @@ export default function MasterDashboardClient({
   const [accountFormIsActive, setAccountFormIsActive] = useState(true);
   const [movementSaving, setMovementSaving] = useState(false);
   const [movementMoneyAccountId, setMovementMoneyAccountId] = useState('');
+  const [movementOutflowPurpose, setMovementOutflowPurpose] = useState<MoneyMovementOutflowPurpose>('expense');
   const [movementAmount, setMovementAmount] = useState('');
   const [movementFeeAmount, setMovementFeeAmount] = useState('');
   const [movementExchangeRate, setMovementExchangeRate] = useState('');
@@ -5807,6 +5816,7 @@ const handleSaveQuickCatalog = async () => {
   const resetMoneyMovementForm = () => {
     setMovementType('Ingreso');
     setMovementMoneyAccountId('');
+    setMovementOutflowPurpose('expense');
     setMovementAmount('');
     setMovementFeeAmount('');
     setMovementExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
@@ -6130,6 +6140,7 @@ const handleSaveQuickCatalog = async () => {
       setMovementSaving(true);
       await createExtraMoneyMovementAction({
         direction: movementType === 'Ingreso' ? 'inflow' : 'outflow',
+        outflowPurpose: movementType === 'Egreso' ? movementOutflowPurpose : null,
         moneyAccountId,
         amount,
         feeAmount,
@@ -6141,7 +6152,12 @@ const handleSaveQuickCatalog = async () => {
         notes: movementNotes,
       });
 
-      showToast('success', `${movementType} extraordinario registrado.`);
+      showToast(
+        'success',
+        movementRequiresAdminApproval
+          ? 'Egreso enviado a aprobación admin.'
+          : `${movementType} extraordinario registrado.`
+      );
       setMovementOpen(false);
       resetMoneyMovementForm();
       router.refresh();
@@ -6463,6 +6479,80 @@ const handleSaveQuickCatalog = async () => {
     const link = document.createElement('a');
     link.href = url;
     link.download = `cuenta-${selectedAccount.id}-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadGlobalFinancialAuditCsv = () => {
+    const header = [
+      'fecha',
+      'creado_at',
+      'tipo',
+      'estado',
+      'cuentas',
+      'monedas',
+      'monto_ref_usd',
+      'comision_ref_usd',
+      'neto_ref_usd',
+      'orden',
+      'reporte_pago',
+      'referencia',
+      'contraparte',
+      'creado_por',
+      'confirmado_por',
+      'confirmado_at',
+      'revisado_por',
+      'revisado_at',
+      'requiere_aprobacion',
+      'motivo_aprobacion',
+      'huella',
+      'descripcion',
+      'notas',
+    ];
+    const escapeCsv = (value: string | number | null | undefined) => {
+      const raw = String(value ?? '');
+      return `"${raw.replace(/"/g, '""')}"`;
+    };
+    const rows = globalAuditFilteredGroups.map((group) => {
+      const movement = group.primaryMovement;
+      const accountNames = Array.from(
+        new Set(group.movements.map((item) => moneyAccountById.get(item.moneyAccountId)?.name ?? `Cuenta #${item.moneyAccountId}`))
+      );
+      const currencies = Array.from(new Set(group.movements.map((item) => item.currencyCode)));
+      const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+
+      return [
+        movement.movementDate,
+        movement.createdAt,
+        group.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[movement.movementType],
+        MONEY_MOVEMENT_STATUS_LABEL[movement.status],
+        accountNames.join(' / '),
+        currencies.join(' / '),
+        group.amountUsd.toFixed(2),
+        group.feeUsd.toFixed(2),
+        group.netUsd.toFixed(2),
+        movement.orderId ?? '',
+        movement.paymentReportId ?? '',
+        movement.referenceCode || movement.paymentReportId || movement.id,
+        movement.counterpartyName || linkedOrder?.clientName || '',
+        getDashboardUserLabel(movement.createdByUserId),
+        getDashboardUserLabel(movement.confirmedByUserId),
+        movement.confirmedAt || '',
+        getDashboardUserLabel(movement.reviewedByUserId),
+        movement.reviewedAt || '',
+        movement.approvalRequired ? 'si' : 'no',
+        movement.approvalRequiredReason || '',
+        group.key,
+        movement.description || '',
+        movement.notes || '',
+      ];
+    });
+    const csv = [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `auditoria-financiera-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -8301,6 +8391,37 @@ const getAccountRuleBadges = useCallback(
   [accountRulesByAccountId]
 );
 
+const getAccountRoleRows = useCallback(
+  (accountId: number) => {
+    const rules = accountRulesByAccountId.get(accountId) ?? [];
+
+    return APP_USER_ROLES.map((role) => {
+      const roleRules = rules.filter((rule) => rule.role === role);
+      const visibleMethods = roleRules.filter((rule) => rule.canViewAccount).map((rule) => getPaymentMethodLabel(rule.paymentMethodCode));
+      const shareMethods = roleRules.filter((rule) => rule.canShareWithClient).map((rule) => getPaymentMethodLabel(rule.paymentMethodCode));
+      const reportMethods = roleRules.filter((rule) => rule.canReportPayment).map((rule) => getPaymentMethodLabel(rule.paymentMethodCode));
+      const confirmMethods = roleRules.filter((rule) => rule.canConfirmPayment || rule.autoConfirmsReport).map((rule) => getPaymentMethodLabel(rule.paymentMethodCode));
+      const reviewMethods = roleRules.filter((rule) => rule.reviewRequired).map((rule) => getPaymentMethodLabel(rule.paymentMethodCode));
+
+      return {
+        role,
+        visibleMethods,
+        shareMethods,
+        reportMethods,
+        confirmMethods,
+        reviewMethods,
+        hasAnyRule:
+          visibleMethods.length > 0 ||
+          shareMethods.length > 0 ||
+          reportMethods.length > 0 ||
+          confirmMethods.length > 0 ||
+          reviewMethods.length > 0,
+      };
+    });
+  },
+  [accountRulesByAccountId]
+);
+
 const selectedPaymentReportAccount =
   paymentReportAccountOptions.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
 
@@ -8325,6 +8446,21 @@ const selectedGiveChangeAccount =
 
 const selectedMovementAccount =
   moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ?? null;
+
+const movementAmountNumber = Number(String(movementAmount || '0').replace(',', '.')) || 0;
+const movementFeeAmountNumber =
+  movementType === 'Egreso' ? Number(String(movementFeeAmount || '0').replace(',', '.')) || 0 : 0;
+const movementTotalNative = movementAmountNumber + movementFeeAmountNumber;
+const movementTotalUsd =
+  selectedMovementAccount?.currencyCode === 'VES'
+    ? movementTotalNative / Math.max(1, Number(String(movementExchangeRate || activeExchangeRate?.rateBsPerUsd || '0').replace(',', '.')) || 0)
+    : movementTotalNative;
+const movementRequiresAdminApproval =
+  movementType === 'Egreso' &&
+  movementOutflowPurpose === 'expense' &&
+  permissions.isMaster &&
+  !permissions.isAdmin &&
+  movementTotalUsd >= MASTER_OUTFLOW_AUTO_APPROVAL_MAX_USD;
 
 const selectedTransferSourceAccount =
   moneyAccounts.find((account) => account.id === Number(transferSourceAccountId || 0)) ?? null;
@@ -12236,11 +12372,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             {globalAuditSummary.totalGroups} huellas · {globalAuditSummary.accountsTouched} cuenta(s)
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
-          <InfoCell label="Confirmadas" value={String(globalAuditSummary.confirmedGroups)} />
-          <InfoCell label="Pendientes" value={String(globalAuditSummary.pendingGroups)} />
-          <InfoCell label="Excepciones" value={String(globalAuditSummary.exceptionGroups)} />
-          <InfoCell label="Aprobación" value={String(globalAuditSummary.approvalRequiredGroups)} />
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
+            <InfoCell label="Confirmadas" value={String(globalAuditSummary.confirmedGroups)} />
+            <InfoCell label="Pendientes" value={String(globalAuditSummary.pendingGroups)} />
+            <InfoCell label="Excepciones" value={String(globalAuditSummary.exceptionGroups)} />
+            <InfoCell label="Aprobación" value={String(globalAuditSummary.approvalRequiredGroups)} />
+          </div>
+          <button
+            type="button"
+            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
+            onClick={downloadGlobalFinancialAuditCsv}
+          >
+            Exportar CSV
+          </button>
         </div>
       </div>
 
@@ -16367,6 +16512,7 @@ deliveryAssignMode === 'external' ? (
                   onClick={() => {
                     setMovementType(t);
                     if (t === 'Ingreso') setMovementFeeAmount('');
+                    if (t === 'Egreso') setMovementOutflowPurpose('expense');
                   }}
                   className={[
                     'rounded-full border bg-[#121218] px-3 py-1.5 text-sm',
@@ -16378,6 +16524,34 @@ deliveryAssignMode === 'external' ? (
               ))}
             </div>
           </div>
+
+          {movementType === 'Egreso' ? (
+            <div className="space-y-2">
+              <div className="text-xs text-[#B7B7C2]">Naturaleza del egreso</div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {(['change', 'expense'] as MoneyMovementOutflowPurpose[]).map((purpose) => (
+                  <button
+                    key={purpose}
+                    type="button"
+                    onClick={() => setMovementOutflowPurpose(purpose)}
+                    className={[
+                      'rounded-xl border bg-[#121218] p-3 text-left',
+                      movementOutflowPurpose === purpose
+                        ? 'border-[#FEEF00] text-[#F5F5F7]'
+                        : 'border-[#242433] text-[#B7B7C2]',
+                    ].join(' ')}
+                  >
+                    <div className="text-sm font-semibold">{MONEY_MOVEMENT_OUTFLOW_PURPOSE_LABEL[purpose]}</div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      {purpose === 'change'
+                        ? 'Salida para entregar vuelto operativo.'
+                        : 'Pago a proveedor, compra, retiro o gasto interno.'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -16412,7 +16586,11 @@ deliveryAssignMode === 'external' ? (
                   label="Comisión"
                   value={movementFeeAmount}
                   onChange={setMovementFeeAmount}
-                  hint="Opcional. Se guarda ligada al egreso."
+                  hint={
+                    movementOutflowPurpose === 'change'
+                      ? 'Opcional. Para cambios con comisión, por ejemplo pago móvil.'
+                      : 'Opcional. Se guarda ligada al egreso.'
+                  }
                 />
               ) : null}
               <FieldInput
@@ -16431,7 +16609,13 @@ deliveryAssignMode === 'external' ? (
                 label="Motivo"
                 value={movementDescription}
                 onChange={setMovementDescription}
-                hint={movementType === 'Ingreso' ? 'Ej. ingreso extraordinario.' : 'Ej. gasto operativo.'}
+                hint={
+                  movementType === 'Ingreso'
+                    ? 'Ej. ingreso extraordinario.'
+                    : movementOutflowPurpose === 'change'
+                      ? 'Ej. cambio entregado al cliente.'
+                      : 'Ej. pago a proveedor o gasto operativo.'
+                }
               />
               {selectedMovementAccount?.currencyCode === 'VES' ? (
                 <FieldInput
@@ -16467,7 +16651,7 @@ deliveryAssignMode === 'external' ? (
               </div>
               <div className="mt-1">
                 Impacto: <span className={movementType === 'Ingreso' ? 'text-emerald-400' : 'text-red-400'}>
-                  {movementType === 'Ingreso' ? 'Ingreso' : 'Egreso'}
+                  {movementType === 'Ingreso' ? 'Ingreso' : MONEY_MOVEMENT_OUTFLOW_PURPOSE_LABEL[movementOutflowPurpose]}
                 </span>
               </div>
               {movementType === 'Egreso' ? (
@@ -16476,12 +16660,26 @@ deliveryAssignMode === 'external' ? (
                   <span className="font-medium text-[#F5F5F7]">
                     {selectedMovementAccount
                       ? fmtMoneyByCurrency(
-                          (Number(String(movementAmount || '0').replace(',', '.')) || 0) +
-                            (Number(String(movementFeeAmount || '0').replace(',', '.')) || 0),
+                          movementTotalNative,
                           selectedMovementAccount.currencyCode
                         )
                       : '—'}
                   </span>
+                </div>
+              ) : null}
+              {movementType === 'Egreso' && movementOutflowPurpose === 'expense' ? (
+                <div className="mt-3 rounded-xl border border-[#3A3212] bg-[#1D1A00] p-3 text-xs text-[#FEEF00]">
+                  {movementRequiresAdminApproval
+                    ? `Quedará pendiente de aprobación admin porque supera ${fmtUSD(MASTER_OUTFLOW_AUTO_APPROVAL_MAX_USD)}.`
+                    : permissions.isAdmin
+                      ? 'Admin confirma este egreso al registrarlo.'
+                      : `Máster confirma gastos menores a ${fmtUSD(MASTER_OUTFLOW_AUTO_APPROVAL_MAX_USD)}.`}
+                </div>
+              ) : null}
+              {movementType === 'Egreso' && movementOutflowPurpose === 'change' ? (
+                <div className="mt-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                  Se registrará como cambio entregado y quedará confirmado como operación de caja. Si agregas comisión,
+                  quedará ligada a la misma huella.
                 </div>
               ) : null}
             </div>
@@ -17192,6 +17390,42 @@ deliveryAssignMode === 'external' ? (
                 ) : (
                   <span className="text-sm text-[#B7B7C2]">Sin reglas activas.</span>
                 )}
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead className="border-b border-[#242433] text-[#B7B7C2]">
+                    <tr>
+                      <th className="px-2 py-2 text-left font-medium">Rol</th>
+                      <th className="px-2 py-2 text-left font-medium">Ve</th>
+                      <th className="px-2 py-2 text-left font-medium">Comparte</th>
+                      <th className="px-2 py-2 text-left font-medium">Reporta</th>
+                      <th className="px-2 py-2 text-left font-medium">Confirma</th>
+                      <th className="px-2 py-2 text-left font-medium">Revisión</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getAccountRoleRows(selectedAccount.id).map((row, index) => {
+                      const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                      const cell = (items: string[]) =>
+                        items.length > 0 ? (
+                          <div className="max-w-[220px] text-[#F5F5F7]">{Array.from(new Set(items)).join(', ')}</div>
+                        ) : (
+                          <span className="text-[#6F6F7C]">—</span>
+                        );
+
+                      return (
+                        <tr key={row.role} className={`${zebra} border-b border-[#242433] align-top`}>
+                          <td className="px-2 py-2 font-semibold text-[#F5F5F7]">{APP_USER_ROLE_LABEL[row.role]}</td>
+                          <td className="px-2 py-2">{cell(row.visibleMethods)}</td>
+                          <td className="px-2 py-2">{cell(row.shareMethods)}</td>
+                          <td className="px-2 py-2">{cell(row.reportMethods)}</td>
+                          <td className="px-2 py-2">{cell(row.confirmMethods)}</td>
+                          <td className="px-2 py-2">{cell(row.reviewMethods)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
 
