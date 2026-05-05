@@ -780,6 +780,12 @@ const MONEY_MOVEMENT_STATUS_LABEL: Record<MoneyMovementItem['status'], string> =
   voided: 'Anulado',
 };
 
+const MONEY_ACCOUNT_CLOSURE_STATUS_LABEL: Record<MoneyAccountClosureItem['status'], string> = {
+  approved: 'Aprobado',
+  recorded: 'Registrado',
+  rejected: 'Rechazado',
+};
+
 type EditableComponentRow = {
   localId: string;
   componentProductId: number;
@@ -6311,44 +6317,112 @@ const handleSaveQuickCatalog = async () => {
     if (!selectedAccount) return;
 
     const header = [
+      'registro',
       'fecha',
+      'creado_at',
       'tipo',
       'estado',
       'cuenta',
+      'moneda',
       'monto',
       'comision',
       'neto',
       'usd_ref',
       'orden',
+      'reporte_pago',
       'referencia',
       'contraparte',
       'creado_por',
+      'confirmado_por',
+      'confirmado_at',
+      'revisado_por',
+      'revisado_at',
+      'rechazado_por',
+      'rechazado_at',
+      'motivo_rechazo',
+      'anulado_por',
+      'anulado_at',
+      'motivo_anulacion',
+      'requiere_aprobacion',
+      'motivo_aprobacion',
+      'huella',
       'descripcion',
+      'notas',
     ];
     const escapeCsv = (value: string | number | null | undefined) => {
       const raw = String(value ?? '');
       return `"${raw.replace(/"/g, '""')}"`;
     };
-    const rows = selectedAccountMovementGroups.map((group) => {
+    const movementRows = selectedAccountAllMovementGroups.map((group) => {
       const movement = group.primaryMovement;
       const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
       return [
+        'movimiento',
         movement.movementDate,
+        movement.createdAt,
         group.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[movement.movementType],
         MONEY_MOVEMENT_STATUS_LABEL[movement.status],
         selectedAccount.name,
+        selectedAccount.currencyCode,
         group.amountNative.toFixed(2),
         group.feeNative.toFixed(2),
         group.netNative.toFixed(2),
         group.netUsd.toFixed(2),
         movement.orderId ?? '',
+        movement.paymentReportId ?? '',
         movement.referenceCode || movement.paymentReportId || movement.id,
         movement.counterpartyName || linkedOrder?.clientName || '',
         getDashboardUserLabel(movement.createdByUserId),
+        getDashboardUserLabel(movement.confirmedByUserId),
+        movement.confirmedAt || '',
+        getDashboardUserLabel(movement.reviewedByUserId),
+        movement.reviewedAt || '',
+        getDashboardUserLabel(movement.rejectedByUserId),
+        movement.rejectedAt || '',
+        movement.rejectionReason || '',
+        getDashboardUserLabel(movement.voidedByUserId),
+        movement.voidedAt || '',
+        movement.voidReason || '',
+        movement.approvalRequired ? 'si' : 'no',
+        movement.approvalRequiredReason || '',
+        group.key,
         movement.description || '',
+        movement.notes || '',
       ];
     });
-    const csv = [header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
+    const closureRows = selectedAccountClosures.map((closure) => [
+      'cierre',
+      closure.closureDate,
+      closure.createdAt,
+      'Cierre',
+      MONEY_ACCOUNT_CLOSURE_STATUS_LABEL[closure.status],
+      selectedAccount.name,
+      closure.currencyCode,
+      closure.countedAmount.toFixed(2),
+      '',
+      closure.differenceAmount.toFixed(2),
+      closure.differenceAmountUsd.toFixed(2),
+      '',
+      '',
+      `cierre-${closure.id}`,
+      closure.reason || '',
+      getDashboardUserLabel(closure.createdByUserId),
+      '',
+      '',
+      getDashboardUserLabel(closure.reviewedByUserId),
+      closure.reviewedAt || '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      `closure-${closure.id}`,
+      `Esperado: ${closure.expectedAmount.toFixed(2)} / Contado: ${closure.countedAmount.toFixed(2)}`,
+      closure.notes || '',
+    ]);
+    const csv = [header, ...movementRows, ...closureRows].map((row) => row.map(escapeCsv).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -8521,6 +8595,11 @@ const selectedCreateOrderClientAddresses = useMemo(
     return buildAccountMovementGroups(filteredMoneyMovements, selectedAccountId, accountMovementFilter);
   }, [accountMovementFilter, filteredMoneyMovements, selectedAccountId]);
 
+  const selectedAccountAllMovementGroups = useMemo<AccountMovementGroup[]>(() => {
+    if (!selectedAccountId) return [];
+    return buildAccountMovementGroups(filteredMoneyMovements, selectedAccountId, 'all');
+  }, [filteredMoneyMovements, selectedAccountId]);
+
   const selectedMovementGroup = useMemo(() => {
     if (!selectedMovementGroupKey) return null;
     return (
@@ -8534,6 +8613,83 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!selectedAccountId) return [];
     return moneyAccountClosures.filter((closure) => closure.moneyAccountId === selectedAccountId);
   }, [moneyAccountClosures, selectedAccountId]);
+
+  const selectedAccountReportSummary = useMemo(() => {
+    const confirmedGroups = selectedAccountAllMovementGroups.filter(
+      (group) => group.primaryMovement.status === 'confirmed'
+    );
+    const pendingGroups = selectedAccountAllMovementGroups.filter(
+      (group) => group.primaryMovement.status === 'pending'
+    );
+    const rejectedGroups = selectedAccountAllMovementGroups.filter(
+      (group) => group.primaryMovement.status === 'rejected'
+    );
+    const voidedGroups = selectedAccountAllMovementGroups.filter(
+      (group) => group.primaryMovement.status === 'voided'
+    );
+    const uniqueUserIds = new Set<string>();
+    const touchUser = (id: string | null | undefined) => {
+      if (id) uniqueUserIds.add(id);
+    };
+
+    for (const group of selectedAccountAllMovementGroups) {
+      for (const movement of group.movements) {
+        touchUser(movement.createdByUserId);
+        touchUser(movement.confirmedByUserId);
+        touchUser(movement.reviewedByUserId);
+        touchUser(movement.rejectedByUserId);
+        touchUser(movement.voidedByUserId);
+      }
+    }
+    for (const closure of selectedAccountClosures) {
+      touchUser(closure.createdByUserId);
+      touchUser(closure.reviewedByUserId);
+    }
+
+    const confirmedInflowNative = confirmedGroups
+      .filter((group) => group.netNative > 0)
+      .reduce((sum, group) => sum + group.netNative, 0);
+    const confirmedOutflowNative = confirmedGroups
+      .filter((group) => group.netNative < 0)
+      .reduce((sum, group) => sum + Math.abs(group.netNative), 0);
+    const confirmedFeeNative = confirmedGroups.reduce((sum, group) => sum + group.feeNative, 0);
+    const confirmedNetNative = confirmedGroups.reduce((sum, group) => sum + group.netNative, 0);
+    const pendingUsd = pendingGroups.reduce((sum, group) => sum + Math.abs(group.netUsd), 0);
+    const latestClosure = selectedAccountClosures[0] ?? null;
+    const lastTouchedAt =
+      selectedAccountAllMovementGroups
+        .flatMap((group) =>
+          group.movements.flatMap((movement) => [
+            movement.voidedAt,
+            movement.rejectedAt,
+            movement.reviewedAt,
+            movement.confirmedAt,
+            movement.createdAt,
+          ])
+        )
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => String(b).localeCompare(String(a)))[0] ?? null;
+
+    return {
+      totalGroups: selectedAccountAllMovementGroups.length,
+      confirmedGroups: confirmedGroups.length,
+      pendingGroups: pendingGroups.length,
+      rejectedGroups: rejectedGroups.length,
+      voidedGroups: voidedGroups.length,
+      approvalRequiredGroups: selectedAccountAllMovementGroups.filter((group) =>
+        group.movements.some((movement) => movement.approvalRequired)
+      ).length,
+      transferGroups: selectedAccountAllMovementGroups.filter((group) => group.isTransfer).length,
+      confirmedInflowNative,
+      confirmedOutflowNative,
+      confirmedFeeNative,
+      confirmedNetNative,
+      pendingUsd,
+      usersTouched: uniqueUserIds.size,
+      latestClosure,
+      lastTouchedAt,
+    };
+  }, [selectedAccountAllMovementGroups, selectedAccountClosures]);
 
   const financialPendingMovementGroups = useMemo(() => {
     return allMoneyMovementGroups.filter((group) =>
@@ -16558,6 +16714,89 @@ deliveryAssignMode === 'external' ? (
                   value={fmtUSD(accountStatsById.get(selectedAccount.id)?.pendingOutflowUsdRef ?? 0)}
                 />
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría del período</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    {selectedAccountReportSummary.totalGroups} operaciones · {selectedAccountReportSummary.usersTouched} usuarios involucrados
+                  </div>
+                </div>
+                <div className="text-right text-xs text-[#8A8A96]">
+                  Última huella
+                  <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                    {selectedAccountReportSummary.lastTouchedAt
+                      ? fmtDateTimeES(selectedAccountReportSummary.lastTouchedAt)
+                      : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                <InfoCell label="Confirmados" value={String(selectedAccountReportSummary.confirmedGroups)} />
+                <InfoCell label="Pendientes" value={String(selectedAccountReportSummary.pendingGroups)} />
+                <InfoCell label="Rechazados" value={String(selectedAccountReportSummary.rejectedGroups)} />
+                <InfoCell label="Anulados" value={String(selectedAccountReportSummary.voidedGroups)} />
+                <InfoCell
+                  label="Entrada conf."
+                  value={fmtMoneyByCurrency(selectedAccountReportSummary.confirmedInflowNative, selectedAccount.currencyCode)}
+                />
+                <InfoCell
+                  label="Salida conf."
+                  value={fmtMoneyByCurrency(selectedAccountReportSummary.confirmedOutflowNative, selectedAccount.currencyCode)}
+                />
+                <InfoCell
+                  label="Comisión conf."
+                  value={fmtMoneyByCurrency(selectedAccountReportSummary.confirmedFeeNative, selectedAccount.currencyCode)}
+                />
+                <InfoCell
+                  label="Neto conf."
+                  value={fmtMoneyByCurrency(selectedAccountReportSummary.confirmedNetNative, selectedAccount.currencyCode)}
+                />
+                <InfoCell label="Requiere aprobación" value={String(selectedAccountReportSummary.approvalRequiredGroups)} />
+                <InfoCell label="Traspasos" value={String(selectedAccountReportSummary.transferGroups)} />
+                <InfoCell label="Pendiente ref." value={fmtUSD(selectedAccountReportSummary.pendingUsd)} />
+                <InfoCell
+                  label="Último cierre"
+                  value={
+                    selectedAccountReportSummary.latestClosure
+                      ? `${selectedAccountReportSummary.latestClosure.closureDate} · ${fmtMoneyByCurrency(
+                          selectedAccountReportSummary.latestClosure.differenceAmount,
+                          selectedAccountReportSummary.latestClosure.currencyCode
+                        )}`
+                      : '—'
+                  }
+                />
+              </div>
+
+              {(selectedAccountReportSummary.pendingGroups > 0 ||
+                selectedAccountReportSummary.rejectedGroups > 0 ||
+                selectedAccountReportSummary.voidedGroups > 0) ? (
+                <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A8A96]">
+                    Atención
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-[#B7B7C2] md:grid-cols-3">
+                    {selectedAccountReportSummary.pendingGroups > 0 ? (
+                      <div className="text-[#FEEF00]">
+                        {selectedAccountReportSummary.pendingGroups} movimiento(s) pendiente(s) de aprobación.
+                      </div>
+                    ) : null}
+                    {selectedAccountReportSummary.rejectedGroups > 0 ? (
+                      <div className="text-red-300">
+                        {selectedAccountReportSummary.rejectedGroups} movimiento(s) rechazado(s).
+                      </div>
+                    ) : null}
+                    {selectedAccountReportSummary.voidedGroups > 0 ? (
+                      <div className="text-red-300">
+                        {selectedAccountReportSummary.voidedGroups} movimiento(s) anulado(s).
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
