@@ -230,6 +230,7 @@ type AccountMovementFilter =
   | 'transfers';
 
 type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'advisor' | 'review' | 'pending';
+type GlobalAuditFocusFilter = 'all' | 'pending' | 'exceptions' | 'transfers' | 'fees' | 'approvals';
 
 type AccountMovementGroup = {
   key: string;
@@ -324,6 +325,16 @@ function buildAccountMovementGroups(
       if (byDate !== 0) return byDate;
       return String(b.primaryMovement.createdAt).localeCompare(String(a.primaryMovement.createdAt));
     });
+}
+
+function movementTouchesUser(movement: MoneyMovementItem, userId: string) {
+  return [
+    movement.createdByUserId,
+    movement.confirmedByUserId,
+    movement.reviewedByUserId,
+    movement.rejectedByUserId,
+    movement.voidedByUserId,
+  ].some((value) => value === userId);
 }
 
 type ClientAddress = {
@@ -773,12 +784,29 @@ const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   pending: 'Pendiente',
 };
 
+const GLOBAL_AUDIT_FOCUS_LABEL: Record<GlobalAuditFocusFilter, string> = {
+  all: 'Todos',
+  pending: 'Pendientes',
+  exceptions: 'Excepciones',
+  transfers: 'Traspasos',
+  fees: 'Comisiones',
+  approvals: 'Aprobación',
+};
+
 const MONEY_MOVEMENT_STATUS_LABEL: Record<MoneyMovementItem['status'], string> = {
   pending: 'Pendiente',
   confirmed: 'Confirmado',
   rejected: 'Rechazado',
   voided: 'Anulado',
 };
+
+const MONEY_MOVEMENT_STATUS_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Todos' },
+  { value: 'pending', label: MONEY_MOVEMENT_STATUS_LABEL.pending },
+  { value: 'confirmed', label: MONEY_MOVEMENT_STATUS_LABEL.confirmed },
+  { value: 'rejected', label: MONEY_MOVEMENT_STATUS_LABEL.rejected },
+  { value: 'voided', label: MONEY_MOVEMENT_STATUS_LABEL.voided },
+];
 
 const MONEY_ACCOUNT_CLOSURE_STATUS_LABEL: Record<MoneyAccountClosureItem['status'], string> = {
   approved: 'Aprobado',
@@ -3525,6 +3553,13 @@ const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
   const [movementOpen, setMovementOpen] = useState(false);
   const [movementType, setMovementType] = useState<'Ingreso' | 'Egreso'>('Ingreso');
   const [accountMovementFilter, setAccountMovementFilter] = useState<AccountMovementFilter>('all');
+  const [accountAuditStatusFilter, setAccountAuditStatusFilter] = useState<MoneyMovementItem['status'] | ''>('');
+  const [accountAuditUserFilter, setAccountAuditUserFilter] = useState('');
+  const [accountAuditApprovalOnly, setAccountAuditApprovalOnly] = useState(false);
+  const [accountAuditExceptionOnly, setAccountAuditExceptionOnly] = useState(false);
+  const [globalAuditFocusFilter, setGlobalAuditFocusFilter] = useState<GlobalAuditFocusFilter>('all');
+  const [globalAuditStatusFilter, setGlobalAuditStatusFilter] = useState<MoneyMovementItem['status'] | ''>('');
+  const [globalAuditAccountFilter, setGlobalAuditAccountFilter] = useState('');
   const [selectedMovementGroupKey, setSelectedMovementGroupKey] = useState<string | null>(null);
   const [movementDetailOpen, setMovementDetailOpen] = useState(false);
   const [movementReviewSaving, setMovementReviewSaving] = useState(false);
@@ -6353,7 +6388,7 @@ const handleSaveQuickCatalog = async () => {
       const raw = String(value ?? '');
       return `"${raw.replace(/"/g, '""')}"`;
     };
-    const movementRows = selectedAccountAllMovementGroups.map((group) => {
+    const movementRows = selectedAccountFilteredMovementGroups.map((group) => {
       const movement = group.primaryMovement;
       const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
       return [
@@ -8581,6 +8616,22 @@ const selectedCreateOrderClientAddresses = useMemo(
     return base;
   }, [accountStatsById, filteredAccounts]);
 
+  const moneyAccountById = useMemo(() => {
+    return new Map(moneyAccounts.map((account) => [account.id, account]));
+  }, [moneyAccounts]);
+
+  const globalAuditAccountOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Todas' },
+      ...moneyAccounts
+        .map((account) => ({
+          value: String(account.id),
+          label: `${account.name} · ${account.currencyCode}`,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    ];
+  }, [moneyAccounts]);
+
   const selectedAccountMovements = useMemo(() => {
     if (!selectedAccountId) return [];
     return filteredMoneyMovements.filter((movement) => movement.moneyAccountId === selectedAccountId);
@@ -8600,6 +8651,64 @@ const selectedCreateOrderClientAddresses = useMemo(
     return buildAccountMovementGroups(filteredMoneyMovements, selectedAccountId, 'all');
   }, [filteredMoneyMovements, selectedAccountId]);
 
+  const selectedAccountClosures = useMemo(() => {
+    if (!selectedAccountId) return [];
+    return moneyAccountClosures.filter((closure) => closure.moneyAccountId === selectedAccountId);
+  }, [moneyAccountClosures, selectedAccountId]);
+
+  const accountAuditUserOptions = useMemo(() => {
+    const userIds = new Set<string>();
+    const touchUser = (id: string | null | undefined) => {
+      if (id) userIds.add(id);
+    };
+
+    for (const group of selectedAccountAllMovementGroups) {
+      for (const movement of group.movements) {
+        touchUser(movement.createdByUserId);
+        touchUser(movement.confirmedByUserId);
+        touchUser(movement.reviewedByUserId);
+        touchUser(movement.rejectedByUserId);
+        touchUser(movement.voidedByUserId);
+      }
+    }
+
+    for (const closure of selectedAccountClosures) {
+      touchUser(closure.createdByUserId);
+      touchUser(closure.reviewedByUserId);
+    }
+
+    return Array.from(userIds)
+      .map((userId) => ({ value: userId, label: getDashboardUserLabel(userId) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [getDashboardUserLabel, selectedAccountAllMovementGroups, selectedAccountClosures]);
+
+  const selectedAccountFilteredMovementGroups = useMemo(() => {
+    return selectedAccountMovementGroups.filter((group) => {
+      if (accountAuditStatusFilter && !group.movements.some((movement) => movement.status === accountAuditStatusFilter)) {
+        return false;
+      }
+      if (accountAuditUserFilter && !group.movements.some((movement) => movementTouchesUser(movement, accountAuditUserFilter))) {
+        return false;
+      }
+      if (accountAuditApprovalOnly && !group.movements.some((movement) => movement.approvalRequired)) {
+        return false;
+      }
+      if (
+        accountAuditExceptionOnly &&
+        !group.movements.some((movement) => movement.status === 'rejected' || movement.status === 'voided')
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    accountAuditApprovalOnly,
+    accountAuditExceptionOnly,
+    accountAuditStatusFilter,
+    accountAuditUserFilter,
+    selectedAccountMovementGroups,
+  ]);
+
   const selectedMovementGroup = useMemo(() => {
     if (!selectedMovementGroupKey) return null;
     return (
@@ -8608,11 +8717,6 @@ const selectedCreateOrderClientAddresses = useMemo(
       null
     );
   }, [allMoneyMovementGroups, selectedAccountMovementGroups, selectedMovementGroupKey]);
-
-  const selectedAccountClosures = useMemo(() => {
-    if (!selectedAccountId) return [];
-    return moneyAccountClosures.filter((closure) => closure.moneyAccountId === selectedAccountId);
-  }, [moneyAccountClosures, selectedAccountId]);
 
   const selectedAccountReportSummary = useMemo(() => {
     const confirmedGroups = selectedAccountAllMovementGroups.filter(
@@ -8690,6 +8794,74 @@ const selectedCreateOrderClientAddresses = useMemo(
       lastTouchedAt,
     };
   }, [selectedAccountAllMovementGroups, selectedAccountClosures]);
+
+  const globalAuditFilteredGroups = useMemo(() => {
+    const selectedAccountNumber = Number(globalAuditAccountFilter);
+
+    return allMoneyMovementGroups.filter((group) => {
+      if (globalAuditStatusFilter && !group.movements.some((movement) => movement.status === globalAuditStatusFilter)) {
+        return false;
+      }
+      if (
+        globalAuditAccountFilter &&
+        !group.movements.some((movement) => movement.moneyAccountId === selectedAccountNumber)
+      ) {
+        return false;
+      }
+      if (globalAuditFocusFilter === 'pending') {
+        return group.movements.some((movement) => movement.status === 'pending');
+      }
+      if (globalAuditFocusFilter === 'exceptions') {
+        return group.movements.some((movement) => movement.status === 'rejected' || movement.status === 'voided');
+      }
+      if (globalAuditFocusFilter === 'transfers') return group.isTransfer;
+      if (globalAuditFocusFilter === 'fees') return group.feeMovements.length > 0;
+      if (globalAuditFocusFilter === 'approvals') {
+        return group.movements.some((movement) => movement.approvalRequired);
+      }
+      return true;
+    });
+  }, [allMoneyMovementGroups, globalAuditAccountFilter, globalAuditFocusFilter, globalAuditStatusFilter]);
+
+  const globalAuditSummary = useMemo(() => {
+    const confirmedGroups = globalAuditFilteredGroups.filter((group) =>
+      group.movements.some((movement) => movement.status === 'confirmed')
+    );
+    const pendingGroups = globalAuditFilteredGroups.filter((group) =>
+      group.movements.some((movement) => movement.status === 'pending')
+    );
+    const exceptionGroups = globalAuditFilteredGroups.filter((group) =>
+      group.movements.some((movement) => movement.status === 'rejected' || movement.status === 'voided')
+    );
+    const accountsTouched = new Set<number>();
+
+    for (const group of globalAuditFilteredGroups) {
+      for (const movement of group.movements) {
+        accountsTouched.add(movement.moneyAccountId);
+      }
+    }
+
+    return {
+      totalGroups: globalAuditFilteredGroups.length,
+      confirmedGroups: confirmedGroups.length,
+      pendingGroups: pendingGroups.length,
+      exceptionGroups: exceptionGroups.length,
+      approvalRequiredGroups: globalAuditFilteredGroups.filter((group) =>
+        group.movements.some((movement) => movement.approvalRequired)
+      ).length,
+      transferGroups: globalAuditFilteredGroups.filter((group) => group.isTransfer).length,
+      feeGroups: globalAuditFilteredGroups.filter((group) => group.feeMovements.length > 0).length,
+      confirmedInflowUsd: confirmedGroups
+        .filter((group) => group.netUsd > 0)
+        .reduce((sum, group) => sum + group.netUsd, 0),
+      confirmedOutflowUsd: confirmedGroups
+        .filter((group) => group.netUsd < 0)
+        .reduce((sum, group) => sum + Math.abs(group.netUsd), 0),
+      confirmedFeeUsd: confirmedGroups.reduce((sum, group) => sum + group.feeUsd, 0),
+      pendingUsd: pendingGroups.reduce((sum, group) => sum + Math.abs(group.netUsd), 0),
+      accountsTouched: accountsTouched.size,
+    };
+  }, [globalAuditFilteredGroups]);
 
   const financialPendingMovementGroups = useMemo(() => {
     return allMoneyMovementGroups.filter((group) =>
@@ -12054,6 +12226,148 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           </div>
         </div>
       ))}
+    </div>
+
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría financiera</div>
+          <div className="mt-1 text-xs text-[#8A8A96]">
+            {globalAuditSummary.totalGroups} huellas · {globalAuditSummary.accountsTouched} cuenta(s)
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
+          <InfoCell label="Confirmadas" value={String(globalAuditSummary.confirmedGroups)} />
+          <InfoCell label="Pendientes" value={String(globalAuditSummary.pendingGroups)} />
+          <InfoCell label="Excepciones" value={String(globalAuditSummary.exceptionGroups)} />
+          <InfoCell label="Aprobación" value={String(globalAuditSummary.approvalRequiredGroups)} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <InfoCell label="Ingresos ref." value={fmtUSD(globalAuditSummary.confirmedInflowUsd)} />
+        <InfoCell label="Egresos ref." value={fmtUSD(globalAuditSummary.confirmedOutflowUsd)} />
+        <InfoCell label="Comisiones ref." value={fmtUSD(globalAuditSummary.confirmedFeeUsd)} />
+        <InfoCell label="Pendiente ref." value={fmtUSD(globalAuditSummary.pendingUsd)} />
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[180px_minmax(0,1fr)_220px]">
+        <FieldSelect
+          label="Estado"
+          value={globalAuditStatusFilter}
+          onChange={(value) => setGlobalAuditStatusFilter(value as MoneyMovementItem['status'] | '')}
+          options={MONEY_MOVEMENT_STATUS_FILTER_OPTIONS}
+        />
+        <FieldSelect
+          label="Cuenta"
+          value={globalAuditAccountFilter}
+          onChange={setGlobalAuditAccountFilter}
+          options={globalAuditAccountOptions}
+        />
+        <div>
+          <label className="mb-1 block text-xs text-[#8A8A96]">Vista</label>
+          <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
+            {(Object.keys(GLOBAL_AUDIT_FOCUS_LABEL) as GlobalAuditFocusFilter[]).map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setGlobalAuditFocusFilter(filter)}
+                className={[
+                  'whitespace-nowrap rounded-full border px-2.5 py-2 text-[11px]',
+                  globalAuditFocusFilter === filter
+                    ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                ].join(' ')}
+              >
+                {GLOBAL_AUDIT_FOCUS_LABEL[filter]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        {globalAuditFilteredGroups.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+            No hay movimientos para esos filtros.
+          </div>
+        ) : (
+          <table className="w-full text-[12px]">
+            <thead className="border-b border-[#242433] text-[#B7B7C2]">
+              <tr>
+                <th className="px-2 py-2 text-left font-medium">Fecha</th>
+                <th className="px-2 py-2 text-left font-medium">Cuenta(s)</th>
+                <th className="px-2 py-2 text-left font-medium">Tipo</th>
+                <th className="px-2 py-2 text-left font-medium">Estado</th>
+                <th className="px-2 py-2 text-left font-medium">Monto ref.</th>
+                <th className="px-2 py-2 text-left font-medium">Usuario</th>
+                <th className="px-2 py-2 text-left font-medium">Huella</th>
+              </tr>
+            </thead>
+            <tbody>
+              {globalAuditFilteredGroups.slice(0, 10).map((group, index) => {
+                const movement = group.primaryMovement;
+                const accountNames = Array.from(
+                  new Set(
+                    group.movements.map((item) => moneyAccountById.get(item.moneyAccountId)?.name ?? `Cuenta #${item.moneyAccountId}`)
+                  )
+                );
+                const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                const hasException = group.movements.some(
+                  (item) => item.status === 'rejected' || item.status === 'voided'
+                );
+
+                return (
+                  <tr
+                    key={group.key}
+                    className={`${zebra} cursor-pointer border-b border-[#242433] align-top hover:bg-[#1A1A28]`}
+                    onClick={() => {
+                      setSelectedMovementGroupKey(group.key);
+                      setMovementDetailOpen(true);
+                    }}
+                  >
+                    <td className="px-2 py-2">{movement.movementDate}</td>
+                    <td className="px-2 py-2">
+                      <div className="max-w-[260px] truncate text-[#F5F5F7]">{accountNames.join(' / ')}</div>
+                      {group.isTransfer ? <div className="mt-1 text-[11px] text-[#8A8A96]">Traspaso entre cuentas</div> : null}
+                    </td>
+                    <td className="px-2 py-2">
+                      {group.isTransfer ? 'Traspaso' : MOVEMENT_TYPE_LABEL[movement.movementType]}
+                      {group.feeMovements.length > 0 ? (
+                        <div className="mt-1 text-[11px] text-red-300">Comisión {fmtUSD(group.feeUsd)}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-2">
+                      <span
+                        className={[
+                          'rounded-full border px-2 py-0.5 text-[11px]',
+                          movement.status === 'confirmed'
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                            : movement.status === 'pending'
+                              ? 'border-[#FEEF00]/30 bg-[#1D1A00] text-[#FEEF00]'
+                              : 'border-red-500/30 bg-red-500/10 text-red-300',
+                        ].join(' ')}
+                      >
+                        {hasException ? 'Excepción' : MONEY_MOVEMENT_STATUS_LABEL[movement.status]}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className={group.netUsd >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                        {group.netUsd < 0 ? '-' : ''}
+                        {fmtUSD(Math.abs(group.netUsd || group.amountUsd))}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2">{getDashboardUserLabel(movement.createdByUserId)}</td>
+                    <td className="px-2 py-2">
+                      <div className="max-w-[180px] truncate text-[#B7B7C2]">{group.key}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -16885,7 +17199,9 @@ deliveryAssignMode === 'external' ? (
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
-                  <div className="mt-1 text-xs text-[#8A8A96]">Operaciones agrupadas por huella financiera.</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    {selectedAccountFilteredMovementGroups.length} de {selectedAccountMovementGroups.length} huellas visibles.
+                  </div>
                 </div>
                 <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
                   {(Object.keys(ACCOUNT_MOVEMENT_FILTER_LABEL) as AccountMovementFilter[]).map((filter) => (
@@ -16905,8 +17221,32 @@ deliveryAssignMode === 'external' ? (
                   ))}
                 </div>
               </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[160px_minmax(0,1fr)_180px_180px]">
+                <FieldSelect
+                  label="Estado"
+                  value={accountAuditStatusFilter}
+                  onChange={(value) => setAccountAuditStatusFilter(value as MoneyMovementItem['status'] | '')}
+                  options={MONEY_MOVEMENT_STATUS_FILTER_OPTIONS}
+                />
+                <FieldSelect
+                  label="Usuario"
+                  value={accountAuditUserFilter}
+                  onChange={setAccountAuditUserFilter}
+                  options={[{ value: '', label: 'Todos' }, ...accountAuditUserOptions]}
+                />
+                <FieldCheckbox
+                  label="Requiere aprobación"
+                  checked={accountAuditApprovalOnly}
+                  onChange={setAccountAuditApprovalOnly}
+                />
+                <FieldCheckbox
+                  label="Rechazados/anulados"
+                  checked={accountAuditExceptionOnly}
+                  onChange={setAccountAuditExceptionOnly}
+                />
+              </div>
               <div className="mt-3 overflow-x-auto">
-                {selectedAccountMovementGroups.length === 0 ? (
+                {selectedAccountFilteredMovementGroups.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
                   <table className="w-full text-[12px]">
@@ -16924,7 +17264,7 @@ deliveryAssignMode === 'external' ? (
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedAccountMovementGroups.map((group, idx) => {
+                      {selectedAccountFilteredMovementGroups.map((group, idx) => {
                         const movement = group.primaryMovement;
                         const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
