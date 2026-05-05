@@ -3537,7 +3537,9 @@ const [paymentReportBoxOpen, setPaymentReportBoxOpen] = useState(false);
 const [paymentReportMoneyAccountId, setPaymentReportMoneyAccountId] = useState('');
 const [paymentReportAmount, setPaymentReportAmount] = useState('');
 const [paymentReportExchangeRate, setPaymentReportExchangeRate] = useState('');
+const [paymentReportOperationDate, setPaymentReportOperationDate] = useState('');
 const [paymentReportReferenceCode, setPaymentReportReferenceCode] = useState('');
+const [paymentReportBankName, setPaymentReportBankName] = useState('');
 const [paymentReportPayerName, setPaymentReportPayerName] = useState('');
 const [paymentReportNotes, setPaymentReportNotes] = useState('');
 const [paymentApplyFundAmountUsd, setPaymentApplyFundAmountUsd] = useState('');
@@ -4931,7 +4933,9 @@ const resetPaymentReportBox = () => {
   setPaymentReportMoneyAccountId('');
   setPaymentReportAmount('');
   setPaymentReportExchangeRate('');
+  setPaymentReportOperationDate('');
   setPaymentReportReferenceCode('');
+  setPaymentReportBankName('');
   setPaymentReportPayerName('');
   setPaymentReportNotes('');
   setPaymentApplyFundAmountUsd('');
@@ -5161,6 +5165,15 @@ const handleCreatePaymentReport = async (o: Order) => {
     }
 
     let exchangeRate: number | null = null;
+    const paymentMethod = o.editMeta?.paymentMethod || '';
+    const requiresOperationData =
+      paymentMethod === 'payment_mobile' || paymentMethod === 'transfer' || paymentMethod === 'zelle';
+    const requiresBank = paymentMethod === 'payment_mobile' || paymentMethod === 'transfer';
+    const requiresHolderName = paymentMethod === 'zelle';
+    const operationDate = paymentReportOperationDate.trim();
+    const referenceCode = paymentReportReferenceCode.trim();
+    const bankName = paymentReportBankName.trim();
+    const payerName = paymentReportPayerName.trim();
 
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(paymentReportExchangeRate || 0);
@@ -5170,14 +5183,37 @@ const handleCreatePaymentReport = async (o: Order) => {
       }
     }
 
+    if (requiresOperationData && !operationDate) {
+      showToast('error', 'Debes indicar la fecha de la operación.');
+      return;
+    }
+
+    if (requiresOperationData && !referenceCode) {
+      showToast('error', 'Debes indicar la referencia de la operación.');
+      return;
+    }
+
+    if (requiresBank && !bankName) {
+      showToast('error', 'Debes indicar el banco de la operación.');
+      return;
+    }
+
+    if (requiresHolderName && !payerName) {
+      showToast('error', 'Debes indicar el nombre del titular de Zelle.');
+      return;
+    }
+
     await createPaymentReportAction({
       orderId: o.id,
       reportedMoneyAccountId: selectedAccount.id,
       reportedCurrency: selectedAccount.currencyCode,
       reportedAmount,
       reportedExchangeRateVesPerUsd: exchangeRate,
-      referenceCode: paymentReportReferenceCode.trim() || null,
-      payerName: paymentReportPayerName.trim() || null,
+      paymentMethod,
+      operationDate: operationDate || null,
+      referenceCode: referenceCode || null,
+      bankName: bankName || null,
+      payerName: payerName || null,
       notes: paymentReportNotes.trim() || null,
     });
 
@@ -8424,6 +8460,13 @@ const getAccountRoleRows = useCallback(
 
 const selectedPaymentReportAccount =
   paymentReportAccountOptions.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
+
+const paymentReportMethod = selectedOrder?.editMeta?.paymentMethod || '';
+const paymentReportRequiresOperationData =
+  paymentReportMethod === 'payment_mobile' || paymentReportMethod === 'transfer' || paymentReportMethod === 'zelle';
+const paymentReportRequiresBank =
+  paymentReportMethod === 'payment_mobile' || paymentReportMethod === 'transfer';
+const paymentReportRequiresHolderName = paymentReportMethod === 'zelle';
 
 const selectedConfirmPaymentReport =
   selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ?? null;
@@ -15426,6 +15469,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
     onClick={() => {
       setPaymentReportBoxOpen(true);
+      setPaymentReportOperationDate(new Date().toISOString().slice(0, 10));
       setPaymentReportAmount(
         selectedOrder.balanceUsd > 0 ? String(Number(selectedOrder.balanceUsd.toFixed(2))) : ''
       );
@@ -15498,19 +15542,39 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         />
       ) : null}
 
+      {paymentReportRequiresOperationData ? (
+        <input
+          value={paymentReportOperationDate}
+          onChange={(e) => setPaymentReportOperationDate(e.target.value)}
+          type="date"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+      ) : null}
+
       <input
         value={paymentReportReferenceCode}
         onChange={(e) => setPaymentReportReferenceCode(e.target.value)}
-        placeholder="Referencia (opcional)"
+        placeholder={paymentReportRequiresOperationData ? 'Referencia' : 'Referencia (opcional)'}
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
 
-      <input
-        value={paymentReportPayerName}
-        onChange={(e) => setPaymentReportPayerName(e.target.value)}
-        placeholder="Pagador (opcional)"
-        className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
-      />
+      {paymentReportRequiresBank ? (
+        <input
+          value={paymentReportBankName}
+          onChange={(e) => setPaymentReportBankName(e.target.value)}
+          placeholder="Banco"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+      ) : null}
+
+      {paymentReportRequiresHolderName || !paymentReportRequiresBank ? (
+        <input
+          value={paymentReportPayerName}
+          onChange={(e) => setPaymentReportPayerName(e.target.value)}
+          placeholder={paymentReportRequiresHolderName ? 'Nombre del titular' : 'Pagador (opcional)'}
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+      ) : null}
 
       <textarea
         value={paymentReportNotes}

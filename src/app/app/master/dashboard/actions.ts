@@ -734,11 +734,48 @@ export async function createPaymentReportAction(input: {
   reportedCurrency: string;
   reportedAmount: number;
   reportedExchangeRateVesPerUsd: number | null;
+  paymentMethod?: string | null;
+  operationDate?: string | null;
   referenceCode: string | null;
+  bankName?: string | null;
   payerName: string | null;
   notes: string | null;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
+  const paymentMethod = normalizePaymentMethodCode(input.paymentMethod);
+  const requiresOperationData =
+    paymentMethod === 'payment_mobile' || paymentMethod === 'transfer' || paymentMethod === 'zelle';
+  const requiresBank = paymentMethod === 'payment_mobile' || paymentMethod === 'transfer';
+  const requiresHolderName = paymentMethod === 'zelle';
+  const operationDate = String(input.operationDate || '').trim();
+  const referenceCode = String(input.referenceCode || '').trim();
+  const bankName = String(input.bankName || '').trim();
+  const payerName = String(input.payerName || '').trim();
+
+  if (requiresOperationData && !operationDate) {
+    throw new Error('Debes indicar la fecha de la operación.');
+  }
+
+  if (requiresOperationData && !referenceCode) {
+    throw new Error('Debes indicar la referencia de la operación.');
+  }
+
+  if (requiresBank && !bankName) {
+    throw new Error('Debes indicar el banco de la operación.');
+  }
+
+  if (requiresHolderName && !payerName) {
+    throw new Error('Debes indicar el nombre del titular de Zelle.');
+  }
+
+  const notesParts = [
+    operationDate ? `Fecha operación: ${operationDate}` : null,
+    requiresBank && bankName ? `Banco: ${bankName}` : null,
+    requiresHolderName && payerName ? `Titular: ${payerName}` : null,
+    input.notes ? String(input.notes).trim() : null,
+  ].filter((part): part is string => Boolean(part));
+  const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
+  const reportPayerName = requiresBank ? bankName : payerName || null;
 
   const { error } = await supabase.rpc('create_payment_report', {
     p_order_id: input.orderId,
@@ -746,9 +783,9 @@ export async function createPaymentReportAction(input: {
     p_reported_currency: input.reportedCurrency,
     p_reported_amount: input.reportedAmount,
     p_reported_exchange_rate_ves_per_usd: input.reportedExchangeRateVesPerUsd,
-    p_reference_code: input.referenceCode,
-    p_payer_name: input.payerName,
-    p_notes: input.notes,
+    p_reference_code: referenceCode || null,
+    p_payer_name: reportPayerName,
+    p_notes: reportNotes,
   });
 
   if (error) throw new Error(error.message);
@@ -767,8 +804,11 @@ export async function createPaymentReportAction(input: {
       reported_currency: input.reportedCurrency,
       reported_amount: input.reportedAmount,
       exchange_rate_ves_per_usd: input.reportedExchangeRateVesPerUsd,
-      reference_code: input.referenceCode,
-      payer_name: input.payerName,
+      payment_method: paymentMethod,
+      operation_date: operationDate || null,
+      reference_code: referenceCode || null,
+      bank_name: bankName || null,
+      payer_name: reportPayerName,
     },
     recipients: [
       { targetRole: 'master', requiresAction: true },
