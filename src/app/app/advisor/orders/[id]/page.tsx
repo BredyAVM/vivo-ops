@@ -902,6 +902,7 @@ export default async function AdvisorOrderDetailPage({
             canCorrectOrder={canCorrectOrder}
             canDuplicateOrder={canDuplicateOrder}
             canReportPayment={canReportPayment}
+            paymentMethod={orderPaymentMethod || null}
             moneyAccounts={moneyAccounts}
             activeBsRate={activeBsRate}
             whatsappSummary={whatsappSummary}

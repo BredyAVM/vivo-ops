@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices } from '@/lib/push';
+import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { getMasterDashboardPermissions } from './permissions';
 
 async function requireMasterOrAdmin() {
@@ -743,10 +744,10 @@ export async function createPaymentReportAction(input: {
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
   const paymentMethod = normalizePaymentMethodCode(input.paymentMethod);
-  const requiresOperationData =
-    paymentMethod === 'payment_mobile' || paymentMethod === 'transfer' || paymentMethod === 'zelle';
-  const requiresBank = paymentMethod === 'payment_mobile' || paymentMethod === 'transfer';
-  const requiresHolderName = paymentMethod === 'zelle';
+  const requirements = getPaymentReportRequirements(paymentMethod);
+  const requiresOperationData = requirements.requiresOperationDate;
+  const requiresBank = requirements.requiresBank;
+  const requiresHolderName = requirements.requiresHolderName;
   const operationDate = String(input.operationDate || '').trim();
   const referenceCode = String(input.referenceCode || '').trim();
   const bankName = String(input.bankName || '').trim();
@@ -775,7 +776,7 @@ export async function createPaymentReportAction(input: {
     input.notes ? String(input.notes).trim() : null,
   ].filter((part): part is string => Boolean(part));
   const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
-  const reportPayerName = requiresBank ? bankName : payerName || null;
+  const reportPayerName = requirements.requiresBank ? bankName : payerName || null;
 
   const { error } = await supabase.rpc('create_payment_report', {
     p_order_id: input.orderId,

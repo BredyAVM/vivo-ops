@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useMemo, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { createAdvisorPaymentReportAction } from './actions';
 
 const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
@@ -80,6 +81,7 @@ export default function OrderDetailActions({
   canCorrectOrder,
   canDuplicateOrder,
   canReportPayment,
+  paymentMethod,
   moneyAccounts,
   activeBsRate,
   whatsappSummary,
@@ -92,6 +94,7 @@ export default function OrderDetailActions({
   canCorrectOrder: boolean;
   canDuplicateOrder: boolean;
   canReportPayment: boolean;
+  paymentMethod: string | null;
   moneyAccounts: MoneyAccountOption[];
   activeBsRate: number;
   whatsappSummary: string;
@@ -107,9 +110,14 @@ export default function OrderDetailActions({
   const [success, setSuccess] = useState<string | null>(null);
   const [advisorLabel, setAdvisorLabel] = useState('Asesor');
   const [moneyAccountId, setMoneyAccountId] = useState('');
+  const [reportPaymentMethod, setReportPaymentMethod] = useState(
+    paymentMethod && ['payment_mobile', 'transfer', 'zelle'].includes(paymentMethod) ? paymentMethod : '',
+  );
   const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
+  const [operationDate, setOperationDate] = useState(new Date().toISOString().slice(0, 10));
   const [referenceCode, setReferenceCode] = useState('');
+  const [bankName, setBankName] = useState('');
   const [payerName, setPayerName] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -121,6 +129,9 @@ export default function OrderDetailActions({
     () => activeAccounts.find((account) => account.id === Number(moneyAccountId)) ?? null,
     [activeAccounts, moneyAccountId],
   );
+  const orderLocksPaymentMethod = Boolean(paymentMethod && ['payment_mobile', 'transfer', 'zelle'].includes(paymentMethod));
+  const availablePaymentMethods = selectedAccount?.paymentMethodCodes?.length ? selectedAccount.paymentMethodCodes : [];
+  const paymentRequirements = getPaymentReportRequirements(reportPaymentMethod);
   const whatsappButtonClass = preferWhatsApp
     ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'
     : 'inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#25D366]';
@@ -234,6 +245,7 @@ export default function OrderDetailActions({
             onClick={() => {
               setError(null);
               setSuccess(null);
+              setOperationDate((current) => current || new Date().toISOString().slice(0, 10));
               setReportBoxOpen((current) => !current);
             }}
             className={[
@@ -282,12 +294,18 @@ export default function OrderDetailActions({
                   const nextId = e.target.value;
                   setMoneyAccountId(nextId);
                   const account = activeAccounts.find((row) => row.id === Number(nextId)) ?? null;
+                  const accountMethods = account?.paymentMethodCodes ?? [];
                   setAmount(getSuggestedAccountAmount(balanceUsd, account?.currencyCode, activeBsRate));
                   setExchangeRate(
                     account?.currencyCode === 'VES' && activeBsRate > 0
                       ? String(Number(activeBsRate.toFixed(2)))
                       : '',
                   );
+                  if (orderLocksPaymentMethod) {
+                    setReportPaymentMethod(paymentMethod || '');
+                  } else if (!accountMethods.includes(reportPaymentMethod)) {
+                    setReportPaymentMethod(accountMethods[0] ?? '');
+                  }
                 }}
                 className={inputClass()}
               >
@@ -302,6 +320,24 @@ export default function OrderDetailActions({
                 ))}
               </select>
             </Field>
+
+            {selectedAccount && availablePaymentMethods.length > 0 ? (
+              <Field label="Metodo">
+                <select
+                  value={reportPaymentMethod}
+                  onChange={(e) => setReportPaymentMethod(e.target.value)}
+                  className={inputClass()}
+                  disabled={orderLocksPaymentMethod}
+                >
+                  <option value="">Selecciona metodo</option>
+                  {availablePaymentMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {getPaymentMethodLabel(method)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ) : null}
 
             <Field label="Monto reportado">
               <input
@@ -327,23 +363,47 @@ export default function OrderDetailActions({
               </Field>
             ) : null}
 
+            {paymentRequirements.requiresOperationDate ? (
+              <Field label="Fecha de operacion">
+                <input
+                  value={operationDate}
+                  onChange={(e) => setOperationDate(e.target.value)}
+                  className={inputClass()}
+                  type="date"
+                />
+              </Field>
+            ) : null}
+
             <Field label="Referencia">
               <input
                 value={referenceCode}
                 onChange={(e) => setReferenceCode(e.target.value)}
                 className={inputClass()}
-                placeholder="Ultimos digitos o numero"
+                placeholder={paymentRequirements.requiresReference ? 'Numero de referencia' : 'Ultimos digitos o numero'}
               />
             </Field>
 
-            <Field label="Pagador">
-              <input
-                value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
-                className={inputClass()}
-                placeholder="Nombre de quien pago"
-              />
-            </Field>
+            {paymentRequirements.requiresBank ? (
+              <Field label="Banco">
+                <input
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  className={inputClass()}
+                  placeholder="Banco de la operacion"
+                />
+              </Field>
+            ) : null}
+
+            {paymentRequirements.requiresHolderName || !paymentRequirements.requiresBank ? (
+              <Field label={paymentRequirements.requiresHolderName ? 'Titular' : 'Pagador'}>
+                <input
+                  value={payerName}
+                  onChange={(e) => setPayerName(e.target.value)}
+                  className={inputClass()}
+                  placeholder={paymentRequirements.requiresHolderName ? 'Nombre del titular' : 'Nombre de quien pago'}
+                />
+              </Field>
+            ) : null}
 
             <Field label="Notas">
               <textarea
@@ -364,6 +424,19 @@ export default function OrderDetailActions({
 
                   startTransition(async () => {
                     try {
+                      const validationError = validatePaymentReportDetails({
+                        method: reportPaymentMethod,
+                        operationDate,
+                        referenceCode,
+                        bankName,
+                        holderName: payerName,
+                      });
+
+                      if (validationError) {
+                        setError(validationError);
+                        return;
+                      }
+
                       await createAdvisorPaymentReportAction({
                         orderId,
                         reportedMoneyAccountId: Number(moneyAccountId || 0),
@@ -371,7 +444,10 @@ export default function OrderDetailActions({
                         reportedAmount: Number(amount || 0),
                         reportedExchangeRateVesPerUsd:
                           selectedAccount?.currencyCode === 'VES' ? Number(exchangeRate || 0) : null,
+                        paymentMethod: reportPaymentMethod || null,
+                        operationDate: operationDate.trim() || null,
                         referenceCode: referenceCode.trim() || null,
+                        bankName: bankName.trim() || null,
                         payerName: payerName.trim() || null,
                         notes: notes.trim() || null,
                       });

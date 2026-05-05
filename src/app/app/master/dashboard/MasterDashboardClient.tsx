@@ -62,6 +62,7 @@ import {
   updateOrderAction,
   logoutAction,
 } from './actions';
+import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { getMasterDashboardPermissions } from './permissions';
 
 type OrderStatus =
@@ -5166,14 +5167,17 @@ const handleCreatePaymentReport = async (o: Order) => {
 
     let exchangeRate: number | null = null;
     const paymentMethod = o.editMeta?.paymentMethod || '';
-    const requiresOperationData =
-      paymentMethod === 'payment_mobile' || paymentMethod === 'transfer' || paymentMethod === 'zelle';
-    const requiresBank = paymentMethod === 'payment_mobile' || paymentMethod === 'transfer';
-    const requiresHolderName = paymentMethod === 'zelle';
     const operationDate = paymentReportOperationDate.trim();
     const referenceCode = paymentReportReferenceCode.trim();
     const bankName = paymentReportBankName.trim();
     const payerName = paymentReportPayerName.trim();
+    const validationError = validatePaymentReportDetails({
+      method: paymentMethod,
+      operationDate,
+      referenceCode,
+      bankName,
+      holderName: payerName,
+    });
 
     if (selectedAccount.currencyCode === 'VES') {
       exchangeRate = Number(paymentReportExchangeRate || 0);
@@ -5183,23 +5187,8 @@ const handleCreatePaymentReport = async (o: Order) => {
       }
     }
 
-    if (requiresOperationData && !operationDate) {
-      showToast('error', 'Debes indicar la fecha de la operación.');
-      return;
-    }
-
-    if (requiresOperationData && !referenceCode) {
-      showToast('error', 'Debes indicar la referencia de la operación.');
-      return;
-    }
-
-    if (requiresBank && !bankName) {
-      showToast('error', 'Debes indicar el banco de la operación.');
-      return;
-    }
-
-    if (requiresHolderName && !payerName) {
-      showToast('error', 'Debes indicar el nombre del titular de Zelle.');
+    if (validationError) {
+      showToast('error', validationError);
       return;
     }
 
@@ -8462,11 +8451,10 @@ const selectedPaymentReportAccount =
   paymentReportAccountOptions.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
 
 const paymentReportMethod = selectedOrder?.editMeta?.paymentMethod || '';
-const paymentReportRequiresOperationData =
-  paymentReportMethod === 'payment_mobile' || paymentReportMethod === 'transfer' || paymentReportMethod === 'zelle';
-const paymentReportRequiresBank =
-  paymentReportMethod === 'payment_mobile' || paymentReportMethod === 'transfer';
-const paymentReportRequiresHolderName = paymentReportMethod === 'zelle';
+const paymentReportRequirements = getPaymentReportRequirements(paymentReportMethod);
+const paymentReportRequiresOperationData = paymentReportRequirements.requiresOperationDate;
+const paymentReportRequiresBank = paymentReportRequirements.requiresBank;
+const paymentReportRequiresHolderName = paymentReportRequirements.requiresHolderName;
 
 const selectedConfirmPaymentReport =
   selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ?? null;

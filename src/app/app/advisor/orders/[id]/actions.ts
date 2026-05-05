@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
+import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 
@@ -131,7 +132,10 @@ export async function createAdvisorPaymentReportAction(input: {
   reportedCurrency: string;
   reportedAmount: number;
   reportedExchangeRateVesPerUsd: number | null;
+  paymentMethod?: string | null;
+  operationDate?: string | null;
   referenceCode: string | null;
+  bankName?: string | null;
   payerName: string | null;
   notes: string | null;
 }) {
@@ -196,6 +200,16 @@ export async function createAdvisorPaymentReportAction(input: {
       : {};
   const orderPaymentMethod = String(extraFields.payment?.method || '').trim();
   const shouldMatchOrderPaymentMethod = ADVISOR_REPORT_PAYMENT_METHODS.has(orderPaymentMethod);
+  const requestedPaymentMethod = String(input.paymentMethod || '').trim();
+  const effectivePaymentMethod = shouldMatchOrderPaymentMethod
+    ? orderPaymentMethod
+    : ADVISOR_REPORT_PAYMENT_METHODS.has(requestedPaymentMethod)
+      ? requestedPaymentMethod
+      : '';
+
+  if (!effectivePaymentMethod) {
+    throw new Error('Selecciona el método del pago reportado.');
+  }
 
   if (
     !isMasterOrAdmin &&
@@ -218,7 +232,7 @@ export async function createAdvisorPaymentReportAction(input: {
   if (!isMasterOrAdmin) {
     rulesQuery = rulesQuery.in(
       'payment_method_code',
-      shouldMatchOrderPaymentMethod ? [orderPaymentMethod] : Array.from(ADVISOR_REPORT_PAYMENT_METHODS)
+      [effectivePaymentMethod]
     );
   }
 
@@ -228,15 +242,41 @@ export async function createAdvisorPaymentReportAction(input: {
     throw new Error(allowedRulesError?.message || 'No tienes permiso para reportar pagos en esta cuenta.');
   }
 
+  const operationDate = String(input.operationDate || '').trim();
+  const referenceCode = String(input.referenceCode || '').trim();
+  const bankName = String(input.bankName || '').trim();
+  const payerName = String(input.payerName || '').trim();
+  const requirements = getPaymentReportRequirements(effectivePaymentMethod);
+  const validationError = validatePaymentReportDetails({
+    method: effectivePaymentMethod,
+    operationDate,
+    referenceCode,
+    bankName,
+    holderName: payerName,
+  });
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const notesParts = [
+    operationDate ? `Fecha operación: ${operationDate}` : null,
+    requirements.requiresBank && bankName ? `Banco: ${bankName}` : null,
+    requirements.requiresHolderName && payerName ? `Titular: ${payerName}` : null,
+    input.notes ? String(input.notes).trim() : null,
+  ].filter((part): part is string => Boolean(part));
+  const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
+  const reportPayerName = requirements.requiresBank ? bankName : payerName || null;
+
   const { error } = await ctx.supabase.rpc('create_payment_report', {
     p_order_id: orderId,
     p_reported_money_account_id: reportedMoneyAccountId,
     p_reported_currency: reportedCurrency,
     p_reported_amount: reportedAmount,
     p_reported_exchange_rate_ves_per_usd: reportedExchangeRate,
-    p_reference_code: String(input.referenceCode || '').trim() || null,
-    p_payer_name: String(input.payerName || '').trim() || null,
-    p_notes: String(input.notes || '').trim() || null,
+    p_reference_code: referenceCode || null,
+    p_payer_name: reportPayerName,
+    p_notes: reportNotes,
   });
 
   if (error) throw new Error(error.message);
@@ -256,8 +296,11 @@ export async function createAdvisorPaymentReportAction(input: {
       reported_currency: reportedCurrency,
       reported_amount: reportedAmount,
       exchange_rate_ves_per_usd: reportedExchangeRate,
-      reference_code: String(input.referenceCode || '').trim() || null,
-      payer_name: String(input.payerName || '').trim() || null,
+      payment_method: effectivePaymentMethod,
+      operation_date: operationDate || null,
+      reference_code: referenceCode || null,
+      bank_name: bankName || null,
+      payer_name: reportPayerName,
     },
     recipients: [
       { targetRole: 'master', requiresAction: true },
