@@ -470,6 +470,19 @@ function buildCleanWhatsAppOrderSummary({
   parts.push(`${check} *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
   parts.push('');
   parts.push(`${check} *Forma de pago:* ${paymentMethodCopyLabel(order.extra_fields?.payment?.method)}`);
+  if (
+    order.extra_fields?.payment?.requires_change &&
+    String(order.extra_fields?.payment?.change_for ?? '').trim()
+  ) {
+    parts.push('');
+    parts.push(
+      `${check} *Cambio:* ${String(order.extra_fields?.payment?.change_for).trim()} ${safeText(order.extra_fields?.payment?.change_currency, 'USD')}`
+    );
+  }
+  if (safeText(order.extra_fields?.payment?.notes, '')) {
+    parts.push('');
+    parts.push(`${check} *Nota de pago:* ${safeText(order.extra_fields?.payment?.notes, '')}`);
+  }
   parts.push('');
   parts.push(`${check} *Estatus de pago:* Pendiente`);
   parts.push('');

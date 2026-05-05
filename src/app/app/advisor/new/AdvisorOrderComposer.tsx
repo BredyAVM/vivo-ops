@@ -2241,6 +2241,16 @@ export default function AdvisorOrderComposer({
     parts.push(`${WHATSAPP_CHECK} *Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
     parts.push('');
     parts.push(`${WHATSAPP_CHECK} *Forma de pago:* ${getPaymentMethodLabel(paymentMethod)}`);
+    if (paymentRequiresChange && paymentChangeFor.trim()) {
+      parts.push('');
+      parts.push(
+        `${WHATSAPP_CHECK} *Cambio:* ${paymentChangeFor.trim()} ${paymentChangeCurrency}`
+      );
+    }
+    if (paymentNote.trim()) {
+      parts.push('');
+      parts.push(`${WHATSAPP_CHECK} *Nota de pago:* ${paymentNote.trim()}`);
+    }
     parts.push('');
     parts.push(`${WHATSAPP_CHECK} *Estatus de pago:* Pendiente`);
     parts.push('');
