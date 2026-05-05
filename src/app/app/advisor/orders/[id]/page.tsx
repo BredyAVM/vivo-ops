@@ -62,10 +62,21 @@ type OrderRow = {
 
 type OrderItemRow = {
   id: number;
+  product_id: number | string | null;
   qty: number | string;
   product_name_snapshot: string | null;
   line_total_usd: number | string | null;
   notes: string | null;
+  product:
+    | {
+        type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
+        units_per_service: number | null;
+      }[]
+    | {
+        type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
+        units_per_service: number | null;
+      }
+    | null;
 };
 
 type PaymentReportRow = {
@@ -259,8 +270,33 @@ function getVisibleEditableDetailLines(value: string | null | undefined) {
     .filter((line) => line && !line.startsWith('@sel|'));
 }
 
+function formatQuantityLabel(value: number | string | null | undefined) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return '0';
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 function lineTextWhatsAppStyle(item: OrderItemRow) {
-  return `- ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`;
+  const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
+  const normalizedName = safeText(item.product_name_snapshot, 'Item');
+  const isDelivery = normalizedName.toLowerCase().startsWith('delivery');
+  const unitsPerService = Math.max(0, Number(relatedProduct?.units_per_service || 0));
+
+  if (isDelivery) {
+    return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatUsd(item.line_total_usd)}`;
+  }
+
+  if (unitsPerService > 0) {
+    const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
+    const units = Number((Number(item.qty || 0) * unitsPerService).toFixed(2));
+    const servicePrefix = relatedProduct?.type === 'service' ? 'Serv. ' : '';
+    return `- ${formatQuantityLabel(item.qty)} ${servicePrefix}${cleanName} (${formatQuantityLabel(units)} und): ${formatUsd(item.line_total_usd)}`;
+  }
+
+  return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatUsd(item.line_total_usd)}`;
 }
 
 function deliveryText(
@@ -408,7 +444,7 @@ function buildCleanWhatsAppOrderSummary({
     parts.push('- Sin items cargados');
   } else {
     for (const item of items) {
-      parts.push(`${primaryBullet} ${Number(item.qty || 0)} ${safeText(item.product_name_snapshot, 'Item')}: ${formatUsd(item.line_total_usd)}`);
+      parts.push(lineTextWhatsAppStyle(item).replace(/^- /, `${primaryBullet} `));
       for (const detail of getVisibleEditableDetailLines(item.notes)) {
         parts.push(`   ${secondaryBullet} ${detail}`);
       }
@@ -625,7 +661,7 @@ export default async function AdvisorOrderDetailPage({
   ] = await Promise.all([
       ctx.supabase
         .from('order_items')
-        .select('id, qty, product_name_snapshot, line_total_usd, notes')
+        .select('id, product_id, qty, product_name_snapshot, line_total_usd, notes, product:products(type, units_per_service)')
         .eq('order_id', orderId)
         .order('id', { ascending: true }),
       ctx.supabase

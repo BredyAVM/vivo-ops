@@ -37,9 +37,11 @@ type ProductRow = {
   id: number;
   sku: string | null;
   name: string;
+  type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
   base_price_usd: number | string | null;
   source_price_currency: CurrencyCode | null;
   source_price_amount: number | string | null;
+  units_per_service: number | null;
   is_detail_editable: boolean | null;
   detail_units_limit: number | null;
 };
@@ -63,8 +65,10 @@ type ConfigSelection = {
 type DraftItem = {
   localId: string;
   product_id: number;
+  product_type: ProductRow['type'];
   sku_snapshot: string | null;
   product_name_snapshot: string;
+  units_per_service: number;
   qty: number;
   source_price_currency: CurrencyCode;
   source_price_amount: number;
@@ -167,6 +171,16 @@ type ExistingOrderItemRow = {
   sku_snapshot: string | null;
   product_name_snapshot: string | null;
   notes: string | null;
+  product:
+    | {
+        type: ProductRow['type'];
+        units_per_service: number | null;
+      }[]
+    | {
+        type: ProductRow['type'];
+        units_per_service: number | null;
+      }
+    | null;
 };
 
 type OrderEditSnapshot = {
@@ -366,8 +380,22 @@ function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
     item.source_price_currency === 'VES'
       ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
       : Number(item.line_total_usd || 0) * fxRateNumber;
+  const normalizedName = normalizeSnapshotText(item.product_name_snapshot) || 'Item';
+  const isDelivery = isDeliveryCatalogItemName(normalizedName);
+  const unitsPerService = Math.max(0, Number(item.units_per_service || 0));
 
-  return `${WHATSAPP_PRIMARY_BULLET} ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`;
+  if (isDelivery) {
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
+  }
+
+  if (unitsPerService > 0) {
+    const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
+    const units = Number((Number(item.qty || 0) * unitsPerService).toFixed(2));
+    const servicePrefix = item.product_type === 'service' ? 'Serv. ' : '';
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${servicePrefix}${cleanName} (${formatQuantityValue(units)} und): ${formatBsWhatsApp(lineBs)}`;
+  }
+
+  return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {
@@ -1278,7 +1306,7 @@ export default function AdvisorOrderComposer({
         supabase
           .from('products')
           .select(
-            'id, sku, name, base_price_usd, source_price_currency, source_price_amount, is_detail_editable, detail_units_limit'
+            'id, sku, name, type, base_price_usd, source_price_currency, source_price_amount, units_per_service, is_detail_editable, detail_units_limit'
           )
           .eq('is_active', true)
           .order('name', { ascending: true }),
@@ -1311,7 +1339,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('order_items')
               .select(
-                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes'
+                'id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, sku_snapshot, product_name_snapshot, notes, product:products(type, units_per_service)'
               )
               .eq('order_id', Number(sourceOrderId))
               .order('id', { ascending: true }),
@@ -1360,18 +1388,30 @@ export default function AdvisorOrderComposer({
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
           const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
-          const orderItems = ((existingItemsResult?.data ?? []) as ExistingOrderItemRow[]).map((item) => ({
-            localId: `existing-${item.id}`,
-            product_id: Number(item.product_id),
-            sku_snapshot: item.sku_snapshot,
-            product_name_snapshot: String(item.product_name_snapshot || 'Item'),
-            qty: Number(item.qty || 0),
-            source_price_currency: (item.pricing_origin_currency || 'USD') as CurrencyCode,
-            source_price_amount: Number(item.pricing_origin_amount ?? item.unit_price_usd_snapshot ?? 0) || 0,
-            unit_price_usd_snapshot: Number(item.unit_price_usd_snapshot ?? 0) || 0,
-            line_total_usd: Number(item.line_total_usd ?? 0) || 0,
-            editable_detail_lines: item.notes?.trim() ? item.notes.split('\n').map((line) => line.trim()).filter(Boolean) : [],
-          }));
+          const orderItems = ((existingItemsResult?.data ?? []) as ExistingOrderItemRow[]).map((item) => {
+            const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
+
+            return {
+              localId: `existing-${item.id}`,
+              product_id: Number(item.product_id),
+              product_type: relatedProduct?.type ?? null,
+              sku_snapshot: item.sku_snapshot,
+              product_name_snapshot: String(item.product_name_snapshot || 'Item'),
+              units_per_service: Number(relatedProduct?.units_per_service ?? 0) || 0,
+              qty: Number(item.qty || 0),
+              source_price_currency: (item.pricing_origin_currency || 'USD') as CurrencyCode,
+              source_price_amount:
+                Number(item.pricing_origin_amount ?? item.unit_price_usd_snapshot ?? 0) || 0,
+              unit_price_usd_snapshot: Number(item.unit_price_usd_snapshot ?? 0) || 0,
+              line_total_usd: Number(item.line_total_usd ?? 0) || 0,
+              editable_detail_lines: item.notes?.trim()
+                ? item.notes
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                : [],
+            };
+          });
           const schedule = order.extra_fields?.schedule;
           const paymentData = order.extra_fields?.payment;
           const pricing = order.extra_fields?.pricing;
@@ -1813,8 +1853,10 @@ export default function AdvisorOrderComposer({
     return {
       localId: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       product_id: product.id,
+      product_type: product.type,
       sku_snapshot: product.sku,
       product_name_snapshot: product.name,
+      units_per_service: Number(product.units_per_service ?? 0) || 0,
       qty: quantity,
       source_price_currency: (product.source_price_currency || 'USD') as CurrencyCode,
       source_price_amount: Number(product.source_price_amount ?? product.base_price_usd ?? 0) || 0,
