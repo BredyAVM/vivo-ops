@@ -810,6 +810,21 @@ export default async function AdvisorOrderDetailPage({
       paymentMethodCodes: reportMethodsByAccountId.get(Number(account.id)) ?? [],
     }));
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
+  const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  const confirmedPaidBs =
+    payments
+      .filter((paymentReport) => paymentReport.status === 'confirmed')
+      .reduce((sum, paymentReport) => {
+        const currency = safeText(paymentReport.reported_currency_code, '').toUpperCase();
+        if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
+        return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * activeBsRate;
+      }, 0) + toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0) * activeBsRate;
+  const balanceBs =
+    totalBs > 0
+      ? Math.max(0, Number((totalBs - confirmedPaidBs).toFixed(2)))
+      : activeBsRate > 0
+        ? Number((balanceUsd * activeBsRate).toFixed(2))
+        : 0;
   const advisorLabel = safeText(
     ctx.user.user_metadata?.full_name ??
       ctx.user.user_metadata?.name ??
@@ -899,6 +914,7 @@ export default async function AdvisorOrderDetailPage({
           <OrderDetailActions
             orderId={order.id}
             balanceUsd={toSafeNumber(balanceUsd, 0)}
+            balanceBs={toSafeNumber(balanceBs, 0)}
             canCorrectOrder={canCorrectOrder}
             canDuplicateOrder={canDuplicateOrder}
             canReportPayment={canReportPayment}
@@ -1072,6 +1088,12 @@ export default async function AdvisorOrderDetailPage({
             <span>Saldo</span>
             <span className="font-semibold text-[#F0D000]">{formatUsd(balanceUsd)}</span>
           </div>
+          {balanceBs > 0 ? (
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Saldo Bs</span>
+              <span className="font-semibold text-[#F0D000]">{formatBs(balanceBs)}</span>
+            </div>
+          ) : null}
           {payment?.notes ? (
             <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
               <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Nota de pago</div>

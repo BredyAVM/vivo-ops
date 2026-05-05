@@ -19,14 +19,19 @@ type MoneyAccountOption = {
 
 function getSuggestedAccountAmount(
   usdAmount: number,
+  bsAmount: number,
   currencyCode: string | null | undefined,
   activeBsRate: number,
 ) {
-  if (!Number.isFinite(usdAmount) || usdAmount <= 0) return '';
+  if (currencyCode === 'VES' && Number.isFinite(bsAmount) && bsAmount > 0) {
+    return String(Number(bsAmount.toFixed(2)));
+  }
 
-  if (currencyCode === 'VES' && Number.isFinite(activeBsRate) && activeBsRate > 0) {
+  if (currencyCode === 'VES' && Number.isFinite(usdAmount) && usdAmount > 0 && Number.isFinite(activeBsRate) && activeBsRate > 0) {
     return String(Number((usdAmount * activeBsRate).toFixed(2)));
   }
+
+  if (!Number.isFinite(usdAmount) || usdAmount <= 0) return '';
 
   return String(Number(usdAmount.toFixed(2)));
 }
@@ -78,6 +83,7 @@ function Field({
 export default function OrderDetailActions({
   orderId,
   balanceUsd,
+  balanceBs,
   canCorrectOrder,
   canDuplicateOrder,
   canReportPayment,
@@ -91,6 +97,7 @@ export default function OrderDetailActions({
 }: {
   orderId: number;
   balanceUsd: number;
+  balanceBs: number;
   canCorrectOrder: boolean;
   canDuplicateOrder: boolean;
   canReportPayment: boolean;
@@ -113,7 +120,7 @@ export default function OrderDetailActions({
   const [reportPaymentMethod, setReportPaymentMethod] = useState(
     paymentMethod && ['payment_mobile', 'transfer', 'zelle'].includes(paymentMethod) ? paymentMethod : '',
   );
-  const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, 'USD', activeBsRate));
+  const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, balanceBs, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
   const [operationDate, setOperationDate] = useState(new Date().toISOString().slice(0, 10));
   const [referenceCode, setReferenceCode] = useState('');
@@ -264,7 +271,8 @@ export default function OrderDetailActions({
             <div>
               <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>
               <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
-                Saldo pendiente: ${balanceUsd.toFixed(2)}. Se enviara a revision.
+                Saldo pendiente: ${balanceUsd.toFixed(2)}
+                {balanceBs > 0 ? ` / Bs ${balanceBs.toFixed(2)}` : ''}. Se enviara a revision.
               </div>
             </div>
             <button
@@ -279,7 +287,7 @@ export default function OrderDetailActions({
             <div className="mt-2 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#8B93A7]">
               Sugerido en Bs:{' '}
               <span className="font-medium text-[#F5F7FB]">
-                {getSuggestedAccountAmount(balanceUsd, 'VES', activeBsRate)}
+                {getSuggestedAccountAmount(balanceUsd, balanceBs, 'VES', activeBsRate)}
               </span>{' '}
               | Tasa activa:{' '}
               <span className="font-medium text-[#F5F7FB]">{Number(activeBsRate.toFixed(2))}</span>
@@ -295,7 +303,7 @@ export default function OrderDetailActions({
                   setMoneyAccountId(nextId);
                   const account = activeAccounts.find((row) => row.id === Number(nextId)) ?? null;
                   const accountMethods = account?.paymentMethodCodes ?? [];
-                  setAmount(getSuggestedAccountAmount(balanceUsd, account?.currencyCode, activeBsRate));
+                  setAmount(getSuggestedAccountAmount(balanceUsd, balanceBs, account?.currencyCode, activeBsRate));
                   setExchangeRate(
                     account?.currencyCode === 'VES' && activeBsRate > 0
                       ? String(Number(activeBsRate.toFixed(2)))

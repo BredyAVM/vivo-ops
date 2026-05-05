@@ -8511,6 +8511,21 @@ const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | nul
   return String(Number(usdAmount.toFixed(2)));
 };
 
+const getSuggestedOrderPaymentAmount = (order: Order, currencyCode: string | null | undefined) => {
+  if (currencyCode === 'VES') {
+    const balanceBs =
+      order.totalBs > 0 && activeBsRate > 0
+        ? Math.max(0, Number((order.totalBs - order.confirmedPaidUsd * activeBsRate).toFixed(2)))
+        : activeBsRate > 0
+          ? Number((order.balanceUsd * activeBsRate).toFixed(2))
+          : 0;
+
+    return balanceBs > 0 ? String(Number(balanceBs.toFixed(2))) : '';
+  }
+
+  return order.balanceUsd > 0 ? String(Number(order.balanceUsd.toFixed(2))) : '';
+};
+
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
     ? clients.find((client) => client.id === selectedOrder.clientId) ?? null
@@ -15458,9 +15473,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
     onClick={() => {
       setPaymentReportBoxOpen(true);
       setPaymentReportOperationDate(new Date().toISOString().slice(0, 10));
-      setPaymentReportAmount(
-        selectedOrder.balanceUsd > 0 ? String(Number(selectedOrder.balanceUsd.toFixed(2))) : ''
-      );
+      setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, selectedOrder.editMeta?.paymentCurrency || 'USD'));
       const suggestedFund = Math.max(
         0,
         Math.min(
@@ -15491,14 +15504,12 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
 
           const nextAccount = paymentReportAccountOptions.find((a) => a.id === Number(nextId));
           if (nextAccount?.currencyCode === 'VES') {
-            setPaymentReportAmount(
-              getSuggestedAccountAmount(selectedOrder.balanceUsd, nextAccount.currencyCode)
-            );
+            setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode));
             setPaymentReportExchangeRate(
               activeBsRate > 0 ? String(Number(activeBsRate.toFixed(2))) : ''
             );
           } else {
-            setPaymentReportAmount(getSuggestedAccountAmount(selectedOrder.balanceUsd, nextAccount?.currencyCode));
+            setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount?.currencyCode));
             setPaymentReportExchangeRate('');
           }
         }}
