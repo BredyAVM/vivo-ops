@@ -335,6 +335,19 @@ function formatQuantityValue(value: number) {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function getDisplayPieces(qty: number, unitsPerService: number) {
+  const fullServices = Math.trunc(qty);
+  const fractional = qty - fullServices;
+
+  let pieces = fullServices * unitsPerService;
+
+  if (fractional >= 0.5) {
+    pieces += Math.floor(unitsPerService / 2);
+  }
+
+  return pieces;
+}
+
 function formatUsd(value: number) {
   return `$${value.toFixed(2)}`;
 }
@@ -390,7 +403,7 @@ function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
 
   if (unitsPerService > 0) {
     const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    const units = Number((Number(item.qty || 0) * unitsPerService).toFixed(2));
+    const units = getDisplayPieces(Number(item.qty || 0), unitsPerService);
     const servicePrefix = item.product_type === 'service' ? 'Serv. ' : '';
     return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${servicePrefix}${cleanName} (${formatQuantityValue(units)} und): ${formatBsWhatsApp(lineBs)}`;
   }

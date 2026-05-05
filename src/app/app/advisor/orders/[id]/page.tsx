@@ -279,6 +279,19 @@ function formatQuantityLabel(value: number | string | null | undefined) {
     : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+function getDisplayPieces(qty: number, unitsPerService: number) {
+  const fullServices = Math.trunc(qty);
+  const fractional = qty - fullServices;
+
+  let pieces = fullServices * unitsPerService;
+
+  if (fractional >= 0.5) {
+    pieces += Math.floor(unitsPerService / 2);
+  }
+
+  return pieces;
+}
+
 function lineTextWhatsAppStyle(item: OrderItemRow) {
   const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
   const normalizedName = safeText(item.product_name_snapshot, 'Item');
@@ -291,7 +304,7 @@ function lineTextWhatsAppStyle(item: OrderItemRow) {
 
   if (unitsPerService > 0) {
     const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    const units = Number((Number(item.qty || 0) * unitsPerService).toFixed(2));
+    const units = getDisplayPieces(Number(item.qty || 0), unitsPerService);
     const servicePrefix = relatedProduct?.type === 'service' ? 'Serv. ' : '';
     return `- ${formatQuantityLabel(item.qty)} ${servicePrefix}${cleanName} (${formatQuantityLabel(units)} und): ${formatUsd(item.line_total_usd)}`;
   }
