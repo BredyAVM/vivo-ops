@@ -8511,15 +8511,25 @@ const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | nul
   return String(Number(usdAmount.toFixed(2)));
 };
 
+const getOrderPaymentBalanceBs = (order: Order) => {
+  if (order.totalBs > 0 && (order.confirmedPaidUsd <= 0.005 || activeBsRate <= 0)) {
+    return Number(order.totalBs.toFixed(2));
+  }
+
+  if (order.totalBs > 0 && activeBsRate > 0) {
+    return Math.max(0, Number((order.totalBs - order.confirmedPaidUsd * activeBsRate).toFixed(2)));
+  }
+
+  if (activeBsRate > 0) {
+    return Number((order.balanceUsd * activeBsRate).toFixed(2));
+  }
+
+  return 0;
+};
+
 const getSuggestedOrderPaymentAmount = (order: Order, currencyCode: string | null | undefined) => {
   if (currencyCode === 'VES') {
-    const balanceBs =
-      order.totalBs > 0 && activeBsRate > 0
-        ? Math.max(0, Number((order.totalBs - order.confirmedPaidUsd * activeBsRate).toFixed(2)))
-        : activeBsRate > 0
-          ? Number((order.balanceUsd * activeBsRate).toFixed(2))
-          : 0;
-
+    const balanceBs = getOrderPaymentBalanceBs(order);
     return balanceBs > 0 ? String(Number(balanceBs.toFixed(2))) : '';
   }
 
@@ -14904,6 +14914,9 @@ onClose={() => {
         <div className="mt-1 text-sm font-medium text-[#F5F5F7]">
           {fmtUSD(selectedOrder.totalUsd)}
         </div>
+        {selectedOrder.totalBs > 0 ? (
+          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">{fmtBs(selectedOrder.totalBs)}</div>
+        ) : null}
       </div>
 
       <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
@@ -14918,6 +14931,11 @@ onClose={() => {
         <div className="mt-1 text-sm font-medium text-orange-500">
           {fmtUSD(selectedOrder.balanceUsd)}
         </div>
+        {getOrderPaymentBalanceBs(selectedOrder) > 0 ? (
+          <div className="mt-0.5 text-[11px] font-medium text-[#FEEF00]">
+            {fmtBs(getOrderPaymentBalanceBs(selectedOrder))}
+          </div>
+        ) : null}
       </div>
     </div>
 
@@ -15494,6 +15512,18 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
 {detailTab === 'pagos' && paymentReportBoxOpen ? (
   <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
     <div className="text-[10px] font-medium text-[#B7B7C2]">Registrar reporte de pago</div>
+    <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
+        <div className="text-[10px] text-[#8A8A96]">Saldo USD</div>
+        <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.balanceUsd)}</div>
+      </div>
+      <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
+        <div className="text-[10px] text-[#8A8A96]">Saldo Bs</div>
+        <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
+          {getOrderPaymentBalanceBs(selectedOrder) > 0 ? fmtBs(getOrderPaymentBalanceBs(selectedOrder)) : '—'}
+        </div>
+      </div>
+    </div>
 
     <div className="mt-2 space-y-2">
       <select
@@ -15526,10 +15556,19 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
       <input
         value={paymentReportAmount}
         onChange={(e) => setPaymentReportAmount(e.target.value)}
-        placeholder="Monto reportado"
+        placeholder={
+          selectedPaymentReportAccount?.currencyCode === 'VES'
+            ? 'Monto reportado en Bs'
+            : 'Monto reportado'
+        }
         type="number"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
+      {selectedPaymentReportAccount?.currencyCode === 'VES' ? (
+        <div className="rounded-md border border-[#3A3212] bg-[#1D1A00] px-2 py-1.5 text-[11px] text-[#FEEF00]">
+          Usar monto Bs de la orden: {fmtBs(getOrderPaymentBalanceBs(selectedOrder))}
+        </div>
+      ) : null}
 
       {selectedPaymentReportAccount?.currencyCode === 'VES' ? (
         <input
