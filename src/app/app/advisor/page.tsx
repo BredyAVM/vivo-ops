@@ -22,6 +22,9 @@ type OrderRow = {
       time_24?: string | null;
       asap?: boolean | null;
     } | null;
+    payment?: {
+      client_fund_used_usd?: number | string | null;
+    } | null;
   } | null;
   client:
     | { full_name: string | null; phone: string | null }[]
@@ -32,11 +35,17 @@ type OrderRow = {
 type PaymentRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
+  reported_amount_usd_equivalent: number | string;
 };
 
 function formatUsd(value: number | string) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : fallback;
 }
 
 function formatDateLabel(value: Date) {
@@ -159,15 +168,50 @@ function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
   return time24 < currentKey;
 }
 
-function isUnpaidOrder(order: OrderRow, paymentStatusByOrderId: Map<number, PaymentRow['status'][]>) {
-  if (order.status === 'cancelled') return false;
-  const reports = paymentStatusByOrderId.get(order.id) ?? [];
-  return reports.length === 0 || reports.every((status) => status === 'rejected');
+function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+  const reports = paymentReportsByOrderId.get(order.id) ?? [];
+  const totalUsd = toSafeNumber(order.total_usd, 0);
+  const clientFundUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
+  const confirmedUsd =
+    reports
+      .filter((report) => report.status === 'confirmed')
+      .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0) +
+    clientFundUsd;
+  const pendingUsd = reports
+    .filter((report) => report.status === 'pending')
+    .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
+  const balanceUsd = Math.max(0, Number((totalUsd - confirmedUsd).toFixed(2)));
+  const reportableBalanceUsd = Math.max(0, Number((totalUsd - confirmedUsd - pendingUsd).toFixed(2)));
+
+  return {
+    confirmedUsd,
+    pendingUsd,
+    balanceUsd,
+    reportableBalanceUsd,
+    hasRejected: reports.some((report) => report.status === 'rejected'),
+  };
 }
 
-function priorityScore(order: OrderRow, paymentStatusByOrderId: Map<number, PaymentRow['status'][]>, selectedDayKey: string) {
+function paymentAttentionLabel(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+  if (order.status === 'cancelled') return null;
+
+  const state = getPaymentState(order, paymentReportsByOrderId);
+  if (state.balanceUsd <= 0.005) return null;
+  if (state.pendingUsd > 0.005 && state.reportableBalanceUsd <= 0.005) return 'Por validar';
+  if (state.confirmedUsd > 0.005 || state.pendingUsd > 0.005) {
+    return `Saldo ${formatUsd(state.reportableBalanceUsd > 0.005 ? state.reportableBalanceUsd : state.balanceUsd)}`;
+  }
+  return 'Sin pago';
+}
+
+function isUnpaidOrder(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+  if (order.status === 'cancelled') return false;
+  return getPaymentState(order, paymentReportsByOrderId).balanceUsd > 0.005;
+}
+
+function priorityScore(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>, selectedDayKey: string) {
   if (isOverdueOrder(order, selectedDayKey)) return 0;
-  if (isUnpaidOrder(order, paymentStatusByOrderId)) return 1;
+  if (isUnpaidOrder(order, paymentReportsByOrderId)) return 1;
   if (order.extra_fields?.schedule?.asap && isOpenStatus(order.status)) return 2;
   if (order.status === 'created' || order.status === 'queued') return 3;
   return 4;
@@ -192,7 +236,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
       .limit(300),
     ctx.supabase
       .from('payment_reports')
-      .select('order_id, status')
+      .select('order_id, status, reported_amount_usd_equivalent')
       .eq('created_by_user_id', ctx.user.id),
   ]);
 
@@ -202,11 +246,11 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   }));
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
 
-  const paymentStatusByOrderId = new Map<number, PaymentRow['status'][]>();
+  const paymentReportsByOrderId = new Map<number, PaymentRow[]>();
   for (const report of paymentReports) {
-    const current = paymentStatusByOrderId.get(report.order_id) ?? [];
-    current.push(report.status);
-    paymentStatusByOrderId.set(report.order_id, current);
+    const current = paymentReportsByOrderId.get(report.order_id) ?? [];
+    current.push(report);
+    paymentReportsByOrderId.set(report.order_id, current);
   }
 
   const agendaOrders = orders
@@ -214,7 +258,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
 
   const openOrders = agendaOrders.filter((order) => isOpenStatus(order.status));
-  const unpaidOrders = agendaOrders.filter((order) => isUnpaidOrder(order, paymentStatusByOrderId));
+  const unpaidOrders = agendaOrders.filter((order) => isUnpaidOrder(order, paymentReportsByOrderId));
   const overdueOrders = agendaOrders.filter((order) => isOverdueOrder(order, selectedDayKey));
   const asapOrders = agendaOrders.filter(
     (order) => order.extra_fields?.schedule?.asap && isOpenStatus(order.status)
@@ -224,8 +268,8 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .filter((order) => isOpenStatus(order.status))
     .sort((a, b) => {
       const scoreDiff =
-        priorityScore(a, paymentStatusByOrderId, selectedDayKey) -
-        priorityScore(b, paymentStatusByOrderId, selectedDayKey);
+        priorityScore(a, paymentReportsByOrderId, selectedDayKey) -
+        priorityScore(b, paymentReportsByOrderId, selectedDayKey);
       if (scoreDiff !== 0) return scoreDiff;
       return getAgendaSortKey(a).localeCompare(getAgendaSortKey(b));
     })
@@ -330,7 +374,8 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
         ) : (
           <div className="space-y-2.5">
             {urgentOrders.map((order) => {
-              const unpaid = isUnpaidOrder(order, paymentStatusByOrderId);
+              const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
+              const paymentLabel = paymentAttentionLabel(order, paymentReportsByOrderId);
               const overdue = isOverdueOrder(order, selectedDayKey);
               const asap = Boolean(order.extra_fields?.schedule?.asap);
 
@@ -349,7 +394,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     <div className="flex flex-col items-end gap-1.5">
                       <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
                       {overdue ? <StatusBadge label="Vencida" tone="danger" /> : null}
-                      {!overdue && unpaid ? <StatusBadge label="Sin pago" tone="warning" /> : null}
+                      {!overdue && paymentLabel ? <StatusBadge label={paymentLabel} tone="warning" /> : null}
                       {!overdue && !unpaid && asap ? <StatusBadge label="ASAP" tone="warning" /> : null}
                     </div>
                   </div>
@@ -410,32 +455,39 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           />
         ) : (
           <div className="space-y-2.5">
-            {agendaOrders.slice(0, 6).map((order) => (
-              <Link
-                key={order.id}
-                href={`/app/advisor/orders/${order.id}`}
-                className="block rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[#F5F7FB]">
-                      {order.client?.full_name?.trim() || order.order_number}
+            {agendaOrders.slice(0, 6).map((order) => {
+              const paymentLabel = paymentAttentionLabel(order, paymentReportsByOrderId);
+
+              return (
+                <Link
+                  key={order.id}
+                  href={`/app/advisor/orders/${order.id}`}
+                  className="block rounded-[20px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#F5F7FB]">
+                        {order.client?.full_name?.trim() || order.order_number}
+                      </div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">{order.order_number}</div>
                     </div>
-                    <div className="mt-1 text-xs text-[#8B93A7]">{order.order_number}</div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
+                      {paymentLabel ? <StatusBadge label={paymentLabel} tone="warning" /> : null}
+                    </div>
                   </div>
-                  <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
-                </div>
-                <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
-                  {order.fulfillment === 'delivery'
-                    ? order.delivery_address?.trim() || 'Delivery sin direccion'
-                    : 'Retiro en tienda'}
-                </div>
-                <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
-                  <span>{getAgendaTimeLabel(order)}</span>
-                  <span className="font-medium text-[#F0D000]">{formatUsd(order.total_usd)}</span>
-                </div>
-              </Link>
-            ))}
+                  <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
+                    {order.fulfillment === 'delivery'
+                      ? order.delivery_address?.trim() || 'Delivery sin direccion'
+                      : 'Retiro en tienda'}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-[#8B93A7]">
+                    <span>{getAgendaTimeLabel(order)}</span>
+                    <span className="font-medium text-[#F0D000]">{formatUsd(order.total_usd)}</span>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </SectionCard>

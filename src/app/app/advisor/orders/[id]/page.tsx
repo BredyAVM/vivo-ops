@@ -227,11 +227,21 @@ function getPaymentSummary(
   pendingPaidUsd: number,
   balanceUsd: number,
 ) {
+  const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
+
   if (balanceUsd <= 0.005) {
     return {
       label: 'Pagado',
       tone: 'success' as const,
       detail: `Cobro completo por ${formatUsd(totalUsd)}.`,
+    };
+  }
+
+  if (pendingPaidUsd > 0.005 && reportableBalanceUsd > 0.005) {
+    return {
+      label: 'Saldo pendiente',
+      tone: 'warning' as const,
+      detail: `${formatUsd(pendingPaidUsd)} en revision. Faltan ${formatUsd(reportableBalanceUsd)} por reportar.`,
     };
   }
 
@@ -773,6 +783,7 @@ export default async function AdvisorOrderDetailPage({
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
   const balanceUsd = Math.max(0, Number(order.total_usd || 0) - confirmedPaidUsd);
+  const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
   const contactPhoneRaw = order.receiver_phone?.trim() || client?.phone?.trim() || '';
   const whatsappPhone = normalizePhoneForWhatsApp(contactPhoneRaw);
@@ -819,12 +830,20 @@ export default async function AdvisorOrderDetailPage({
         if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
         return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * activeBsRate;
       }, 0) + toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0) * activeBsRate;
+  const pendingPaidBs = payments
+    .filter((paymentReport) => paymentReport.status === 'pending')
+    .reduce((sum, paymentReport) => {
+      const currency = safeText(paymentReport.reported_currency_code, '').toUpperCase();
+      if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
+      return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * activeBsRate;
+    }, 0);
   const balanceBs =
     totalBs > 0
       ? Math.max(0, Number((totalBs - confirmedPaidBs).toFixed(2)))
       : activeBsRate > 0
         ? Number((balanceUsd * activeBsRate).toFixed(2))
         : 0;
+  const reportableBalanceBs = Math.max(0, Number((balanceBs - pendingPaidBs).toFixed(2)));
   const advisorLabel = safeText(
     ctx.user.user_metadata?.full_name ??
       ctx.user.user_metadata?.name ??
@@ -844,11 +863,9 @@ export default async function AdvisorOrderDetailPage({
     ].includes(event.eventType)
   );
   const canReportPayment =
-    balanceUsd > 0.005 &&
-    pendingPaidUsd <= 0.005 &&
+    reportableBalanceUsd > 0.005 &&
     moneyAccounts.length > 0 &&
-    order.status !== 'cancelled' &&
-    latestPaymentEvent?.eventType !== 'payment_confirmed';
+    order.status !== 'cancelled';
   const canCorrectOrder =
     order.status !== 'delivered' &&
     order.status !== 'cancelled' &&
@@ -913,8 +930,8 @@ export default async function AdvisorOrderDetailPage({
         <div className="mt-3">
           <OrderDetailActions
             orderId={order.id}
-            balanceUsd={toSafeNumber(balanceUsd, 0)}
-            balanceBs={toSafeNumber(balanceBs, 0)}
+            balanceUsd={toSafeNumber(reportableBalanceUsd, 0)}
+            balanceBs={toSafeNumber(reportableBalanceBs, 0)}
             canCorrectOrder={canCorrectOrder}
             canDuplicateOrder={canDuplicateOrder}
             canReportPayment={canReportPayment}

@@ -15,6 +15,9 @@ type OrderRow = {
       time_24?: string | null;
       asap?: boolean | null;
     } | null;
+    payment?: {
+      client_fund_used_usd?: number | string | null;
+    } | null;
   } | null;
   client:
     | { full_name: string | null; phone: string | null }[]
@@ -63,6 +66,11 @@ function label(status: PaymentRow['status']) {
 function formatUsd(value: number | string) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : fallback;
 }
 
 function getAgendaLabel(order: OrderRow) {
@@ -116,22 +124,30 @@ export default async function AdvisorPaymentsPage() {
   const ordersPendingPayment = orders
     .map((order) => {
       const reports = reportsByOrderId.get(order.id) ?? [];
-      const confirmedUsd = reports
-        .filter((payment) => payment.status === 'confirmed')
-        .reduce((sum, payment) => sum + Number(payment.reported_amount_usd_equivalent || 0), 0);
+      const confirmedUsd =
+        reports
+          .filter((payment) => payment.status === 'confirmed')
+          .reduce((sum, payment) => sum + toSafeNumber(payment.reported_amount_usd_equivalent, 0), 0) +
+        toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
       const pendingUsd = reports
         .filter((payment) => payment.status === 'pending')
-        .reduce((sum, payment) => sum + Number(payment.reported_amount_usd_equivalent || 0), 0);
-      const balanceUsd = Math.max(0, Number(order.total_usd || 0) - confirmedUsd - pendingUsd);
+        .reduce((sum, payment) => sum + toSafeNumber(payment.reported_amount_usd_equivalent, 0), 0);
+      const balanceUsd = Math.max(0, Number((toSafeNumber(order.total_usd, 0) - confirmedUsd).toFixed(2)));
+      const reportableBalanceUsd = Math.max(
+        0,
+        Number((toSafeNumber(order.total_usd, 0) - confirmedUsd - pendingUsd).toFixed(2))
+      );
 
       return {
         ...order,
         balanceUsd,
+        reportableBalanceUsd,
+        pendingUsd,
         hasRejected: reports.some((payment) => payment.status === 'rejected'),
         hasPending: reports.some((payment) => payment.status === 'pending'),
       };
     })
-    .filter((order) => order.status !== 'cancelled' && order.balanceUsd > 0.005 && !order.hasPending)
+    .filter((order) => order.status !== 'cancelled' && order.reportableBalanceUsd > 0.005)
     .sort((a, b) => getAgendaLabel(a).localeCompare(getAgendaLabel(b)));
 
   const sections = [
@@ -200,9 +216,9 @@ export default async function AdvisorPaymentsPage() {
                     <div className="mt-1 text-xs text-[#8B93A7]">{order.order_number}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
-                    <StatusBadge label={`Saldo ${formatUsd(order.balanceUsd)}`} tone="warning" />
+                    <StatusBadge label={`Saldo ${formatUsd(order.reportableBalanceUsd)}`} tone="warning" />
                     {order.hasRejected ? <StatusBadge label="Rechazado antes" tone="danger" /> : null}
-                    {order.hasPending ? <StatusBadge label="Ya enviado" tone="neutral" /> : null}
+                    {order.hasPending ? <StatusBadge label={`${formatUsd(order.pendingUsd)} por validar`} tone="neutral" /> : null}
                   </div>
                 </div>
                 <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">

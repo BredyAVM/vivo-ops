@@ -23,6 +23,9 @@ type OrderRow = {
       time_24?: string | null;
       asap?: boolean | null;
     } | null;
+    payment?: {
+      client_fund_used_usd?: number | string | null;
+    } | null;
   } | null;
   client: { full_name: string | null; phone: string | null } | null;
 };
@@ -37,11 +40,17 @@ type RawOrderRow = Omit<OrderRow, 'client'> & {
 type PaymentRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
+  reported_amount_usd_equivalent: number | string;
 };
 
 function formatUsd(value: number | string) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
+}
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : fallback;
 }
 
 function formatDate(value: string) {
@@ -140,19 +149,42 @@ function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
   return time24 < currentKey;
 }
 
-function isUnpaidOrder(order: OrderRow, paymentStatusByOrderId: Map<number, PaymentRow['status'][]>) {
+function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+  const reports = paymentReportsByOrderId.get(order.id) ?? [];
+  const totalUsd = toSafeNumber(order.total_usd, 0);
+  const clientFundUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
+  const confirmedUsd =
+    reports
+      .filter((report) => report.status === 'confirmed')
+      .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0) +
+    clientFundUsd;
+  const pendingUsd = reports
+    .filter((report) => report.status === 'pending')
+    .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
+  const balanceUsd = Math.max(0, Number((totalUsd - confirmedUsd).toFixed(2)));
+  const reportableBalanceUsd = Math.max(0, Number((totalUsd - confirmedUsd - pendingUsd).toFixed(2)));
+
+  return {
+    confirmedUsd,
+    pendingUsd,
+    balanceUsd,
+    reportableBalanceUsd,
+    hasRejected: reports.some((report) => report.status === 'rejected'),
+  };
+}
+
+function isUnpaidOrder(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
   if (order.status === 'cancelled') return false;
-  const reports = paymentStatusByOrderId.get(order.id) ?? [];
-  return reports.length === 0 || reports.every((status) => status === 'rejected');
+  return getPaymentState(order, paymentReportsByOrderId).balanceUsd > 0.005;
 }
 
 function getGroupKey(
   order: OrderRow,
-  paymentStatusByOrderId: Map<number, PaymentRow['status'][]>,
+  paymentReportsByOrderId: Map<number, PaymentRow[]>,
   selectedDayKey: string,
 ) {
   if (isOverdueOrder(order, selectedDayKey)) return 'overdue';
-  if (isUnpaidOrder(order, paymentStatusByOrderId)) return 'unpaid';
+  if (isUnpaidOrder(order, paymentReportsByOrderId)) return 'unpaid';
   if (order.extra_fields?.schedule?.asap && isOpenStatus(order.status)) return 'asap';
   if (order.status === 'delivered' || order.status === 'cancelled') return 'closed';
   return 'upcoming';
@@ -178,9 +210,20 @@ function subtitleForBucket(bucket: string) {
   return 'Agenda compacta del dia activo.';
 }
 
-function paymentBadge(unpaid: boolean, order: OrderRow) {
+function paymentBadge(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
   if (order.status === 'cancelled') return null;
-  return unpaid ? 'Sin pago' : 'Cobro al dia';
+  const state = getPaymentState(order, paymentReportsByOrderId);
+  if (state.balanceUsd <= 0.005) return { label: 'Cobro al dia', tone: 'success' as const };
+  if (state.pendingUsd > 0.005 && state.reportableBalanceUsd <= 0.005) {
+    return { label: 'Por validar', tone: 'warning' as const };
+  }
+  if (state.confirmedUsd > 0.005 || state.pendingUsd > 0.005) {
+    return {
+      label: `Saldo ${formatUsd(state.reportableBalanceUsd > 0.005 ? state.reportableBalanceUsd : state.balanceUsd)}`,
+      tone: 'warning' as const,
+    };
+  }
+  return { label: 'Sin pago', tone: 'warning' as const };
 }
 
 export default async function AdvisorOrdersPage({ searchParams }: { searchParams?: SearchParams }) {
@@ -203,7 +246,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
       .limit(300),
     ctx.supabase
       .from('payment_reports')
-      .select('order_id, status')
+      .select('order_id, status, reported_amount_usd_equivalent')
       .eq('created_by_user_id', ctx.user.id),
   ]);
 
@@ -213,11 +256,11 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   }));
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
 
-  const paymentStatusByOrderId = new Map<number, PaymentRow['status'][]>();
+  const paymentReportsByOrderId = new Map<number, PaymentRow[]>();
   for (const report of paymentReports) {
-    const current = paymentStatusByOrderId.get(report.order_id) ?? [];
-    current.push(report.status);
-    paymentStatusByOrderId.set(report.order_id, current);
+    const current = paymentReportsByOrderId.get(report.order_id) ?? [];
+    current.push(report);
+    paymentReportsByOrderId.set(report.order_id, current);
   }
 
   const dayOrders = orders
@@ -225,7 +268,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
 
   const filteredOrders = dayOrders.filter((order) => {
-    const unpaid = isUnpaidOrder(order, paymentStatusByOrderId);
+    const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
     const overdue = isOverdueOrder(order, selectedDayKey);
     const asap = Boolean(order.extra_fields?.schedule?.asap) && isOpenStatus(order.status);
 
@@ -238,11 +281,11 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   });
 
   const grouped = {
-    overdue: filteredOrders.filter((order) => getGroupKey(order, paymentStatusByOrderId, selectedDayKey) === 'overdue'),
-    unpaid: filteredOrders.filter((order) => getGroupKey(order, paymentStatusByOrderId, selectedDayKey) === 'unpaid'),
-    asap: filteredOrders.filter((order) => getGroupKey(order, paymentStatusByOrderId, selectedDayKey) === 'asap'),
-    upcoming: filteredOrders.filter((order) => getGroupKey(order, paymentStatusByOrderId, selectedDayKey) === 'upcoming'),
-    closed: filteredOrders.filter((order) => getGroupKey(order, paymentStatusByOrderId, selectedDayKey) === 'closed'),
+    overdue: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'overdue'),
+    unpaid: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'unpaid'),
+    asap: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'asap'),
+    upcoming: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'upcoming'),
+    closed: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'closed'),
   };
 
   const sections: Array<{
@@ -316,7 +359,8 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
           ) : (
             <div className="space-y-2.5">
               {section.rows.map((order) => {
-                const unpaid = isUnpaidOrder(order, paymentStatusByOrderId);
+                const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
+                const paymentState = getPaymentState(order, paymentReportsByOrderId);
                 const overdue = isOverdueOrder(order, selectedDayKey);
                 const asap = Boolean(order.extra_fields?.schedule?.asap) && isOpenStatus(order.status);
                 const urgencyClass = overdue
@@ -324,7 +368,8 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                   : unpaid || asap
                     ? 'border-[#564511] bg-[#151208]'
                     : 'border-[#232632] bg-[#0F131B]';
-                const paymentLabel = paymentBadge(unpaid, order);
+                const paymentStatus = paymentBadge(order, paymentReportsByOrderId);
+                const canReportMorePayment = unpaid && paymentState.reportableBalanceUsd > 0.005;
 
                 return (
                   <article
@@ -341,7 +386,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       <div className="flex flex-col items-end gap-1.5">
                         <StatusBadge label={statusLabel(order.status)} tone={tone(order.status)} />
                         {overdue ? <StatusBadge label="Vencida" tone="danger" /> : null}
-                        {!overdue && unpaid ? <StatusBadge label="Sin pago" tone="warning" /> : null}
+                        {!overdue && paymentStatus && paymentStatus.tone === 'warning' ? (
+                          <StatusBadge label={paymentStatus.label} tone="warning" />
+                        ) : null}
                         {!overdue && !unpaid && asap ? <StatusBadge label="ASAP" tone="warning" /> : null}
                       </div>
                     </div>
@@ -351,8 +398,8 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                         label={order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
                         tone="neutral"
                       />
-                      {paymentLabel ? (
-                        <StatusBadge label={paymentLabel} tone={unpaid ? 'warning' : 'success'} />
+                      {paymentStatus ? (
+                        <StatusBadge label={paymentStatus.label} tone={paymentStatus.tone} />
                       ) : null}
                       {asap && !overdue ? <StatusBadge label="Mover ya" tone="warning" /> : null}
                     </div>
@@ -401,9 +448,11 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       )}
                       <Link
                         href={
-                          unpaid
+                          canReportMorePayment
                             ? `/app/advisor/orders/${order.id}?reportPayment=1`
-                            : `/app/advisor/new?duplicateFrom=${order.id}`
+                            : unpaid
+                              ? `/app/advisor/orders/${order.id}`
+                              : `/app/advisor/new?duplicateFrom=${order.id}`
                         }
                         className={[
                           'inline-flex h-9 items-center justify-center rounded-[12px] px-3 text-xs',
@@ -412,7 +461,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                             : 'border border-[#232632] font-medium text-[#F5F7FB]',
                         ].join(' ')}
                       >
-                        {unpaid ? 'Reportar pago' : 'Repetir'}
+                        {canReportMorePayment ? 'Reportar pago' : unpaid ? 'Ver pago' : 'Repetir'}
                       </Link>
                     </div>
                   </article>
