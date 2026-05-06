@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -586,7 +587,7 @@ type ViewMode = 'operations' | 'settings' | 'calculations';
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 type ToastState = {
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
   message: string;
 } | null;
 type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'users' | 'adjustments';
@@ -3263,6 +3264,7 @@ export default function MasterDashboardClient({
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
 
   const [isMounted, setIsMounted] = useState(false);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
@@ -4819,7 +4821,7 @@ const openEditOrderDrawer = (order: Order) => {
   setCreateOrderOpen(true);
 };
 
-const showToast = (type: 'success' | 'error', message: string) => {
+const showToast = (type: 'success' | 'error' | 'info', message: string) => {
   setToast({ type, message });
 };
 
@@ -10251,6 +10253,9 @@ const hasBlockingOverlay =
   returnToQueueBoxOpen ||
   cancelOrderBoxOpen;
 
+const realtimeRefreshTimerRef = useRef<number | null>(null);
+const realtimeQueuedRefreshRef = useRef(false);
+
 useEffect(() => {
   if (!toast) return;
 
@@ -10260,6 +10265,102 @@ useEffect(() => {
 
   return () => window.clearTimeout(timer);
 }, [toast]);
+
+useEffect(() => {
+  if (!isMounted) return;
+  if (!currentUser.id) return;
+
+  const realtimeRoles = new Set<string>();
+  if (roles.includes('master')) realtimeRoles.add('master');
+  if (roles.includes('admin')) {
+    realtimeRoles.add('admin');
+    realtimeRoles.add('master');
+  }
+
+  if (realtimeRoles.size === 0) return;
+
+  const scheduleRealtimeRefresh = () => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      realtimeQueuedRefreshRef.current = true;
+      return;
+    }
+
+    if (hasBlockingOverlay) {
+      realtimeQueuedRefreshRef.current = true;
+      return;
+    }
+
+    if (realtimeRefreshTimerRef.current != null) {
+      window.clearTimeout(realtimeRefreshTimerRef.current);
+    }
+
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      realtimeQueuedRefreshRef.current = false;
+      router.refresh();
+      showToast('info', 'Dashboard actualizado en vivo.');
+    }, 450);
+  };
+
+  const channels = [
+    supabase
+      .channel(`master-dashboard-user-${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: `target_user_id=eq.${currentUser.id}`,
+        },
+        scheduleRealtimeRefresh,
+      )
+      .subscribe(),
+    ...Array.from(realtimeRoles).map((role) =>
+      supabase
+        .channel(`master-dashboard-role-${role}-${currentUser.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'order_timeline_event_recipients',
+            filter: `target_role=eq.${role}`,
+          },
+          scheduleRealtimeRefresh,
+        )
+        .subscribe(),
+    ),
+  ];
+
+  return () => {
+    if (realtimeRefreshTimerRef.current != null) {
+      window.clearTimeout(realtimeRefreshTimerRef.current);
+      realtimeRefreshTimerRef.current = null;
+    }
+
+    channels.forEach((channel) => {
+      void supabase.removeChannel(channel);
+    });
+  };
+}, [
+  currentUser.id,
+  hasBlockingOverlay,
+  isMounted,
+  roles,
+  router,
+  supabase,
+]);
+
+useEffect(() => {
+  if (!isMounted) return;
+  if (hasBlockingOverlay) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (!realtimeQueuedRefreshRef.current) return;
+
+  realtimeQueuedRefreshRef.current = false;
+  router.refresh();
+}, [hasBlockingOverlay, isMounted, router]);
 
 useEffect(() => {
   if (!isMounted) return;
@@ -10284,6 +10385,10 @@ useEffect(() => {
     if (document.hidden) return;
 
     if (hasBlockingOverlay) return;
+
+    if (realtimeQueuedRefreshRef.current) {
+      realtimeQueuedRefreshRef.current = false;
+    }
 
     router.refresh();
   };
@@ -21201,11 +21306,13 @@ return (
         'min-w-[260px] max-w-[360px] rounded-xl border px-4 py-3 shadow-2xl backdrop-blur',
         toast.type === 'success'
           ? 'border-emerald-500/40 bg-[#07140D] text-emerald-300'
-          : 'border-red-500/40 bg-[#17090A] text-red-300',
+          : toast.type === 'info'
+            ? 'border-sky-500/40 bg-[#06131C] text-sky-200'
+            : 'border-red-500/40 bg-[#17090A] text-red-300',
       ].join(' ')}
     >
       <div className="text-xs font-semibold uppercase tracking-wide opacity-80">
-        {toast.type === 'success' ? 'Listo' : 'Error'}
+        {toast.type === 'success' ? 'Listo' : toast.type === 'info' ? 'Aviso' : 'Error'}
       </div>
       <div className="mt-1 text-sm">{toast.message}</div>
     </div>
