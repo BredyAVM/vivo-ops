@@ -446,23 +446,18 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                           Repetir
                         </Link>
                       )}
-                      <Link
-                        href={
-                          canReportMorePayment
-                            ? `/app/advisor/orders/${order.id}?reportPayment=1`
-                            : unpaid
-                              ? `/app/advisor/orders/${order.id}`
-                              : `/app/advisor/new?duplicateFrom=${order.id}`
-                        }
-                        className={[
-                          'inline-flex h-9 items-center justify-center rounded-[12px] px-3 text-xs',
-                          unpaid
-                            ? 'bg-[#F0D000] font-semibold text-[#17191E]'
-                            : 'border border-[#232632] font-medium text-[#F5F7FB]',
-                        ].join(' ')}
-                      >
-                        {canReportMorePayment ? 'Reportar pago' : unpaid ? 'Ver pago' : 'Repetir'}
-                      </Link>
+                      {unpaid ? (
+                        <Link
+                          href={
+                            canReportMorePayment
+                              ? `/app/advisor/orders/${order.id}?reportPayment=1`
+                              : `/app/advisor/orders/${order.id}`
+                          }
+                          className="inline-flex h-9 items-center justify-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                        >
+                          {canReportMorePayment ? 'Reportar pago' : 'Ver pago'}
+                        </Link>
+                      ) : null}
                     </div>
                   </article>
                 );
