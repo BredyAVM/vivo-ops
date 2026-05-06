@@ -1401,6 +1401,11 @@ export default function AdvisorOrderComposer({
           setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
+          if (isEditingOrder && order.status === 'cancelled') {
+            router.replace(`/app/advisor/new?duplicateFrom=${order.id}`);
+            return;
+          }
+
           const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
           const orderItems = ((existingItemsResult?.data ?? []) as ExistingOrderItemRow[]).map((item) => {
             const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
