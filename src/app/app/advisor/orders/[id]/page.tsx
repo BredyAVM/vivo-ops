@@ -787,10 +787,7 @@ export default async function AdvisorOrderDetailPage({
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
   const contactPhoneRaw = order.receiver_phone?.trim() || client?.phone?.trim() || '';
   const whatsappPhone = normalizePhoneForWhatsApp(contactPhoneRaw);
-  const contactName = order.receiver_name?.trim() || client?.full_name?.trim() || 'cliente';
-  const whatsappContactHref = whatsappPhone
-    ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(`Hola ${contactName}, te escribimos por tu pedido #${order.id} en VIVO OPS.`)}`
-    : '';
+  const whatsappContactHref = whatsappPhone ? `https://wa.me/${whatsappPhone}` : '';
   const schedule = order.extra_fields?.schedule;
   const payment = order.extra_fields?.payment;
   const advisorReportRules = ((moneyAccountRulesResult.data ?? []) as MoneyAccountPaymentRuleRow[]).filter(
