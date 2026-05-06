@@ -41,6 +41,7 @@ type OrderRow = {
       client_fund_used_usd?: number | string | null;
     } | null;
     pricing?: {
+      fx_rate?: number | string | null;
       total_bs?: number | string | null;
     } | null;
   } | null;
@@ -66,6 +67,7 @@ type OrderItemRow = {
   qty: number | string;
   product_name_snapshot: string | null;
   line_total_usd: number | string | null;
+  line_total_bs_snapshot: number | string | null;
   notes: string | null;
   product:
     | {
@@ -302,24 +304,65 @@ function getDisplayPieces(qty: number, unitsPerService: number) {
   return pieces;
 }
 
-function lineTextWhatsAppStyle(item: OrderItemRow) {
+function getLineTotalBs(item: OrderItemRow, fxRate: number) {
+  const storedBs = Number(item.line_total_bs_snapshot);
+  if (Number.isFinite(storedBs) && storedBs > 0) return storedBs;
+
+  const lineUsd = Number(item.line_total_usd);
+  if (Number.isFinite(lineUsd) && lineUsd > 0 && fxRate > 0) {
+    return lineUsd * fxRate;
+  }
+
+  return 0;
+}
+
+function getOrderTotalBs(order: OrderRow) {
+  const storedBs = Number(order.extra_fields?.pricing?.total_bs);
+  if (Number.isFinite(storedBs) && storedBs > 0) return storedBs;
+  return 0;
+}
+
+function getOrderFxRate(order: OrderRow) {
+  const storedRate = Number(order.extra_fields?.pricing?.fx_rate);
+  if (Number.isFinite(storedRate) && storedRate > 0) return storedRate;
+
+  const totalBs = getOrderTotalBs(order);
+  const totalUsd = Number(order.total_usd);
+  if (totalBs > 0 && Number.isFinite(totalUsd) && totalUsd > 0) {
+    return totalBs / totalUsd;
+  }
+
+  return 0;
+}
+
+function getOrderTotalUsdForSummary(order: OrderRow) {
+  const totalBs = getOrderTotalBs(order);
+  const fxRate = getOrderFxRate(order);
+  if (totalBs > 0 && fxRate > 0) return totalBs / fxRate;
+
+  const totalUsd = Number(order.total_usd);
+  return Number.isFinite(totalUsd) ? totalUsd : 0;
+}
+
+function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
   const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
   const normalizedName = safeText(item.product_name_snapshot, 'Item');
   const isDelivery = normalizedName.toLowerCase().startsWith('delivery');
   const unitsPerService = Math.max(0, Number(relatedProduct?.units_per_service || 0));
+  const lineTotalBs = getLineTotalBs(item, fxRate);
 
   if (isDelivery) {
-    return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatUsd(item.line_total_usd)}`;
+    return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatBs(lineTotalBs)}`;
   }
 
   if (unitsPerService > 0) {
     const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
     const units = getDisplayPieces(Number(item.qty || 0), unitsPerService);
     const servicePrefix = relatedProduct?.type === 'service' ? 'Serv. ' : '';
-    return `- ${formatQuantityLabel(item.qty)} ${servicePrefix}${cleanName} (${formatQuantityLabel(units)} und): ${formatUsd(item.line_total_usd)}`;
+    return `- ${formatQuantityLabel(item.qty)} ${servicePrefix}${cleanName} (${formatQuantityLabel(units)} und): ${formatBs(lineTotalBs)}`;
   }
 
-  return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatUsd(item.line_total_usd)}`;
+  return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatBs(lineTotalBs)}`;
 }
 
 function deliveryText(
@@ -384,7 +427,9 @@ function buildWhatsAppOrderSummary({
   advisorLabel: string;
 }) {
   const parts: string[] = [];
-  const totalBs = order.extra_fields?.pricing?.total_bs;
+  const totalBs = getOrderTotalBs(order);
+  const totalUsd = getOrderTotalUsdForSummary(order);
+  const fxRate = getOrderFxRate(order);
 
   parts.push('*Resumen de Pedido*');
   parts.push('');
@@ -399,7 +444,7 @@ function buildWhatsAppOrderSummary({
     parts.push('- Sin items cargados');
   } else {
     for (const item of items) {
-      parts.push(lineTextWhatsAppStyle(item));
+      parts.push(lineTextWhatsAppStyle(item, fxRate));
       for (const detail of getVisibleEditableDetailLines(item.notes)) {
         parts.push(`- ${detail}`);
       }
@@ -407,9 +452,7 @@ function buildWhatsAppOrderSummary({
   }
 
   parts.push('');
-  parts.push(
-    `*TOTAL:* ${totalBs != null ? `${formatBs(totalBs)} / ` : ''}${formatUsd(order.total_usd)}`,
-  );
+  parts.push(`*TOTAL:* ${totalBs > 0 ? `${formatBs(totalBs)} / ` : ''}${formatUsd(totalUsd)}`);
   parts.push('');
   parts.push(`*Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
   parts.push(`*Dia de entrega:* ${deliveryText(order.extra_fields?.schedule)}`);
@@ -443,7 +486,9 @@ function buildCleanWhatsAppOrderSummary({
   advisorLabel: string;
 }) {
   const parts: string[] = [];
-  const totalBs = order.extra_fields?.pricing?.total_bs;
+  const totalBs = getOrderTotalBs(order);
+  const totalUsd = getOrderTotalUsdForSummary(order);
+  const fxRate = getOrderFxRate(order);
   const check = '\u2705';
   const primaryBullet = '\u25AA';
   const secondaryBullet = '\u25AB';
@@ -467,7 +512,7 @@ function buildCleanWhatsAppOrderSummary({
     parts.push('- Sin items cargados');
   } else {
     for (const item of items) {
-      parts.push(lineTextWhatsAppStyle(item).replace(/^- /, `${primaryBullet} `));
+      parts.push(lineTextWhatsAppStyle(item, fxRate).replace(/^- /, `${primaryBullet} `));
       for (const detail of getVisibleEditableDetailLines(item.notes)) {
         parts.push(`   ${secondaryBullet} ${detail}`);
       }
@@ -475,7 +520,7 @@ function buildCleanWhatsAppOrderSummary({
   }
 
   parts.push('');
-  parts.push(`*TOTAL:* ${totalBs != null ? `${formatBs(totalBs)} / ` : ''}${formatUsd(order.total_usd)}`);
+  parts.push(`*TOTAL:* ${totalBs > 0 ? `${formatBs(totalBs)} / ` : ''}${formatUsd(totalUsd)}`);
   parts.push('');
   parts.push(`${check} *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
   parts.push('');
@@ -697,7 +742,7 @@ export default async function AdvisorOrderDetailPage({
   ] = await Promise.all([
       ctx.supabase
         .from('order_items')
-        .select('id, product_id, qty, product_name_snapshot, line_total_usd, notes, product:products(type, units_per_service)')
+        .select('id, product_id, qty, product_name_snapshot, line_total_usd, line_total_bs_snapshot, notes, product:products(type, units_per_service)')
         .eq('order_id', orderId)
         .order('id', { ascending: true }),
       ctx.supabase
