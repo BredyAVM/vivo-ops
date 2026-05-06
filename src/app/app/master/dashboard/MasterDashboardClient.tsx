@@ -7337,6 +7337,10 @@ const handleCreateCatalogItem = async () => {
       })),
     });
 
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+
     showToast('success', 'ítem creado.');
     setCreateCatalogOpen(false);
     resetCreateCatalogForm();

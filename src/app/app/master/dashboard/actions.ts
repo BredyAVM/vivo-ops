@@ -5005,7 +5005,7 @@ export async function toggleClientActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
-export async function createCatalogItemAction(input: {
+async function createCatalogItemActionImpl(input: {
   sku: string;
   name: string;
   type: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
@@ -5194,6 +5194,18 @@ export async function createCatalogItemAction(input: {
 
   revalidatePath('/app/master/dashboard');
   return { id: Number(data.id) };
+}
+
+export async function createCatalogItemAction(input: Parameters<typeof createCatalogItemActionImpl>[0]) {
+  try {
+    const result = await createCatalogItemActionImpl(input);
+    return { ok: true as const, id: result.id };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : 'No se pudo crear el item de catalogo.',
+    };
+  }
 }
 
 export async function toggleCatalogItemActiveAction(input: {
