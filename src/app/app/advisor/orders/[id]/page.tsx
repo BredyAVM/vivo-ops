@@ -376,7 +376,7 @@ function buildWhatsAppOrderSummary({
   const parts: string[] = [];
   const totalBs = order.extra_fields?.pricing?.total_bs;
 
-  parts.push('*Presupuesto*');
+  parts.push('*Resumen de Pedido*');
   parts.push('');
   parts.push(`*Orden:* ${order.id}`);
   parts.push(`*Asesor:* ${advisorLabel}`);
@@ -438,7 +438,7 @@ function buildCleanWhatsAppOrderSummary({
   const primaryBullet = '\u25AA';
   const secondaryBullet = '\u25AB';
 
-  parts.push('*Presupuesto*');
+  parts.push('*Resumen de Pedido*');
   parts.push('');
   parts.push(`${check} *Asesor:* ${advisorLabel}`);
   parts.push('');

@@ -218,9 +218,9 @@ export default function OrderDetailActions({
 
             try {
               await navigator.clipboard.writeText(effectiveWhatsappSummary);
-              setSuccess('Presupuesto copiado para WhatsApp.');
+              setSuccess('Resumen copiado para WhatsApp.');
             } catch {
-              setError('No se pudo copiar el presupuesto.');
+              setError('No se pudo copiar el resumen.');
             }
           }}
           className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
