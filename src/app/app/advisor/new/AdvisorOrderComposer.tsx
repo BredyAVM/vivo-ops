@@ -1064,6 +1064,7 @@ export default function AdvisorOrderComposer({
   const [receiverPhone, setReceiverPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryGpsUrl, setDeliveryGpsUrl] = useState('');
+  const [deliveryAddressTouched, setDeliveryAddressTouched] = useState(false);
   const [recentAddresses, setRecentAddresses] = useState<ClientAddress[]>([]);
   const [orderNote, setOrderNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pending');
@@ -1447,6 +1448,7 @@ export default function AdvisorOrderComposer({
           setReceiverPhone(order.receiver_phone || '');
           setDeliveryAddress(order.delivery_address || '');
           setDeliveryGpsUrl(order.extra_fields?.delivery?.gps_url || '');
+          setDeliveryAddressTouched(Boolean(order.delivery_address || order.extra_fields?.delivery?.gps_url));
           rememberAddress(order.delivery_address || '', order.extra_fields?.delivery?.gps_url || '');
           setOrderNote(order.notes || order.extra_fields?.note || '');
           setPaymentMethod((paymentData?.method as PaymentMethod) || 'pending');
@@ -1604,13 +1606,14 @@ export default function AdvisorOrderComposer({
   useEffect(() => {
     if (
       fulfillment === 'delivery' &&
+      !deliveryAddressTouched &&
       !deliveryAddress.trim() &&
       selectedClientAddresses.length > 0
     ) {
       setDeliveryAddress(selectedClientAddresses[0].addressText);
       setDeliveryGpsUrl(selectedClientAddresses[0].gpsUrl);
     }
-  }, [deliveryAddress, deliveryGpsUrl, fulfillment, selectedClientAddresses]);
+  }, [deliveryAddress, deliveryAddressTouched, deliveryGpsUrl, fulfillment, selectedClientAddresses]);
 
   function clearMessages() {
     setError(null);
@@ -1728,6 +1731,7 @@ export default function AdvisorOrderComposer({
     setSelectedClient(client);
     rememberClient(client);
     applyClientProfile(client);
+    setDeliveryAddressTouched(false);
     setIsNewClientMode(false);
     setClientResults([]);
     setSearchTerm(client.phone ?? client.full_name);
@@ -1848,6 +1852,7 @@ export default function AdvisorOrderComposer({
   }
 
   function applyClientAddress(address: ClientAddress) {
+    setDeliveryAddressTouched(true);
     setDeliveryAddress(address.addressText);
     setDeliveryGpsUrl(address.gpsUrl);
     rememberAddress(address.addressText, address.gpsUrl);
@@ -3050,10 +3055,26 @@ export default function AdvisorOrderComposer({
                 </div>
               ) : null}
               <Field label="Direccion" hint="Solo este campo puede crecer mas cuando haga falta.">
-                <textarea value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className={inputClass(true)} placeholder="Direccion completa" />
+                <textarea
+                  value={deliveryAddress}
+                  onChange={(e) => {
+                    setDeliveryAddressTouched(true);
+                    setDeliveryAddress(e.target.value);
+                  }}
+                  className={inputClass(true)}
+                  placeholder="Direccion completa"
+                />
               </Field>
               <Field label="GPS URL">
-                <input value={deliveryGpsUrl} onChange={(e) => setDeliveryGpsUrl(e.target.value)} className={inputClass()} placeholder="Link de ubicacion" />
+                <input
+                  value={deliveryGpsUrl}
+                  onChange={(e) => {
+                    setDeliveryAddressTouched(true);
+                    setDeliveryGpsUrl(e.target.value);
+                  }}
+                  className={inputClass()}
+                  placeholder="Link de ubicacion"
+                />
               </Field>
             </>
           ) : null}
