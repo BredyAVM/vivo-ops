@@ -65,6 +65,7 @@ import {
 } from './actions';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { getMasterDashboardPermissions } from './permissions';
+import MasterPushPanel from './MasterPushPanel';
 
 type OrderStatus =
   | 'created'
@@ -590,7 +591,7 @@ type ToastState = {
   type: 'success' | 'error' | 'info';
   message: string;
 } | null;
-type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'users' | 'adjustments';
+type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'notifications' | 'users' | 'adjustments';
 type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type CalculationsTab = 'general' | 'commissions' | 'deliveries';
 type DeliveriesTab = 'overview' | 'internal' | 'external' | 'partners';
@@ -3230,6 +3231,7 @@ export default function MasterDashboardClient({
   catalogItems = [],
   productComponents = [],
   activeExchangeRate = null,
+  publicVapidKey = '',
 }: {
   currentUser: { id: string; email: string; fullName?: string };
   roles: string[];
@@ -3260,6 +3262,7 @@ export default function MasterDashboardClient({
   catalogItems?: CatalogItem[];
   productComponents?: ProductComponent[];
   activeExchangeRate?: ExchangeRateInfo | null;
+  publicVapidKey?: string;
 }) {
 
   const router = useRouter();
@@ -10669,6 +10672,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <Chip active={settingsTab === 'clients'} onClick={() => setSettingsTab('clients')}>
           Clientes
         </Chip>
+        <Chip active={settingsTab === 'notifications'} onClick={() => setSettingsTab('notifications')}>
+          Notificaciones
+        </Chip>
         {permissions.canManageUsers ? (
           <Chip active={settingsTab === 'users'} onClick={() => setSettingsTab('users')}>
             Usuarios
@@ -13257,6 +13263,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </table>
       </div>
     </div>
+  </div>
+) : null}
+
+          {settingsTab === 'notifications' ? (
+  <div className="space-y-5">
+    <MasterPushPanel publicVapidKey={publicVapidKey} />
   </div>
 ) : null}
 

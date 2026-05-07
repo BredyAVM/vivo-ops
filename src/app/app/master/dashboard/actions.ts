@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireMasterOrAdminContext } from '@/lib/auth';
-import { sendPushToAdvisorDevices } from '@/lib/push';
+import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { getMasterDashboardPermissions } from './permissions';
 
@@ -95,6 +95,29 @@ function requiresAdminMovementApproval(
 function requireAdminRole(roles: readonly string[]) {
   if (!getMasterDashboardPermissions(roles).isAdmin) {
     throw new Error('Esta acción requiere permisos de administrador.');
+  }
+}
+
+async function notifyAdminMoneyApproval(input: {
+  title: string;
+  body: string;
+  tag: string;
+}) {
+  try {
+    await sendPushToRoleDevices({
+      roles: ['admin'],
+      title: input.title,
+      body: input.body,
+      url: '/app/master/dashboard',
+      tag: input.tag,
+      tone: 'critical',
+      requireInteraction: true,
+    });
+  } catch (pushError) {
+    console.warn(
+      'admin money approval push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
   }
 }
 
@@ -424,6 +447,37 @@ async function appendOrderEvent(
             pushError instanceof Error ? pushError.message : 'unknown push error',
           );
         }
+      }
+    }
+
+    const rolePushTargets = new Set<string>();
+    for (const recipient of input.recipients ?? []) {
+      if (!recipient.requiresAction) continue;
+      if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
+      if (recipient.targetRole === 'master') {
+        rolePushTargets.add('master');
+        rolePushTargets.add('admin');
+      }
+    }
+
+    if (rolePushTargets.size > 0) {
+      try {
+        const orderLabel = context?.orderNumber ? `Orden ${context.orderNumber}` : `Orden #${input.orderId}`;
+        const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
+        await sendPushToRoleDevices({
+          roles: Array.from(rolePushTargets),
+          title: `${orderLabel}: ${input.title}`,
+          body: `${clientLabel}${input.message || 'Requiere revision en el dashboard.'}`,
+          url: '/app/master/dashboard',
+          tag: `master-order-${input.orderId}-${input.eventType}`,
+          tone: input.severity === 'critical' ? 'critical' : input.severity === 'warning' ? 'warning' : 'info',
+          requireInteraction: input.severity === 'critical',
+        });
+      } catch (pushError) {
+        console.warn(
+          'appendOrderEvent role push skipped',
+          pushError instanceof Error ? pushError.message : 'unknown push error',
+        );
       }
     }
   } catch (error) {
@@ -2894,6 +2948,14 @@ export async function createExtraMoneyMovementAction(input: {
   const { error } = await supabase.from('money_movements').insert(movementRows);
 
   if (error) throw new Error(error.message);
+
+  if (requiresApproval) {
+    await notifyAdminMoneyApproval({
+      title: 'Egreso pendiente de aprobacion',
+      body: `${description} · ${Number((amountUsdEquivalent + feeAmountUsdEquivalent).toFixed(2)).toFixed(2)} USD requiere revision admin.`,
+      tag: `admin-money-movement-${movementGroupId || moneyAccountId}-${movementDate}`,
+    });
+  }
 
   revalidatePath('/app/master/dashboard');
 
@@ -5421,6 +5483,14 @@ export async function createMoneyTransferAction(input: {
   const { error } = await supabase.from('money_movements').insert(movementRows);
 
   if (error) throw new Error(error.message);
+
+  if (requiresApproval) {
+    await notifyAdminMoneyApproval({
+      title: 'Traspaso pendiente de aprobacion',
+      body: `${description} · ${Number((sourceAmountUsdEquivalent + feeAmountUsdEquivalent).toFixed(2)).toFixed(2)} USD requiere revision admin.`,
+      tag: `admin-money-transfer-${groupId}`,
+    });
+  }
 
   revalidatePath('/app/master/dashboard');
 }

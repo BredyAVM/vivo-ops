@@ -10,6 +10,7 @@ export type StoredPushSubscription = {
 };
 
 type AdvisorPushTone = 'info' | 'warning' | 'critical' | 'success';
+type UserPushTone = 'info' | 'warning' | 'critical' | 'success';
 
 export const ADVISOR_PUSH_EVENT_TYPES = new Set([
   'order_approved',
@@ -199,6 +200,153 @@ function getServiceSupabase() {
   return createClient(url, key, {
     auth: { persistSession: false },
   });
+}
+
+function isMissingUserPushTable(message: string) {
+  return /user_push_subscriptions/i.test(message) && /does not exist/i.test(message);
+}
+
+export async function sendPushToUserDevices(input: {
+  userId: string;
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+  tone?: UserPushTone;
+  requireInteraction?: boolean;
+}) {
+  if (!hasPushEnv()) return { skipped: true, reason: 'missing_env' as const };
+
+  const userId = String(input.userId || '').trim();
+  if (!userId) return { skipped: true, reason: 'missing_user' as const };
+
+  const supa = getServiceSupabase();
+  const { data: rows, error } = await supa
+    .from('user_push_subscriptions')
+    .select('endpoint, p256dh, auth')
+    .eq('user_id', userId)
+    .eq('is_active', true);
+
+  if (error) {
+    if (isMissingUserPushTable(error.message)) {
+      return { skipped: true, reason: 'missing_table' as const };
+    }
+
+    throw new Error(error.message);
+  }
+
+  if (!rows || rows.length === 0) {
+    return { skipped: true, reason: 'no_subscriptions' as const };
+  }
+
+  const tone = input.tone ?? 'info';
+  const webPush = configureWebPush();
+  const payload = JSON.stringify({
+    title: safeText(input.title, 'VIVO OPS'),
+    body: safeText(input.body, 'Tienes una actualizacion nueva.'),
+    url: safeText(input.url, '/app/master/dashboard'),
+    tag: safeText(input.tag, 'vivo-notification'),
+    tone,
+    requireInteraction: Boolean(input.requireInteraction || tone === 'critical'),
+  });
+
+  const results = await Promise.allSettled(
+    rows.map((row) =>
+      webPush.sendNotification(
+        {
+          endpoint: String(row.endpoint),
+          keys: {
+            p256dh: String(row.p256dh),
+            auth: String(row.auth),
+          },
+        },
+        payload,
+        {
+          TTL: tone === 'critical' ? 300 : 120,
+          urgency: tone === 'critical' ? 'high' : tone === 'warning' ? 'normal' : 'low',
+          topic: safeText(input.tag, 'vivo-notification'),
+        },
+      ),
+    ),
+  );
+
+  const invalidEndpoints = rows
+    .filter((_, index) => {
+      const result = results[index];
+      if (!result || result.status !== 'rejected') return false;
+      const statusCode = Number((result.reason as { statusCode?: number })?.statusCode || 0);
+      return statusCode === 404 || statusCode === 410;
+    })
+    .map((row) => String(row.endpoint));
+
+  if (invalidEndpoints.length > 0) {
+    await supa
+      .from('user_push_subscriptions')
+      .update({ is_active: false })
+      .in('endpoint', invalidEndpoints);
+  }
+
+  return {
+    skipped: false,
+    delivered: results.filter((result) => result.status === 'fulfilled').length,
+    invalid: invalidEndpoints.length,
+  };
+}
+
+export async function sendPushToRoleDevices(input: {
+  roles: string[];
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+  tone?: UserPushTone;
+  requireInteraction?: boolean;
+}) {
+  if (!hasPushEnv()) return { skipped: true, reason: 'missing_env' as const };
+
+  const roles = Array.from(
+    new Set(
+      input.roles
+        .map((role) => String(role || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (roles.length === 0) return { skipped: true, reason: 'missing_roles' as const };
+
+  const supa = getServiceSupabase();
+  const { data: rows, error } = await supa
+    .from('user_roles')
+    .select('user_id, role')
+    .in('role', roles);
+
+  if (error) throw new Error(error.message);
+
+  const userIds = Array.from(new Set((rows ?? []).map((row) => String(row.user_id || '').trim()).filter(Boolean)));
+  if (userIds.length === 0) return { skipped: true, reason: 'no_users' as const };
+
+  const results = await Promise.allSettled(
+    userIds.map((userId) =>
+      sendPushToUserDevices({
+        userId,
+        title: input.title,
+        body: input.body,
+        url: input.url,
+        tag: input.tag,
+        tone: input.tone,
+        requireInteraction: input.requireInteraction,
+      }),
+    ),
+  );
+
+  return {
+    skipped: false,
+    users: userIds.length,
+    delivered: results.reduce((sum, result) => {
+      if (result.status !== 'fulfilled' || result.value.skipped) return sum;
+      return sum + Number(result.value.delivered || 0);
+    }, 0),
+  };
 }
 
 export async function sendPushToAdvisorDevices(input: {

@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
+import { getPublicVapidKey } from '@/lib/push';
 import MasterDashboardClient from './MasterDashboardClient';
 
 type RawOrderRow = {
@@ -2572,6 +2573,7 @@ currentUser={{
             }
           : null
       }
+      publicVapidKey={getPublicVapidKey()}
     />
   );
 }
