@@ -10258,6 +10258,7 @@ const hasBlockingOverlay =
 
 const realtimeRefreshTimerRef = useRef<number | null>(null);
 const realtimeQueuedRefreshRef = useRef(false);
+const realtimeNotificationEventIdsRef = useRef<Set<string>>(new Set());
 
 useEffect(() => {
   if (!toast) return;
@@ -10281,6 +10282,46 @@ useEffect(() => {
   }
 
   if (realtimeRoles.size === 0) return;
+
+  const showRealtimeNotification = (payload: {
+    eventType?: string;
+    new?: {
+      event_id?: number | string | null;
+      requires_action?: boolean | null;
+    };
+  }) => {
+    if (payload.eventType !== 'INSERT') return;
+    if (!payload.new?.requires_action) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    const eventId = payload.new.event_id == null ? `unknown-${Date.now()}` : String(payload.new.event_id);
+    if (realtimeNotificationEventIdsRef.current.has(eventId)) return;
+    realtimeNotificationEventIdsRef.current.add(eventId);
+
+    const title = 'VIVO OPS';
+    const options: NotificationOptions = {
+      body: 'Nueva accion pendiente en el dashboard.',
+      icon: '/pwa/advisor-192.png',
+      badge: '/pwa/advisor-192.png',
+      tag: `master-realtime-${eventId}`,
+      requireInteraction: true,
+      data: {
+        url: '/app/master/dashboard',
+      },
+    };
+
+    if ('serviceWorker' in navigator) {
+      void navigator.serviceWorker.ready
+        .then((registration) => registration.showNotification(title, options))
+        .catch(() => {
+          new Notification(title, options);
+        });
+      return;
+    }
+
+    new Notification(title, options);
+  };
 
   const scheduleRealtimeRefresh = () => {
     if (typeof document !== 'undefined' && document.hidden) {
@@ -10316,7 +10357,10 @@ useEffect(() => {
           table: 'order_timeline_event_recipients',
           filter: `target_user_id=eq.${currentUser.id}`,
         },
-        scheduleRealtimeRefresh,
+        (payload) => {
+          showRealtimeNotification(payload);
+          scheduleRealtimeRefresh();
+        },
       )
       .subscribe(),
     ...Array.from(realtimeRoles).map((role) =>
@@ -10330,7 +10374,10 @@ useEffect(() => {
             table: 'order_timeline_event_recipients',
             filter: `target_role=eq.${role}`,
           },
-          scheduleRealtimeRefresh,
+          (payload) => {
+            showRealtimeNotification(payload);
+            scheduleRealtimeRefresh();
+          },
         )
         .subscribe(),
     ),
