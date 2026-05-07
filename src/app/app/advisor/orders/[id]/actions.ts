@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
+import { sendPushToRoleDevices } from '@/lib/push';
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 
@@ -123,6 +124,36 @@ async function appendOrderEvent(
 
   if (recipientsError) {
     throw new Error(recipientsError.message);
+  }
+
+  const rolePushTargets = new Set<string>();
+  for (const recipient of input.recipients ?? []) {
+    if (!recipient.requiresAction) continue;
+    if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
+    if (recipient.targetRole === 'master') {
+      rolePushTargets.add('master');
+      rolePushTargets.add('admin');
+    }
+  }
+
+  if (rolePushTargets.size > 0) {
+    try {
+      const orderLabel = context?.orderNumber ? `Orden ${context.orderNumber}` : `Orden #${input.orderId}`;
+      await sendPushToRoleDevices({
+        roles: Array.from(rolePushTargets),
+        title: `${orderLabel}: ${input.title}`,
+        body: input.message || 'Requiere revision en el dashboard.',
+        url: '/app/master/dashboard',
+        tag: `master-order-${input.orderId}-${input.eventType}`,
+        tone: input.severity === 'critical' ? 'critical' : input.severity === 'warning' ? 'warning' : 'info',
+        requireInteraction: input.eventType === 'payment_reported' || input.severity === 'critical',
+      });
+    } catch (pushError) {
+      console.warn(
+        'advisor appendOrderEvent role push skipped',
+        pushError instanceof Error ? pushError.message : 'unknown push error',
+      );
+    }
   }
 }
 
