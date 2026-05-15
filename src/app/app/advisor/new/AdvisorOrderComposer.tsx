@@ -3,6 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
 type FulfillmentType = 'pickup' | 'delivery';
@@ -1116,10 +1117,6 @@ export default function AdvisorOrderComposer({
   }, [products, selectedProductId]);
 
   const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
-  const draftTotalUsd = useMemo(
-    () => draftItems.reduce((sum, item) => sum + Number(item.line_total_usd || 0), 0),
-    [draftItems]
-  );
   const selectedClientFundUsd = Number(selectedClient?.fund_balance_usd ?? 0) || 0;
   const selectedClientAddresses = useMemo(
     () => normalizeClientAddresses(selectedClient?.recent_addresses),
@@ -1136,31 +1133,45 @@ export default function AdvisorOrderComposer({
     });
   }, [recentAddresses, selectedClientAddresses]);
   const fxRateNumber = Math.max(0, Number(String(fxRate || '0').replace(',', '.')) || 0);
+  const draftItemSnapshots = useMemo(
+    () =>
+      draftItems.map((item) =>
+        calculateOrderLineSnapshot({
+          sourceCurrency: item.source_price_currency,
+          sourceAmount: Number(item.source_price_amount || 0),
+          quantity: Number(item.qty || 0),
+          fxRate: fxRateNumber,
+          fallbackUnitUsd: Number(item.unit_price_usd_snapshot || 0),
+        })
+      ),
+    [draftItems, fxRateNumber]
+  );
+  const draftTotalUsd = useMemo(
+    () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
+    [draftItemSnapshots]
+  );
   const discountPctNumber = Math.max(0, Math.min(100, Number(discountPct || 0) || 0));
   const invoiceTaxPctNumber = hasInvoice
     ? Math.max(0, Number(String(invoiceTaxPct || '0').replace(',', '.')) || 0)
     : 0;
   const draftSubtotalBs = useMemo(
-    () =>
-      draftItems.reduce((sum, item) => {
-        const lineBs =
-          item.source_price_currency === 'VES'
-            ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
-            : Number(item.line_total_usd || 0) * fxRateNumber;
-        return sum + lineBs;
-      }, 0),
-    [draftItems, fxRateNumber]
+    () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0),
+    [draftItemSnapshots]
   );
-  const discountAmountBs = discountEnabled ? draftSubtotalBs * (discountPctNumber / 100) : 0;
-  const subtotalAfterDiscountBs = Math.max(0, draftSubtotalBs - discountAmountBs);
-  const invoiceTaxAmountBs = hasInvoice ? subtotalAfterDiscountBs * (invoiceTaxPctNumber / 100) : 0;
-  const finalTotalBs = subtotalAfterDiscountBs + invoiceTaxAmountBs;
-  const discountAmountUsd = fxRateNumber > 0 ? Number((discountAmountBs / fxRateNumber).toFixed(2)) : 0;
-  const invoiceTaxAmountUsd = fxRateNumber > 0 ? Number((invoiceTaxAmountBs / fxRateNumber).toFixed(2)) : 0;
-  const finalTotalUsd =
-    fxRateNumber > 0
-      ? Number((finalTotalBs / fxRateNumber).toFixed(2))
-      : Number(Math.max(0, draftTotalUsd - discountAmountUsd).toFixed(2));
+  const totalsSnapshot = calculateOrderTotalsSnapshot({
+    subtotalUsd: draftTotalUsd,
+    subtotalBs: draftSubtotalBs,
+    discountPct: discountEnabled ? discountPctNumber : 0,
+    invoiceTaxPct: invoiceTaxPctNumber,
+  });
+  const discountAmountUsd = totalsSnapshot.discountAmountUsd;
+  const discountAmountBs = totalsSnapshot.discountAmountBs;
+  const subtotalAfterDiscountUsd = totalsSnapshot.subtotalAfterDiscountUsd;
+  const subtotalAfterDiscountBs = totalsSnapshot.subtotalAfterDiscountBs;
+  const invoiceTaxAmountUsd = totalsSnapshot.invoiceTaxAmountUsd;
+  const invoiceTaxAmountBs = totalsSnapshot.invoiceTaxAmountBs;
+  const finalTotalUsd = totalsSnapshot.totalUsd;
+  const finalTotalBs = totalsSnapshot.totalBs;
 
   const configProduct = useMemo(
     () => (configProductId ? productById.get(configProductId) ?? null : null),
@@ -1870,8 +1881,20 @@ export default function AdvisorOrderComposer({
   }
 
   function buildDraftItem(product: ProductRow, quantity: number, lines: string[]) {
-    const unitPriceUsd = Number(product.base_price_usd ?? 0);
-    const lineTotal = Number((unitPriceUsd * quantity).toFixed(2));
+    const sourceCurrency = (product.source_price_currency || 'USD') as CurrencyCode;
+    const sourceAmount =
+      Number(
+        product.source_price_amount ??
+          (sourceCurrency === 'USD' ? product.base_price_usd : 0) ??
+          0
+      ) || 0;
+    const snapshot = calculateOrderLineSnapshot({
+      sourceCurrency,
+      sourceAmount,
+      quantity,
+      fxRate: fxRateNumber,
+      fallbackUnitUsd: Number(product.base_price_usd ?? 0),
+    });
 
     return {
       localId: `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1881,10 +1904,10 @@ export default function AdvisorOrderComposer({
       product_name_snapshot: product.name,
       units_per_service: Number(product.units_per_service ?? 0) || 0,
       qty: quantity,
-      source_price_currency: (product.source_price_currency || 'USD') as CurrencyCode,
-      source_price_amount: Number(product.source_price_amount ?? product.base_price_usd ?? 0) || 0,
-      unit_price_usd_snapshot: unitPriceUsd,
-      line_total_usd: lineTotal,
+      source_price_currency: sourceCurrency,
+      source_price_amount: sourceAmount,
+      unit_price_usd_snapshot: snapshot.unitUsd,
+      line_total_usd: snapshot.lineUsd,
       editable_detail_lines: lines,
     } satisfies DraftItem;
   }
@@ -2361,6 +2384,7 @@ export default function AdvisorOrderComposer({
         discount_amount_bs: discountEnabled ? Number(discountAmountBs.toFixed(2)) : 0,
         subtotal_usd: draftTotalUsd,
         subtotal_bs: Number(draftSubtotalBs.toFixed(2)),
+        subtotal_after_discount_usd: subtotalAfterDiscountUsd,
         subtotal_after_discount_bs: Number(subtotalAfterDiscountBs.toFixed(2)),
         invoice_tax_pct: hasInvoice ? invoiceTaxPctNumber : 0,
         invoice_tax_amount_usd: hasInvoice ? invoiceTaxAmountUsd : 0,
@@ -2497,26 +2521,24 @@ export default function AdvisorOrderComposer({
         targetOrderId = Number(order.id);
       }
 
-      const itemsPayload = draftItems.map((item) => ({
+      const itemsPayload = draftItems.map((item, idx) => {
+        const snapshot = draftItemSnapshots[idx];
+
+        return {
         order_id: targetOrderId,
         product_id: item.product_id,
         qty: item.qty,
         pricing_origin_currency: item.source_price_currency,
         pricing_origin_amount: item.source_price_amount,
-        unit_price_usd_snapshot: item.unit_price_usd_snapshot,
-        line_total_usd: item.line_total_usd,
-        unit_price_bs_snapshot:
-          item.source_price_currency === 'VES'
-            ? Number(item.source_price_amount || 0)
-            : Number((item.unit_price_usd_snapshot * fxRateNumber).toFixed(2)),
-        line_total_bs_snapshot:
-          item.source_price_currency === 'VES'
-            ? Number((Number(item.source_price_amount || 0) * Number(item.qty || 0)).toFixed(2))
-            : Number((Number(item.line_total_usd || 0) * fxRateNumber).toFixed(2)),
+        unit_price_usd_snapshot: snapshot.unitUsd,
+        line_total_usd: snapshot.lineUsd,
+        unit_price_bs_snapshot: snapshot.unitBs,
+        line_total_bs_snapshot: snapshot.lineBs,
         sku_snapshot: item.sku_snapshot,
         product_name_snapshot: item.product_name_snapshot,
         notes: item.editable_detail_lines.length > 0 ? item.editable_detail_lines.join('\n') : null,
-      }));
+        };
+      });
 
       const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
       if (itemsError) throw new Error(itemsError.message);

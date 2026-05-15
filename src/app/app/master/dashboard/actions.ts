@@ -6,6 +6,7 @@ import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getMasterDashboardPermissions } from './permissions';
 
 async function requireMasterOrAdmin() {
@@ -2503,18 +2504,20 @@ export async function updateExchangeRateAction(input: {
     const sourceAmount = Number(product.source_price_amount || 0);
     const sourceCurrency = String(product.source_price_currency || '');
 
-    if (sourceCurrency !== 'USD') {
+    if (!Number.isFinite(sourceAmount) || sourceAmount < 0) {
       continue;
     }
 
-    const basePriceUsd = sourceAmount;
-    const basePriceBs = sourceAmount * rate;
+    const basePriceUsd =
+      sourceCurrency === 'VES' ? sourceAmount / rate : sourceAmount;
+    const basePriceBs =
+      sourceCurrency === 'VES' ? sourceAmount : sourceAmount * rate;
 
     const { error: updateProductError } = await supabase
       .from('products')
       .update({
-        base_price_usd: basePriceUsd,
-        base_price_bs: basePriceBs,
+        base_price_usd: Number(basePriceUsd.toFixed(2)),
+        base_price_bs: Number(basePriceBs.toFixed(2)),
       })
       .eq('id', product.id);
 
@@ -6358,50 +6361,42 @@ export async function createOrderAction(input: {
 
   const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
 
-  const subtotalBs = input.items.reduce((sum, item) => {
-    const lineBs =
-      item.adminPriceOverrideUsd != null
-        ? Number(item.lineTotalUsd || 0) * fxRateNumber
-        : item.sourcePriceCurrency === 'VES'
-        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-        : Number(item.lineTotalUsd || 0) * fxRateNumber;
+  const itemSnapshots = input.items.map((item) =>
+    calculateOrderLineSnapshot({
+      sourceCurrency: item.sourcePriceCurrency,
+      sourceAmount: Number(item.sourcePriceAmount || 0),
+      quantity: Number(item.qty || 0),
+      fxRate: fxRateNumber,
+      overrideUnitUsd: item.adminPriceOverrideUsd,
+      fallbackUnitUsd: Number(item.unitPriceUsdSnapshot || 0),
+    })
+  );
 
-    return sum + lineBs;
-  }, 0);
-
-  const subtotalUsd = input.items.reduce((sum, item) => {
-    const lineUsd = Number(item.lineTotalUsd || 0);
-
-    return sum + lineUsd;
-  }, 0);
+  const subtotalBs = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
+  const subtotalUsd = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
 
   const discountPctNumber = Math.max(
     0,
     Math.min(100, Number(input.discountPct || 0))
   );
 
-  const discountAmountBs = input.discountEnabled
-    ? subtotalBs * (discountPctNumber / 100)
-    : 0;
-
-  const subtotalAfterDiscountBs = Math.max(0, subtotalBs - discountAmountBs);
   const invoiceTaxPctNumber = input.hasInvoice
     ? Math.max(0, Number(String(input.invoiceTaxPct || '16').replace(',', '.')) || 0)
     : 0;
-  const invoiceTaxAmountBs = input.hasInvoice
-    ? subtotalAfterDiscountBs * (invoiceTaxPctNumber / 100)
-    : 0;
-  const totalBs = subtotalAfterDiscountBs + invoiceTaxAmountBs;
-
-  const discountAmountUsd =
-    fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
-  const subtotalAfterDiscountUsd =
-    fxRateNumber > 0 ? subtotalAfterDiscountBs / fxRateNumber : 0;
-  const invoiceTaxAmountUsd =
-    fxRateNumber > 0 ? invoiceTaxAmountBs / fxRateNumber : 0;
-
-  const totalUsd =
-    fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
+  const totalsSnapshot = calculateOrderTotalsSnapshot({
+    subtotalUsd,
+    subtotalBs,
+    discountPct: input.discountEnabled ? discountPctNumber : 0,
+    invoiceTaxPct: invoiceTaxPctNumber,
+  });
+  const discountAmountUsd = totalsSnapshot.discountAmountUsd;
+  const discountAmountBs = totalsSnapshot.discountAmountBs;
+  const subtotalAfterDiscountUsd = totalsSnapshot.subtotalAfterDiscountUsd;
+  const subtotalAfterDiscountBs = totalsSnapshot.subtotalAfterDiscountBs;
+  const invoiceTaxAmountUsd = totalsSnapshot.invoiceTaxAmountUsd;
+  const invoiceTaxAmountBs = totalsSnapshot.invoiceTaxAmountBs;
+  const totalUsd = totalsSnapshot.totalUsd;
+  const totalBs = totalsSnapshot.totalBs;
 
   const requestedClientFundUsd = Number(
     String(input.clientFundAmountUsd || '').replace(',', '.')
@@ -6511,26 +6506,19 @@ export async function createOrderAction(input: {
 
   const adminOverrideTimestamp = new Date().toISOString();
 
-  const itemsPayload = input.items.map((item) => ({
+  const itemsPayload = input.items.map((item, idx) => {
+    const snapshot = itemSnapshots[idx];
+
+    return {
     order_id: orderId,
     product_id: item.productId,
     qty: Number(item.qty || 0),
     pricing_origin_currency: item.sourcePriceCurrency,
     pricing_origin_amount: Number(item.sourcePriceAmount || 0),
-    unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
-    line_total_usd: Number(item.lineTotalUsd || 0),
-    unit_price_bs_snapshot:
-      item.adminPriceOverrideUsd != null
-        ? Number(item.adminPriceOverrideUsd || 0) * fxRateNumber
-        : item.sourcePriceCurrency === 'VES'
-        ? Number(item.sourcePriceAmount || 0)
-        : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
-    line_total_bs_snapshot:
-      item.adminPriceOverrideUsd != null
-        ? Number(item.lineTotalUsd || 0) * fxRateNumber
-        : item.sourcePriceCurrency === 'VES'
-        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-        : Number(item.lineTotalUsd || 0) * fxRateNumber,
+    unit_price_usd_snapshot: snapshot.unitUsd,
+    line_total_usd: snapshot.lineUsd,
+    unit_price_bs_snapshot: snapshot.unitBs,
+    line_total_bs_snapshot: snapshot.lineBs,
     admin_price_override_usd:
       item.adminPriceOverrideUsd != null
         ? Number(item.adminPriceOverrideUsd || 0)
@@ -6546,7 +6534,8 @@ export async function createOrderAction(input: {
       item.editableDetailLines && item.editableDetailLines.length > 0
         ? item.editableDetailLines.join('\n')
         : null,
-  }));
+    };
+  });
 
   const { data: insertedItems, error: itemsError } = await supabase
     .from('order_items')
@@ -6901,50 +6890,42 @@ export async function updateOrderAction(input: {
 
   const fxRateNumber = Math.max(0, Number(input.fxRate || 0));
 
-  const subtotalBs = input.items.reduce((sum, item) => {
-    const lineBs =
-      item.adminPriceOverrideUsd != null
-        ? Number(item.lineTotalUsd || 0) * fxRateNumber
-        : item.sourcePriceCurrency === 'VES'
-        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-        : Number(item.lineTotalUsd || 0) * fxRateNumber;
+  const itemSnapshots = input.items.map((item) =>
+    calculateOrderLineSnapshot({
+      sourceCurrency: item.sourcePriceCurrency,
+      sourceAmount: Number(item.sourcePriceAmount || 0),
+      quantity: Number(item.qty || 0),
+      fxRate: fxRateNumber,
+      overrideUnitUsd: item.adminPriceOverrideUsd,
+      fallbackUnitUsd: Number(item.unitPriceUsdSnapshot || 0),
+    })
+  );
 
-    return sum + lineBs;
-  }, 0);
-
-  const subtotalUsd = input.items.reduce((sum, item) => {
-    const lineUsd = Number(item.lineTotalUsd || 0);
-
-    return sum + lineUsd;
-  }, 0);
+  const subtotalBs = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
+  const subtotalUsd = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
 
   const discountPctNumber = Math.max(
     0,
     Math.min(100, Number(input.discountPct || 0))
   );
 
-  const discountAmountBs = input.discountEnabled
-    ? subtotalBs * (discountPctNumber / 100)
-    : 0;
-
-  const subtotalAfterDiscountBs = Math.max(0, subtotalBs - discountAmountBs);
   const invoiceTaxPctNumber = input.hasInvoice
     ? Math.max(0, Number(String(input.invoiceTaxPct || '16').replace(',', '.')) || 0)
     : 0;
-  const invoiceTaxAmountBs = input.hasInvoice
-    ? subtotalAfterDiscountBs * (invoiceTaxPctNumber / 100)
-    : 0;
-  const totalBs = subtotalAfterDiscountBs + invoiceTaxAmountBs;
-
-  const discountAmountUsd =
-    fxRateNumber > 0 ? discountAmountBs / fxRateNumber : 0;
-  const subtotalAfterDiscountUsd =
-    fxRateNumber > 0 ? subtotalAfterDiscountBs / fxRateNumber : 0;
-  const invoiceTaxAmountUsd =
-    fxRateNumber > 0 ? invoiceTaxAmountBs / fxRateNumber : 0;
-
-  const totalUsd =
-    fxRateNumber > 0 ? totalBs / fxRateNumber : 0;
+  const totalsSnapshot = calculateOrderTotalsSnapshot({
+    subtotalUsd,
+    subtotalBs,
+    discountPct: input.discountEnabled ? discountPctNumber : 0,
+    invoiceTaxPct: invoiceTaxPctNumber,
+  });
+  const discountAmountUsd = totalsSnapshot.discountAmountUsd;
+  const discountAmountBs = totalsSnapshot.discountAmountBs;
+  const subtotalAfterDiscountUsd = totalsSnapshot.subtotalAfterDiscountUsd;
+  const subtotalAfterDiscountBs = totalsSnapshot.subtotalAfterDiscountBs;
+  const invoiceTaxAmountUsd = totalsSnapshot.invoiceTaxAmountUsd;
+  const invoiceTaxAmountBs = totalsSnapshot.invoiceTaxAmountBs;
+  const totalUsd = totalsSnapshot.totalUsd;
+  const totalBs = totalsSnapshot.totalBs;
 
   const requestedClientFundUsd = Number(
     String(input.clientFundAmountUsd || '').replace(',', '.')
@@ -7113,26 +7094,19 @@ export async function updateOrderAction(input: {
 
   const adminOverrideTimestamp = new Date().toISOString();
 
-  const itemsPayload = input.items.map((item) => ({
+  const itemsPayload = input.items.map((item, idx) => {
+    const snapshot = itemSnapshots[idx];
+
+    return {
     order_id: orderId,
     product_id: item.productId,
     qty: Number(item.qty || 0),
     pricing_origin_currency: item.sourcePriceCurrency,
     pricing_origin_amount: Number(item.sourcePriceAmount || 0),
-    unit_price_usd_snapshot: Number(item.unitPriceUsdSnapshot || 0),
-    line_total_usd: Number(item.lineTotalUsd || 0),
-    unit_price_bs_snapshot:
-      item.adminPriceOverrideUsd != null
-        ? Number(item.adminPriceOverrideUsd || 0) * fxRateNumber
-        : item.sourcePriceCurrency === 'VES'
-        ? Number(item.sourcePriceAmount || 0)
-        : Number(item.unitPriceUsdSnapshot || 0) * fxRateNumber,
-    line_total_bs_snapshot:
-      item.adminPriceOverrideUsd != null
-        ? Number(item.lineTotalUsd || 0) * fxRateNumber
-        : item.sourcePriceCurrency === 'VES'
-        ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-        : Number(item.lineTotalUsd || 0) * fxRateNumber,
+    unit_price_usd_snapshot: snapshot.unitUsd,
+    line_total_usd: snapshot.lineUsd,
+    unit_price_bs_snapshot: snapshot.unitBs,
+    line_total_bs_snapshot: snapshot.lineBs,
     admin_price_override_usd:
       item.adminPriceOverrideUsd != null
         ? Number(item.adminPriceOverrideUsd || 0)
@@ -7148,7 +7122,8 @@ export async function updateOrderAction(input: {
       item.editableDetailLines && item.editableDetailLines.length > 0
         ? item.editableDetailLines.join('\n')
         : null,
-  }));
+    };
+  });
 
   const { data: insertedItems, error: insertItemsError } = await supabase
     .from('order_items')

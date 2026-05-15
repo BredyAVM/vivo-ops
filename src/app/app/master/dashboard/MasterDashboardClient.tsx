@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -7693,13 +7694,17 @@ const openCreateOrderConfig = (product: CatalogItem, qty: number) => {
   setCreateOrderConfigProductId(product.id);
   setCreateOrderConfigProductName(product.name);
   setCreateOrderConfigSourcePriceCurrency(product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD');
-  setCreateOrderConfigSourcePriceAmount(
-    product.sourcePriceCurrency === 'VES'
-      ? Number(product.basePriceBs || 0)
-      : Number(product.basePriceUsd || 0)
-  );
+  setCreateOrderConfigSourcePriceAmount(Number(product.sourcePriceAmount || 0));
   setCreateOrderConfigQty(qty);
-  setCreateOrderConfigUnitPriceUsd(Number(product.basePriceUsd || 0));
+  setCreateOrderConfigUnitPriceUsd(
+    calculateOrderLineSnapshot({
+      sourceCurrency: product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
+      sourceAmount: Number(product.sourcePriceAmount || 0),
+      quantity: qty,
+      fxRate: createOrderFxRateNumber,
+      fallbackUnitUsd: Number(product.basePriceUsd || 0),
+    }).unitUsd
+  );
   setCreateOrderConfigSku(product.sku || null);
   setCreateOrderConfigLimit(Number(product.detailUnitsLimit || 0));
   setCreateOrderConfigSelections(optionalFixedSelections);
@@ -7795,6 +7800,14 @@ const handleAddCreateOrderItem = () => {
   }
 
   const productConfigComponents = componentsByParentId.get(product.id) ?? [];
+  const sourceCurrency = product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD';
+  const snapshot = calculateOrderLineSnapshot({
+    sourceCurrency,
+    sourceAmount: Number(product.sourcePriceAmount || 0),
+    quantity: createOrderQty,
+    fxRate: createOrderFxRateNumber,
+    fallbackUnitUsd: Number(product.basePriceUsd || 0),
+  });
 
   if (product.isDetailEditable) {
     if (createOrderQty !== 1) {
@@ -7820,13 +7833,10 @@ setCreateOrderDraftItems((prev) => [
     skuSnapshot: product.sku || null,
     productNameSnapshot: product.name,
     qty: createOrderQty,
-    sourcePriceCurrency: product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
-    sourcePriceAmount:
-      product.sourcePriceCurrency === 'VES'
-        ? Number(product.basePriceBs || 0)
-        : Number(product.basePriceUsd || 0),
-    unitPriceUsdSnapshot: Number(product.basePriceUsd || 0),
-    lineTotalUsd: Number(product.basePriceUsd || 0) * createOrderQty,
+    sourcePriceCurrency: sourceCurrency,
+    sourcePriceAmount: Number(product.sourcePriceAmount || 0),
+    unitPriceUsdSnapshot: snapshot.unitUsd,
+    lineTotalUsd: snapshot.lineUsd,
     editableDetailLines: buildComponentDetailLines(productConfigComponents, {
       totalMultiplier: createOrderQty,
     }),
@@ -7904,6 +7914,14 @@ const handleConfirmCreateOrderConfig = () => {
     })
   );
 
+const configSnapshot = calculateOrderLineSnapshot({
+  sourceCurrency: createOrderConfigSourcePriceCurrency,
+  sourceAmount: createOrderConfigSourcePriceAmount,
+  quantity: createOrderConfigQty,
+  fxRate: createOrderFxRateNumber,
+  fallbackUnitUsd: createOrderConfigUnitPriceUsd,
+});
+
 const nextItem: DraftItem = {
   localId: createOrderConfigEditingLocalId ?? `${Date.now()}-${Math.random()}`,
   productId: createOrderConfigProductId,
@@ -7912,8 +7930,8 @@ const nextItem: DraftItem = {
   qty: createOrderConfigQty,
   sourcePriceCurrency: createOrderConfigSourcePriceCurrency,
   sourcePriceAmount: createOrderConfigSourcePriceAmount,
-  unitPriceUsdSnapshot: createOrderConfigUnitPriceUsd,
-  lineTotalUsd: createOrderConfigUnitPriceUsd * createOrderConfigQty,
+  unitPriceUsdSnapshot: configSnapshot.unitUsd,
+  lineTotalUsd: configSnapshot.lineUsd,
   editableDetailLines: detailLines,
   adminPriceOverrideUsd: null,
   adminPriceOverrideReason: null,
@@ -7930,10 +7948,14 @@ const nextItem: DraftItem = {
     nextItem.adminPriceOverrideReason = existingEditingItem.adminPriceOverrideReason;
     nextItem.adminPriceOverrideByUserId = existingEditingItem.adminPriceOverrideByUserId ?? null;
     nextItem.adminPriceOverrideAt = existingEditingItem.adminPriceOverrideAt ?? null;
-    nextItem.lineTotalUsd =
-      (existingEditingItem.adminPriceOverrideUsd != null
-        ? existingEditingItem.adminPriceOverrideUsd
-        : createOrderConfigUnitPriceUsd) * createOrderConfigQty;
+    nextItem.lineTotalUsd = calculateOrderLineSnapshot({
+      sourceCurrency: nextItem.sourcePriceCurrency,
+      sourceAmount: nextItem.sourcePriceAmount,
+      quantity: nextItem.qty,
+      fxRate: createOrderFxRateNumber,
+      overrideUnitUsd: existingEditingItem.adminPriceOverrideUsd,
+      fallbackUnitUsd: nextItem.unitPriceUsdSnapshot,
+    }).lineUsd;
   }
 
   setCreateOrderDraftItems((prev) => {
@@ -8159,18 +8181,26 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
   if (!Number.isFinite(nextQty) || nextQty <= 0) return;
 
   setCreateOrderDraftItems((prev) =>
-    prev.map((item) =>
-      item.localId === localId
-        ? {
-            ...item,
-            qty: nextQty,
-            lineTotalUsd:
-              (item.adminPriceOverrideUsd != null
-                ? item.adminPriceOverrideUsd
-                : item.unitPriceUsdSnapshot) * nextQty,
-          }
-        : item
-    )
+    prev.map((item) => {
+      if (item.localId !== localId) return item;
+
+      const snapshot = calculateOrderLineSnapshot({
+        sourceCurrency: item.sourcePriceCurrency,
+        sourceAmount: item.sourcePriceAmount,
+        quantity: nextQty,
+        fxRate: createOrderFxRateNumber,
+        overrideUnitUsd: item.adminPriceOverrideUsd,
+        fallbackUnitUsd: item.unitPriceUsdSnapshot,
+      });
+
+      return {
+        ...item,
+        qty: nextQty,
+        unitPriceUsdSnapshot:
+          item.adminPriceOverrideUsd != null ? item.unitPriceUsdSnapshot : snapshot.unitUsd,
+        lineTotalUsd: snapshot.lineUsd,
+      };
+    })
   );
 };
 
@@ -8254,22 +8284,26 @@ const createOrderFilteredProducts = catalogItems
 
 const createOrderFxRateNumber = Math.max(0, Number(createOrderFxRate || 0));
 
-const createOrderDraftSubtotalUsd = createOrderDraftItems.reduce((sum, item) => {
-  const lineTotalUsd = Number(item.lineTotalUsd || 0);
+const createOrderLineSnapshots = createOrderDraftItems.map((item) =>
+  calculateOrderLineSnapshot({
+    sourceCurrency: item.sourcePriceCurrency,
+    sourceAmount: item.sourcePriceAmount,
+    quantity: item.qty,
+    fxRate: createOrderFxRateNumber,
+    overrideUnitUsd: item.adminPriceOverrideUsd,
+    fallbackUnitUsd: item.unitPriceUsdSnapshot,
+  })
+);
 
-  return sum + lineTotalUsd;
-}, 0);
+const createOrderDraftSubtotalUsd = createOrderLineSnapshots.reduce(
+  (sum, snapshot) => sum + snapshot.lineUsd,
+  0
+);
 
-const createOrderDraftSubtotalBs = createOrderDraftItems.reduce((sum, item) => {
-  const lineTotalBs =
-    item.adminPriceOverrideUsd != null
-      ? Number(item.lineTotalUsd || 0) * createOrderFxRateNumber
-      : item.sourcePriceCurrency === 'VES'
-      ? Number(item.sourcePriceAmount || 0) * Number(item.qty || 0)
-      : Number(item.lineTotalUsd || 0) * createOrderFxRateNumber;
-
-  return sum + lineTotalBs;
-}, 0);
+const createOrderDraftSubtotalBs = createOrderLineSnapshots.reduce(
+  (sum, snapshot) => sum + snapshot.lineBs,
+  0
+);
 
 const createOrderDiscountPctNumber = Math.max(
   0,
@@ -8280,34 +8314,23 @@ const createOrderInvoiceTaxPctNumber = createOrderHasInvoice
   ? Math.max(0, Number(String(createOrderInvoiceTaxPct || '0').replace(',', '.')) || 0)
   : 0;
 
-const createOrderDiscountAmountBs = createOrderDiscountEnabled
-  ? createOrderDraftSubtotalBs * (createOrderDiscountPctNumber / 100)
-  : 0;
+const createOrderTotalsSnapshot = calculateOrderTotalsSnapshot({
+  subtotalUsd: createOrderDraftSubtotalUsd,
+  subtotalBs: createOrderDraftSubtotalBs,
+  discountPct: createOrderDiscountEnabled ? createOrderDiscountPctNumber : 0,
+  invoiceTaxPct: createOrderInvoiceTaxPctNumber,
+});
 
-const createOrderDraftSubtotalAfterDiscountBs = Math.max(
-  0,
-  createOrderDraftSubtotalBs - createOrderDiscountAmountBs
-);
-
-const createOrderInvoiceTaxAmountBs = createOrderHasInvoice
-  ? createOrderDraftSubtotalAfterDiscountBs * (createOrderInvoiceTaxPctNumber / 100)
-  : 0;
-
-const createOrderDraftTotalBs = createOrderDraftSubtotalAfterDiscountBs + createOrderInvoiceTaxAmountBs;
-
-const createOrderDiscountAmountUsd =
-  createOrderFxRateNumber > 0 ? createOrderDiscountAmountBs / createOrderFxRateNumber : 0;
-
+const createOrderDiscountAmountUsd = createOrderTotalsSnapshot.discountAmountUsd;
+const createOrderDiscountAmountBs = createOrderTotalsSnapshot.discountAmountBs;
 const createOrderDraftSubtotalAfterDiscountUsd =
-  createOrderFxRateNumber > 0 ? createOrderDraftSubtotalAfterDiscountBs / createOrderFxRateNumber : 0;
-
-const createOrderInvoiceTaxAmountUsd =
-  createOrderFxRateNumber > 0 ? createOrderInvoiceTaxAmountBs / createOrderFxRateNumber : 0;
-
-const createOrderDraftTotalUsd =
-  createOrderFxRateNumber > 0
-    ? createOrderDraftTotalBs / createOrderFxRateNumber
-    : 0;
+  createOrderTotalsSnapshot.subtotalAfterDiscountUsd;
+const createOrderDraftSubtotalAfterDiscountBs =
+  createOrderTotalsSnapshot.subtotalAfterDiscountBs;
+const createOrderInvoiceTaxAmountUsd = createOrderTotalsSnapshot.invoiceTaxAmountUsd;
+const createOrderInvoiceTaxAmountBs = createOrderTotalsSnapshot.invoiceTaxAmountBs;
+const createOrderDraftTotalUsd = createOrderTotalsSnapshot.totalUsd;
+const createOrderDraftTotalBs = createOrderTotalsSnapshot.totalBs;
     
 const createOrderNeedsAdvisor =
   createOrderSource === 'advisor';
