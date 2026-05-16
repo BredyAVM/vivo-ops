@@ -14809,6 +14809,11 @@ onClose={() => {
 
           return (
             <div className="mt-3 space-y-1 border-t border-[#1D1D28] pt-3 text-xs">
+              <div className="flex items-center justify-between text-[#8A8A96]">
+                <span>Tasa snapshot</span>
+                <span>{pricing?.fxRate != null && pricing.fxRate > 0 ? fmtRateBs(pricing.fxRate) : '—'}</span>
+              </div>
+
               <div className="flex items-center justify-between text-[#B7B7C2]">
                 <span>Subtotal</span>
                 <span>{fmtBs(subtotalBs)} / {fmtUSD(subtotalUsd)}</span>
@@ -20357,11 +20362,16 @@ deliveryAssignMode === 'external' ? (
   <div className="flex flex-wrap items-center gap-3">
     <div className="w-[100px]">
   <FieldInput
-    label="Tasa usada (Bs.)"
+    label="Tasa snapshot (Bs/USD)"
     value={createOrderFxRate}
     onChange={setCreateOrderFxRate}
     type="number"
   />
+  {editingOrderId ? (
+    <div className="mt-1 text-[10px] leading-snug text-[#8A8A96]">
+      Cambiarla recalcula los Bs guardados de esta orden.
+    </div>
+  ) : null}
 </div>
 <div>
   <label className="mb-1 block text-xs text-[#8A8A96]">Descuento</label>

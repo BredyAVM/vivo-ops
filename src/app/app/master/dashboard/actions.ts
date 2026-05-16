@@ -6937,6 +6937,32 @@ export async function updateOrderAction(input: {
     toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
   );
 
+  const nowIso = new Date().toISOString();
+  const previousPricing =
+    currentOrder.extra_fields &&
+    typeof currentOrder.extra_fields === 'object' &&
+    !Array.isArray(currentOrder.extra_fields)
+      ? ((currentOrder.extra_fields as any).pricing ?? {})
+      : {};
+  const previousFxRate = toSafeNumber(previousPricing?.fx_rate, 0);
+  const fxRateChanged =
+    (previousFxRate > 0 || fxRateNumber > 0) &&
+    Math.abs(previousFxRate - fxRateNumber) >= 0.000001;
+  const previousFxRateAdjustments = Array.isArray(previousPricing?.fx_rate_adjustments)
+    ? previousPricing.fx_rate_adjustments
+    : [];
+  const fxRateAdjustmentEntry = fxRateChanged
+    ? {
+        previous_fx_rate: previousFxRate > 0 ? previousFxRate : null,
+        next_fx_rate: fxRateNumber > 0 ? fxRateNumber : null,
+        adjusted_at: nowIso,
+        adjusted_by_user_id: user.id,
+        reason:
+          String(input.adminEditReason || '').trim() ||
+          'Correccion de tasa snapshot',
+      }
+    : null;
+
   const extraFields = {
     schedule: {
       date: input.deliveryDate,
@@ -6999,14 +7025,20 @@ export async function updateOrderAction(input: {
       subtotal_after_discount_bs: subtotalAfterDiscountBs,
       total_usd: totalUsd,
       total_bs: totalBs,
+      ...(previousFxRateAdjustments.length > 0 || fxRateAdjustmentEntry
+        ? {
+            fx_rate_adjustments: [
+              ...previousFxRateAdjustments,
+              ...(fxRateAdjustmentEntry ? [fxRateAdjustmentEntry] : []),
+            ].slice(-20),
+          }
+        : {}),
     },
     note: input.note.trim() || null,
     ui: {
       quote_only: false,
     },
   };
-
-  const nowIso = new Date().toISOString();
 
   const orderUpdatePayload: Record<string, any> = {
     client_id: clientId,
@@ -7199,6 +7231,32 @@ export async function updateOrderAction(input: {
 
   if (finalizeTotalsError) {
     throw new Error(finalizeTotalsError.message);
+  }
+
+  if (fxRateAdjustmentEntry) {
+    const { error: fxRateAuditError } = await supabase
+      .from('order_admin_adjustments')
+      .insert({
+        order_id: orderId,
+        order_item_id: null,
+        adjustment_type: 'other',
+        reason: fxRateAdjustmentEntry.reason,
+        notes: null,
+        payload: {
+          kind: 'snapshot_fx_rate_update',
+          previous_fx_rate: fxRateAdjustmentEntry.previous_fx_rate,
+          next_fx_rate: fxRateAdjustmentEntry.next_fx_rate,
+          previous_total_usd: Number(currentOrder.total_usd ?? 0),
+          previous_total_bs: Number(currentOrder.total_bs_snapshot ?? 0),
+          next_total_usd: totalUsd,
+          next_total_bs: totalBs,
+        },
+        created_by_user_id: user.id,
+      });
+
+    if (fxRateAuditError) {
+      throw new Error(fxRateAuditError.message);
+    }
   }
 
   if (isAdvancedAdminEdit) {

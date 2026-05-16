@@ -1103,6 +1103,7 @@ export default function AdvisorOrderComposer({
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
   const isEditingOrder = Number.isFinite(existingOrderId) && Number(existingOrderId) > 0;
+  const fxRateLockedForAdvisorEdit = isEditingOrder;
   const sourceOrderId =
     Number.isFinite(existingOrderId) && Number(existingOrderId) > 0
       ? Number(existingOrderId)
@@ -2437,6 +2438,12 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    if (fxRateLockedForAdvisorEdit && originalEditSnapshot?.fxRate && fxRate !== originalEditSnapshot.fxRate) {
+      setFxRate(originalEditSnapshot.fxRate);
+      setError('La tasa snapshot de una orden creada solo puede corregirla master o admin desde el dashboard.');
+      return;
+    }
+
     if (fxRateNumber <= 0) {
       setError('Falta una tasa valida para la orden.');
       return;
@@ -2921,15 +2928,21 @@ export default function AdvisorOrderComposer({
 
               <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Tasa del dia (Bs/USD)">
+                  <Field label={fxRateLockedForAdvisorEdit ? 'Tasa snapshot (Bs/USD)' : 'Tasa del dia (Bs/USD)'}>
                     <input
                       value={fxRate}
                       onChange={(e) => setFxRate(e.target.value)}
                       onFocus={(e) => e.currentTarget.select()}
-                      className={inputClass()}
+                      disabled={fxRateLockedForAdvisorEdit}
+                      className={`${inputClass()} disabled:cursor-not-allowed disabled:opacity-70`}
                       inputMode="decimal"
                       placeholder="0"
                     />
+                    {fxRateLockedForAdvisorEdit ? (
+                      <div className="mt-1 text-[11px] text-[#8B93A7]">
+                        La correccion de esta tasa la hace master/admin.
+                      </div>
+                    ) : null}
                   </Field>
 
                   <label className="flex items-end gap-3 rounded-[16px] border border-[#232632] bg-[#12151d] px-3.5 py-3 text-sm text-[#F5F7FB]">
