@@ -1594,8 +1594,8 @@ export async function returnToCreatedAction(input: {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
   }
 
-  if (currentOrder.status !== 'queued') {
-    throw new Error('Solo se puede devolver una orden que está en cola.');
+  if (!['queued', 'confirmed'].includes(currentOrder.status)) {
+    throw new Error('Solo se puede devolver a creado una orden en cola o confirmada.');
   }
 
   const nextNotes = [
@@ -1612,6 +1612,12 @@ export async function returnToCreatedAction(input: {
       queued_needs_reapproval: false,
       queued_last_modified_at: null,
       queued_last_modified_by: null,
+      sent_to_kitchen_at: null,
+      sent_to_kitchen_by: null,
+      eta_minutes: null,
+      kitchen_started_at: null,
+      kitchen_operator_id: null,
+      ready_at: null,
       review_notes: reason,
       notes: nextNotes,
       last_modified_at: new Date().toISOString(),

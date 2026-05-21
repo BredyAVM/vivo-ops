@@ -540,6 +540,7 @@ type MasterTray =
 type MasterTaskType =
   | 'APROBAR'
   | 'RE-APROBAR'
+  | 'RECALCULAR_PRESUPUESTO'
   | 'CONFIRMAR PAGO'
   | 'ENVIAR_COCINA'
   | 'ASIGNAR_DRIVER'
@@ -559,6 +560,7 @@ type MasterInboxTask = {
   openTab: OrderDetailTab;
   createdAtISO: string;
   isUrgent: boolean;
+  detailLines?: string[];
 };
 
 type MasterInboxEvent = {
@@ -588,6 +590,7 @@ type MasterInboxStateItemInput = {
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
+const QUOTE_PRICE_REVIEW_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 type ToastState = {
   type: 'success' | 'error' | 'info';
   message: string;
@@ -1489,6 +1492,8 @@ function getMasterInboxTaskActionLabel(type: MasterTaskType) {
       return 'Revisar aprobación';
     case 'RE-APROBAR':
       return 'Revisar cambios';
+    case 'RECALCULAR_PRESUPUESTO':
+      return 'Revisar presupuesto';
     case 'CONFIRMAR PAGO':
       return 'Confirmar pago';
     case 'ENVIAR_COCINA':
@@ -1672,6 +1677,105 @@ function splitISOToDeliveryFields(iso: string) {
 const pillLabel = (f: Fulfillment) => (f === 'delivery' ? 'Delivery' : 'Pickup');
 const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado' : `Pendiente: ${fmtUSD(balanceUsd)}`);
 const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
+
+function hasPassedDeliveryGraceDay(order: Order, currentTimeMs: number) {
+  const deliveredAtMs =
+    parseIsoMs(order.editMeta?.deliveryCompletedAtISO) ??
+    (order.status === 'delivered' ? parseIsoMs(order.deliveryAtISO) : null);
+
+  if (!deliveredAtMs) return false;
+
+  const deliveredAt = new Date(deliveredAtMs);
+  const now = new Date(currentTimeMs);
+
+  return (
+    now.getFullYear() > deliveredAt.getFullYear() ||
+    now.getMonth() > deliveredAt.getMonth() ||
+    (now.getFullYear() === deliveredAt.getFullYear() &&
+      now.getMonth() === deliveredAt.getMonth() &&
+      now.getDate() > deliveredAt.getDate())
+  );
+}
+
+function getOrderPaymentBalanceBsAmount(order: Order, activeBsRate: number, currentTimeMs: number) {
+  if (order.balanceUsd <= 0.005) return 0;
+
+  if (hasPassedDeliveryGraceDay(order, currentTimeMs) && activeBsRate > 0) {
+    return Number((order.balanceUsd * activeBsRate).toFixed(2));
+  }
+
+  const snapshotRate = Number(order.editMeta?.fxRate || 0);
+  if (order.totalBs > 0 && snapshotRate > 0) {
+    return Math.max(0, Number((order.totalBs - order.confirmedPaidUsd * snapshotRate).toFixed(2)));
+  }
+
+  if (order.totalBs > 0) {
+    return Number(order.totalBs.toFixed(2));
+  }
+
+  if (activeBsRate > 0) {
+    return Number((order.balanceUsd * activeBsRate).toFixed(2));
+  }
+
+  return 0;
+}
+
+function getOrderCollectionMode(order: Order, activeBsRate: number, currentTimeMs: number) {
+  if (order.balanceUsd <= 0.005) return null;
+
+  if (hasPassedDeliveryGraceDay(order, currentTimeMs) && activeBsRate > 0) {
+    return {
+      key: 'post_delivery_usd',
+      label: 'Cobranza dolarizada',
+      description: 'Entregada en un día anterior: el saldo Bs se calcula con la tasa activa.',
+    } as const;
+  }
+
+  return {
+    key: 'snapshot_quote',
+    label: 'Presupuesto snapshot',
+    description: 'Se mantiene el monto Bs congelado del presupuesto.',
+  } as const;
+}
+
+function getExpiredQuotePriceReview(
+  order: Order,
+  catalogItemById: Map<number, CatalogItem>,
+  currentTimeMs: number
+) {
+  if (order.balanceUsd <= 0.01) return null;
+  if (order.status === 'cancelled' || order.status === 'delivered') return null;
+  if (currentTimeMs - (parseIsoMs(order.createdAtISO) ?? currentTimeMs) < QUOTE_PRICE_REVIEW_AGE_MS) return null;
+
+  const changedItems = order.draftItems
+    .map((item) => {
+      const product = catalogItemById.get(item.productId);
+      if (!product) return null;
+
+      const previousCurrency = item.sourcePriceCurrency === 'VES' ? 'VES' : 'USD';
+      const currentCurrency = product.sourcePriceCurrency === 'VES' ? 'VES' : 'USD';
+      const previousAmount = Number(item.sourcePriceAmount || 0);
+      const currentAmount = Number(product.sourcePriceAmount || 0);
+      const tolerance = currentCurrency === 'VES' || previousCurrency === 'VES' ? 0.01 : 0.005;
+
+      if (previousCurrency === currentCurrency && Math.abs(previousAmount - currentAmount) <= tolerance) {
+        return null;
+      }
+
+      const previousLabel = previousCurrency === 'VES' ? fmtBs(previousAmount) : fmtUSD(previousAmount);
+      const currentLabel = currentCurrency === 'VES' ? fmtBs(currentAmount) : fmtUSD(currentAmount);
+
+      return `${repairDisplayText(item.productNameSnapshot)}: ${previousLabel} -> ${currentLabel}`;
+    })
+    .filter((item): item is string => Boolean(item));
+
+  if (changedItems.length === 0) return null;
+
+  return {
+    changedItems,
+    ageDays: Math.floor((currentTimeMs - (parseIsoMs(order.createdAtISO) ?? currentTimeMs)) / (24 * 60 * 60 * 1000)),
+  };
+}
 
 function splitTwoWordsCompact(full: string) {
   const parts = repairDisplayText(full).split(/\s+/).filter(Boolean);
@@ -4002,13 +4106,40 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
   const masterInbox = useMemo(() => {
     const tasks: MasterInboxTask[] = [];
+    const inboxCatalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
     for (const o of orders) {
       const delText = fmtDeliveryTextES(o.deliveryAtISO);
       const currentKey = getProcessCurrentKey(o);
       const alertReason = getCurrentProcessAlertReason(o, currentKey, currentTimeMs);
       const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
       const hasDriverAssigned = Boolean(o.riderName?.trim() || o.externalPartner?.trim());
-      if (o.status === 'created') {
+      const expiredQuoteReview = getExpiredQuotePriceReview(o, inboxCatalogItemById, currentTimeMs);
+
+      if (expiredQuoteReview) {
+        tasks.push({
+          id: `n-budget-recalc-${o.id}`,
+          type: 'RECALCULAR_PRESUPUESTO',
+          orderId: o.id,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
+          deliveryText: `Entrega: ${delText}`,
+          advisorName: o.advisorName,
+          title: 'Presupuesto vencido',
+          message:
+            o.status === 'created'
+              ? 'El presupuesto tiene más de 3 días sin pago y hay precios actualizados. El asesor debe recalcularlo.'
+              : 'El presupuesto tiene más de 3 días sin pago y hay precios actualizados. Devuélvelo a creado para recalcular.',
+          severity: 'warning',
+          openTab: 'detalle',
+          createdAtISO: o.createdAtISO,
+          isUrgent: true,
+          detailLines: [
+            `${expiredQuoteReview.ageDays} días sin pago completo`,
+            ...expiredQuoteReview.changedItems.slice(0, 3),
+          ],
+        });
+      }
+
+      if (o.status === 'created' && !expiredQuoteReview) {
         tasks.push({
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
@@ -4158,7 +4289,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
     const pr = (t: MasterTaskType) => {
       if (t === 'COCINA_RETRASADA' || t === 'DELIVERY_RETRASADO') return 0;
-      if (t === 'RE-APROBAR') return 1;
+      if (t === 'RE-APROBAR' || t === 'RECALCULAR_PRESUPUESTO') return 1;
       if (t === 'CONFIRMAR PAGO') return 2;
       if (t === 'ASIGNAR_DRIVER') return 3;
       if (t === 'ENVIAR_COCINA') return 4;
@@ -4174,7 +4305,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       activity,
       count: tasks.length,
     };
-  }, [orders, currentTimeMs]);
+  }, [catalogItems, orders, currentTimeMs]);
 
   const masterInboxActiveIds = useMemo(
     () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
@@ -4349,7 +4480,9 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     } else if (masterInboxFilter === 'payments') {
       filteredTasks = masterInbox.tasks.filter((task) => task.type === 'CONFIRMAR PAGO');
     } else if (masterInboxFilter === 'changes') {
-      filteredTasks = masterInbox.tasks.filter((task) => task.type === 'RE-APROBAR');
+      filteredTasks = masterInbox.tasks.filter((task) =>
+        task.type === 'RE-APROBAR' || task.type === 'RECALCULAR_PRESUPUESTO'
+      );
     }
 
     return filteredTasks.filter((task) => matchesMasterInboxStatusFilter(task.id));
@@ -8544,19 +8677,7 @@ const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | nul
 };
 
 const getOrderPaymentBalanceBs = (order: Order) => {
-  if (order.totalBs > 0 && (order.confirmedPaidUsd <= 0.005 || activeBsRate <= 0)) {
-    return Number(order.totalBs.toFixed(2));
-  }
-
-  if (order.totalBs > 0 && activeBsRate > 0) {
-    return Math.max(0, Number((order.totalBs - order.confirmedPaidUsd * activeBsRate).toFixed(2)));
-  }
-
-  if (activeBsRate > 0) {
-    return Number((order.balanceUsd * activeBsRate).toFixed(2));
-  }
-
-  return 0;
+  return getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs);
 };
 
 const getSuggestedOrderPaymentAmount = (order: Order, currencyCode: string | null | undefined) => {
@@ -9233,6 +9354,14 @@ const selectedCreateOrderClientAddresses = useMemo(
   const catalogItemById = useMemo(() => {
     return new Map(catalogItems.map((item) => [item.id, item]));
   }, [catalogItems]);
+
+  const selectedOrderExpiredQuoteReview = useMemo(
+    () =>
+      selectedOrder
+        ? getExpiredQuotePriceReview(selectedOrder, catalogItemById, currentTimeMs)
+        : null,
+    [catalogItemById, currentTimeMs, selectedOrder]
+  );
 
   const filteredInventoryItems = useMemo(() => {
     const term = inventorySearch.trim().toLowerCase();
@@ -13569,6 +13698,18 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <div className="mt-1 text-xs text-[#8A8A96]">
                       Asesor: {repairDisplayText(n.advisorName)} · {fmtDateTimeES(n.createdAtISO)}
                     </div>
+                    {n.detailLines && n.detailLines.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {n.detailLines.slice(0, 4).map((line) => (
+                          <span
+                            key={`${n.id}-${line}`}
+                            className="rounded-full border border-[#3A3212] bg-[#1D1A00] px-2 py-0.5 text-[10px] text-[#FEEF00]"
+                          >
+                            {line}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
 
                     <div className="mt-3 flex gap-2">
                       <button
@@ -14847,6 +14988,24 @@ onClose={() => {
             </div>
           );
         })()}
+        {selectedOrderExpiredQuoteReview ? (
+          <div className="mt-3 rounded-xl border border-[#3A3212] bg-[#1D1A00] p-3 text-xs text-[#FEEF00]">
+            <div className="font-semibold text-[#F5F5F7]">Presupuesto vencido con precios actualizados</div>
+            <div className="mt-1 text-[#D8C75A]">
+              Tiene {selectedOrderExpiredQuoteReview.ageDays} días sin pago completo. Revisa si debe volver a creado para recalcular.
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedOrderExpiredQuoteReview.changedItems.slice(0, 4).map((line) => (
+                <span
+                  key={line}
+                  className="rounded-full border border-[#4A3D12] bg-[#11100A] px-2 py-0.5 text-[10px]"
+                >
+                  {line}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {selectedOrder.notes?.trim() ? (
           <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
             <span className="text-[#F5F5F7]">Nota del pedido:</span> {selectedOrder.notes.trim()}
@@ -15130,6 +15289,11 @@ onClose={() => {
         {getOrderPaymentBalanceBs(selectedOrder) > 0 ? (
           <div className="mt-0.5 text-[11px] font-medium text-[#FEEF00]">
             {fmtBs(getOrderPaymentBalanceBs(selectedOrder))}
+          </div>
+        ) : null}
+        {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs) ? (
+          <div className="mt-1 text-[10px] text-[#8A8A96]">
+            {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.label}
           </div>
         ) : null}
       </div>
@@ -15571,6 +15735,18 @@ onClick={() => {
           </>
         ) : null}
 
+        {selectedOrderExpiredQuoteReview && selectedOrder.status !== 'created' ? (
+          <button
+            className="rounded-md border border-[#FEEF00]/50 bg-[#15120A] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
+            onClick={() => {
+              setReviewActionMode('return');
+              setReviewActionNotes('Presupuesto vencido con cambios de precio. Recalcular y reenviar al cliente.');
+            }}
+          >
+            Devolver para recalcular
+          </button>
+        ) : null}
+
         {['created', 'queued'].includes(selectedOrder.status) || isAdmin ? (
           <button
             className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
@@ -15720,6 +15896,14 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         </div>
       </div>
     </div>
+    {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs) ? (
+      <div className="mt-2 rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
+        <span className="font-semibold text-[#F5F5F7]">
+          {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.label}:
+        </span>{' '}
+        {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.description}
+      </div>
+    ) : null}
 
     <div className="mt-2 space-y-2">
       <select
