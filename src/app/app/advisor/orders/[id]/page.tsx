@@ -271,6 +271,38 @@ function getPaymentSummary(
   };
 }
 
+type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
+
+const OPERATIONAL_PHASES: Array<{ key: OperationalPhase; label: string }> = [
+  { key: 'new', label: 'Nuevas' },
+  { key: 'kitchen', label: 'Cocina' },
+  { key: 'ready', label: 'Listas' },
+  { key: 'route', label: 'Camino' },
+  { key: 'closed', label: 'Entregadas' },
+];
+
+function operationalPhase(order: Pick<OrderRow, 'status'>): OperationalPhase {
+  if (order.status === 'cancelled') return 'cancelled';
+  if (order.status === 'delivered') return 'closed';
+  if (order.status === 'out_for_delivery') return 'route';
+  if (order.status === 'ready') return 'ready';
+  if (order.status === 'confirmed' || order.status === 'in_kitchen') return 'kitchen';
+  return 'new';
+}
+
+function operationalPhaseIndex(order: Pick<OrderRow, 'status'>) {
+  const phase = operationalPhase(order);
+  if (phase === 'cancelled') return 0;
+  return Math.max(0, OPERATIONAL_PHASES.findIndex((item) => item.key === phase));
+}
+
+function operationalPhaseLabel(order: Pick<OrderRow, 'status' | 'fulfillment'>) {
+  if (order.status === 'ready' && order.fulfillment === 'pickup') return 'Lista para retiro';
+  if (order.status === 'ready') return 'Lista para salir';
+  if (order.status === 'out_for_delivery') return 'En camino';
+  return statusLabel(order.status);
+}
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
@@ -928,6 +960,11 @@ export default async function AdvisorOrderDetailPage({
     toSafeNumber(pendingPaidUsd, 0),
     toSafeNumber(balanceUsd, 0),
   );
+  const phaseIndex = operationalPhaseIndex(order);
+  const phaseLabel = operationalPhaseLabel(order);
+  const deliveryLabel = schedule?.asap
+    ? 'Lo antes posible'
+    : `${safeText(schedule?.date, '')} ${safeText(schedule?.time_12, '')}`.trim() || 'Sin horario';
   const shouldHighlightWhatsApp = Boolean(whatsappContactHref) && isMovingOrderStatus(order.status);
   void buildWhatsAppOrderSummary;
   const whatsappSummary = buildCleanWhatsAppOrderSummary({
@@ -941,35 +978,68 @@ export default async function AdvisorOrderDetailPage({
       <PageIntro
         eyebrow="Orden"
         title={`Orden #${order.id}`}
-        description={client?.full_name?.trim() || safeText(order.order_number, 'Sin localizador')}
+        description={`${client?.full_name?.trim() || safeText(order.order_number, 'Sin localizador')} · ${safeText(order.order_number, 'Sin localizador')}`}
       />
 
       <SectionCard
-        title="Mover ahora"
-        subtitle="Acciones y lectura rapida para operar este pedido desde el telefono."
+        title="Seguimiento"
+        subtitle="Fase actual, cobro y acciones principales."
       >
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Estado del pedido</div>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-[#F5F7FB]">{statusLabel(order.status)}</div>
-              <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
+        <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Fase operativa</div>
+              <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-[#F5F7FB]">{phaseLabel}</div>
             </div>
-            <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
-              {schedule?.asap
-                ? 'Entrega lo antes posible.'
-                : `${safeText(schedule?.date, '')} ${safeText(schedule?.time_12, '')}`.trim() || 'Sin horario cargado.'}
+            <StatusBadge label={phaseLabel} tone={statusTone(order.status)} />
+          </div>
+
+          {operationalPhase(order) === 'cancelled' ? (
+            <div className="mt-3 rounded-[12px] bg-[#261114] px-3 py-2 text-xs text-[#F0A6AE]">
+              Pedido cancelado.
+            </div>
+          ) : (
+            <div className="mt-3 grid grid-cols-5 gap-1">
+              {OPERATIONAL_PHASES.map((phase, index) => (
+                <div
+                  key={`${order.id}-${phase.key}`}
+                  className={[
+                    'h-1.5 rounded-full',
+                    index <= phaseIndex ? 'bg-[#F0D000]' : 'bg-[#252B38]',
+                  ].join(' ')}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Entrega</div>
+              <div className="mt-1 truncate font-medium text-[#F5F7FB]">{deliveryLabel}</div>
+            </div>
+            <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Cobro</div>
+              <div className="mt-1 truncate font-medium text-[#F5F7FB]">{paymentSummary.label}</div>
+            </div>
+            <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Tipo</div>
+              <div className="mt-1 font-medium text-[#F5F7FB]">{order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}</div>
+            </div>
+            <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Total</div>
+              <div className="mt-1 font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</div>
             </div>
           </div>
-          <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Cobro</div>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-[#F5F7FB]">{paymentSummary.label}</div>
-              <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
-            </div>
-            <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">{paymentSummary.detail}</div>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
+            {actionableEvents > 0 ? (
+              <StatusBadge label={`${actionableEvents} por atender`} tone="warning" />
+            ) : null}
+            {schedule?.asap ? <StatusBadge label="Lo antes posible" tone="warning" /> : null}
           </div>
         </div>
+
         <div className="mt-3">
           <OrderDetailActions
             orderId={order.id}
@@ -990,16 +1060,8 @@ export default async function AdvisorOrderDetailPage({
       </SectionCard>
 
       <SectionCard
-        title="Resumen"
+        title="Cliente y agenda"
         subtitle={formatDateTime(order.created_at)}
-        action={
-          <div className="flex flex-col items-end gap-1.5">
-            <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
-            {actionableEvents > 0 ? (
-              <StatusBadge label={`${actionableEvents} por atender`} tone="warning" />
-            ) : null}
-          </div>
-        }
       >
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
@@ -1032,25 +1094,6 @@ export default async function AdvisorOrderDetailPage({
             ) : (
               <span className="text-[#F5F7FB]">{client?.phone?.trim() || 'Sin telefono'}</span>
             )}
-          </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Entrega</span>
-            <span className="text-right text-[#F5F7FB]">
-              {schedule?.asap
-                ? 'Lo antes posible'
-                : `${safeText(schedule?.date, '')} ${safeText(schedule?.time_12, '')}`.trim() ||
-                  'Sin horario'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Tipo</span>
-            <span className="text-[#F5F7FB]">
-              {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Total</span>
-            <span className="font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</span>
           </div>
         </div>
       </SectionCard>
