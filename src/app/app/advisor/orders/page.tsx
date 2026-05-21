@@ -190,7 +190,34 @@ function getGroupKey(
   return 'upcoming';
 }
 
+type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
+
+const OPERATIONAL_PHASES: Array<{ key: OperationalPhase; label: string }> = [
+  { key: 'new', label: 'Nuevas' },
+  { key: 'kitchen', label: 'Cocina' },
+  { key: 'ready', label: 'Listas' },
+  { key: 'route', label: 'Camino' },
+  { key: 'closed', label: 'Entregadas' },
+];
+
+function operationalPhase(order: OrderRow): OperationalPhase {
+  if (order.status === 'cancelled') return 'cancelled';
+  if (order.status === 'delivered') return 'closed';
+  if (order.status === 'out_for_delivery') return 'route';
+  if (order.status === 'ready') return 'ready';
+  if (order.status === 'confirmed' || order.status === 'in_kitchen') return 'kitchen';
+  return 'new';
+}
+
+function phaseLabelForBucket(bucket: string) {
+  if (!bucket.startsWith('phase_')) return null;
+  const phaseKey = bucket.replace('phase_', '') as OperationalPhase;
+  return OPERATIONAL_PHASES.find((phase) => phase.key === phaseKey)?.label ?? null;
+}
+
 function titleForBucket(bucket: string) {
+  const phaseLabel = phaseLabelForBucket(bucket);
+  if (phaseLabel) return phaseLabel;
   if (bucket === 'overdue') return 'Atrasadas';
   if (bucket === 'open') return 'Pendientes';
   if (bucket === 'unpaid') return 'Sin pago';
@@ -201,6 +228,8 @@ function titleForBucket(bucket: string) {
 }
 
 function subtitleForBucket(bucket: string) {
+  const phaseLabel = phaseLabelForBucket(bucket);
+  if (phaseLabel) return `Pedidos del dia en fase ${phaseLabel.toLowerCase()}.`;
   if (bucket === 'overdue') return 'Ordenes con hora operativa atrasada.';
   if (bucket === 'open') return 'Ordenes que siguen activas.';
   if (bucket === 'unpaid') return 'Pendientes de cobro o con pago rechazado.';
@@ -279,6 +308,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     if (bucket === 'unpaid') return unpaid;
     if (bucket === 'delivered') return order.status === 'delivered';
     if (bucket === 'asap') return asap;
+    if (bucket.startsWith('phase_')) return operationalPhase(order) === bucket.replace('phase_', '');
     return true;
   });
 
@@ -304,6 +334,11 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   ];
   const bucketLinks = [
     { key: 'priority', label: 'Prioridad' },
+    { key: 'phase_new', label: 'Nuevas' },
+    { key: 'phase_kitchen', label: 'Cocina' },
+    { key: 'phase_ready', label: 'Listas' },
+    { key: 'phase_route', label: 'Camino' },
+    { key: 'phase_closed', label: 'Entregadas' },
     { key: 'overdue', label: 'Atrasadas' },
     { key: 'unpaid', label: 'Sin pago' },
     { key: 'asap', label: 'ASAP' },

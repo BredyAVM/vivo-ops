@@ -220,11 +220,11 @@ function priorityScore(order: OrderRow, paymentReportsByOrderId: Map<number, Pay
 type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
 
 const OPERATIONAL_PHASES: Array<{ key: OperationalPhase; label: string; shortLabel: string }> = [
-  { key: 'new', label: 'Entrada', shortLabel: 'Entrada' },
+  { key: 'new', label: 'Nuevas', shortLabel: 'Nuevas' },
   { key: 'kitchen', label: 'Cocina', shortLabel: 'Cocina' },
-  { key: 'ready', label: 'Lista', shortLabel: 'Lista' },
+  { key: 'ready', label: 'Listas', shortLabel: 'Listas' },
   { key: 'route', label: 'Camino', shortLabel: 'Camino' },
-  { key: 'closed', label: 'Cierre', shortLabel: 'Cierre' },
+  { key: 'closed', label: 'Entregadas', shortLabel: 'Entregadas' },
 ];
 
 function operationalPhase(order: OrderRow): OperationalPhase {
@@ -395,12 +395,16 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
 
         <div className="mt-4 grid grid-cols-5 gap-1.5">
           {phaseCounts.map((phase) => (
-            <div key={phase.key} className="min-w-0 rounded-[14px] bg-[#0F131B] px-2 py-2 text-center">
+            <Link
+              key={phase.key}
+              href={`/app/advisor/orders?day=${selectedDayKey}&bucket=phase_${phase.key}`}
+              className="min-w-0 rounded-[14px] border border-[#232632] bg-[#0F131B] px-1.5 py-2 text-center transition active:scale-[0.99]"
+            >
               <div className="text-lg font-semibold text-[#F5F7FB]">{phase.count}</div>
-              <div className="mt-0.5 truncate text-[10px] font-medium uppercase tracking-[0.08em] text-[#8B93A7]">
+              <div className="mt-0.5 text-[9px] font-semibold uppercase leading-3 tracking-normal text-[#8B93A7]">
                 {phase.shortLabel}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
 
@@ -427,7 +431,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
             href={`/app/advisor/orders?day=${selectedDayKey}&bucket=delivered`}
             className="rounded-[12px] border border-[#232632] bg-[#0F131B] px-2.5 py-2 text-center text-xs text-[#CCD3E2]"
           >
-            <span className="font-semibold text-[#F5F7FB]">{deliveredOrders.length}</span> cierre
+            <span className="font-semibold text-[#F5F7FB]">{deliveredOrders.length}</span> entregadas
           </Link>
         </div>
       </section>
