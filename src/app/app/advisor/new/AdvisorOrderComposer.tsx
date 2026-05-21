@@ -64,6 +64,14 @@ type ConfigSelection = {
   qty: number;
 };
 
+type ConfigOption = ProductRow & {
+  componentMode: ProductComponentRow['component_mode'];
+  componentQuantity: number;
+  isRequired: boolean;
+  countsTowardDetailLimit: boolean;
+  sortOrder: number;
+};
+
 type DraftItem = {
   localId: string;
   product_id: number;
@@ -389,6 +397,10 @@ function getVisibleDetailLines(lines: string[]) {
   return lines
     .map((line) => normalizeSnapshotText(line))
     .filter((line) => line && !line.startsWith(HIDDEN_DETAIL_PREFIX));
+}
+
+function isHiddenDetailLine(line: string) {
+  return String(line || '').trim().startsWith(HIDDEN_DETAIL_PREFIX);
 }
 
 function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
@@ -860,11 +872,22 @@ function Section({
 
 function parseEditableDetailLines(lines: string[]) {
   let alias = '';
-  const selections: Array<{ componentName: string; qty: number }> = [];
+  const selections: Array<{ componentName: string; qty: number; componentProductId: number | null }> = [];
+  const selectionByProductId = new Map<number, number>();
 
   for (const rawLine of lines) {
     const line = String(rawLine || '').trim();
     if (!line) continue;
+
+    if (isHiddenDetailLine(line)) {
+      const [, componentProductIdRaw, qtyRaw] = line.split('|');
+      const componentProductId = Number(componentProductIdRaw || 0);
+      const qty = Number(qtyRaw || 0);
+      if (Number.isFinite(componentProductId) && componentProductId > 0 && Number.isFinite(qty) && qty > 0) {
+        selectionByProductId.set(componentProductId, qty);
+      }
+      continue;
+    }
 
     if (/^para\s*:/i.test(line)) {
       alias = line.replace(/^para\s*:/i, '').trim();
@@ -878,11 +901,21 @@ function parseEditableDetailLines(lines: string[]) {
     const componentName = match[2].trim();
 
     if (Number.isFinite(qty) && qty > 0 && componentName) {
-      selections.push({ componentName, qty });
+      selections.push({ componentName, qty, componentProductId: null });
     }
   }
 
-  return { alias, selections };
+  return {
+    alias,
+    selections: [
+      ...Array.from(selectionByProductId.entries()).map(([componentProductId, qty]) => ({
+        componentName: '',
+        componentProductId,
+        qty,
+      })),
+      ...selections,
+    ],
+  };
 }
 
 function ConfigSheet(props: {
@@ -892,9 +925,9 @@ function ConfigSheet(props: {
   setAlias: (value: string) => void;
   totalSelected: number;
   totalLimit: number;
-  options: ProductRow[];
+  options: ConfigOption[];
   selections: ConfigSelection[];
-  onChangeQty: (product: ProductRow, qty: number) => void;
+  onChangeQty: (product: ConfigOption, qty: number) => void;
   onClose: () => void;
   onConfirm: () => void;
   isEditing: boolean;
@@ -904,7 +937,7 @@ function ConfigSheet(props: {
   const remaining = props.totalLimit > 0 ? props.totalLimit - props.totalSelected : 0;
   const canConfirm =
     props.options.length === 0 ||
-    (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : props.selections.length > 0);
+    (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : true);
 
   return (
     <div className="advisor-fade-in fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
@@ -960,6 +993,7 @@ function ConfigSheet(props: {
               props.options.map((option) => {
                 const currentQty =
                   props.selections.find((item) => item.componentProductId === option.id)?.qty || 0;
+                const isOptionalFixed = option.componentMode === 'fixed' && !option.isRequired;
 
                 return (
                   <div
@@ -968,31 +1002,48 @@ function ConfigSheet(props: {
                   >
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
-                      <div className="mt-1 text-xs text-[#8B93A7]">{option.sku || 'Sin codigo'}</div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">
+                        {isOptionalFixed ? 'Opcional' : option.sku || 'Sin codigo'}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
+                    {isOptionalFixed ? (
                       <button
                         type="button"
-                        onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
-                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                        onClick={() => props.onChangeQty(option, currentQty > 0 ? 0 : option.componentQuantity || 1)}
+                        className={[
+                          'h-11 rounded-[14px] border px-3 text-sm font-semibold',
+                          currentQty > 0
+                            ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                            : 'border-[#232632] bg-[#12151d] text-[#F5F7FB]',
+                        ].join(' ')}
                       >
-                        -
+                        {currentQty > 0 ? 'Incluida' : 'Incluir'}
                       </button>
-                      <input
-                        value={String(currentQty)}
-                        onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
-                        onFocus={(e) => e.currentTarget.select()}
-                        className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
-                        inputMode="numeric"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => props.onChangeQty(option, currentQty + 1)}
-                        className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
-                      >
-                        +
-                      </button>
-                    </div>
+                    ) : (
+                      <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
+                        <button
+                          type="button"
+                          onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
+                          className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                        >
+                          -
+                        </button>
+                        <input
+                          value={String(currentQty)}
+                          onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
+                          onFocus={(e) => e.currentTarget.select()}
+                          className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
+                          inputMode="numeric"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => props.onChangeQty(option, currentQty + 1)}
+                          className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1186,15 +1237,43 @@ export default function AdvisorOrderComposer({
   const configOptions = useMemo(() => {
     if (!configProductId) return [];
     return productComponents
-      .filter((row) => row.parent_product_id === configProductId && row.component_mode === 'selectable')
+      .filter(
+        (row) =>
+          row.parent_product_id === configProductId &&
+          (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
+      )
       .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
-      .map((row) => productById.get(row.component_product_id))
-      .filter((row): row is ProductRow => !!row);
+      .map((row) => {
+        const product = productById.get(row.component_product_id);
+        if (!product) return null;
+        return {
+          ...product,
+          componentMode: row.component_mode,
+          componentQuantity: Number(row.quantity || 0),
+          isRequired: Boolean(row.is_required),
+          countsTowardDetailLimit: row.counts_toward_detail_limit !== false,
+          sortOrder: Number(row.sort_order || 0),
+        } satisfies ConfigOption;
+      })
+      .filter((row): row is ConfigOption => !!row);
   }, [configProductId, productById, productComponents]);
 
   const configBaseLimit = Number(configProduct?.detail_units_limit || 0);
   const configTotalLimit = configBaseLimit > 0 ? configBaseLimit * Math.max(1, configQty) : 0;
-  const configSelectedUnits = configSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const configSelectedUnits = useMemo(() => {
+    if (!configProductId) return configSelections.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+    const componentById = new Map(
+      productComponents
+        .filter((row) => row.parent_product_id === configProductId)
+        .map((row) => [row.component_product_id, row] as const)
+    );
+
+    return configSelections.reduce((sum, item) => {
+      const component = componentById.get(item.componentProductId);
+      if (component && component.counts_toward_detail_limit === false) return sum;
+      return sum + Number(item.qty || 0);
+    }, 0);
+  }, [configProductId, configSelections, productComponents]);
   const hasDeliveryItem = useMemo(
     () => draftItems.some((item) => isDeliveryCatalogItemName(item.product_name_snapshot)),
     [draftItems]
@@ -1899,6 +1978,49 @@ export default function AdvisorOrderComposer({
     setProductActiveIndex(filteredProducts.findIndex((row) => row.id === product.id));
   }
 
+  function getProductComponents(productId: number) {
+    return productComponents
+      .filter((row) => row.parent_product_id === productId)
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+  }
+
+  function buildComponentDetailLines(
+    productId: number,
+    options?: {
+      totalMultiplier?: number;
+      selectedByProductId?: Map<number, number>;
+      includeMetadata?: boolean;
+    }
+  ) {
+    const totalMultiplier = Math.max(1, Number(options?.totalMultiplier || 1));
+    const selectedByProductId = options?.selectedByProductId ?? new Map<number, number>();
+    const detailLines: string[] = [];
+
+    for (const component of getProductComponents(productId)) {
+      let componentQty = 0;
+
+      if (component.component_mode === 'fixed' && component.is_required) {
+        componentQty = Number(component.quantity || 0);
+      } else {
+        componentQty = selectedByProductId.get(component.component_product_id) ?? 0;
+      }
+
+      componentQty = Math.max(0, Number(componentQty || 0));
+      if (componentQty <= 0) continue;
+
+      const product = productById.get(component.component_product_id);
+      const componentName = product?.name || `Componente ${component.component_product_id}`;
+      const totalQty = componentQty * totalMultiplier;
+      detailLines.push(`${totalQty} ${componentName}`);
+
+      if (options?.includeMetadata) {
+        detailLines.push(`${HIDDEN_DETAIL_PREFIX}${component.component_product_id}|${totalQty}`);
+      }
+    }
+
+    return detailLines;
+  }
+
   function buildDraftItem(product: ProductRow, quantity: number, lines: string[]) {
     const sourceCurrency = (product.source_price_currency || 'USD') as CurrencyCode;
     const sourceAmount =
@@ -1932,11 +2054,24 @@ export default function AdvisorOrderComposer({
   }
 
   function openConfigForProduct(product: ProductRow, quantity: number) {
+    const optionalFixedSelections = getProductComponents(product.id)
+      .filter((row) => row.component_mode === 'fixed' && !row.is_required && Number(row.quantity || 0) > 0)
+      .map((row) => {
+        const option = productById.get(row.component_product_id);
+        if (!option) return null;
+        return {
+          componentProductId: option.id,
+          name: option.name,
+          qty: Number(row.quantity || 0),
+        } satisfies ConfigSelection;
+      })
+      .filter((row): row is ConfigSelection => !!row);
+
     setConfigEditingLocalId(null);
     setConfigProductId(product.id);
     setConfigQty(quantity);
     setConfigAlias('');
-    setConfigSelections([]);
+    setConfigSelections(optionalFixedSelections);
     setConfigOpen(true);
   }
 
@@ -1948,10 +2083,9 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    const nextOptions = productComponents
-      .filter((row) => row.parent_product_id === product.id && row.component_mode === 'selectable')
-      .map((row) => productById.get(row.component_product_id))
-      .filter((row): row is ProductRow => !!row);
+    const nextOptions = getProductComponents(product.id).filter(
+      (row) => row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required)
+    );
 
     setConfigEditingLocalId(item.localId);
     setConfigProductId(item.product_id);
@@ -1960,10 +2094,16 @@ export default function AdvisorOrderComposer({
     setConfigSelections(
       parsed.selections
         .map((selection) => {
-          const option =
-            nextOptions.find((row) => row.name === selection.componentName) ??
-            products.find((row) => row.name === selection.componentName);
-          if (!option) return null;
+          const component =
+            (selection.componentProductId != null
+              ? nextOptions.find((row) => row.component_product_id === selection.componentProductId)
+              : null) ??
+            nextOptions.find((row) => {
+              const product = productById.get(row.component_product_id);
+              return product?.name === selection.componentName;
+            });
+          const option = component ? productById.get(component.component_product_id) : null;
+          if (!component || !option) return null;
           return {
             componentProductId: option.id,
             name: option.name,
@@ -1988,17 +2128,31 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    const hasSelectableComponents = productComponents.some(
-      (row) => row.parent_product_id === selectedProduct.id && row.component_mode === 'selectable'
+    const hasConfigurableComponents = productComponents.some(
+      (row) =>
+        row.parent_product_id === selectedProduct.id &&
+        (row.component_mode === 'selectable' || (row.component_mode === 'fixed' && !row.is_required))
     );
 
-    if (selectedProduct.is_detail_editable || hasSelectableComponents) {
+    if (selectedProduct.is_detail_editable || hasConfigurableComponents) {
+      if (quantity !== 1) {
+        setError('Los productos configurables se cargan uno por uno. Debes usar cantidad 1.');
+        return;
+      }
+
       openConfigForProduct(selectedProduct, quantity);
       return;
     }
 
     rememberProduct(selectedProduct.id);
-    setDraftItems((current) => [...current, buildDraftItem(selectedProduct, quantity, [])]);
+    setDraftItems((current) => [
+      ...current,
+      buildDraftItem(
+        selectedProduct,
+        quantity,
+        buildComponentDetailLines(selectedProduct.id, { totalMultiplier: quantity })
+      ),
+    ]);
     pulseAddedItemFeedback();
     setInfo(`Item agregado: ${selectedProduct.name}`);
     setQty('1');
@@ -2049,16 +2203,17 @@ export default function AdvisorOrderComposer({
       return;
     }
 
-    if (configOptions.length > 0 && configSelections.length === 0) {
-      setError('Selecciona la composicion interna del producto.');
-      return;
-    }
-
+    const selectedByProductId = new Map(
+      configSelections
+        .filter((item) => item.qty > 0)
+        .map((item) => [item.componentProductId, item.qty] as const)
+    );
     const detailLines = [
       configAlias.trim() ? `Para: ${configAlias.trim()}` : null,
-      ...configSelections
-        .sort((a, b) => a.name.localeCompare(b.name, 'es'))
-        .map((item) => `${item.qty} ${item.name}`),
+      ...buildComponentDetailLines(configProduct.id, {
+        selectedByProductId,
+        includeMetadata: true,
+      }),
     ].filter((line): line is string => !!line);
 
     const item = buildDraftItem(configProduct, configQty, detailLines);
@@ -2305,6 +2460,17 @@ export default function AdvisorOrderComposer({
     }
 
     parts.push('');
+    if (discountEnabled && discountPctNumber > 0) {
+      parts.push(`*SUBTOTAL:* ${formatBsWhatsApp(draftSubtotalBs)} / ${formatUsd(draftTotalUsd)}`);
+      parts.push(
+        `*DESCUENTO (${discountPctNumber}%):* -${formatBsWhatsApp(discountAmountBs)} / -${formatUsd(discountAmountUsd)}`
+      );
+      if (hasInvoice && invoiceTaxPctNumber > 0) {
+        parts.push(
+          `*IVA (${invoiceTaxPctNumber}%):* ${formatBsWhatsApp(invoiceTaxAmountBs)} / ${formatUsd(invoiceTaxAmountUsd)}`
+        );
+      }
+    }
     parts.push(`*TOTAL:* ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
     parts.push('');
     parts.push(`${WHATSAPP_CHECK} *Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
