@@ -211,6 +211,7 @@ function paymentMethodCopyLabel(value: string | null | undefined) {
     transfer: 'transferencia',
     cash_usd: 'efectivo USD',
     cash_ves: 'efectivo Bs',
+    pos: 'punto de venta',
     zelle: 'zelle',
     mixed: 'mixto',
   };

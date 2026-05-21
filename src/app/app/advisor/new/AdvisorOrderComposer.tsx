@@ -13,6 +13,7 @@ type PaymentMethod =
   | 'transfer'
   | 'cash_usd'
   | 'cash_ves'
+  | 'pos'
   | 'zelle'
   | 'mixed';
 type CurrencyCode = 'USD' | 'VES';
@@ -376,6 +377,7 @@ function getPaymentMethodLabel(method: PaymentMethod) {
     transfer: 'transferencia',
     cash_usd: 'efectivo USD',
     cash_ves: 'efectivo Bs',
+    pos: 'punto de venta',
     zelle: 'zelle',
     mixed: 'mixto',
   };
@@ -1056,9 +1058,9 @@ export default function AdvisorOrderComposer({
   const [newClientType, setNewClientType] = useState<ClientType>('assigned');
 
   const [fulfillment, setFulfillment] = useState<FulfillmentType>('pickup');
-  const [deliveryDate, setDeliveryDate] = useState(getTodayInputValue());
-  const [deliveryHour12, setDeliveryHour12] = useState(rounded.hour12);
-  const [deliveryMinute, setDeliveryMinute] = useState(rounded.minute);
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliveryHour12, setDeliveryHour12] = useState('');
+  const [deliveryMinute, setDeliveryMinute] = useState('');
   const [deliveryAmPm, setDeliveryAmPm] = useState<'AM' | 'PM'>(rounded.ampm);
   const [isAsap, setIsAsap] = useState(false);
   const [receiverName, setReceiverName] = useState('');
@@ -1124,15 +1126,17 @@ export default function AdvisorOrderComposer({
     [selectedClient]
   );
   const quickAddresses = useMemo(() => {
+    if (!selectedClient) return [];
+
     const seen = new Set<string>();
-    return [...selectedClientAddresses, ...recentAddresses].filter((address) => {
+    return selectedClientAddresses.filter((address) => {
       const key = `${address.addressText.trim()}|${address.gpsUrl.trim()}`;
       if (!address.addressText.trim() && !address.gpsUrl.trim()) return false;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  }, [recentAddresses, selectedClientAddresses]);
+  }, [selectedClient, selectedClientAddresses]);
   const fxRateNumber = Math.max(0, Number(String(fxRate || '0').replace(',', '.')) || 0);
   const draftItemSnapshots = useMemo(
     () =>
@@ -1195,26 +1199,34 @@ export default function AdvisorOrderComposer({
     () => draftItems.some((item) => isDeliveryCatalogItemName(item.product_name_snapshot)),
     [draftItems]
   );
+  const scheduleReady =
+    isAsap ||
+    (deliveryDate.trim().length > 0 &&
+      deliveryHour12.trim().length > 0 &&
+      deliveryMinute.trim().length > 0);
 
-  const createReady =
+  const baseCreateReady =
     draftItems.length > 0 &&
     (!!selectedClient || (isNewClientMode && newClientName.trim() && newClientPhone.trim())) &&
     (fulfillment === 'pickup' || deliveryAddress.trim().length > 0) &&
     (fulfillment !== 'delivery' || hasDeliveryItem) &&
     fxRateNumber > 0;
+  const createReady = baseCreateReady && scheduleReady;
   const createReadyHint = !draftItems.length
     ? 'Agrega al menos un item.'
     : !selectedClient && !(isNewClientMode && newClientName.trim() && newClientPhone.trim())
       ? 'Selecciona o crea el cliente.'
-      : fulfillment === 'delivery' && !deliveryAddress.trim().length
-        ? 'Falta la direccion de entrega.'
-        : fulfillment === 'delivery' && !hasDeliveryItem
-          ? 'Agrega el item de delivery para cerrar la orden.'
-        : !fxRateNumber
-          ? 'Falta la tasa del dia.'
-          : isEditingOrder
-            ? 'Todo listo para guardar los cambios.'
-            : 'Todo listo para copiar y crear.';
+      : !scheduleReady
+        ? 'Falta colocar fecha y hora.'
+        : fulfillment === 'delivery' && !deliveryAddress.trim().length
+          ? 'Falta la direccion de entrega.'
+          : fulfillment === 'delivery' && !hasDeliveryItem
+            ? 'Agrega el item de delivery para cerrar la orden.'
+            : !fxRateNumber
+              ? 'Falta la tasa del dia.'
+              : isEditingOrder
+                ? 'Todo listo para guardar los cambios.'
+                : 'Todo listo para copiar y crear.';
   const footerSummary = [
     `${draftItems.length} item${draftItems.length === 1 ? '' : 's'}`,
     fulfillment === 'delivery' ? 'Delivery' : 'Retiro',
@@ -1447,7 +1459,8 @@ export default function AdvisorOrderComposer({
           const paymentData = order.extra_fields?.payment;
           const pricing = order.extra_fields?.pricing;
           const documents = order.extra_fields?.documents;
-          const parsedTime = parseStoredTime12(schedule?.time_12, rounded);
+          const blankTime = { hour12: '', minute: '', ampm: rounded.ampm } as const;
+          const parsedTime = parseStoredTime12(schedule?.time_12, schedule?.asap ? rounded : blankTime);
 
           setSelectedClient(orderClient ? (orderClient as ClientRow) : null);
           if (orderClient) rememberClient(orderClient as ClientRow);
@@ -1456,11 +1469,11 @@ export default function AdvisorOrderComposer({
           setIsNewClientMode(false);
           setDraftItems(orderItems);
           setFulfillment(order.fulfillment || 'pickup');
-          setDeliveryDate(schedule?.date || getTodayInputValue());
-          setDeliveryHour12(parsedTime.hour12);
-          setDeliveryMinute(parsedTime.minute);
-          setDeliveryAmPm(parsedTime.ampm);
-          setIsAsap(Boolean(schedule?.asap));
+          setDeliveryDate(isEditingOrder ? schedule?.date || (schedule?.asap ? getTodayInputValue() : '') : '');
+          setDeliveryHour12(isEditingOrder ? parsedTime.hour12 : '');
+          setDeliveryMinute(isEditingOrder ? parsedTime.minute : '');
+          setDeliveryAmPm(isEditingOrder ? parsedTime.ampm : rounded.ampm);
+          setIsAsap(isEditingOrder ? Boolean(schedule?.asap) : false);
           setReceiverName(order.receiver_name || '');
           setReceiverPhone(order.receiver_phone || '');
           setDeliveryAddress(order.delivery_address || '');
@@ -1525,7 +1538,7 @@ export default function AdvisorOrderComposer({
             setOriginalEditSnapshot({
               clientId: orderClient?.id ? Number(orderClient.id) : null,
               fulfillment: (order.fulfillment || 'pickup') as FulfillmentType,
-              deliveryDate: normalizeSnapshotText(schedule?.date || getTodayInputValue()),
+              deliveryDate: normalizeSnapshotText(schedule?.date || (schedule?.asap ? getTodayInputValue() : '')),
               deliveryTime12: normalizeSnapshotText(`${parsedTime.hour12}:${parsedTime.minute} ${parsedTime.ampm}`),
               isAsap: Boolean(schedule?.asap),
               receiverName: normalizeSnapshotText(order.receiver_name),
@@ -1613,7 +1626,12 @@ export default function AdvisorOrderComposer({
   }, [isEditingOrder, rounded, router, sourceOrderId, supabase]);
 
   useEffect(() => {
-    if (paymentMethod === 'cash_ves' || paymentMethod === 'transfer' || paymentMethod === 'payment_mobile') {
+    if (
+      paymentMethod === 'cash_ves' ||
+      paymentMethod === 'transfer' ||
+      paymentMethod === 'payment_mobile' ||
+      paymentMethod === 'pos'
+    ) {
       setPaymentCurrency('VES');
     } else if (paymentMethod === 'cash_usd' || paymentMethod === 'zelle' || paymentMethod === 'pending') {
       setPaymentCurrency('USD');
@@ -2070,20 +2088,26 @@ export default function AdvisorOrderComposer({
     const parts: string[] = [];
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
-    const deliveryDayLabel = new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-      timeZone: 'America/Caracas',
-    });
-    const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
+    const deliveryDayLabel = deliveryDate
+      ? new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'America/Caracas',
+        })
+      : 'Sin fecha';
+    const deliveryHourLabel =
+      deliveryHour12.trim() && deliveryMinute.trim()
+        ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
+        : 'Sin hora';
     const paymentLabelMap: Record<PaymentMethod, string> = {
       pending: 'pendiente',
       payment_mobile: 'pago movil',
       transfer: 'transferencia',
       cash_usd: 'efectivo USD',
       cash_ves: 'efectivo Bs',
+      pos: 'punto de venta',
       zelle: 'zelle',
       mixed: 'mixto',
     };
@@ -2153,20 +2177,26 @@ export default function AdvisorOrderComposer({
     const parts: string[] = [];
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
-    const deliveryDayLabel = new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-      timeZone: 'America/Caracas',
-    });
-    const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
+    const deliveryDayLabel = deliveryDate
+      ? new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'America/Caracas',
+        })
+      : 'Sin fecha';
+    const deliveryHourLabel =
+      deliveryHour12.trim() && deliveryMinute.trim()
+        ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
+        : 'Sin hora';
     const paymentLabelMap: Record<PaymentMethod, string> = {
       pending: 'pendiente',
       payment_mobile: 'pago móvil',
       transfer: 'transferencia',
       cash_usd: 'efectivo USD',
       cash_ves: 'efectivo Bs',
+      pos: 'punto de venta',
       zelle: 'zelle',
       mixed: 'mixto',
     };
@@ -2233,14 +2263,19 @@ export default function AdvisorOrderComposer({
     const parts: string[] = [];
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
-    const deliveryDayLabel = new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit',
-      timeZone: 'America/Caracas',
-    });
-    const deliveryHourLabel = `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`;
+    const deliveryDayLabel = deliveryDate
+      ? new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+          weekday: 'long',
+          day: '2-digit',
+          month: '2-digit',
+          year: '2-digit',
+          timeZone: 'America/Caracas',
+        })
+      : 'Sin fecha';
+    const deliveryHourLabel =
+      deliveryHour12.trim() && deliveryMinute.trim()
+        ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
+        : 'Sin hora';
 
     parts.push('*Presupuesto*');
     parts.push('');
@@ -2344,7 +2379,15 @@ export default function AdvisorOrderComposer({
   }
 
   function buildExtraFields() {
-    const deliveryTime24 = from12hTo24h(deliveryHour12, deliveryMinute, deliveryAmPm);
+    const normalizedDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const normalizedDeliveryHour12 = deliveryHour12.trim() || (isAsap ? rounded.hour12 : '');
+    const normalizedDeliveryMinute = deliveryMinute.trim() || (isAsap ? rounded.minute : '');
+    const normalizedDeliveryAmPm = isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm;
+    const deliveryTime24 = from12hTo24h(
+      normalizedDeliveryHour12,
+      normalizedDeliveryMinute,
+      normalizedDeliveryAmPm,
+    );
     const invoiceDataNote = [
       invoiceCompanyName.trim(),
       invoiceTaxId.trim(),
@@ -2356,8 +2399,8 @@ export default function AdvisorOrderComposer({
 
     return {
       schedule: {
-        date: deliveryDate,
-        time_12: `${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`,
+        date: normalizedDeliveryDate,
+        time_12: `${normalizedDeliveryHour12}:${normalizedDeliveryMinute} ${normalizedDeliveryAmPm}`,
         time_24: deliveryTime24,
         asap: isAsap,
       },
@@ -2427,12 +2470,30 @@ export default function AdvisorOrderComposer({
     clearMessages();
 
     if (!createReady) {
-      setError('Completa cliente, items y entrega para continuar.');
+      if (!scheduleReady) {
+        setError('Falta colocar la fecha y la hora de entrega.');
+      } else {
+        setError('Completa cliente, items y entrega para continuar.');
+      }
+      return;
+    }
+
+    if (!isAsap && !deliveryDate.trim()) {
+      setError('Falta colocar la fecha de entrega.');
+      return;
+    }
+
+    if (!isAsap && (!deliveryHour12.trim() || !deliveryMinute.trim())) {
+      setError('Falta colocar la hora de entrega.');
       return;
     }
 
     try {
-      from12hTo24h(deliveryHour12, deliveryMinute, deliveryAmPm);
+      from12hTo24h(
+        deliveryHour12.trim() || (isAsap ? rounded.hour12 : ''),
+        deliveryMinute.trim() || (isAsap ? rounded.minute : ''),
+        isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm,
+      );
     } catch (timeError) {
       setError(timeError instanceof Error ? timeError.message : 'Hora invalida.');
       return;
@@ -3026,7 +3087,18 @@ export default function AdvisorOrderComposer({
 
           <button
             type="button"
-            onClick={() => setIsAsap((current) => !current)}
+            onClick={() => {
+              setIsAsap((current) => {
+                const next = !current;
+                if (next) {
+                  setDeliveryDate(getTodayInputValue());
+                  setDeliveryHour12(rounded.hour12);
+                  setDeliveryMinute(rounded.minute);
+                  setDeliveryAmPm(rounded.ampm);
+                }
+                return next;
+              });
+            }}
             className={[
               'h-10 rounded-[14px] border px-4 text-sm font-medium',
               isAsap ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]',
@@ -3129,6 +3201,7 @@ export default function AdvisorOrderComposer({
                 <option value="transfer">Transferencia</option>
                 <option value="cash_usd">Efectivo USD</option>
                 <option value="cash_ves">Efectivo Bs</option>
+                <option value="pos">Punto de venta</option>
                 <option value="zelle">Zelle</option>
                 <option value="mixed">Mixto</option>
               </select>
@@ -3343,10 +3416,10 @@ export default function AdvisorOrderComposer({
               </button>
               <button
                 type="submit"
-                disabled={saving || !createReady}
+                disabled={saving || !baseCreateReady}
                 className={[
                   'h-11 rounded-[16px] px-4 text-sm font-semibold',
-                  saving || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                  saving || !baseCreateReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
                 {saving ? 'Guardando...' : isEditingOrder ? 'Guardar cambios' : 'Crear pedido'}

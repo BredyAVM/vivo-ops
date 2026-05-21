@@ -89,30 +89,32 @@ export default async function AdvisorPaymentsPage() {
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const [{ data: paymentData }, { data: orderData }] = await Promise.all([
-    ctx.supabase
-      .from('payment_reports')
-      .select(
-        'id, order_id, status, reported_currency_code, reported_amount, reported_amount_usd_equivalent, reference_code, created_at'
-      )
-      .eq('created_by_user_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(80),
-    ctx.supabase
-      .from('orders')
-      .select(
-        'id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-      )
-      .eq('attributed_advisor_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(120),
-  ]);
+  const { data: orderData } = await ctx.supabase
+    .from('orders')
+    .select(
+      'id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+    )
+    .eq('attributed_advisor_id', ctx.user.id)
+    .order('created_at', { ascending: false })
+    .limit(120);
 
-  const payments = (paymentData ?? []) as PaymentRow[];
   const orders = ((orderData ?? []) as OrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
+
+  const orderIds = orders.map((order) => order.id);
+  const { data: paymentData } = orderIds.length
+    ? await ctx.supabase
+        .from('payment_reports')
+        .select(
+          'id, order_id, status, reported_currency_code, reported_amount, reported_amount_usd_equivalent, reference_code, created_at'
+        )
+        .in('order_id', orderIds)
+        .order('created_at', { ascending: false })
+        .limit(200)
+    : { data: [] };
+  const payments = (paymentData ?? []) as PaymentRow[];
 
   const reportsByOrderId = new Map<number, PaymentRow[]>();
   for (const payment of payments) {

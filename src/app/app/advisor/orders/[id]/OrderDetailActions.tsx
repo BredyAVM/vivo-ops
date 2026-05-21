@@ -51,6 +51,7 @@ function getPaymentMethodLabel(method: string) {
   const labels: Record<string, string> = {
     payment_mobile: 'Pago movil',
     transfer: 'Transferencia',
+    pos: 'Punto de venta',
     zelle: 'Zelle',
   };
 

@@ -225,25 +225,27 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
 
-  const [{ data: ordersData }, { data: paymentsData }] = await Promise.all([
-    ctx.supabase
-      .from('orders')
-      .select(
-        'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-      )
-      .eq('attributed_advisor_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(300),
-    ctx.supabase
-      .from('payment_reports')
-      .select('order_id, status, reported_amount_usd_equivalent')
-      .eq('created_by_user_id', ctx.user.id),
-  ]);
+  const { data: ordersData } = await ctx.supabase
+    .from('orders')
+    .select(
+      'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+    )
+    .eq('attributed_advisor_id', ctx.user.id)
+    .order('created_at', { ascending: false })
+    .limit(300);
 
   const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
+
+  const orderIds = orders.map((order) => order.id);
+  const { data: paymentsData } = orderIds.length
+    ? await ctx.supabase
+        .from('payment_reports')
+        .select('order_id, status, reported_amount_usd_equivalent')
+        .in('order_id', orderIds)
+    : { data: [] };
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
 
   const paymentReportsByOrderId = new Map<number, PaymentRow[]>();
@@ -321,7 +323,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           className="rounded-[22px] border border-[#5E2229] bg-[#261114] px-4 py-3"
         >
           <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#F0A6AE]">
-            Vencidas
+            Atrasadas
           </div>
           <div className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">
             {overdueOrders.length}
@@ -393,7 +395,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} />
-                      {overdue ? <StatusBadge label="Vencida" tone="danger" /> : null}
+                      {overdue ? <StatusBadge label="Entrega atrasada" tone="danger" /> : null}
                       {!overdue && paymentLabel ? <StatusBadge label={paymentLabel} tone="warning" /> : null}
                       {!overdue && !unpaid && asap ? <StatusBadge label="ASAP" tone="warning" /> : null}
                     </div>

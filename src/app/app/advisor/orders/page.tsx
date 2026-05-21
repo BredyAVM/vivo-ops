@@ -191,7 +191,7 @@ function getGroupKey(
 }
 
 function titleForBucket(bucket: string) {
-  if (bucket === 'overdue') return 'Vencidas';
+  if (bucket === 'overdue') return 'Atrasadas';
   if (bucket === 'open') return 'Pendientes';
   if (bucket === 'unpaid') return 'Sin pago';
   if (bucket === 'delivered') return 'Entregadas';
@@ -201,7 +201,7 @@ function titleForBucket(bucket: string) {
 }
 
 function subtitleForBucket(bucket: string) {
-  if (bucket === 'overdue') return 'Ordenes que ya debieron moverse.';
+  if (bucket === 'overdue') return 'Ordenes con hora operativa atrasada.';
   if (bucket === 'open') return 'Ordenes que siguen activas.';
   if (bucket === 'unpaid') return 'Pendientes de cobro o con pago rechazado.';
   if (bucket === 'delivered') return 'Cierres del dia activo.';
@@ -235,25 +235,27 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
   const bucket = params.bucket ?? 'priority';
 
-  const [{ data: ordersData }, { data: paymentsData }] = await Promise.all([
-    ctx.supabase
-      .from('orders')
-      .select(
-        'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-      )
-      .eq('attributed_advisor_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(300),
-    ctx.supabase
-      .from('payment_reports')
-      .select('order_id, status, reported_amount_usd_equivalent')
-      .eq('created_by_user_id', ctx.user.id),
-  ]);
+  const { data: ordersData } = await ctx.supabase
+    .from('orders')
+    .select(
+      'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+    )
+    .eq('attributed_advisor_id', ctx.user.id)
+    .order('created_at', { ascending: false })
+    .limit(300);
 
   const orders = ((ordersData ?? []) as RawOrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
+
+  const orderIds = orders.map((order) => order.id);
+  const { data: paymentsData } = orderIds.length
+    ? await ctx.supabase
+        .from('payment_reports')
+        .select('order_id, status, reported_amount_usd_equivalent')
+        .in('order_id', orderIds)
+    : { data: [] };
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
 
   const paymentReportsByOrderId = new Map<number, PaymentRow[]>();
@@ -294,7 +296,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     subtitle: string;
     rows: OrderRow[];
   }> = [
-    { key: 'overdue', title: 'Vencidas', subtitle: 'Mover primero.', rows: grouped.overdue },
+    { key: 'overdue', title: 'Atrasadas', subtitle: 'Hora operativa vencida.', rows: grouped.overdue },
     { key: 'unpaid', title: 'Sin pago', subtitle: 'Cobro pendiente o rechazado.', rows: grouped.unpaid },
     { key: 'asap', title: 'Lo antes posible', subtitle: 'Sin hora fija.', rows: grouped.asap },
     { key: 'upcoming', title: 'Proximas', subtitle: 'Siguen en la agenda.', rows: grouped.upcoming },
@@ -302,7 +304,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   ];
   const bucketLinks = [
     { key: 'priority', label: 'Prioridad' },
-    { key: 'overdue', label: 'Vencidas' },
+    { key: 'overdue', label: 'Atrasadas' },
     { key: 'unpaid', label: 'Sin pago' },
     { key: 'asap', label: 'ASAP' },
     { key: 'open', label: 'Activas' },
@@ -385,7 +387,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       </div>
                       <div className="flex flex-col items-end gap-1.5">
                         <StatusBadge label={statusLabel(order.status)} tone={tone(order.status)} />
-                        {overdue ? <StatusBadge label="Vencida" tone="danger" /> : null}
+                        {overdue ? <StatusBadge label="Entrega atrasada" tone="danger" /> : null}
                         {!overdue && paymentStatus && paymentStatus.tone === 'warning' ? (
                           <StatusBadge label={paymentStatus.label} tone="warning" />
                         ) : null}
@@ -415,7 +417,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
 
                     <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
                       <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                        <span>{overdue ? 'Hora vencida' : 'Hora operativa'}</span>
+                        <span>{overdue ? 'Hora atrasada' : 'Hora operativa'}</span>
                         <span>{getAgendaTimeLabel(order)}</span>
                       </div>
                       <div className="mt-1 flex items-center justify-between gap-3">
