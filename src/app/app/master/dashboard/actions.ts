@@ -489,6 +489,128 @@ async function appendOrderEvent(
   }
 }
 
+function catalogPriceChanged(params: {
+  previousCurrency: 'VES' | 'USD';
+  previousAmount: number;
+  nextCurrency: 'VES' | 'USD';
+  nextAmount: number;
+}) {
+  const tolerance = params.previousCurrency === 'VES' || params.nextCurrency === 'VES' ? 0.01 : 0.005;
+  return (
+    params.previousCurrency !== params.nextCurrency ||
+    Math.abs(Number(params.previousAmount || 0) - Number(params.nextAmount || 0)) > tolerance
+  );
+}
+
+async function notifyOpenOrdersAffectedByCatalogPriceChange(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    productId: number;
+    productName: string;
+    previousCurrency: 'VES' | 'USD';
+    previousAmount: number;
+    nextCurrency: 'VES' | 'USD';
+    nextAmount: number;
+    actorUserId: string;
+  }
+) {
+  if (!catalogPriceChanged(input)) return;
+
+  const { data: itemRows, error: itemError } = await supabase
+    .from('order_items')
+    .select('order_id, product_name_snapshot, pricing_origin_currency, pricing_origin_amount')
+    .eq('product_id', input.productId);
+
+  if (itemError) {
+    console.warn('catalog price impact skipped', itemError.message);
+    return;
+  }
+
+  const impactedOrderIds = Array.from(
+    new Set(
+      (itemRows ?? [])
+        .filter((item) =>
+          catalogPriceChanged({
+            previousCurrency: item.pricing_origin_currency === 'VES' ? 'VES' : 'USD',
+            previousAmount: toSafeNumber(item.pricing_origin_amount, 0),
+            nextCurrency: input.nextCurrency,
+            nextAmount: input.nextAmount,
+          })
+        )
+        .map((item) => Number(item.order_id || 0))
+        .filter((orderId) => Number.isFinite(orderId) && orderId > 0)
+    )
+  );
+
+  if (impactedOrderIds.length === 0) return;
+
+  const { data: orderRows, error: ordersError } = await supabase
+    .from('orders')
+    .select('id, status, total_usd, order_number, attributed_advisor_id, extra_fields')
+    .in('id', impactedOrderIds);
+
+  if (ordersError) {
+    console.warn('catalog price impact orders skipped', ordersError.message);
+    return;
+  }
+
+  const candidateOrders = (orderRows ?? []).filter((order) => {
+    if (['cancelled', 'delivered'].includes(String(order.status || ''))) return false;
+    const totalUsd = toSafeNumber((order.extra_fields as any)?.pricing?.total_usd, toSafeNumber(order.total_usd, 0));
+    return totalUsd > 0.01;
+  });
+
+  if (candidateOrders.length === 0) return;
+
+  const candidateOrderIds = candidateOrders.map((order) => Number(order.id));
+  const { data: reportRows } = await supabase
+    .from('payment_reports')
+    .select('order_id, status, reported_amount_usd_equivalent')
+    .in('order_id', candidateOrderIds);
+
+  const confirmedPaidByOrder = new Map<number, number>();
+  for (const report of reportRows ?? []) {
+    if (report.status !== 'confirmed') continue;
+    const orderId = Number(report.order_id || 0);
+    confirmedPaidByOrder.set(
+      orderId,
+      (confirmedPaidByOrder.get(orderId) ?? 0) + toSafeNumber(report.reported_amount_usd_equivalent, 0)
+    );
+  }
+
+  for (const order of candidateOrders) {
+    const orderId = Number(order.id);
+    const totalUsd = toSafeNumber((order.extra_fields as any)?.pricing?.total_usd, toSafeNumber(order.total_usd, 0));
+    const clientFundUsd = toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
+    const confirmedPaidUsd = (confirmedPaidByOrder.get(orderId) ?? 0) + clientFundUsd;
+    if (Math.max(0, totalUsd - confirmedPaidUsd) <= 0.01) continue;
+
+    const context = await loadOrderEventContext(supabase, orderId);
+    await appendOrderEvent(supabase, {
+      orderId,
+      context,
+      eventType: 'catalog_price_changed_for_open_quote',
+      eventGroup: 'modification',
+      title: 'Precio de catálogo actualizado',
+      message: `El precio de ${input.productName} cambió y esta orden sigue con saldo pendiente.`,
+      severity: 'warning',
+      actorUserId: input.actorUserId,
+      payload: {
+        product_id: input.productId,
+        product_name: input.productName,
+        previous_currency: input.previousCurrency,
+        previous_amount: input.previousAmount,
+        next_currency: input.nextCurrency,
+        next_amount: input.nextAmount,
+      },
+      recipients: [
+        { targetRole: 'master', requiresAction: true },
+        { targetUserId: context?.advisorUserId, requiresAction: true },
+      ],
+    });
+  }
+}
+
 function getChangeSectionsSummary(params: {
   changedFields: string[];
   itemsChanged: boolean;
@@ -2241,7 +2363,7 @@ export async function updateCatalogItemAction(input: {
     notes: string | null;
   }>;
 }) {
-  const { supabase, roles } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
   if (!Number.isFinite(input.productId) || input.productId <= 0) {
@@ -2301,7 +2423,7 @@ export async function updateCatalogItemAction(input: {
 
   const { data: currentProduct, error: productError } = await supabase
     .from('products')
-    .select('id, sku, name')
+    .select('id, sku, name, source_price_amount, source_price_currency')
     .eq('id', input.productId)
     .single();
 
@@ -2464,6 +2586,16 @@ export async function updateCatalogItemAction(input: {
     }
   }
 
+  await notifyOpenOrdersAffectedByCatalogPriceChange(supabase, {
+    productId: input.productId,
+    productName: String(currentProduct.name || 'Producto'),
+    previousCurrency: currentProduct.source_price_currency === 'VES' ? 'VES' : 'USD',
+    previousAmount: toSafeNumber(currentProduct.source_price_amount, 0),
+    nextCurrency: input.sourcePriceCurrency,
+    nextAmount: sourcePriceAmount,
+    actorUserId: user.id,
+  });
+
   revalidatePath('/app/master/dashboard');
 }
 
@@ -2541,7 +2673,7 @@ export async function updateCatalogPricesQuickAction(input: {
     sourcePriceAmount: number;
   }>;
 }) {
-  const { supabase, roles } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
   const items = (input.items ?? [])
@@ -2565,7 +2697,7 @@ export async function updateCatalogPricesQuickAction(input: {
 
   const { data: products, error: productsError } = await supabase
     .from('products')
-    .select('id, source_price_currency')
+    .select('id, name, source_price_currency, source_price_amount')
     .in('id', productIds);
 
   if (productsError) throw new Error(productsError.message);
@@ -2586,18 +2718,21 @@ export async function updateCatalogPricesQuickAction(input: {
     throw new Error('No hay una tasa activa válida.');
   }
 
-  const productCurrencyById = new Map<number, 'VES' | 'USD'>();
+  const productById = new Map<number, {
+    id: number;
+    name: string | null;
+    source_price_currency: string | null;
+    source_price_amount: number | string | null;
+  }>();
   for (const product of products ?? []) {
-    productCurrencyById.set(
-      Number(product.id),
-      product.source_price_currency === 'VES' ? 'VES' : 'USD'
-    );
+    productById.set(Number(product.id), product);
   }
 
   for (const item of items) {
-    const sourcePriceCurrency = productCurrencyById.get(item.productId);
+    const product = productById.get(item.productId);
+    const sourcePriceCurrency = product?.source_price_currency === 'VES' ? 'VES' : 'USD';
 
-    if (!sourcePriceCurrency) {
+    if (!product) {
       throw new Error(`No se pudo cargar el producto ${item.productId}.`);
     }
 
@@ -2624,6 +2759,16 @@ export async function updateCatalogPricesQuickAction(input: {
     if (updateError) {
       throw new Error(updateError.message);
     }
+
+    await notifyOpenOrdersAffectedByCatalogPriceChange(supabase, {
+      productId: item.productId,
+      productName: String(product.name || 'Producto'),
+      previousCurrency: product.source_price_currency === 'VES' ? 'VES' : 'USD',
+      previousAmount: toSafeNumber(product.source_price_amount, 0),
+      nextCurrency: sourcePriceCurrency,
+      nextAmount: item.sourcePriceAmount,
+      actorUserId: user.id,
+    });
   }
 
   revalidatePath('/app/master/dashboard');

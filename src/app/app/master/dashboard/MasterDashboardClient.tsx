@@ -1777,6 +1777,53 @@ function getExpiredQuotePriceReview(
   };
 }
 
+function catalogSourcePriceChanged(params: {
+  previousCurrency: 'VES' | 'USD';
+  previousAmount: number;
+  nextCurrency: 'VES' | 'USD';
+  nextAmount: number;
+}) {
+  const tolerance = params.previousCurrency === 'VES' || params.nextCurrency === 'VES' ? 0.01 : 0.005;
+  return (
+    params.previousCurrency !== params.nextCurrency ||
+    Math.abs(Number(params.previousAmount || 0) - Number(params.nextAmount || 0)) > tolerance
+  );
+}
+
+function getCatalogPriceImpactForProduct(params: {
+  productId: number;
+  previousCurrency: 'VES' | 'USD';
+  previousAmount: number;
+  nextCurrency: 'VES' | 'USD';
+  nextAmount: number;
+  orders: Order[];
+}) {
+  if (!catalogSourcePriceChanged(params)) {
+    return { affectedOrders: [], count: 0 };
+  }
+
+  const affectedOrders = params.orders.filter((order) => {
+    if (order.balanceUsd <= 0.01) return false;
+    if (order.status === 'cancelled' || order.status === 'delivered') return false;
+
+    return order.draftItems.some((item) => {
+      if (item.productId !== params.productId) return false;
+
+      return catalogSourcePriceChanged({
+        previousCurrency: item.sourcePriceCurrency === 'VES' ? 'VES' : 'USD',
+        previousAmount: Number(item.sourcePriceAmount || 0),
+        nextCurrency: params.nextCurrency,
+        nextAmount: params.nextAmount,
+      });
+    });
+  });
+
+  return {
+    affectedOrders,
+    count: affectedOrders.length,
+  };
+}
+
 function splitTwoWordsCompact(full: string) {
   const parts = repairDisplayText(full).split(/\s+/).filter(Boolean);
   const first = parts[0] ?? '—';
@@ -3923,6 +3970,59 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     [catalogItems, selectedCatalogItemId]
   );
 
+  const selectedCatalogPriceImpact = useMemo(() => {
+    if (!selectedCatalogItem) return { affectedOrders: [], count: 0 };
+
+    const nextAmount = Number(String(editSourcePriceAmount || '').trim().replace(',', '.'));
+    if (!Number.isFinite(nextAmount) || nextAmount < 0) {
+      return { affectedOrders: [], count: 0 };
+    }
+
+    return getCatalogPriceImpactForProduct({
+      productId: selectedCatalogItem.id,
+      previousCurrency: selectedCatalogItem.sourcePriceCurrency,
+      previousAmount: selectedCatalogItem.sourcePriceAmount,
+      nextCurrency: editSourcePriceCurrency,
+      nextAmount,
+      orders,
+    });
+  }, [editSourcePriceAmount, editSourcePriceCurrency, orders, selectedCatalogItem]);
+
+  const quickCatalogPriceImpacts = useMemo(() => {
+    return quickCatalogRows
+      .map((row) => {
+        const product = catalogItems.find((item) => item.id === row.productId);
+        if (!product) return null;
+
+        const nextAmount = Number(String(row.nextAmount || '').trim().replace(',', '.'));
+        if (!Number.isFinite(nextAmount) || nextAmount < 0) return null;
+
+        const impact = getCatalogPriceImpactForProduct({
+          productId: row.productId,
+          previousCurrency: product.sourcePriceCurrency,
+          previousAmount: product.sourcePriceAmount,
+          nextCurrency: row.sourcePriceCurrency,
+          nextAmount,
+          orders,
+        });
+
+        if (impact.count === 0) return null;
+
+        return {
+          productId: row.productId,
+          name: row.name,
+          count: impact.count,
+          affectedOrders: impact.affectedOrders,
+        };
+      })
+      .filter((row): row is { productId: number; name: string; count: number; affectedOrders: Order[] } => Boolean(row));
+  }, [catalogItems, orders, quickCatalogRows]);
+
+  const quickCatalogAffectedOrderCount = useMemo(
+    () => new Set(quickCatalogPriceImpacts.flatMap((row) => row.affectedOrders.map((order) => order.id))).size,
+    [quickCatalogPriceImpacts]
+  );
+
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
@@ -5801,6 +5901,18 @@ const handleSaveCatalog = async () => {
       return;
     }
 
+    if (selectedCatalogPriceImpact.count > 0) {
+      const sampleOrders = selectedCatalogPriceImpact.affectedOrders
+        .slice(0, 4)
+        .map((order) => `#${order.id}`)
+        .join(', ');
+      const confirmed = window.confirm(
+        `Este cambio puede afectar ${selectedCatalogPriceImpact.count} presupuesto(s) abierto(s) con saldo pendiente (${sampleOrders}).\n\nSe guardará el precio para pedidos nuevos y se dejará una revisión en las órdenes afectadas.`
+      );
+
+      if (!confirmed) return;
+    }
+
     await updateCatalogItemAction({
       productId: selectedCatalogItem.id,
       type: editType,
@@ -5925,6 +6037,14 @@ const handleSaveQuickCatalog = async () => {
     if (changedItems.length === 0) {
       showToast('error', 'No hay cambios de precio para guardar.');
       return;
+    }
+
+    if (quickCatalogAffectedOrderCount > 0) {
+      const confirmed = window.confirm(
+        `Esta actualización puede afectar ${quickCatalogAffectedOrderCount} presupuesto(s) abierto(s) con saldo pendiente.\n\nSe guardarán los precios para pedidos nuevos y se dejarán revisiones en las órdenes afectadas.`
+      );
+
+      if (!confirmed) return;
     }
 
     setQuickCatalogSaving(true);
@@ -14546,6 +14666,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       onChange={setEditSourcePriceAmount}
                       type="text"
                     />
+                    {selectedCatalogPriceImpact.count > 0 ? (
+                      <div className="col-span-2 rounded-xl border border-[#3A3212] bg-[#1D1A00] px-3 py-2 text-xs text-[#FEEF00]">
+                        Este precio impacta {selectedCatalogPriceImpact.count} presupuesto(s) abierto(s) con saldo pendiente.
+                        <div className="mt-1 text-[11px] text-[#D8C75A]">
+                          Al guardar, se avisará en el timeline de esas órdenes para que master/admin decidan si recalcular.
+                        </div>
+                      </div>
+                    ) : null}
                     <FieldInput
                       label="Und/servicio"
                       value={editUnitsPerService}
@@ -16710,6 +16838,16 @@ deliveryAssignMode === 'external' ? (
           </table>
         </div>
       </div>
+
+      {quickCatalogAffectedOrderCount > 0 ? (
+        <div className="mt-3 rounded-xl border border-[#3A3212] bg-[#1D1A00] px-3 py-2 text-xs text-[#FEEF00]">
+          Esta actualización impacta {quickCatalogAffectedOrderCount} presupuesto(s) abierto(s) con saldo pendiente.
+          <div className="mt-1 text-[11px] text-[#D8C75A]">
+            Productos con impacto: {quickCatalogPriceImpacts.slice(0, 4).map((row) => `${row.name} (${row.count})`).join(', ')}
+            {quickCatalogPriceImpacts.length > 4 ? '...' : ''}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <div className="text-xs text-[#8A8A96]">
