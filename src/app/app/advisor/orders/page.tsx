@@ -209,6 +209,19 @@ function operationalPhase(order: OrderRow): OperationalPhase {
   return 'new';
 }
 
+function operationalPhaseIndex(order: OrderRow) {
+  const phase = operationalPhase(order);
+  if (phase === 'cancelled') return 0;
+  return Math.max(0, OPERATIONAL_PHASES.findIndex((item) => item.key === phase));
+}
+
+function operationalPhaseLabel(order: OrderRow) {
+  if (order.status === 'ready' && order.fulfillment === 'pickup') return 'Lista para retiro';
+  if (order.status === 'ready') return 'Lista para salir';
+  if (order.status === 'out_for_delivery') return 'En camino';
+  return statusLabel(order.status);
+}
+
 function phaseLabelForBucket(bucket: string) {
   if (!bucket.startsWith('phase_')) return null;
   const phaseKey = bucket.replace('phase_', '') as OperationalPhase;
@@ -242,9 +255,10 @@ function subtitleForBucket(bucket: string) {
 function paymentBadge(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
   if (order.status === 'cancelled') return null;
   const state = getPaymentState(order, paymentReportsByOrderId);
-  if (state.balanceUsd <= 0.005) return { label: 'Cobro al dia', tone: 'success' as const };
+  if (state.hasRejected) return { label: 'Pago rechazado', tone: 'danger' as const };
+  if (state.balanceUsd <= 0.005) return { label: 'Pagado', tone: 'success' as const };
   if (state.pendingUsd > 0.005 && state.reportableBalanceUsd <= 0.005) {
-    return { label: 'Por validar', tone: 'warning' as const };
+    return { label: 'Pago por validar', tone: 'warning' as const };
   }
   if (state.confirmedUsd > 0.005 || state.pendingUsd > 0.005) {
     return {
@@ -252,7 +266,24 @@ function paymentBadge(order: OrderRow, paymentReportsByOrderId: Map<number, Paym
       tone: 'warning' as const,
     };
   }
-  return { label: 'Sin pago', tone: 'warning' as const };
+  return { label: 'Cobro pendiente', tone: 'warning' as const };
+}
+
+function attentionLabels(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>, selectedDayKey: string) {
+  const labels: Array<{ label: string; tone: 'neutral' | 'warning' | 'success' | 'danger' }> = [];
+  const payment = getPaymentState(order, paymentReportsByOrderId);
+
+  if (isOverdueOrder(order, selectedDayKey)) labels.push({ label: 'Hora atrasada', tone: 'danger' });
+  if (payment.hasRejected) labels.push({ label: 'Pago rechazado', tone: 'danger' });
+  else if (payment.balanceUsd > 0.005) labels.push({ label: 'Cobro pendiente', tone: 'warning' });
+  if (order.extra_fields?.schedule?.asap && isOpenStatus(order.status)) {
+    labels.push({ label: 'Lo antes posible', tone: 'warning' });
+  }
+  if (order.status === 'created' || order.status === 'queued') {
+    labels.push({ label: 'Pendiente de avance', tone: 'neutral' });
+  }
+
+  return labels;
 }
 
 export default async function AdvisorOrdersPage({ searchParams }: { searchParams?: SearchParams }) {
@@ -320,18 +351,16 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     closed: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'closed'),
   };
 
-  const sections: Array<{
-    key: keyof typeof grouped;
-    title: string;
-    subtitle: string;
-    rows: OrderRow[];
-  }> = [
-    { key: 'overdue', title: 'Atrasadas', subtitle: 'Hora operativa vencida.', rows: grouped.overdue },
-    { key: 'unpaid', title: 'Sin pago', subtitle: 'Cobro pendiente o rechazado.', rows: grouped.unpaid },
-    { key: 'asap', title: 'Lo antes posible', subtitle: 'Sin hora fija.', rows: grouped.asap },
-    { key: 'upcoming', title: 'Proximas', subtitle: 'Siguen en la agenda.', rows: grouped.upcoming },
-    { key: 'closed', title: 'Cerradas', subtitle: 'Ya entregadas o canceladas.', rows: grouped.closed },
-  ];
+  const visibleOrders =
+    bucket === 'priority'
+      ? [...filteredOrders].sort((a, b) => {
+          const attentionDiff =
+            attentionLabels(b, paymentReportsByOrderId, selectedDayKey).length -
+            attentionLabels(a, paymentReportsByOrderId, selectedDayKey).length;
+          if (attentionDiff !== 0) return attentionDiff;
+          return getAgendaSortKey(a).localeCompare(getAgendaSortKey(b));
+        })
+      : filteredOrders;
   const bucketLinks = [
     { key: 'priority', label: 'Prioridad' },
     { key: 'phase_new', label: 'Nuevas' },
@@ -340,10 +369,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     { key: 'phase_route', label: 'Camino' },
     { key: 'phase_closed', label: 'Entregadas' },
     { key: 'overdue', label: 'Atrasadas' },
-    { key: 'unpaid', label: 'Sin pago' },
+    { key: 'unpaid', label: 'Cobro' },
     { key: 'asap', label: 'ASAP' },
     { key: 'open', label: 'Activas' },
-    { key: 'delivered', label: 'Entregadas' },
   ] as const;
 
   return (
@@ -384,125 +412,123 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
         </div>
       </section>
 
-      {sections.map((section) => (
-        <SectionCard
-          key={section.key}
-          title={section.title}
-          subtitle={section.subtitle}
-          action={section.rows.length > 0 ? <StatusBadge label={String(section.rows.length)} tone="neutral" /> : null}
-        >
-          {section.rows.length === 0 ? (
-            <EmptyBlock title="Sin ordenes" detail="No hay elementos en esta bandeja para el dia activo." />
-          ) : (
-            <div className="space-y-2.5">
-              {section.rows.map((order) => {
-                const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
-                const paymentState = getPaymentState(order, paymentReportsByOrderId);
-                const overdue = isOverdueOrder(order, selectedDayKey);
-                const asap = Boolean(order.extra_fields?.schedule?.asap) && isOpenStatus(order.status);
-                const urgencyClass = overdue
-                  ? 'border-[#5E2229] bg-[#171118]'
-                  : unpaid || asap
-                    ? 'border-[#564511] bg-[#151208]'
-                    : 'border-[#232632] bg-[#0F131B]';
-                const paymentStatus = paymentBadge(order, paymentReportsByOrderId);
-                const canReportMorePayment = unpaid && paymentState.reportableBalanceUsd > 0.005;
+      <SectionCard
+        title="Ordenes"
+        subtitle="Fase operativa, cobro y alertas del dia."
+        action={visibleOrders.length > 0 ? <StatusBadge label={String(visibleOrders.length)} tone="neutral" /> : null}
+      >
+        {visibleOrders.length === 0 ? (
+          <EmptyBlock title="Sin ordenes" detail="No hay elementos en esta vista para el dia activo." />
+        ) : (
+          <div className="space-y-2.5">
+            {visibleOrders.map((order) => {
+              const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
+              const paymentState = getPaymentState(order, paymentReportsByOrderId);
+              const paymentStatus = paymentBadge(order, paymentReportsByOrderId);
+              const canReportMorePayment = unpaid && paymentState.reportableBalanceUsd > 0.005;
+              const phaseIndex = operationalPhaseIndex(order);
+              const labels = attentionLabels(order, paymentReportsByOrderId, selectedDayKey).filter(
+                (label) => label.label !== 'Cobro pendiente'
+              );
 
-                return (
-                  <article
-                    key={order.id}
-                    className={`advisor-fade-in rounded-[20px] border px-3.5 py-3 ${urgencyClass}`}
-                  >
+              return (
+                <article
+                  key={order.id}
+                  className="advisor-fade-in rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                >
+                  <Link href={`/app/advisor/orders/${order.id}`} className="block">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-[#F5F7FB]">
+                        <div className="truncate text-sm font-semibold text-[#F5F7FB]">
                           {order.client?.full_name?.trim() || order.order_number}
                         </div>
-                        <div className="mt-1 text-xs text-[#8B93A7]">{order.order_number}</div>
+                        <div className="mt-1 truncate text-xs text-[#8B93A7]">
+                          {order.order_number} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1.5">
-                        <StatusBadge label={statusLabel(order.status)} tone={tone(order.status)} />
-                        {overdue ? <StatusBadge label="Entrega atrasada" tone="danger" /> : null}
-                        {!overdue && paymentStatus && paymentStatus.tone === 'warning' ? (
-                          <StatusBadge label={paymentStatus.label} tone="warning" />
-                        ) : null}
-                        {!overdue && !unpaid && asap ? <StatusBadge label="ASAP" tone="warning" /> : null}
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-semibold text-[#F5F7FB]">{getAgendaTimeLabel(order)}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">{formatUsd(order.total_usd)}</div>
                       </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <StatusBadge
-                        label={order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
-                        tone="neutral"
-                      />
-                      {paymentStatus ? (
-                        <StatusBadge label={paymentStatus.label} tone={paymentStatus.tone} />
-                      ) : null}
-                      {asap && !overdue ? <StatusBadge label="Mover ya" tone="warning" /> : null}
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <StatusBadge label={operationalPhaseLabel(order)} tone={tone(order.status)} />
+                      {paymentStatus ? <StatusBadge label={paymentStatus.label} tone={paymentStatus.tone} /> : null}
                     </div>
 
-                    <div className="mt-3 grid gap-2 text-xs leading-5 text-[#AAB2C5]">
-                      <div>
+                    {operationalPhase(order) === 'cancelled' ? (
+                      <div className="mt-3 rounded-[12px] bg-[#261114] px-3 py-2 text-xs text-[#F0A6AE]">
+                        Pedido cancelado.
+                      </div>
+                    ) : (
+                      <div className="mt-3 grid grid-cols-5 gap-1">
+                        {OPERATIONAL_PHASES.map((phase, index) => (
+                          <div
+                            key={`${order.id}-${phase.key}`}
+                            className={[
+                              'h-1.5 rounded-full',
+                              index <= phaseIndex ? 'bg-[#F0D000]' : 'bg-[#252B38]',
+                            ].join(' ')}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
+                      <span className="min-w-0 truncate">
                         {order.fulfillment === 'delivery'
                           ? order.delivery_address?.trim() || 'Delivery sin direccion'
                           : 'Retiro en tienda'}
-                      </div>
-                      <div>{order.notes?.trim() || 'Sin notas adicionales.'}</div>
+                      </span>
+                      {labels.length > 0 ? (
+                        <span className="shrink-0 text-[#F7DA66]">{labels[0]?.label}</span>
+                      ) : null}
                     </div>
+                  </Link>
 
-                    <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
-                      <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                        <span>{overdue ? 'Hora atrasada' : 'Hora operativa'}</span>
-                        <span>{getAgendaTimeLabel(order)}</span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-3">
-                        <span className="text-xs text-[#8B93A7]">Total</span>
-                        <span className="text-sm font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {isOpenStatus(order.status) ? (
+                      <Link
+                        href={`/app/advisor/new?fromOrder=${order.id}`}
+                        className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                      >
+                        Modificar
+                      </Link>
+                    ) : (
+                      <Link
+                        href={`/app/advisor/new?duplicateFrom=${order.id}`}
+                        className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                      >
+                        Repetir
+                      </Link>
+                    )}
+                    {unpaid ? (
+                      <Link
+                        href={
+                          canReportMorePayment
+                            ? `/app/advisor/orders/${order.id}?reportPayment=1`
+                            : `/app/advisor/orders/${order.id}`
+                        }
+                        className="inline-flex h-9 items-center justify-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                      >
+                        {canReportMorePayment ? 'Reportar pago' : 'Ver pago'}
+                      </Link>
+                    ) : (
                       <Link
                         href={`/app/advisor/orders/${order.id}`}
                         className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                       >
                         Abrir
                       </Link>
-                      {isOpenStatus(order.status) ? (
-                        <Link
-                          href={`/app/advisor/new?fromOrder=${order.id}`}
-                          className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
-                        >
-                          Modificar
-                        </Link>
-                      ) : (
-                        <Link
-                          href={`/app/advisor/new?duplicateFrom=${order.id}`}
-                          className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
-                        >
-                          Repetir
-                        </Link>
-                      )}
-                      {unpaid ? (
-                        <Link
-                          href={
-                            canReportMorePayment
-                              ? `/app/advisor/orders/${order.id}?reportPayment=1`
-                              : `/app/advisor/orders/${order.id}`
-                          }
-                          className="inline-flex h-9 items-center justify-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
-                        >
-                          {canReportMorePayment ? 'Reportar pago' : 'Ver pago'}
-                        </Link>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </SectionCard>
-      ))}
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
     </div>
   );
 }
