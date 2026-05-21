@@ -376,7 +376,7 @@ function formatBsWhatsApp(value: number) {
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 const WHATSAPP_CHECK = '\u2705';
 const WHATSAPP_PRIMARY_BULLET = '\u25AA';
-const WHATSAPP_SECONDARY_BULLET = '\u25AB';
+const WHATSAPP_SECONDARY_BULLET = '-';
 
 function getPaymentMethodLabel(method: PaymentMethod) {
   const labels: Record<PaymentMethod, string> = {
@@ -2293,7 +2293,7 @@ export default function AdvisorOrderComposer({
         parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
         if (item.editable_detail_lines.length > 0) {
           for (const detail of item.editable_detail_lines) {
-            parts.push(`▪ ${detail}`);
+            parts.push(`   - ${detail}`);
           }
         }
       }
@@ -2382,7 +2382,7 @@ export default function AdvisorOrderComposer({
         parts.push(`▪ ${item.qty} ${item.product_name_snapshot}: ${formatBsWhatsApp(lineBs)}`);
         for (const detail of item.editable_detail_lines) {
           const normalizedDetail = String(detail || '').trim();
-          if (normalizedDetail) parts.push(`▪ ${normalizedDetail}`);
+          if (normalizedDetail) parts.push(`   - ${normalizedDetail}`);
         }
       }
     }

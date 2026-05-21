@@ -492,7 +492,7 @@ function buildCleanWhatsAppOrderSummary({
   const fxRate = getOrderFxRate(order);
   const check = '\u2705';
   const primaryBullet = '\u25AA';
-  const secondaryBullet = '\u25AB';
+  const secondaryBullet = '-';
 
   parts.push('*Resumen de Pedido*');
   parts.push('');
