@@ -11,6 +11,7 @@ type OrderRow = {
   id: number;
   order_number: string;
   status: string;
+  queued_needs_reapproval?: boolean | null;
   fulfillment: 'pickup' | 'delivery';
   total_usd: number | string;
   created_at: string;
@@ -48,6 +49,20 @@ type PaymentRow = {
   status: 'pending' | 'confirmed' | 'rejected';
   reported_amount_usd_equivalent: number | string;
 };
+
+type TimelineEventRow = {
+  order_id: number | string | null;
+  event_type: string | null;
+  created_at: string | null;
+};
+
+const REVIEW_EVENT_TYPES = [
+  'order_returned_to_review',
+  'order_changes_rejected',
+  'order_changes_approved',
+  'order_reapproved',
+  'order_approved',
+] as const;
 
 function formatUsd(value: number | string) {
   const amount = Number(value);
@@ -238,6 +253,24 @@ function isUnpaidOrder(order: OrderRow, paymentReportsByOrderId: Map<number, Pay
   return getPaymentState(order, paymentReportsByOrderId).balanceUsd > 0.005;
 }
 
+function latestReviewEvent(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
+  return reviewEventByOrderId.get(order.id)?.event_type || null;
+}
+
+function needsAdvisorReview(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
+  return ['order_returned_to_review', 'order_changes_rejected'].includes(
+    String(latestReviewEvent(order, reviewEventByOrderId) || '')
+  );
+}
+
+function needsInitialApproval(order: OrderRow) {
+  return order.status === 'created';
+}
+
+function needsReapproval(order: OrderRow) {
+  return order.status === 'queued' && Boolean(order.queued_needs_reapproval);
+}
+
 function getGroupKey(
   order: OrderRow,
   paymentReportsByOrderId: Map<number, PaymentRow[]>,
@@ -293,6 +326,9 @@ function titleForBucket(bucket: string) {
   if (phaseLabel) return phaseLabel;
   if (bucket === 'overdue') return 'Atrasadas';
   if (bucket === 'open') return 'Pendientes';
+  if (bucket === 'returned') return 'Devueltas';
+  if (bucket === 'approval') return 'Por aprobar';
+  if (bucket === 'reapproval') return 'Re-aprobación';
   if (bucket === 'unpaid') return 'Sin pago';
   if (bucket === 'delivered') return 'Entregadas';
   if (bucket === 'asap') return 'Lo antes posible';
@@ -305,6 +341,9 @@ function subtitleForBucket(bucket: string) {
   if (phaseLabel) return `Pedidos del dia en fase ${phaseLabel.toLowerCase()}.`;
   if (bucket === 'overdue') return 'Ordenes con hora operativa atrasada.';
   if (bucket === 'open') return 'Ordenes que siguen activas.';
+  if (bucket === 'returned') return 'Ordenes devueltas por master/admin para corregir.';
+  if (bucket === 'approval') return 'Ordenes esperando aprobacion de master/admin.';
+  if (bucket === 'reapproval') return 'Ordenes modificadas esperando re-aprobacion.';
   if (bucket === 'unpaid') return 'Pendientes de cobro o con pago rechazado.';
   if (bucket === 'delivered') return 'Cierres del dia activo.';
   if (bucket === 'asap') return 'Urgencias sin hora fija.';
@@ -358,7 +397,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   const { data: ordersData } = await ctx.supabase
     .from('orders')
     .select(
-      'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+      'id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
     )
     .eq('attributed_advisor_id', ctx.user.id)
     .order('created_at', { ascending: false })
@@ -385,6 +424,22 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     paymentReportsByOrderId.set(report.order_id, current);
   }
 
+  const { data: timelineData } = orderIds.length
+    ? await ctx.supabase
+        .from('order_timeline_events')
+        .select('order_id, event_type, created_at')
+        .in('order_id', orderIds)
+        .in('event_type', REVIEW_EVENT_TYPES)
+        .order('created_at', { ascending: false })
+        .limit(400)
+    : { data: [] };
+  const reviewEventByOrderId = new Map<number, TimelineEventRow>();
+  for (const event of (timelineData ?? []) as TimelineEventRow[]) {
+    const orderId = Number(event.order_id);
+    if (!Number.isFinite(orderId) || reviewEventByOrderId.has(orderId)) continue;
+    reviewEventByOrderId.set(orderId, event);
+  }
+
   const dayOrders = orders
     .filter((order) => getAgendaDayKey(order) === selectedDayKey)
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
@@ -396,6 +451,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
 
     if (bucket === 'overdue') return overdue;
     if (bucket === 'open') return isOpenStatus(order.status);
+    if (bucket === 'returned') return needsAdvisorReview(order, reviewEventByOrderId);
+    if (bucket === 'approval') return needsInitialApproval(order);
+    if (bucket === 'reapproval') return needsReapproval(order);
     if (bucket === 'unpaid') return unpaid;
     if (bucket === 'delivered') return order.status === 'delivered';
     if (bucket === 'asap') return asap;
@@ -423,6 +481,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
       : filteredOrders;
   const bucketLinks = [
     { key: 'priority', label: 'Prioridad' },
+    { key: 'returned', label: 'Devueltas' },
+    { key: 'approval', label: 'Por aprobar' },
+    { key: 'reapproval', label: 'Re-aprobar' },
     { key: 'phase_new', label: 'Nuevas' },
     { key: 'phase_kitchen', label: 'Cocina' },
     { key: 'phase_ready', label: 'Listas' },
@@ -488,6 +549,13 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
               const canReportMorePayment = unpaid && paymentState.reportableBalanceUsd > 0.005;
               const phaseIndex = operationalPhaseIndex(order);
               const paymentMethod = paymentMethodLabel(order.extra_fields?.payment?.method);
+              const reviewBadge = needsAdvisorReview(order, reviewEventByOrderId)
+                ? { label: 'Devuelta', tone: 'danger' as const }
+                : needsReapproval(order)
+                  ? { label: 'Re-aprobación', tone: 'warning' as const }
+                  : needsInitialApproval(order)
+                    ? { label: 'Por aprobar', tone: 'neutral' as const }
+                    : null;
               const labels = attentionLabels(order, paymentReportsByOrderId, selectedDayKey).filter(
                 (label) => label.label !== 'Cobro pendiente'
               );
@@ -516,7 +584,10 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
 
                     <div className="mt-3 flex items-center justify-between gap-3">
                       <StatusBadge label={operationalPhaseLabel(order)} tone={tone(order.status)} />
-                      {paymentStatus ? <StatusBadge label={paymentStatus.label} tone={paymentStatus.tone} /> : null}
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {reviewBadge ? <StatusBadge label={reviewBadge.label} tone={reviewBadge.tone} /> : null}
+                        {paymentStatus ? <StatusBadge label={paymentStatus.label} tone={paymentStatus.tone} /> : null}
+                      </div>
                     </div>
 
                     {operationalPhase(order) === 'cancelled' ? (

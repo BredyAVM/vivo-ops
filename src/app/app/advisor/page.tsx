@@ -10,6 +10,7 @@ type OrderRow = {
   id: number;
   order_number: string;
   status: string;
+  queued_needs_reapproval?: boolean | null;
   fulfillment: 'pickup' | 'delivery';
   total_usd: number | string;
   created_at: string;
@@ -37,6 +38,20 @@ type PaymentRow = {
   status: 'pending' | 'confirmed' | 'rejected';
   reported_amount_usd_equivalent: number | string;
 };
+
+type TimelineEventRow = {
+  order_id: number | string | null;
+  event_type: string | null;
+  created_at: string | null;
+};
+
+const REVIEW_EVENT_TYPES = [
+  'order_returned_to_review',
+  'order_changes_rejected',
+  'order_changes_approved',
+  'order_reapproved',
+  'order_approved',
+] as const;
 
 function formatUsd(value: number | string) {
   const amount = Number(value);
@@ -209,6 +224,24 @@ function isUnpaidOrder(order: OrderRow, paymentReportsByOrderId: Map<number, Pay
   return getPaymentState(order, paymentReportsByOrderId).balanceUsd > 0.005;
 }
 
+function latestReviewEvent(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
+  return reviewEventByOrderId.get(order.id)?.event_type || null;
+}
+
+function needsAdvisorReview(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
+  return ['order_returned_to_review', 'order_changes_rejected'].includes(
+    String(latestReviewEvent(order, reviewEventByOrderId) || '')
+  );
+}
+
+function needsInitialApproval(order: OrderRow) {
+  return order.status === 'created';
+}
+
+function needsReapproval(order: OrderRow) {
+  return order.status === 'queued' && Boolean(order.queued_needs_reapproval);
+}
+
 function priorityScore(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>, selectedDayKey: string) {
   if (isOverdueOrder(order, selectedDayKey)) return 0;
   if (isUnpaidOrder(order, paymentReportsByOrderId)) return 1;
@@ -295,7 +328,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const { data: ordersData } = await ctx.supabase
     .from('orders')
     .select(
-      'id, order_number, status, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+      'id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
     )
     .eq('attributed_advisor_id', ctx.user.id)
     .order('created_at', { ascending: false })
@@ -322,6 +355,22 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     paymentReportsByOrderId.set(report.order_id, current);
   }
 
+  const { data: timelineData } = orderIds.length
+    ? await ctx.supabase
+        .from('order_timeline_events')
+        .select('order_id, event_type, created_at')
+        .in('order_id', orderIds)
+        .in('event_type', REVIEW_EVENT_TYPES)
+        .order('created_at', { ascending: false })
+        .limit(400)
+    : { data: [] };
+  const reviewEventByOrderId = new Map<number, TimelineEventRow>();
+  for (const event of (timelineData ?? []) as TimelineEventRow[]) {
+    const orderId = Number(event.order_id);
+    if (!Number.isFinite(orderId) || reviewEventByOrderId.has(orderId)) continue;
+    reviewEventByOrderId.set(orderId, event);
+  }
+
   const agendaOrders = orders
     .filter((order) => getAgendaDayKey(order) === selectedDayKey)
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
@@ -333,10 +382,22 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     (order) => order.extra_fields?.schedule?.asap && isOpenStatus(order.status)
   );
   const deliveredOrders = agendaOrders.filter((order) => order.status === 'delivered');
+  const returnedOrders = agendaOrders.filter((order) => needsAdvisorReview(order, reviewEventByOrderId));
+  const pendingApprovalOrders = agendaOrders.filter((order) => needsInitialApproval(order));
+  const pendingReapprovalOrders = agendaOrders.filter((order) => needsReapproval(order));
   const attentionOrders = [...agendaOrders]
     .filter((order) => isOpenStatus(order.status))
-    .filter((order) => attentionLabels(order, paymentReportsByOrderId, selectedDayKey).length > 0)
+    .filter(
+      (order) =>
+        needsAdvisorReview(order, reviewEventByOrderId) ||
+        needsInitialApproval(order) ||
+        needsReapproval(order) ||
+        attentionLabels(order, paymentReportsByOrderId, selectedDayKey).length > 0
+    )
     .sort((a, b) => {
+      const reviewDiff =
+        Number(needsAdvisorReview(b, reviewEventByOrderId)) - Number(needsAdvisorReview(a, reviewEventByOrderId));
+      if (reviewDiff !== 0) return reviewDiff;
       const scoreDiff =
         priorityScore(a, paymentReportsByOrderId, selectedDayKey) -
         priorityScore(b, paymentReportsByOrderId, selectedDayKey);
@@ -436,6 +497,46 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
         </div>
       </section>
 
+      {(returnedOrders.length > 0 || pendingApprovalOrders.length > 0 || pendingReapprovalOrders.length > 0) ? (
+        <section className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Link
+            href={`/app/advisor/orders?day=${selectedDayKey}&bucket=returned`}
+            className={[
+              'rounded-[18px] border px-3.5 py-3',
+              returnedOrders.length > 0 ? 'border-[#5E2229] bg-[#171118]' : 'border-[#232632] bg-[#0F131B]',
+            ].join(' ')}
+          >
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Devueltas</div>
+            <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{returnedOrders.length}</div>
+            <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Requieren correccion del asesor.</div>
+          </Link>
+
+          <Link
+            href={`/app/advisor/orders?day=${selectedDayKey}&bucket=approval`}
+            className={[
+              'rounded-[18px] border px-3.5 py-3',
+              pendingApprovalOrders.length > 0 ? 'border-[#564511] bg-[#151208]' : 'border-[#232632] bg-[#0F131B]',
+            ].join(' ')}
+          >
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Por aprobar</div>
+            <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{pendingApprovalOrders.length}</div>
+            <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Esperan revision de master/admin.</div>
+          </Link>
+
+          <Link
+            href={`/app/advisor/orders?day=${selectedDayKey}&bucket=reapproval`}
+            className={[
+              'rounded-[18px] border px-3.5 py-3',
+              pendingReapprovalOrders.length > 0 ? 'border-[#564511] bg-[#151208]' : 'border-[#232632] bg-[#0F131B]',
+            ].join(' ')}
+          >
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Re-aprobacion</div>
+            <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{pendingReapprovalOrders.length}</div>
+            <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Cambios enviados para validar.</div>
+          </Link>
+        </section>
+      ) : null}
+
       {attentionOrders.length > 0 ? (
         <SectionCard
           title="Atencion"
@@ -452,6 +553,13 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           <div className="space-y-2.5">
             {attentionOrders.map((order) => {
               const labels = attentionLabels(order, paymentReportsByOrderId, selectedDayKey);
+              const reviewBadge = needsAdvisorReview(order, reviewEventByOrderId)
+                ? { label: 'Devuelta', tone: 'danger' as const }
+                : needsReapproval(order)
+                  ? { label: 'Re-aprobación', tone: 'warning' as const }
+                  : needsInitialApproval(order)
+                    ? { label: 'Por aprobar', tone: 'neutral' as const }
+                    : null;
 
               return (
                 <Link
@@ -471,6 +579,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     <div className="shrink-0 text-xs font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
+                    {reviewBadge ? <StatusBadge label={reviewBadge.label} tone={reviewBadge.tone} /> : null}
                     {labels.map((label) => (
                       <StatusBadge key={`${order.id}-${label.label}`} label={label.label} tone={label.tone} />
                     ))}
@@ -506,6 +615,13 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
             {agendaOrders.map((order) => {
               const phaseIndex = operationalPhaseIndex(order);
               const paymentBadge = paymentStatusBadge(order, paymentReportsByOrderId);
+              const reviewBadge = needsAdvisorReview(order, reviewEventByOrderId)
+                ? { label: 'Devuelta', tone: 'danger' as const }
+                : needsReapproval(order)
+                  ? { label: 'Re-aprobación', tone: 'warning' as const }
+                  : needsInitialApproval(order)
+                    ? { label: 'Por aprobar', tone: 'neutral' as const }
+                    : null;
               const labels = attentionLabels(order, paymentReportsByOrderId, selectedDayKey).filter(
                 (label) => label.label !== 'Cobro pendiente'
               );
@@ -533,7 +649,10 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
 
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <StatusBadge label={operationalPhaseLabel(order)} tone={statusTone(order.status)} />
-                    {paymentBadge ? <StatusBadge label={paymentBadge.label} tone={paymentBadge.tone} /> : null}
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      {reviewBadge ? <StatusBadge label={reviewBadge.label} tone={reviewBadge.tone} /> : null}
+                      {paymentBadge ? <StatusBadge label={paymentBadge.label} tone={paymentBadge.tone} /> : null}
+                    </div>
                   </div>
 
                   {operationalPhase(order) === 'cancelled' ? (
