@@ -542,6 +542,7 @@ type MasterTaskType =
   | 'RE-APROBAR'
   | 'RECALCULAR_PRESUPUESTO'
   | 'CONFIRMAR PAGO'
+  | 'APLICAR FONDO'
   | 'ENVIAR_COCINA'
   | 'ASIGNAR_DRIVER'
   | 'COCINA_RETRASADA'
@@ -1519,6 +1520,8 @@ function getMasterInboxTaskActionLabel(type: MasterTaskType) {
       return 'Revisar presupuesto';
     case 'CONFIRMAR PAGO':
       return 'Confirmar pago';
+    case 'APLICAR FONDO':
+      return 'Aplicar fondo';
     case 'ENVIAR_COCINA':
       return 'Enviar a cocina';
     case 'ASIGNAR_DRIVER':
@@ -4237,6 +4240,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
       const hasDriverAssigned = Boolean(o.riderName?.trim() || o.externalPartner?.trim());
       const expiredQuoteReview = getExpiredQuotePriceReview(o, inboxCatalogItemById, currentTimeMs);
+      const latestFundRequest = [...(o.events ?? [])]
+        .filter((event) => event.eventType === 'client_fund_application_requested')
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      const hasAppliedClientFund = (o.editMeta?.clientFundUsedUsd ?? 0) > 0.005;
 
       if (expiredQuoteReview) {
         tasks.push({
@@ -4308,6 +4315,23 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           openTab: 'pagos',
           createdAtISO: o.createdAtISO,
           isUrgent: isOrderUrgentForInbox(o, 'warning'),
+        });
+      }
+      if (latestFundRequest && o.balanceUsd > 0.005 && !hasAppliedClientFund) {
+        tasks.push({
+          id: `n-fund-${o.id}-${latestFundRequest.id}`,
+          type: 'APLICAR FONDO',
+          orderId: o.id,
+          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
+          deliveryText: `Entrega: ${delText}`,
+          advisorName: o.advisorName,
+          title: 'Aplicar fondo',
+          message: 'El asesor solicitó usar fondo del cliente para pagar esta orden.',
+          severity: 'warning',
+          openTab: 'pagos',
+          createdAtISO: latestFundRequest.createdAt,
+          isUrgent: isOrderUrgentForInbox(o, 'warning'),
+          detailLines: getOrderEventDetailLines(o, latestFundRequest),
         });
       }
       if (canSendToKitchen(o)) {
@@ -4413,7 +4437,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const pr = (t: MasterTaskType) => {
       if (t === 'COCINA_RETRASADA' || t === 'DELIVERY_RETRASADO') return 0;
       if (t === 'RE-APROBAR' || t === 'RECALCULAR_PRESUPUESTO') return 1;
-      if (t === 'CONFIRMAR PAGO') return 2;
+      if (t === 'CONFIRMAR PAGO' || t === 'APLICAR FONDO') return 2;
       if (t === 'ASIGNAR_DRIVER') return 3;
       if (t === 'ENVIAR_COCINA') return 4;
       return 5;
@@ -4601,7 +4625,9 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         task.type === 'COCINA_RETRASADA' || task.type === 'DELIVERY_RETRASADO'
       );
     } else if (masterInboxFilter === 'payments') {
-      filteredTasks = masterInbox.tasks.filter((task) => task.type === 'CONFIRMAR PAGO');
+      filteredTasks = masterInbox.tasks.filter(
+        (task) => task.type === 'CONFIRMAR PAGO' || task.type === 'APLICAR FONDO'
+      );
     } else if (masterInboxFilter === 'changes') {
       filteredTasks = masterInbox.tasks.filter((task) =>
         task.type === 'RE-APROBAR' || task.type === 'RECALCULAR_PRESUPUESTO'
