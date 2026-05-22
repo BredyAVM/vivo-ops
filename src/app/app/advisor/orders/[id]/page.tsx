@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import OrderDetailActions from './OrderDetailActions';
+import { requestClientFundApplicationAction } from './actions';
 
 type PageParams = Promise<{
   id: string;
@@ -646,6 +647,7 @@ function eventTitle(eventType: string, fallbackTitle: string) {
     payment_reported: 'Pago reportado',
     payment_confirmed: 'Pago confirmado',
     payment_rejected: 'Pago rechazado',
+    client_fund_application_requested: 'Solicitud de pago con fondo',
   };
 
   return titles[eventType] || safeText(fallbackTitle, 'Evento');
@@ -673,6 +675,7 @@ function fallbackTimelineMessage(eventType: string) {
     payment_reported: 'Se reporto un pago y esta en revision.',
     payment_confirmed: 'El pago ya quedo confirmado.',
     payment_rejected: 'El pago fue rechazado y necesita correccion.',
+    client_fund_application_requested: 'Se solicito aplicar fondo del cliente a esta orden.',
   };
 
   return messages[eventType] || 'Sin detalle adicional.';
@@ -680,7 +683,11 @@ function fallbackTimelineMessage(eventType: string) {
 
 function eventTone(eventType: string): TimelineEvent['tone'] {
   if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected') return 'danger';
-  if (ACTION_EVENT_TYPES.has(eventType) || eventType.includes('delayed')) return 'warning';
+  if (
+    ACTION_EVENT_TYPES.has(eventType) ||
+    eventType.includes('delayed') ||
+    eventType === 'client_fund_application_requested'
+  ) return 'warning';
   if (eventType === 'payment_confirmed' || eventType === 'order_delivered' || eventType === 'pickup_collected') return 'success';
   return 'neutral';
 }
@@ -698,6 +705,14 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
     reason
   ) {
     details.push(`Motivo: ${reason}`);
+  }
+
+  if (eventType === 'client_fund_application_requested') {
+    const amount = payload.requested_amount_usd;
+    const available = payload.available_fund_usd;
+    if (amount != null && String(amount).trim()) details.push(`Monto solicitado: $${Number(amount).toFixed(2)}`);
+    if (available != null && String(available).trim()) details.push(`Fondo disponible: $${Number(available).toFixed(2)}`);
+    if (reason) details.push(`Nota: ${reason}`);
   }
 
   if (
@@ -863,6 +878,14 @@ export default async function AdvisorOrderDetailPage({
   const balanceUsd = Math.max(0, Number(order.total_usd || 0) - confirmedPaidUsd);
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
+  const clientFundAvailableUsd = Math.max(0, toSafeNumber(client?.fund_balance_usd, 0));
+  const fundRequestSuggestedUsd = Number(
+    Math.min(clientFundAvailableUsd, reportableBalanceUsd > 0 ? reportableBalanceUsd : balanceUsd).toFixed(2)
+  );
+  const canRequestClientFund =
+    clientFundAvailableUsd > 0.005 &&
+    fundRequestSuggestedUsd > 0.005 &&
+    order.status !== 'cancelled';
   const contactPhoneRaw = order.receiver_phone?.trim() || client?.phone?.trim() || '';
   const whatsappPhone = normalizePhoneForWhatsApp(contactPhoneRaw);
   const whatsappContactHref = whatsappPhone ? `https://wa.me/${whatsappPhone}` : '';
@@ -1171,6 +1194,53 @@ export default async function AdvisorOrderDetailPage({
             <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
           </div>
         </div>
+
+        {clientFundAvailableUsd > 0.005 ? (
+          <div className="mb-3 rounded-[18px] border border-emerald-500/25 bg-[#0D1712] px-3.5 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Fondo del cliente</div>
+                <div className="mt-1 text-base font-semibold text-[#F5F7FB]">{formatUsd(clientFundAvailableUsd)}</div>
+                <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">
+                  Puedes solicitar que master/admin lo aplique a esta orden.
+                </div>
+              </div>
+              <StatusBadge label="Disponible" tone="success" />
+            </div>
+
+            {canRequestClientFund ? (
+              <form action={requestClientFundApplicationAction} className="mt-3 grid gap-2">
+                <input type="hidden" name="orderId" value={order.id} />
+                <label className="text-[11px] text-[#8B93A7]">
+                  Monto a solicitar (USD)
+                  <input
+                    name="amountUsd"
+                    defaultValue={fundRequestSuggestedUsd}
+                    inputMode="decimal"
+                    className="mt-1 w-full rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB]"
+                  />
+                </label>
+                <textarea
+                  name="notes"
+                  rows={2}
+                  placeholder="Nota opcional"
+                  className="w-full rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB] placeholder:text-[#8B93A7]"
+                />
+                <button
+                  type="submit"
+                  className="inline-flex h-10 items-center justify-center rounded-[14px] bg-[#F0D000] px-3.5 text-sm font-semibold text-[#17191E]"
+                >
+                  Solicitar aplicar fondo
+                </button>
+              </form>
+            ) : (
+              <div className="mt-3 rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-xs text-[#AAB2C5]">
+                No hay saldo pendiente disponible para aplicar este fondo.
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Metodo</span>

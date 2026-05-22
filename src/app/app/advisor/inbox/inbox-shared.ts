@@ -61,6 +61,7 @@ export const INCLUDED_EVENT_TYPES = new Set([
   'payment_reported',
   'payment_confirmed',
   'payment_rejected',
+  'client_fund_application_requested',
 ]);
 
 export const ACTION_EVENT_TYPES = new Set([
@@ -113,7 +114,8 @@ export function getFilterForEvent(eventType: string): InboxFilter {
   if (
     eventType === 'payment_reported' ||
     eventType === 'payment_confirmed' ||
-    eventType === 'payment_rejected'
+    eventType === 'payment_rejected' ||
+    eventType === 'client_fund_application_requested'
   ) {
     return 'payments';
   }
@@ -170,6 +172,7 @@ export function eventTitle(eventType: string, fallbackTitle: string) {
     payment_reported: 'Pago reportado',
     payment_confirmed: 'Pago confirmado',
     payment_rejected: 'Pago rechazado',
+    client_fund_application_requested: 'Solicitud de pago con fondo',
   };
 
   return titles[eventType] || safeText(fallbackTitle, 'Evento');
@@ -177,7 +180,7 @@ export function eventTitle(eventType: string, fallbackTitle: string) {
 
 export function eventTone(eventType: string): InboxEvent['tone'] {
   if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected') return 'danger';
-  if (ACTION_EVENT_TYPES.has(eventType) || eventType.includes('delayed')) return 'warning';
+  if (ACTION_EVENT_TYPES.has(eventType) || eventType.includes('delayed') || eventType === 'client_fund_application_requested') return 'warning';
   if (eventType === 'payment_confirmed' || eventType === 'order_delivered' || eventType === 'pickup_collected') return 'success';
   return 'neutral';
 }
@@ -204,6 +207,12 @@ export function buildDetailLines(eventType: string, payload: Record<string, unkn
     details.push(`Motorizado: ${driver}`);
   }
 
+  if (eventType === 'client_fund_application_requested') {
+    const amount = Number(payload.requested_amount_usd ?? NaN);
+    if (Number.isFinite(amount) && amount > 0) details.push(`Monto solicitado: $${amount.toFixed(2)}`);
+    if (reason) details.push(`Nota: ${reason}`);
+  }
+
   return details;
 }
 
@@ -228,6 +237,7 @@ function fallbackMessageByType(eventType: string) {
     payment_reported: 'Se reporto un pago y esta en revision.',
     payment_confirmed: 'El pago ya quedo confirmado.',
     payment_rejected: 'El pago fue rechazado y necesita correccion.',
+    client_fund_application_requested: 'Se solicito aplicar fondo del cliente a esta orden.',
   };
 
   return messages[eventType] || 'Sin detalle adicional.';

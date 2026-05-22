@@ -347,3 +347,123 @@ export async function createAdvisorPaymentReportAction(input: {
 
   return { ok: true };
 }
+
+export async function requestClientFundApplicationAction(formData: FormData) {
+  const ctx = await requireAuthContext();
+  const isMasterOrAdmin = isMasterOrAdminRole(ctx.roles);
+  if (!isAdvisorRole(ctx.roles) && !isMasterOrAdmin) {
+    throw new Error('No autorizado.');
+  }
+
+  const orderId = Number(formData.get('orderId') || 0);
+  const requestedAmountUsd = Number(
+    toSafeNumber(String(formData.get('amountUsd') || '').replace(',', '.'), 0).toFixed(2)
+  );
+  const notes = String(formData.get('notes') || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  if (!Number.isFinite(requestedAmountUsd) || requestedAmountUsd <= 0) {
+    throw new Error('El monto del fondo no es valido.');
+  }
+
+  const { data: order, error: orderError } = await ctx.supabase
+    .from('orders')
+    .select('id, order_number, client_id, attributed_advisor_id, total_usd, status, extra_fields')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (!isMasterOrAdmin && order.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes solicitar fondo para esta orden.');
+  }
+
+  if (order.status === 'cancelled') {
+    throw new Error('No se puede aplicar fondo a una orden cancelada.');
+  }
+
+  const clientId = Number(order.client_id || 0);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('La orden no tiene cliente asociado.');
+  }
+
+  const { data: client, error: clientError } = await ctx.supabase
+    .from('clients')
+    .select('id, full_name, fund_balance_usd')
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientError || !client) {
+    throw new Error(clientError?.message || 'No se pudo cargar el fondo del cliente.');
+  }
+
+  const availableFundUsd = Number(toSafeNumber(client.fund_balance_usd, 0).toFixed(2));
+  if (availableFundUsd <= 0.005) {
+    throw new Error('El cliente no tiene fondo disponible.');
+  }
+
+  const { data: paymentReports, error: paymentReportsError } = await ctx.supabase
+    .from('payment_reports')
+    .select('status, reported_amount_usd_equivalent')
+    .eq('order_id', orderId);
+
+  if (paymentReportsError) {
+    throw new Error(paymentReportsError.message);
+  }
+
+  const confirmedUsd =
+    (paymentReports ?? [])
+      .filter((report) => report.status === 'confirmed')
+      .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0) +
+    toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
+  const pendingUsd = (paymentReports ?? [])
+    .filter((report) => report.status === 'pending')
+    .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
+  const balanceUsd = Math.max(0, Number((toSafeNumber(order.total_usd, 0) - confirmedUsd).toFixed(2)));
+  const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingUsd).toFixed(2)));
+  const applicableAmountUsd = Number(
+    Math.min(requestedAmountUsd, availableFundUsd, reportableBalanceUsd > 0 ? reportableBalanceUsd : balanceUsd).toFixed(2)
+  );
+
+  if (applicableAmountUsd <= 0.005) {
+    throw new Error('Esta orden no tiene saldo disponible para aplicar fondo.');
+  }
+
+  const eventContext = await loadOrderEventContext(ctx.supabase, orderId);
+  await appendOrderEvent(ctx.supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'client_fund_application_requested',
+    eventGroup: 'payment',
+    title: 'Solicitud de pago con fondo',
+    message: `El asesor solicita aplicar ${applicableAmountUsd.toFixed(2)} USD del fondo del cliente como pago de la orden.`,
+    severity: 'warning',
+    actorUserId: ctx.user.id,
+    payload: {
+      requested_amount_usd: applicableAmountUsd,
+      available_fund_usd: availableFundUsd,
+      order_balance_usd: balanceUsd,
+      reportable_balance_usd: reportableBalanceUsd,
+      client_id: clientId,
+      client_name: client.full_name ?? null,
+      notes: notes || null,
+      source: 'advisor_mobile',
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: true },
+      { targetRole: 'admin', requiresAction: true },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/payments');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/dashboard');
+}

@@ -1362,6 +1362,29 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
     lines.push(`Revisión: ${reviewNotes}`);
   }
 
+  if (event.eventType === 'client_fund_application_requested') {
+    const requestedAmountUsd = Number(payload.requested_amount_usd ?? NaN);
+    const availableFundUsd = Number(payload.available_fund_usd ?? NaN);
+    const orderBalanceUsd = Number(payload.order_balance_usd ?? NaN);
+    const notes =
+      typeof payload.notes === 'string' && payload.notes.trim()
+        ? repairDisplayText(payload.notes)
+        : null;
+
+    if (Number.isFinite(requestedAmountUsd) && requestedAmountUsd > 0) {
+      lines.push(`Fondo solicitado: ${fmtUSD(requestedAmountUsd)}`);
+    }
+    if (Number.isFinite(availableFundUsd) && availableFundUsd > 0) {
+      lines.push(`Fondo disponible: ${fmtUSD(availableFundUsd)}`);
+    }
+    if (Number.isFinite(orderBalanceUsd) && orderBalanceUsd > 0) {
+      lines.push(`Saldo orden: ${fmtUSD(orderBalanceUsd)}`);
+    }
+    if (notes) {
+      lines.push(`Nota: ${notes}`);
+    }
+  }
+
   return lines;
 }
 
@@ -5461,7 +5484,11 @@ const handleApplyClientFundPayment = async (o: Order) => {
       return;
     }
 
-    const amountUsd = Number(String(paymentApplyFundAmountUsd || '').replace(',', '.'));
+    const suggestedFundUsd = Math.max(
+      0,
+      Math.min(Number(o.balanceUsd.toFixed(2)), Number(selectedOrderClientFundAvailableUsd.toFixed(2)))
+    );
+    const amountUsd = Number(String(paymentApplyFundAmountUsd || suggestedFundUsd || '').replace(',', '.'));
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       showToast('error', 'El monto del fondo no es válido.');
       return;
@@ -15472,6 +15499,48 @@ onClose={() => {
     {selectedOrder.editMeta?.paymentNote ? (
       <div className="mt-2 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
         <span className="text-[#F5F5F7]">Nota de pago:</span> {selectedOrder.editMeta.paymentNote}
+      </div>
+    ) : null}
+
+    {selectedOrderClientFundAvailableUsd > 0.005 && selectedOrder.balanceUsd > 0.005 ? (
+      <div className="mt-3 rounded-lg border border-emerald-500/20 bg-[#0F1512] p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Fondo disponible del cliente</div>
+            <div className="mt-1 text-[11px] text-[#8A8A96]">
+              Disponible: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Puedes aplicarlo sin registrar dinero nuevo en caja.
+            </div>
+          </div>
+          <SmallBadge
+            label={`Sugerido ${fmtUSD(Math.min(selectedOrder.balanceUsd, selectedOrderClientFundAvailableUsd))}`}
+            tone="brand"
+          />
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto]">
+          <input
+            value={paymentApplyFundAmountUsd}
+            onChange={(e) => setPaymentApplyFundAmountUsd(e.target.value)}
+            placeholder={`Monto USD (${fmtUSD(Math.min(selectedOrder.balanceUsd, selectedOrderClientFundAvailableUsd))})`}
+            type="text"
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+          />
+
+          <input
+            value={paymentApplyFundNotes}
+            onChange={(e) => setPaymentApplyFundNotes(e.target.value)}
+            placeholder="Nota (opcional)"
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+          />
+
+          <button
+            type="button"
+            className="rounded-md border border-emerald-500/50 bg-[#0D1611] px-3 py-1.5 text-[11px] font-semibold text-emerald-300"
+            onClick={() => handleApplyClientFundPayment(selectedOrder)}
+          >
+            Aplicar fondo
+          </button>
+        </div>
       </div>
     ) : null}
 
