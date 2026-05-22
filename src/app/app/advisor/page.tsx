@@ -497,45 +497,43 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
         </div>
       </section>
 
-      {(returnedOrders.length > 0 || pendingApprovalOrders.length > 0 || pendingReapprovalOrders.length > 0) ? (
-        <section className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <Link
-            href={`/app/advisor/orders?day=${selectedDayKey}&bucket=returned`}
-            className={[
-              'rounded-[18px] border px-3.5 py-3',
-              returnedOrders.length > 0 ? 'border-[#5E2229] bg-[#171118]' : 'border-[#232632] bg-[#0F131B]',
-            ].join(' ')}
-          >
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Devueltas</div>
-            <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{returnedOrders.length}</div>
-            <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Requieren correccion del asesor.</div>
-          </Link>
+      <section className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Link
+          href={`/app/advisor/orders?day=${selectedDayKey}&bucket=returned`}
+          className={[
+            'rounded-[18px] border px-3.5 py-3',
+            returnedOrders.length > 0 ? 'border-[#5E2229] bg-[#171118]' : 'border-[#232632] bg-[#0F131B]',
+          ].join(' ')}
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Devueltas</div>
+          <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{returnedOrders.length}</div>
+          <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Requieren correccion del asesor.</div>
+        </Link>
 
-          <Link
-            href={`/app/advisor/orders?day=${selectedDayKey}&bucket=approval`}
-            className={[
-              'rounded-[18px] border px-3.5 py-3',
-              pendingApprovalOrders.length > 0 ? 'border-[#564511] bg-[#151208]' : 'border-[#232632] bg-[#0F131B]',
-            ].join(' ')}
-          >
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Por aprobar</div>
-            <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{pendingApprovalOrders.length}</div>
-            <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Esperan revision de master/admin.</div>
-          </Link>
+        <Link
+          href={`/app/advisor/orders?day=${selectedDayKey}&bucket=approval`}
+          className={[
+            'rounded-[18px] border px-3.5 py-3',
+            pendingApprovalOrders.length > 0 ? 'border-[#564511] bg-[#151208]' : 'border-[#232632] bg-[#0F131B]',
+          ].join(' ')}
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Por aprobar</div>
+          <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{pendingApprovalOrders.length}</div>
+          <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Esperan revision de master/admin.</div>
+        </Link>
 
-          <Link
-            href={`/app/advisor/orders?day=${selectedDayKey}&bucket=reapproval`}
-            className={[
-              'rounded-[18px] border px-3.5 py-3',
-              pendingReapprovalOrders.length > 0 ? 'border-[#564511] bg-[#151208]' : 'border-[#232632] bg-[#0F131B]',
-            ].join(' ')}
-          >
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Re-aprobacion</div>
-            <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{pendingReapprovalOrders.length}</div>
-            <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Cambios enviados para validar.</div>
-          </Link>
-        </section>
-      ) : null}
+        <Link
+          href={`/app/advisor/orders?day=${selectedDayKey}&bucket=reapproval`}
+          className={[
+            'rounded-[18px] border px-3.5 py-3',
+            pendingReapprovalOrders.length > 0 ? 'border-[#564511] bg-[#151208]' : 'border-[#232632] bg-[#0F131B]',
+          ].join(' ')}
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Re-aprobacion</div>
+          <div className="mt-1 text-2xl font-semibold text-[#F5F7FB]">{pendingReapprovalOrders.length}</div>
+          <div className="mt-1 text-xs leading-4 text-[#AAB2C5]">Cambios enviados para validar.</div>
+        </Link>
+      </section>
 
       {attentionOrders.length > 0 ? (
         <SectionCard
