@@ -431,6 +431,43 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(amount) ? amount : fallback;
 }
 
+function getProductSourcePricing(product: ProductRow) {
+  const sourceCurrency = (product.source_price_currency || 'USD') as CurrencyCode;
+  const sourceAmount =
+    Number(
+      product.source_price_amount ??
+        (sourceCurrency === 'USD' ? product.base_price_usd : 0) ??
+        0
+    ) || 0;
+
+  return { sourceCurrency, sourceAmount };
+}
+
+function calculateCatalogSnapshotForDraftItem(item: DraftItem, product: ProductRow, fxRateNumber: number) {
+  const { sourceCurrency, sourceAmount } = getProductSourcePricing(product);
+  const snapshot = calculateOrderLineSnapshot({
+    sourceCurrency,
+    sourceAmount,
+    quantity: Number(item.qty || 0),
+    fxRate: fxRateNumber,
+    fallbackUnitUsd: Number(product.base_price_usd ?? item.unit_price_usd_snapshot ?? 0),
+  });
+
+  return { sourceCurrency, sourceAmount, snapshot };
+}
+
+function draftItemHasCatalogPriceDrift(item: DraftItem, product: ProductRow, fxRateNumber: number) {
+  const current = calculateCatalogSnapshotForDraftItem(item, product, fxRateNumber);
+  const epsilon = 0.005;
+
+  return (
+    item.source_price_currency !== current.sourceCurrency ||
+    Math.abs(Number(item.source_price_amount || 0) - current.sourceAmount) > epsilon ||
+    Math.abs(Number(item.unit_price_usd_snapshot || 0) - current.snapshot.unitUsd) > epsilon ||
+    Math.abs(Number(item.line_total_usd || 0) - current.snapshot.lineUsd) > epsilon
+  );
+}
+
 function clientTypeLabel(value: string | null | undefined) {
   if (value === 'assigned') return 'Asignado';
   if (value === 'own') return 'Propio';
@@ -1202,6 +1239,16 @@ export default function AdvisorOrderComposer({
       ),
     [draftItems, fxRateNumber]
   );
+  const catalogPriceDriftItems = useMemo(() => {
+    if (!isEditingOrder || fxRateNumber <= 0) return [];
+
+    return draftItems.filter((item) => {
+      const product = productById.get(item.product_id);
+      if (!product) return false;
+      return draftItemHasCatalogPriceDrift(item, product, fxRateNumber);
+    });
+  }, [draftItems, fxRateNumber, isEditingOrder, productById]);
+  const advisorEditHasCatalogPriceDrift = catalogPriceDriftItems.length > 0;
   const draftTotalUsd = useMemo(
     () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
     [draftItemSnapshots]
@@ -2022,13 +2069,7 @@ export default function AdvisorOrderComposer({
   }
 
   function buildDraftItem(product: ProductRow, quantity: number, lines: string[]) {
-    const sourceCurrency = (product.source_price_currency || 'USD') as CurrencyCode;
-    const sourceAmount =
-      Number(
-        product.source_price_amount ??
-          (sourceCurrency === 'USD' ? product.base_price_usd : 0) ??
-          0
-      ) || 0;
+    const { sourceCurrency, sourceAmount } = getProductSourcePricing(product);
     const snapshot = calculateOrderLineSnapshot({
       sourceCurrency,
       sourceAmount,
@@ -2051,6 +2092,41 @@ export default function AdvisorOrderComposer({
       line_total_usd: snapshot.lineUsd,
       editable_detail_lines: lines,
     } satisfies DraftItem;
+  }
+
+  function handleRecalculateDraftPricesFromCatalog() {
+    clearMessages();
+
+    let changedCount = 0;
+    const nextItems = draftItems.map((item) => {
+      const product = productById.get(item.product_id);
+      if (!product) return item;
+
+      const next = calculateCatalogSnapshotForDraftItem(item, product, fxRateNumber);
+      if (!draftItemHasCatalogPriceDrift(item, product, fxRateNumber)) return item;
+
+      changedCount += 1;
+
+      return {
+        ...item,
+        product_type: product.type,
+        sku_snapshot: product.sku,
+        product_name_snapshot: product.name,
+        units_per_service: Number(product.units_per_service ?? 0) || 0,
+        source_price_currency: next.sourceCurrency,
+        source_price_amount: next.sourceAmount,
+        unit_price_usd_snapshot: next.snapshot.unitUsd,
+        line_total_usd: next.snapshot.lineUsd,
+      };
+    });
+
+    setDraftItems(nextItems);
+
+    setInfo(
+      changedCount > 0
+        ? `Precios recalculados con el catalogo vigente (${changedCount} item${changedCount === 1 ? '' : 's'}).`
+        : 'Los items ya estan alineados con el catalogo vigente.'
+    );
   }
 
   function openConfigForProduct(product: ProductRow, quantity: number) {
@@ -2676,6 +2752,13 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    if (advisorEditHasCatalogPriceDrift) {
+      setError(
+        'Hay items con precios distintos al catalogo vigente. Recalcula los precios antes de guardar para no conservar snapshots vencidos.'
+      );
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -3114,16 +3197,45 @@ export default function AdvisorOrderComposer({
             </div>
           ) : (
             <div className="space-y-2">
-              {draftItems.map((item) => (
+              {advisorEditHasCatalogPriceDrift ? (
+                <div className="rounded-[18px] border border-[#564511] bg-[#151208] px-3.5 py-3 text-sm text-[#F7DA66]">
+                  <div className="font-semibold text-[#F5F7FB]">Recalculo requerido</div>
+                  <div className="mt-1 text-xs leading-5 text-[#D8C36A]">
+                    Hay precios del catalogo actualizados en este pedido. Recalcula antes de guardar para generar un snapshot nuevo.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRecalculateDraftPricesFromCatalog}
+                    className="mt-3 h-9 rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                  >
+                    Recalcular precios
+                  </button>
+                </div>
+              ) : null}
+
+              {draftItems.map((item, idx) => {
+                const snapshot = draftItemSnapshots[idx];
+                const unitBs =
+                  snapshot?.unitBs ??
+                  (item.source_price_currency === 'VES'
+                    ? Number(item.source_price_amount || 0)
+                    : Number(item.unit_price_usd_snapshot || 0) * fxRateNumber);
+                const lineBs =
+                  snapshot?.lineBs ??
+                  (item.source_price_currency === 'VES'
+                    ? Number(item.source_price_amount || 0) * Number(item.qty || 0)
+                    : Number(item.line_total_usd || 0) * fxRateNumber);
+
+                return (
                 <div key={item.localId} className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">{item.product_name_snapshot}</div>
                       <div className="mt-1 text-xs text-[#8B93A7]">
-                        {item.qty} x {formatUsd(item.unit_price_usd_snapshot)}
+                        {item.qty} x {formatBs(unitBs)}
                       </div>
                     </div>
-                    <div className="text-sm font-medium text-[#F0D000]">{formatUsd(item.line_total_usd)}</div>
+                    <div className="text-sm font-medium text-[#F0D000]">{formatBs(lineBs)}</div>
                   </div>
 
                   {getVisibleDetailLines(item.editable_detail_lines).length > 0 ? (
@@ -3145,7 +3257,8 @@ export default function AdvisorOrderComposer({
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
 
               {fulfillment === 'delivery' && !hasDeliveryItem ? (
                 <div className="rounded-[18px] border border-[#564511] bg-[#151208] px-3.5 py-3 text-sm text-[#F7DA66]">

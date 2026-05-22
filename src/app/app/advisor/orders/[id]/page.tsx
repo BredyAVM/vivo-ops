@@ -960,6 +960,7 @@ export default async function AdvisorOrderDetailPage({
     toSafeNumber(pendingPaidUsd, 0),
     toSafeNumber(balanceUsd, 0),
   );
+  const detailFxRate = getOrderFxRate(order);
   const phaseIndex = operationalPhaseIndex(order);
   const phaseLabel = operationalPhaseLabel(order);
   const deliveryLabel = schedule?.asap
@@ -1146,7 +1147,7 @@ export default async function AdvisorOrderDetailPage({
                     </div>
                     <div className="mt-1 text-xs text-[#8B93A7]">Cantidad: {Number(item.qty || 0)}</div>
                   </div>
-                  <div className="font-medium text-[#F0D000]">{formatUsd(item.line_total_usd)}</div>
+                  <div className="font-medium text-[#F0D000]">{formatBs(getLineTotalBs(item, detailFxRate))}</div>
                 </div>
                 {item.notes?.trim() ? (
                   <div className="mt-2 whitespace-pre-line rounded-[14px] bg-[#12151d] px-3 py-2 text-xs leading-5 text-[#AAB2C5]">
