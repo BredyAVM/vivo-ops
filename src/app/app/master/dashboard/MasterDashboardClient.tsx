@@ -15547,12 +15547,45 @@ onClose={() => {
     <div className="mt-3">
       <div className="mb-2 text-sm font-semibold text-[#F5F5F7]">Reportes</div>
 
-      {selectedOrder.paymentReports.length === 0 && selectedOrderChangeMovements.length === 0 ? (
+      {selectedOrder.paymentReports.length === 0 &&
+      selectedOrderChangeMovements.length === 0 &&
+      !(selectedOrder.editMeta?.clientFundUsedUsd && selectedOrder.editMeta.clientFundUsedUsd > 0.005) ? (
         <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
           Sin reportes de pago.
         </div>
       ) : (
         <div className="space-y-2">
+          {selectedOrder.editMeta?.clientFundUsedUsd && selectedOrder.editMeta.clientFundUsedUsd > 0.005 ? (
+            <div className="rounded-lg border border-emerald-500/30 bg-[#0B0B0D] px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[#F5F5F7]">
+                    Fondo aplicado · {fmtUSD(selectedOrder.editMeta.clientFundUsedUsd)}
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#8A8A96]">
+                    Saldo a favor del cliente debitado para esta orden.
+                  </div>
+                </div>
+
+                <div className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
+                  APLICADO
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-[#B7B7C2] sm:grid-cols-2">
+                <div>
+                  <span className="text-[#8A8A96]">Cliente:</span>{' '}
+                  <span className="text-[#F5F5F7]">{repairDisplayText(selectedOrder.clientName)}</span>
+                </div>
+
+                <div>
+                  <span className="text-[#8A8A96]">Tipo:</span>{' '}
+                  <span className="text-[#F5F5F7]">Fondo del cliente</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {selectedOrder.paymentReports.map((rp) => (
             <div key={rp.id} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3">
               <div className="flex items-start justify-between gap-3">
