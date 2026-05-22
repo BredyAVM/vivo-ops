@@ -2,7 +2,6 @@ import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import OrderDetailActions from './OrderDetailActions';
-import { requestClientFundApplicationAction } from './actions';
 
 type PageParams = Promise<{
   id: string;
@@ -983,6 +982,7 @@ export default async function AdvisorOrderDetailPage({
     toSafeNumber(pendingPaidUsd, 0),
     toSafeNumber(balanceUsd, 0),
   );
+  const hasPendingFundRequest = timeline.some((event) => event.eventType === 'client_fund_application_requested');
   const detailFxRate = getOrderFxRate(order);
   const phaseIndex = operationalPhaseIndex(order);
   const phaseLabel = operationalPhaseLabel(order);
@@ -1072,6 +1072,10 @@ export default async function AdvisorOrderDetailPage({
             canCorrectOrder={canCorrectOrder}
             canDuplicateOrder={canDuplicateOrder}
             canReportPayment={canReportPayment}
+            canRequestClientFund={canRequestClientFund}
+            clientFundAvailableUsd={clientFundAvailableUsd}
+            fundRequestSuggestedUsd={fundRequestSuggestedUsd}
+            hasPendingFundRequest={hasPendingFundRequest}
             paymentMethod={orderPaymentMethod || null}
             moneyAccounts={moneyAccounts}
             activeBsRate={activeBsRate}
@@ -1194,52 +1198,6 @@ export default async function AdvisorOrderDetailPage({
             <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
           </div>
         </div>
-
-        {clientFundAvailableUsd > 0.005 ? (
-          <div className="mb-3 rounded-[18px] border border-emerald-500/25 bg-[#0D1712] px-3.5 py-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Fondo del cliente</div>
-                <div className="mt-1 text-base font-semibold text-[#F5F7FB]">{formatUsd(clientFundAvailableUsd)}</div>
-                <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">
-                  Puedes solicitar que master/admin lo aplique a esta orden.
-                </div>
-              </div>
-              <StatusBadge label="Disponible" tone="success" />
-            </div>
-
-            {canRequestClientFund ? (
-              <form action={requestClientFundApplicationAction} className="mt-3 grid gap-2">
-                <input type="hidden" name="orderId" value={order.id} />
-                <label className="text-[11px] text-[#8B93A7]">
-                  Monto a solicitar (USD)
-                  <input
-                    name="amountUsd"
-                    defaultValue={fundRequestSuggestedUsd}
-                    inputMode="decimal"
-                    className="mt-1 w-full rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB]"
-                  />
-                </label>
-                <textarea
-                  name="notes"
-                  rows={2}
-                  placeholder="Nota opcional"
-                  className="w-full rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-sm text-[#F5F7FB] placeholder:text-[#8B93A7]"
-                />
-                <button
-                  type="submit"
-                  className="inline-flex h-10 items-center justify-center rounded-[14px] bg-[#F0D000] px-3.5 text-sm font-semibold text-[#17191E]"
-                >
-                  Solicitar aplicar fondo
-                </button>
-              </form>
-            ) : (
-              <div className="mt-3 rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 py-2 text-xs text-[#AAB2C5]">
-                No hay saldo pendiente disponible para aplicar este fondo.
-              </div>
-            )}
-          </div>
-        ) : null}
 
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">

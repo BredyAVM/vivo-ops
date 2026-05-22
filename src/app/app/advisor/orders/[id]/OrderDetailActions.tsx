@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useMemo, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
-import { createAdvisorPaymentReportAction } from './actions';
+import { createAdvisorPaymentReportAction, requestClientFundApplicationAction } from './actions';
 
 const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
 
@@ -88,6 +88,10 @@ export default function OrderDetailActions({
   canCorrectOrder,
   canDuplicateOrder,
   canReportPayment,
+  canRequestClientFund,
+  clientFundAvailableUsd,
+  fundRequestSuggestedUsd,
+  hasPendingFundRequest,
   paymentMethod,
   moneyAccounts,
   activeBsRate,
@@ -102,6 +106,10 @@ export default function OrderDetailActions({
   canCorrectOrder: boolean;
   canDuplicateOrder: boolean;
   canReportPayment: boolean;
+  canRequestClientFund: boolean;
+  clientFundAvailableUsd: number;
+  fundRequestSuggestedUsd: number;
+  hasPendingFundRequest: boolean;
   paymentMethod: string | null;
   moneyAccounts: MoneyAccountOption[];
   activeBsRate: number;
@@ -113,9 +121,12 @@ export default function OrderDetailActions({
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
-  const [reportBoxOpen, setReportBoxOpen] = useState(initialReportBoxOpen && canReportPayment);
+  const [fundRequestPending, startFundRequestTransition] = useTransition();
+  const canOpenPaymentTools = canReportPayment || canRequestClientFund;
+  const [reportBoxOpen, setReportBoxOpen] = useState(initialReportBoxOpen && canOpenPaymentTools);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [fundRequestSent, setFundRequestSent] = useState(hasPendingFundRequest);
   const [advisorLabel, setAdvisorLabel] = useState('Asesor');
   const [moneyAccountId, setMoneyAccountId] = useState('');
   const [reportPaymentMethod, setReportPaymentMethod] = useState(
@@ -128,6 +139,10 @@ export default function OrderDetailActions({
   const [bankName, setBankName] = useState('');
   const [payerName, setPayerName] = useState('');
   const [notes, setNotes] = useState('');
+  const [fundRequestAmount, setFundRequestAmount] = useState(
+    fundRequestSuggestedUsd > 0 ? String(Number(fundRequestSuggestedUsd.toFixed(2))) : '',
+  );
+  const [fundRequestNotes, setFundRequestNotes] = useState('');
 
   const activeAccounts = useMemo(
     () => moneyAccounts.filter((account) => account.isActive),
@@ -184,7 +199,9 @@ export default function OrderDetailActions({
     };
   }, [supabase]);
 
-  if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !whatsappSummary.trim()) return null;
+  const fundRequestDisabled = fundRequestPending || fundRequestSent || !canRequestClientFund;
+
+  if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !canRequestClientFund && !whatsappSummary.trim()) return null;
 
   return (
     <div className="space-y-3">
@@ -247,7 +264,7 @@ export default function OrderDetailActions({
           </Link>
         ) : null}
 
-        {canReportPayment ? (
+        {canOpenPaymentTools ? (
           <button
             type="button"
             onClick={() => {
@@ -266,11 +283,11 @@ export default function OrderDetailActions({
         ) : null}
       </div>
 
-      {canReportPayment && reportBoxOpen ? (
+      {canOpenPaymentTools && reportBoxOpen ? (
         <div className="advisor-fade-in rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-medium text-[#F5F7FB]">Reporte de pago</div>
+              <div className="text-sm font-medium text-[#F5F7FB]">Opciones de pago</div>
               <div className="mt-1 text-xs leading-5 text-[#8B93A7]">
                 Saldo pendiente: ${balanceUsd.toFixed(2)}
                 {balanceBs > 0 ? ` / Bs ${balanceBs.toFixed(2)}` : ''}. Se enviara a revision.
@@ -284,7 +301,98 @@ export default function OrderDetailActions({
               Ocultar
             </button>
           </div>
-          {selectedAccount?.currencyCode === 'VES' && activeBsRate > 0 ? (
+
+          {clientFundAvailableUsd > 0.005 ? (
+            <div className="mt-3 rounded-[16px] border border-emerald-500/25 bg-[#0D1712] px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-[#F5F7FB]">Fondo disponible</div>
+                  <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">
+                    El cliente tiene ${clientFundAvailableUsd.toFixed(2)}. Solicita a master/admin aplicarlo a esta orden.
+                  </div>
+                </div>
+                <div className="shrink-0 rounded-full border border-emerald-500/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                  ${clientFundAvailableUsd.toFixed(2)}
+                </div>
+              </div>
+
+              {canRequestClientFund ? (
+                <div className="mt-3 grid gap-2">
+                  <Field label="Monto a solicitar (USD)">
+                    <input
+                      value={fundRequestAmount}
+                      onChange={(e) => setFundRequestAmount(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className={inputClass()}
+                      disabled={fundRequestDisabled}
+                      inputMode="decimal"
+                      placeholder="0"
+                    />
+                  </Field>
+
+                  <Field label="Nota para master/admin">
+                    <textarea
+                      value={fundRequestNotes}
+                      onChange={(e) => setFundRequestNotes(e.target.value)}
+                      className={inputClass(true)}
+                      disabled={fundRequestDisabled}
+                      placeholder="Opcional"
+                    />
+                  </Field>
+
+                  <button
+                    type="button"
+                    disabled={fundRequestDisabled}
+                    onClick={() => {
+                      setError(null);
+                      setSuccess(null);
+
+                      startFundRequestTransition(async () => {
+                        try {
+                          const formData = new FormData();
+                          formData.set('orderId', String(orderId));
+                          formData.set('amountUsd', fundRequestAmount);
+                          formData.set('notes', fundRequestNotes);
+
+                          await requestClientFundApplicationAction(formData);
+
+                          setFundRequestSent(true);
+                          setSuccess('Solicitud de fondo enviada a master/admin.');
+                          router.refresh();
+                        } catch (submitError) {
+                          setError(
+                            submitError instanceof Error
+                              ? submitError.message
+                              : 'No se pudo solicitar aplicar el fondo.',
+                          );
+                        }
+                      });
+                    }}
+                    className={[
+                      'h-10 rounded-[14px] px-3.5 text-sm font-semibold',
+                      fundRequestDisabled
+                        ? 'bg-[#232632] text-[#6F7890]'
+                        : 'bg-[#F0D000] text-[#17191E]',
+                    ].join(' ')}
+                  >
+                    {fundRequestPending
+                      ? 'Enviando...'
+                      : fundRequestSent
+                        ? 'Solicitud enviada'
+                        : 'Solicitar aplicar fondo'}
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#AAB2C5]">
+                  {fundRequestSent
+                    ? 'Ya hay una solicitud enviada para esta orden.'
+                    : 'No hay saldo pendiente disponible para aplicar este fondo.'}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {canReportPayment && selectedAccount?.currencyCode === 'VES' && activeBsRate > 0 ? (
             <div className="mt-2 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#8B93A7]">
               Sugerido en Bs:{' '}
               <span className="font-medium text-[#F5F7FB]">
@@ -295,6 +403,7 @@ export default function OrderDetailActions({
             </div>
           ) : null}
 
+          {canReportPayment ? (
           <div className="mt-3 space-y-3">
             <Field label="Cuenta">
               <select
@@ -488,6 +597,7 @@ export default function OrderDetailActions({
               </button>
             </div>
           </div>
+          ) : null}
         </div>
       ) : null}
     </div>
