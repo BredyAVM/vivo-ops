@@ -45,6 +45,39 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function getOrderPricingSnapshot(order: { extra_fields?: unknown }) {
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as Record<string, unknown>)
+      : {};
+
+  return extraFields.pricing && typeof extraFields.pricing === 'object' && !Array.isArray(extraFields.pricing)
+    ? (extraFields.pricing as Record<string, unknown>)
+    : {};
+}
+
+function getEffectiveOrderTotalUsd(order: { total_usd?: unknown; extra_fields?: unknown }) {
+  const pricing = getOrderPricingSnapshot(order);
+  const snapshotTotalUsd = toSafeNumber(pricing.total_usd, Number.NaN);
+
+  if (Number.isFinite(snapshotTotalUsd)) {
+    return snapshotTotalUsd;
+  }
+
+  return toSafeNumber(order.total_usd, 0);
+}
+
+function getEffectiveOrderTotalBs(order: { total_bs_snapshot?: unknown; extra_fields?: unknown }) {
+  const pricing = getOrderPricingSnapshot(order);
+  const snapshotTotalBs = toSafeNumber(pricing.total_bs, Number.NaN);
+
+  if (Number.isFinite(snapshotTotalBs)) {
+    return snapshotTotalBs;
+  }
+
+  return toSafeNumber(order.total_bs_snapshot, 0);
+}
+
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 
@@ -1063,8 +1096,8 @@ export async function confirmPaymentReportAction(input: {
       return sum + signedAmount;
     }, 0);
 
-    const currentTotalUsd = toSafeNumber(currentOrder.total_usd, 0);
-    const currentTotalBs = toSafeNumber(currentOrder.total_bs_snapshot, 0);
+    const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
+    const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
     const excessUsd = Number(Math.max(0, confirmedPaidUsd - currentTotalUsd).toFixed(2));
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
@@ -1342,7 +1375,7 @@ export async function applyClientFundPaymentAction(input: {
     throw new Error('La orden no tiene cliente asociado.');
   }
 
-  const totalUsd = Number(toSafeNumber(currentOrder.total_usd, 0).toFixed(2));
+  const totalUsd = Number(getEffectiveOrderTotalUsd(currentOrder).toFixed(2));
   const previousFundUsedUsd = Number(
     toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
   );
@@ -4216,8 +4249,8 @@ export async function closeOrderRoundingBalanceAction(input: {
     0
   );
 
-  const currentTotalUsd = toSafeNumber(currentOrder.total_usd, 0);
-  const currentTotalBs = toSafeNumber(currentOrder.total_bs_snapshot, 0);
+  const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
+  const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
   const pendingUsd = Math.max(0, currentTotalUsd - confirmedPaidUsd);
 
   if (pendingUsd <= 0.005) {
