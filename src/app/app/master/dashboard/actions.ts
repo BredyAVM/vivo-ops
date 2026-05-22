@@ -1716,8 +1716,8 @@ export async function returnToCreatedAction(input: {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
   }
 
-  if (!['queued', 'confirmed'].includes(currentOrder.status)) {
-    throw new Error('Solo se puede devolver a creado una orden en cola o confirmada.');
+  if (!['created', 'queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(currentOrder.status)) {
+    throw new Error('Solo se puede devolver al asesor una orden activa.');
   }
 
   const nextNotes = [
@@ -1740,6 +1740,11 @@ export async function returnToCreatedAction(input: {
       kitchen_started_at: null,
       kitchen_operator_id: null,
       ready_at: null,
+      internal_driver_user_id: null,
+      external_partner_id: null,
+      external_driver_name: null,
+      external_driver_phone: null,
+      external_reference: null,
       review_notes: reason,
       notes: nextNotes,
       last_modified_at: new Date().toISOString(),
@@ -1763,14 +1768,24 @@ export async function returnToCreatedAction(input: {
     actorUserId: user.id,
     payload: {
       reason,
+      previous_status: currentOrder.status,
     },
     recipients: [
       { targetRole: 'master' },
       { targetUserId: eventContext?.advisorUserId, requiresAction: true },
+      ...(currentOrder.status === 'confirmed' || currentOrder.status === 'in_kitchen' || currentOrder.status === 'ready'
+        ? [{ targetRole: 'kitchen' as const }]
+        : []),
+      ...(currentOrder.status === 'out_for_delivery'
+        ? [{ targetUserId: eventContext?.internalDriverUserId }]
+        : []),
     ],
   });
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
 }
 
 export async function cancelOrderAction(input: {

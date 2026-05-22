@@ -2310,6 +2310,10 @@ function processFlag(o: Order): 'APROBAR' | 'RE-APROBAR' | null {
   return null;
 }
 
+function canReturnToAdvisor(o: Order) {
+  return ['created', 'queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status);
+}
+
 function canReturnFromKitchenToQueue(o: Order) {
   return ['confirmed', 'in_kitchen', 'ready'].includes(o.status);
 }
@@ -16000,6 +16004,18 @@ onClick={() => {
             }}
           >
             Devolver para recalcular
+          </button>
+        ) : null}
+
+        {!processFlag(selectedOrder) && !selectedOrderExpiredQuoteReview && canReturnToAdvisor(selectedOrder) ? (
+          <button
+            className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] text-orange-400"
+            onClick={() => {
+              setReviewActionMode('return');
+              setReviewActionNotes('');
+            }}
+          >
+            Devolver al asesor
           </button>
         ) : null}
 
