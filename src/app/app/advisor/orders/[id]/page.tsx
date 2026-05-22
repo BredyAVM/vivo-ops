@@ -871,6 +871,7 @@ export default async function AdvisorOrderDetailPage({
       .filter((paymentReport) => paymentReport.status === 'confirmed')
       .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0) +
     Number(order.extra_fields?.payment?.client_fund_used_usd || 0);
+  const clientFundUsedUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
   const pendingPaidUsd = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
@@ -1234,8 +1235,28 @@ export default async function AdvisorOrderDetailPage({
           ) : null}
         </div>
 
-        {payments.length > 0 ? (
+        {payments.length > 0 || clientFundUsedUsd > 0.005 ? (
           <div className="mt-3 space-y-2.5">
+            {clientFundUsedUsd > 0.005 ? (
+              <article className="rounded-[18px] border border-emerald-500/25 bg-[#0D1712] px-3.5 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-[#F5F7FB]">
+                      Fondo aplicado · {formatUsd(clientFundUsedUsd)}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8B93A7]">
+                      Saldo a favor debitado del fondo del cliente.
+                    </div>
+                  </div>
+                  <StatusBadge label="Aplicado" tone="success" />
+                </div>
+                <div className="mt-2 grid gap-1 text-xs leading-5 text-[#AAB2C5]">
+                  <div>Tipo: Fondo del cliente</div>
+                  <div>Este monto ya cuenta como abonado en el saldo de la orden.</div>
+                </div>
+              </article>
+            ) : null}
+
             {payments.map((paymentReport) => (
               <article
                 key={paymentReport.id}
