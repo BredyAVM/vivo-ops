@@ -16,7 +16,13 @@ type OrderRow = {
       asap?: boolean | null;
     } | null;
     payment?: {
+      method?: string | null;
+      currency?: string | null;
       client_fund_used_usd?: number | string | null;
+    } | null;
+    pricing?: {
+      fx_rate?: number | string | null;
+      total_bs?: number | string | null;
     } | null;
   } | null;
   client:
@@ -68,9 +74,59 @@ function formatUsd(value: number | string) {
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
 }
 
+function formatBs(value: number | string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `Bs ${amount.toFixed(2)}` : 'Bs 0.00';
+}
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function paymentMethodLabel(method: string | null | undefined) {
+  const labels: Record<string, string> = {
+    pending: 'Por definir',
+    payment_mobile: 'Pago movil',
+    transfer: 'Transferencia',
+    cash_usd: 'Efectivo USD',
+    cash_ves: 'Efectivo Bs',
+    pos: 'Punto de venta',
+    zelle: 'Zelle',
+    mixed: 'Mixto',
+  };
+
+  return labels[String(method || 'pending')] ?? 'Por definir';
+}
+
+function getOrderTotalBs(order: OrderRow) {
+  const storedBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  if (storedBs > 0) return storedBs;
+
+  const fxRate = getOrderFxRate(order);
+  return fxRate > 0 ? toSafeNumber(order.total_usd, 0) * fxRate : 0;
+}
+
+function getOrderFxRate(order: OrderRow) {
+  const storedRate = toSafeNumber(order.extra_fields?.pricing?.fx_rate, 0);
+  if (storedRate > 0) return storedRate;
+
+  const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  const totalUsd = toSafeNumber(order.total_usd, 0);
+  if (totalBs > 0 && totalUsd > 0) return totalBs / totalUsd;
+
+  return 0;
+}
+
+function usdToOrderBs(order: OrderRow, amountUsd: number) {
+  const fxRate = getOrderFxRate(order);
+  return fxRate > 0 ? amountUsd * fxRate : 0;
+}
+
+function getPaymentEquivalentBs(payment: PaymentRow, order: OrderRow | undefined) {
+  if (payment.reported_currency_code === 'VES') return toSafeNumber(payment.reported_amount, 0);
+  if (!order) return 0;
+  return usdToOrderBs(order, toSafeNumber(payment.reported_amount_usd_equivalent, 0));
 }
 
 function getAgendaLabel(order: OrderRow) {
@@ -102,6 +158,7 @@ export default async function AdvisorPaymentsPage() {
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
+  const orderById = new Map(orders.map((order) => [order.id, order]));
 
   const orderIds = orders.map((order) => order.id);
   const { data: paymentData } = orderIds.length
@@ -139,23 +196,43 @@ export default async function AdvisorPaymentsPage() {
         0,
         Number((toSafeNumber(order.total_usd, 0) - confirmedUsd - pendingUsd).toFixed(2))
       );
+      const totalBs = getOrderTotalBs(order);
+      const balanceBs = usdToOrderBs(order, balanceUsd);
+      const reportableBalanceBs = usdToOrderBs(order, reportableBalanceUsd);
+      const pendingBs = usdToOrderBs(order, pendingUsd);
 
       return {
         ...order,
+        totalBs,
         balanceUsd,
+        balanceBs,
         reportableBalanceUsd,
+        reportableBalanceBs,
         pendingUsd,
+        pendingBs,
         hasRejected: reports.some((payment) => payment.status === 'rejected'),
         hasPending: reports.some((payment) => payment.status === 'pending'),
+        paymentMethod: paymentMethodLabel(order.extra_fields?.payment?.method),
       };
     })
     .filter((order) => order.status !== 'cancelled' && order.reportableBalanceUsd > 0.005)
     .sort((a, b) => getAgendaLabel(a).localeCompare(getAgendaLabel(b)));
 
+  const pendingReviewRows = sortPaymentRows(payments.filter((payment) => payment.status === 'pending'));
+  const confirmedRows = sortPaymentRows(payments.filter((payment) => payment.status === 'confirmed'));
+  const rejectedRows = sortPaymentRows(payments.filter((payment) => payment.status === 'rejected'));
+  const collectBsFromPayments = (rows: PaymentRow[]) =>
+    rows.reduce((sum, payment) => {
+      const order = orderById.get(payment.order_id);
+      return sum + getPaymentEquivalentBs(payment, order);
+    }, 0);
+  const reportableTotalBs = ordersPendingPayment.reduce((sum, order) => sum + order.reportableBalanceBs, 0);
+  const pendingReviewTotalBs = collectBsFromPayments(pendingReviewRows);
+
   const sections = [
-    { title: 'Por validar', subtitle: 'Pendientes por confirmacion del master.', rows: sortPaymentRows(payments.filter((payment) => payment.status === 'pending')) },
-    { title: 'Confirmados', subtitle: 'Cobros ya aceptados.', rows: sortPaymentRows(payments.filter((payment) => payment.status === 'confirmed')) },
-    { title: 'Rechazados', subtitle: 'Reportes que necesitan correccion o reenvio.', rows: sortPaymentRows(payments.filter((payment) => payment.status === 'rejected')) },
+    { title: 'Por validar', subtitle: 'Reportes enviados y pendientes por confirmacion.', rows: pendingReviewRows },
+    { title: 'Rechazados', subtitle: 'Reportes que necesitan correccion o reenvio.', rows: rejectedRows },
+    { title: 'Confirmados', subtitle: 'Cobros ya aceptados.', rows: confirmedRows },
   ];
 
   return (
@@ -163,7 +240,7 @@ export default async function AdvisorPaymentsPage() {
       <PageIntro
         eyebrow="Cobranza"
         title="Pagos reportados"
-        description="Aqui se ve rapido que falta cobrar, que sigue en revision y que toca corregir."
+        description="Aqui se separa lo que falta cobrar, lo que ya fue enviado a revision y lo que requiere correccion."
         action={
           <Link href="/app/advisor/new" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
             Nuevo pedido
@@ -171,27 +248,27 @@ export default async function AdvisorPaymentsPage() {
         }
       />
 
-      <section className="grid grid-cols-3 gap-3">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <MetricCard
-          label="Por cargar"
-          value={String(ordersPendingPayment.length)}
-          detail="Ordenes con saldo listo para reportar."
+          label="Por cobrar"
+          value={formatBs(reportableTotalBs)}
+          detail={`${ordersPendingPayment.length} orden${ordersPendingPayment.length === 1 ? '' : 'es'} con saldo reportable.`}
         />
         <MetricCard
           label="Por validar"
-          value={String(sections[0]?.rows.length || 0)}
-          detail="Reportes esperando revision."
+          value={formatBs(pendingReviewTotalBs)}
+          detail={`${pendingReviewRows.length} reporte${pendingReviewRows.length === 1 ? '' : 's'} esperando revision.`}
         />
         <MetricCard
           label="Rechazados"
-          value={String(sections[2]?.rows.length || 0)}
+          value={String(rejectedRows.length)}
           detail="Cobros que necesitan correccion."
         />
       </section>
 
       <SectionCard
-        title="Por cargar"
-        subtitle="Ordenes con saldo pendiente para reportar pago."
+        title="Por cobrar"
+        subtitle="Ordenes con saldo real disponible para cargar o reportar."
       >
         {ordersPendingPayment.length === 0 ? (
           <EmptyBlock
@@ -218,19 +295,27 @@ export default async function AdvisorPaymentsPage() {
                     <div className="mt-1 text-xs text-[#8B93A7]">{order.order_number}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
-                    <StatusBadge label={`Saldo ${formatUsd(order.reportableBalanceUsd)}`} tone="warning" />
+                    <StatusBadge label={`Saldo ${formatBs(order.reportableBalanceBs)}`} tone="warning" />
                     {order.hasRejected ? <StatusBadge label="Rechazado antes" tone="danger" /> : null}
-                    {order.hasPending ? <StatusBadge label={`${formatUsd(order.pendingUsd)} por validar`} tone="neutral" /> : null}
+                    {order.hasPending ? <StatusBadge label={`${formatBs(order.pendingBs)} por validar`} tone="neutral" /> : null}
                   </div>
                 </div>
-                <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                <div className="mt-3 grid gap-2 rounded-[14px] bg-[#0B1017] px-3 py-2">
                   <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
                     <span>Entrega</span>
                     <span>{getAgendaLabel(order)}</span>
                   </div>
-                  <div className="mt-1 flex items-center justify-between gap-3">
+                  <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                    <span>Metodo esperado</span>
+                    <span className="text-[#F5F7FB]">{order.paymentMethod}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
                     <span className="text-xs text-[#8B93A7]">Total orden</span>
-                    <span className="text-sm font-semibold text-[#F5F7FB]">{formatUsd(order.total_usd)}</span>
+                    <span className="text-sm font-semibold text-[#F5F7FB]">{formatBs(order.totalBs)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                    <span>Referencia $</span>
+                    <span>{formatUsd(order.total_usd)}</span>
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
@@ -267,58 +352,71 @@ export default async function AdvisorPaymentsPage() {
               <EmptyBlock title="Sin movimientos" detail="No hay registros en esta categoria todavia." />
             ) : (
               <div className="space-y-2.5">
-                {section.rows.map((payment) => (
-                  <article
-                    key={payment.id}
-                    className={[
-                      'advisor-fade-in rounded-[20px] border px-3.5 py-3',
-                      payment.status === 'rejected'
-                        ? 'border-[#5E2229] bg-[#171118]'
-                        : payment.status === 'pending'
-                          ? 'border-[#564511] bg-[#151208]'
-                          : 'border-[#1C5036] bg-[#0F2119]',
-                    ].join(' ')}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-medium text-[#F5F7FB]">Orden #{payment.order_id}</div>
-                        <div className="mt-1 text-xs text-[#8B93A7]">{formatDate(payment.created_at)}</div>
+                {section.rows.map((payment) => {
+                  const order = orderById.get(payment.order_id);
+                  const equivalentUsd = toSafeNumber(payment.reported_amount_usd_equivalent, 0);
+                  const equivalentBs = getPaymentEquivalentBs(payment, order);
+                  const orderLabel = order?.client?.full_name?.trim() || order?.order_number || `Orden #${payment.order_id}`;
+
+                  return (
+                    <article
+                      key={payment.id}
+                      className={[
+                        'advisor-fade-in rounded-[20px] border px-3.5 py-3',
+                        payment.status === 'rejected'
+                          ? 'border-[#5E2229] bg-[#171118]'
+                          : payment.status === 'pending'
+                            ? 'border-[#564511] bg-[#151208]'
+                            : 'border-[#1C5036] bg-[#0F2119]',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-[#F5F7FB]">{orderLabel}</div>
+                          <div className="mt-1 text-xs text-[#8B93A7]">
+                            {order?.order_number || `Orden #${payment.order_id}`} · {formatDate(payment.created_at)}
+                          </div>
+                        </div>
+                        <StatusBadge label={label(payment.status)} tone={tone(payment.status)} />
                       </div>
-                      <StatusBadge label={label(payment.status)} tone={tone(payment.status)} />
-                    </div>
-                    <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2">
-                      <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                        <span>Monto</span>
-                        <span className="text-sm font-semibold text-[#F5F7FB]">
-                          {formatMoney(payment.reported_currency_code, payment.reported_amount)}
-                        </span>
+                      <div className="mt-3 grid gap-2 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                          <span>Monto reportado</span>
+                          <span className="text-sm font-semibold text-[#F5F7FB]">
+                            {formatMoney(payment.reported_currency_code, payment.reported_amount)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                          <span>Equivalente Bs</span>
+                          <span className="text-[#F5F7FB]">{formatBs(equivalentBs)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                          <span>Referencia $</span>
+                          <span>{formatUsd(equivalentUsd)}</span>
+                        </div>
+                        <div className="text-xs text-[#AAB2C5]">
+                          Referencia: {payment.reference_code?.trim() || 'Sin referencia'}
+                        </div>
                       </div>
-                      <div className="mt-1 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                        <span>Equivalente</span>
-                        <span>${Number(payment.reported_amount_usd_equivalent || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="mt-1 text-xs text-[#AAB2C5]">
-                        Referencia: {payment.reference_code?.trim() || 'Sin referencia'}
-                      </div>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Link
-                        href={`/app/advisor/orders/${payment.order_id}`}
-                        className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
-                      >
-                        Ver orden
-                      </Link>
-                      {payment.status === 'rejected' ? (
+                      <div className="mt-3 flex gap-2">
                         <Link
-                          href={`/app/advisor/orders/${payment.order_id}?reportPayment=1`}
-                          className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                          href={`/app/advisor/orders/${payment.order_id}`}
+                          className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                         >
-                          Reenviar
+                          Ver orden
                         </Link>
-                      ) : null}
-                    </div>
-                  </article>
-                ))}
+                        {payment.status === 'rejected' ? (
+                          <Link
+                            href={`/app/advisor/orders/${payment.order_id}?reportPayment=1`}
+                            className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
+                          >
+                            Reenviar
+                          </Link>
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </SectionCard>
