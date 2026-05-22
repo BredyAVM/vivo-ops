@@ -24,7 +24,13 @@ type OrderRow = {
       asap?: boolean | null;
     } | null;
     payment?: {
+      method?: string | null;
+      currency?: string | null;
       client_fund_used_usd?: number | string | null;
+    } | null;
+    pricing?: {
+      fx_rate?: number | string | null;
+      total_bs?: number | string | null;
     } | null;
   } | null;
   client: { full_name: string | null; phone: string | null } | null;
@@ -48,9 +54,53 @@ function formatUsd(value: number | string) {
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
 }
 
+function formatBs(value: number | string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `Bs ${amount.toFixed(2)}` : 'Bs 0.00';
+}
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function paymentMethodLabel(method: string | null | undefined) {
+  const labels: Record<string, string> = {
+    pending: 'Por definir',
+    payment_mobile: 'Pago movil',
+    transfer: 'Transferencia',
+    cash_usd: 'Efectivo USD',
+    cash_ves: 'Efectivo Bs',
+    pos: 'Punto de venta',
+    zelle: 'Zelle',
+    mixed: 'Mixto',
+  };
+
+  return labels[String(method || 'pending')] ?? 'Por definir';
+}
+
+function getOrderFxRate(order: OrderRow) {
+  const storedRate = toSafeNumber(order.extra_fields?.pricing?.fx_rate, 0);
+  if (storedRate > 0) return storedRate;
+
+  const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  const totalUsd = toSafeNumber(order.total_usd, 0);
+  if (totalBs > 0 && totalUsd > 0) return totalBs / totalUsd;
+
+  return 0;
+}
+
+function getOrderTotalBs(order: OrderRow) {
+  const storedBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  if (storedBs > 0) return storedBs;
+
+  const fxRate = getOrderFxRate(order);
+  return fxRate > 0 ? toSafeNumber(order.total_usd, 0) * fxRate : 0;
+}
+
+function usdToOrderBs(order: OrderRow, amountUsd: number) {
+  const fxRate = getOrderFxRate(order);
+  return fxRate > 0 ? amountUsd * fxRate : 0;
 }
 
 function formatDate(value: string) {
@@ -163,12 +213,22 @@ function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, P
     .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
   const balanceUsd = Math.max(0, Number((totalUsd - confirmedUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((totalUsd - confirmedUsd - pendingUsd).toFixed(2)));
+  const totalBs = getOrderTotalBs(order);
+  const confirmedBs = usdToOrderBs(order, confirmedUsd);
+  const pendingBs = usdToOrderBs(order, pendingUsd);
+  const balanceBs = usdToOrderBs(order, balanceUsd);
+  const reportableBalanceBs = usdToOrderBs(order, reportableBalanceUsd);
 
   return {
     confirmedUsd,
+    confirmedBs,
     pendingUsd,
+    pendingBs,
     balanceUsd,
+    balanceBs,
     reportableBalanceUsd,
+    reportableBalanceBs,
+    totalBs,
     hasRejected: reports.some((report) => report.status === 'rejected'),
   };
 }
@@ -262,11 +322,11 @@ function paymentBadge(order: OrderRow, paymentReportsByOrderId: Map<number, Paym
   }
   if (state.confirmedUsd > 0.005 || state.pendingUsd > 0.005) {
     return {
-      label: `Saldo ${formatUsd(state.reportableBalanceUsd > 0.005 ? state.reportableBalanceUsd : state.balanceUsd)}`,
+      label: `Saldo ${formatBs(state.reportableBalanceBs > 0.005 ? state.reportableBalanceBs : state.balanceBs)}`,
       tone: 'warning' as const,
     };
   }
-  return { label: 'Cobro pendiente', tone: 'warning' as const };
+  return { label: `Saldo ${formatBs(state.balanceBs)}`, tone: 'warning' as const };
 }
 
 function attentionLabels(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>, selectedDayKey: string) {
@@ -427,6 +487,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
               const paymentStatus = paymentBadge(order, paymentReportsByOrderId);
               const canReportMorePayment = unpaid && paymentState.reportableBalanceUsd > 0.005;
               const phaseIndex = operationalPhaseIndex(order);
+              const paymentMethod = paymentMethodLabel(order.extra_fields?.payment?.method);
               const labels = attentionLabels(order, paymentReportsByOrderId, selectedDayKey).filter(
                 (label) => label.label !== 'Cobro pendiente'
               );
@@ -448,7 +509,8 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="text-sm font-semibold text-[#F5F7FB]">{getAgendaTimeLabel(order)}</div>
-                        <div className="mt-1 text-xs text-[#8B93A7]">{formatUsd(order.total_usd)}</div>
+                        <div className="mt-1 text-xs font-semibold text-[#F0D000]">{formatBs(paymentState.totalBs)}</div>
+                        <div className="mt-0.5 text-[11px] text-[#8B93A7]">{formatUsd(order.total_usd)}</div>
                       </div>
                     </div>
 
@@ -474,6 +536,19 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                         ))}
                       </div>
                     )}
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-[#8B93A7]">Metodo esperado</div>
+                        <div className="mt-0.5 truncate text-xs font-medium text-[#F5F7FB]">{paymentMethod}</div>
+                      </div>
+                      <div className="min-w-0 text-right">
+                        <div className="text-[11px] text-[#8B93A7]">Saldo por cobrar</div>
+                        <div className="mt-0.5 truncate text-xs font-medium text-[#F5F7FB]">
+                          {paymentState.balanceUsd > 0.005 ? formatBs(paymentState.balanceBs) : 'Pagado'}
+                        </div>
+                      </div>
+                    </div>
 
                     <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
                       <span className="min-w-0 truncate">
