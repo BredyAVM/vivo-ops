@@ -1701,8 +1701,8 @@ function splitISOToDeliveryFields(iso: string) {
 }
 
 const pillLabel = (f: Fulfillment) => (f === 'delivery' ? 'Delivery' : 'Pickup');
-const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0 ? 'Pagado' : `Pendiente: ${fmtUSD(balanceUsd)}`);
-const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0 ? 'text-emerald-400' : 'text-orange-500');
+const paymentLabel = (balanceUsd: number) => (balanceUsd <= 0.005 ? 'Pagado' : `Pendiente: ${fmtUSD(balanceUsd)}`);
+const paymentToneClass = (balanceUsd: number) => (balanceUsd <= 0.005 ? 'text-emerald-400' : 'text-orange-500');
 
 function hasPassedDeliveryGraceDay(order: Order, currentTimeMs: number) {
   const deliveredAtMs =

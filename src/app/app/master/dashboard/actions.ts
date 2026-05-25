@@ -45,6 +45,11 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function roundMoney(value: unknown) {
+  const n = toSafeNumber(value, 0);
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 function getOrderPricingSnapshot(order: { extra_fields?: unknown }) {
   const extraFields =
     order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
@@ -61,10 +66,10 @@ function getEffectiveOrderTotalUsd(order: { total_usd?: unknown; extra_fields?: 
   const snapshotTotalUsd = toSafeNumber(pricing.total_usd, Number.NaN);
 
   if (Number.isFinite(snapshotTotalUsd)) {
-    return snapshotTotalUsd;
+    return roundMoney(snapshotTotalUsd);
   }
 
-  return toSafeNumber(order.total_usd, 0);
+  return roundMoney(order.total_usd);
 }
 
 function getEffectiveOrderTotalBs(order: { total_bs_snapshot?: unknown; extra_fields?: unknown }) {
@@ -72,10 +77,10 @@ function getEffectiveOrderTotalBs(order: { total_bs_snapshot?: unknown; extra_fi
   const snapshotTotalBs = toSafeNumber(pricing.total_bs, Number.NaN);
 
   if (Number.isFinite(snapshotTotalBs)) {
-    return snapshotTotalBs;
+    return roundMoney(snapshotTotalBs);
   }
 
-  return toSafeNumber(order.total_bs_snapshot, 0);
+  return roundMoney(order.total_bs_snapshot);
 }
 
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
@@ -1089,16 +1094,16 @@ export async function confirmPaymentReportAction(input: {
       throw new Error(orderMovementsError.message);
     }
 
-    const confirmedPaidUsd = (orderMovements ?? []).reduce((sum, row) => {
+    const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
       const signedAmount =
         toSafeNumber(row.amount_usd_equivalent, 0) *
         (row.direction === 'outflow' ? -1 : 1);
       return sum + signedAmount;
-    }, 0);
+    }, 0));
 
     const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
     const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
-    const excessUsd = Number(Math.max(0, confirmedPaidUsd - currentTotalUsd).toFixed(2));
+    const excessUsd = roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
@@ -1350,7 +1355,7 @@ export async function applyClientFundPaymentAction(input: {
   const { supabase, user } = await requireMasterOrAdmin();
 
   const orderId = Number(input.orderId || 0);
-  const requestedAmountUsd = Number(toSafeNumber(input.amountUsd, 0).toFixed(2));
+  const requestedAmountUsd = roundMoney(input.amountUsd);
 
   if (!Number.isFinite(orderId) || orderId <= 0) {
     throw new Error('Orden inválida.');
@@ -1375,10 +1380,8 @@ export async function applyClientFundPaymentAction(input: {
     throw new Error('La orden no tiene cliente asociado.');
   }
 
-  const totalUsd = Number(getEffectiveOrderTotalUsd(currentOrder).toFixed(2));
-  const previousFundUsedUsd = Number(
-    toSafeNumber((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd, 0).toFixed(2)
-  );
+  const totalUsd = getEffectiveOrderTotalUsd(currentOrder);
+  const previousFundUsedUsd = roundMoney((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd);
 
   const { data: orderMovements, error: orderMovementsError } = await supabase
     .from('money_movements')
@@ -1389,24 +1392,22 @@ export async function applyClientFundPaymentAction(input: {
     throw new Error(orderMovementsError.message);
   }
 
-  const confirmedPaidUsd = (orderMovements ?? []).reduce((sum, row) => {
+  const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
     const signedAmount =
       toSafeNumber(
         (row as { amount_usd_equivalent?: number | string | null }).amount_usd_equivalent,
         0
       ) * (((row as { direction?: string | null }).direction ?? 'inflow') === 'outflow' ? -1 : 1);
     return sum + signedAmount;
-  }, 0);
+  }, 0));
 
-  const pendingUsd = Number(
-    Math.max(0, totalUsd - confirmedPaidUsd - previousFundUsedUsd).toFixed(2)
-  );
+  const pendingUsd = roundMoney(Math.max(0, totalUsd - confirmedPaidUsd - previousFundUsedUsd));
 
   if (pendingUsd <= 0.005) {
     throw new Error('Esta orden ya no tiene saldo pendiente.');
   }
 
-  const applicableAmountUsd = Number(Math.min(requestedAmountUsd, pendingUsd).toFixed(2));
+  const applicableAmountUsd = roundMoney(Math.min(requestedAmountUsd, pendingUsd));
 
   if (applicableAmountUsd <= 0.005) {
     throw new Error('El monto del fondo no es aplicable a esta orden.');
@@ -1427,7 +1428,7 @@ export async function applyClientFundPaymentAction(input: {
         : {}),
       payment: {
         ...(((currentOrder.extra_fields as any)?.payment ?? {}) as Record<string, unknown>),
-        client_fund_used_usd: Number((previousFundUsedUsd + applicableAmountUsd).toFixed(2)),
+        client_fund_used_usd: roundMoney(previousFundUsedUsd + applicableAmountUsd),
       },
     };
 
@@ -3182,16 +3183,16 @@ export async function createExtraMoneyMovementAction(input: {
       throw new Error(orderMovementsError.message);
     }
 
-    const confirmedPaidUsd = (orderMovements ?? []).reduce((sum, row) => {
+    const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
       const signedAmount =
         toSafeNumber(row.amount_usd_equivalent, 0) *
         (row.direction === 'outflow' ? -1 : 1);
       return sum + signedAmount;
-    }, 0);
+    }, 0));
 
-    const currentTotalUsd = toSafeNumber(currentOrder.total_usd, 0);
-    const currentTotalBs = toSafeNumber(currentOrder.total_bs_snapshot, 0);
-    const excessUsd = Number(Math.max(0, confirmedPaidUsd - currentTotalUsd).toFixed(2));
+    const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
+    const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
+    const excessUsd = roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
     const handling = input.overpaymentHandling ?? null;
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
@@ -3261,7 +3262,7 @@ export async function createExtraMoneyMovementAction(input: {
       const { error: updateClientFundError } = await supabase
         .from('clients')
         .update({
-          fund_balance_usd: toSafeNumber(currentClient.fund_balance_usd, 0) + excessUsd,
+          fund_balance_usd: roundMoney(toSafeNumber(currentClient.fund_balance_usd, 0) + excessUsd),
         })
         .eq('id', clientId);
 
@@ -3457,16 +3458,16 @@ export async function createInventoryItemAction(input: {
       throw new Error(orderMovementsError.message);
     }
 
-    const confirmedPaidUsd = (orderMovements ?? []).reduce((sum, row) => {
+    const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
       const signedAmount =
         toSafeNumber(row.amount_usd_equivalent, 0) *
         (row.direction === 'outflow' ? -1 : 1);
       return sum + signedAmount;
-    }, 0);
+    }, 0));
 
-    const currentTotalUsd = toSafeNumber(currentOrder.total_usd, 0);
-    const currentTotalBs = toSafeNumber(currentOrder.total_bs_snapshot, 0);
-    const excessUsd = Number(Math.max(0, confirmedPaidUsd - currentTotalUsd).toFixed(2));
+    const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
+    const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
+    const excessUsd = roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
     const handling = input.overpaymentHandling ?? null;
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
@@ -3536,7 +3537,7 @@ export async function createInventoryItemAction(input: {
       const { error: updateClientFundError } = await supabase
         .from('clients')
         .update({
-          fund_balance_usd: toSafeNumber(currentClient.fund_balance_usd, 0) + excessUsd,
+          fund_balance_usd: roundMoney(toSafeNumber(currentClient.fund_balance_usd, 0) + excessUsd),
         })
         .eq('id', clientId);
 
@@ -4241,17 +4242,17 @@ export async function closeOrderRoundingBalanceAction(input: {
     throw new Error(orderMovementsError.message);
   }
 
-  const confirmedPaidUsd = (orderMovements ?? []).reduce(
+  const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce(
     (sum, row) =>
       sum +
       toSafeNumber(row.amount_usd_equivalent, 0) *
         (row.direction === 'outflow' ? -1 : 1),
     0
-  );
+  ));
 
   const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
   const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
-  const pendingUsd = Math.max(0, currentTotalUsd - confirmedPaidUsd);
+  const pendingUsd = roundMoney(Math.max(0, currentTotalUsd - confirmedPaidUsd));
 
   if (pendingUsd <= 0.005) {
     throw new Error('Esta orden ya no tiene una diferencia pendiente por cerrar.');
@@ -4281,7 +4282,7 @@ export async function closeOrderRoundingBalanceAction(input: {
       : {};
 
   const fxRate = toSafeNumber(pricing.fx_rate, 0);
-  const nextTotalUsd = Number(confirmedPaidUsd.toFixed(2));
+  const nextTotalUsd = roundMoney(confirmedPaidUsd);
   const nextTotalBs =
     fxRate > 0
       ? Number((nextTotalUsd * fxRate).toFixed(2))
@@ -4290,7 +4291,7 @@ export async function closeOrderRoundingBalanceAction(input: {
         : currentTotalBs;
 
   const nowIso = new Date().toISOString();
-  const roundedPendingUsd = Number(pendingUsd.toFixed(2));
+  const roundedPendingUsd = roundMoney(pendingUsd);
 
   pricing.total_usd = nextTotalUsd;
   pricing.total_bs = nextTotalBs;

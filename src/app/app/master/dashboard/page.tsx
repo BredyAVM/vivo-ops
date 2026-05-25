@@ -467,6 +467,11 @@ function toNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function roundMoney(value: unknown, fallback = 0) {
+  const n = toNumber(value, fallback);
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
     .replace(/Â·/g, '·')
@@ -2234,13 +2239,13 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
   })
   .filter((row) => row.parentProductId && row.componentProductId);
   const initialOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
-    const clientFundUsedUsd = toNumber(row.extra_fields?.payment?.client_fund_used_usd, 0);
-    const confirmedPaidUsd = (confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd;
-    const totalUsd = toNumber(
+    const clientFundUsedUsd = roundMoney(row.extra_fields?.payment?.client_fund_used_usd);
+    const confirmedPaidUsd = roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
+    const totalUsd = roundMoney(
       row.extra_fields?.pricing?.total_usd,
       toNumber(row.total_usd, 0)
     );
-    const balanceUsd = Math.max(0, totalUsd - confirmedPaidUsd);
+    const balanceUsd = roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
 
     const reportState = reportsByOrder.get(row.id) ?? {
       pendingCount: 0,

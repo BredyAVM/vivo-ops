@@ -875,7 +875,7 @@ export default async function AdvisorOrderDetailPage({
   const pendingPaidUsd = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
-  const balanceUsd = Math.max(0, Number(order.total_usd || 0) - confirmedPaidUsd);
+  const balanceUsd = Math.max(0, Number((Number(order.total_usd || 0) - confirmedPaidUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
   const clientFundAvailableUsd = Math.max(0, toSafeNumber(client?.fund_balance_usd, 0));
