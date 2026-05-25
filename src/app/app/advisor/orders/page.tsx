@@ -50,6 +50,19 @@ type PaymentRow = {
   reported_amount_usd_equivalent: number | string;
 };
 
+type PaymentState = {
+  confirmedUsd: number;
+  confirmedBs: number;
+  pendingUsd: number;
+  pendingBs: number;
+  balanceUsd: number;
+  balanceBs: number;
+  reportableBalanceUsd: number;
+  reportableBalanceBs: number;
+  totalBs: number;
+  hasRejected: boolean;
+};
+
 type TimelineEventRow = {
   order_id: number | string | null;
   event_type: string | null;
@@ -214,18 +227,24 @@ function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
   return time24 < currentKey;
 }
 
-function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>): PaymentState {
   const reports = paymentReportsByOrderId.get(order.id) ?? [];
   const totalUsd = toSafeNumber(order.total_usd, 0);
   const clientFundUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
-  const confirmedUsd =
-    reports
-      .filter((report) => report.status === 'confirmed')
-      .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0) +
-    clientFundUsd;
-  const pendingUsd = reports
-    .filter((report) => report.status === 'pending')
-    .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
+  let confirmedUsd = clientFundUsd;
+  let pendingUsd = 0;
+  let hasRejected = false;
+
+  for (const report of reports) {
+    if (report.status === 'confirmed') {
+      confirmedUsd += toSafeNumber(report.reported_amount_usd_equivalent, 0);
+    } else if (report.status === 'pending') {
+      pendingUsd += toSafeNumber(report.reported_amount_usd_equivalent, 0);
+    } else if (report.status === 'rejected') {
+      hasRejected = true;
+    }
+  }
+
   const balanceUsd = Math.max(0, Number((totalUsd - confirmedUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((totalUsd - confirmedUsd - pendingUsd).toFixed(2)));
   const totalBs = getOrderTotalBs(order);
@@ -244,13 +263,28 @@ function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, P
     reportableBalanceUsd,
     reportableBalanceBs,
     totalBs,
-    hasRejected: reports.some((report) => report.status === 'rejected'),
+    hasRejected,
   };
 }
 
-function isUnpaidOrder(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+function getStoredPaymentState(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
+  return paymentStateByOrderId.get(order.id) ?? {
+    confirmedUsd: 0,
+    confirmedBs: 0,
+    pendingUsd: 0,
+    pendingBs: 0,
+    balanceUsd: 0,
+    balanceBs: 0,
+    reportableBalanceUsd: 0,
+    reportableBalanceBs: 0,
+    totalBs: getOrderTotalBs(order),
+    hasRejected: false,
+  };
+}
+
+function isUnpaidOrder(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
   if (order.status === 'cancelled') return false;
-  return getPaymentState(order, paymentReportsByOrderId).balanceUsd > 0.005;
+  return getStoredPaymentState(order, paymentStateByOrderId).balanceUsd > 0.005;
 }
 
 function latestReviewEvent(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
@@ -269,18 +303,6 @@ function needsInitialApproval(order: OrderRow) {
 
 function needsReapproval(order: OrderRow) {
   return order.status === 'queued' && Boolean(order.queued_needs_reapproval);
-}
-
-function getGroupKey(
-  order: OrderRow,
-  paymentReportsByOrderId: Map<number, PaymentRow[]>,
-  selectedDayKey: string,
-) {
-  if (isOverdueOrder(order, selectedDayKey)) return 'overdue';
-  if (isUnpaidOrder(order, paymentReportsByOrderId)) return 'unpaid';
-  if (order.extra_fields?.schedule?.asap && isOpenStatus(order.status)) return 'asap';
-  if (order.status === 'delivered' || order.status === 'cancelled') return 'closed';
-  return 'upcoming';
 }
 
 type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
@@ -351,9 +373,9 @@ function subtitleForBucket(bucket: string) {
   return 'Agenda compacta del dia activo.';
 }
 
-function paymentBadge(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>) {
+function paymentBadge(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
   if (order.status === 'cancelled') return null;
-  const state = getPaymentState(order, paymentReportsByOrderId);
+  const state = getStoredPaymentState(order, paymentStateByOrderId);
   if (state.hasRejected) return { label: 'Pago rechazado', tone: 'danger' as const };
   if (state.balanceUsd <= 0.005) return { label: 'Pagado', tone: 'success' as const };
   if (state.pendingUsd > 0.005 && state.reportableBalanceUsd <= 0.005) {
@@ -368,9 +390,9 @@ function paymentBadge(order: OrderRow, paymentReportsByOrderId: Map<number, Paym
   return { label: `Saldo ${formatBs(state.balanceBs)}`, tone: 'warning' as const };
 }
 
-function attentionLabels(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>, selectedDayKey: string) {
+function attentionLabels(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>, selectedDayKey: string) {
   const labels: Array<{ label: string; tone: 'neutral' | 'warning' | 'success' | 'danger' }> = [];
-  const payment = getPaymentState(order, paymentReportsByOrderId);
+  const payment = getStoredPaymentState(order, paymentStateByOrderId);
 
   if (isOverdueOrder(order, selectedDayKey)) labels.push({ label: 'Hora atrasada', tone: 'danger' });
   if (payment.hasRejected) labels.push({ label: 'Pago rechazado', tone: 'danger' });
@@ -409,12 +431,24 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   }));
 
   const orderIds = orders.map((order) => order.id);
-  const { data: paymentsData } = orderIds.length
-    ? await ctx.supabase
+  const [paymentsData, timelineData] = orderIds.length
+    ? await Promise.all([
+      ctx.supabase
         .from('payment_reports')
         .select('order_id, status, reported_amount_usd_equivalent')
+        .in('order_id', orderIds),
+      ctx.supabase
+        .from('order_timeline_events')
+        .select('order_id, event_type, created_at')
         .in('order_id', orderIds)
-    : { data: [] };
+        .in('event_type', REVIEW_EVENT_TYPES)
+        .order('created_at', { ascending: false })
+        .limit(400),
+    ]).then(([paymentsResult, timelineResult]) => [
+      paymentsResult.data ?? [],
+      timelineResult.data ?? [],
+    ] as const)
+    : [[], []] as const;
   const paymentReports = (paymentsData ?? []) as PaymentRow[];
 
   const paymentReportsByOrderId = new Map<number, PaymentRow[]>();
@@ -423,16 +457,11 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     current.push(report);
     paymentReportsByOrderId.set(report.order_id, current);
   }
+  const paymentStateByOrderId = new Map<number, PaymentState>();
+  for (const order of orders) {
+    paymentStateByOrderId.set(order.id, getPaymentState(order, paymentReportsByOrderId));
+  }
 
-  const { data: timelineData } = orderIds.length
-    ? await ctx.supabase
-        .from('order_timeline_events')
-        .select('order_id, event_type, created_at')
-        .in('order_id', orderIds)
-        .in('event_type', REVIEW_EVENT_TYPES)
-        .order('created_at', { ascending: false })
-        .limit(400)
-    : { data: [] };
   const reviewEventByOrderId = new Map<number, TimelineEventRow>();
   for (const event of (timelineData ?? []) as TimelineEventRow[]) {
     const orderId = Number(event.order_id);
@@ -445,7 +474,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
 
   const filteredOrders = dayOrders.filter((order) => {
-    const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
+    const unpaid = isUnpaidOrder(order, paymentStateByOrderId);
     const overdue = isOverdueOrder(order, selectedDayKey);
     const asap = Boolean(order.extra_fields?.schedule?.asap) && isOpenStatus(order.status);
 
@@ -461,20 +490,12 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     return true;
   });
 
-  const grouped = {
-    overdue: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'overdue'),
-    unpaid: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'unpaid'),
-    asap: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'asap'),
-    upcoming: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'upcoming'),
-    closed: filteredOrders.filter((order) => getGroupKey(order, paymentReportsByOrderId, selectedDayKey) === 'closed'),
-  };
-
   const visibleOrders =
     bucket === 'priority'
       ? [...filteredOrders].sort((a, b) => {
           const attentionDiff =
-            attentionLabels(b, paymentReportsByOrderId, selectedDayKey).length -
-            attentionLabels(a, paymentReportsByOrderId, selectedDayKey).length;
+            attentionLabels(b, paymentStateByOrderId, selectedDayKey).length -
+            attentionLabels(a, paymentStateByOrderId, selectedDayKey).length;
           if (attentionDiff !== 0) return attentionDiff;
           return getAgendaSortKey(a).localeCompare(getAgendaSortKey(b));
         })
@@ -543,9 +564,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
         ) : (
           <div className="space-y-2.5">
             {visibleOrders.map((order) => {
-              const unpaid = isUnpaidOrder(order, paymentReportsByOrderId);
-              const paymentState = getPaymentState(order, paymentReportsByOrderId);
-              const paymentStatus = paymentBadge(order, paymentReportsByOrderId);
+              const unpaid = isUnpaidOrder(order, paymentStateByOrderId);
+              const paymentState = getStoredPaymentState(order, paymentStateByOrderId);
+              const paymentStatus = paymentBadge(order, paymentStateByOrderId);
               const canReportMorePayment = unpaid && paymentState.reportableBalanceUsd > 0.005;
               const phaseIndex = operationalPhaseIndex(order);
               const paymentMethod = paymentMethodLabel(order.extra_fields?.payment?.method);
@@ -556,7 +577,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                   : needsInitialApproval(order)
                     ? { label: 'Por aprobar', tone: 'neutral' as const }
                     : null;
-              const labels = attentionLabels(order, paymentReportsByOrderId, selectedDayKey).filter(
+              const labels = attentionLabels(order, paymentStateByOrderId, selectedDayKey).filter(
                 (label) => label.label !== 'Cobro pendiente'
               );
 
