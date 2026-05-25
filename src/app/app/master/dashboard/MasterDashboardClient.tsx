@@ -1870,6 +1870,7 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
   if (method === 'transfer') return 'VES';
   if (method === 'cash_usd') return 'USD';
   if (method === 'cash_ves') return 'VES';
+  if (method === 'pos') return 'VES';
   if (method === 'zelle') return 'USD';
   if (method === 'pending') return 'USD';
   return 'USD';
@@ -21082,6 +21083,7 @@ deliveryAssignMode === 'external' ? (
 { value: 'transfer', label: 'Transferencia' },
 { value: 'cash_usd', label: 'Efectivo USD' },
 { value: 'cash_ves', label: 'Efectivo Bs' },
+{ value: 'pos', label: 'Punto de venta' },
 { value: 'zelle', label: 'Zelle' },
 { value: 'mixed', label: 'Mixto' },
   ]}
