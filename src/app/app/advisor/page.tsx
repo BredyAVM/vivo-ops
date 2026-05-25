@@ -4,6 +4,7 @@ import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
 
 type SearchParams = Promise<{
   day?: string;
+  q?: string;
 }>;
 
 type OrderRow = {
@@ -69,6 +70,14 @@ function formatUsd(value: number | string) {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function normalizeSearchValue(value: string | null | undefined) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function formatDateLabel(value: Date) {
@@ -306,6 +315,22 @@ function operationalPhaseLabel(order: OrderRow) {
   return statusLabel(order.status);
 }
 
+function orderSearchText(order: OrderRow) {
+  const client = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
+
+  return normalizeSearchValue(
+    [
+      order.id,
+      order.order_number,
+      client?.full_name,
+      client?.phone,
+      order.delivery_address,
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
+}
+
 function paymentStatusBadge(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
   if (order.status === 'cancelled') return null;
 
@@ -348,6 +373,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
 
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
+  const searchQuery = String(params.q || '').trim();
 
   const { data: ordersData } = await ctx.supabase
     .from('orders')
@@ -405,6 +431,15 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const agendaOrders = orders
     .filter((order) => getAgendaDayKey(order) === selectedDayKey)
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
+
+  const normalizedSearchQuery = normalizeSearchValue(searchQuery);
+  const searchResults =
+    normalizedSearchQuery.length >= 2
+      ? orders
+          .filter((order) => orderSearchText(order).includes(normalizedSearchQuery))
+          .sort((a, b) => getAgendaSortKey(b).localeCompare(getAgendaSortKey(a)))
+          .slice(0, 8)
+      : [];
 
   const openOrders = agendaOrders.filter((order) => isOpenStatus(order.status));
   const unpaidOrders = agendaOrders.filter((order) => isUnpaidOrder(order, paymentStateByOrderId));
@@ -467,6 +502,72 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
             );
           })}
         </div>
+      </section>
+
+      <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3.5">
+        <form action="/app/advisor" className="flex gap-2">
+          <input type="hidden" name="day" value={selectedDayKey} />
+          <input
+            name="q"
+            defaultValue={searchQuery}
+            placeholder="Cliente, telefono u orden"
+            className="h-11 min-w-0 flex-1 rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] outline-none placeholder:text-[#636C80]"
+          />
+          <button
+            type="submit"
+            className="h-11 rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
+          >
+            Buscar
+          </button>
+        </form>
+
+        {searchQuery ? (
+          <div className="mt-3">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+              <span>{searchResults.length} resultado{searchResults.length === 1 ? '' : 's'}</span>
+              <Link href={`/app/advisor?day=${selectedDayKey}`} className="font-medium text-[#F7DA66]">
+                Limpiar
+              </Link>
+            </div>
+
+            {searchResults.length > 0 ? (
+              <div className="space-y-2">
+                {searchResults.map((order) => (
+                  <Link
+                    key={`search-${order.id}`}
+                    href={`/app/advisor/orders/${order.id}`}
+                    className="block rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#F5F7FB]">
+                          {order.client?.full_name?.trim() || order.order_number}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-[#8B93A7]">
+                          {order.order_number} · {formatDateLabel(new Date(`${getAgendaDayKey(order)}T12:00:00-04:00`))}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-xs font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</div>
+                        <div className="mt-1 text-[11px] text-[#8B93A7]">{getAgendaTimeLabel(order)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <StatusBadge label={operationalPhaseLabel(order)} tone={statusTone(order.status)} />
+                      {needsAdvisorReview(order, reviewEventByOrderId) ? (
+                        <StatusBadge label="Devuelta" tone="danger" />
+                      ) : null}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : normalizedSearchQuery.length >= 2 ? (
+              <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
+                Sin coincidencias.
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3.5">
