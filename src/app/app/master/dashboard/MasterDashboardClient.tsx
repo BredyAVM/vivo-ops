@@ -4087,7 +4087,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [orders, selectedDay]);
 
   const dayStats = useMemo(() => {
-    const list = dayOrders;
+    const list = dayOrders.filter((order) => order.status === 'delivered');
     const cierres = list.length;
     const fact = list.reduce((s, o) => s + o.totalUsd, 0);
     const abonadoConfirmado = list.reduce((s, o) => s + o.confirmedPaidUsd, 0);
@@ -4096,7 +4096,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [dayOrders]);
 
   const weekStats = useMemo(() => {
-    const list = weekOrders;
+    const list = weekOrders.filter((order) => order.status === 'delivered');
     const cierres = list.length;
     const fact = list.reduce((s, o) => s + o.totalUsd, 0);
     const abonadoConfirmado = list.reduce((s, o) => s + o.confirmedPaidUsd, 0);

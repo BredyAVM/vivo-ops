@@ -2239,13 +2239,16 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
   })
   .filter((row) => row.parentProductId && row.componentProductId);
   const initialOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
+    const isCancelled = row.status === 'cancelled';
     const clientFundUsedUsd = roundMoney(row.extra_fields?.payment?.client_fund_used_usd);
-    const confirmedPaidUsd = roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
+    const confirmedPaidUsd = isCancelled
+      ? 0
+      : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
     const totalUsd = roundMoney(
       row.extra_fields?.pricing?.total_usd,
       toNumber(row.total_usd, 0)
     );
-    const balanceUsd = roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
+    const balanceUsd = isCancelled ? 0 : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
 
     const reportState = reportsByOrder.get(row.id) ?? {
       pendingCount: 0,
@@ -2257,7 +2260,8 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     };
 
     let paymentVerify: 'none' | 'pending' | 'confirmed' | 'rejected' = 'none';
-    if (reportState.pendingCount > 0) paymentVerify = 'pending';
+    if (isCancelled) paymentVerify = 'none';
+    else if (reportState.pendingCount > 0) paymentVerify = 'pending';
     else if (reportState.rejectedCount > 0) paymentVerify = 'rejected';
     else if (confirmedPaidUsd > 0.01 || reportState.confirmedCount > 0) paymentVerify = 'confirmed';
 
