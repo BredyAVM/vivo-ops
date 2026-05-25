@@ -243,7 +243,17 @@ const STORAGE_KEYS = {
   clientUsage: 'advisor_client_usage_v1',
   productUsage: 'advisor_product_usage_v1',
   displayName: 'advisor_display_name_v1',
+  catalogCache: 'advisor_catalog_cache_v1',
 } as const;
+
+const ADVISOR_CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type AdvisorCatalogCache = {
+  cachedAt: number;
+  products: ProductRow[];
+  productComponents: ProductComponentRow[];
+  activeRate: number;
+};
 
 function pad2(n: number) {
   return String(n).padStart(2, '0');
@@ -536,6 +546,33 @@ function readStoredString(key: string, fallback = '') {
     return window.localStorage.getItem(key)?.trim() || fallback;
   } catch {
     return fallback;
+  }
+}
+
+function readFreshCatalogCache() {
+  const cache = readStoredJson<AdvisorCatalogCache | null>(STORAGE_KEYS.catalogCache, null);
+  if (!cache || !Array.isArray(cache.products) || !Array.isArray(cache.productComponents)) return null;
+  if (!Number.isFinite(Number(cache.cachedAt))) return null;
+  if (Date.now() - Number(cache.cachedAt) > ADVISOR_CATALOG_CACHE_TTL_MS) return null;
+
+  return cache;
+}
+
+function writeCatalogCache(input: Omit<AdvisorCatalogCache, 'cachedAt'>) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEYS.catalogCache,
+      JSON.stringify({
+        cachedAt: Date.now(),
+        products: input.products,
+        productComponents: input.productComponents,
+        activeRate: input.activeRate,
+      } satisfies AdvisorCatalogCache)
+    );
+  } catch {
+    // Cache is optional; storage quota or private mode should not block order capture.
   }
 }
 
@@ -1470,6 +1507,18 @@ export default function AdvisorOrderComposer({
         ).trim() || 'Asesor'
       );
 
+      const cachedCatalog = readFreshCatalogCache();
+      if (cachedCatalog) {
+        setProducts(cachedCatalog.products);
+        setProductComponents(cachedCatalog.productComponents);
+        if (!isEditingOrder && cachedCatalog.activeRate > 0) {
+          setFxRate(String(Number(cachedCatalog.activeRate.toFixed(2))));
+        }
+        if (!sourceOrderId) {
+          setLoading(false);
+        }
+      }
+
       const baseRequests = [
         supabase
           .from('products')
@@ -1531,12 +1580,28 @@ export default function AdvisorOrderComposer({
       const { data: productData, error: productError } = productResult;
       const { data: componentData, error: componentError } = componentResult;
       const activeRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
+      const nextProducts = (productData ?? []) as ProductRow[];
+      const nextProductComponents = (componentData ?? []) as ProductComponentRow[];
 
-      if (productError) setError(productError.message);
-      else setProducts((productData ?? []) as ProductRow[]);
+      if (productError) {
+        if (!cachedCatalog) setError(productError.message);
+      } else {
+        setProducts(nextProducts);
+      }
 
-      if (componentError) setError(componentError.message);
-      else setProductComponents((componentData ?? []) as ProductComponentRow[]);
+      if (componentError) {
+        if (!cachedCatalog) setError(componentError.message);
+      } else {
+        setProductComponents(nextProductComponents);
+      }
+
+      if (!productError && !componentError) {
+        writeCatalogCache({
+          products: nextProducts,
+          productComponents: nextProductComponents,
+          activeRate,
+        });
+      }
 
       if (!isEditingOrder && activeRate > 0) {
         setFxRate(String(Number(activeRate.toFixed(2))));
