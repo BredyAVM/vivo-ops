@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
@@ -1181,6 +1181,10 @@ export default function AdvisorOrderComposer({
   const [invoicePanelOpen, setInvoicePanelOpen] = useState(false);
   const [deliveryNotePanelOpen, setDeliveryNotePanelOpen] = useState(false);
   const [copyingQuote, setCopyingQuote] = useState(false);
+  const searchingClientRef = useRef(false);
+  const creatingClientRef = useRef(false);
+  const copyingQuoteRef = useRef(false);
+  const savingOrderRef = useRef(false);
   const [itemJustAdded, setItemJustAdded] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderNumber, setExistingOrderNumber] = useState('');
@@ -1901,6 +1905,8 @@ export default function AdvisorOrderComposer({
 
   async function handleSearchClients(e?: FormEvent) {
     e?.preventDefault();
+    if (searchingClientRef.current) return;
+
     clearMessages();
 
     const query = searchTerm.trim();
@@ -1909,23 +1915,34 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    searchingClientRef.current = true;
     setSearchingClient(true);
 
-    const { data, error: searchError } = await supabase
-      .from('clients')
-      .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
-      .or(`phone.ilike.%${query}%,full_name.ilike.%${query}%`)
-      .order('id', { ascending: false })
-      .limit(12);
+    let clientMatches: ClientRow[] = [];
 
-    setSearchingClient(false);
+    try {
+      const { data, error: searchError } = await supabase
+        .from('clients')
+        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
+        .or(`phone.ilike.%${query}%,full_name.ilike.%${query}%`)
+        .order('id', { ascending: false })
+        .limit(12);
 
-    if (searchError) {
-      setError(searchError.message);
+      if (searchError) {
+        setError(searchError.message);
+        return;
+      }
+
+      clientMatches = (data ?? []) as ClientRow[];
+    } catch {
+      setError('No se pudo buscar el cliente.');
       return;
+    } finally {
+      searchingClientRef.current = false;
+      setSearchingClient(false);
     }
 
-    const sortedResults = ((data ?? []) as ClientRow[])
+    const sortedResults = clientMatches
       .map((client) => ({
         client,
         score: clientSearchScore({
@@ -1958,6 +1975,8 @@ export default function AdvisorOrderComposer({
   }
 
   async function createClientNow() {
+    if (creatingClientRef.current) throw new Error('Ya se esta creando el cliente.');
+
     clearMessages();
     const full_name = newClientName.trim();
     const phone = normalizePhone(newClientPhone.trim());
@@ -1965,6 +1984,7 @@ export default function AdvisorOrderComposer({
     if (!full_name) throw new Error('Falta el nombre del cliente.');
     if (!phone) throw new Error('Falta el telefono del cliente.');
 
+    creatingClientRef.current = true;
     setCreatingClient(true);
 
     try {
@@ -1994,7 +2014,16 @@ export default function AdvisorOrderComposer({
       selectClient(client, `Cliente creado: ${client.full_name}`);
       return client.id;
     } finally {
+      creatingClientRef.current = false;
       setCreatingClient(false);
+    }
+  }
+
+  async function handleCreateClientClick() {
+    try {
+      await createClientNow();
+    } catch (clientError) {
+      setError(clientError instanceof Error ? clientError.message : 'No se pudo crear el cliente.');
     }
   }
 
@@ -2586,6 +2615,8 @@ export default function AdvisorOrderComposer({
   }
 
   async function handleCopyQuote() {
+    if (copyingQuoteRef.current) return;
+
     clearMessages();
     if (draftItems.length === 0) {
       setError('Agrega al menos un item para copiar el presupuesto.');
@@ -2596,6 +2627,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    copyingQuoteRef.current = true;
     setCopyingQuote(true);
     try {
       void buildQuoteSummary;
@@ -2605,6 +2637,7 @@ export default function AdvisorOrderComposer({
     } catch {
       setError('No se pudo copiar el resumen.');
     } finally {
+      copyingQuoteRef.current = false;
       setCopyingQuote(false);
     }
   }
@@ -2709,6 +2742,8 @@ export default function AdvisorOrderComposer({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (savingOrderRef.current) return;
+
     clearMessages();
 
     if (!createReady) {
@@ -2759,6 +2794,7 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    savingOrderRef.current = true;
     setSaving(true);
 
     try {
@@ -2896,6 +2932,7 @@ export default function AdvisorOrderComposer({
             : 'No se pudo crear la orden.'
       );
     } finally {
+      savingOrderRef.current = false;
       setSaving(false);
     }
   }
@@ -2934,8 +2971,18 @@ export default function AdvisorOrderComposer({
                 className={inputClass()}
                 placeholder="Telefono o nombre"
               />
-              <button type="button" onClick={() => void handleSearchClients()} className="h-11 rounded-[16px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
-                {searchingClient ? 'Buscando' : 'Buscar'}
+              <button
+                type="button"
+                onClick={() => void handleSearchClients()}
+                disabled={searchingClient}
+                className={[
+                  'h-11 rounded-[16px] border px-3.5 text-sm font-medium transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  searchingClient
+                    ? 'border-[#232632] bg-[#232632] text-[#6F7890]'
+                    : 'border-[#232632] text-[#F5F7FB]',
+                ].join(' ')}
+              >
+                {searchingClient ? 'Buscando...' : 'Buscar'}
               </button>
             </div>
           </Field>
@@ -3010,7 +3057,15 @@ export default function AdvisorOrderComposer({
                   <option value="legacy">Antiguo</option>
                 </select>
               </Field>
-              <button type="button" onClick={() => void createClientNow()} className="h-10 rounded-[14px] bg-[#F0D000] text-sm font-semibold text-[#17191E]">
+              <button
+                type="button"
+                onClick={() => void handleCreateClientClick()}
+                disabled={creatingClient}
+                className={[
+                  'h-10 rounded-[14px] text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  creatingClient ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                ].join(' ')}
+              >
                 {creatingClient ? 'Creando...' : 'Guardar cliente'}
               </button>
             </div>
@@ -3685,7 +3740,7 @@ export default function AdvisorOrderComposer({
                 onClick={() => void handleCopyQuote()}
                 disabled={copyingQuote || draftItems.length === 0}
                 className={[
-                  'h-11 rounded-[16px] border px-4 text-sm font-semibold',
+                  'h-11 rounded-[16px] border px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
                   copyingQuote || draftItems.length === 0
                     ? 'border-[#232632] text-[#6F7890]'
                     : 'border-[#232632] text-[#F5F7FB]',
@@ -3697,7 +3752,7 @@ export default function AdvisorOrderComposer({
                 type="submit"
                 disabled={saving || !baseCreateReady}
                 className={[
-                  'h-11 rounded-[16px] px-4 text-sm font-semibold',
+                  'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
                   saving || !baseCreateReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >

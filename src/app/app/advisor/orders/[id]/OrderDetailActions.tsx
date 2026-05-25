@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useMemo, useState, useTransition } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { createAdvisorPaymentReportAction, requestClientFundApplicationAction } from './actions';
@@ -122,10 +122,16 @@ export default function OrderDetailActions({
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
   const [fundRequestPending, startFundRequestTransition] = useTransition();
+  const copySummaryRef = useRef(false);
+  const fundRequestRef = useRef(false);
+  const paymentReportRef = useRef(false);
   const canOpenPaymentTools = canReportPayment || canRequestClientFund;
   const [reportBoxOpen, setReportBoxOpen] = useState(initialReportBoxOpen && canOpenPaymentTools);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [copyingSummary, setCopyingSummary] = useState(false);
+  const [sendingFundRequest, setSendingFundRequest] = useState(false);
+  const [sendingPaymentReport, setSendingPaymentReport] = useState(false);
   const [fundRequestSent, setFundRequestSent] = useState(hasPendingFundRequest);
   const [advisorLabel, setAdvisorLabel] = useState('Asesor');
   const [moneyAccountId, setMoneyAccountId] = useState('');
@@ -199,7 +205,27 @@ export default function OrderDetailActions({
     };
   }, [supabase]);
 
-  const fundRequestDisabled = fundRequestPending || fundRequestSent || !canRequestClientFund;
+  const fundRequestDisabled = fundRequestPending || sendingFundRequest || fundRequestSent || !canRequestClientFund;
+  const paymentReportDisabled = isPending || sendingPaymentReport;
+
+  async function handleCopySummary() {
+    if (copySummaryRef.current) return;
+
+    setError(null);
+    setSuccess(null);
+    copySummaryRef.current = true;
+    setCopyingSummary(true);
+
+    try {
+      await navigator.clipboard.writeText(effectiveWhatsappSummary);
+      setSuccess('Resumen copiado para WhatsApp.');
+    } catch {
+      setError('No se pudo copiar el resumen.');
+    } finally {
+      copySummaryRef.current = false;
+      setCopyingSummary(false);
+    }
+  }
 
   if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !canRequestClientFund && !whatsappSummary.trim()) return null;
 
@@ -230,20 +256,16 @@ export default function OrderDetailActions({
 
         <button
           type="button"
-          onClick={async () => {
-            setError(null);
-            setSuccess(null);
-
-            try {
-              await navigator.clipboard.writeText(effectiveWhatsappSummary);
-              setSuccess('Resumen copiado para WhatsApp.');
-            } catch {
-              setError('No se pudo copiar el resumen.');
-            }
-          }}
-          className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
+          onClick={() => void handleCopySummary()}
+          disabled={copyingSummary}
+          className={[
+            'inline-flex h-9 items-center justify-center rounded-full border px-3.5 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+            copyingSummary
+              ? 'border-[#232632] bg-[#232632] text-[#6F7890]'
+              : 'border-[#232632] text-[#F5F7FB]',
+          ].join(' ')}
         >
-          Copiar
+          {copyingSummary ? 'Copiando...' : 'Copiar'}
         </button>
 
         {canCorrectOrder ? (
@@ -344,8 +366,12 @@ export default function OrderDetailActions({
                     type="button"
                     disabled={fundRequestDisabled}
                     onClick={() => {
+                      if (fundRequestRef.current) return;
+
                       setError(null);
                       setSuccess(null);
+                      fundRequestRef.current = true;
+                      setSendingFundRequest(true);
 
                       startFundRequestTransition(async () => {
                         try {
@@ -365,17 +391,20 @@ export default function OrderDetailActions({
                               ? submitError.message
                               : 'No se pudo solicitar aplicar el fondo.',
                           );
+                        } finally {
+                          fundRequestRef.current = false;
+                          setSendingFundRequest(false);
                         }
                       });
                     }}
                     className={[
-                      'h-10 rounded-[14px] px-3.5 text-sm font-semibold',
+                      'h-10 rounded-[14px] px-3.5 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
                       fundRequestDisabled
                         ? 'bg-[#232632] text-[#6F7890]'
                         : 'bg-[#F0D000] text-[#17191E]',
                     ].join(' ')}
                   >
-                    {fundRequestPending
+                    {fundRequestPending || sendingFundRequest
                       ? 'Enviando...'
                       : fundRequestSent
                         ? 'Solicitud enviada'
@@ -535,10 +564,14 @@ export default function OrderDetailActions({
             <div className="flex gap-2">
               <button
                 type="button"
-                disabled={isPending}
+                disabled={paymentReportDisabled}
                 onClick={() => {
+                  if (paymentReportRef.current) return;
+
                   setError(null);
                   setSuccess(null);
+                  paymentReportRef.current = true;
+                  setSendingPaymentReport(true);
 
                   startTransition(async () => {
                     try {
@@ -577,21 +610,24 @@ export default function OrderDetailActions({
                       setError(
                         submitError instanceof Error ? submitError.message : 'No se pudo reportar el pago.',
                       );
+                    } finally {
+                      paymentReportRef.current = false;
+                      setSendingPaymentReport(false);
                     }
                   });
                 }}
                 className={[
-                  'h-11 rounded-[16px] px-4 text-sm font-semibold',
-                  isPending ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                  'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  paymentReportDisabled ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
-                {isPending ? 'Enviando...' : 'Enviar'}
+                {paymentReportDisabled ? 'Enviando...' : 'Enviar'}
               </button>
               <button
                 type="button"
-                disabled={isPending}
+                disabled={paymentReportDisabled}
                 onClick={() => setReportBoxOpen(false)}
-                className="h-11 rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB]"
+                className="h-11 rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:text-[#6F7890]"
               >
                 Cerrar
               </button>
