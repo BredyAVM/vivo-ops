@@ -472,6 +472,14 @@ function roundMoney(value: unknown, fallback = 0) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+const MASTER_DASHBOARD_ORDER_LIMIT = 120;
+const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 450;
+const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 80;
+const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 500;
+const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 600;
+const MASTER_DASHBOARD_CLOSURE_LIMIT = 250;
+const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 300;
+
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
     .replace(/Â·/g, '·')
@@ -749,7 +757,7 @@ const {
   .from('master_inbox_item_states')
   .select('item_id, item_type, order_id, status')
   .in('status', ['reviewed', 'resolved'])
-  .limit(1000);
+  .limit(MASTER_DASHBOARD_INBOX_STATE_LIMIT);
 
 if (masterInboxStatesError) {
   const message = masterInboxStatesError.message || '';
@@ -1014,7 +1022,7 @@ const { data: ordersData, error: ordersError } = await supabase
       )
     `)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT);
 
   if (ordersError) {
     return (
@@ -1056,13 +1064,15 @@ const { data: ordersData, error: ordersError } = await supabase
       .from('order_timeline_events')
       .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
       .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT);
 
     const { data: legacyOrderEventsData, error: legacyOrderEventsError } = await supabase
       .from('order_events')
       .select('id, order_id, order_number, event_type, event_group, title, message, severity, actor_user_id, payload, created_at, event, performed_by, meta')
       .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(MASTER_DASHBOARD_LEGACY_EVENT_LIMIT);
 
     const rawOrderEvents = [
       ...(orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[])),
@@ -1277,7 +1287,7 @@ const { data: ordersData, error: ordersError } = await supabase
     `)
     .order('movement_date', { ascending: false })
     .order('created_at', { ascending: false })
-    .limit(1000);
+    .limit(MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT);
 
   const { data: moneyAccountClosuresData, error: moneyAccountClosuresError } = await supabase
     .from('money_account_closures')
@@ -1303,7 +1313,7 @@ const { data: ordersData, error: ordersError } = await supabase
     `)
     .order('closure_date', { ascending: false })
     .order('created_at', { ascending: false })
-    .limit(500);
+    .limit(MASTER_DASHBOARD_CLOSURE_LIMIT);
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
 
@@ -1926,7 +1936,7 @@ const { data: ordersData, error: ordersError } = await supabase
       created_by_user_id
     `)
     .order('created_at', { ascending: false })
-    .limit(500);
+    .limit(MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT);
 
   if (productsError) {
     return (
