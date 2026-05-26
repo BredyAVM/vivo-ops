@@ -16265,7 +16265,15 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         </div>
       ) : null}
 
-      {selectedPaymentReportAccount?.currencyCode === 'VES' ? (
+      {selectedPaymentReportAccount?.currencyCode === 'VES' &&
+      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.key === 'snapshot_quote' ? (
+        <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
+          Si el pago coincide con el saldo Bs snapshot, el sistema cierra contra el monto USD del pedido.
+        </div>
+      ) : null}
+
+      {selectedPaymentReportAccount?.currencyCode === 'VES' &&
+      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.key !== 'snapshot_quote' ? (
         <input
           value={paymentReportExchangeRate}
           onChange={(e) => setPaymentReportExchangeRate(e.target.value)}

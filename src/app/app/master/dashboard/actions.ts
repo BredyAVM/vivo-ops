@@ -1031,12 +1031,17 @@ export async function createPaymentReportAction(input: {
     }
   }
 
+  const effectiveReportedExchangeRate =
+    snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005
+      ? Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6))
+      : input.reportedExchangeRateVesPerUsd;
+
   const { error } = await supabase.rpc('create_payment_report', {
     p_order_id: input.orderId,
     p_reported_money_account_id: input.reportedMoneyAccountId,
     p_reported_currency: input.reportedCurrency,
     p_reported_amount: input.reportedAmount,
-    p_reported_exchange_rate_ves_per_usd: input.reportedExchangeRateVesPerUsd,
+    p_reported_exchange_rate_ves_per_usd: effectiveReportedExchangeRate,
     p_reference_code: referenceCode || null,
     p_payer_name: reportPayerName,
     p_notes: reportNotes,
@@ -1045,12 +1050,11 @@ export async function createPaymentReportAction(input: {
   if (error) throw new Error(error.message);
 
   if (snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005) {
-    const impliedRate = roundMoney(input.reportedAmount / snapshotEquivalentUsd);
+    const impliedRate = Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6));
     const { data: latestReport } = await supabase
       .from('payment_reports')
       .select('id')
       .eq('order_id', input.orderId)
-      .eq('created_by_user_id', user.id)
       .eq('status', 'pending')
       .eq('reported_currency_code', 'VES')
       .order('created_at', { ascending: false })
