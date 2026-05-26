@@ -1747,6 +1747,40 @@ function operationDatePassedDeliveryGraceDay(order: Order, operationDate: string
   );
 }
 
+function getOrderSnapshotBsPerUsd(order: Order) {
+  if (order.totalBs > 0.005 && order.totalUsd > 0.005) {
+    return order.totalBs / order.totalUsd;
+  }
+
+  const snapshotRate = Number(order.editMeta?.fxRate || 0);
+  return snapshotRate > 0 ? snapshotRate : 0;
+}
+
+function getOrderSnapshotPaidBsAmount(order: Order) {
+  const snapshotRate = getOrderSnapshotBsPerUsd(order);
+  let paidBs = 0;
+  let paidUsdFromReports = 0;
+
+  for (const report of order.paymentReports) {
+    if (report.status !== 'confirmed') continue;
+
+    paidUsdFromReports += Number(report.usdEquivalent || 0);
+
+    if (report.currencyCode === 'VES') {
+      paidBs += Number(report.amount || 0);
+    } else if (snapshotRate > 0) {
+      paidBs += Number(report.usdEquivalent || 0) * snapshotRate;
+    }
+  }
+
+  if (snapshotRate > 0) {
+    const otherPaidUsd = Math.max(0, Number(order.confirmedPaidUsd || 0) - paidUsdFromReports);
+    paidBs += otherPaidUsd * snapshotRate;
+  }
+
+  return Math.max(0, Number(paidBs.toFixed(2)));
+}
+
 function getOrderPaymentBalanceBsAmount(
   order: Order,
   activeBsRate: number,
@@ -1759,13 +1793,8 @@ function getOrderPaymentBalanceBsAmount(
     return Number((order.balanceUsd * activeBsRate).toFixed(2));
   }
 
-  const snapshotRate = Number(order.editMeta?.fxRate || 0);
-  if (order.totalBs > 0 && snapshotRate > 0) {
-    return Math.max(0, Number((order.totalBs - order.confirmedPaidUsd * snapshotRate).toFixed(2)));
-  }
-
   if (order.totalBs > 0) {
-    return Number(order.totalBs.toFixed(2));
+    return Math.max(0, Number((order.totalBs - getOrderSnapshotPaidBsAmount(order)).toFixed(2)));
   }
 
   if (activeBsRate > 0) {

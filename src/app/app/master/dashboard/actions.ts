@@ -1067,6 +1067,11 @@ export async function createPaymentReportAction(input: {
           .select('direction, amount_usd_equivalent')
           .eq('order_id', input.orderId);
 
+        const { data: orderPaymentReports } = await supabase
+          .from('payment_reports')
+          .select('status, reported_currency_code, reported_amount, reported_amount_usd_equivalent')
+          .eq('order_id', input.orderId);
+
         const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
           const signedAmount =
             toSafeNumber(row.amount_usd_equivalent, 0) *
@@ -1075,10 +1080,30 @@ export async function createPaymentReportAction(input: {
         }, 0));
 
         const pendingUsd = roundMoney(Math.max(0, currentTotalUsd - confirmedPaidUsd));
-        const pendingBs = roundMoney(currentTotalBs * (pendingUsd / currentTotalUsd));
+        const snapshotRate = currentTotalBs / currentTotalUsd;
+        const confirmedReportPaid = (orderPaymentReports ?? [])
+          .filter((report) => report.status === 'confirmed')
+          .reduce(
+            (state, report) => {
+              const reportUsd = toSafeNumber(report.reported_amount_usd_equivalent, 0);
+              const reportAmount = toSafeNumber(report.reported_amount, 0);
+              state.usd += reportUsd;
+              state.bs +=
+                String(report.reported_currency_code).toUpperCase() === 'VES'
+                  ? reportAmount
+                  : reportUsd * snapshotRate;
+              return state;
+            },
+            { usd: 0, bs: 0 },
+          );
+        const otherPaidUsd = Math.max(0, confirmedPaidUsd - confirmedReportPaid.usd);
+        const confirmedPaidBs = roundMoney(confirmedReportPaid.bs + otherPaidUsd * snapshotRate);
+        const pendingBs = roundMoney(Math.max(0, currentTotalBs - confirmedPaidBs));
 
         if (pendingUsd > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
           snapshotEquivalentUsd = pendingUsd;
+        } else if (reportedAmount > 0 && reportedAmount < pendingBs && snapshotRate > 0) {
+          snapshotEquivalentUsd = roundMoney(reportedAmount / snapshotRate);
         } else if (Math.abs(reportedAmount - currentTotalBs) <= 0.01) {
           snapshotEquivalentUsd = currentTotalUsd;
         }
