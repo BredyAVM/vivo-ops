@@ -1724,10 +1724,38 @@ function hasPassedDeliveryGraceDay(order: Order, currentTimeMs: number) {
   );
 }
 
-function getOrderPaymentBalanceBsAmount(order: Order, activeBsRate: number, currentTimeMs: number) {
+function operationDatePassedDeliveryGraceDay(order: Order, operationDate: string | null | undefined, currentTimeMs: number) {
+  const deliveredAtMs =
+    parseIsoMs(order.editMeta?.deliveryCompletedAtISO) ??
+    (order.status === 'delivered' ? parseIsoMs(order.deliveryAtISO) : null);
+
+  if (!deliveredAtMs) return false;
+
+  const operationDateText = String(operationDate || '').trim();
+  if (!operationDateText) return hasPassedDeliveryGraceDay(order, currentTimeMs);
+
+  const deliveredAt = new Date(deliveredAtMs);
+  const operationAt = new Date(`${operationDateText}T12:00:00`);
+  if (Number.isNaN(operationAt.getTime())) return hasPassedDeliveryGraceDay(order, currentTimeMs);
+
+  return (
+    operationAt.getFullYear() > deliveredAt.getFullYear() ||
+    operationAt.getMonth() > deliveredAt.getMonth() ||
+    (operationAt.getFullYear() === deliveredAt.getFullYear() &&
+      operationAt.getMonth() === deliveredAt.getMonth() &&
+      operationAt.getDate() > deliveredAt.getDate())
+  );
+}
+
+function getOrderPaymentBalanceBsAmount(
+  order: Order,
+  activeBsRate: number,
+  currentTimeMs: number,
+  operationDate?: string | null
+) {
   if (order.balanceUsd <= 0.005) return 0;
 
-  if (hasPassedDeliveryGraceDay(order, currentTimeMs) && activeBsRate > 0) {
+  if (operationDatePassedDeliveryGraceDay(order, operationDate, currentTimeMs) && activeBsRate > 0) {
     return Number((order.balanceUsd * activeBsRate).toFixed(2));
   }
 
@@ -1747,13 +1775,18 @@ function getOrderPaymentBalanceBsAmount(order: Order, activeBsRate: number, curr
   return 0;
 }
 
-function getOrderPaymentBalanceExchangeRate(order: Order, activeBsRate: number, currentTimeMs: number) {
-  const balanceBs = getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs);
+function getOrderPaymentBalanceExchangeRate(
+  order: Order,
+  activeBsRate: number,
+  currentTimeMs: number,
+  operationDate?: string | null
+) {
+  const balanceBs = getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs, operationDate);
   if (balanceBs > 0 && order.balanceUsd > 0.005) {
     return Number((balanceBs / order.balanceUsd).toFixed(4));
   }
 
-  if (hasPassedDeliveryGraceDay(order, currentTimeMs) && activeBsRate > 0) {
+  if (operationDatePassedDeliveryGraceDay(order, operationDate, currentTimeMs) && activeBsRate > 0) {
     return Number(activeBsRate.toFixed(4));
   }
 
@@ -1765,14 +1798,19 @@ function getOrderPaymentBalanceExchangeRate(order: Order, activeBsRate: number, 
   return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
 }
 
-function getOrderCollectionMode(order: Order, activeBsRate: number, currentTimeMs: number) {
+function getOrderCollectionMode(
+  order: Order,
+  activeBsRate: number,
+  currentTimeMs: number,
+  operationDate?: string | null
+) {
   if (order.balanceUsd <= 0.005) return null;
 
-  if (hasPassedDeliveryGraceDay(order, currentTimeMs) && activeBsRate > 0) {
+  if (operationDatePassedDeliveryGraceDay(order, operationDate, currentTimeMs) && activeBsRate > 0) {
     return {
       key: 'post_delivery_usd',
       label: 'Cobranza dolarizada',
-      description: 'Entregada en un día anterior: el saldo Bs se calcula con la tasa activa.',
+      description: 'La fecha de operación es posterior al día de entrega: el saldo Bs se calcula con la tasa activa.',
     } as const;
   }
 
@@ -8886,18 +8924,32 @@ const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | nul
   return String(Number(usdAmount.toFixed(2)));
 };
 
-const getOrderPaymentBalanceBs = (order: Order) => {
-  return getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs);
+const getOrderPaymentBalanceBs = (order: Order, operationDate?: string | null) => {
+  return getOrderPaymentBalanceBsAmount(
+    order,
+    activeBsRate,
+    currentTimeMs,
+    operationDate ?? paymentReportOperationDate
+  );
 };
 
-const getSuggestedOrderPaymentExchangeRate = (order: Order) => {
-  const rate = getOrderPaymentBalanceExchangeRate(order, activeBsRate, currentTimeMs);
+const getSuggestedOrderPaymentExchangeRate = (order: Order, operationDate?: string | null) => {
+  const rate = getOrderPaymentBalanceExchangeRate(
+    order,
+    activeBsRate,
+    currentTimeMs,
+    operationDate ?? paymentReportOperationDate
+  );
   return rate > 0 ? String(rate) : '';
 };
 
-const getSuggestedOrderPaymentAmount = (order: Order, currencyCode: string | null | undefined) => {
+const getSuggestedOrderPaymentAmount = (
+  order: Order,
+  currencyCode: string | null | undefined,
+  operationDate?: string | null
+) => {
   if (currencyCode === 'VES') {
-    const balanceBs = getOrderPaymentBalanceBs(order);
+    const balanceBs = getOrderPaymentBalanceBs(order, operationDate);
     return balanceBs > 0 ? String(Number(balanceBs.toFixed(2))) : '';
   }
 
@@ -16175,11 +16227,12 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
     onClick={() => {
       setPaymentReportBoxOpen(true);
-      setPaymentReportOperationDate(new Date().toISOString().slice(0, 10));
+      const today = new Date().toISOString().slice(0, 10);
+      setPaymentReportOperationDate(today);
       const suggestedCurrency = selectedOrder.editMeta?.paymentCurrency || 'USD';
-      setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, suggestedCurrency));
+      setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, suggestedCurrency, today));
       setPaymentReportExchangeRate(
-        suggestedCurrency === 'VES' ? getSuggestedOrderPaymentExchangeRate(selectedOrder) : ''
+        suggestedCurrency === 'VES' ? getSuggestedOrderPaymentExchangeRate(selectedOrder, today) : ''
       );
       const suggestedFund = Math.max(
         0,
@@ -16209,16 +16262,18 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
       <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
         <div className="text-[10px] text-[#8A8A96]">Saldo Bs</div>
         <div className="mt-0.5 text-[12px] font-semibold text-[#FEEF00]">
-          {getOrderPaymentBalanceBs(selectedOrder) > 0 ? fmtBs(getOrderPaymentBalanceBs(selectedOrder)) : '—'}
+          {getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate) > 0
+            ? fmtBs(getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate))
+            : '—'}
         </div>
       </div>
     </div>
-    {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs) ? (
+    {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate) ? (
       <div className="mt-2 rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
         <span className="font-semibold text-[#F5F5F7]">
-          {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.label}:
+          {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.label}:
         </span>{' '}
-        {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.description}
+        {getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.description}
       </div>
     ) : null}
 
@@ -16231,8 +16286,10 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
 
           const nextAccount = paymentReportAccountOptions.find((a) => a.id === Number(nextId));
           if (nextAccount?.currencyCode === 'VES') {
-            setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode));
-            setPaymentReportExchangeRate(getSuggestedOrderPaymentExchangeRate(selectedOrder));
+            setPaymentReportAmount(
+              getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode, paymentReportOperationDate)
+            );
+            setPaymentReportExchangeRate(getSuggestedOrderPaymentExchangeRate(selectedOrder, paymentReportOperationDate));
           } else {
             setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount?.currencyCode));
             setPaymentReportExchangeRate('');
@@ -16261,19 +16318,19 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
       />
       {selectedPaymentReportAccount?.currencyCode === 'VES' ? (
         <div className="rounded-md border border-[#3A3212] bg-[#1D1A00] px-2 py-1.5 text-[11px] text-[#FEEF00]">
-          Usar monto Bs de la orden: {fmtBs(getOrderPaymentBalanceBs(selectedOrder))}
+          Usar monto Bs de la orden: {fmtBs(getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate))}
         </div>
       ) : null}
 
       {selectedPaymentReportAccount?.currencyCode === 'VES' &&
-      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.key === 'snapshot_quote' ? (
+      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key === 'snapshot_quote' ? (
         <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
           Si el pago coincide con el saldo Bs snapshot, el sistema cierra contra el monto USD del pedido.
         </div>
       ) : null}
 
       {selectedPaymentReportAccount?.currencyCode === 'VES' &&
-      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs)?.key !== 'snapshot_quote' ? (
+      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key !== 'snapshot_quote' ? (
         <input
           value={paymentReportExchangeRate}
           onChange={(e) => setPaymentReportExchangeRate(e.target.value)}
@@ -16286,7 +16343,19 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
       {paymentReportRequiresOperationData ? (
         <input
           value={paymentReportOperationDate}
-          onChange={(e) => setPaymentReportOperationDate(e.target.value)}
+          onChange={(e) => {
+            const nextOperationDate = e.target.value;
+            setPaymentReportOperationDate(nextOperationDate);
+
+            if (selectedPaymentReportAccount?.currencyCode === 'VES') {
+              setPaymentReportAmount(
+                getSuggestedOrderPaymentAmount(selectedOrder, 'VES', nextOperationDate)
+              );
+              setPaymentReportExchangeRate(
+                getSuggestedOrderPaymentExchangeRate(selectedOrder, nextOperationDate)
+              );
+            }
+          }}
           type="date"
           className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
         />

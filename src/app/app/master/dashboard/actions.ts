@@ -83,6 +83,60 @@ function getEffectiveOrderTotalBs(order: { total_bs_snapshot?: unknown; extra_fi
   return roundMoney(order.total_bs_snapshot);
 }
 
+function normalizeDateOnly(value: unknown) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function getCaracasDateString(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+}
+
+function dateOnlyFromIso(value: unknown) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return getCaracasDateString(date);
+}
+
+function compareDateOnly(a: string, b: string) {
+  return a.localeCompare(b);
+}
+
+function getOrderDeliveryReferenceDate(order: { status?: unknown; extra_fields?: unknown }) {
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as Record<string, any>)
+      : {};
+
+  const completedAt = dateOnlyFromIso(extraFields.delivery?.completed_at);
+  if (completedAt) return completedAt;
+
+  const scheduledDate = normalizeDateOnly(extraFields.schedule?.date);
+  if (scheduledDate) return scheduledDate;
+
+  return null;
+}
+
+function canUseSnapshotForPaymentOperation(
+  order: { status?: unknown; extra_fields?: unknown },
+  operationDate: string | null
+) {
+  const deliveryDate = getOrderDeliveryReferenceDate(order);
+  if (!deliveryDate) return true;
+
+  const effectiveOperationDate = operationDate || getCaracasDateString(new Date());
+  return compareDateOnly(effectiveOperationDate, deliveryDate) <= 0;
+}
+
 const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
 const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 
@@ -1005,8 +1059,9 @@ export async function createPaymentReportAction(input: {
     if (currentOrder) {
       const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
       const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
+      const canUseSnapshot = canUseSnapshotForPaymentOperation(currentOrder, normalizeDateOnly(operationDate));
 
-      if (currentTotalUsd > 0.005 && currentTotalBs > 0.005) {
+      if (canUseSnapshot && currentTotalUsd > 0.005 && currentTotalBs > 0.005) {
         const { data: orderMovements } = await supabase
           .from('money_movements')
           .select('direction, amount_usd_equivalent')
