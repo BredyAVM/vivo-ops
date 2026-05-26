@@ -50,6 +50,7 @@ import {
   createCatalogItemAction,
   createClientAction,
   createOrderClientQuickAction,
+  searchClientsAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
@@ -4087,7 +4088,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [orders, selectedDay]);
 
   const dayStats = useMemo(() => {
-    const list = dayOrders.filter((order) => order.status === 'delivered');
+    const list = dayOrders.filter((order) => order.status === 'delivered' && order.totalUsd > 0.005);
     const cierres = list.length;
     const fact = list.reduce((s, o) => s + o.totalUsd, 0);
     const abonadoConfirmado = list.reduce((s, o) => s + o.confirmedPaidUsd, 0);
@@ -4096,7 +4097,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [dayOrders]);
 
   const weekStats = useMemo(() => {
-    const list = weekOrders.filter((order) => order.status === 'delivered');
+    const list = weekOrders.filter((order) => order.status === 'delivered' && order.totalUsd > 0.005);
     const cierres = list.length;
     const fact = list.reduce((s, o) => s + o.totalUsd, 0);
     const abonadoConfirmado = list.reduce((s, o) => s + o.confirmedPaidUsd, 0);
@@ -7819,22 +7820,35 @@ const handleSearchCreateOrderClients = async () => {
 
   try {
     setCreateOrderClientSearchLoading(true);
-    const query = q.toLowerCase();
-    const nextResults = clients
-      .filter((client) => {
-        const tags = normalizeClientTags(client.crmTags);
-        return [
-          client.fullName,
-          client.phone,
-          client.clientType,
-          client.billingCompanyName,
-          client.billingTaxId,
-          ...tags,
-        ]
-          .filter(Boolean)
-          .some((value) => value.toLowerCase().includes(query));
-      })
-      .slice(0, 15);
+    const remoteResults = await searchClientsAction({ query: q, limit: 15 });
+    const nextResults = (remoteResults as any[]).map((client) => ({
+      id: Number(client.id),
+      fullName: client.full_name ?? 'Sin nombre',
+      phone: client.phone ?? '',
+      notes: client.notes ?? '',
+      primaryAdvisorId: client.primary_advisor_id ?? null,
+      createdAt: client.created_at ?? '',
+      clientType: String(client.client_type ?? ''),
+      isActive: Boolean(client.is_active ?? true),
+      birthDate: client.birth_date ?? '',
+      importantDate: client.important_date ?? '',
+      billingCompanyName: client.billing_company_name ?? '',
+      billingTaxId: client.billing_tax_id ?? '',
+      billingAddress: client.billing_address ?? '',
+      billingPhone: client.billing_phone ?? '',
+      deliveryNoteName: client.delivery_note_name ?? '',
+      deliveryNoteDocumentId: client.delivery_note_document_id ?? '',
+      deliveryNoteAddress: client.delivery_note_address ?? '',
+      deliveryNotePhone: client.delivery_note_phone ?? '',
+      recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
+      crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
+      fundBalanceUsd: Number(client.fund_balance_usd ?? 0),
+      extraFields:
+        client.extra_fields && typeof client.extra_fields === 'object'
+          ? (client.extra_fields as Record<string, unknown>)
+          : {},
+      updatedAt: client.updated_at ?? '',
+    }));
 
     setCreateOrderClientResults(nextResults);
   } catch (err) {
@@ -8941,8 +8955,11 @@ const selectedOrderChangeMovements = useMemo(() => {
   );
 
 const selectedCreateOrderClient = useMemo(
-  () => clients.find((client) => client.id === createOrderSelectedClientId) ?? null,
-  [clients, createOrderSelectedClientId]
+  () =>
+    createOrderClientResults.find((client) => client.id === createOrderSelectedClientId) ??
+    clients.find((client) => client.id === createOrderSelectedClientId) ??
+    null,
+  [clients, createOrderClientResults, createOrderSelectedClientId]
 );
 
 const selectedCreateOrderClientAddresses = useMemo(

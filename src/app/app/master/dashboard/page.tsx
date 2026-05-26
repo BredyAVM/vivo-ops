@@ -479,6 +479,7 @@ const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 500;
 const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 600;
 const MASTER_DASHBOARD_CLOSURE_LIMIT = 250;
 const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 300;
+const MASTER_DASHBOARD_CLIENT_LIMIT = 350;
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
@@ -1649,30 +1650,14 @@ const { data: ordersData, error: ordersError } = await supabase
       updated_at
     `;
 
-  const clientsPageSize = 1000;
-  let clientsError: { message: string } | null = null;
-  const clientsRows: RawClientRow[] = [];
-
-  for (let pageFrom = 0; pageFrom < 10000; pageFrom += clientsPageSize) {
-    const pageTo = pageFrom + clientsPageSize - 1;
-    const { data, error } = await supabase
-      .from('clients')
-      .select(clientSelect)
-      .order('updated_at', { ascending: false })
-      .range(pageFrom, pageTo);
-
-    if (error) {
-      clientsError = error;
-      break;
-    }
-
-    const batch = (data ?? []) as RawClientRow[];
-    clientsRows.push(...batch);
-
-    if (batch.length < clientsPageSize) {
-      break;
-    }
-  }
+  const {
+    data: clientsRowsData,
+    error: clientsError,
+  } = await supabase
+    .from('clients')
+    .select(clientSelect)
+    .order('updated_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_CLIENT_LIMIT);
 
   if (clientsError) {
     return (
@@ -1690,7 +1675,7 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  const clients = clientsRows.map((client) => ({
+  const clients = ((clientsRowsData ?? []) as RawClientRow[]).map((client) => ({
     id: Number(client.id),
     fullName: client.full_name,
     phone: client.phone ?? '',

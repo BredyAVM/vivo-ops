@@ -5082,6 +5082,64 @@ export async function createClientAction(input: {
   return createdClient;
 }
 
+export async function searchClientsAction(input: {
+  query: string;
+  limit?: number;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const query = String(input.query || '').trim().replace(/[,%]/g, ' ');
+
+  if (query.length < 2) {
+    return [];
+  }
+
+  const limit = Math.max(1, Math.min(25, Math.floor(Number(input.limit ?? 15) || 15)));
+  const pattern = `%${query}%`;
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select(`
+      id,
+      full_name,
+      phone,
+      notes,
+      primary_advisor_id,
+      created_at,
+      client_type,
+      is_active,
+      birth_date,
+      important_date,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone,
+      recent_addresses,
+      crm_tags,
+      extra_fields,
+      fund_balance_usd,
+      updated_at
+    `)
+    .or(
+      [
+        `full_name.ilike.${pattern}`,
+        `phone.ilike.${pattern}`,
+        `billing_company_name.ilike.${pattern}`,
+        `billing_tax_id.ilike.${pattern}`,
+        `delivery_note_name.ilike.${pattern}`,
+      ].join(',')
+    )
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+
+  return data ?? [];
+}
+
 export async function createOrderClientQuickAction(input: {
   fullName: string;
   phone: string;
