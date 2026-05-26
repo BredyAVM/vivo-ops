@@ -15789,11 +15789,6 @@ onClose={() => {
                   <span className="text-[#8A8A96]">Pagador:</span>{' '}
                   <span className="text-[#F5F5F7]">{repairDisplayText(rp.payerName) || '—'}</span>
                 </div>
-
-                <div>
-                  <span className="text-[#8A8A96]">Tasa:</span>{' '}
-                  <span className="text-[#F5F5F7]">{rp.exchangeRate != null ? rp.exchangeRate : '—'}</span>
-                </div>
               </div>
 
               {rp.notes ? (
