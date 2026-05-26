@@ -7661,7 +7661,7 @@ export async function updateOrderAction(input: {
       });
 
     if (fxRateAuditError) {
-      throw new Error(fxRateAuditError.message);
+      console.warn('snapshot fx rate audit skipped', fxRateAuditError.message);
     }
   }
 
@@ -7723,7 +7723,7 @@ export async function updateOrderAction(input: {
       });
 
     if (createAuditError) {
-      throw new Error(createAuditError.message);
+      console.warn('advanced order edit audit skipped', createAuditError.message);
     }
   }
 
