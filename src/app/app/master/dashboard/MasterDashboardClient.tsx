@@ -1747,6 +1747,24 @@ function getOrderPaymentBalanceBsAmount(order: Order, activeBsRate: number, curr
   return 0;
 }
 
+function getOrderPaymentBalanceExchangeRate(order: Order, activeBsRate: number, currentTimeMs: number) {
+  const balanceBs = getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs);
+  if (balanceBs > 0 && order.balanceUsd > 0.005) {
+    return Number((balanceBs / order.balanceUsd).toFixed(4));
+  }
+
+  if (hasPassedDeliveryGraceDay(order, currentTimeMs) && activeBsRate > 0) {
+    return Number(activeBsRate.toFixed(4));
+  }
+
+  const snapshotRate = Number(order.editMeta?.fxRate || 0);
+  if (snapshotRate > 0) {
+    return Number(snapshotRate.toFixed(4));
+  }
+
+  return activeBsRate > 0 ? Number(activeBsRate.toFixed(4)) : 0;
+}
+
 function getOrderCollectionMode(order: Order, activeBsRate: number, currentTimeMs: number) {
   if (order.balanceUsd <= 0.005) return null;
 
@@ -8870,6 +8888,11 @@ const getSuggestedAccountAmount = (usdAmount: number, currencyCode: string | nul
 
 const getOrderPaymentBalanceBs = (order: Order) => {
   return getOrderPaymentBalanceBsAmount(order, activeBsRate, currentTimeMs);
+};
+
+const getSuggestedOrderPaymentExchangeRate = (order: Order) => {
+  const rate = getOrderPaymentBalanceExchangeRate(order, activeBsRate, currentTimeMs);
+  return rate > 0 ? String(rate) : '';
 };
 
 const getSuggestedOrderPaymentAmount = (order: Order, currencyCode: string | null | undefined) => {
@@ -16153,7 +16176,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
     onClick={() => {
       setPaymentReportBoxOpen(true);
       setPaymentReportOperationDate(new Date().toISOString().slice(0, 10));
-      setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, selectedOrder.editMeta?.paymentCurrency || 'USD'));
+      const suggestedCurrency = selectedOrder.editMeta?.paymentCurrency || 'USD';
+      setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, suggestedCurrency));
+      setPaymentReportExchangeRate(
+        suggestedCurrency === 'VES' ? getSuggestedOrderPaymentExchangeRate(selectedOrder) : ''
+      );
       const suggestedFund = Math.max(
         0,
         Math.min(
@@ -16205,9 +16232,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
           const nextAccount = paymentReportAccountOptions.find((a) => a.id === Number(nextId));
           if (nextAccount?.currencyCode === 'VES') {
             setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode));
-            setPaymentReportExchangeRate(
-              activeBsRate > 0 ? String(Number(activeBsRate.toFixed(2))) : ''
-            );
+            setPaymentReportExchangeRate(getSuggestedOrderPaymentExchangeRate(selectedOrder));
           } else {
             setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount?.currencyCode));
             setPaymentReportExchangeRate('');

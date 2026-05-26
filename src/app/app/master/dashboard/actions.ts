@@ -992,6 +992,44 @@ export async function createPaymentReportAction(input: {
   ].filter((part): part is string => Boolean(part));
   const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
   const reportPayerName = requirements.requiresBank ? bankName : payerName || null;
+  let snapshotEquivalentUsd: number | null = null;
+
+  if (String(input.reportedCurrency || '').trim().toUpperCase() === 'VES') {
+    const reportedAmount = roundMoney(input.reportedAmount);
+    const { data: currentOrder } = await supabase
+      .from('orders')
+      .select('id, total_usd, total_bs_snapshot, extra_fields')
+      .eq('id', input.orderId)
+      .maybeSingle();
+
+    if (currentOrder) {
+      const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
+      const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
+
+      if (currentTotalUsd > 0.005 && currentTotalBs > 0.005) {
+        const { data: orderMovements } = await supabase
+          .from('money_movements')
+          .select('direction, amount_usd_equivalent')
+          .eq('order_id', input.orderId);
+
+        const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
+          const signedAmount =
+            toSafeNumber(row.amount_usd_equivalent, 0) *
+            (row.direction === 'outflow' ? -1 : 1);
+          return sum + signedAmount;
+        }, 0));
+
+        const pendingUsd = roundMoney(Math.max(0, currentTotalUsd - confirmedPaidUsd));
+        const pendingBs = roundMoney(currentTotalBs * (pendingUsd / currentTotalUsd));
+
+        if (pendingUsd > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
+          snapshotEquivalentUsd = pendingUsd;
+        } else if (Math.abs(reportedAmount - currentTotalBs) <= 0.01) {
+          snapshotEquivalentUsd = currentTotalUsd;
+        }
+      }
+    }
+  }
 
   const { error } = await supabase.rpc('create_payment_report', {
     p_order_id: input.orderId,
@@ -1005,6 +1043,33 @@ export async function createPaymentReportAction(input: {
   });
 
   if (error) throw new Error(error.message);
+
+  if (snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005) {
+    const impliedRate = roundMoney(input.reportedAmount / snapshotEquivalentUsd);
+    const { data: latestReport } = await supabase
+      .from('payment_reports')
+      .select('id')
+      .eq('order_id', input.orderId)
+      .eq('created_by_user_id', user.id)
+      .eq('status', 'pending')
+      .eq('reported_currency_code', 'VES')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestReport?.id) {
+      const { error: updateEquivalentError } = await supabase
+        .from('payment_reports')
+        .update({
+          reported_amount_usd_equivalent: snapshotEquivalentUsd,
+          reported_exchange_rate_ves_per_usd: impliedRate,
+        })
+        .eq('id', latestReport.id);
+
+      if (updateEquivalentError) throw new Error(updateEquivalentError.message);
+    }
+  }
+
   const eventContext = await loadOrderEventContext(supabase, input.orderId);
   await appendOrderEvent(supabase, {
     orderId: input.orderId,
