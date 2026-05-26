@@ -9,6 +9,7 @@ type SearchParams = Promise<{
 
 type OrderRow = {
   id: number;
+  client_id?: number | string | null;
   order_number: string;
   status: string;
   queued_needs_reapproval?: boolean | null;
@@ -95,6 +96,10 @@ function normalizeSearchValue(value: string | null | undefined) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function normalizeRemoteSearchValue(value: string) {
+  return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function formatDateLabel(value: Date) {
@@ -391,19 +396,21 @@ function operationalPhaseLabel(order: OrderRow) {
 }
 
 function orderSearchText(order: OrderRow) {
-  const client = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
-
   return normalizeSearchValue(
     [
       order.id,
       order.order_number,
-      client?.full_name,
-      client?.phone,
+      getOrderClient(order)?.full_name,
+      getOrderClient(order)?.phone,
       order.delivery_address,
     ]
       .filter(Boolean)
       .join(' ')
   );
+}
+
+function getOrderClient(order: OrderRow) {
+  return Array.isArray(order.client) ? order.client[0] ?? null : order.client;
 }
 
 function paymentStatusBadge(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
@@ -441,6 +448,16 @@ function attentionLabels(order: OrderRow, paymentStateByOrderId: Map<number, Pay
   return labels;
 }
 
+function searchResultRank(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
+  if (order.status === 'cancelled') return 5;
+  const unpaid = isUnpaidOrder(order, paymentStateByOrderId);
+  if (unpaid && isOpenStatus(order.status)) return 0;
+  if (isOpenStatus(order.status)) return 1;
+  if (unpaid) return 2;
+  if (order.status === 'delivered') return 3;
+  return 4;
+}
+
 export default async function AdvisorHomePage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
   const ctx = await getAuthContext();
@@ -450,15 +467,16 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
   const searchQuery = String(params.q || '').trim();
   const normalizedSearchQuery = normalizeSearchValue(searchQuery);
+  const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
+  const orderSelect =
+    'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
 
   const { data: ordersData } = await ctx.supabase
     .from('orders')
-    .select(
-      'id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-    )
+    .select(orderSelect)
     .eq('attributed_advisor_id', ctx.user.id)
     .order('created_at', { ascending: false })
-    .limit(normalizedSearchQuery.length >= 2 ? 260 : 140);
+    .limit(140);
 
   const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
     ...order,
@@ -469,13 +487,50 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .filter((order) => getAgendaDayKey(order) === selectedDayKey)
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
 
-  const searchResults =
-    normalizedSearchQuery.length >= 2
-      ? orders
-          .filter((order) => orderSearchText(order).includes(normalizedSearchQuery))
-          .sort((a, b) => getAgendaSortKey(b).localeCompare(getAgendaSortKey(a)))
-          .slice(0, 8)
-      : [];
+  let searchResults: OrderRow[] = [];
+
+  if (normalizedSearchQuery.length >= 2) {
+    const localMatches = orders.filter((order) => orderSearchText(order).includes(normalizedSearchQuery));
+    let remoteMatches: OrderRow[] = [];
+
+    if (remoteSearchQuery.length >= 2) {
+      const { data: clientMatches } = await ctx.supabase
+        .from('clients')
+        .select('id')
+        .or(`phone.ilike.%${remoteSearchQuery}%,full_name.ilike.%${remoteSearchQuery}%`)
+        .order('id', { ascending: false })
+        .limit(18);
+
+      const clientIds = Array.from(
+        new Set(
+          (clientMatches ?? [])
+            .map((client) => Number((client as { id?: number | string }).id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      );
+
+      if (clientIds.length > 0) {
+        const { data: clientOrders } = await ctx.supabase
+          .from('orders')
+          .select(orderSelect)
+          .eq('attributed_advisor_id', ctx.user.id)
+          .in('client_id', clientIds)
+          .order('created_at', { ascending: false })
+          .limit(60);
+
+        remoteMatches = ((clientOrders ?? []) as OrderRow[]).map((order) => ({
+          ...order,
+          client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
+        }));
+      }
+    }
+
+    const searchResultById = new Map<number, OrderRow>();
+    for (const order of [...remoteMatches, ...localMatches]) {
+      searchResultById.set(order.id, order);
+    }
+    searchResults = Array.from(searchResultById.values());
+  }
 
   const detailOrderIds = Array.from(
     new Set([...agendaOrders, ...searchResults].map((order) => order.id))
@@ -552,6 +607,13 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     ...phase,
     count: agendaOrders.filter((order) => operationalPhase(order) === phase.key).length,
   }));
+  const displayedSearchResults = searchResults
+    .sort((a, b) => {
+      const rankDiff = searchResultRank(a, paymentStateByOrderId) - searchResultRank(b, paymentStateByOrderId);
+      if (rankDiff !== 0) return rankDiff;
+      return String(b.created_at).localeCompare(String(a.created_at));
+    })
+    .slice(0, 30);
 
   const calendarDays = buildCalendarDays(selectedDayKey);
   return (
@@ -601,15 +663,17 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
         {searchQuery ? (
           <div className="mt-3">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-              <span>{searchResults.length} resultado{searchResults.length === 1 ? '' : 's'}</span>
+              <span>
+                {displayedSearchResults.length} pedido{displayedSearchResults.length === 1 ? '' : 's'}
+              </span>
               <Link href={`/app/advisor?day=${selectedDayKey}`} className="font-medium text-[#F7DA66]">
                 Limpiar
               </Link>
             </div>
 
-            {searchResults.length > 0 ? (
+            {displayedSearchResults.length > 0 ? (
               <div className="space-y-2">
-                {searchResults.map((order) => (
+                {displayedSearchResults.map((order) => (
                   <Link
                     key={`search-${order.id}`}
                     href={`/app/advisor/orders/${order.id}`}
@@ -618,7 +682,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-[#F5F7FB]">
-                          {order.client?.full_name?.trim() || order.order_number}
+                          {getOrderClient(order)?.full_name?.trim() || order.order_number}
                         </div>
                         <div className="mt-1 truncate text-xs text-[#8B93A7]">
                           {order.order_number} · {formatDateLabel(new Date(`${getAgendaDayKey(order)}T12:00:00-04:00`))}
@@ -631,9 +695,17 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <StatusBadge label={operationalPhaseLabel(order)} tone={statusTone(order.status)} />
+                      {paymentStatusBadge(order, paymentStateByOrderId) ? (
+                        <StatusBadge
+                          label={paymentStatusBadge(order, paymentStateByOrderId)!.label}
+                          tone={paymentStatusBadge(order, paymentStateByOrderId)!.tone}
+                        />
+                      ) : null}
                       {needsAdvisorReview(order, reviewEventByOrderId) ? (
                         <StatusBadge label="Devuelta" tone="danger" />
                       ) : null}
+                      {needsReapproval(order) ? <StatusBadge label="Re-aprobacion" tone="warning" /> : null}
+                      {needsInitialApproval(order) ? <StatusBadge label="Por aprobar" tone="neutral" /> : null}
                     </div>
                   </Link>
                 ))}
@@ -774,7 +846,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">
-                        {order.client?.full_name?.trim() || order.order_number}
+                        {getOrderClient(order)?.full_name?.trim() || order.order_number}
                       </div>
                       <div className="mt-1 text-xs text-[#8B93A7]">
                         {getAgendaTimeLabel(order)} · {operationalPhaseLabel(order)}
@@ -839,7 +911,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-[#F5F7FB]">
-                        {order.client?.full_name?.trim() || order.order_number}
+                        {getOrderClient(order)?.full_name?.trim() || order.order_number}
                       </div>
                       <div className="mt-1 truncate text-xs text-[#8B93A7]">
                         {order.order_number} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
