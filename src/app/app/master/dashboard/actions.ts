@@ -1022,6 +1022,10 @@ export async function createPaymentReportAction(input: {
   const bankName = String(input.bankName || '').trim();
   const payerName = String(input.payerName || '').trim();
 
+  if (!operationDate) {
+    throw new Error('Debes indicar la fecha de la operaciÃ³n.');
+  }
+
   if (requiresOperationData && !operationDate) {
     throw new Error('Debes indicar la fecha de la operación.');
   }

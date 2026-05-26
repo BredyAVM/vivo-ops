@@ -5550,6 +5550,12 @@ const handleCreatePaymentReport = async (o: Order) => {
     const referenceCode = paymentReportReferenceCode.trim();
     const bankName = paymentReportBankName.trim();
     const payerName = paymentReportPayerName.trim();
+
+    if (!operationDate) {
+      showToast('error', 'Debes indicar la fecha de la operación.');
+      return;
+    }
+
     const validationError = validatePaymentReportDetails({
       method: paymentMethod,
       operationDate,
@@ -16369,7 +16375,8 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
         />
       ) : null}
 
-      {paymentReportRequiresOperationData ? (
+      <div>
+        <div className="mb-1 text-[10px] text-[#8A8A96]">Fecha de operación</div>
         <input
           value={paymentReportOperationDate}
           onChange={(e) => {
@@ -16388,7 +16395,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
           type="date"
           className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
         />
-      ) : null}
+      </div>
 
       <input
         value={paymentReportReferenceCode}
