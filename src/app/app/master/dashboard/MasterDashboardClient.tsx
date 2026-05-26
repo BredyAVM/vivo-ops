@@ -8501,13 +8501,12 @@ const handleUpdateOrder = async () => {
       return;
     }
 
-    const isAdvancedAdminEdit =
-      isAdmin &&
+    const isAdvancedOrderEdit =
       !!selectedOrder &&
       !['created', 'queued'].includes(selectedOrder.status);
 
-    if (isAdvancedAdminEdit && !adminEditReason.trim()) {
-      showToast('error', 'Debes indicar el motivo de la modificación administrativa.');
+    if (isAdvancedOrderEdit && !adminEditReason.trim()) {
+      showToast('error', 'Debes indicar el motivo de la modificación.');
       return;
     }
 
@@ -8578,7 +8577,7 @@ items: createOrderDraftItems.map((item) => ({
   adminPriceOverrideUsd: item.adminPriceOverrideUsd,
   adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
-      adminEditReason: isAdvancedAdminEdit ? adminEditReason.trim() : null,
+      adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
     });
 
     showToast('success', `Orden actualizada #${editingOrderId}.`);
@@ -13864,8 +13863,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <td className="px-3 py-3">{row.orderNumber}</td>
                     <td className="px-3 py-3">{row.clientName}</td>
                     <td className="px-3 py-3">
-                      {row.adjustmentKind === 'admin_full_edit'
-                        ? 'Modificación admin'
+                      {row.adjustmentKind === 'admin_full_edit' || row.adjustmentKind === 'master_full_edit'
+                        ? row.adjustmentKind === 'master_full_edit' ? 'Modificación master' : 'Modificación admin'
                         : row.adjustmentKind === 'rounding_writeoff' || row.adjustmentKind === 'rounding_gain_close'
                           ? 'Cierre por redondeo'
                           : row.adjustmentType === 'item_price_override'
@@ -13874,7 +13873,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </td>
                     <td className="px-3 py-3">
                       <div className="text-[#F5F5F7]">
-                        {row.adjustmentKind === 'admin_full_edit'
+                        {row.adjustmentKind === 'admin_full_edit' || row.adjustmentKind === 'master_full_edit'
                           ? row.changedFieldLabels.length > 0
                             ? row.changedFieldLabels.join(', ')
                             : 'Modificación auditada'
@@ -13882,7 +13881,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             ? 'Total ajustado al monto confirmado'
                             : row.productName}
                       </div>
-                      {row.adjustmentKind === 'admin_full_edit' ? null : (
+                      {row.adjustmentKind === 'admin_full_edit' || row.adjustmentKind === 'master_full_edit' ? null : (
                         <div className="mt-1 text-[11px] text-[#8A8A96]">
                           {fmtUSD(row.originalUnitUsd)} {'->'} {fmtUSD(row.overrideUnitUsd)}
                           {row.qty > 0 ? ` · x${row.qty}` : ''}
@@ -15985,7 +15984,7 @@ onClose={() => {
               : 'ítem';
           const qty = Number(payload.qty ?? 0);
           const changedFieldLabels = getAdjustmentChangedFields(payload).map(mapAdjustmentFieldLabel);
-          const isAdminFullEdit = payload.kind === 'admin_full_edit';
+          const isFullOrderEdit = payload.kind === 'admin_full_edit' || payload.kind === 'master_full_edit';
 
           return (
             <div
@@ -15995,8 +15994,8 @@ onClose={() => {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[#F5F5F7]">
-                    {isAdminFullEdit
-                      ? 'Modificación administrativa'
+                    {isFullOrderEdit
+                      ? payload.kind === 'master_full_edit' ? 'Modificación master' : 'Modificación administrativa'
                       : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
                       ? 'Cierre por redondeo'
                       : adjustment.adjustmentType === 'item_price_override'
@@ -16021,21 +16020,21 @@ onClose={() => {
                 </div>
 
                 <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
-                  <div className="text-[10px] text-[#8A8A96]">{isAdminFullEdit ? 'Cambios detectados' : 'ítem'}</div>
+                  <div className="text-[10px] text-[#8A8A96]">{isFullOrderEdit ? 'Cambios detectados' : 'ítem'}</div>
                   <div className="mt-1 text-sm text-[#F5F5F7]">
-                    {isAdminFullEdit
+                    {isFullOrderEdit
                       ? changedFieldLabels.length > 0
                         ? changedFieldLabels.join(', ')
                         : 'Modificación auditada'
                       : payload.kind === 'rounding_writeoff' || payload.kind === 'rounding_gain_close'
                         ? 'Total ajustado al monto confirmado'
                         : productName}
-                    {!isAdminFullEdit && qty > 0 ? ` · x${qty}` : ''}
+                    {!isFullOrderEdit && qty > 0 ? ` · x${qty}` : ''}
                   </div>
                 </div>
               </div>
 
-              {isAdminFullEdit ? null : (
+              {isFullOrderEdit ? null : (
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div className="rounded-lg border border-[#242433] bg-[#121218] px-3 py-2">
                     <div className="text-[10px] text-[#8A8A96]">Precio original</div>
@@ -16142,14 +16141,12 @@ onClick={() => {
           </button>
         ) : null}
 
-        {['created', 'queued'].includes(selectedOrder.status) || isAdmin ? (
-          <button
-            className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-            onClick={() => openEditOrderDrawer(selectedOrder)}
-          >
-            {['created', 'queued'].includes(selectedOrder.status) ? 'Modificar' : 'Modificar admin'}
-          </button>
-        ) : null}
+        <button
+          className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+          onClick={() => openEditOrderDrawer(selectedOrder)}
+        >
+          Modificar
+        </button>
 
         {canSendToKitchen(selectedOrder) ? (
           <button
@@ -21664,11 +21661,11 @@ deliveryAssignMode === 'external' ? (
   </div>
 ) : null}
 
-{orderEditorMode === 'edit' && isAdmin && selectedOrder && !['created', 'queued'].includes(selectedOrder.status) ? (
+{orderEditorMode === 'edit' && selectedOrder && !['created', 'queued'].includes(selectedOrder.status) ? (
   <div className="rounded-xl border border-sky-500/30 bg-[#0B0B0D] p-3 text-sm text-sky-200">
-    <div className="font-semibold text-sky-300">Modificación administrativa</div>
+    <div className="font-semibold text-sky-300">Modificación operativa</div>
     <div className="mt-1">
-      Estás editando una orden avanzada o cerrada. El cambio quedará auditado y requiere motivo obligatorio.
+      Estás editando una orden que ya avanzó en operación. El cambio quedará auditado y requiere motivo obligatorio.
     </div>
     <div className="mt-3">
       <label className="mb-1 block text-xs text-[#8A8A96]">Motivo de la modificación</label>

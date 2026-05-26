@@ -7148,15 +7148,10 @@ export async function updateOrderAction(input: {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
   }
 
-  const isAdvancedAdminEdit =
-    getMasterDashboardPermissions(roles).isAdmin && !['created', 'queued'].includes(currentOrder.status);
+  const isAdvancedOrderEdit = !['created', 'queued'].includes(currentOrder.status);
 
-  if (!['created', 'queued'].includes(currentOrder.status) && !getMasterDashboardPermissions(roles).isAdmin) {
-    throw new Error('Solo se pueden editar Órdenes en estado created o queued.');
-  }
-
-  if (isAdvancedAdminEdit && !String(input.adminEditReason || '').trim()) {
-    throw new Error('Debes indicar el motivo de la modificación administrativa.');
+  if (isAdvancedOrderEdit && !String(input.adminEditReason || '').trim()) {
+    throw new Error('Debes indicar el motivo de la modificación.');
   }
 
   const deliveryTime24 = from12hTo24h(
@@ -7670,7 +7665,7 @@ export async function updateOrderAction(input: {
     }
   }
 
-  if (isAdvancedAdminEdit) {
+  if (isAdvancedOrderEdit) {
     const beforeExtraFields =
       currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object' && !Array.isArray(currentOrder.extra_fields)
         ? currentOrder.extra_fields
@@ -7719,7 +7714,7 @@ export async function updateOrderAction(input: {
         reason: String(input.adminEditReason || '').trim(),
         notes: null,
         payload: {
-          kind: 'admin_full_edit',
+          kind: getMasterDashboardPermissions(roles).isAdmin ? 'admin_full_edit' : 'master_full_edit',
           changed_fields: changedFields,
           before: beforeSnapshot,
           after: afterSnapshot,
