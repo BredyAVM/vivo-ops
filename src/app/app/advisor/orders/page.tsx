@@ -31,6 +31,7 @@ type OrderRow = {
     } | null;
     pricing?: {
       fx_rate?: number | string | null;
+      total_usd?: number | string | null;
       total_bs?: number | string | null;
     } | null;
   } | null;
@@ -47,6 +48,8 @@ type RawOrderRow = Omit<OrderRow, 'client'> & {
 type PaymentRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
+  reported_amount: number | string | null;
+  reported_currency_code: string | null;
   reported_amount_usd_equivalent: number | string;
 };
 
@@ -107,12 +110,18 @@ function paymentMethodLabel(method: string | null | undefined) {
   return labels[String(method || 'pending')] ?? 'Por definir';
 }
 
+function getOrderTotalUsd(order: OrderRow) {
+  const snapshotUsd = toSafeNumber(order.extra_fields?.pricing?.total_usd, Number.NaN);
+  if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) return snapshotUsd;
+  return toSafeNumber(order.total_usd, 0);
+}
+
 function getOrderFxRate(order: OrderRow) {
   const storedRate = toSafeNumber(order.extra_fields?.pricing?.fx_rate, 0);
   if (storedRate > 0) return storedRate;
 
   const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
-  const totalUsd = toSafeNumber(order.total_usd, 0);
+  const totalUsd = getOrderTotalUsd(order);
   if (totalBs > 0 && totalUsd > 0) return totalBs / totalUsd;
 
   return 0;
@@ -123,12 +132,18 @@ function getOrderTotalBs(order: OrderRow) {
   if (storedBs > 0) return storedBs;
 
   const fxRate = getOrderFxRate(order);
-  return fxRate > 0 ? toSafeNumber(order.total_usd, 0) * fxRate : 0;
+  return fxRate > 0 ? getOrderTotalUsd(order) * fxRate : 0;
 }
 
 function usdToOrderBs(order: OrderRow, amountUsd: number) {
   const fxRate = getOrderFxRate(order);
   return fxRate > 0 ? amountUsd * fxRate : 0;
+}
+
+function getPaymentAmountBs(report: PaymentRow, order: OrderRow) {
+  const currency = String(report.reported_currency_code || '').toUpperCase();
+  if (currency === 'VES') return toSafeNumber(report.reported_amount, 0);
+  return usdToOrderBs(order, toSafeNumber(report.reported_amount_usd_equivalent, 0));
 }
 
 function formatDate(value: string) {
@@ -222,24 +237,32 @@ function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
   const time24 = getAgendaTime24(order);
   if (!time24) return false;
 
-  const now = new Date();
-  const currentKey = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const currentKey = new Date().toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Caracas',
+  });
   return time24 < currentKey;
 }
 
 function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>): PaymentState {
   const reports = paymentReportsByOrderId.get(order.id) ?? [];
-  const totalUsd = toSafeNumber(order.total_usd, 0);
+  const totalUsd = getOrderTotalUsd(order);
   const clientFundUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
   let confirmedUsd = clientFundUsd;
+  let confirmedBs = usdToOrderBs(order, clientFundUsd);
   let pendingUsd = 0;
+  let pendingBs = 0;
   let hasRejected = false;
 
   for (const report of reports) {
     if (report.status === 'confirmed') {
       confirmedUsd += toSafeNumber(report.reported_amount_usd_equivalent, 0);
+      confirmedBs += getPaymentAmountBs(report, order);
     } else if (report.status === 'pending') {
       pendingUsd += toSafeNumber(report.reported_amount_usd_equivalent, 0);
+      pendingBs += getPaymentAmountBs(report, order);
     } else if (report.status === 'rejected') {
       hasRejected = true;
     }
@@ -248,10 +271,9 @@ function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, P
   const balanceUsd = Math.max(0, Number((totalUsd - confirmedUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((totalUsd - confirmedUsd - pendingUsd).toFixed(2)));
   const totalBs = getOrderTotalBs(order);
-  const confirmedBs = usdToOrderBs(order, confirmedUsd);
-  const pendingBs = usdToOrderBs(order, pendingUsd);
-  const balanceBs = usdToOrderBs(order, balanceUsd);
-  const reportableBalanceBs = usdToOrderBs(order, reportableBalanceUsd);
+  const balanceBs =
+    totalBs > 0 ? Math.max(0, Number((totalBs - confirmedBs).toFixed(2))) : usdToOrderBs(order, balanceUsd);
+  const reportableBalanceBs = Math.max(0, Number((balanceBs - pendingBs).toFixed(2)));
 
   return {
     confirmedUsd,
@@ -435,7 +457,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     ? await Promise.all([
       ctx.supabase
         .from('payment_reports')
-        .select('order_id, status, reported_amount_usd_equivalent')
+        .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
         .in('order_id', orderIds),
       ctx.supabase
         .from('order_timeline_events')
@@ -599,7 +621,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       <div className="shrink-0 text-right">
                         <div className="text-sm font-semibold text-[#F5F7FB]">{getAgendaTimeLabel(order)}</div>
                         <div className="mt-1 text-xs font-semibold text-[#F0D000]">{formatBs(paymentState.totalBs)}</div>
-                        <div className="mt-0.5 text-[11px] text-[#8B93A7]">{formatUsd(order.total_usd)}</div>
+                        <div className="mt-0.5 text-[11px] text-[#8B93A7]">{formatUsd(getOrderTotalUsd(order))}</div>
                       </div>
                     </div>
 

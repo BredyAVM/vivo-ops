@@ -42,6 +42,7 @@ type OrderRow = {
     } | null;
     pricing?: {
       fx_rate?: number | string | null;
+      total_usd?: number | string | null;
       total_bs?: number | string | null;
     } | null;
   } | null;
@@ -355,13 +356,21 @@ function getOrderTotalBs(order: OrderRow) {
   return 0;
 }
 
+function getOrderSnapshotTotalUsd(order: OrderRow) {
+  const storedUsd = Number(order.extra_fields?.pricing?.total_usd);
+  if (Number.isFinite(storedUsd) && storedUsd > 0) return storedUsd;
+
+  const totalUsd = Number(order.total_usd);
+  return Number.isFinite(totalUsd) ? totalUsd : 0;
+}
+
 function getOrderFxRate(order: OrderRow) {
   const storedRate = Number(order.extra_fields?.pricing?.fx_rate);
   if (Number.isFinite(storedRate) && storedRate > 0) return storedRate;
 
   const totalBs = getOrderTotalBs(order);
-  const totalUsd = Number(order.total_usd);
-  if (totalBs > 0 && Number.isFinite(totalUsd) && totalUsd > 0) {
+  const totalUsd = getOrderSnapshotTotalUsd(order);
+  if (totalBs > 0 && totalUsd > 0) {
     return totalBs / totalUsd;
   }
 
@@ -369,12 +378,14 @@ function getOrderFxRate(order: OrderRow) {
 }
 
 function getOrderTotalUsdForSummary(order: OrderRow) {
+  const snapshotUsd = Number(order.extra_fields?.pricing?.total_usd);
+  if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) return snapshotUsd;
+
   const totalBs = getOrderTotalBs(order);
   const fxRate = getOrderFxRate(order);
   if (totalBs > 0 && fxRate > 0) return totalBs / fxRate;
 
-  const totalUsd = Number(order.total_usd);
-  return Number.isFinite(totalUsd) ? totalUsd : 0;
+  return getOrderSnapshotTotalUsd(order);
 }
 
 function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
@@ -875,7 +886,8 @@ export default async function AdvisorOrderDetailPage({
   const pendingPaidUsd = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
-  const balanceUsd = Math.max(0, Number((Number(order.total_usd || 0) - confirmedPaidUsd).toFixed(2)));
+  const orderTotalUsd = getOrderTotalUsdForSummary(order);
+  const balanceUsd = Math.max(0, Number((orderTotalUsd - confirmedPaidUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
   const clientFundAvailableUsd = Math.max(0, toSafeNumber(client?.fund_balance_usd, 0));
@@ -978,7 +990,7 @@ export default async function AdvisorOrderDetailPage({
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
   const openPaymentOnLoad = resolvedSearchParams.reportPayment === '1';
   const paymentSummary = getPaymentSummary(
-    toSafeNumber(order.total_usd, 0),
+    toSafeNumber(orderTotalUsd, 0),
     toSafeNumber(confirmedPaidUsd, 0),
     toSafeNumber(pendingPaidUsd, 0),
     toSafeNumber(balanceUsd, 0),
@@ -1052,7 +1064,7 @@ export default async function AdvisorOrderDetailPage({
             </div>
             <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
               <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Total</div>
-              <div className="mt-1 font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</div>
+              <div className="mt-1 font-semibold text-[#F0D000]">{formatUsd(orderTotalUsd)}</div>
             </div>
           </div>
 

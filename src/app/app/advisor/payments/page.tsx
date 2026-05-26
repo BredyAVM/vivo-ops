@@ -22,6 +22,7 @@ type OrderRow = {
     } | null;
     pricing?: {
       fx_rate?: number | string | null;
+      total_usd?: number | string | null;
       total_bs?: number | string | null;
     } | null;
   } | null;
@@ -99,12 +100,18 @@ function paymentMethodLabel(method: string | null | undefined) {
   return labels[String(method || 'pending')] ?? 'Por definir';
 }
 
+function getOrderTotalUsd(order: OrderRow) {
+  const snapshotUsd = toSafeNumber(order.extra_fields?.pricing?.total_usd, Number.NaN);
+  if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) return snapshotUsd;
+  return toSafeNumber(order.total_usd, 0);
+}
+
 function getOrderTotalBs(order: OrderRow) {
   const storedBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
   if (storedBs > 0) return storedBs;
 
   const fxRate = getOrderFxRate(order);
-  return fxRate > 0 ? toSafeNumber(order.total_usd, 0) * fxRate : 0;
+  return fxRate > 0 ? getOrderTotalUsd(order) * fxRate : 0;
 }
 
 function getOrderFxRate(order: OrderRow) {
@@ -112,7 +119,7 @@ function getOrderFxRate(order: OrderRow) {
   if (storedRate > 0) return storedRate;
 
   const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
-  const totalUsd = toSafeNumber(order.total_usd, 0);
+  const totalUsd = getOrderTotalUsd(order);
   if (totalBs > 0 && totalUsd > 0) return totalBs / totalUsd;
 
   return 0;
@@ -188,18 +195,26 @@ export default async function AdvisorPaymentsPage() {
           .filter((payment) => payment.status === 'confirmed')
           .reduce((sum, payment) => sum + toSafeNumber(payment.reported_amount_usd_equivalent, 0), 0) +
         toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
+      const confirmedBs =
+        reports
+          .filter((payment) => payment.status === 'confirmed')
+          .reduce((sum, payment) => sum + getPaymentEquivalentBs(payment, order), 0) +
+        usdToOrderBs(order, toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0));
       const pendingUsd = reports
         .filter((payment) => payment.status === 'pending')
         .reduce((sum, payment) => sum + toSafeNumber(payment.reported_amount_usd_equivalent, 0), 0);
-      const balanceUsd = Math.max(0, Number((toSafeNumber(order.total_usd, 0) - confirmedUsd).toFixed(2)));
+      const pendingBs = reports
+        .filter((payment) => payment.status === 'pending')
+        .reduce((sum, payment) => sum + getPaymentEquivalentBs(payment, order), 0);
+      const balanceUsd = Math.max(0, Number((getOrderTotalUsd(order) - confirmedUsd).toFixed(2)));
       const reportableBalanceUsd = Math.max(
         0,
-        Number((toSafeNumber(order.total_usd, 0) - confirmedUsd - pendingUsd).toFixed(2))
+        Number((getOrderTotalUsd(order) - confirmedUsd - pendingUsd).toFixed(2))
       );
       const totalBs = getOrderTotalBs(order);
-      const balanceBs = usdToOrderBs(order, balanceUsd);
-      const reportableBalanceBs = usdToOrderBs(order, reportableBalanceUsd);
-      const pendingBs = usdToOrderBs(order, pendingUsd);
+      const balanceBs =
+        totalBs > 0 ? Math.max(0, Number((totalBs - confirmedBs).toFixed(2))) : usdToOrderBs(order, balanceUsd);
+      const reportableBalanceBs = Math.max(0, Number((balanceBs - pendingBs).toFixed(2)));
 
       return {
         ...order,
@@ -315,7 +330,7 @@ export default async function AdvisorPaymentsPage() {
                   </div>
                   <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
                     <span>Referencia $</span>
-                    <span>{formatUsd(order.total_usd)}</span>
+                    <span>{formatUsd(getOrderTotalUsd(order))}</span>
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">

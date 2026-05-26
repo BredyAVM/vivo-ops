@@ -27,6 +27,11 @@ type OrderRow = {
     payment?: {
       client_fund_used_usd?: number | string | null;
     } | null;
+    pricing?: {
+      fx_rate?: number | string | null;
+      total_usd?: number | string | null;
+      total_bs?: number | string | null;
+    } | null;
   } | null;
   client:
     | { full_name: string | null; phone: string | null }[]
@@ -37,14 +42,21 @@ type OrderRow = {
 type PaymentRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
+  reported_amount: number | string | null;
+  reported_currency_code: string | null;
   reported_amount_usd_equivalent: number | string;
 };
 
 type PaymentState = {
   confirmedUsd: number;
+  confirmedBs: number;
   pendingUsd: number;
+  pendingBs: number;
   balanceUsd: number;
+  balanceBs: number;
   reportableBalanceUsd: number;
+  reportableBalanceBs: number;
+  totalBs: number;
   hasRejected: boolean;
 };
 
@@ -65,6 +77,11 @@ const REVIEW_EVENT_TYPES = [
 function formatUsd(value: number | string) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
+}
+
+function formatBs(value: number | string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `Bs ${amount.toFixed(2)}` : 'Bs 0.00';
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {
@@ -142,6 +159,42 @@ function getAgendaTime24(order: Pick<OrderRow, 'extra_fields'>) {
   return String(order.extra_fields?.schedule?.time_24 || '').trim();
 }
 
+function getOrderTotalUsd(order: OrderRow) {
+  const snapshotUsd = toSafeNumber(order.extra_fields?.pricing?.total_usd, Number.NaN);
+  if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) return snapshotUsd;
+  return toSafeNumber(order.total_usd, 0);
+}
+
+function getOrderFxRate(order: OrderRow) {
+  const storedRate = toSafeNumber(order.extra_fields?.pricing?.fx_rate, 0);
+  if (storedRate > 0) return storedRate;
+
+  const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  const totalUsd = getOrderTotalUsd(order);
+  if (totalBs > 0 && totalUsd > 0) return totalBs / totalUsd;
+
+  return 0;
+}
+
+function getOrderTotalBs(order: OrderRow) {
+  const storedBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  if (storedBs > 0) return storedBs;
+
+  const fxRate = getOrderFxRate(order);
+  return fxRate > 0 ? getOrderTotalUsd(order) * fxRate : 0;
+}
+
+function usdToOrderBs(order: OrderRow, amountUsd: number) {
+  const fxRate = getOrderFxRate(order);
+  return fxRate > 0 ? amountUsd * fxRate : 0;
+}
+
+function getPaymentAmountBs(report: PaymentRow, order: OrderRow) {
+  const currency = String(report.reported_currency_code || '').toUpperCase();
+  if (currency === 'VES') return toSafeNumber(report.reported_amount, 0);
+  return usdToOrderBs(order, toSafeNumber(report.reported_amount_usd_equivalent, 0));
+}
+
 function getAgendaSortKey(order: Pick<OrderRow, 'created_at' | 'extra_fields'>) {
   const dayKey = getAgendaDayKey(order);
   const timeKey = order.extra_fields?.schedule?.asap ? '00:00' : getAgendaTime24(order) || '99:99';
@@ -195,24 +248,33 @@ function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
   const time24 = getAgendaTime24(order);
   if (!time24) return false;
 
-  const now = new Date();
-  const currentKey = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const currentKey = new Date().toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Caracas',
+  });
   return time24 < currentKey;
 }
 
 function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, PaymentRow[]>): PaymentState {
   const reports = paymentReportsByOrderId.get(order.id) ?? [];
-  const totalUsd = toSafeNumber(order.total_usd, 0);
+  const totalUsd = getOrderTotalUsd(order);
+  const totalBs = getOrderTotalBs(order);
   const clientFundUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
   let confirmedUsd = clientFundUsd;
+  let confirmedBs = usdToOrderBs(order, clientFundUsd);
   let pendingUsd = 0;
+  let pendingBs = 0;
   let hasRejected = false;
 
   for (const report of reports) {
     if (report.status === 'confirmed') {
       confirmedUsd += toSafeNumber(report.reported_amount_usd_equivalent, 0);
+      confirmedBs += getPaymentAmountBs(report, order);
     } else if (report.status === 'pending') {
       pendingUsd += toSafeNumber(report.reported_amount_usd_equivalent, 0);
+      pendingBs += getPaymentAmountBs(report, order);
     } else if (report.status === 'rejected') {
       hasRejected = true;
     }
@@ -220,12 +282,20 @@ function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, P
 
   const balanceUsd = Math.max(0, Number((totalUsd - confirmedUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((totalUsd - confirmedUsd - pendingUsd).toFixed(2)));
+  const balanceBs =
+    totalBs > 0 ? Math.max(0, Number((totalBs - confirmedBs).toFixed(2))) : usdToOrderBs(order, balanceUsd);
+  const reportableBalanceBs = Math.max(0, Number((balanceBs - pendingBs).toFixed(2)));
 
   return {
     confirmedUsd,
+    confirmedBs,
     pendingUsd,
+    pendingBs,
     balanceUsd,
+    balanceBs,
     reportableBalanceUsd,
+    reportableBalanceBs,
+    totalBs,
     hasRejected,
   };
 }
@@ -233,9 +303,14 @@ function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, P
 function getStoredPaymentState(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
   return paymentStateByOrderId.get(order.id) ?? {
     confirmedUsd: 0,
+    confirmedBs: 0,
     pendingUsd: 0,
+    pendingBs: 0,
     balanceUsd: 0,
+    balanceBs: 0,
     reportableBalanceUsd: 0,
+    reportableBalanceBs: 0,
+    totalBs: getOrderTotalBs(order),
     hasRejected: false,
   };
 }
@@ -247,7 +322,7 @@ function paymentAttentionLabel(order: OrderRow, paymentStateByOrderId: Map<numbe
   if (state.balanceUsd <= 0.005) return null;
   if (state.pendingUsd > 0.005 && state.reportableBalanceUsd <= 0.005) return 'Por validar';
   if (state.confirmedUsd > 0.005 || state.pendingUsd > 0.005) {
-    return `Saldo ${formatUsd(state.reportableBalanceUsd > 0.005 ? state.reportableBalanceUsd : state.balanceUsd)}`;
+    return `Saldo ${formatBs(state.reportableBalanceBs > 0.005 ? state.reportableBalanceBs : state.balanceBs)}`;
   }
   return 'Sin pago';
 }
@@ -342,7 +417,7 @@ function paymentStatusBadge(order: OrderRow, paymentStateByOrderId: Map<number, 
   }
   if (state.confirmedUsd > 0.005 || state.pendingUsd > 0.005) {
     return {
-      label: `Saldo ${formatUsd(state.reportableBalanceUsd > 0.005 ? state.reportableBalanceUsd : state.balanceUsd)}`,
+      label: `Saldo ${formatBs(state.reportableBalanceBs > 0.005 ? state.reportableBalanceBs : state.balanceBs)}`,
       tone: 'warning' as const,
     };
   }
@@ -374,6 +449,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
   const searchQuery = String(params.q || '').trim();
+  const normalizedSearchQuery = normalizeSearchValue(searchQuery);
 
   const { data: ordersData } = await ctx.supabase
     .from('orders')
@@ -382,27 +458,41 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     )
     .eq('attributed_advisor_id', ctx.user.id)
     .order('created_at', { ascending: false })
-    .limit(300);
+    .limit(normalizedSearchQuery.length >= 2 ? 260 : 140);
 
   const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
 
-  const orderIds = orders.map((order) => order.id);
-  const [paymentsData, timelineData] = orderIds.length
+  const agendaOrders = orders
+    .filter((order) => getAgendaDayKey(order) === selectedDayKey)
+    .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
+
+  const searchResults =
+    normalizedSearchQuery.length >= 2
+      ? orders
+          .filter((order) => orderSearchText(order).includes(normalizedSearchQuery))
+          .sort((a, b) => getAgendaSortKey(b).localeCompare(getAgendaSortKey(a)))
+          .slice(0, 8)
+      : [];
+
+  const detailOrderIds = Array.from(
+    new Set([...agendaOrders, ...searchResults].map((order) => order.id))
+  );
+  const [paymentsData, timelineData] = detailOrderIds.length
     ? await Promise.all([
       ctx.supabase
         .from('payment_reports')
-        .select('order_id, status, reported_amount_usd_equivalent')
-        .in('order_id', orderIds),
+        .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
+        .in('order_id', detailOrderIds),
       ctx.supabase
         .from('order_timeline_events')
         .select('order_id, event_type, created_at')
-        .in('order_id', orderIds)
+        .in('order_id', detailOrderIds)
         .in('event_type', REVIEW_EVENT_TYPES)
         .order('created_at', { ascending: false })
-        .limit(400),
+        .limit(200),
     ]).then(([paymentsResult, timelineResult]) => [
       paymentsResult.data ?? [],
       timelineResult.data ?? [],
@@ -417,7 +507,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     paymentReportsByOrderId.set(report.order_id, current);
   }
   const paymentStateByOrderId = new Map<number, PaymentState>();
-  for (const order of orders) {
+  for (const order of [...agendaOrders, ...searchResults]) {
     paymentStateByOrderId.set(order.id, getPaymentState(order, paymentReportsByOrderId));
   }
 
@@ -427,19 +517,6 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     if (!Number.isFinite(orderId) || reviewEventByOrderId.has(orderId)) continue;
     reviewEventByOrderId.set(orderId, event);
   }
-
-  const agendaOrders = orders
-    .filter((order) => getAgendaDayKey(order) === selectedDayKey)
-    .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
-
-  const normalizedSearchQuery = normalizeSearchValue(searchQuery);
-  const searchResults =
-    normalizedSearchQuery.length >= 2
-      ? orders
-          .filter((order) => orderSearchText(order).includes(normalizedSearchQuery))
-          .sort((a, b) => getAgendaSortKey(b).localeCompare(getAgendaSortKey(a)))
-          .slice(0, 8)
-      : [];
 
   const openOrders = agendaOrders.filter((order) => isOpenStatus(order.status));
   const unpaidOrders = agendaOrders.filter((order) => isUnpaidOrder(order, paymentStateByOrderId));
@@ -548,7 +625,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <div className="text-xs font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</div>
+                        <div className="text-xs font-semibold text-[#F0D000]">{formatUsd(getOrderTotalUsd(order))}</div>
                         <div className="mt-1 text-[11px] text-[#8B93A7]">{getAgendaTimeLabel(order)}</div>
                       </div>
                     </div>
@@ -703,7 +780,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                         {getAgendaTimeLabel(order)} · {operationalPhaseLabel(order)}
                       </div>
                     </div>
-                    <div className="shrink-0 text-xs font-semibold text-[#F0D000]">{formatUsd(order.total_usd)}</div>
+                    <div className="shrink-0 text-xs font-semibold text-[#F0D000]">{formatUsd(getOrderTotalUsd(order))}</div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {reviewBadge ? <StatusBadge label={reviewBadge.label} tone={reviewBadge.tone} /> : null}
@@ -770,7 +847,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     </div>
                     <div className="shrink-0 text-right">
                       <div className="text-sm font-semibold text-[#F5F7FB]">{getAgendaTimeLabel(order)}</div>
-                      <div className="mt-1 text-xs text-[#8B93A7]">{formatUsd(order.total_usd)}</div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">{formatUsd(getOrderTotalUsd(order))}</div>
                     </div>
                   </div>
 
