@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
 
 type SearchParams = Promise<{
@@ -384,12 +385,14 @@ function operationalPhaseLabel(order: OrderRow) {
 }
 
 function orderSearchText(order: OrderRow) {
+  const clientPhone = getOrderClient(order)?.phone ?? null;
   return normalizeSearchValue(
     [
       order.id,
       order.order_number,
       getOrderClient(order)?.full_name,
-      getOrderClient(order)?.phone,
+      clientPhone,
+      ...getPhoneSearchTerms(clientPhone),
       order.delivery_address,
     ]
       .filter(Boolean)
@@ -482,10 +485,15 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     let remoteMatches: OrderRow[] = [];
 
     if (remoteSearchQuery.length >= 2) {
+      const phoneFilters = getPhoneSearchTerms(remoteSearchQuery)
+        .map((term) => term.replace(/[,%]/g, ' '))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((term) => `phone.ilike.%${term}%`);
       const { data: clientMatches } = await ctx.supabase
         .from('clients')
         .select('id')
-        .or(`phone.ilike.%${remoteSearchQuery}%,full_name.ilike.%${remoteSearchQuery}%`)
+        .or([`phone.ilike.%${remoteSearchQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteSearchQuery}%`].join(','))
         .order('id', { ascending: false })
         .limit(18);
 

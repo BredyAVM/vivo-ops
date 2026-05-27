@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone'
 import { createSupabaseBrowser } from '@/lib/supabase'
 
 type ClientChannelType = 'assigned' | 'own' | 'legacy'
@@ -113,10 +114,6 @@ function from12hTo24h(hour12: string, minute: string, ampm: 'AM' | 'PM') {
   }
 
   return `${pad2(h)}:${pad2(m)}`
-}
-
-function normalizePhone(raw: string) {
-  return raw.replace(/[^\d+]/g, '')
 }
 
 export default function NewOrderPage() {
@@ -362,11 +359,16 @@ export default function NewOrderPage() {
     setSearchingClient(true)
 
     const q = raw.replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+    const phoneFilters = getPhoneSearchTerms(q)
+      .map((term) => term.replace(/[,%]/g, ' '))
+      .filter(Boolean)
+      .slice(0, 5)
+      .map((term) => `phone.ilike.%${term}%`)
 
     const { data, error } = await supabase
       .from('clients')
       .select('id, full_name, phone, client_type')
-      .or(`phone.ilike.%${q}%,full_name.ilike.%${q}%`)
+      .or([`phone.ilike.%${q}%`, ...phoneFilters, `full_name.ilike.%${q}%`].join(','))
       .order('id', { ascending: false })
       .limit(15)
 
@@ -425,10 +427,15 @@ export default function NewOrderPage() {
     setCreatingClientNow(true)
 
     try {
+      const phoneFilters = getPhoneSearchTerms(phone)
+        .map((term) => term.replace(/[,%]/g, ' '))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((term) => `phone.ilike.%${term}%`)
       const { data: existing, error: existingError } = await supabase
         .from('clients')
         .select('id, full_name, phone, client_type')
-        .eq('phone', phone)
+        .or([`phone.eq.${phone}`, ...phoneFilters].join(','))
         .limit(1)
 
       if (existingError) throw new Error(existingError.message)
@@ -486,7 +493,7 @@ export default function NewOrderPage() {
     const { data, error } = await supabase
       .from('clients')
       .select('id')
-      .eq('phone', phone)
+      .or([`phone.eq.${phone}`, ...getPhoneSearchTerms(phone).slice(0, 5).map((term) => `phone.ilike.%${term.replace(/[,%]/g, ' ')}%`)].join(','))
       .limit(1)
 
     if (error) throw new Error(error.message)

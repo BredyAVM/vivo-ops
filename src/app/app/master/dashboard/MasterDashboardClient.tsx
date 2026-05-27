@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import {
@@ -9151,6 +9152,7 @@ const selectedCreateOrderClientAddresses = useMemo(
 
   const filteredClients = useMemo(() => {
     const query = clientSearch.trim().toLowerCase();
+    const normalizedPhoneTerms = getPhoneSearchTerms(clientSearch).map((term) => term.toLowerCase());
 
     return clients.filter((client) => {
       if (!query) return true;
@@ -9158,9 +9160,10 @@ const selectedCreateOrderClientAddresses = useMemo(
       const tags = normalizeClientTags(client.crmTags);
       const addresses = normalizeClientAddresses(client.recentAddresses);
 
-      return [
+      const searchableValues = [
         client.fullName,
         client.phone,
+        ...getPhoneSearchTerms(client.phone),
         client.clientType,
         client.billingCompanyName,
         client.billingTaxId,
@@ -9169,7 +9172,12 @@ const selectedCreateOrderClientAddresses = useMemo(
         ...addresses.map((row) => row.addressText),
       ]
         .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(query));
+        .map((value) => value.toLowerCase());
+
+      return (
+        searchableValues.some((value) => value.includes(query)) ||
+        normalizedPhoneTerms.some((term) => searchableValues.some((value) => value.includes(term)))
+      );
     });
   }, [clientSearch, clients]);
 

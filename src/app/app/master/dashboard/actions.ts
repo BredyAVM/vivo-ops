@@ -7,6 +7,7 @@ import { requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { getMasterDashboardPermissions } from './permissions';
 
 async function requireMasterOrAdmin() {
@@ -48,6 +49,17 @@ function toSafeNumber(value: unknown, fallback = 0) {
 function roundMoney(value: unknown) {
   const n = toSafeNumber(value, 0);
   return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function buildClientPhoneOrFilters(phone: string) {
+  return [
+    `phone.eq.${phone}`,
+    ...getPhoneSearchTerms(phone)
+      .map((term) => term.replace(/[,%]/g, ' '))
+      .filter(Boolean)
+      .slice(0, 5)
+      .map((term) => `phone.ilike.%${term}%`),
+  ];
 }
 
 function getOrderPricingSnapshot(order: { extra_fields?: unknown }) {
@@ -5186,6 +5198,20 @@ export async function createClientAction(input: {
   const billingPhone = normalizePhone(String(input.billingPhone || ''));
   const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
 
+  if (phone) {
+    const { data: existingClients, error: existingClientError } = await supabase
+      .from('clients')
+      .select('id, full_name')
+      .or(buildClientPhoneOrFilters(phone).join(','))
+      .limit(1);
+
+    if (existingClientError) throw new Error(existingClientError.message);
+    const existingClient = existingClients?.[0];
+    if (existingClient) {
+      throw new Error(`Ya existe un cliente con este telefono: ${existingClient.full_name ?? `#${existingClient.id}`}.`);
+    }
+  }
+
   const { data: createdClient, error } = await supabase.from('clients').insert({
     full_name: fullName,
     phone: phone || null,
@@ -5249,6 +5275,11 @@ export async function searchClientsAction(input: {
 
   const limit = Math.max(1, Math.min(25, Math.floor(Number(input.limit ?? 15) || 15)));
   const pattern = `%${query}%`;
+  const phonePatterns = getPhoneSearchTerms(query)
+    .map((term) => term.replace(/[,%]/g, ' '))
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((term) => `phone.ilike.%${term}%`);
 
   const { data, error } = await supabase
     .from('clients')
@@ -5281,6 +5312,7 @@ export async function searchClientsAction(input: {
       [
         `full_name.ilike.${pattern}`,
         `phone.ilike.${pattern}`,
+        ...phonePatterns,
         `billing_company_name.ilike.${pattern}`,
         `billing_tax_id.ilike.${pattern}`,
         `delivery_note_name.ilike.${pattern}`,
@@ -5312,7 +5344,7 @@ export async function createOrderClientQuickAction(input: {
     throw new Error('Debes colocar el teléfono del cliente.');
   }
 
-  const { data: existingClient, error: existingClientError } = await supabase
+  const { data: existingClients, error: existingClientError } = await supabase
     .from('clients')
     .select(`
       id,
@@ -5339,13 +5371,14 @@ export async function createOrderClientQuickAction(input: {
       fund_balance_usd,
       updated_at
     `)
-    .eq('phone', phone)
-    .maybeSingle();
+    .or(buildClientPhoneOrFilters(phone).join(','))
+    .limit(1);
 
   if (existingClientError) {
     throw new Error(existingClientError.message);
   }
 
+  const existingClient = existingClients?.[0];
   if (existingClient) {
     return { client: existingClient, alreadyExisted: true };
   }
@@ -5433,6 +5466,21 @@ export async function updateClientAction(input: {
   const phone = normalizePhone(String(input.phone || ''));
   const billingPhone = normalizePhone(String(input.billingPhone || ''));
   const deliveryNotePhone = normalizePhone(String(input.deliveryNotePhone || ''));
+
+  if (phone) {
+    const { data: existingClients, error: existingClientError } = await supabase
+      .from('clients')
+      .select('id, full_name')
+      .or(buildClientPhoneOrFilters(phone).join(','))
+      .neq('id', clientId)
+      .limit(1);
+
+    if (existingClientError) throw new Error(existingClientError.message);
+    const existingClient = existingClients?.[0];
+    if (existingClient) {
+      throw new Error(`Este telefono ya pertenece a ${existingClient.full_name ?? `cliente #${existingClient.id}`}.`);
+    }
+  }
 
   const { error } = await supabase
     .from('clients')
@@ -6484,10 +6532,6 @@ function todayKey() {
   return `${y}${m}${d}`;
 }
 
-function normalizePhone(raw: string) {
-  return String(raw || '').replace(/[^\d+]/g, '');
-}
-
 function from12hTo24h(hour12: string, minute: string, ampm: 'AM' | 'PM') {
   let h = Number(hour12);
   let m = Number(minute);
@@ -6652,16 +6696,17 @@ export async function createOrderAction(input: {
       throw new Error('Teléfono del cliente es obligatorio.');
     }
 
-    const { data: existingClient, error: existingClientError } = await supabase
+    const { data: existingClients, error: existingClientError } = await supabase
       .from('clients')
       .select('id')
-      .eq('phone', phone)
-      .maybeSingle();
+      .or(buildClientPhoneOrFilters(phone).join(','))
+      .limit(1);
 
     if (existingClientError) {
       throw new Error(existingClientError.message);
     }
 
+    const existingClient = existingClients?.[0];
     if (existingClient) {
       clientId = Number(existingClient.id);
     } else {
@@ -7175,16 +7220,17 @@ export async function updateOrderAction(input: {
       throw new Error('Teléfono del cliente es obligatorio.');
     }
 
-    const { data: existingClient, error: existingClientError } = await supabase
+    const { data: existingClients, error: existingClientError } = await supabase
       .from('clients')
       .select('id')
-      .eq('phone', phone)
-      .maybeSingle();
+      .or(buildClientPhoneOrFilters(phone).join(','))
+      .limit(1);
 
     if (existingClientError) {
       throw new Error(existingClientError.message);
     }
 
+    const existingClient = existingClients?.[0];
     if (existingClient) {
       clientId = Number(existingClient.id);
     } else {

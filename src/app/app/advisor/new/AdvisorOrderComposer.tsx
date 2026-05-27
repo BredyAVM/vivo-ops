@@ -3,6 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 
@@ -325,10 +326,6 @@ function parseStoredTime12(value: string | null | undefined, fallback: { hour12:
     minute: pad2(Number(match[2] || fallback.minute)),
     ampm: String(match[3] || fallback.ampm).toUpperCase() === 'PM' ? 'PM' : 'AM',
   } as const;
-}
-
-function normalizePhone(value: string) {
-  return value.replace(/[^\d+]/g, '');
 }
 
 function sanitizeQuantityInput(value: string | number | null | undefined) {
@@ -756,12 +753,25 @@ function clientSearchScore(params: {
 
   const normalizedName = normalizeSearchValue(params.client.full_name);
   const normalizedPhone = normalizeSearchValue(params.client.phone);
+  const phoneQueryTerms = getPhoneSearchTerms(params.query).map(normalizeSearchValue);
+  const clientPhoneTerms = getPhoneSearchTerms(params.client.phone).map(normalizeSearchValue);
   const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
   const queryTokens = splitSearchTokens(params.query);
+  const phoneMatches =
+    phoneQueryTerms.length > 0 &&
+    phoneQueryTerms.some((queryTerm) =>
+      clientPhoneTerms.some(
+        (clientTerm) =>
+          clientTerm === queryTerm ||
+          clientTerm.startsWith(queryTerm) ||
+          clientTerm.includes(queryTerm)
+      )
+    );
 
   let score = 0;
 
   if (normalizedPhone === normalizedQuery || normalizedName === normalizedQuery) score += 220;
+  else if (phoneMatches) score += 190;
   else if (normalizedPhone.startsWith(normalizedQuery)) score += 170;
   else if (
     queryTokens.length > 1 &&
@@ -809,8 +819,13 @@ function exactClientMatch(client: ClientRow, query: string) {
   const normalizedQuery = normalizeSearchValue(query);
   const normalizedName = normalizeSearchValue(client.full_name);
   const normalizedPhone = normalizeSearchValue(client.phone);
+  const phoneQueryTerms = getPhoneSearchTerms(query).map(normalizeSearchValue);
+  const clientPhoneTerms = getPhoneSearchTerms(client.phone).map(normalizeSearchValue);
+  const phoneMatches =
+    phoneQueryTerms.length > 0 &&
+    phoneQueryTerms.some((queryTerm) => clientPhoneTerms.includes(queryTerm));
 
-  return normalizedQuery.length > 0 && (normalizedName === normalizedQuery || normalizedPhone === normalizedQuery);
+  return normalizedQuery.length > 0 && (normalizedName === normalizedQuery || normalizedPhone === normalizedQuery || phoneMatches);
 }
 
 function buildOrderEditChangeSummary(before: OrderEditSnapshot, after: OrderEditSnapshot) {
@@ -1986,10 +2001,16 @@ export default function AdvisorOrderComposer({
     let clientMatches: ClientRow[] = [];
 
     try {
+      const phoneFilters = getPhoneSearchTerms(query)
+        .map((term) => term.replace(/[,%]/g, ' '))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((term) => `phone.ilike.%${term}%`);
+
       const { data, error: searchError } = await supabase
         .from('clients')
         .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
-        .or(`phone.ilike.%${query}%,full_name.ilike.%${query}%`)
+        .or([`phone.ilike.%${query}%`, ...phoneFilters, `full_name.ilike.%${query}%`].join(','))
         .order('id', { ascending: false })
         .limit(12);
 
@@ -2053,10 +2074,15 @@ export default function AdvisorOrderComposer({
     setCreatingClient(true);
 
     try {
+      const phoneFilters = getPhoneSearchTerms(phone)
+        .map((term) => term.replace(/[,%]/g, ' '))
+        .filter(Boolean)
+        .slice(0, 5)
+        .map((term) => `phone.ilike.%${term}%`);
       const { data: existing, error: existingError } = await supabase
         .from('clients')
         .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
-        .eq('phone', phone)
+        .or([`phone.eq.${phone}`, ...phoneFilters].join(','))
         .limit(1);
 
       if (existingError) throw new Error(existingError.message);
