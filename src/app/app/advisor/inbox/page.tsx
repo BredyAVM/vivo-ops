@@ -145,7 +145,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         eventType,
         createdAt: String(event.created_at || order.created_at),
         detailLines,
-        requiresAction: Boolean(recipient.requires_action) || ACTION_EVENT_TYPES.has(eventType),
+        requiresAction: Boolean(recipient.requires_action),
         readAt: recipient.read_at,
         tone: eventTone(eventType),
       } satisfies InboxEvent;

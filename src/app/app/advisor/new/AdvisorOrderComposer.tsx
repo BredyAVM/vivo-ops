@@ -917,6 +917,41 @@ function buildOrderEditChangeSummary(before: OrderEditSnapshot, after: OrderEdit
   };
 }
 
+async function resolveAdvisorOrderReviewNotifications(params: {
+  supabase: ReturnType<typeof createSupabaseBrowser>;
+  orderId: number;
+  advisorUserId: string | null;
+}) {
+  if (!params.advisorUserId || !Number.isFinite(params.orderId) || params.orderId <= 0) return;
+
+  const { data: actionEvents, error: eventsError } = await params.supabase
+    .from('order_timeline_events')
+    .select('id')
+    .eq('order_id', params.orderId)
+    .in('event_type', ['order_returned_to_review', 'order_changes_rejected']);
+
+  if (eventsError || !actionEvents?.length) {
+    if (eventsError) console.warn('No se pudieron cargar alertas pendientes del asesor.', eventsError.message);
+    return;
+  }
+
+  const eventIds = actionEvents.map((event) => Number(event.id)).filter((id) => Number.isFinite(id) && id > 0);
+  if (eventIds.length === 0) return;
+
+  const { error: recipientsError } = await params.supabase
+    .from('order_timeline_event_recipients')
+    .update({
+      requires_action: false,
+      read_at: new Date().toISOString(),
+    })
+    .eq('target_user_id', params.advisorUserId)
+    .in('event_id', eventIds);
+
+  if (recipientsError) {
+    console.warn('No se pudieron cerrar alertas pendientes del asesor.', recipientsError.message);
+  }
+}
+
 function inputClass(multiline = false) {
   return [
     'min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
@@ -2989,6 +3024,12 @@ export default function AdvisorOrderComposer({
 
       if (isEditingOrder && nextEditSnapshot && originalEditSnapshot) {
         const changeMeta = buildOrderEditChangeSummary(originalEditSnapshot, nextEditSnapshot);
+
+        await resolveAdvisorOrderReviewNotifications({
+          supabase,
+          orderId: targetOrderId,
+          advisorUserId: authUserId,
+        });
 
         if (changeMeta.summary.length > 0) {
           const { error: timelineError } = await supabase.from('order_timeline_events').insert({
