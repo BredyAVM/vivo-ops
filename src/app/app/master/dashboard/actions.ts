@@ -137,7 +137,8 @@ function canUseSnapshotForPaymentOperation(
   return compareDateOnly(effectiveOperationDate, deliveryDate) <= 0;
 }
 
-const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
+const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
+const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
@@ -1377,9 +1378,9 @@ export async function confirmPaymentReportAction(input: {
         throw new Error('Solo admin puede cerrar excedentes por redondeo.');
       }
 
-      if (excessUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+      if (excessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD) {
         throw new Error(
-          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_CLOSE_MAX_USD.toFixed(2)} USD.`
+          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD.toFixed(2)} USD.`
         );
       }
 
@@ -3449,9 +3450,9 @@ export async function createExtraMoneyMovementAction(input: {
         throw new Error('Solo admin puede cerrar excedentes por redondeo.');
       }
 
-      if (excessUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+      if (excessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD) {
         throw new Error(
-          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_CLOSE_MAX_USD.toFixed(2)} USD.`
+          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD.toFixed(2)} USD.`
         );
       }
 
@@ -3724,9 +3725,9 @@ export async function createInventoryItemAction(input: {
         throw new Error('Solo admin puede cerrar excedentes por redondeo.');
       }
 
-      if (excessUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+      if (excessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD) {
         throw new Error(
-          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_CLOSE_MAX_USD.toFixed(2)} USD.`
+          `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD.toFixed(2)} USD.`
         );
       }
 
@@ -4363,8 +4364,8 @@ export async function closeOrderRoundingBalanceAction(input: {
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
-  if (!getMasterDashboardPermissions(roles).isAdmin) {
-    throw new Error('Solo admin puede cerrar diferencias de redondeo.');
+  if (!getMasterDashboardPermissions(roles).canCloseOrderRoundingBalance) {
+    throw new Error('No tienes permiso para cerrar diferencias de redondeo.');
   }
 
   const orderId = Number(input.orderId);
@@ -4411,9 +4412,9 @@ export async function closeOrderRoundingBalanceAction(input: {
     throw new Error('Esta orden ya no tiene una diferencia pendiente por cerrar.');
   }
 
-  if (pendingUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+  if (pendingUsd > ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD) {
     throw new Error(
-      `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_CLOSE_MAX_USD.toFixed(2)} USD.`
+      `Solo se pueden cerrar diferencias de hasta ${ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD.toFixed(2)} USD.`
     );
   }
 

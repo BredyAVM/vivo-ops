@@ -82,7 +82,7 @@ export function getMasterDashboardPermissions(roles: readonly string[] = []): Ma
     canManageDeliveryPartners: isAdmin,
     canEditClosedOrders: isAdmin,
     canAdjustOrderPrices: isAdmin,
-    canCloseOrderRoundingBalance: isAdmin,
+    canCloseOrderRoundingBalance: isMasterOrAdmin,
   };
 }
 

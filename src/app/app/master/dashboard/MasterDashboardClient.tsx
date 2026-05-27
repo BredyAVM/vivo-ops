@@ -591,7 +591,8 @@ type MasterInboxStateItemInput = {
 
 type ViewMode = 'operations' | 'settings' | 'calculations';
 
-const ORDER_ROUNDING_CLOSE_MAX_USD = 1;
+const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
+const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 const QUOTE_PRICE_REVIEW_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 type ToastState = {
   type: 'success' | 'error' | 'info';
@@ -5686,8 +5687,8 @@ const handleDeliverClientChange = async (o: Order) => {
 
 const handleCloseRoundingBalance = async (o: Order) => {
   try {
-    if (!isAdmin) {
-      showToast('error', 'Solo admin puede cerrar diferencias.');
+    if (!permissions.canCloseOrderRoundingBalance) {
+      showToast('error', 'No tienes permiso para cerrar diferencias.');
       return;
     }
 
@@ -5696,10 +5697,10 @@ const handleCloseRoundingBalance = async (o: Order) => {
       return;
     }
 
-    if (o.balanceUsd > ORDER_ROUNDING_CLOSE_MAX_USD) {
+    if (o.balanceUsd > ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD) {
       showToast(
         'error',
-        `Solo puedes cerrar diferencias de hasta ${fmtUSD(ORDER_ROUNDING_CLOSE_MAX_USD)}.`
+        `Solo puedes cerrar faltantes de hasta ${fmtUSD(ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD)}.`
       );
       return;
     }
@@ -5740,7 +5741,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
 
       if (
         paymentConfirmOverpaymentHandling === 'close_difference' &&
-        (!isAdmin || predictedExcessUsd > ORDER_ROUNDING_CLOSE_MAX_USD)
+        (!isAdmin || predictedExcessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD)
       ) {
         showToast('error', 'Ese excedente no puede cerrarse por redondeo.');
         return;
@@ -5850,7 +5851,7 @@ const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
   );
   setPaymentConfirmOverpaymentHandling(
     predictedExcessUsd > 0.005
-      ? predictedExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD && isAdmin
+      ? predictedExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD && isAdmin
         ? 'close_difference'
         : 'store_fund'
       : ''
@@ -16238,14 +16239,14 @@ onClick={() => {
 ) : null}
 
 {detailTab === 'pagos' &&
-isAdmin &&
-selectedOrder.balanceUsd > 0.01 &&
-selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
+permissions.canCloseOrderRoundingBalance &&
+selectedOrder.balanceUsd > 0.005 &&
+selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   <button
     className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-orange-400"
     onClick={() => handleCloseRoundingBalance(selectedOrder)}
   >
-    Cerrar diferencia
+    Cerrar redondeo
   </button>
 ) : null}
 
@@ -16642,7 +16643,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
               <div className="mt-1 text-[11px]">El excedente quedará como saldo a favor y luego podrás dar cambio desde la orden.</div>
             </button>
 
-            {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_CLOSE_MAX_USD ? (
+            {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD ? (
               <button
                 type="button"
                 className={[

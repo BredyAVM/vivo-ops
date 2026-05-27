@@ -482,7 +482,6 @@ const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 600;
 const MASTER_DASHBOARD_CLOSURE_LIMIT = 250;
 const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 300;
 const MASTER_DASHBOARD_CLIENT_LIMIT = 350;
-const ORDER_BS_CLOSE_TOLERANCE = 0.5;
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
@@ -1763,17 +1762,11 @@ const { data: ordersData, error: ordersError } = await supabase
   }
 
   const confirmedPaidByOrder = new Map<number, number>();
-  const confirmedPaidBsByOrder = new Map<number, number>();
   for (const mv of movementsData ?? []) {
     const orderId = Number(mv.order_id);
     const directionSign = mv.direction === 'outflow' ? -1 : 1;
     const amt = toNumber(mv.amount_usd_equivalent, 0) * directionSign;
     confirmedPaidByOrder.set(orderId, (confirmedPaidByOrder.get(orderId) ?? 0) + amt);
-
-    if (mv.currency_code === 'VES') {
-      const amountBs = toNumber(mv.amount, 0) * directionSign;
-      confirmedPaidBsByOrder.set(orderId, (confirmedPaidBsByOrder.get(orderId) ?? 0) + amountBs);
-    }
   }
 
   const reportsByOrder = new Map<
@@ -2247,25 +2240,12 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     const moneySnapshot = getOrderMoneySnapshot(row);
     const totalUsd = roundMoney(moneySnapshot.totalUsd);
     const totalBs = roundMoney(moneySnapshot.totalBs);
-    const confirmedPaidUsdRaw = roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
-    const clientFundUsedBs =
-      moneySnapshot.fxRate > 0 ? roundMoney(clientFundUsedUsd * moneySnapshot.fxRate) : 0;
-    const confirmedPaidBs = roundMoney((confirmedPaidBsByOrder.get(row.id) ?? 0) + clientFundUsedBs);
-    const closesSnapshotByBs =
-      !isCancelled &&
-      totalBs > 0 &&
-      confirmedPaidBs > 0 &&
-      Math.max(0, totalBs - confirmedPaidBs) <= ORDER_BS_CLOSE_TOLERANCE;
     const confirmedPaidUsd = isCancelled
       ? 0
-      : closesSnapshotByBs
-        ? totalUsd
-        : confirmedPaidUsdRaw;
+      : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
     const balanceUsd = isCancelled
       ? 0
-      : closesSnapshotByBs
-        ? 0
-        : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
+      : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
 
     const reportState = reportsByOrder.get(row.id) ?? {
       pendingCount: 0,
