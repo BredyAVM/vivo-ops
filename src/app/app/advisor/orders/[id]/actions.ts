@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
+import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { sendPushToRoleDevices } from '@/lib/push';
 
@@ -424,7 +425,8 @@ export async function requestClientFundApplicationAction(formData: FormData) {
   const pendingUsd = (paymentReports ?? [])
     .filter((report) => report.status === 'pending')
     .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
-  const balanceUsd = Math.max(0, Number((toSafeNumber(order.total_usd, 0) - confirmedUsd).toFixed(2)));
+  const orderTotalUsd = getOrderMoneySnapshot(order).totalUsd;
+  const balanceUsd = Math.max(0, Number((orderTotalUsd - confirmedUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingUsd).toFixed(2)));
   const applicableAmountUsd = Number(
     Math.min(requestedAmountUsd, availableFundUsd, reportableBalanceUsd > 0 ? reportableBalanceUsd : balanceUsd).toFixed(2)

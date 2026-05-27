@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
 import MasterDashboardClient from './MasterDashboardClient';
@@ -23,6 +24,7 @@ type RawOrderRow = {
     | 'delivered'
     | 'cancelled';
   total_usd: number | string;
+  total_bs_snapshot: number | string | null;
   notes: string | null;
   created_at: string;
   sent_to_kitchen_at: string | null;
@@ -2239,10 +2241,9 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     const confirmedPaidUsd = isCancelled
       ? 0
       : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
-    const totalUsd = roundMoney(
-      row.extra_fields?.pricing?.total_usd,
-      toNumber(row.total_usd, 0)
-    );
+    const moneySnapshot = getOrderMoneySnapshot(row);
+    const totalUsd = roundMoney(moneySnapshot.totalUsd);
+    const totalBs = roundMoney(moneySnapshot.totalBs);
     const balanceUsd = isCancelled ? 0 : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
 
     const reportState = reportsByOrder.get(row.id) ?? {
@@ -2393,7 +2394,7 @@ return {
       queuedNeedsReapproval: row.queued_needs_reapproval ?? false,
       totalUsd,
       balanceUsd,
-      totalBs: toNumber((row as any).total_bs_snapshot, toNumber(row.extra_fields?.pricing?.total_bs, estimateBsFromUsd(totalUsd, activeRateBsPerUsd))),
+      totalBs,
       paymentVerify,
       confirmedPaidUsd,
       pendingReportedUsd: reportState.pendingUsd,

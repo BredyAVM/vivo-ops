@@ -2,6 +2,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 
@@ -1654,6 +1655,7 @@ export default function AdvisorOrderComposer({
           const paymentData = order.extra_fields?.payment;
           const pricing = order.extra_fields?.pricing;
           const documents = order.extra_fields?.documents;
+          const orderMoney = getOrderMoneySnapshot(order);
           const blankTime = { hour12: '', minute: '', ampm: rounded.ampm } as const;
           const parsedTime = parseStoredTime12(schedule?.time_12, schedule?.asap ? rounded : blankTime);
 
@@ -1790,10 +1792,8 @@ export default function AdvisorOrderComposer({
               deliveryNotePhone: normalizeSnapshotText(
                 documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone
               ),
-              totalUsd: Number(Number(order.total_usd || 0).toFixed(2)),
-              totalBs: Number(
-                toSafeNumber(pricing?.total_bs, activeRate > 0 ? Number(order.total_usd || 0) * activeRate : 0).toFixed(2)
-              ),
+              totalUsd: orderMoney.totalUsd,
+              totalBs: orderMoney.totalBs,
               items: orderItems.map((item) => ({
                 productId: Number(item.product_id || 0),
                 productName: normalizeSnapshotText(item.product_name_snapshot),
