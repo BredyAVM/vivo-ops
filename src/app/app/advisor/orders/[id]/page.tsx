@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
+import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import OrderDetailActions from './OrderDetailActions';
 
@@ -42,8 +43,29 @@ type OrderRow = {
     } | null;
     pricing?: {
       fx_rate?: number | string | null;
+      subtotal_usd?: number | string | null;
+      subtotal_bs?: number | string | null;
+      discount_enabled?: boolean | null;
+      discount_pct?: number | string | null;
+      discount_amount_usd?: number | string | null;
+      discount_amount_bs?: number | string | null;
+      subtotal_after_discount_usd?: number | string | null;
+      subtotal_after_discount_bs?: number | string | null;
+      invoice_tax_pct?: number | string | null;
+      invoice_tax_amount_usd?: number | string | null;
+      invoice_tax_amount_bs?: number | string | null;
       total_usd?: number | string | null;
       total_bs?: number | string | null;
+    } | null;
+    documents?: {
+      has_invoice?: boolean | null;
+      invoice_data_note?: string | null;
+      invoice_snapshot?: {
+        company_name?: string | null;
+        tax_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
     } | null;
   } | null;
   client:
@@ -69,6 +91,8 @@ type OrderItemRow = {
   product_name_snapshot: string | null;
   line_total_usd: number | string | null;
   line_total_bs_snapshot: number | string | null;
+  admin_price_override_usd?: number | string | null;
+  admin_price_override_reason?: string | null;
   notes: string | null;
   product:
     | {
@@ -339,53 +363,19 @@ function getDisplayPieces(qty: number, unitsPerService: number) {
 }
 
 function getLineTotalBs(item: OrderItemRow, fxRate: number) {
-  const storedBs = Number(item.line_total_bs_snapshot);
-  if (Number.isFinite(storedBs) && storedBs > 0) return storedBs;
-
-  const lineUsd = Number(item.line_total_usd);
-  if (Number.isFinite(lineUsd) && lineUsd > 0 && fxRate > 0) {
-    return lineUsd * fxRate;
-  }
-
-  return 0;
+  return getOrderLineTotalBs(item, fxRate);
 }
 
 function getOrderTotalBs(order: OrderRow) {
-  const storedBs = Number(order.extra_fields?.pricing?.total_bs);
-  if (Number.isFinite(storedBs) && storedBs > 0) return storedBs;
-  return 0;
-}
-
-function getOrderSnapshotTotalUsd(order: OrderRow) {
-  const storedUsd = Number(order.extra_fields?.pricing?.total_usd);
-  if (Number.isFinite(storedUsd) && storedUsd > 0) return storedUsd;
-
-  const totalUsd = Number(order.total_usd);
-  return Number.isFinite(totalUsd) ? totalUsd : 0;
+  return getOrderMoneySnapshot(order).totalBs;
 }
 
 function getOrderFxRate(order: OrderRow) {
-  const storedRate = Number(order.extra_fields?.pricing?.fx_rate);
-  if (Number.isFinite(storedRate) && storedRate > 0) return storedRate;
-
-  const totalBs = getOrderTotalBs(order);
-  const totalUsd = getOrderSnapshotTotalUsd(order);
-  if (totalBs > 0 && totalUsd > 0) {
-    return totalBs / totalUsd;
-  }
-
-  return 0;
+  return getOrderMoneySnapshot(order).fxRate;
 }
 
 function getOrderTotalUsdForSummary(order: OrderRow) {
-  const snapshotUsd = Number(order.extra_fields?.pricing?.total_usd);
-  if (Number.isFinite(snapshotUsd) && snapshotUsd > 0) return snapshotUsd;
-
-  const totalBs = getOrderTotalBs(order);
-  const fxRate = getOrderFxRate(order);
-  if (totalBs > 0 && fxRate > 0) return totalBs / fxRate;
-
-  return getOrderSnapshotTotalUsd(order);
+  return getOrderMoneySnapshot(order).totalUsd;
 }
 
 function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
@@ -394,9 +384,10 @@ function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
   const isDelivery = normalizedName.toLowerCase().startsWith('delivery');
   const unitsPerService = Math.max(0, Number(relatedProduct?.units_per_service || 0));
   const lineTotalBs = getLineTotalBs(item, fxRate);
+  const priceLabel = isDelivery && lineTotalBs <= 0.005 ? 'Delivery obsequiado' : formatBs(lineTotalBs);
 
   if (isDelivery) {
-    return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatBs(lineTotalBs)}`;
+    return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${priceLabel}`;
   }
 
   if (unitsPerService > 0) {
@@ -454,6 +445,60 @@ function deliveryHourText(
   return safeText(schedule?.time_12, '');
 }
 
+function buildWhatsAppPricingLines(order: OrderRow) {
+  const pricing = getOrderMoneySnapshot(order);
+  const showBreakdown =
+    pricing.discountEnabled ||
+    pricing.discountAmountUsd > 0 ||
+    pricing.discountAmountBs > 0 ||
+    pricing.hasInvoice;
+  const lines: string[] = [];
+
+  if (showBreakdown) {
+    lines.push(`*SUBTOTAL:* ${formatBs(pricing.subtotalBs)} / ${formatUsd(pricing.subtotalUsd)}`);
+  }
+
+  if (pricing.discountEnabled && (pricing.discountAmountUsd > 0 || pricing.discountAmountBs > 0)) {
+    const pctLabel = pricing.discountPct > 0 ? ` (${pricing.discountPct}%)` : '';
+    lines.push(
+      `*DESCUENTO${pctLabel}:* -${formatBs(pricing.discountAmountBs)} / -${formatUsd(pricing.discountAmountUsd)}`
+    );
+  }
+
+  if (showBreakdown && (pricing.discountEnabled || pricing.hasInvoice)) {
+    lines.push(
+      `*SUBTOTAL NETO:* ${formatBs(pricing.subtotalAfterDiscountBs)} / ${formatUsd(pricing.subtotalAfterDiscountUsd)}`
+    );
+  }
+
+  if (pricing.hasInvoice) {
+    const pctLabel = pricing.invoiceTaxPct > 0 ? ` (${pricing.invoiceTaxPct}%)` : '';
+    lines.push(
+      `*IVA${pctLabel}:* ${formatBs(pricing.invoiceTaxAmountBs)} / ${formatUsd(pricing.invoiceTaxAmountUsd)}`
+    );
+  }
+
+  lines.push(`*TOTAL:* ${formatBs(pricing.totalBs)} / ${formatUsd(pricing.totalUsd)}`);
+  return lines;
+}
+
+function buildWhatsAppInvoiceLines(order: OrderRow, check = '') {
+  const documents = order.extra_fields?.documents;
+  if (!documents?.has_invoice) return [];
+
+  const snapshot = documents.invoice_snapshot;
+  const prefix = check ? `${check} ` : '';
+  const lines = [`${prefix}*Factura:* Si`];
+
+  if (snapshot?.company_name?.trim()) lines.push(`${prefix}*Razon social:* ${snapshot.company_name.trim()}`);
+  if (snapshot?.tax_id?.trim()) lines.push(`${prefix}*RIF/Cedula:* ${snapshot.tax_id.trim()}`);
+  if (snapshot?.address?.trim()) lines.push(`${prefix}*Direccion fiscal:* ${snapshot.address.trim()}`);
+  if (snapshot?.phone?.trim()) lines.push(`${prefix}*Telefono fiscal:* ${snapshot.phone.trim()}`);
+  if (documents.invoice_data_note?.trim()) lines.push(`${prefix}*Datos factura:* ${documents.invoice_data_note.trim()}`);
+
+  return lines;
+}
+
 function buildWhatsAppOrderSummary({
   order,
   items,
@@ -471,8 +516,6 @@ function buildWhatsAppOrderSummary({
   advisorLabel: string;
 }) {
   const parts: string[] = [];
-  const totalBs = getOrderTotalBs(order);
-  const totalUsd = getOrderTotalUsdForSummary(order);
   const fxRate = getOrderFxRate(order);
 
   parts.push('*Resumen de Pedido*');
@@ -496,13 +539,19 @@ function buildWhatsAppOrderSummary({
   }
 
   parts.push('');
-  parts.push(`*TOTAL:* ${totalBs > 0 ? `${formatBs(totalBs)} / ` : ''}${formatUsd(totalUsd)}`);
+  parts.push(...buildWhatsAppPricingLines(order));
   parts.push('');
   parts.push(`*Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
   parts.push(`*Dia de entrega:* ${deliveryText(order.extra_fields?.schedule)}`);
 
   if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
     parts.push(`*Direccion:* ${order.delivery_address.trim()}`);
+  }
+
+  const invoiceLines = buildWhatsAppInvoiceLines(order);
+  if (invoiceLines.length > 0) {
+    parts.push('');
+    parts.push(...invoiceLines);
   }
 
   if (order.notes?.trim()) {
@@ -530,8 +579,6 @@ function buildCleanWhatsAppOrderSummary({
   advisorLabel: string;
 }) {
   const parts: string[] = [];
-  const totalBs = getOrderTotalBs(order);
-  const totalUsd = getOrderTotalUsdForSummary(order);
   const fxRate = getOrderFxRate(order);
   const check = '\u2705';
   const primaryBullet = '\u25AA';
@@ -564,7 +611,7 @@ function buildCleanWhatsAppOrderSummary({
   }
 
   parts.push('');
-  parts.push(`*TOTAL:* ${totalBs > 0 ? `${formatBs(totalBs)} / ` : ''}${formatUsd(totalUsd)}`);
+  parts.push(...buildWhatsAppPricingLines(order));
   parts.push('');
   parts.push(`${check} *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
   parts.push('');
@@ -596,6 +643,12 @@ function buildCleanWhatsAppOrderSummary({
   if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
     parts.push('');
     parts.push(`${check} *Direccion:* ${order.delivery_address.trim()}`);
+  }
+
+  const invoiceLines = buildWhatsAppInvoiceLines(order, check);
+  if (invoiceLines.length > 0) {
+    parts.push('');
+    parts.push(...invoiceLines);
   }
 
   if (order.notes?.trim()) {
@@ -800,7 +853,7 @@ export default async function AdvisorOrderDetailPage({
   ] = await Promise.all([
       ctx.supabase
         .from('order_items')
-        .select('id, product_id, qty, product_name_snapshot, line_total_usd, line_total_bs_snapshot, notes, product:products(type, units_per_service)')
+        .select('id, product_id, qty, product_name_snapshot, line_total_usd, line_total_bs_snapshot, admin_price_override_usd, admin_price_override_reason, notes, product:products(type, units_per_service)')
         .eq('order_id', orderId)
         .order('id', { ascending: true }),
       ctx.supabase
@@ -886,7 +939,8 @@ export default async function AdvisorOrderDetailPage({
   const pendingPaidUsd = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
-  const orderTotalUsd = getOrderTotalUsdForSummary(order);
+  const orderPricing = getOrderMoneySnapshot(order);
+  const orderTotalUsd = orderPricing.totalUsd;
   const balanceUsd = Math.max(0, Number((orderTotalUsd - confirmedPaidUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
@@ -931,7 +985,7 @@ export default async function AdvisorOrderDetailPage({
       paymentMethodCodes: reportMethodsByAccountId.get(Number(account.id)) ?? [],
     }));
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
-  const totalBs = toSafeNumber(order.extra_fields?.pricing?.total_bs, 0);
+  const totalBs = orderPricing.totalBs;
   const confirmedPaidBs =
     payments
       .filter((paymentReport) => paymentReport.status === 'confirmed')
@@ -1064,9 +1118,38 @@ export default async function AdvisorOrderDetailPage({
             </div>
             <div className="rounded-[14px] bg-[#12151d] px-3 py-2">
               <div className="text-[11px] uppercase tracking-[0.14em] text-[#8B93A7]">Total</div>
-              <div className="mt-1 font-semibold text-[#F0D000]">{formatUsd(orderTotalUsd)}</div>
+              <div className="mt-1 font-semibold text-[#F0D000]">
+                {formatBs(orderPricing.totalBs)} / {formatUsd(orderPricing.totalUsd)}
+              </div>
             </div>
           </div>
+
+          {(orderPricing.discountEnabled || orderPricing.hasInvoice) ? (
+            <div className="mt-3 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs leading-5 text-[#AAB2C5]">
+              <div className="flex items-center justify-between gap-3">
+                <span>Subtotal</span>
+                <span>{formatBs(orderPricing.subtotalBs)} / {formatUsd(orderPricing.subtotalUsd)}</span>
+              </div>
+              {orderPricing.discountEnabled ? (
+                <div className="flex items-center justify-between gap-3 text-[#F7DA66]">
+                  <span>Descuento{orderPricing.discountPct > 0 ? ` (${orderPricing.discountPct}%)` : ''}</span>
+                  <span>-{formatBs(orderPricing.discountAmountBs)} / -{formatUsd(orderPricing.discountAmountUsd)}</span>
+                </div>
+              ) : null}
+              {(orderPricing.discountEnabled || orderPricing.hasInvoice) ? (
+                <div className="flex items-center justify-between gap-3">
+                  <span>Subtotal neto</span>
+                  <span>{formatBs(orderPricing.subtotalAfterDiscountBs)} / {formatUsd(orderPricing.subtotalAfterDiscountUsd)}</span>
+                </div>
+              ) : null}
+              {orderPricing.hasInvoice ? (
+                <div className="flex items-center justify-between gap-3 text-sky-300">
+                  <span>IVA{orderPricing.invoiceTaxPct > 0 ? ` (${orderPricing.invoiceTaxPct}%)` : ''}</span>
+                  <span>+{formatBs(orderPricing.invoiceTaxAmountBs)} / +{formatUsd(orderPricing.invoiceTaxAmountUsd)}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-3 flex flex-wrap gap-1.5">
             <StatusBadge label={paymentSummary.label} tone={paymentSummary.tone} />
@@ -1139,6 +1222,37 @@ export default async function AdvisorOrderDetailPage({
         </div>
       </SectionCard>
 
+      {order.extra_fields?.documents?.has_invoice ? (
+        <SectionCard title="Factura" subtitle="Datos que acompanan el resumen y el cobro.">
+          <div className="grid gap-2 text-sm text-[#AAB2C5]">
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>Razon social</span>
+              <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">
+                {order.extra_fields.documents.invoice_snapshot?.company_name?.trim() || 'Sin dato'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <span>RIF/Cedula</span>
+              <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">
+                {order.extra_fields.documents.invoice_snapshot?.tax_id?.trim() || 'Sin dato'}
+              </span>
+            </div>
+            <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Direccion fiscal</div>
+              <div className="mt-1 text-[#F5F7FB]">
+                {order.extra_fields.documents.invoice_snapshot?.address?.trim() || 'Sin direccion fiscal'}
+              </div>
+            </div>
+            {order.extra_fields.documents.invoice_data_note?.trim() ? (
+              <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Nota factura</div>
+                <div className="mt-1 text-[#F5F7FB]">{order.extra_fields.documents.invoice_data_note.trim()}</div>
+              </div>
+            ) : null}
+          </div>
+        </SectionCard>
+      ) : null}
+
       <SectionCard title="Entrega y notas" subtitle="Lectura rapida de operacion.">
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="rounded-[16px] bg-[#0F131B] px-3.5 py-3">
@@ -1192,6 +1306,12 @@ export default async function AdvisorOrderDetailPage({
                 {item.notes?.trim() ? (
                   <div className="mt-2 whitespace-pre-line rounded-[14px] bg-[#12151d] px-3 py-2 text-xs leading-5 text-[#AAB2C5]">
                     {item.notes.trim()}
+                  </div>
+                ) : null}
+                {item.admin_price_override_usd != null ? (
+                  <div className="mt-2 rounded-[14px] border border-[#554416] bg-[#161407] px-3 py-2 text-xs leading-5 text-[#F7DA66]">
+                    Ajuste admin aplicado
+                    {item.admin_price_override_reason?.trim() ? `: ${item.admin_price_override_reason.trim()}` : '.'}
                   </div>
                 ) : null}
               </article>
