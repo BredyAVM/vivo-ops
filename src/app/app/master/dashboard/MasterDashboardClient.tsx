@@ -5709,12 +5709,22 @@ const handleCloseRoundingBalance = async (o: Order) => {
     const notes =
       window.prompt('Nota del cierre por redondeo (opcional):', 'Ajuste por redondeo') ?? '';
 
-    await closeOrderRoundingBalanceAction({
+    const result = await closeOrderRoundingBalanceAction({
       orderId: o.id,
       notes: notes.trim() || null,
     });
 
-    showToast('success', 'Diferencia cerrada.');
+    if (!result.ok) {
+      showToast('error', result.message || 'Error cerrando la diferencia.');
+      return;
+    }
+
+    showToast(
+      'success',
+      result.auditWarning
+        ? 'Diferencia cerrada. La auditoria secundaria no se pudo registrar.'
+        : 'Diferencia cerrada.'
+    );
     router.refresh();
   } catch (err) {
     const message =

@@ -4374,6 +4374,7 @@ export async function closeOrderRoundingBalanceAction(input: {
   orderId: number;
   notes?: string | null;
 }) {
+  try {
   const { supabase, user, roles } = await requireMasterOrAdmin();
 
   if (!getMasterDashboardPermissions(roles).canCloseOrderRoundingBalance) {
@@ -4518,11 +4519,17 @@ export async function closeOrderRoundingBalanceAction(input: {
     });
 
   if (adjustmentError) {
-    throw new Error(adjustmentError.message);
+    console.warn('rounding adjustment audit insert skipped', adjustmentError.message);
   }
 
   revalidatePath('/app/master/dashboard');
-  return { id: orderId };
+  return { ok: true, id: orderId, auditWarning: adjustmentError?.message ?? null };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Error cerrando la diferencia por redondeo.',
+    };
+  }
 }
 
 function normalizeTagList(input: string[]) {
