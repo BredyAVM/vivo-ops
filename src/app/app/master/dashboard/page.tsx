@@ -474,14 +474,14 @@ function roundMoney(value: unknown, fallback = 0) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-const MASTER_DASHBOARD_ORDER_LIMIT = 120;
-const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 450;
-const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 80;
-const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 500;
-const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 600;
-const MASTER_DASHBOARD_CLOSURE_LIMIT = 250;
-const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 300;
-const MASTER_DASHBOARD_CLIENT_LIMIT = 350;
+const MASTER_DASHBOARD_ORDER_LIMIT = 90;
+const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
+const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
+const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
+const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 350;
+const MASTER_DASHBOARD_CLOSURE_LIMIT = 120;
+const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 150;
+const MASTER_DASHBOARD_CLIENT_LIMIT = 220;
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
@@ -698,11 +698,27 @@ if (currentProfileError) {
   );
 }
 
-const { data: userProfilesData, error: userProfilesError } = await supabase
-  .from('profiles')
-  .select('id, full_name, is_active, created_at')
-  .order('created_at', { ascending: false })
-  .limit(500);
+const shouldLoadUserAdministration = roles.includes('admin');
+
+const [
+  userProfilesResult,
+  userRolesResult,
+  authUserEmailById,
+] = await Promise.all([
+  supabase
+    .from('profiles')
+    .select('id, full_name, is_active, created_at')
+    .order('created_at', { ascending: false })
+    .limit(500),
+  shouldLoadUserAdministration
+    ? supabase.rpc('admin_list_user_roles')
+    : Promise.resolve({ data: [] as RawUserRoleRow[], error: null }),
+  shouldLoadUserAdministration
+    ? loadAuthUserEmailById()
+    : Promise.resolve(new Map<string, string>()),
+]);
+
+const { data: userProfilesData, error: userProfilesError } = userProfilesResult;
 
 if (userProfilesError) {
   return (
@@ -720,7 +736,7 @@ if (userProfilesError) {
   );
 }
 
-const { data: userRolesData, error: userRolesError } = await supabase.rpc('admin_list_user_roles');
+const { data: userRolesData, error: userRolesError } = userRolesResult;
 
 if (userRolesError) {
   return (
@@ -737,8 +753,6 @@ if (userRolesError) {
     </div>
   );
 }
-
-const authUserEmailById = await loadAuthUserEmailById();
 
 const dashboardUsers = ((userProfilesData ?? []) as RawProfileRow[]).map((row) => ({
   id: String(row.id),
@@ -1063,19 +1077,25 @@ const { data: ordersData, error: ordersError } = await supabase
   >();
 
   try {
-    const { data: orderEventsData, error: orderEventsError } = await supabase
-      .from('order_timeline_events')
-      .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
-      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-      .order('created_at', { ascending: false })
-      .limit(MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT);
+    const [orderEventsResult, legacyOrderEventsResult] = await Promise.all([
+      supabase
+        .from('order_timeline_events')
+        .select('id, order_id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
+        .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+        .order('created_at', { ascending: false })
+        .limit(MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT),
+      MASTER_DASHBOARD_LEGACY_EVENT_LIMIT > 0
+        ? supabase
+          .from('order_events')
+          .select('id, order_id, order_number, event_type, event_group, title, message, severity, actor_user_id, payload, created_at, event, performed_by, meta')
+          .in('order_id', orderIds.length > 0 ? orderIds : [-1])
+          .order('created_at', { ascending: false })
+          .limit(MASTER_DASHBOARD_LEGACY_EVENT_LIMIT)
+        : Promise.resolve({ data: [] as RawOrderEventRow[], error: null }),
+    ]);
 
-    const { data: legacyOrderEventsData, error: legacyOrderEventsError } = await supabase
-      .from('order_events')
-      .select('id, order_id, order_number, event_type, event_group, title, message, severity, actor_user_id, payload, created_at, event, performed_by, meta')
-      .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-      .order('created_at', { ascending: false })
-      .limit(MASTER_DASHBOARD_LEGACY_EVENT_LIMIT);
+    const { data: orderEventsData, error: orderEventsError } = orderEventsResult;
+    const { data: legacyOrderEventsData, error: legacyOrderEventsError } = legacyOrderEventsResult;
 
     const rawOrderEvents = [
       ...(orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[])),
