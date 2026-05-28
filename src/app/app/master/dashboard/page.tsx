@@ -36,7 +36,7 @@ type RawOrderRow = {
   external_partner_id: number | null;
   internal_driver_user_id: string | null;
   eta_minutes: number | string | null;
-client: { full_name: string | null; phone: string | null }[] | { full_name: string | null; phone: string | null } | null;
+client: { full_name: string | null; phone: string | null; fund_balance_usd: number | string | null }[] | { full_name: string | null; phone: string | null; fund_balance_usd: number | string | null } | null;
 advisor: { full_name: string | null }[] | { full_name: string | null } | null;
 creator: { full_name: string | null }[] | { full_name: string | null } | null;
 };
@@ -191,32 +191,6 @@ type RawMoneyAccountClosureRow = {
   created_at: string;
   reviewed_by_user_id: string | null;
   reviewed_at: string | null;
-};
-
-type RawClientRow = {
-  id: number;
-  full_name: string;
-  phone: string | null;
-  notes: string | null;
-  primary_advisor_id: string | null;
-  created_at: string;
-  client_type: string | null;
-  is_active: boolean;
-  birth_date: string | null;
-  important_date: string | null;
-  billing_company_name: string | null;
-  billing_tax_id: string | null;
-  billing_address: string | null;
-  billing_phone: string | null;
-  delivery_note_name: string | null;
-  delivery_note_document_id: string | null;
-  delivery_note_address: string | null;
-  delivery_note_phone: string | null;
-  recent_addresses: unknown;
-  crm_tags: unknown;
-  extra_fields: unknown;
-  fund_balance_usd: number | string | null;
-  updated_at: string;
 };
 
 type RawProfileRow = {
@@ -481,7 +455,6 @@ const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
 const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 350;
 const MASTER_DASHBOARD_CLOSURE_LIMIT = 120;
 const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 150;
-const MASTER_DASHBOARD_CLIENT_LIMIT = 220;
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
@@ -1029,7 +1002,8 @@ const { data: ordersData, error: ordersError } = await supabase
       eta_minutes,
       client:clients!orders_client_id_fkey (
         full_name,
-        phone
+        phone,
+        fund_balance_usd
       ),
       advisor:profiles!orders_attributed_advisor_id_fkey (
         full_name
@@ -1645,86 +1619,6 @@ const { data: ordersData, error: ordersError } = await supabase
       </div>
     );
   }
-
-  const clientSelect = `
-      id,
-      full_name,
-      phone,
-      notes,
-      primary_advisor_id,
-      created_at,
-      client_type,
-      is_active,
-      birth_date,
-      important_date,
-      billing_company_name,
-      billing_tax_id,
-      billing_address,
-      billing_phone,
-      delivery_note_name,
-      delivery_note_document_id,
-      delivery_note_address,
-      delivery_note_phone,
-      recent_addresses,
-      crm_tags,
-      extra_fields,
-      fund_balance_usd,
-      updated_at
-    `;
-
-  const {
-    data: clientsRowsData,
-    error: clientsError,
-  } = await supabase
-    .from('clients')
-    .select(clientSelect)
-    .order('updated_at', { ascending: false })
-    .limit(MASTER_DASHBOARD_CLIENT_LIMIT);
-
-  if (clientsError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando clientes</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudo obtener la ficha de clientes.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {clientsError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  const clients = ((clientsRowsData ?? []) as RawClientRow[]).map((client) => ({
-    id: Number(client.id),
-    fullName: client.full_name,
-    phone: client.phone ?? '',
-    notes: client.notes ?? '',
-    primaryAdvisorId: client.primary_advisor_id ?? null,
-    createdAt: client.created_at,
-    clientType: client.client_type ?? '',
-    isActive: client.is_active,
-    birthDate: client.birth_date ?? '',
-    importantDate: client.important_date ?? '',
-    billingCompanyName: client.billing_company_name ?? '',
-    billingTaxId: client.billing_tax_id ?? '',
-    billingAddress: client.billing_address ?? '',
-    billingPhone: client.billing_phone ?? '',
-    deliveryNoteName: client.delivery_note_name ?? '',
-    deliveryNoteDocumentId: client.delivery_note_document_id ?? '',
-    deliveryNoteAddress: client.delivery_note_address ?? '',
-    deliveryNotePhone: client.delivery_note_phone ?? '',
-    recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
-    crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
-    fundBalanceUsd: toNumber(client.fund_balance_usd, 0),
-    extraFields:
-      client.extra_fields && typeof client.extra_fields === 'object'
-        ? (client.extra_fields as Record<string, unknown>)
-        : ({} as Record<string, unknown>),
-    updatedAt: client.updated_at,
-  }));
 
   const moneyAccountNameById = new Map<number, string>();
   for (const a of moneyAccounts) {
@@ -2406,6 +2300,7 @@ return {
   deliveryAtISO,
   source: row.source,
   clientId: row.client_id ?? null,
+  clientFundBalanceUsd: toNumber(clientRow?.fund_balance_usd, 0),
   attributedAdvisorUserId: row.attributed_advisor_id ?? null,
       advisorName,
       clientName,
@@ -2585,9 +2480,9 @@ currentUser={{
       inventoryRecipes={inventoryRecipes}
       inventoryRecipeComponents={inventoryRecipeComponents}
       productInventoryLinks={productInventoryLinks}
-      clients={clients}
-      clientTotalCount={clientTotalCount ?? clients.length}
-      clientActiveCount={clientActiveCount ?? clients.filter((client) => client.isActive).length}
+      clients={[]}
+      clientTotalCount={clientTotalCount ?? 0}
+      clientActiveCount={clientActiveCount ?? 0}
       catalogItems={catalogItems}
       productComponents={productComponents}
       activeExchangeRate={

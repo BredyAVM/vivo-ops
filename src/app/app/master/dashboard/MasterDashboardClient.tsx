@@ -375,6 +375,37 @@ type ClientItem = {
   updatedAt: string;
 };
 
+function mapClientActionRow(client: any): ClientItem {
+  return {
+    id: Number(client.id),
+    fullName: client.full_name ?? 'Sin nombre',
+    phone: client.phone ?? '',
+    notes: client.notes ?? '',
+    primaryAdvisorId: client.primary_advisor_id ?? null,
+    createdAt: client.created_at ?? '',
+    clientType: String(client.client_type ?? ''),
+    isActive: Boolean(client.is_active ?? true),
+    birthDate: client.birth_date ?? '',
+    importantDate: client.important_date ?? '',
+    billingCompanyName: client.billing_company_name ?? '',
+    billingTaxId: client.billing_tax_id ?? '',
+    billingAddress: client.billing_address ?? '',
+    billingPhone: client.billing_phone ?? '',
+    deliveryNoteName: client.delivery_note_name ?? '',
+    deliveryNoteDocumentId: client.delivery_note_document_id ?? '',
+    deliveryNoteAddress: client.delivery_note_address ?? '',
+    deliveryNotePhone: client.delivery_note_phone ?? '',
+    recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
+    crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
+    fundBalanceUsd: Number(client.fund_balance_usd ?? 0),
+    extraFields:
+      client.extra_fields && typeof client.extra_fields === 'object'
+        ? (client.extra_fields as Record<string, unknown>)
+        : {},
+    updatedAt: client.updated_at ?? '',
+  };
+}
+
 type DriverOption = {
   id: string;
   fullName: string;
@@ -481,6 +512,7 @@ type Order = {
   deliveryAtISO: string;
   source: 'advisor' | 'master' | 'walk_in';
   clientId: number | null;
+  clientFundBalanceUsd: number;
   attributedAdvisorUserId: string | null;
   advisorName: string;
   clientName: string;
@@ -3494,7 +3526,7 @@ export default function MasterDashboardClient({
     inventoryRecipes = [],
     inventoryRecipeComponents = [],
   productInventoryLinks = [],
-  clients = [],
+  clients: initialClients = [],
   clientTotalCount,
   clientActiveCount,
   drivers = [],
@@ -3656,6 +3688,10 @@ export default function MasterDashboardClient({
   const [movementCounterpartyName, setMovementCounterpartyName] = useState('');
   const [movementDescription, setMovementDescription] = useState('');
   const [movementNotes, setMovementNotes] = useState('');
+  const [clients, setClients] = useState<ClientItem[]>(initialClients);
+  const [clientsLoaded, setClientsLoaded] = useState(initialClients.length > 0);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [clientDetailOpen, setClientDetailOpen] = useState(false);
@@ -7083,14 +7119,40 @@ const handleSaveQuickCatalog = async () => {
     crmTags: parseTagsInput(clientFormTagsInput),
   });
 
+  const loadClientsForSettings = useCallback(
+    async (query: string) => {
+      try {
+        setClientsLoading(true);
+        setClientsLoadError(null);
+        const q = query.trim();
+        const remoteResults = await searchClientsAction({
+          query: q,
+          limit: q.length >= 2 ? 80 : 80,
+          includeRecentWhenEmpty: true,
+        });
+        setClients((remoteResults as any[]).map(mapClientActionRow));
+        setClientsLoaded(true);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudieron cargar clientes.';
+        setClientsLoadError(message);
+        showToast('error', message);
+      } finally {
+        setClientsLoading(false);
+      }
+    },
+    []
+  );
+
   const handleCreateClient = async () => {
     try {
       setClientSaving(true);
-      await createClientAction(buildClientPayload());
+      const createdClient = await createClientAction(buildClientPayload());
+      const nextClient = mapClientActionRow(createdClient);
+      setClients((prev) => [nextClient, ...prev.filter((client) => client.id !== nextClient.id)]);
+      setClientsLoaded(true);
       showToast('success', 'Cliente creado.');
       setClientCreateOpen(false);
       resetClientForm();
-      router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo crear el cliente.');
     } finally {
@@ -7109,7 +7171,7 @@ const handleSaveQuickCatalog = async () => {
       });
       showToast('success', 'Cliente actualizado.');
       setClientEditOpen(false);
-      router.refresh();
+      await loadClientsForSettings(clientSearch);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el cliente.');
     } finally {
@@ -7123,8 +7185,10 @@ const handleSaveQuickCatalog = async () => {
         clientId: client.id,
         nextIsActive: !client.isActive,
       });
+      setClients((prev) =>
+        prev.map((item) => (item.id === client.id ? { ...item, isActive: !client.isActive } : item))
+      );
       showToast('success', client.isActive ? 'Cliente desactivado.' : 'Cliente activado.');
-      router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado del cliente.');
     }
@@ -7924,34 +7988,7 @@ const handleSearchCreateOrderClients = async () => {
   try {
     setCreateOrderClientSearchLoading(true);
     const remoteResults = await searchClientsAction({ query: q, limit: 15 });
-    const nextResults = (remoteResults as any[]).map((client) => ({
-      id: Number(client.id),
-      fullName: client.full_name ?? 'Sin nombre',
-      phone: client.phone ?? '',
-      notes: client.notes ?? '',
-      primaryAdvisorId: client.primary_advisor_id ?? null,
-      createdAt: client.created_at ?? '',
-      clientType: String(client.client_type ?? ''),
-      isActive: Boolean(client.is_active ?? true),
-      birthDate: client.birth_date ?? '',
-      importantDate: client.important_date ?? '',
-      billingCompanyName: client.billing_company_name ?? '',
-      billingTaxId: client.billing_tax_id ?? '',
-      billingAddress: client.billing_address ?? '',
-      billingPhone: client.billing_phone ?? '',
-      deliveryNoteName: client.delivery_note_name ?? '',
-      deliveryNoteDocumentId: client.delivery_note_document_id ?? '',
-      deliveryNoteAddress: client.delivery_note_address ?? '',
-      deliveryNotePhone: client.delivery_note_phone ?? '',
-      recentAddresses: Array.isArray(client.recent_addresses) ? client.recent_addresses : [],
-      crmTags: Array.isArray(client.crm_tags) ? client.crm_tags : [],
-      fundBalanceUsd: Number(client.fund_balance_usd ?? 0),
-      extraFields:
-        client.extra_fields && typeof client.extra_fields === 'object'
-          ? (client.extra_fields as Record<string, unknown>)
-          : {},
-      updatedAt: client.updated_at ?? '',
-    }));
+    const nextResults = (remoteResults as any[]).map(mapClientActionRow);
 
     setCreateOrderClientResults(nextResults);
   } catch (err) {
@@ -9009,7 +9046,7 @@ const selectedOrderClient =
 
 const selectedOrderClientFundAvailableUsd = Math.max(
   0,
-  Number(selectedOrderClient?.fundBalanceUsd ?? 0)
+  Number(selectedOrder?.clientFundBalanceUsd ?? selectedOrderClient?.fundBalanceUsd ?? 0)
 );
 
 const selectedOrderChangeMovements = useMemo(() => {
@@ -9190,6 +9227,20 @@ const selectedCreateOrderClientAddresses = useMemo(
       );
     });
   }, [clientSearch, clients]);
+
+  useEffect(() => {
+    if (settingsTab !== 'clients') return;
+
+    const q = clientSearch.trim();
+    if (!q && clientsLoaded) return;
+    if (q.length > 0 && q.length < 2) return;
+
+    const timeout = window.setTimeout(() => {
+      loadClientsForSettings(q);
+    }, q ? 250 : 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [clientSearch, clientsLoaded, loadClientsForSettings, settingsTab]);
 
   const accountStatsById = useMemo(() => {
     const stats = new Map<
@@ -13575,9 +13626,23 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       </div>
 
       <div className="flex gap-2">
+        <button
+          type="button"
+          className="rounded-xl border border-[#2F2F3D] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition-colors hover:border-[#FEEF00]/50 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => loadClientsForSettings(clientSearch)}
+          disabled={clientsLoading}
+        >
+          {clientsLoading ? 'Cargando...' : 'Actualizar'}
+        </button>
         <Btn onClick={openCreateClient}>Nuevo cliente</Btn>
       </div>
     </div>
+
+    {clientsLoadError ? (
+      <div className="rounded-2xl border border-[#FF4D4D]/40 bg-[#2A1114] p-3 text-sm text-[#FFD6D6]">
+        {clientsLoadError}
+      </div>
+    ) : null}
 
     <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
       <div className="max-h-[70vh] overflow-y-auto overflow-x-auto">
@@ -13597,10 +13662,18 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </tr>
           </thead>
           <tbody>
-            {filteredClients.length === 0 ? (
+            {clientsLoading && filteredClients.length === 0 ? (
               <tr>
                 <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={10}>
-                  No hay clientes que coincidan con el filtro.
+                  Cargando clientes...
+                </td>
+              </tr>
+            ) : filteredClients.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={10}>
+                  {clientsLoaded
+                    ? 'No hay clientes que coincidan con el filtro.'
+                    : 'Abre esta seccion o busca para cargar clientes.'}
                 </td>
               </tr>
             ) : (

@@ -5260,6 +5260,7 @@ export async function createClientAction(input: {
     recent_addresses,
     crm_tags,
     extra_fields,
+    fund_balance_usd,
     updated_at
   `).single();
 
@@ -5272,15 +5273,17 @@ export async function createClientAction(input: {
 export async function searchClientsAction(input: {
   query: string;
   limit?: number;
+  includeRecentWhenEmpty?: boolean;
 }) {
   const { supabase } = await requireMasterOrAdmin();
   const query = String(input.query || '').trim().replace(/[,%]/g, ' ');
+  const includeRecentWhenEmpty = Boolean(input.includeRecentWhenEmpty);
 
-  if (query.length < 2) {
+  if (query.length < 2 && !includeRecentWhenEmpty) {
     return [];
   }
 
-  const limit = Math.max(1, Math.min(25, Math.floor(Number(input.limit ?? 15) || 15)));
+  const limit = Math.max(1, Math.min(120, Math.floor(Number(input.limit ?? 15) || 15)));
   const pattern = `%${query}%`;
   const phonePatterns = getPhoneSearchTerms(query)
     .map((term) => term.replace(/[,%]/g, ' '))
@@ -5288,7 +5291,7 @@ export async function searchClientsAction(input: {
     .slice(0, 5)
     .map((term) => `phone.ilike.%${term}%`);
 
-  const { data, error } = await supabase
+  let clientsQuery = supabase
     .from('clients')
     .select(`
       id,
@@ -5315,7 +5318,11 @@ export async function searchClientsAction(input: {
       fund_balance_usd,
       updated_at
     `)
-    .or(
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+
+  if (query.length >= 2) {
+    clientsQuery = clientsQuery.or(
       [
         `full_name.ilike.${pattern}`,
         `phone.ilike.${pattern}`,
@@ -5324,9 +5331,10 @@ export async function searchClientsAction(input: {
         `billing_tax_id.ilike.${pattern}`,
         `delivery_note_name.ilike.${pattern}`,
       ].join(',')
-    )
-    .order('updated_at', { ascending: false })
-    .limit(limit);
+    );
+  }
+
+  const { data, error } = await clientsQuery;
 
   if (error) throw new Error(error.message);
 
