@@ -283,28 +283,6 @@ type RawInventoryItemRow = {
   created_at: string;
 };
 
-type RawInventoryMovementRow = {
-  id: number;
-  inventory_item_id: number;
-  movement_type:
-    | 'inbound'
-    | 'sale_out'
-    | 'damage'
-    | 'waste'
-    | 'manual_adjustment'
-    | 'stock_count'
-    | 'production_out'
-    | 'production_in'
-    | 'pack_out'
-    | 'pack_in';
-  quantity_units: number | string;
-  reason_code: string | null;
-  notes: string | null;
-  order_id: number | null;
-  created_at: string;
-  created_by_user_id: string;
-};
-
 type RawInventoryRecipeRow = {
   id: number;
   output_inventory_item_id: number;
@@ -431,7 +409,6 @@ const MASTER_DASHBOARD_ORDER_LIMIT = 90;
 const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
-const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 150;
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
@@ -1060,15 +1037,12 @@ const { data: ordersData, error: ordersError } = await supabase
       ),
     );
 
-    const { data: orderEventActorsData } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .in(
-        'id',
-        orderEventActorIds.length > 0
-          ? orderEventActorIds
-          : ['00000000-0000-0000-0000-000000000000'],
-      );
+    const { data: orderEventActorsData } = orderEventActorIds.length > 0
+      ? await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', orderEventActorIds)
+      : { data: [] };
 
     const orderEventActorNameById = new Map<string, string>();
     for (const row of orderEventActorsData ?? []) {
@@ -1134,15 +1108,12 @@ const { data: ordersData, error: ordersError } = await supabase
     )
   );
 
-  const { data: internalDriversData, error: internalDriversError } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .in(
-      'id',
-      internalDriverIds.length > 0
-        ? internalDriverIds
-        : ['00000000-0000-0000-0000-000000000000']
-    );
+  const { data: internalDriversData, error: internalDriversError } = internalDriverIds.length > 0
+    ? await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', internalDriverIds)
+    : { data: [], error: null };
 
   if (internalDriversError) {
     return (
@@ -1737,22 +1708,6 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  const { data: inventoryMovementsData, error: inventoryMovementsError } = await supabase
-    .from('inventory_movements')
-    .select(`
-      id,
-      inventory_item_id,
-      movement_type,
-      quantity_units,
-      reason_code,
-      notes,
-      order_id,
-      created_at,
-      created_by_user_id
-    `)
-    .order('created_at', { ascending: false })
-    .limit(MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT);
-
   if (productsError) {
     return (
       <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
@@ -1763,22 +1718,6 @@ const { data: ordersData, error: ordersError } = await supabase
           </div>
           <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
             {productsError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (inventoryMovementsError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando inventario</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los movimientos de inventario.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {inventoryMovementsError.message}
           </pre>
         </div>
       </div>
@@ -1993,17 +1932,7 @@ const { data: ordersData, error: ordersError } = await supabase
     createdAt: row.created_at,
   }));
 
-  const inventoryMovements = ((inventoryMovementsData ?? []) as RawInventoryMovementRow[]).map((row) => ({
-    id: Number(row.id),
-    inventoryItemId: Number(row.inventory_item_id),
-    movementType: row.movement_type,
-    quantityUnits: toNumber(row.quantity_units, 0),
-    reasonCode: row.reason_code ?? null,
-    notes: row.notes ?? null,
-    orderId: row.order_id == null ? null : Number(row.order_id),
-    createdAt: row.created_at,
-    createdByUserId: row.created_by_user_id,
-  }));
+  const inventoryMovements: never[] = [];
 
   const inventoryRecipes = ((inventoryRecipesData ?? []) as RawInventoryRecipeRow[]).map((row) => ({
     id: Number(row.id),

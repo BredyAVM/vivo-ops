@@ -3297,6 +3297,45 @@ export async function loadMoneyActivityAction(input?: {
   return { movements, closures };
 }
 
+export async function loadInventoryMovementsAction(input?: {
+  movementLimit?: number;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const movementLimit = Math.max(50, Math.min(500, Math.floor(Number(input?.movementLimit ?? 150) || 150)));
+
+  const { data, error } = await supabase
+    .from('inventory_movements')
+    .select(`
+      id,
+      inventory_item_id,
+      movement_type,
+      quantity_units,
+      reason_code,
+      notes,
+      order_id,
+      created_at,
+      created_by_user_id
+    `)
+    .order('created_at', { ascending: false })
+    .limit(movementLimit);
+
+  if (error) throw new Error(error.message);
+
+  const movements = ((data ?? []) as any[]).map((row) => ({
+    id: Number(row.id),
+    inventoryItemId: Number(row.inventory_item_id),
+    movementType: row.movement_type,
+    quantityUnits: toSafeNumber(row.quantity_units, 0),
+    reasonCode: row.reason_code ?? null,
+    notes: row.notes ?? null,
+    orderId: row.order_id == null ? null : Number(row.order_id),
+    createdAt: row.created_at,
+    createdByUserId: row.created_by_user_id,
+  }));
+
+  return { movements };
+}
+
 export async function createExtraMoneyMovementAction(input: {
   direction: 'inflow' | 'outflow';
   outflowPurpose?: 'change' | 'expense' | null;

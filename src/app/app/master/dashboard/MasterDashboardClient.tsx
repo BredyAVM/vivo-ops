@@ -29,6 +29,7 @@ import {
   createDeliveryPartnerAction,
   createDeliveryPartnerRateAction,
   createInventoryItemAction,
+  loadInventoryMovementsAction,
   loadMoneyActivityAction,
   saveInventoryRecipeAction,
   updateInventoryItemAction,
@@ -3523,7 +3524,7 @@ export default function MasterDashboardClient({
   moneyMovements: initialMoneyMovements = [],
   moneyAccountClosures: initialMoneyAccountClosures = [],
     inventoryItems = [],
-    inventoryMovements = [],
+    inventoryMovements: initialInventoryMovements = [],
     inventoryRecipes = [],
     inventoryRecipeComponents = [],
   productInventoryLinks = [],
@@ -3685,6 +3686,10 @@ export default function MasterDashboardClient({
   const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
   const [moneyActivityLoading, setMoneyActivityLoading] = useState(false);
   const [moneyActivityError, setMoneyActivityError] = useState<string | null>(null);
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovementItem[]>(initialInventoryMovements);
+  const [inventoryMovementsLoaded, setInventoryMovementsLoaded] = useState(initialInventoryMovements.length > 0);
+  const [inventoryMovementsLoading, setInventoryMovementsLoading] = useState(false);
+  const [inventoryMovementsError, setInventoryMovementsError] = useState<string | null>(null);
   const [movementSaving, setMovementSaving] = useState(false);
   const [movementMoneyAccountId, setMovementMoneyAccountId] = useState('');
   const [movementOutflowPurpose, setMovementOutflowPurpose] = useState<MoneyMovementOutflowPurpose>('expense');
@@ -6542,6 +6547,28 @@ const handleSaveQuickCatalog = async () => {
     [initialMoneyMovements, moneyActivityLoaded, moneyActivityLoading]
   );
 
+  const loadInventoryMovements = useCallback(
+    async (force = false) => {
+      if (inventoryMovementsLoading) return;
+      if (inventoryMovementsLoaded && !force) return;
+
+      try {
+        setInventoryMovementsLoading(true);
+        setInventoryMovementsError(null);
+        const result = await loadInventoryMovementsAction({ movementLimit: 150 });
+        setInventoryMovements(result.movements as InventoryMovementItem[]);
+        setInventoryMovementsLoaded(true);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo cargar el historial de inventario.';
+        setInventoryMovementsError(message);
+        showToast('error', message);
+      } finally {
+        setInventoryMovementsLoading(false);
+      }
+    },
+    [inventoryMovementsLoaded, inventoryMovementsLoading]
+  );
+
   const handleCreateMoneyAccount = async () => {
     try {
       setAccountSaving(true);
@@ -7777,6 +7804,7 @@ const handleCreateInventoryMovement = async () => {
     showToast('success', 'Movimiento de inventario guardado.');
     setInventoryMovementOpen(false);
     resetInventoryMovementForm();
+    await loadInventoryMovements(true);
     router.refresh();
   } catch (err) {
     showToast('error', err instanceof Error ? err.message : 'No se pudo guardar el movimiento.');
@@ -7805,6 +7833,7 @@ const handleCreateInventoryProduction = async () => {
     showToast('success', 'Producción registrada.');
     setInventoryProductionOpen(false);
     resetInventoryProductionForm();
+    await loadInventoryMovements(true);
     router.refresh();
   } catch (err) {
     showToast('error', err instanceof Error ? err.message : 'No se pudo registrar la producción.');
@@ -9297,6 +9326,11 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!needsMoneyActivity) return;
     void loadMoneyActivity();
   }, [loadMoneyActivity, settingsTab, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== 'settings' || settingsTab !== 'inventory') return;
+    void loadInventoryMovements();
+  }, [loadInventoryMovements, settingsTab, viewMode]);
 
   const accountStatsById = useMemo(() => {
     const stats = new Map<
@@ -12953,6 +12987,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       <div className="text-xs text-[#8A8A96] md:max-w-[280px]">
         El stock se guarda en unidades base y se muestra usando el empaque configurado del producto.
       </div>
+      <button
+        className="rounded-xl border border-[#242433] px-4 py-2 text-sm font-semibold text-[#F5F5F7] transition-colors hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-60"
+        onClick={() => loadInventoryMovements(true)}
+        disabled={inventoryMovementsLoading}
+      >
+        {inventoryMovementsLoading ? 'Cargando...' : 'Actualizar historial'}
+      </button>
       {permissions.canCreateInventoryItems ? (
         <button
           className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
@@ -13070,6 +13111,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             {fmtDateTimeES(latestMovement.createdAt)}
                           </div>
                         </div>
+                      ) : inventoryMovementsLoading ? (
+                        'Cargando...'
+                      ) : inventoryMovementsError ? (
+                        <button
+                          className="text-left text-[#FF5A5F] underline decoration-[#FF5A5F]/40 underline-offset-2"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void loadInventoryMovements(true);
+                          }}
+                        >
+                          Reintentar historial
+                        </button>
+                      ) : !inventoryMovementsLoaded ? (
+                        'Historial pendiente'
                       ) : (
                         'Sin movimientos'
                       )}
@@ -20054,7 +20109,15 @@ deliveryAssignMode === 'external' ? (
                         );
                       })}
                     {(inventoryMovementsByItemId.get(selectedInventoryProduct.id) ?? []).length === 0 ? (
-                      <div className="text-sm text-[#B7B7C2]">Sin movimientos registrados.</div>
+                      <div className="text-sm text-[#B7B7C2]">
+                        {inventoryMovementsLoading
+                          ? 'Cargando historial...'
+                          : inventoryMovementsError
+                            ? inventoryMovementsError
+                            : inventoryMovementsLoaded
+                              ? 'Sin movimientos registrados.'
+                              : 'Historial pendiente de cargar.'}
+                      </div>
                     ) : null}
                   </div>
                 </div>
