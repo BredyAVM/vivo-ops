@@ -29,6 +29,7 @@ import {
   createDeliveryPartnerAction,
   createDeliveryPartnerRateAction,
   createInventoryItemAction,
+  loadMoneyActivityAction,
   saveInventoryRecipeAction,
   updateInventoryItemAction,
   toggleInventoryItemActiveAction,
@@ -3519,8 +3520,8 @@ export default function MasterDashboardClient({
   initialOrders,
   moneyAccounts,
   moneyAccountPaymentRules = [],
-  moneyMovements = [],
-  moneyAccountClosures = [],
+  moneyMovements: initialMoneyMovements = [],
+  moneyAccountClosures: initialMoneyAccountClosures = [],
     inventoryItems = [],
     inventoryMovements = [],
     inventoryRecipes = [],
@@ -3677,6 +3678,13 @@ export default function MasterDashboardClient({
   const [accountFormOwnerName, setAccountFormOwnerName] = useState('');
   const [accountFormNotes, setAccountFormNotes] = useState('');
   const [accountFormIsActive, setAccountFormIsActive] = useState(true);
+  const [moneyMovements, setMoneyMovements] = useState<MoneyMovementItem[]>(initialMoneyMovements);
+  const [moneyAccountClosures, setMoneyAccountClosures] = useState<MoneyAccountClosureItem[]>(
+    initialMoneyAccountClosures
+  );
+  const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
+  const [moneyActivityLoading, setMoneyActivityLoading] = useState(false);
+  const [moneyActivityError, setMoneyActivityError] = useState<string | null>(null);
   const [movementSaving, setMovementSaving] = useState(false);
   const [movementMoneyAccountId, setMovementMoneyAccountId] = useState('');
   const [movementOutflowPurpose, setMovementOutflowPurpose] = useState<MoneyMovementOutflowPurpose>('expense');
@@ -6495,6 +6503,45 @@ const handleSaveQuickCatalog = async () => {
     });
   };
 
+  const loadMoneyActivity = useCallback(
+    async (force = false) => {
+      if (moneyActivityLoading) return;
+      if (moneyActivityLoaded && !force) return;
+
+      try {
+        setMoneyActivityLoading(true);
+        setMoneyActivityError(null);
+        const result = await loadMoneyActivityAction({ movementLimit: 350, closureLimit: 120 });
+        const movementById = new Map<number, MoneyMovementItem>();
+
+        for (const movement of initialMoneyMovements) {
+          movementById.set(movement.id, movement);
+        }
+
+        for (const movement of result.movements as MoneyMovementItem[]) {
+          movementById.set(movement.id, movement);
+        }
+
+        setMoneyMovements(
+          Array.from(movementById.values()).sort((a, b) => {
+            const dateCompare = String(b.movementDate).localeCompare(String(a.movementDate));
+            if (dateCompare !== 0) return dateCompare;
+            return String(b.createdAt).localeCompare(String(a.createdAt));
+          })
+        );
+        setMoneyAccountClosures(result.closures as MoneyAccountClosureItem[]);
+        setMoneyActivityLoaded(true);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo cargar la actividad financiera.';
+        setMoneyActivityError(message);
+        showToast('error', message);
+      } finally {
+        setMoneyActivityLoading(false);
+      }
+    },
+    [initialMoneyMovements, moneyActivityLoaded, moneyActivityLoading]
+  );
+
   const handleCreateMoneyAccount = async () => {
     try {
       setAccountSaving(true);
@@ -6642,7 +6689,7 @@ const handleSaveQuickCatalog = async () => {
       );
       setMovementOpen(false);
       resetMoneyMovementForm();
-      router.refresh();
+      await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo guardar el movimiento.');
     } finally {
@@ -6737,7 +6784,7 @@ const handleSaveQuickCatalog = async () => {
       showToast('success', 'Traspaso registrado.');
       setTransferOpen(false);
       resetMoneyTransferForm();
-      router.refresh();
+      await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el traspaso.');
     } finally {
@@ -6756,7 +6803,7 @@ const handleSaveQuickCatalog = async () => {
       });
       showToast('success', 'Movimiento aprobado.');
       setMovementDetailOpen(false);
-      router.refresh();
+      await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo aprobar el movimiento.');
     } finally {
@@ -6777,7 +6824,7 @@ const handleSaveQuickCatalog = async () => {
       showToast('success', 'Movimiento rechazado.');
       setMovementDetailOpen(false);
       setMovementRejectReason('');
-      router.refresh();
+      await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo rechazar el movimiento.');
     } finally {
@@ -6798,7 +6845,7 @@ const handleSaveQuickCatalog = async () => {
       showToast('success', 'Movimiento anulado.');
       setMovementDetailOpen(false);
       setMovementVoidReason('');
-      router.refresh();
+      await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo anular el movimiento.');
     } finally {
@@ -6838,7 +6885,7 @@ const handleSaveQuickCatalog = async () => {
       showToast('success', 'Cierre registrado.');
       setClosureOpen(false);
       resetClosureForm();
-      router.refresh();
+      await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el cierre.');
     } finally {
@@ -9241,6 +9288,15 @@ const selectedCreateOrderClientAddresses = useMemo(
 
     return () => window.clearTimeout(timeout);
   }, [clientSearch, clientsLoaded, loadClientsForSettings, settingsTab]);
+
+  useEffect(() => {
+    const needsMoneyActivity =
+      (viewMode === 'settings' && settingsTab === 'accounts') ||
+      viewMode === 'calculations';
+
+    if (!needsMoneyActivity) return;
+    void loadMoneyActivity();
+  }, [loadMoneyActivity, settingsTab, viewMode]);
 
   const accountStatsById = useMemo(() => {
     const stats = new Map<
@@ -13113,7 +13169,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <div>
           <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría financiera</div>
           <div className="mt-1 text-xs text-[#8A8A96]">
-            {globalAuditSummary.totalGroups} huellas · {globalAuditSummary.accountsTouched} cuenta(s)
+            {moneyActivityLoading
+              ? 'Cargando huella financiera...'
+              : `${globalAuditSummary.totalGroups} huellas · ${globalAuditSummary.accountsTouched} cuenta(s)`}
           </div>
         </div>
         <div className="flex flex-wrap items-start justify-end gap-2">
@@ -13126,12 +13184,26 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <button
             type="button"
             className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
+            onClick={() => loadMoneyActivity(true)}
+            disabled={moneyActivityLoading}
+          >
+            {moneyActivityLoading ? 'Cargando...' : 'Actualizar'}
+          </button>
+          <button
+            type="button"
+            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
             onClick={downloadGlobalFinancialAuditCsv}
           >
             Exportar CSV
           </button>
         </div>
       </div>
+
+      {moneyActivityError ? (
+        <div className="mt-4 rounded-xl border border-[#FF4D4D]/40 bg-[#2A1114] p-3 text-sm text-[#FFD6D6]">
+          {moneyActivityError}
+        </div>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <InfoCell label="Ingresos ref." value={fmtUSD(globalAuditSummary.confirmedInflowUsd)} />

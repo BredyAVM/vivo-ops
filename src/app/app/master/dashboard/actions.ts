@@ -3160,6 +3160,143 @@ export async function updateMoneyAccountPaymentRulesAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function loadMoneyActivityAction(input?: {
+  movementLimit?: number;
+  closureLimit?: number;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const movementLimit = Math.max(50, Math.min(800, Math.floor(Number(input?.movementLimit ?? 350) || 350)));
+  const closureLimit = Math.max(25, Math.min(300, Math.floor(Number(input?.closureLimit ?? 120) || 120)));
+
+  const [movementsResult, closuresResult] = await Promise.all([
+    supabase
+      .from('money_movements')
+      .select(`
+        id,
+        movement_date,
+        created_at,
+        created_by_user_id,
+        confirmed_at,
+        confirmed_by_user_id,
+        status,
+        approval_required,
+        approval_required_reason,
+        reviewed_at,
+        reviewed_by_user_id,
+        rejected_at,
+        rejected_by_user_id,
+        rejection_reason,
+        voided_at,
+        voided_by_user_id,
+        void_reason,
+        direction,
+        movement_type,
+        money_account_id,
+        currency_code,
+        amount,
+        exchange_rate_ves_per_usd,
+        amount_usd_equivalent,
+        reference_code,
+        counterparty_name,
+        description,
+        notes,
+        order_id,
+        payment_report_id,
+        movement_group_id
+      `)
+      .order('movement_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(movementLimit),
+    supabase
+      .from('money_account_closures')
+      .select(`
+        id,
+        money_account_id,
+        closure_date,
+        expected_amount,
+        counted_amount,
+        difference_amount,
+        expected_amount_usd,
+        counted_amount_usd,
+        difference_amount_usd,
+        currency_code,
+        exchange_rate_ves_per_usd,
+        reason,
+        notes,
+        status,
+        created_by_user_id,
+        created_at,
+        reviewed_by_user_id,
+        reviewed_at
+      `)
+      .order('closure_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(closureLimit),
+  ]);
+
+  if (movementsResult.error) throw new Error(movementsResult.error.message);
+  if (closuresResult.error) throw new Error(closuresResult.error.message);
+
+  const movements = ((movementsResult.data ?? []) as any[]).map((mv) => ({
+    id: Number(mv.id),
+    movementDate: mv.movement_date,
+    createdAt: mv.created_at,
+    createdByUserId: mv.created_by_user_id,
+    confirmedAt: mv.confirmed_at,
+    confirmedByUserId: mv.confirmed_by_user_id,
+    status: mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending'),
+    approvalRequired: Boolean(mv.approval_required),
+    approvalRequiredReason: mv.approval_required_reason ?? null,
+    reviewedAt: mv.reviewed_at ?? null,
+    reviewedByUserId: mv.reviewed_by_user_id ?? null,
+    rejectedAt: mv.rejected_at ?? null,
+    rejectedByUserId: mv.rejected_by_user_id ?? null,
+    rejectionReason: mv.rejection_reason ?? null,
+    voidedAt: mv.voided_at ?? null,
+    voidedByUserId: mv.voided_by_user_id ?? null,
+    voidReason: mv.void_reason ?? null,
+    direction: mv.direction,
+    movementType: mv.movement_type,
+    moneyAccountId: Number(mv.money_account_id),
+    currencyCode: mv.currency_code,
+    amount: toSafeNumber(mv.amount, 0),
+    exchangeRateVesPerUsd:
+      mv.exchange_rate_ves_per_usd == null ? null : toSafeNumber(mv.exchange_rate_ves_per_usd, 0),
+    amountUsdEquivalent: toSafeNumber(mv.amount_usd_equivalent, 0),
+    referenceCode: mv.reference_code ?? null,
+    counterpartyName: mv.counterparty_name ?? null,
+    description: mv.description ?? null,
+    notes: mv.notes ?? null,
+    orderId: mv.order_id == null ? null : Number(mv.order_id),
+    paymentReportId: mv.payment_report_id == null ? null : Number(mv.payment_report_id),
+    movementGroupId: mv.movement_group_id ?? null,
+  }));
+
+  const closures = ((closuresResult.data ?? []) as any[]).map((row) => ({
+    id: Number(row.id),
+    moneyAccountId: Number(row.money_account_id),
+    closureDate: row.closure_date,
+    expectedAmount: toSafeNumber(row.expected_amount, 0),
+    countedAmount: toSafeNumber(row.counted_amount, 0),
+    differenceAmount: toSafeNumber(row.difference_amount, 0),
+    expectedAmountUsd: toSafeNumber(row.expected_amount_usd, 0),
+    countedAmountUsd: toSafeNumber(row.counted_amount_usd, 0),
+    differenceAmountUsd: toSafeNumber(row.difference_amount_usd, 0),
+    currencyCode: row.currency_code,
+    exchangeRateVesPerUsd:
+      row.exchange_rate_ves_per_usd == null ? null : toSafeNumber(row.exchange_rate_ves_per_usd, 0),
+    reason: row.reason ?? null,
+    notes: row.notes ?? null,
+    status: row.status,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+    reviewedByUserId: row.reviewed_by_user_id ?? null,
+    reviewedAt: row.reviewed_at ?? null,
+  }));
+
+  return { movements, closures };
+}
+
 export async function createExtraMoneyMovementAction(input: {
   direction: 'inflow' | 'outflow';
   outflowPurpose?: 'change' | 'expense' | null;

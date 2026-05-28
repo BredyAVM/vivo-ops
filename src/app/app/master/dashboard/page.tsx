@@ -172,27 +172,6 @@ type RawMoneyMovementRow = {
   movement_group_id: string | null;
 };
 
-type RawMoneyAccountClosureRow = {
-  id: number;
-  money_account_id: number;
-  closure_date: string;
-  expected_amount: number | string;
-  counted_amount: number | string;
-  difference_amount: number | string;
-  expected_amount_usd: number | string;
-  counted_amount_usd: number | string;
-  difference_amount_usd: number | string;
-  currency_code: 'USD' | 'VES';
-  exchange_rate_ves_per_usd: number | string | null;
-  reason: string | null;
-  notes: string | null;
-  status: 'recorded' | 'approved' | 'rejected';
-  created_by_user_id: string;
-  created_at: string;
-  reviewed_by_user_id: string | null;
-  reviewed_at: string | null;
-};
-
 type RawProfileRow = {
   id: string;
   full_name: string | null;
@@ -452,8 +431,6 @@ const MASTER_DASHBOARD_ORDER_LIMIT = 90;
 const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
-const MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT = 350;
-const MASTER_DASHBOARD_CLOSURE_LIMIT = 120;
 const MASTER_DASHBOARD_INVENTORY_MOVEMENT_LIMIT = 150;
 
 function repairDisplayText(value: string | null | undefined) {
@@ -1282,35 +1259,9 @@ const { data: ordersData, error: ordersError } = await supabase
       payment_report_id,
       movement_group_id
     `)
+    .in('order_id', orderIds.length > 0 ? orderIds : [-1])
     .order('movement_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(MASTER_DASHBOARD_MONEY_MOVEMENT_LIMIT);
-
-  const { data: moneyAccountClosuresData, error: moneyAccountClosuresError } = await supabase
-    .from('money_account_closures')
-    .select(`
-      id,
-      money_account_id,
-      closure_date,
-      expected_amount,
-      counted_amount,
-      difference_amount,
-      expected_amount_usd,
-      counted_amount_usd,
-      difference_amount_usd,
-      currency_code,
-      exchange_rate_ves_per_usd,
-      reason,
-      notes,
-      status,
-      created_by_user_id,
-      created_at,
-      reviewed_by_user_id,
-      reviewed_at
-    `)
-    .order('closure_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(MASTER_DASHBOARD_CLOSURE_LIMIT);
+    .order('created_at', { ascending: false });
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
 
@@ -1478,22 +1429,6 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  if (moneyAccountClosuresError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando cierres de cuenta</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los cierres financieros.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {moneyAccountClosuresError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
   const moneyAccounts = ((moneyAccountsData ?? []) as MoneyAccountRow[]).map((a) => ({
     id: Number(a.id),
     name: a.name,
@@ -1557,27 +1492,7 @@ const { data: ordersData, error: ordersError } = await supabase
     movementGroupId: mv.movement_group_id ?? null,
   }));
 
-  const moneyAccountClosures = ((moneyAccountClosuresData ?? []) as RawMoneyAccountClosureRow[]).map((row) => ({
-    id: Number(row.id),
-    moneyAccountId: Number(row.money_account_id),
-    closureDate: row.closure_date,
-    expectedAmount: toNumber(row.expected_amount, 0),
-    countedAmount: toNumber(row.counted_amount, 0),
-    differenceAmount: toNumber(row.difference_amount, 0),
-    expectedAmountUsd: toNumber(row.expected_amount_usd, 0),
-    countedAmountUsd: toNumber(row.counted_amount_usd, 0),
-    differenceAmountUsd: toNumber(row.difference_amount_usd, 0),
-    currencyCode: row.currency_code,
-    exchangeRateVesPerUsd:
-      row.exchange_rate_ves_per_usd == null ? null : toNumber(row.exchange_rate_ves_per_usd, 0),
-    reason: row.reason ?? null,
-    notes: row.notes ?? null,
-    status: row.status,
-    createdByUserId: row.created_by_user_id,
-    createdAt: row.created_at,
-    reviewedByUserId: row.reviewed_by_user_id ?? null,
-    reviewedAt: row.reviewed_at ?? null,
-  }));
+  const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] = [];
 
   const { count: clientTotalCount, error: clientTotalCountError } = await supabase
     .from('clients')
