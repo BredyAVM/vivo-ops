@@ -4294,6 +4294,30 @@ export async function toggleDeliveryPartnerActiveAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function loadDeliveryPartnerRatesAction() {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const { data, error } = await supabase
+    .from('delivery_partner_rates')
+    .select('id, partner_id, km_from, km_to, price_usd, is_active, created_at')
+    .order('partner_id', { ascending: true })
+    .order('km_from', { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  const rates = ((data ?? []) as any[]).map((row) => ({
+    id: Number(row.id),
+    partnerId: Number(row.partner_id),
+    kmFrom: toSafeNumber(row.km_from, 0),
+    kmTo: row.km_to == null ? null : toSafeNumber(row.km_to, 0),
+    priceUsd: toSafeNumber(row.price_usd, 0),
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at,
+  }));
+
+  return { rates };
+}
+
 export async function createDeliveryPartnerRateAction(input: {
   partnerId: number;
   kmFrom: number;

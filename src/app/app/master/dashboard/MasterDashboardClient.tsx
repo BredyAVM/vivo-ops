@@ -29,6 +29,7 @@ import {
   createDeliveryPartnerAction,
   createDeliveryPartnerRateAction,
   createInventoryItemAction,
+  loadDeliveryPartnerRatesAction,
   loadInventoryMovementsAction,
   loadMoneyActivityAction,
   saveInventoryRecipeAction,
@@ -3532,7 +3533,7 @@ export default function MasterDashboardClient({
   clientTotalCount,
   clientActiveCount,
   drivers = [],
-  deliveryPartners = [],
+  deliveryPartners: initialDeliveryPartners = [],
   catalogItems = [],
   productComponents = [],
   activeExchangeRate = null,
@@ -3643,6 +3644,12 @@ export default function MasterDashboardClient({
   const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState('8');
   const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
   const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
+  const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerOption[]>(initialDeliveryPartners);
+  const [deliveryPartnerRatesLoaded, setDeliveryPartnerRatesLoaded] = useState(
+    initialDeliveryPartners.some((partner) => (partner.rates ?? []).length > 0)
+  );
+  const [deliveryPartnerRatesLoading, setDeliveryPartnerRatesLoading] = useState(false);
+  const [deliveryPartnerRatesError, setDeliveryPartnerRatesError] = useState<string | null>(null);
   const [selectedDeliveryPartnerId, setSelectedDeliveryPartnerId] = useState<number | null>(null);
   const [deliveryPartnerDetailOpen, setDeliveryPartnerDetailOpen] = useState(false);
   const [deliveryPartnerEditOpen, setDeliveryPartnerEditOpen] = useState(false);
@@ -3933,6 +3940,18 @@ const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
 
   const permissions = useMemo(() => getMasterDashboardPermissions(roles), [roles]);
   const isAdmin = permissions.isAdmin;
+
+  useEffect(() => {
+    setDeliveryPartners((current) =>
+      initialDeliveryPartners.map((partner) => {
+        const existing = current.find((item) => item.id === partner.id);
+        return {
+          ...partner,
+          rates: existing?.rates?.length ? existing.rates : partner.rates,
+        };
+      })
+    );
+  }, [initialDeliveryPartners]);
 
   useEffect(() => {
     if (viewMode === 'calculations' && !permissions.canViewCalculations) {
@@ -6569,6 +6588,41 @@ const handleSaveQuickCatalog = async () => {
     [inventoryMovementsLoaded, inventoryMovementsLoading]
   );
 
+  const loadDeliveryPartnerRates = useCallback(
+    async (force = false) => {
+      if (deliveryPartnerRatesLoading) return;
+      if (deliveryPartnerRatesLoaded && !force) return;
+
+      try {
+        setDeliveryPartnerRatesLoading(true);
+        setDeliveryPartnerRatesError(null);
+        const result = await loadDeliveryPartnerRatesAction();
+        const ratesByPartnerId = new Map<number, DeliveryPartnerRate[]>();
+
+        for (const rate of result.rates as DeliveryPartnerRate[]) {
+          const current = ratesByPartnerId.get(rate.partnerId) ?? [];
+          current.push(rate);
+          ratesByPartnerId.set(rate.partnerId, current);
+        }
+
+        setDeliveryPartners((current) =>
+          current.map((partner) => ({
+            ...partner,
+            rates: (ratesByPartnerId.get(partner.id) ?? []).sort((a, b) => a.kmFrom - b.kmFrom),
+          }))
+        );
+        setDeliveryPartnerRatesLoaded(true);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudieron cargar las tarifas de delivery.';
+        setDeliveryPartnerRatesError(message);
+        showToast('error', message);
+      } finally {
+        setDeliveryPartnerRatesLoading(false);
+      }
+    },
+    [deliveryPartnerRatesLoaded, deliveryPartnerRatesLoading]
+  );
+
   const handleCreateMoneyAccount = async () => {
     try {
       setAccountSaving(true);
@@ -7406,6 +7460,7 @@ const handleSaveQuickCatalog = async () => {
       showToast('success', 'Tarifa creada.');
       setDeliveryPartnerRateCreateOpen(false);
       resetDeliveryPartnerRateForm();
+      await loadDeliveryPartnerRates(true);
       router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo crear la tarifa.');
@@ -7450,6 +7505,7 @@ const handleSaveQuickCatalog = async () => {
       showToast('success', 'Tarifa actualizada.');
       setDeliveryPartnerRateEditOpen(false);
       resetDeliveryPartnerRateForm();
+      await loadDeliveryPartnerRates(true);
       router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar la tarifa.');
@@ -7471,6 +7527,7 @@ const handleSaveQuickCatalog = async () => {
       });
 
       showToast('success', rate.isActive ? 'Tarifa desactivada.' : 'Tarifa activada.');
+      await loadDeliveryPartnerRates(true);
       router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo cambiar el estado de la tarifa.');
@@ -9331,6 +9388,14 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (viewMode !== 'settings' || settingsTab !== 'inventory') return;
     void loadInventoryMovements();
   }, [loadInventoryMovements, settingsTab, viewMode]);
+
+  useEffect(() => {
+    const needsDeliveryRates =
+      (viewMode === 'calculations' && calculationsTab === 'deliveries') ||
+      deliveryAssignMode === 'external';
+    if (!needsDeliveryRates) return;
+    void loadDeliveryPartnerRates();
+  }, [calculationsTab, deliveryAssignMode, loadDeliveryPartnerRates, viewMode]);
 
   const accountStatsById = useMemo(() => {
     const stats = new Map<
@@ -12715,7 +12780,19 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                     <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
                       <div className="text-sm font-semibold text-[#F5F5F7]">Partners externos</div>
-                      <div className="text-sm font-semibold text-[#FEEF00]">{deliveryPartners.length}</div>
+                      <div className="flex items-center gap-3">
+                        {deliveryPartnerRatesError ? (
+                          <button
+                            className="text-xs font-semibold text-[#FF5A5F] underline decoration-[#FF5A5F]/40 underline-offset-2"
+                            onClick={() => loadDeliveryPartnerRates(true)}
+                          >
+                            Reintentar tarifas
+                          </button>
+                        ) : deliveryPartnerRatesLoading ? (
+                          <div className="text-xs text-[#8A8A96]">Cargando tarifas...</div>
+                        ) : null}
+                        <div className="text-sm font-semibold text-[#FEEF00]">{deliveryPartners.length}</div>
+                      </div>
                     </div>
                     <div className="max-h-[420px] overflow-auto">
                       <table className="w-full text-[11px]">
@@ -12749,7 +12826,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                 <td className="px-3 py-2">{partner.partnerType || 'company_dispatch'}</td>
                                 <td className="px-3 py-2">{partner.whatsappPhone || '—'}</td>
                                 <td className="px-3 py-2">
-                                  {(partner.rates ?? []).filter((rate) => rate.isActive).length}
+                                  {deliveryPartnerRatesLoading
+                                    ? '...'
+                                    : deliveryPartnerRatesLoaded
+                                      ? (partner.rates ?? []).filter((rate) => rate.isActive).length
+                                      : 'Pendiente'}
                                 </td>
                                 <td className="px-3 py-2">{partner.isActive ? 'Activo' : 'Inactivo'}</td>
                               </tr>
@@ -16994,7 +17075,13 @@ deliveryAssignMode === 'external' ? (
           </span>
         </>
       ) : (
-        'Sin tarifa automática para esa distancia.'
+        deliveryPartnerRatesLoading
+          ? 'Cargando tarifas...'
+          : deliveryPartnerRatesError
+            ? 'No se pudieron cargar las tarifas.'
+            : deliveryPartnerRatesLoaded
+              ? 'Sin tarifa automática para esa distancia.'
+              : 'Tarifas pendientes de cargar.'
       )}
     </div>
 
@@ -19292,11 +19379,23 @@ deliveryAssignMode === 'external' ? (
                 <InfoCell label="Estado" value={selectedDeliveryPartner.isActive ? 'Activo' : 'Inactivo'} />
                 <InfoCell
                   label="Tarifas activas"
-                  value={String((selectedDeliveryPartner.rates ?? []).filter((rate) => rate.isActive).length)}
+                  value={
+                    deliveryPartnerRatesLoading
+                      ? 'Cargando...'
+                      : deliveryPartnerRatesLoaded
+                        ? String((selectedDeliveryPartner.rates ?? []).filter((rate) => rate.isActive).length)
+                        : 'Pendiente'
+                  }
                 />
                 <InfoCell
                   label="Tarifas totales"
-                  value={String((selectedDeliveryPartner.rates ?? []).length)}
+                  value={
+                    deliveryPartnerRatesLoading
+                      ? 'Cargando...'
+                      : deliveryPartnerRatesLoaded
+                        ? String((selectedDeliveryPartner.rates ?? []).length)
+                        : 'Pendiente'
+                  }
                 />
               </div>
 
@@ -19319,7 +19418,15 @@ deliveryAssignMode === 'external' ? (
 
                 <div className="mt-3 overflow-x-auto">
                   {(selectedDeliveryPartner.rates ?? []).length === 0 ? (
-                    <div className="text-sm text-[#B7B7C2]">Sin tarifas cargadas.</div>
+                    <div className="text-sm text-[#B7B7C2]">
+                      {deliveryPartnerRatesLoading
+                        ? 'Cargando tarifas...'
+                        : deliveryPartnerRatesError
+                          ? deliveryPartnerRatesError
+                          : deliveryPartnerRatesLoaded
+                            ? 'Sin tarifas cargadas.'
+                            : 'Tarifas pendientes de cargar.'}
+                    </div>
                   ) : (
                     <table className="w-full text-[12px]">
                       <thead className="border-b border-[#242433] text-[#B7B7C2]">
