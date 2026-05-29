@@ -137,6 +137,13 @@ function formatDayNumber(value: Date) {
   });
 }
 
+function formatMonthShort(value: Date) {
+  return value.toLocaleDateString('es-VE', {
+    month: 'short',
+    timeZone: 'America/Caracas',
+  }).replace('.', '');
+}
+
 function getDateKey(date: Date) {
   return date.toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -151,16 +158,23 @@ function getIsoDayKey(value: string) {
 
 function buildCalendarDays(activeKey: string) {
   const base = new Date(`${activeKey}T12:00:00-04:00`);
-  return Array.from({ length: 6 }, (_, idx) => {
+  return Array.from({ length: 15 }, (_, idx) => {
     const current = new Date(base);
-    current.setDate(base.getDate() + idx - 1);
+    current.setDate(base.getDate() + idx - 7);
     return {
       key: getDateKey(current),
       label: formatShortDay(current).replace('.', ''),
       dayNumber: formatDayNumber(current),
+      monthLabel: formatMonthShort(current),
       isToday: getDateKey(new Date()) === getDateKey(current),
     };
   });
+}
+
+function shiftDayKey(dayKey: string, offset: number) {
+  const date = new Date(`${dayKey}T12:00:00-04:00`);
+  date.setDate(date.getDate() + offset);
+  return getDateKey(date);
 }
 
 function isDayKey(value: string | null | undefined) {
@@ -659,30 +673,108 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .slice(0, 30);
 
   const calendarDays = buildCalendarDays(selectedDayKey);
+  const todayKey = getDateKey(new Date());
+  const prevWeekKey = shiftDayKey(selectedDayKey, -7);
+  const prevDayKey = shiftDayKey(selectedDayKey, -1);
+  const nextDayKey = shiftDayKey(selectedDayKey, 1);
+  const nextWeekKey = shiftDayKey(selectedDayKey, 7);
+
+  const dayHref = (dayKey: string) =>
+    `/app/advisor?day=${dayKey}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`;
+
   return (
     <div className="space-y-4">
-      <section className="overflow-x-auto pb-1">
-        <div className="flex min-w-max gap-2">
+      <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-3.5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Agenda</div>
+            <div className="mt-1 truncate text-sm font-semibold text-[#F5F7FB]">
+              {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Link
+              href={dayHref(prevWeekKey)}
+              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
+              aria-label="Semana anterior"
+            >
+              -7
+            </Link>
+            <Link
+              href={dayHref(prevDayKey)}
+              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
+              aria-label="Dia anterior"
+            >
+              -1
+            </Link>
+            <Link
+              href={dayHref(todayKey)}
+              className={[
+                'inline-flex h-9 items-center justify-center rounded-full border px-3 text-xs font-semibold',
+                selectedDayKey === todayKey
+                  ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                  : 'border-[#232632] text-[#CCD3E2]',
+              ].join(' ')}
+            >
+              Hoy
+            </Link>
+            <Link
+              href={dayHref(nextDayKey)}
+              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
+              aria-label="Dia siguiente"
+            >
+              +1
+            </Link>
+            <Link
+              href={dayHref(nextWeekKey)}
+              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
+              aria-label="Semana siguiente"
+            >
+              +7
+            </Link>
+          </div>
+        </div>
+
+        <form action="/app/advisor" className="mt-3 flex gap-2">
+          {searchQuery ? <input type="hidden" name="q" value={searchQuery} /> : null}
+          <input
+            type="date"
+            name="day"
+            defaultValue={selectedDayKey}
+            className="h-10 min-w-0 flex-1 rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 text-sm text-[#F5F7FB] outline-none [color-scheme:dark]"
+          />
+          <button
+            type="submit"
+            className="h-10 rounded-[14px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
+          >
+            Ir
+          </button>
+        </form>
+
+        <div className="-mx-3.5 mt-3 overflow-x-auto overscroll-x-contain scroll-smooth px-3.5 pb-1 [scrollbar-width:thin]">
+          <div className="flex min-w-max snap-x snap-mandatory gap-2">
           {calendarDays.map((day) => {
             const isActive = day.key === selectedDayKey;
 
             return (
               <Link
                 key={day.key}
-                href={`/app/advisor?day=${day.key}`}
+                href={dayHref(day.key)}
                 className={[
-                  'min-w-[76px] rounded-[18px] border px-3 py-3 text-center',
+                  'min-w-[68px] snap-start rounded-[16px] border px-2.5 py-2.5 text-center transition active:scale-[0.98]',
                   isActive
                     ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
                     : 'border-[#232632] bg-[#12151d] text-[#CCD3E2]',
                 ].join(' ')}
               >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em]">{day.label}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em]">{day.label}</div>
                 <div className="mt-1 text-lg font-semibold">{day.dayNumber}</div>
-                <div className="mt-1 text-[10px]">{day.isToday ? 'Hoy' : 'Agenda'}</div>
+                <div className="mt-0.5 text-[10px] text-[#8B93A7]">{day.isToday ? 'Hoy' : day.monthLabel}</div>
               </Link>
             );
           })}
+          </div>
         </div>
       </section>
 
