@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
-import { INCLUDED_EVENT_TYPES, safeText } from './inbox/inbox-shared';
+import { countCoalescedUnreadNotifications } from './inbox/inbox-shared';
 
 export default function AdvisorInboxBell({
   advisorName,
@@ -23,17 +23,11 @@ export default function AdvisorInboxBell({
     async function refreshUnreadCount() {
       const { data } = await supabase
         .from('order_timeline_event_recipients')
-        .select('id, read_at, event:order_timeline_events!inner(event_type)')
+        .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
         .or(`target_user_id.eq.${userId},target_role.eq.advisor`)
-        .is('read_at', null)
         .limit(200);
 
-      const nextCount = (data ?? []).filter((recipient) => {
-        const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-        return INCLUDED_EVENT_TYPES.has(safeText(event?.event_type, ''));
-      }).length;
-
-      setCount(nextCount);
+      setCount(countCoalescedUnreadNotifications(data ?? []));
     }
 
     void refreshUnreadCount();

@@ -534,6 +534,17 @@ async function appendOrderEvent(
     });
 
     if (advisorPushTargets.length > 0) {
+      const advisorPushRequiresAction = (input.recipients ?? []).some((recipient) => {
+        const targetsAdvisor =
+          recipient.targetRole === 'advisor' ||
+          Boolean(recipient.targetUserId && recipient.targetUserId === context?.advisorUserId);
+
+        return targetsAdvisor && Boolean(recipient.requiresAction);
+      });
+      const advisorPushTag = advisorPushRequiresAction
+        ? `advisor-order-${input.orderId}-${input.eventType}`
+        : `advisor-order-${input.orderId}-status`;
+
       for (const advisorUserId of advisorPushTargets) {
         try {
           await sendPushToAdvisorDevices({
@@ -545,7 +556,7 @@ async function appendOrderEvent(
             orderNumber: context?.orderNumber,
             clientName: context?.clientName,
             payload: input.payload,
-            tag: `advisor-order-${input.orderId}-${input.eventType}`,
+            tag: advisorPushTag,
           });
         } catch (pushError) {
           console.warn(

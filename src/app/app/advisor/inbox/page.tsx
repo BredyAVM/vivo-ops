@@ -4,9 +4,9 @@ import { PageIntro, SectionCard } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
 import {
   type InboxEvent,
-  ACTION_EVENT_TYPES,
   INCLUDED_EVENT_TYPES,
   buildDetailLines,
+  coalesceInboxEvents,
   eventTitle,
   eventTone,
   getFilterForEvent,
@@ -115,7 +115,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
     .limit(200);
 
-  const inboxEvents: InboxEvent[] = ((recipientsData ?? []) as TimelineRecipientRow[])
+  const inboxEvents: InboxEvent[] = coalesceInboxEvents(((recipientsData ?? []) as TimelineRecipientRow[])
     .map((recipient) => {
       const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
       if (!event) return null;
@@ -155,7 +155,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       if (activeFilter === 'all') return true;
       return getFilterForEvent(event.eventType) === activeFilter;
     })
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
 
   return (
     <div className="space-y-4">

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import AdvisorShell from './AdvisorShell';
 import AdvisorPwaRegistrar from './AdvisorPwaRegistrar';
-import { INCLUDED_EVENT_TYPES, safeText } from './inbox/inbox-shared';
+import { countCoalescedUnreadNotifications } from './inbox/inbox-shared';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -49,15 +49,11 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
 
   const { data: recipientsData } = await ctx.supabase
     .from('order_timeline_event_recipients')
-    .select('id, read_at, event:order_timeline_events!inner(event_type)')
+    .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
     .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
     .limit(200);
 
-  const unreadCount = (recipientsData ?? []).filter((recipient) => {
-    const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-    const eventType = safeText(event?.event_type, '');
-    return INCLUDED_EVENT_TYPES.has(eventType) && !recipient.read_at;
-  }).length;
+  const unreadCount = countCoalescedUnreadNotifications(recipientsData ?? []);
 
   return (
     <AdvisorShell

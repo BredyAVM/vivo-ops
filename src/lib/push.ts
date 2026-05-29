@@ -51,6 +51,14 @@ function eventPushTone(eventType: string): AdvisorPushTone {
   return 'info';
 }
 
+function advisorPushTag(eventType: string, orderId: number) {
+  if (eventPushTone(eventType) === 'critical') {
+    return `advisor-order-${orderId}-${eventType}`;
+  }
+
+  return `advisor-order-${orderId}-status`;
+}
+
 function buildAdvisorPushCopy(input: {
   eventType: string;
   orderId: number;
@@ -158,7 +166,7 @@ function buildAdvisorPushCopy(input: {
     body: copy.body,
     tone,
     requireInteraction: tone === 'critical',
-    tag: `advisor-order-${input.orderId}-${input.eventType}`,
+    tag: advisorPushTag(input.eventType, input.orderId),
   };
 }
 

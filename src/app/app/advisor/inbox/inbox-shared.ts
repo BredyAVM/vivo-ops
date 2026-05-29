@@ -33,6 +33,20 @@ export type InboxEvent = {
   tone: 'neutral' | 'warning' | 'success' | 'danger';
 };
 
+type InboxRecipientCountEvent = {
+  id: number | string | null;
+  order_id: number | string | null;
+  event_type: string | null;
+  created_at: string | null;
+};
+
+export type InboxRecipientCountRow = {
+  id: number | string | null;
+  requires_action?: boolean | null;
+  read_at: string | null;
+  event: InboxRecipientCountEvent[] | InboxRecipientCountEvent | null;
+};
+
 export const FILTERS: Array<{ key: InboxFilter; label: string }> = [
   { key: 'pending', label: 'Pendientes' },
   { key: 'kitchen', label: 'Cocina' },
@@ -248,4 +262,84 @@ export function shortMessage(eventType: string, rawMessage: string | null, detai
   if (message) return message;
   if (details[0]) return details[0];
   return fallbackMessageByType(eventType);
+}
+
+function getRecipientCountEvent(recipient: InboxRecipientCountRow) {
+  return Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
+}
+
+function isActionNotification(eventType: string, requiresAction: boolean | null | undefined) {
+  return Boolean(requiresAction) || ACTION_EVENT_TYPES.has(eventType);
+}
+
+export function coalesceInboxEvents(events: InboxEvent[]) {
+  const actionEvents: InboxEvent[] = [];
+  const latestInfoByOrderId = new Map<number, InboxEvent>();
+
+  for (const event of events) {
+    if (event.requiresAction || ACTION_EVENT_TYPES.has(event.eventType)) {
+      actionEvents.push(event);
+      continue;
+    }
+
+    const current = latestInfoByOrderId.get(event.orderId);
+    if (!current || String(event.createdAt).localeCompare(String(current.createdAt)) > 0) {
+      latestInfoByOrderId.set(event.orderId, event);
+    }
+  }
+
+  return [...actionEvents, ...latestInfoByOrderId.values()].sort((a, b) =>
+    String(b.createdAt).localeCompare(String(a.createdAt))
+  );
+}
+
+export function countCoalescedUnreadNotifications(recipients: InboxRecipientCountRow[]) {
+  let unreadActionCount = 0;
+  const seenActionEventIds = new Set<string>();
+  const latestInfoByOrderId = new Map<
+    number,
+    {
+      createdAt: string;
+      eventId: string;
+      hasUnreadRecipient: boolean;
+    }
+  >();
+
+  for (const recipient of recipients) {
+    const event = getRecipientCountEvent(recipient);
+    const eventType = safeText(event?.event_type, '');
+    if (!event || !INCLUDED_EVENT_TYPES.has(eventType)) continue;
+
+    const orderId = Number(event.order_id || 0);
+    if (!Number.isFinite(orderId) || orderId <= 0) continue;
+
+    const eventId = safeText(event.id, `${orderId}-${eventType}-${safeText(event.created_at, '')}`);
+    const createdAt = safeText(event.created_at, '');
+    const isUnread = !recipient.read_at;
+
+    if (isActionNotification(eventType, recipient.requires_action)) {
+      if (isUnread && !seenActionEventIds.has(eventId)) {
+        seenActionEventIds.add(eventId);
+        unreadActionCount += 1;
+      }
+      continue;
+    }
+
+    const current = latestInfoByOrderId.get(orderId);
+    if (!current || createdAt.localeCompare(current.createdAt) > 0) {
+      latestInfoByOrderId.set(orderId, {
+        createdAt,
+        eventId,
+        hasUnreadRecipient: isUnread,
+      });
+    } else if (current.eventId === eventId && isUnread) {
+      latestInfoByOrderId.set(orderId, {
+        ...current,
+        hasUnreadRecipient: true,
+      });
+    }
+  }
+
+  const unreadInfoCount = Array.from(latestInfoByOrderId.values()).filter((event) => event.hasUnreadRecipient).length;
+  return unreadActionCount + unreadInfoCount;
 }
