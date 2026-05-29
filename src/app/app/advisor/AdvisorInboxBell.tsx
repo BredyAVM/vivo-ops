@@ -9,7 +9,7 @@ export default function AdvisorInboxBell({
   advisorName,
   userId,
   unreadCount,
-  href = '/app/advisor/inbox?filter=all',
+  href = '/app/advisor/inbox?filter=pending',
 }: {
   advisorName: string;
   userId: string;
@@ -18,6 +18,7 @@ export default function AdvisorInboxBell({
 }) {
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [count, setCount] = useState(unreadCount);
+  const inboxHref = href.includes('/app/advisor/inbox?filter=all') ? '/app/advisor/inbox?filter=pending' : href;
 
   useEffect(() => {
     async function refreshUnreadCount() {
@@ -72,7 +73,7 @@ export default function AdvisorInboxBell({
 
   return (
     <Link
-      href={href}
+      href={inboxHref}
       className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
       aria-label={`Notificaciones de ${advisorName}`}
     >

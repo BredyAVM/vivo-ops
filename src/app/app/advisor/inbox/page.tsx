@@ -162,7 +162,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       <PageIntro
         eyebrow="Seguimiento"
         title="Inbox del asesor"
-        description="Eventos operativos y alertas reales de tus ordenes, listos para revisar desde el telefono."
+        description="Acciones importantes separadas del seguimiento operativo de tus ordenes."
         action={
           <Link
             href="/app/advisor"
@@ -174,8 +174,8 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       />
 
       <SectionCard
-        title="Alertas y ajustes"
-        subtitle="Las notificaciones push y la sesion ahora viven en configuracion."
+        title="Notificaciones"
+        subtitle="Push, sesion y estado de la app viven en configuracion."
         action={
           <Link
             href="/app/advisor/settings"

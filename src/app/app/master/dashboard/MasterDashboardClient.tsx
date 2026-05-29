@@ -1548,6 +1548,26 @@ function getMasterInboxActivityGroup(event: MasterInboxEvent) {
   return { key: 'approval', label: 'Aprobación' };
 }
 
+function coalesceMasterInboxActivity(events: MasterInboxEvent[]) {
+  const attentionEvents: MasterInboxEvent[] = [];
+  const latestInfoByOrderId = new Map<number, MasterInboxEvent>();
+
+  for (const event of events) {
+    if (event.severity !== 'info' || event.isUrgent) {
+      attentionEvents.push(event);
+      continue;
+    }
+
+    const current = latestInfoByOrderId.get(event.orderId);
+    if (!current || new Date(event.createdAtISO).getTime() > new Date(current.createdAtISO).getTime()) {
+      latestInfoByOrderId.set(event.orderId, event);
+    }
+  }
+
+  return [...attentionEvents, ...latestInfoByOrderId.values()]
+    .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime());
+}
+
 function getMasterInboxTaskActionLabel(type: MasterTaskType) {
   switch (type) {
     case 'APROBAR':
@@ -4572,7 +4592,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         }
       }
     }
-    const activity: MasterInboxEvent[] = orders
+    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(orders
       .flatMap((order) =>
         (order.events ?? []).map((event) => {
           const display = getOrderEventDisplay(order, event);
@@ -4593,7 +4613,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         })
       )
       .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime())
-      .slice(0, 20);
+    ).slice(0, 20);
 
     const pr = (t: MasterTaskType) => {
       if (t === 'COCINA_RETRASADA' || t === 'DELIVERY_RETRASADO') return 0;
@@ -14212,13 +14232,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </div>
       )}
 
-      <Drawer open={notifOpen} title="Alertas y actividad" onClose={() => setNotifOpen(false)} widthClass="w-[460px]">
+      <Drawer open={notifOpen} title="Tareas y actividad" onClose={() => setNotifOpen(false)} widthClass="w-[460px]">
         {masterInbox.tasks.length === 0 && masterInbox.activity.length === 0 ? (
-          <div className="text-sm text-[#B7B7C2]">Sin alertas ni actividad reciente.</div>
+          <div className="text-sm text-[#B7B7C2]">Sin tareas ni actividad reciente.</div>
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-1.5">
-              <Chip active={masterInboxFilter === 'tasks'} onClick={() => setMasterInboxFilter('tasks')}>Tareas</Chip>
+              <Chip active={masterInboxFilter === 'tasks'} onClick={() => setMasterInboxFilter('tasks')}>Accion</Chip>
               <Chip active={masterInboxFilter === 'delays'} onClick={() => setMasterInboxFilter('delays')}>Retrasos</Chip>
               <Chip active={masterInboxFilter === 'payments'} onClick={() => setMasterInboxFilter('payments')}>Pagos</Chip>
               <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
@@ -14255,7 +14275,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             {masterInboxFilteredTasks.length > 0 ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Tareas</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Accion requerida</div>
                   <SmallBadge label={`${masterInboxFilteredTasks.length}`} tone="warn" />
                 </div>
                 {masterInboxFilteredTasks.map((n) => {
@@ -14296,9 +14316,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       </div>
                       <div className={`text-xs ${n.isUrgent ? 'font-semibold text-red-300' : 'text-[#B7B7C2]'}`}>{n.deliveryText}</div>
                     </div>
-                    <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{n.title}</div>
+                    <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{n.label}</div>
+                    <div className="mt-1 text-[12px] font-medium text-[#F5F5F7]">{n.title}</div>
                     <div className="mt-1 text-[12px] text-[#B7B7C2]">{n.message}</div>
-                    <div className="mt-2 text-sm font-semibold">{n.label}</div>
                     <div className="mt-1 text-xs text-[#8A8A96]">
                       Asesor: {repairDisplayText(n.advisorName)} · {fmtDateTimeES(n.createdAtISO)}
                     </div>
@@ -14350,7 +14370,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Actividad reciente</div>
                   <div className="text-[11px] text-[#8A8A96]">
-                    {masterInboxFilteredActivityGroups.reduce((sum, group) => sum + group.items.length, 0)} eventos
+                    {masterInboxFilteredActivityGroups.reduce((sum, group) => sum + group.items.length, 0)} estados
                   </div>
                 </div>
                 {masterInboxFilteredActivityGroups.map((group) => (
@@ -14378,7 +14398,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <div className="text-sm font-semibold text-[#F5F5F7]">{item.title}</div>
+                              <div className="text-sm font-semibold text-[#F5F5F7]">{item.label}</div>
                               {item.isUrgent ? <SmallBadge label="Urgente" tone="warn" /> : null}
                               {isResolved ? (
                                 <SmallBadge label="Resuelta" tone="brand" />
@@ -14387,7 +14407,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                               ) : null}
                             </div>
                             <div className="mt-1 text-xs text-[#8A8A96]">
-                              {item.label} · {fmtDateTimeES(item.createdAtISO)}
+                              {item.title} · {fmtDateTimeES(item.createdAtISO)}
                             </div>
                           </div>
                           <SmallBadge
@@ -14411,7 +14431,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           </div>
                         ) : null}
                         <div className="mt-2 text-[11px] text-[#8A8A96]">
-                          Asesor: {repairDisplayText(item.advisorName)} · {item.deliveryText}
+                          {repairDisplayText(item.advisorName)} · {item.deliveryText}
                         </div>
                         <div className="mt-3 flex gap-2">
                           <button

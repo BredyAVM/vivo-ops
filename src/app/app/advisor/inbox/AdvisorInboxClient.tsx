@@ -183,17 +183,18 @@ export default function AdvisorInboxClient({
   }
 
   const groupedSections: Array<{ key: string; title: string; rows: InboxEvent[] }> = activeFilter === 'pending'
-    ? [{ key: 'pending', title: 'Requieren accion', rows: pendingEvents }]
+    ? [{ key: 'pending', title: 'Accion requerida', rows: pendingEvents }]
     : activeFilter === 'all'
       ? [
-          { key: 'pending', title: 'Requieren accion', rows: pendingEvents },
-          { key: 'today', title: 'Hoy', rows: todayEvents.filter((event) => !event.requiresAction) },
+          { key: 'pending', title: 'Accion requerida', rows: pendingEvents },
+          { key: 'today', title: 'Seguimiento de hoy', rows: todayEvents.filter((event) => !event.requiresAction) },
           { key: 'earlier', title: 'Antes', rows: earlierEvents.filter((event) => !event.requiresAction) },
         ]
       : [
-          { key: 'today', title: 'Hoy', rows: todayEvents },
+          { key: 'today', title: 'Seguimiento de hoy', rows: todayEvents },
           { key: 'earlier', title: 'Antes', rows: earlierEvents },
         ];
+  const visibleEventCount = groupedSections.reduce((sum, section) => sum + section.rows.length, 0);
 
   return (
     <>
@@ -220,8 +221,8 @@ export default function AdvisorInboxClient({
         title="Bandeja"
         subtitle={
           activeFilter === 'pending'
-            ? 'Eventos que requieren accion del asesor.'
-            : 'Eventos recientes para seguimiento operativo.'
+            ? 'Solo lo que necesita respuesta.'
+            : 'Ultimo estado por orden, sin ruido duplicado.'
         }
         action={
           <div className="flex items-center gap-2">
@@ -241,10 +242,10 @@ export default function AdvisorInboxClient({
           </div>
         }
       >
-        {events.length === 0 ? (
+        {visibleEventCount === 0 ? (
           <EmptyBlock
             title="Sin eventos para este filtro"
-            detail="Cuando entren eventos de orden, apareceran aqui con prioridad y contexto."
+            detail="Cuando haya algo que revisar, aparecera aqui con el boton correcto."
             href="/app/advisor/orders"
             cta="Ver pedidos"
           />
@@ -280,19 +281,19 @@ export default function AdvisorInboxClient({
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               {!isRead ? <span className="h-2.5 w-2.5 rounded-full bg-[#F0D000]" /> : null}
-                              <div className="truncate text-sm font-medium text-[#F5F7FB]">{event.clientName}</div>
+                              <div className="truncate text-sm font-semibold text-[#F5F7FB]">
+                                {event.orderNumber} · {event.clientName}
+                              </div>
                             </div>
-                            <div className="mt-1 text-xs text-[#8B93A7]">{event.orderNumber}</div>
+                            <div className="mt-1 text-xs text-[#8B93A7]">{event.deliveryLabel}</div>
                           </div>
                           <div className="flex flex-col items-end gap-1.5">
                             <StatusBadge label={event.title} tone={event.tone} />
-                            {event.requiresAction ? <StatusBadge label="Requiere accion" tone="warning" /> : null}
                           </div>
                         </div>
 
                         <div className="mt-3 rounded-[14px] bg-[#0B1017] px-3 py-2 text-xs leading-5 text-[#AAB2C5]">
-                          <div>Entrega: {event.deliveryLabel}</div>
-                          <div className="mt-1">{event.message}</div>
+                          <div className="font-medium text-[#F5F7FB]">{event.message}</div>
                           {event.detailLines.map((line) => (
                             <div key={`${event.id}-${line}`}>{line}</div>
                           ))}
@@ -311,7 +312,7 @@ export default function AdvisorInboxClient({
                                 ? 'Guardando...'
                                 : isRead
                                   ? 'No leida'
-                                  : 'Leida'}
+                                  : 'Visto'}
                             </button>
                           </div>
                           <Link

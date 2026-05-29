@@ -48,7 +48,7 @@ export type InboxRecipientCountRow = {
 };
 
 export const FILTERS: Array<{ key: InboxFilter; label: string }> = [
-  { key: 'pending', label: 'Pendientes' },
+  { key: 'pending', label: 'Accion' },
   { key: 'kitchen', label: 'Cocina' },
   { key: 'delivery', label: 'Entrega' },
   { key: 'payments', label: 'Pagos' },
@@ -167,26 +167,26 @@ export function dedupeEvents(events: RawTimelineEvent[]) {
 
 export function eventTitle(eventType: string, fallbackTitle: string) {
   const titles: Record<string, string> = {
-    order_approved: 'Orden aprobada',
-    order_returned_to_review: 'Orden devuelta',
-    order_reapproved: 'Orden re-aprobada',
-    order_changes_rejected: 'Cambios rechazados',
+    order_approved: 'Aprobada',
+    order_returned_to_review: 'Corregir pedido',
+    order_reapproved: 'Re-aprobada',
+    order_changes_rejected: 'Corregir cambios',
     order_changes_approved: 'Cambios aprobados',
-    order_sent_to_kitchen: 'Enviada a cocina',
+    order_sent_to_kitchen: 'En cocina',
     kitchen_taken: 'Cocina tomó la orden',
-    kitchen_eta_updated: 'Tiempo estimado actualizado',
+    kitchen_eta_updated: 'Tiempo actualizado',
     kitchen_delayed_prep: 'Retraso en cocina',
-    order_ready: 'Orden preparada',
+    order_ready: 'Preparada',
     pickup_ready: 'Lista para retiro',
     driver_assigned: 'Motorizado asignado',
     out_for_delivery: 'En camino',
     delivery_delayed: 'Retraso en entrega',
-    pickup_collected: 'Orden retirada',
-    order_delivered: 'Orden entregada',
-    payment_reported: 'Pago reportado',
+    pickup_collected: 'Retirada',
+    order_delivered: 'Entregada',
+    payment_reported: 'Pago por validar',
     payment_confirmed: 'Pago confirmado',
-    payment_rejected: 'Pago rechazado',
-    client_fund_application_requested: 'Solicitud de pago con fondo',
+    payment_rejected: 'Corregir pago',
+    client_fund_application_requested: 'Aplicar fondo',
   };
 
   return titles[eventType] || safeText(fallbackTitle, 'Evento');
@@ -232,26 +232,26 @@ export function buildDetailLines(eventType: string, payload: Record<string, unkn
 
 function fallbackMessageByType(eventType: string) {
   const messages: Record<string, string> = {
-    order_approved: 'La orden ya esta aprobada y sigue su curso.',
-    order_returned_to_review: 'La orden necesita una revision del asesor.',
-    order_reapproved: 'La orden volvio a quedar aprobada.',
-    order_changes_rejected: 'Se rechazaron cambios y toca revisarlos.',
-    order_changes_approved: 'Los cambios solicitados fueron aprobados.',
-    order_sent_to_kitchen: 'La orden ya fue enviada a cocina.',
-    kitchen_taken: 'Cocina ya tomo la orden y comenzo a moverla.',
-    kitchen_eta_updated: 'Cocina actualizo el tiempo estimado.',
+    order_approved: 'Ya puede avanzar.',
+    order_returned_to_review: 'Requiere correccion del asesor.',
+    order_reapproved: 'Ya fue aprobada de nuevo.',
+    order_changes_rejected: 'Revisa los cambios rechazados.',
+    order_changes_approved: 'Los cambios fueron aprobados.',
+    order_sent_to_kitchen: 'Fue enviada a cocina.',
+    kitchen_taken: 'Cocina ya la tomo.',
+    kitchen_eta_updated: 'Cocina actualizo el estimado.',
     kitchen_delayed_prep: 'La preparacion va con retraso.',
-    order_ready: 'La orden esta lista para salir.',
-    pickup_ready: 'La orden esta lista para retiro.',
-    driver_assigned: 'Ya hay motorizado asignado para esta entrega.',
-    out_for_delivery: 'La orden ya va en camino.',
-    delivery_delayed: 'La entrega se esta retrasando.',
-    pickup_collected: 'La orden ya fue retirada.',
-    order_delivered: 'La entrega ya fue completada.',
-    payment_reported: 'Se reporto un pago y esta en revision.',
-    payment_confirmed: 'El pago ya quedo confirmado.',
-    payment_rejected: 'El pago fue rechazado y necesita correccion.',
-    client_fund_application_requested: 'Se solicito aplicar fondo del cliente a esta orden.',
+    order_ready: 'Esta lista para salir.',
+    pickup_ready: 'Esta lista para retiro.',
+    driver_assigned: 'Ya tiene motorizado.',
+    out_for_delivery: 'Ya va en camino.',
+    delivery_delayed: 'La entrega va con retraso.',
+    pickup_collected: 'Ya fue retirada.',
+    order_delivered: 'La entrega fue completada.',
+    payment_reported: 'Pago pendiente por validar.',
+    payment_confirmed: 'Pago validado.',
+    payment_rejected: 'Debe corregirse el pago.',
+    client_fund_application_requested: 'Solicitud para usar fondo.',
   };
 
   return messages[eventType] || 'Sin detalle adicional.';
