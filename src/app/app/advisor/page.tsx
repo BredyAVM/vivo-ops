@@ -171,12 +171,6 @@ function buildCalendarDays(activeKey: string) {
   });
 }
 
-function shiftDayKey(dayKey: string, offset: number) {
-  const date = new Date(`${dayKey}T12:00:00-04:00`);
-  date.setDate(date.getDate() + offset);
-  return getDateKey(date);
-}
-
 function isDayKey(value: string | null | undefined) {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
@@ -673,86 +667,29 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     .slice(0, 30);
 
   const calendarDays = buildCalendarDays(selectedDayKey);
-  const todayKey = getDateKey(new Date());
-  const prevWeekKey = shiftDayKey(selectedDayKey, -7);
-  const prevDayKey = shiftDayKey(selectedDayKey, -1);
-  const nextDayKey = shiftDayKey(selectedDayKey, 1);
-  const nextWeekKey = shiftDayKey(selectedDayKey, 7);
 
   const dayHref = (dayKey: string) =>
     `/app/advisor?day=${dayKey}${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`;
 
   return (
     <div className="space-y-4">
-      <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-3.5 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <section className="rounded-[20px] border border-[#232632] bg-[#12151d] px-3.5 py-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Agenda</div>
             <div className="mt-1 truncate text-sm font-semibold text-[#F5F7FB]">
               {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
             </div>
           </div>
-
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Link
-              href={dayHref(prevWeekKey)}
-              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
-              aria-label="Semana anterior"
-            >
-              -7
-            </Link>
-            <Link
-              href={dayHref(prevDayKey)}
-              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
-              aria-label="Dia anterior"
-            >
-              -1
-            </Link>
-            <Link
-              href={dayHref(todayKey)}
-              className={[
-                'inline-flex h-9 items-center justify-center rounded-full border px-3 text-xs font-semibold',
-                selectedDayKey === todayKey
-                  ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
-                  : 'border-[#232632] text-[#CCD3E2]',
-              ].join(' ')}
-            >
-              Hoy
-            </Link>
-            <Link
-              href={dayHref(nextDayKey)}
-              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
-              aria-label="Dia siguiente"
-            >
-              +1
-            </Link>
-            <Link
-              href={dayHref(nextWeekKey)}
-              className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-[#232632] px-2.5 text-xs font-semibold text-[#CCD3E2]"
-              aria-label="Semana siguiente"
-            >
-              +7
-            </Link>
-          </div>
+          <Link
+            href={dayHref(getDateKey(new Date()))}
+            className="shrink-0 rounded-full border border-[#232632] px-3 py-1.5 text-xs font-semibold text-[#CCD3E2]"
+          >
+            Hoy
+          </Link>
         </div>
 
-        <form action="/app/advisor" className="mt-3 flex gap-2">
-          {searchQuery ? <input type="hidden" name="q" value={searchQuery} /> : null}
-          <input
-            type="date"
-            name="day"
-            defaultValue={selectedDayKey}
-            className="h-10 min-w-0 flex-1 rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 text-sm text-[#F5F7FB] outline-none [color-scheme:dark]"
-          />
-          <button
-            type="submit"
-            className="h-10 rounded-[14px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
-          >
-            Ir
-          </button>
-        </form>
-
-        <div className="-mx-3.5 mt-3 overflow-x-auto overscroll-x-contain scroll-smooth px-3.5 pb-1 [scrollbar-width:thin]">
+        <div className="-mx-3.5 mt-2.5 overflow-x-auto overscroll-x-contain scroll-smooth px-3.5 pb-1 [scrollbar-width:thin]">
           <div className="flex min-w-max snap-x snap-mandatory gap-2">
           {calendarDays.map((day) => {
             const isActive = day.key === selectedDayKey;
