@@ -3066,9 +3066,16 @@ export default function AdvisorOrderComposer({
 
       router.push(`/app/advisor/orders/${targetOrderId}`);
     } catch (submitError) {
+      const submitMessage = submitError instanceof Error ? submitError.message : '';
+      const isOrderItemsRlsError =
+        isEditingOrder &&
+        submitMessage.toLowerCase().includes('row-level security') &&
+        submitMessage.toLowerCase().includes('order_items');
       setError(
-        submitError instanceof Error
-          ? submitError.message
+        isOrderItemsRlsError
+          ? 'No se pudieron guardar los items recalculados por permisos de Supabase. Avísale a master/admin para aplicar la corrección de permisos y vuelve a guardar.'
+          : submitMessage
+          ? submitMessage
           : isEditingOrder
             ? 'No se pudo actualizar la orden.'
             : 'No se pudo crear la orden.'
