@@ -586,6 +586,10 @@ function splitSearchTokens(value: string | null | undefined) {
   return normalizeSearchValue(value).split(/\s+/).filter(Boolean);
 }
 
+function sanitizeRemoteSearchTerm(value: string) {
+  return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function extractInitials(value: string) {
   return normalizeSearchValue(value)
     .split(/\s+/)
@@ -1469,6 +1473,7 @@ export default function AdvisorOrderComposer({
         if (b.score !== a.score) return b.score - a.score;
         return a.product.name.localeCompare(b.product.name, 'es', { sensitivity: 'base' });
       })
+      .slice(0, 40)
       .map((row) => row.product);
   }, [favoriteProductIds, productSearch, productUsageById, products, recentProductIds]);
 
@@ -2025,7 +2030,12 @@ export default function AdvisorOrderComposer({
     clearMessages();
 
     const query = searchTerm.trim();
+    const remoteQuery = sanitizeRemoteSearchTerm(query);
     if (!query) {
+      setClientResults([]);
+      return;
+    }
+    if (!remoteQuery) {
       setClientResults([]);
       return;
     }
@@ -2036,7 +2046,7 @@ export default function AdvisorOrderComposer({
     let clientMatches: ClientRow[] = [];
 
     try {
-      const phoneFilters = getPhoneSearchTerms(query)
+      const phoneFilters = getPhoneSearchTerms(remoteQuery || query)
         .map((term) => term.replace(/[,%]/g, ' '))
         .filter(Boolean)
         .slice(0, 5)
@@ -2045,7 +2055,7 @@ export default function AdvisorOrderComposer({
       const { data, error: searchError } = await supabase
         .from('clients')
         .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
-        .or([`phone.ilike.%${query}%`, ...phoneFilters, `full_name.ilike.%${query}%`].join(','))
+        .or([`phone.ilike.%${remoteQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteQuery}%`].join(','))
         .order('id', { ascending: false })
         .limit(12);
 

@@ -846,7 +846,6 @@ export default async function AdvisorOrderDetailPage({
     itemsResult,
     paymentsResult,
     timelineResult,
-    legacyResult,
     moneyAccountsResult,
     moneyAccountRulesResult,
     exchangeRateResult,
@@ -866,11 +865,6 @@ export default async function AdvisorOrderDetailPage({
       ctx.supabase
         .from('order_timeline_events')
         .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
-        .eq('order_id', orderId)
-        .order('created_at', { ascending: false }),
-      ctx.supabase
-        .from('order_events')
-        .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at, event, meta')
         .eq('order_id', orderId)
         .order('created_at', { ascending: false }),
       ctx.supabase
@@ -901,10 +895,7 @@ export default async function AdvisorOrderDetailPage({
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
-  const rawTimeline = dedupeEvents([
-    ...((timelineResult.data ?? []) as RawTimelineEvent[]),
-    ...((legacyResult.data ?? []) as RawTimelineEvent[]),
-  ]);
+  const rawTimeline = dedupeEvents((timelineResult.data ?? []) as RawTimelineEvent[]);
 
   const timeline: TimelineEvent[] = rawTimeline
     .map((event) => {
