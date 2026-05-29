@@ -157,6 +157,16 @@ function getDateKey(date: Date) {
   });
 }
 
+function getCaracasDayRange(dayKey: string) {
+  const start = new Date(`${dayKey}T00:00:00-04:00`);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  return {
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
+
 function getIsoDayKey(value: string) {
   return new Date(value).toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -425,20 +435,36 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
   const bucket = params.bucket ?? 'priority';
+  const dayRange = getCaracasDayRange(selectedDayKey);
+  const orderSelect =
+    'id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
 
-  const { data: ordersData } = await ctx.supabase
-    .from('orders')
-    .select(
-      'id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-    )
-    .eq('attributed_advisor_id', ctx.user.id)
-    .order('created_at', { ascending: false })
-    .limit(300);
+  const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .eq('extra_fields->schedule->>date', selectedDayKey)
+      .order('created_at', { ascending: false })
+      .limit(180),
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .gte('created_at', dayRange.startISO)
+      .lt('created_at', dayRange.endISO)
+      .order('created_at', { ascending: false })
+      .limit(180),
+  ]);
 
-  const orders = ((ordersData ?? []) as RawOrderRow[]).map((order) => ({
-    ...order,
-    client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
-  }));
+  const orderById = new Map<number, OrderRow>();
+  for (const order of ([...(scheduledOrdersResult.data ?? []), ...(createdOrdersResult.data ?? [])] as RawOrderRow[])) {
+    orderById.set(Number(order.id), {
+      ...order,
+      client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
+    });
+  }
+  const orders = Array.from(orderById.values());
 
   const orderIds = orders.map((order) => order.id);
   const [paymentsData, timelineData] = orderIds.length

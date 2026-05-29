@@ -104,6 +104,16 @@ function normalizeRemoteSearchValue(value: string) {
   return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function getCaracasDayRange(dayKey: string) {
+  const start = new Date(`${dayKey}T00:00:00-04:00`);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  return {
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
+
 function formatDateLabel(value: Date) {
   return value.toLocaleDateString('es-VE', {
     weekday: 'long',
@@ -461,18 +471,34 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
   const orderSelect =
     'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
+  const dayRange = getCaracasDayRange(selectedDayKey);
 
-  const { data: ordersData } = await ctx.supabase
-    .from('orders')
-    .select(orderSelect)
-    .eq('attributed_advisor_id', ctx.user.id)
-    .order('created_at', { ascending: false })
-    .limit(140);
+  const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .eq('extra_fields->schedule->>date', selectedDayKey)
+      .order('created_at', { ascending: false })
+      .limit(120),
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .gte('created_at', dayRange.startISO)
+      .lt('created_at', dayRange.endISO)
+      .order('created_at', { ascending: false })
+      .limit(120),
+  ]);
 
-  const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
-    ...order,
-    client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
-  }));
+  const orderById = new Map<number, OrderRow>();
+  for (const order of ([...(scheduledOrdersResult.data ?? []), ...(createdOrdersResult.data ?? [])] as OrderRow[])) {
+    orderById.set(Number(order.id), {
+      ...order,
+      client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
+    });
+  }
+  const orders = Array.from(orderById.values());
 
   const agendaOrders = orders
     .filter((order) => getAgendaDayKey(order) === selectedDayKey)
@@ -519,6 +545,27 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
         }));
       }
+
+      const orderFilters = [`order_number.ilike.%${remoteSearchQuery}%`];
+      const numericSearch = Number(remoteSearchQuery);
+      if (Number.isFinite(numericSearch) && numericSearch > 0) {
+        orderFilters.push(`id.eq.${Math.trunc(numericSearch)}`);
+      }
+      const { data: directOrderMatches } = await ctx.supabase
+        .from('orders')
+        .select(orderSelect)
+        .eq('attributed_advisor_id', ctx.user.id)
+        .or(orderFilters.join(','))
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      remoteMatches = [
+        ...remoteMatches,
+        ...(((directOrderMatches ?? []) as OrderRow[]).map((order) => ({
+          ...order,
+          client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
+        }))),
+      ];
     }
 
     const searchResultById = new Map<number, OrderRow>();

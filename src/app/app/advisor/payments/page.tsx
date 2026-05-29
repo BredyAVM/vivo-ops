@@ -146,6 +146,7 @@ export default async function AdvisorPaymentsPage() {
       'id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
     )
     .eq('attributed_advisor_id', ctx.user.id)
+    .neq('status', 'cancelled')
     .order('created_at', { ascending: false })
     .limit(120);
 
