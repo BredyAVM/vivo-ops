@@ -2,10 +2,14 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
-import { createAdvisorPaymentReportAction, requestClientFundApplicationAction } from './actions';
+import {
+  createAdvisorPaymentReportAction,
+  loadAdvisorPaymentOptionsAction,
+  requestClientFundApplicationAction,
+} from './actions';
 
 const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
 
@@ -134,6 +138,10 @@ export default function OrderDetailActions({
   const [sendingPaymentReport, setSendingPaymentReport] = useState(false);
   const [fundRequestSent, setFundRequestSent] = useState(hasPendingFundRequest);
   const [advisorLabel, setAdvisorLabel] = useState('Asesor');
+  const [paymentAccounts, setPaymentAccounts] = useState<MoneyAccountOption[]>(moneyAccounts);
+  const [paymentOptionsLoaded, setPaymentOptionsLoaded] = useState(moneyAccounts.length > 0);
+  const [paymentOptionsLoading, setPaymentOptionsLoading] = useState(false);
+  const [paymentOptionsError, setPaymentOptionsError] = useState<string | null>(null);
   const [moneyAccountId, setMoneyAccountId] = useState('');
   const [reportPaymentMethod, setReportPaymentMethod] = useState(
     paymentMethod && ['payment_mobile', 'transfer', 'zelle'].includes(paymentMethod) ? paymentMethod : '',
@@ -151,8 +159,8 @@ export default function OrderDetailActions({
   const [fundRequestNotes, setFundRequestNotes] = useState('');
 
   const activeAccounts = useMemo(
-    () => moneyAccounts.filter((account) => account.isActive),
-    [moneyAccounts],
+    () => paymentAccounts.filter((account) => account.isActive),
+    [paymentAccounts],
   );
   const selectedAccount = useMemo(
     () => activeAccounts.find((account) => account.id === Number(moneyAccountId)) ?? null,
@@ -168,6 +176,25 @@ export default function OrderDetailActions({
     () => patchAdvisorLabelInSummary(whatsappSummary, advisorLabel),
     [advisorLabel, whatsappSummary],
   );
+
+  const loadPaymentOptions = useCallback(async (force = false) => {
+    if (!canReportPayment || (!force && paymentOptionsLoaded) || paymentOptionsLoading) return;
+
+    setPaymentOptionsLoading(true);
+    setPaymentOptionsError(null);
+
+    try {
+      const result = await loadAdvisorPaymentOptionsAction({ orderId });
+      setPaymentAccounts(result.moneyAccounts ?? []);
+      setPaymentOptionsLoaded(true);
+    } catch (loadError) {
+      setPaymentOptionsError(
+        loadError instanceof Error ? loadError.message : 'No se pudieron cargar las cuentas de pago.',
+      );
+    } finally {
+      setPaymentOptionsLoading(false);
+    }
+  }, [canReportPayment, orderId, paymentOptionsLoaded, paymentOptionsLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,6 +231,17 @@ export default function OrderDetailActions({
       cancelled = true;
     };
   }, [supabase]);
+
+  useEffect(() => {
+    if (!reportBoxOpen || !canReportPayment) return;
+    void loadPaymentOptions();
+  }, [canReportPayment, loadPaymentOptions, reportBoxOpen]);
+
+  useEffect(() => {
+    if (!moneyAccountId) return;
+    if (activeAccounts.some((account) => account.id === Number(moneyAccountId))) return;
+    setMoneyAccountId('');
+  }, [activeAccounts, moneyAccountId]);
 
   const fundRequestDisabled = fundRequestPending || sendingFundRequest || fundRequestSent || !canRequestClientFund;
   const paymentReportDisabled = isPending || sendingPaymentReport;
@@ -421,6 +459,33 @@ export default function OrderDetailActions({
             </div>
           ) : null}
 
+          {canReportPayment && paymentOptionsLoading ? (
+            <div className="mt-3 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#AAB2C5]">
+              Cargando cuentas disponibles...
+            </div>
+          ) : null}
+
+          {canReportPayment && paymentOptionsError ? (
+            <div className="mt-3 rounded-[14px] border border-[#5E2229] bg-[#261114] px-3 py-2 text-xs leading-5 text-[#F0A6AE]">
+              <div>{paymentOptionsError}</div>
+              <button
+                type="button"
+                onClick={() => {
+                  void loadPaymentOptions(true);
+                }}
+                className="mt-2 h-8 rounded-full border border-[#7A2E38] px-3 text-[11px] font-semibold text-[#F0A6AE]"
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : null}
+
+          {canReportPayment && paymentOptionsLoaded && activeAccounts.length === 0 ? (
+            <div className="mt-3 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#AAB2C5]">
+              No hay cuentas disponibles para reportar este metodo de pago.
+            </div>
+          ) : null}
+
           {canReportPayment && selectedAccount?.currencyCode === 'VES' && activeBsRate > 0 ? (
             <div className="mt-2 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#8B93A7]">
               Sugerido en Bs:{' '}
@@ -432,7 +497,7 @@ export default function OrderDetailActions({
             </div>
           ) : null}
 
-          {canReportPayment ? (
+          {canReportPayment && !paymentOptionsLoading && !paymentOptionsError && activeAccounts.length > 0 ? (
           <div className="mt-3 space-y-3">
             <Field label="Cuenta">
               <select

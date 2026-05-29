@@ -349,6 +349,100 @@ export async function createAdvisorPaymentReportAction(input: {
   return { ok: true };
 }
 
+export async function loadAdvisorPaymentOptionsAction(input: {
+  orderId: number;
+}) {
+  const ctx = await requireAuthContext();
+  const isMasterOrAdmin = isMasterOrAdminRole(ctx.roles);
+  if (!isAdvisorRole(ctx.roles) && !isMasterOrAdmin) {
+    throw new Error('No autorizado.');
+  }
+
+  const orderId = Number(input.orderId || 0);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const { data: order, error: orderError } = await ctx.supabase
+    .from('orders')
+    .select('id, attributed_advisor_id, status, extra_fields')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (!isMasterOrAdmin && order.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes reportar pagos para esta orden.');
+  }
+
+  if (order.status === 'cancelled') {
+    return { moneyAccounts: [] };
+  }
+
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as { payment?: { method?: unknown } })
+      : {};
+  const orderPaymentMethod = String(extraFields.payment?.method || '').trim();
+  const shouldMatchOrderPaymentMethod = ADVISOR_REPORT_PAYMENT_METHODS.has(orderPaymentMethod);
+
+  const { data: rulesData, error: rulesError } = await ctx.supabase
+    .from('money_account_payment_rules')
+    .select('money_account_id, payment_method_code, can_report_payment, is_active')
+    .eq('role', 'advisor')
+    .eq('is_active', true)
+    .eq('can_report_payment', true)
+    .in(
+      'payment_method_code',
+      shouldMatchOrderPaymentMethod ? [orderPaymentMethod] : Array.from(ADVISOR_REPORT_PAYMENT_METHODS)
+    );
+
+  if (rulesError) {
+    throw new Error(rulesError.message);
+  }
+
+  const reportMethodsByAccountId = new Map<number, string[]>();
+  for (const rule of rulesData ?? []) {
+    const accountId = Number(rule.money_account_id || 0);
+    const method = String(rule.payment_method_code || '');
+    if (!Number.isFinite(accountId) || accountId <= 0 || !ADVISOR_REPORT_PAYMENT_METHODS.has(method)) continue;
+
+    const methods = reportMethodsByAccountId.get(accountId) ?? [];
+    if (!methods.includes(method)) methods.push(method);
+    reportMethodsByAccountId.set(accountId, methods);
+  }
+
+  const accountIds = Array.from(reportMethodsByAccountId.keys());
+  if (accountIds.length === 0) {
+    return { moneyAccounts: [] };
+  }
+
+  const { data: accountsData, error: accountsError } = await ctx.supabase
+    .from('money_accounts')
+    .select('id, name, currency_code, is_active')
+    .eq('is_active', true)
+    .in('id', accountIds)
+    .order('name', { ascending: true });
+
+  if (accountsError) {
+    throw new Error(accountsError.message);
+  }
+
+  const moneyAccounts = (accountsData ?? [])
+    .filter((account) => Boolean(account.is_active) && reportMethodsByAccountId.has(Number(account.id)))
+    .map((account) => ({
+      id: Number(account.id),
+      name: String(account.name || 'Cuenta'),
+      currencyCode: String(account.currency_code || 'USD'),
+      isActive: Boolean(account.is_active),
+      paymentMethodCodes: reportMethodsByAccountId.get(Number(account.id)) ?? [],
+    }));
+
+  return { moneyAccounts };
+}
+
 export async function requestClientFundApplicationAction(formData: FormData) {
   const ctx = await requireAuthContext();
   const isMasterOrAdmin = isMasterOrAdminRole(ctx.roles);

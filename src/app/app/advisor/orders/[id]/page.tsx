@@ -142,24 +142,6 @@ type TimelineEvent = {
   requiresAction: boolean;
 };
 
-type MoneyAccountRow = {
-  id: number;
-  name: string | null;
-  currency_code: string | null;
-  is_active: boolean | null;
-};
-
-type MoneyAccountPaymentRuleRow = {
-  money_account_id: number | string | null;
-  payment_method_code: string | null;
-  can_view_account: boolean | null;
-  can_share_with_client: boolean | null;
-  can_report_payment: boolean | null;
-  is_active: boolean | null;
-};
-
-const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle']);
-
 const ACTION_EVENT_TYPES = new Set([
   'order_returned_to_review',
   'order_changes_rejected',
@@ -840,14 +822,11 @@ export default async function AdvisorOrderDetailPage({
   };
 
   const orderPaymentMethod = String(order.extra_fields?.payment?.method || '').trim();
-  const shouldMatchOrderPaymentMethod = ADVISOR_REPORT_PAYMENT_METHODS.has(orderPaymentMethod);
 
   const [
     itemsResult,
     paymentsResult,
     timelineResult,
-    moneyAccountsResult,
-    moneyAccountRulesResult,
     exchangeRateResult,
   ] = await Promise.all([
       ctx.supabase
@@ -867,23 +846,6 @@ export default async function AdvisorOrderDetailPage({
         .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
         .eq('order_id', orderId)
         .order('created_at', { ascending: false }),
-      ctx.supabase
-        .from('money_accounts')
-        .select('id, name, currency_code, is_active')
-        .eq('is_active', true)
-        .order('name', { ascending: true }),
-      ctx.supabase
-        .from('money_account_payment_rules')
-        .select(
-          'money_account_id, payment_method_code, can_view_account, can_share_with_client, can_report_payment, is_active'
-        )
-        .eq('role', 'advisor')
-        .eq('is_active', true)
-        .eq('can_report_payment', true)
-        .in(
-          'payment_method_code',
-          shouldMatchOrderPaymentMethod ? [orderPaymentMethod] : Array.from(ADVISOR_REPORT_PAYMENT_METHODS)
-        ),
       ctx.supabase
         .from('exchange_rates')
         .select('rate_bs_per_usd')
@@ -948,33 +910,13 @@ export default async function AdvisorOrderDetailPage({
   const whatsappContactHref = whatsappPhone ? `https://wa.me/${whatsappPhone}` : '';
   const schedule = order.extra_fields?.schedule;
   const payment = order.extra_fields?.payment;
-  const advisorReportRules = ((moneyAccountRulesResult.data ?? []) as MoneyAccountPaymentRuleRow[]).filter(
-    (rule) =>
-      Boolean(rule.is_active) &&
-      Boolean(rule.can_report_payment) &&
-      ADVISOR_REPORT_PAYMENT_METHODS.has(String(rule.payment_method_code || ''))
-  );
-  const reportMethodsByAccountId = new Map<number, string[]>();
-
-  for (const rule of advisorReportRules) {
-    const accountId = Number(rule.money_account_id || 0);
-    const method = String(rule.payment_method_code || '');
-    if (!Number.isFinite(accountId) || accountId <= 0 || !ADVISOR_REPORT_PAYMENT_METHODS.has(method)) continue;
-
-    const methods = reportMethodsByAccountId.get(accountId) ?? [];
-    if (!methods.includes(method)) methods.push(method);
-    reportMethodsByAccountId.set(accountId, methods);
-  }
-
-  const moneyAccounts = ((moneyAccountsResult.data ?? []) as MoneyAccountRow[])
-    .filter((account) => Boolean(account.is_active) && reportMethodsByAccountId.has(Number(account.id)))
-    .map((account) => ({
-      id: Number(account.id),
-      name: safeText(account.name, 'Cuenta'),
-      currencyCode: safeText(account.currency_code, 'USD'),
-      isActive: Boolean(account.is_active),
-      paymentMethodCodes: reportMethodsByAccountId.get(Number(account.id)) ?? [],
-    }));
+  const moneyAccounts: Array<{
+    id: number;
+    name: string;
+    currencyCode: string;
+    isActive: boolean;
+    paymentMethodCodes: string[];
+  }> = [];
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
   const totalBs = orderPricing.totalBs;
   const confirmedPaidBs =
@@ -1019,7 +961,6 @@ export default async function AdvisorOrderDetailPage({
   );
   const canReportPayment =
     reportableBalanceUsd > 0.005 &&
-    moneyAccounts.length > 0 &&
     order.status !== 'cancelled';
   const canCorrectOrder =
     order.status !== 'delivered' &&
