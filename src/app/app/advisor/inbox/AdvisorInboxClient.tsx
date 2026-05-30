@@ -184,6 +184,11 @@ export default function AdvisorInboxClient({
 
   const groupedSections: Array<{ key: string; title: string; rows: InboxEvent[] }> = activeFilter === 'pending'
     ? [{ key: 'pending', title: 'Accion requerida', rows: pendingEvents }]
+    : activeFilter === 'updates'
+      ? [
+          { key: 'today', title: 'Seguimiento de hoy', rows: todayEvents.filter((event) => !event.requiresAction) },
+          { key: 'earlier', title: 'Antes', rows: earlierEvents.filter((event) => !event.requiresAction) },
+        ]
     : activeFilter === 'all'
       ? [
           { key: 'pending', title: 'Accion requerida', rows: pendingEvents },
@@ -222,7 +227,9 @@ export default function AdvisorInboxClient({
         subtitle={
           activeFilter === 'pending'
             ? 'Solo lo que necesita respuesta.'
-            : 'Ultimo estado por orden, sin ruido duplicado.'
+            : activeFilter === 'updates'
+              ? 'Seguimiento operativo sin acciones pendientes.'
+              : 'Ultimo estado por orden, sin ruido duplicado.'
         }
         action={
           <div className="flex items-center gap-2">

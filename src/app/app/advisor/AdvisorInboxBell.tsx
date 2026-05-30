@@ -3,22 +3,21 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
-import { countCoalescedUnreadNotifications } from './inbox/inbox-shared';
+import { countCoalescedUnreadNotificationsByKind } from './inbox/inbox-shared';
 
 export default function AdvisorInboxBell({
   advisorName,
   userId,
-  unreadCount,
-  href = '/app/advisor/inbox?filter=pending',
+  unreadActionCount,
+  unreadUpdateCount,
 }: {
   advisorName: string;
   userId: string;
-  unreadCount: number;
-  href?: string;
+  unreadActionCount: number;
+  unreadUpdateCount: number;
 }) {
   const supabase = useMemo(() => createSupabaseBrowser(), []);
-  const [count, setCount] = useState(unreadCount);
-  const inboxHref = href.includes('/app/advisor/inbox?filter=all') ? '/app/advisor/inbox?filter=pending' : href;
+  const [counts, setCounts] = useState({ actions: unreadActionCount, updates: unreadUpdateCount });
 
   useEffect(() => {
     async function refreshUnreadCount() {
@@ -46,7 +45,8 @@ export default function AdvisorInboxBell({
         : { data: [] };
       const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
 
-      setCount(countCoalescedUnreadNotifications(data ?? [], closedOrderIds));
+      const nextCounts = countCoalescedUnreadNotificationsByKind(data ?? [], closedOrderIds);
+      setCounts({ actions: nextCounts.actions, updates: nextCounts.updates });
     }
 
     void refreshUnreadCount();
@@ -90,17 +90,33 @@ export default function AdvisorInboxBell({
   }, [supabase, userId]);
 
   return (
-    <Link
-      href={inboxHref}
-      className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#F5F7FB]"
-      aria-label={`Notificaciones de ${advisorName}`}
-    >
-      <span className="text-lg">!</span>
-      {count > 0 ? (
-        <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
-          {count}
-        </span>
-      ) : null}
-    </Link>
+    <div className="flex items-center gap-1.5">
+      <Link
+        href="/app/advisor/inbox?filter=pending"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#3B3220] bg-[#151208] text-[#F7DA66]"
+        aria-label={`Acciones pendientes de ${advisorName}`}
+        title="Acciones"
+      >
+        <span className="text-lg font-semibold">!</span>
+        {counts.actions > 0 ? (
+          <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
+            {counts.actions}
+          </span>
+        ) : null}
+      </Link>
+      <Link
+        href="/app/advisor/inbox?filter=updates"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#D8E0F4]"
+        aria-label={`Seguimiento de pedidos de ${advisorName}`}
+        title="Seguimiento"
+      >
+        <span className="text-sm font-semibold">i</span>
+        {counts.updates > 0 ? (
+          <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#33405A] px-1.5 py-0.5 text-[11px] font-semibold text-[#F5F7FB]">
+            {counts.updates}
+          </span>
+        ) : null}
+      </Link>
+    </div>
   );
 }

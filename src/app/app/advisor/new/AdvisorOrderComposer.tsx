@@ -938,8 +938,8 @@ async function resolveAdvisorOrderReviewNotifications(params: {
       requires_action: false,
       read_at: new Date().toISOString(),
     })
-    .eq('target_user_id', params.advisorUserId)
-    .in('event_id', eventIds);
+    .in('event_id', eventIds)
+    .or(`target_user_id.eq.${params.advisorUserId},target_role.eq.advisor`);
 
   if (recipientsError) {
     console.warn('No se pudieron cerrar alertas pendientes del asesor.', recipientsError.message);

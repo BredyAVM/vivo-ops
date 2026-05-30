@@ -1,4 +1,4 @@
-export type InboxFilter = 'pending' | 'kitchen' | 'delivery' | 'payments' | 'all';
+export type InboxFilter = 'pending' | 'updates' | 'kitchen' | 'delivery' | 'payments' | 'all';
 
 export type RawTimelineEvent = {
   id: number | string | null;
@@ -49,6 +49,7 @@ export type InboxRecipientCountRow = {
 
 export const FILTERS: Array<{ key: InboxFilter; label: string }> = [
   { key: 'pending', label: 'Acción' },
+  { key: 'updates', label: 'Seguimiento' },
   { key: 'kitchen', label: 'Cocina' },
   { key: 'delivery', label: 'Entrega' },
   { key: 'payments', label: 'Pagos' },
@@ -85,7 +86,7 @@ export const ACTION_EVENT_TYPES = new Set([
 ]);
 
 export function normalizeFilter(value: string | undefined): InboxFilter {
-  if (value === 'pending' || value === 'kitchen' || value === 'delivery' || value === 'payments' || value === 'all') {
+  if (value === 'pending' || value === 'updates' || value === 'kitchen' || value === 'delivery' || value === 'payments' || value === 'all') {
     return value;
   }
   return 'all';
@@ -314,6 +315,13 @@ export function countCoalescedUnreadNotifications(
   recipients: InboxRecipientCountRow[],
   closedOrderIds: Set<number> = new Set()
 ) {
+  return countCoalescedUnreadNotificationsByKind(recipients, closedOrderIds).total;
+}
+
+export function countCoalescedUnreadNotificationsByKind(
+  recipients: InboxRecipientCountRow[],
+  closedOrderIds: Set<number> = new Set()
+) {
   let unreadActionCount = 0;
   const seenActionEventIds = new Set<string>();
   const latestInfoByOrderId = new Map<
@@ -362,5 +370,9 @@ export function countCoalescedUnreadNotifications(
   }
 
   const unreadInfoCount = Array.from(latestInfoByOrderId.values()).filter((event) => event.hasUnreadRecipient).length;
-  return unreadActionCount + unreadInfoCount;
+  return {
+    actions: unreadActionCount,
+    updates: unreadInfoCount,
+    total: unreadActionCount + unreadInfoCount,
+  };
 }

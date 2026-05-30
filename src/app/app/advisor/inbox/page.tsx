@@ -157,6 +157,8 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     .filter((event): event is InboxEvent => !!event)
     .filter((event) => {
       if (activeFilter === 'all') return true;
+      if (activeFilter === 'updates') return !event.requiresAction;
+      if (activeFilter === 'pending') return event.requiresAction;
       return getFilterForEvent(event.eventType) === activeFilter;
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));

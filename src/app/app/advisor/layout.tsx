@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import AdvisorShell from './AdvisorShell';
 import AdvisorPwaRegistrar from './AdvisorPwaRegistrar';
-import { countCoalescedUnreadNotifications } from './inbox/inbox-shared';
+import { countCoalescedUnreadNotificationsByKind } from './inbox/inbox-shared';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -74,7 +74,7 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
         .in('status', ['delivered', 'cancelled'])
     : { data: [] };
   const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
-  const unreadCount = countCoalescedUnreadNotifications(recipientsData ?? [], closedOrderIds);
+  const unreadCounts = countCoalescedUnreadNotificationsByKind(recipientsData ?? [], closedOrderIds);
 
   return (
     <AdvisorShell
@@ -85,7 +85,8 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
         ctx.user.user_metadata?.name ||
         'Asesor'
       }
-      unreadCount={unreadCount}
+      unreadActionCount={unreadCounts.actions}
+      unreadUpdateCount={unreadCounts.updates}
     >
       <AdvisorPwaRegistrar />
       {children}
