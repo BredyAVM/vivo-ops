@@ -9,6 +9,7 @@ import {
   getPaymentMethodLabel,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type SearchParams = Promise<{
@@ -515,6 +516,12 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
 
   return (
     <div className="space-y-4">
+      <AdvisorCalendarStrip
+        activeDateLabel={formatDayHeader(selectedDayKey)}
+        selectedDayKey={selectedDayKey}
+        todayKey={getDateKey(new Date())}
+      />
+
       <PageIntro
         eyebrow="Agenda"
         title={titleForBucket(bucket)}

@@ -130,27 +130,6 @@ function formatDateLabel(value: Date) {
   });
 }
 
-function formatShortDay(value: Date) {
-  return value.toLocaleDateString('es-VE', {
-    weekday: 'short',
-    timeZone: 'America/Caracas',
-  });
-}
-
-function formatDayNumber(value: Date) {
-  return value.toLocaleDateString('es-VE', {
-    day: '2-digit',
-    timeZone: 'America/Caracas',
-  });
-}
-
-function formatMonthShort(value: Date) {
-  return value.toLocaleDateString('es-VE', {
-    month: 'short',
-    timeZone: 'America/Caracas',
-  }).replace('.', '');
-}
-
 function getDateKey(date: Date) {
   return date.toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -160,21 +139,6 @@ function getDateKey(date: Date) {
 function getIsoDayKey(value: string) {
   return new Date(value).toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
-  });
-}
-
-function buildCalendarDays(activeKey: string) {
-  const base = new Date(`${activeKey}T12:00:00-04:00`);
-  return Array.from({ length: 15 }, (_, idx) => {
-    const current = new Date(base);
-    current.setDate(base.getDate() + idx - 7);
-    return {
-      key: getDateKey(current),
-      label: formatShortDay(current).replace('.', ''),
-      dayNumber: formatDayNumber(current),
-      monthLabel: formatMonthShort(current),
-      isToday: getDateKey(new Date()) === getDateKey(current),
-    };
   });
 }
 
@@ -649,14 +613,10 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     })
     .slice(0, 30);
 
-  const calendarDays = buildCalendarDays(selectedDayKey);
-
   return (
     <div className="space-y-4">
       <AdvisorCalendarStrip
         activeDateLabel={formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
-        calendarDays={calendarDays}
-        searchQuery={searchQuery}
         selectedDayKey={selectedDayKey}
         todayKey={getDateKey(new Date())}
       />

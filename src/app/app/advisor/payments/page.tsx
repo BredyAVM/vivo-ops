@@ -2,7 +2,12 @@ import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+
+type SearchParams = Promise<{
+  day?: string;
+}>;
 
 type OrderRow = {
   id: number;
@@ -28,6 +33,10 @@ type OrderRow = {
       total_bs?: number | string | null;
     } | null;
   } | null;
+  client: { full_name: string | null; phone: string | null } | null;
+};
+
+type RawOrderRow = Omit<OrderRow, 'client'> & {
   client:
     | { full_name: string | null; phone: string | null }[]
     | { full_name: string | null; phone: string | null }
@@ -72,6 +81,15 @@ function label(status: PaymentRow['status']) {
   return 'Por validar';
 }
 
+function formatDayHeader(dayKey: string) {
+  return new Date(`${dayKey}T12:00:00-04:00`).toLocaleDateString('es-VE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Caracas',
+  });
+}
+
 function formatUsd(value: number | string) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
@@ -85,6 +103,37 @@ function formatBs(value: number | string) {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function getDateKey(date: Date) {
+  return date.toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function getCaracasDayRange(dayKey: string) {
+  const start = new Date(`${dayKey}T00:00:00-04:00`);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  return {
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
+
+function getIsoDayKey(value: string) {
+  return new Date(value).toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function isDayKey(value: string | null | undefined) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function getAgendaDayKey(order: Pick<OrderRow, 'created_at' | 'extra_fields'>) {
+  const scheduledDay = order.extra_fields?.schedule?.date;
+  return isDayKey(scheduledDay) ? String(scheduledDay) : getIsoDayKey(order.created_at);
 }
 
 function paymentMethodLabel(method: string | null | undefined) {
@@ -126,25 +175,46 @@ function sortPaymentRows(rows: PaymentRow[]) {
   return [...rows].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
 
-export default async function AdvisorPaymentsPage() {
+export default async function AdvisorPaymentsPage({ searchParams }: { searchParams?: SearchParams }) {
+  const params = (await searchParams) ?? {};
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const { data: orderData } = await ctx.supabase
-    .from('orders')
-    .select(
-      'id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-    )
-    .eq('attributed_advisor_id', ctx.user.id)
-    .neq('status', 'cancelled')
-    .order('created_at', { ascending: false })
-    .limit(120);
+  const selectedDayKey =
+    params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
+  const dayRange = getCaracasDayRange(selectedDayKey);
+  const orderSelect =
+    'id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
 
-  const orders = ((orderData ?? []) as OrderRow[]).map((order) => ({
-    ...order,
-    client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
-  }));
-  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .neq('status', 'cancelled')
+      .eq('extra_fields->schedule->>date', selectedDayKey)
+      .order('created_at', { ascending: false })
+      .limit(180),
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .neq('status', 'cancelled')
+      .gte('created_at', dayRange.startISO)
+      .lt('created_at', dayRange.endISO)
+      .order('created_at', { ascending: false })
+      .limit(180),
+  ]);
+
+  const orderById = new Map<number, OrderRow>();
+  for (const order of ([...(scheduledOrdersResult.data ?? []), ...(createdOrdersResult.data ?? [])] as RawOrderRow[])) {
+    orderById.set(Number(order.id), {
+      ...order,
+      client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
+    });
+  }
+  const orders = Array.from(orderById.values()).filter((order) => getAgendaDayKey(order) === selectedDayKey);
+  const ordersById = new Map(orders.map((order) => [order.id, order]));
 
   const orderIds = orders.map((order) => order.id);
   const { data: paymentData } = orderIds.length
@@ -217,7 +287,7 @@ export default async function AdvisorPaymentsPage() {
   const rejectedRows = sortPaymentRows(payments.filter((payment) => payment.status === 'rejected'));
   const collectBsFromPayments = (rows: PaymentRow[]) =>
     rows.reduce((sum, payment) => {
-      const order = orderById.get(payment.order_id);
+      const order = ordersById.get(payment.order_id);
       return sum + getPaymentEquivalentBs(payment, order);
     }, 0);
   const reportableTotalBs = ordersPendingPayment.reduce((sum, order) => sum + order.reportableBalanceBs, 0);
@@ -231,10 +301,16 @@ export default async function AdvisorPaymentsPage() {
 
   return (
     <div className="space-y-4">
+      <AdvisorCalendarStrip
+        activeDateLabel={formatDayHeader(selectedDayKey)}
+        selectedDayKey={selectedDayKey}
+        todayKey={getDateKey(new Date())}
+      />
+
       <PageIntro
         eyebrow="Cobranza"
         title="Pagos reportados"
-        description="Aqui se separa lo que falta cobrar, lo que ya fue enviado a revision y lo que requiere correccion."
+        description={`Aqui se separa lo que falta cobrar, lo que ya fue enviado a revision y lo que requiere correccion para ${formatDayHeader(selectedDayKey)}.`}
         action={
           <Link href="/app/advisor/new" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
             Nuevo pedido
@@ -347,7 +423,7 @@ export default async function AdvisorPaymentsPage() {
             ) : (
               <div className="space-y-2.5">
                 {section.rows.map((payment) => {
-                  const order = orderById.get(payment.order_id);
+                  const order = ordersById.get(payment.order_id);
                   const equivalentUsd = toSafeNumber(payment.reported_amount_usd_equivalent, 0);
                   const equivalentBs = getPaymentEquivalentBs(payment, order);
                   const orderLabel = order?.client?.full_name?.trim() || order?.order_number || `Orden #${payment.order_id}`;
