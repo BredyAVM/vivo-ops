@@ -29,7 +29,6 @@ function isActive(pathname: string, href: string) {
 function resolveBackHref(pathname: string) {
   if (pathname.startsWith('/app/advisor/new')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
-  if (pathname.startsWith('/app/advisor/inbox')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/settings')) return '/app/advisor';
   return null;
