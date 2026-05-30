@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
 import AdvisorInboxBell from './AdvisorInboxBell';
 import AdvisorRealtimeNotifier from './AdvisorRealtimeNotifier';
@@ -25,36 +25,6 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function formatHeaderDate(value: Date) {
-  return value.toLocaleDateString('es-VE', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'America/Caracas',
-  });
-}
-
-function getHeaderDate(pathname: string, dayParam: string | null) {
-  if (pathname === '/app/advisor' && dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam)) {
-    return new Date(`${dayParam}T12:00:00-04:00`);
-  }
-
-  return new Date();
-}
-
-function resolveHeaderTitle(pathname: string, isEditingOrder: boolean) {
-  if (pathname === '/app/advisor') return 'Agenda del dia';
-  if (pathname.startsWith('/app/advisor/new')) {
-    return isEditingOrder ? 'Modificar pedido' : 'Crear pedido';
-  }
-  if (pathname.startsWith('/app/advisor/orders/')) return 'Detalle del pedido';
-  if (pathname.startsWith('/app/advisor/orders')) return 'Pedidos';
-  if (pathname.startsWith('/app/advisor/payments')) return 'Pagos';
-  if (pathname.startsWith('/app/advisor/inbox')) return 'Inbox';
-  if (pathname.startsWith('/app/advisor/settings')) return 'Configuracion';
-  return 'Inicio';
-}
-
 function resolveBackHref(pathname: string) {
   if (pathname.startsWith('/app/advisor/new')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
@@ -67,13 +37,10 @@ function resolveBackHref(pathname: string) {
 export default function AdvisorShell(props: AdvisorShellProps) {
   const { children, userId, fullName, unreadCount } = props;
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
   const isOrderDetailRoute = pathname.startsWith('/app/advisor/orders/');
-  const isEditingOrder = isNewOrderRoute && Number(searchParams.get('fromOrder') || 0) > 0;
-  const headerTitle = resolveHeaderTitle(pathname, isEditingOrder);
   const backHref = resolveBackHref(pathname);
   const showCreateButton =
     !isNewOrderRoute &&
@@ -83,17 +50,13 @@ export default function AdvisorShell(props: AdvisorShellProps) {
     const normalized = String(fullName || '').trim();
     return normalized ? normalized.split(/\s+/)[0] || 'Asesor' : 'Asesor';
   }, [fullName]);
-  const headerDateLabel = useMemo(
-    () => formatHeaderDate(getHeaderDate(pathname, searchParams.get('day'))).replace('.', ''),
-    [pathname, searchParams],
-  );
 
   return (
     <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
       <div className="advisor-safe-shell mx-auto flex min-h-screen max-w-screen-md flex-col">
-        <header className="advisor-safe-header sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2.5 backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
+        <header className="advisor-safe-header sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2 backdrop-blur">
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex min-w-0 items-center gap-2">
               {backHref ? (
                 <Link
                   href={backHref}
@@ -102,21 +65,17 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                   Volver
                 </Link>
               ) : null}
-              <div className="min-w-0">
+
+              <Link href="/app/advisor" className="min-w-0">
                 <Image
                   src="/brand/vivo-fritos-horizontal.png"
                   alt="Vivo Fritos"
                   width={2080}
                   height={500}
                   priority
-                  className="h-5 w-auto max-w-[138px] object-contain"
+                  className="h-[18px] w-auto max-w-[126px] object-contain"
                 />
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[#6F7890]">
-                  <span className="truncate font-medium text-[#9CA6BD]">{headerTitle}</span>
-                  <span className="text-[#4D5568]">•</span>
-                  <span className="truncate uppercase tracking-[0.16em]">{headerDateLabel}</span>
-                </div>
-              </div>
+              </Link>
             </div>
 
             <div className="flex items-center gap-2">

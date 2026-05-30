@@ -34,6 +34,7 @@ export default function AdvisorCalendarStrip({
 
   return (
     <section className="rounded-[18px] border border-[#232632] bg-[#12151d] px-3 py-2.5 shadow-[0_12px_24px_rgba(0,0,0,0.12)]">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8B93A7]">Agenda del día</div>
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <label className="min-w-0">
           <span className="sr-only">Seleccionar fecha</span>
