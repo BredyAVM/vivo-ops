@@ -10,6 +10,7 @@ import {
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
+import { shouldRequireAdvisorAction } from '../../inbox/inbox-shared';
 import OrderDetailActions from './OrderDetailActions';
 
 type PageParams = Promise<{
@@ -840,7 +841,7 @@ export default async function AdvisorOrderDetailPage({
         createdAt: String(event.created_at || order.created_at),
         tone: eventTone(eventType),
         detailLines,
-        requiresAction: ACTION_EVENT_TYPES.has(eventType),
+        requiresAction: shouldRequireAdvisorAction(eventType, ACTION_EVENT_TYPES.has(eventType), order.status),
       } satisfies TimelineEvent;
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

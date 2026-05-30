@@ -53,7 +53,28 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
     .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
     .limit(200);
 
-  const unreadCount = countCoalescedUnreadNotifications(recipientsData ?? []);
+  const reviewOrderIds = Array.from(
+    new Set(
+      (recipientsData ?? [])
+        .map((recipient) => {
+          const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
+          const eventType = String(event?.event_type || '');
+          return eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected'
+            ? Number(event?.order_id || 0)
+            : 0;
+        })
+        .filter((orderId) => Number.isFinite(orderId) && orderId > 0)
+    )
+  );
+  const { data: closedOrdersData } = reviewOrderIds.length
+    ? await ctx.supabase
+        .from('orders')
+        .select('id')
+        .in('id', reviewOrderIds)
+        .in('status', ['delivered', 'cancelled'])
+    : { data: [] };
+  const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
+  const unreadCount = countCoalescedUnreadNotifications(recipientsData ?? [], closedOrderIds);
 
   return (
     <AdvisorShell

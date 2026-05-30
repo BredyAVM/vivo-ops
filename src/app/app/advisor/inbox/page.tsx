@@ -12,6 +12,7 @@ import {
   getFilterForEvent,
   normalizeFilter,
   safeText,
+  shouldRequireAdvisorAction,
   shortMessage,
 } from './inbox-shared';
 
@@ -22,6 +23,7 @@ type SearchParams = Promise<{
 type OrderRow = {
   id: number;
   order_number: string;
+  status: string;
   created_at: string;
   extra_fields: {
     schedule?: {
@@ -96,7 +98,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     ctx.supabase
       .from('orders')
       .select(
-        'id, order_number, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+        'id, order_number, status, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
       )
       .eq('attributed_advisor_id', ctx.user.id)
       .order('created_at', { ascending: false })
@@ -133,6 +135,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
           ? (event.payload as Record<string, unknown>)
           : {};
       const detailLines = buildDetailLines(eventType, payload);
+      const requiresAction = shouldRequireAdvisorAction(eventType, recipient.requires_action, order.status);
 
       return {
         id: `recipient-${recipient.id}`,
@@ -146,7 +149,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         eventType,
         createdAt: String(event.created_at || order.created_at),
         detailLines,
-        requiresAction: Boolean(recipient.requires_action),
+        requiresAction,
         readAt: recipient.read_at,
         tone: eventTone(eventType),
       } satisfies InboxEvent;

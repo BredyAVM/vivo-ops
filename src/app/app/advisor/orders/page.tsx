@@ -285,6 +285,7 @@ function latestReviewEvent(order: OrderRow, reviewEventByOrderId: Map<number, Ti
 }
 
 function needsAdvisorReview(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
+  if (!isOpenStatus(order.status)) return false;
   return ['order_returned_to_review', 'order_changes_rejected'].includes(
     String(latestReviewEvent(order, reviewEventByOrderId) || '')
   );

@@ -10,6 +10,7 @@ import {
   eventTitle,
   eventTone,
   safeText,
+  shouldRequireAdvisorAction,
   shortMessage,
 } from './inbox/inbox-shared';
 
@@ -78,13 +79,19 @@ export default function AdvisorRealtimeNotifier({ userId }: { userId: string }) 
 
       const orderId = Number(event?.order_id || 0);
       if (!Number.isFinite(orderId) || orderId <= 0) return;
+      const { data: orderStatusData } = await supabase
+        .from('orders')
+        .select('status')
+        .eq('id', orderId)
+        .maybeSingle();
 
       const payload =
         event?.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
           ? event.payload
           : {};
       const detailLines = buildDetailLines(eventType, payload);
-      const requiresAction = Boolean(row.requires_action) || ACTION_EVENT_TYPES.has(eventType);
+      const requiresAction = shouldRequireAdvisorAction(eventType, row.requires_action, orderStatusData?.status ?? null);
+      if (!requiresAction && ACTION_EVENT_TYPES.has(eventType)) return;
 
       setToast({
         recipientId,

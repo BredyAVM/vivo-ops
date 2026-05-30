@@ -272,12 +272,29 @@ function isActionNotification(eventType: string, requiresAction: boolean | null 
   return Boolean(requiresAction) || ACTION_EVENT_TYPES.has(eventType);
 }
 
+export function isClosedOrderStatus(status: string | null | undefined) {
+  return status === 'delivered' || status === 'cancelled';
+}
+
+export function isOrderReviewActionEvent(eventType: string) {
+  return eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected';
+}
+
+export function shouldRequireAdvisorAction(
+  eventType: string,
+  requiresAction: boolean | null | undefined,
+  orderStatus?: string | null
+) {
+  if (isClosedOrderStatus(orderStatus) && isOrderReviewActionEvent(eventType)) return false;
+  return isActionNotification(eventType, requiresAction);
+}
+
 export function coalesceInboxEvents(events: InboxEvent[]) {
   const actionEvents: InboxEvent[] = [];
   const latestInfoByOrderId = new Map<number, InboxEvent>();
 
   for (const event of events) {
-    if (event.requiresAction || ACTION_EVENT_TYPES.has(event.eventType)) {
+    if (event.requiresAction) {
       actionEvents.push(event);
       continue;
     }
@@ -293,7 +310,10 @@ export function coalesceInboxEvents(events: InboxEvent[]) {
   );
 }
 
-export function countCoalescedUnreadNotifications(recipients: InboxRecipientCountRow[]) {
+export function countCoalescedUnreadNotifications(
+  recipients: InboxRecipientCountRow[],
+  closedOrderIds: Set<number> = new Set()
+) {
   let unreadActionCount = 0;
   const seenActionEventIds = new Set<string>();
   const latestInfoByOrderId = new Map<
@@ -316,8 +336,9 @@ export function countCoalescedUnreadNotifications(recipients: InboxRecipientCoun
     const eventId = safeText(event.id, `${orderId}-${eventType}-${safeText(event.created_at, '')}`);
     const createdAt = safeText(event.created_at, '');
     const isUnread = !recipient.read_at;
+    const orderStatus = closedOrderIds.has(orderId) ? 'delivered' : null;
 
-    if (isActionNotification(eventType, recipient.requires_action)) {
+    if (shouldRequireAdvisorAction(eventType, recipient.requires_action, orderStatus)) {
       if (isUnread && !seenActionEventIds.has(eventId)) {
         seenActionEventIds.add(eventId);
         unreadActionCount += 1;

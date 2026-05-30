@@ -1329,13 +1329,14 @@ export default function AdvisorOrderComposer({
   );
   const catalogPriceDriftItems = useMemo(() => {
     if (!isEditingOrder || fxRateNumber <= 0) return [];
+    if (existingOrderStatus === 'delivered' || existingOrderStatus === 'cancelled') return [];
 
     return draftItems.filter((item) => {
       const product = productById.get(item.product_id);
       if (!product) return false;
       return draftItemHasCatalogPriceDrift(item, product, fxRateNumber);
     });
-  }, [draftItems, fxRateNumber, isEditingOrder, productById]);
+  }, [draftItems, existingOrderStatus, fxRateNumber, isEditingOrder, productById]);
   const advisorEditHasCatalogPriceDrift = catalogPriceDriftItems.length > 0;
   const draftTotalUsd = useMemo(
     () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
@@ -1668,8 +1669,8 @@ export default function AdvisorOrderComposer({
           setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
-          if (isEditingOrder && order.status === 'cancelled') {
-            router.replace(`/app/advisor/new?duplicateFrom=${order.id}`);
+          if (isEditingOrder && (order.status === 'cancelled' || order.status === 'delivered')) {
+            router.replace(`/app/advisor/orders/${order.id}`);
             return;
           }
 
