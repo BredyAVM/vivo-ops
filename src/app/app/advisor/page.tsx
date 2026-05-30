@@ -441,6 +441,17 @@ function paymentStatusBadge(order: OrderRow, paymentStateByOrderId: Map<number, 
   return { label: 'Cobro pendiente', tone: 'warning' as const };
 }
 
+function OrderPaymentStatusBadge({
+  order,
+  paymentStateByOrderId,
+}: {
+  order: OrderRow;
+  paymentStateByOrderId: Map<number, PaymentState>;
+}) {
+  const badge = paymentStatusBadge(order, paymentStateByOrderId);
+  return badge ? <StatusBadge label={badge.label} tone={badge.tone} /> : null;
+}
+
 function attentionLabels(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>, selectedDayKey: string) {
   const labels: Array<{ label: string; tone: 'neutral' | 'warning' | 'success' | 'danger' }> = [];
   const payment = getStoredPaymentState(order, paymentStateByOrderId);
@@ -731,12 +742,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <StatusBadge label={operationalPhaseLabel(order)} tone={statusTone(order.status)} />
-                      {paymentStatusBadge(order, paymentStateByOrderId) ? (
-                        <StatusBadge
-                          label={paymentStatusBadge(order, paymentStateByOrderId)!.label}
-                          tone={paymentStatusBadge(order, paymentStateByOrderId)!.tone}
-                        />
-                      ) : null}
+                      <OrderPaymentStatusBadge order={order} paymentStateByOrderId={paymentStateByOrderId} />
                       {needsAdvisorReview(order, reviewEventByOrderId) ? (
                         <StatusBadge label="Devuelta" tone="danger" />
                       ) : null}

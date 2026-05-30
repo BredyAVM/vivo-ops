@@ -1,6 +1,6 @@
 'use client';
 
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
@@ -1219,6 +1219,8 @@ export default function AdvisorOrderComposer({
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [productComponents, setProductComponents] = useState<ProductComponentRow[]>([]);
   const [productSearch, setProductSearch] = useState('');
+  const deferredProductSearch = useDeferredValue(productSearch);
+  const productSearchIsPending = productSearch.trim() !== deferredProductSearch.trim();
   const [productActiveIndex, setProductActiveIndex] = useState<number>(-1);
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [recentProductIds, setRecentProductIds] = useState<number[]>([]);
@@ -1455,7 +1457,7 @@ export default function AdvisorOrderComposer({
     getPaymentMethodLabel(paymentMethod),
   ].join(' · ');
   const filteredProducts = useMemo(() => {
-    const query = productSearch.trim().toLowerCase();
+    const query = deferredProductSearch.trim().toLowerCase();
     if (!query) return [];
     return products
       .map((product) => ({
@@ -1475,10 +1477,10 @@ export default function AdvisorOrderComposer({
       })
       .slice(0, 40)
       .map((row) => row.product);
-  }, [favoriteProductIds, productSearch, productUsageById, products, recentProductIds]);
+  }, [deferredProductSearch, favoriteProductIds, productUsageById, products, recentProductIds]);
 
   useEffect(() => {
-    if (!productSearch.trim()) {
+    if (!deferredProductSearch.trim()) {
       setProductActiveIndex(-1);
       return;
     }
@@ -1490,7 +1492,7 @@ export default function AdvisorOrderComposer({
 
     setProductActiveIndex(0);
     setSelectedProductId(filteredProducts[0]?.id ?? '');
-  }, [filteredProducts, productSearch]);
+  }, [deferredProductSearch, filteredProducts]);
 
   useEffect(() => {
     setRecentClients(readStoredJson<RecentClientChip[]>(STORAGE_KEYS.recentClients, []));
@@ -2751,6 +2753,7 @@ export default function AdvisorOrderComposer({
   }
 
   async function handleCopyQuote() {
+    if (savingOrderRef.current) return;
     if (copyingQuoteRef.current) return;
 
     clearMessages();
@@ -3226,6 +3229,7 @@ export default function AdvisorOrderComposer({
             <Field label="Producto">
               <input
                 value={productSearch}
+                aria-busy={productSearchIsPending}
                 onChange={(e) => {
                   setProductSearch(e.target.value);
                   setProductActiveIndex(-1);
@@ -3269,7 +3273,10 @@ export default function AdvisorOrderComposer({
 
             {productSearch.trim() && (!selectedProduct || productSearch !== selectedProduct.name) ? (
               <div className="absolute z-20 mt-2 max-h-[260px] w-full overflow-y-auto rounded-[18px] border border-[#232632] bg-[#0F131B]">
-                {filteredProducts.length === 0 ? (
+                {productSearchIsPending ? (
+                  <div className="px-3 py-2 text-xs text-[#8B93A7]">Actualizando resultados...</div>
+                ) : null}
+                {filteredProducts.length === 0 && !productSearchIsPending ? (
                   <div className="px-3 py-3 text-sm text-[#8B93A7]">Sin resultados</div>
                 ) : (
                   filteredProducts.map((product) => (
@@ -3887,10 +3894,10 @@ export default function AdvisorOrderComposer({
               <button
                 type="button"
                 onClick={() => void handleCopyQuote()}
-                disabled={copyingQuote || draftItems.length === 0}
+                disabled={copyingQuote || saving || draftItems.length === 0}
                 className={[
                   'h-11 rounded-[16px] border px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
-                  copyingQuote || draftItems.length === 0
+                  copyingQuote || saving || draftItems.length === 0
                     ? 'border-[#232632] text-[#6F7890]'
                     : 'border-[#232632] text-[#F5F7FB]',
                 ].join(' ')}
@@ -3899,6 +3906,7 @@ export default function AdvisorOrderComposer({
               </button>
               <button
                 type="submit"
+                aria-busy={saving}
                 disabled={saving || !baseCreateReady}
                 className={[
                   'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',

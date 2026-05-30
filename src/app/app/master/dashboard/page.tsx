@@ -1075,9 +1075,16 @@ const { data: ordersData, error: ordersError } = await supabase
     internalDriverNameById.set(String(d.id), d.full_name ?? 'Driver');
   }
 
-  const { data: orderItemsData, error: orderItemsError } = await supabase
-  .from('order_items')
-  .select(`
+  const orderIdsForQuery = orderIds.length > 0 ? orderIds : [-1];
+  const [
+    { data: orderItemsData, error: orderItemsError },
+    { data: reportsData },
+    { data: movementsData, error: movementsError },
+    { data: orderAdjustmentsData, error: orderAdjustmentsError },
+  ] = await Promise.all([
+    supabase
+      .from('order_items')
+      .select(`
       id,
       order_id,
       product_id,
@@ -1096,27 +1103,10 @@ const { data: ordersData, error: ordersError } = await supabase
       sku_snapshot,
       notes
     `)
-  .in('order_id', orderIds.length > 0 ? orderIds : [-1]);
-
-  if (orderItemsError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando items de Ã³rdenes</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los items de las Ã³rdenes.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {orderItemsError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  const { data: reportsData } = await supabase
-    .from('payment_reports')
-    .select(`
+      .in('order_id', orderIdsForQuery),
+    supabase
+      .from('payment_reports')
+      .select(`
       id,
       order_id,
       status,
@@ -1131,12 +1121,11 @@ const { data: ordersData, error: ordersError } = await supabase
       payer_name,
       notes
     `)
-    .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-    .order('created_at', { ascending: false });
-
-  const { data: movementsData, error: movementsError } = await supabase
-    .from('money_movements')
-    .select(`
+      .in('order_id', orderIdsForQuery)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('money_movements')
+      .select(`
       id,
       movement_date,
       created_at,
@@ -1169,19 +1158,35 @@ const { data: ordersData, error: ordersError } = await supabase
       payment_report_id,
       movement_group_id
     `)
-    .in('order_id', orderIds.length > 0 ? orderIds : [-1])
-    .order('movement_date', { ascending: false })
-    .order('created_at', { ascending: false });
+      .in('order_id', orderIdsForQuery)
+      .order('movement_date', { ascending: false })
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('order_admin_adjustments')
+      .select(
+        'id, order_id, order_item_id, adjustment_type, reason, notes, payload, created_at, created_by_user_id'
+      )
+      .in('order_id', orderIdsForQuery)
+      .order('created_at', { ascending: false }),
+  ]);
+
+  if (orderItemsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando items de Ã³rdenes</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los items de las Ã³rdenes.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {orderItemsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
 
   const rawOrderItems = (orderItemsData ?? []) as RawOrderItemRow[];
-
-  const { data: orderAdjustmentsData, error: orderAdjustmentsError } = await supabase
-    .from('order_admin_adjustments')
-    .select(
-      'id, order_id, order_item_id, adjustment_type, reason, notes, payload, created_at, created_by_user_id'
-    )
-    .in('order_id', orderIds)
-    .order('created_at', { ascending: false });
 
   if (orderAdjustmentsError) {
     return (
