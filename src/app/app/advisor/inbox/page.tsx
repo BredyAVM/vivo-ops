@@ -92,28 +92,29 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const { data: ordersData } = await ctx.supabase
-    .from('orders')
-    .select(
-      'id, order_number, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-    )
-    .eq('attributed_advisor_id', ctx.user.id)
-    .order('created_at', { ascending: false })
-    .limit(120);
+  const [{ data: ordersData }, { data: recipientsData }] = await Promise.all([
+    ctx.supabase
+      .from('orders')
+      .select(
+        'id, order_number, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+      )
+      .eq('attributed_advisor_id', ctx.user.id)
+      .order('created_at', { ascending: false })
+      .limit(120),
+    ctx.supabase
+      .from('order_timeline_event_recipients')
+      .select(
+        'id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, order_number, event_type, title, message, payload, created_at)'
+      )
+      .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
+      .limit(200),
+  ]);
 
   const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
   const orderById = new Map(orders.map((order) => [order.id, order]));
-
-  const { data: recipientsData } = await ctx.supabase
-    .from('order_timeline_event_recipients')
-    .select(
-      'id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, order_number, event_type, title, message, payload, created_at)'
-    )
-    .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
-    .limit(200);
 
   const inboxEvents: InboxEvent[] = coalesceInboxEvents(((recipientsData ?? []) as TimelineRecipientRow[])
     .map((recipient) => {
