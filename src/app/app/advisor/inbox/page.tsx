@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
-import { PageIntro, SectionCard } from '../advisor-ui';
+import { PageIntro } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
 import {
   type InboxEvent,
@@ -162,13 +162,30 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       return getFilterForEvent(event.eventType) === activeFilter;
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
+  const intro = activeFilter === 'pending'
+    ? {
+        eyebrow: 'Acciones',
+        title: 'Acciones pendientes',
+        description: 'Solo llamadas de atencion que requieren respuesta del asesor.',
+      }
+    : activeFilter === 'updates' || activeFilter === 'kitchen' || activeFilter === 'delivery' || activeFilter === 'payments'
+      ? {
+          eyebrow: 'Seguimiento',
+          title: 'Seguimiento de pedidos',
+          description: 'Movimiento operativo de tus ordenes, separado de las acciones pendientes.',
+        }
+      : {
+          eyebrow: 'Inbox',
+          title: 'Inbox del asesor',
+          description: 'Acciones importantes separadas del seguimiento operativo de tus ordenes.',
+        };
 
   return (
     <div className="space-y-4">
       <PageIntro
-        eyebrow="Seguimiento"
-        title="Inbox del asesor"
-        description="Acciones importantes separadas del seguimiento operativo de tus ordenes."
+        eyebrow={intro.eyebrow}
+        title={intro.title}
+        description={intro.description}
         action={
           <Link
             href="/app/advisor"
@@ -178,23 +195,6 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
           </Link>
         }
       />
-
-      <SectionCard
-        title="Notificaciones"
-        subtitle="Push, sesion y estado de la app viven en configuracion."
-        action={
-          <Link
-            href="/app/advisor/settings"
-            className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
-          >
-            Abrir
-          </Link>
-        }
-      >
-        <div className="text-sm leading-5 text-[#AAB2C5]">
-          Desde ahi puedes activar push, revisar el estado de la app y cerrar sesion.
-        </div>
-      </SectionCard>
 
       <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} userId={ctx.user.id} />
     </div>

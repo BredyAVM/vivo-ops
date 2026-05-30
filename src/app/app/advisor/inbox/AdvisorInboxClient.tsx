@@ -12,6 +12,10 @@ import {
   formatEventTime,
 } from './inbox-shared';
 
+const UPDATE_FILTERS = FILTERS.filter((filter) =>
+  filter.key === 'updates' || filter.key === 'kitchen' || filter.key === 'delivery' || filter.key === 'payments'
+);
+
 function getDayKey(value: string) {
   return new Date(value).toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -200,33 +204,49 @@ export default function AdvisorInboxClient({
           { key: 'earlier', title: 'Antes', rows: earlierEvents },
         ];
   const visibleEventCount = groupedSections.reduce((sum, section) => sum + section.rows.length, 0);
+  const visibleFilters = activeFilter === 'pending'
+    ? []
+    : activeFilter === 'updates' || activeFilter === 'kitchen' || activeFilter === 'delivery' || activeFilter === 'payments'
+      ? UPDATE_FILTERS
+      : FILTERS;
+  const sectionTitle = activeFilter === 'pending'
+    ? 'Acciones por atender'
+    : activeFilter === 'updates'
+      ? 'Seguimiento operativo'
+      : 'Bandeja';
+  const emptyTitle = activeFilter === 'pending' ? 'Sin acciones pendientes' : 'Sin eventos para este filtro';
+  const emptyDetail = activeFilter === 'pending'
+    ? 'Cuando una orden necesite correccion o un pago requiera accion, aparecera aqui.'
+    : 'Cuando haya movimiento operativo, aparecera aqui sin mezclarlo con acciones.';
 
   return (
     <>
-      <section className="overflow-x-auto pb-1">
-        <div className="flex min-w-max gap-2">
-          {FILTERS.map((filter) => (
-            <Link
-              key={filter.key}
-              href={`/app/advisor/inbox?filter=${filter.key}`}
-              className={[
-                'rounded-[16px] border px-3 py-2 text-sm font-medium',
-                activeFilter === filter.key
-                  ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
-                  : 'border-[#232632] bg-[#12151d] text-[#CCD3E2]',
-              ].join(' ')}
-            >
-              {filter.label}
-            </Link>
-          ))}
-        </div>
-      </section>
+      {visibleFilters.length > 0 ? (
+        <section className="overflow-x-auto pb-1">
+          <div className="flex min-w-max gap-2">
+            {visibleFilters.map((filter) => (
+              <Link
+                key={filter.key}
+                href={`/app/advisor/inbox?filter=${filter.key}`}
+                className={[
+                  'rounded-[16px] border px-3 py-2 text-sm font-medium',
+                  activeFilter === filter.key
+                    ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                    : 'border-[#232632] bg-[#12151d] text-[#CCD3E2]',
+                ].join(' ')}
+              >
+                {filter.label}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <SectionCard
-        title="Bandeja"
+        title={sectionTitle}
         subtitle={
           activeFilter === 'pending'
-            ? 'Solo lo que necesita respuesta.'
+            ? 'Solo llamadas de accion para resolver cuanto antes.'
             : activeFilter === 'updates'
               ? 'Seguimiento operativo sin acciones pendientes.'
               : 'Ultimo estado por orden, sin ruido duplicado.'
@@ -251,8 +271,8 @@ export default function AdvisorInboxClient({
       >
         {visibleEventCount === 0 ? (
           <EmptyBlock
-            title="Sin eventos para este filtro"
-            detail="Cuando haya algo que revisar, aparecera aqui con el boton correcto."
+            title={emptyTitle}
+            detail={emptyDetail}
             href="/app/advisor/orders"
             cta="Ver pedidos"
           />

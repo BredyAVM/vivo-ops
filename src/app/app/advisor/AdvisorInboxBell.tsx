@@ -127,7 +127,7 @@ export default function AdvisorInboxBell({
   return (
     <div className="flex items-center gap-1.5">
       <Link
-        href="/app/advisor/inbox?filter=pending"
+        href="/app/advisor/inbox/actions"
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#3B3220] bg-[#151208] text-[#F7DA66]"
         aria-label={`Acciones pendientes de ${advisorName}`}
         title="Acciones"
@@ -140,7 +140,7 @@ export default function AdvisorInboxBell({
         ) : null}
       </Link>
       <Link
-        href="/app/advisor/inbox?filter=updates"
+        href="/app/advisor/inbox/updates"
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#D8E0F4]"
         aria-label={`Seguimiento de pedidos de ${advisorName}`}
         title="Seguimiento"
