@@ -1409,9 +1409,18 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] = [];
 
-  const { count: clientTotalCount, error: clientTotalCountError } = await supabase
-    .from('clients')
-    .select('id', { count: 'exact', head: true });
+  const [
+    { count: clientTotalCount, error: clientTotalCountError },
+    { count: clientActiveCount, error: clientActiveCountError },
+  ] = await Promise.all([
+    supabase
+      .from('clients')
+      .select('id', { count: 'exact', head: true }),
+    supabase
+      .from('clients')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_active', true),
+  ]);
 
   if (clientTotalCountError) {
     return (
@@ -1428,11 +1437,6 @@ const { data: ordersData, error: ordersError } = await supabase
       </div>
     );
   }
-
-  const { count: clientActiveCount, error: clientActiveCountError } = await supabase
-    .from('clients')
-    .select('id', { count: 'exact', head: true })
-    .eq('is_active', true);
 
   if (clientActiveCountError) {
     return (
@@ -1583,9 +1587,13 @@ const { data: ordersData, error: ordersError } = await supabase
     }
   }
 
-  const { data: productsData, error: productsError } = await supabase
-    .from('products')
-    .select(`
+  const [
+    { data: productsData, error: productsError },
+    { data: inventoryItemsData, error: inventoryItemsError },
+  ] = await Promise.all([
+    supabase
+      .from('products')
+      .select(`
       id,
       sku,
       name,
@@ -1615,11 +1623,10 @@ const { data: ordersData, error: ordersError } = await supabase
       low_stock_threshold,
       inventory_group
     `)
-    .order('id', { ascending: true });
-
-  const { data: inventoryItemsData, error: inventoryItemsError } = await supabase
-    .from('inventory_items')
-    .select(`
+      .order('id', { ascending: true }),
+    supabase
+      .from('inventory_items')
+      .select(`
       id,
       name,
       inventory_kind,
@@ -1633,8 +1640,9 @@ const { data: ordersData, error: ordersError } = await supabase
       notes,
       created_at
     `)
-    .order('is_active', { ascending: false })
-    .order('name', { ascending: true });
+      .order('is_active', { ascending: false })
+      .order('name', { ascending: true }),
+  ]);
 
   if (inventoryItemsError) {
     return (
@@ -1668,9 +1676,15 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  const { data: inventoryRecipesData, error: inventoryRecipesError } = await supabase
-    .from('inventory_recipes')
-    .select(`
+  const [
+    { data: inventoryRecipesData, error: inventoryRecipesError },
+    { data: inventoryRecipeComponentsData, error: inventoryRecipeComponentsError },
+    { data: productInventoryLinksData, error: productInventoryLinksError },
+    { data: productComponentsData, error: productComponentsError },
+  ] = await Promise.all([
+    supabase
+      .from('inventory_recipes')
+      .select(`
       id,
       output_inventory_item_id,
       recipe_kind,
@@ -1679,55 +1693,21 @@ const { data: ordersData, error: ordersError } = await supabase
       is_active,
       created_at
     `)
-    .order('created_at', { ascending: false });
-
-  if (inventoryRecipesError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando recetas de inventario</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener las recetas de producciÃ³n/empaque.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {inventoryRecipesError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  const { data: inventoryRecipeComponentsData, error: inventoryRecipeComponentsError } = await supabase
-    .from('inventory_recipe_components')
-    .select(`
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('inventory_recipe_components')
+      .select(`
       id,
       recipe_id,
       input_inventory_item_id,
       quantity_units,
       sort_order
     `)
-    .order('recipe_id', { ascending: true })
-    .order('sort_order', { ascending: true });
-
-  if (inventoryRecipeComponentsError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando componentes de recetas</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los componentes de producciÃ³n/empaque.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {inventoryRecipeComponentsError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  const { data: productInventoryLinksData, error: productInventoryLinksError } = await supabase
-    .from('product_inventory_links')
-    .select(`
+      .order('recipe_id', { ascending: true })
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('product_inventory_links')
+      .select(`
       id,
       product_id,
       inventory_item_id,
@@ -1738,28 +1718,11 @@ const { data: ordersData, error: ordersError } = await supabase
       is_active,
       created_at
     `)
-    .order('product_id', { ascending: true })
-    .order('sort_order', { ascending: true });
-
-  if (productInventoryLinksError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando enlaces de inventario</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener los descuentos por composiciÃ³n del catÃ¡logo.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {productInventoryLinksError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  const { data: productComponentsData, error: productComponentsError } = await supabase
-    .from('product_components')
-    .select(`
+      .order('product_id', { ascending: true })
+      .order('sort_order', { ascending: true }),
+    supabase
+      .from('product_components')
+      .select(`
       id,
       parent_product_id,
       component_product_id,
@@ -1782,8 +1745,57 @@ const { data: ordersData, error: ordersError } = await supabase
         type
       )
     `)
-    .order('parent_product_id', { ascending: true })
-    .order('sort_order', { ascending: true });
+      .order('parent_product_id', { ascending: true })
+      .order('sort_order', { ascending: true }),
+  ]);
+
+  if (inventoryRecipesError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando recetas de inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las recetas de producciÃ³n/empaque.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryRecipesError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (inventoryRecipeComponentsError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando componentes de recetas</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los componentes de producciÃ³n/empaque.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {inventoryRecipeComponentsError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
+  if (productInventoryLinksError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando enlaces de inventario</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener los descuentos por composiciÃ³n del catÃ¡logo.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {productInventoryLinksError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
 
   if (productComponentsError) {
     return (

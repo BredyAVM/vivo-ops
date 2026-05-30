@@ -20,7 +20,6 @@ type OrderRow = {
   total_usd: number | string;
   created_at: string;
   delivery_address: string | null;
-  notes: string | null;
   extra_fields: {
     schedule?: {
       date?: string | null;
@@ -490,7 +489,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const normalizedSearchQuery = normalizeSearchValue(searchQuery);
   const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
   const orderSelect =
-    'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, notes, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
+    'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
   const dayRange = getCaracasDayRange(selectedDayKey);
 
   const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
