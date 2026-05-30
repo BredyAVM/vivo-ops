@@ -81,15 +81,6 @@ function label(status: PaymentRow['status']) {
   return 'Por validar';
 }
 
-function formatDayHeader(dayKey: string) {
-  return new Date(`${dayKey}T12:00:00-04:00`).toLocaleDateString('es-VE', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'America/Caracas',
-  });
-}
-
 function formatUsd(value: number | string) {
   const amount = Number(value);
   return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : '$0.00';
@@ -302,7 +293,6 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
   return (
     <div className="space-y-4">
       <AdvisorCalendarStrip
-        activeDateLabel={formatDayHeader(selectedDayKey)}
         selectedDayKey={selectedDayKey}
         todayKey={getDateKey(new Date())}
       />
@@ -310,7 +300,7 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
       <PageIntro
         eyebrow="Cobranza"
         title="Pagos reportados"
-        description={`Aqui se separa lo que falta cobrar, lo que ya fue enviado a revision y lo que requiere correccion para ${formatDayHeader(selectedDayKey)}.`}
+        description="Aqui se separa lo que falta cobrar, lo que ya fue enviado a revision y lo que requiere correccion."
         action={
           <Link href="/app/advisor/new" className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]">
             Nuevo pedido

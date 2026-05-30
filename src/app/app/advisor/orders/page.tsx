@@ -139,15 +139,6 @@ function formatDate(value: string) {
   });
 }
 
-function formatDayHeader(dayKey: string) {
-  return new Date(`${dayKey}T12:00:00-04:00`).toLocaleDateString('es-VE', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'America/Caracas',
-  });
-}
-
 function getDateKey(date: Date) {
   return date.toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -517,7 +508,6 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   return (
     <div className="space-y-4">
       <AdvisorCalendarStrip
-        activeDateLabel={formatDayHeader(selectedDayKey)}
         selectedDayKey={selectedDayKey}
         todayKey={getDateKey(new Date())}
       />
@@ -525,7 +515,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
       <PageIntro
         eyebrow="Agenda"
         title={titleForBucket(bucket)}
-        description={`${subtitleForBucket(bucket)} ${formatDayHeader(selectedDayKey)}.`}
+        description={subtitleForBucket(bucket)}
         action={
           <Link
             href={`/app/advisor?day=${selectedDayKey}`}

@@ -5,11 +5,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 export default function AdvisorCalendarStrip({
-  activeDateLabel,
   selectedDayKey,
   todayKey,
 }: {
-  activeDateLabel: string;
   selectedDayKey: string;
   todayKey: string;
 }) {
@@ -35,19 +33,15 @@ export default function AdvisorCalendarStrip({
   };
 
   return (
-    <section className="rounded-[20px] border border-[#232632] bg-[#12151d] px-3.5 py-3 shadow-[0_14px_28px_rgba(0,0,0,0.12)]">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-[#8B93A7]">Agenda</div>
-          <div className="mt-1 truncate text-sm font-semibold text-[#F5F7FB]">{activeDateLabel}</div>
-        </div>
-        <label className="ml-auto min-w-0 flex-1 sm:max-w-[220px]">
+    <section className="rounded-[18px] border border-[#232632] bg-[#12151d] px-3 py-2.5 shadow-[0_12px_24px_rgba(0,0,0,0.12)]">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <label className="min-w-0">
           <span className="sr-only">Seleccionar fecha</span>
           <input
             type="date"
             value={optimisticDayKey}
             onChange={(event) => handleDateChange(event.target.value)}
-            className="h-10 w-full rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 text-sm font-semibold text-[#F5F7FB] outline-none [color-scheme:dark]"
+            className="h-10 w-full min-w-0 rounded-[14px] border border-[#232632] bg-[#0F131B] px-3 text-sm font-semibold text-[#F5F7FB] outline-none [color-scheme:dark]"
           />
         </label>
         <Link

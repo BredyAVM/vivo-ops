@@ -616,7 +616,6 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   return (
     <div className="space-y-4">
       <AdvisorCalendarStrip
-        activeDateLabel={formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
         selectedDayKey={selectedDayKey}
         todayKey={getDateKey(new Date())}
       />
@@ -698,9 +697,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
             <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
               Seguimiento
             </div>
-            <h2 className="mt-1 text-xl font-semibold tracking-[-0.03em] text-[#F5F7FB]">
-              {formatDateLabel(new Date(`${selectedDayKey}T12:00:00-04:00`))}
-            </h2>
+            <h2 className="mt-1 text-xl font-semibold tracking-[-0.03em] text-[#F5F7FB]">Pedidos del día</h2>
           </div>
           <div className="text-right text-xs leading-5 text-[#AAB2C5]">
             <div>{agendaOrders.length} pedidos</div>
