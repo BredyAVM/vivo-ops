@@ -1,5 +1,12 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
+import {
+  OPERATIONAL_PHASES,
+  type OperationalPhase,
+  getOperationalPhase,
+  getOperationalPhaseIndex,
+  getOperationalStatusLabel,
+} from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
@@ -226,21 +233,6 @@ function getAgendaTimeLabel(order: Pick<OrderRow, 'created_at' | 'extra_fields'>
   });
 }
 
-function statusLabel(status: string) {
-  const labels: Record<string, string> = {
-    created: 'Por confirmar',
-    queued: 'En cola',
-    confirmed: 'En cocina',
-    in_kitchen: 'Preparando',
-    ready: 'Lista',
-    out_for_delivery: 'En camino',
-    delivered: 'Entregada',
-    cancelled: 'Cancelada',
-  };
-
-  return labels[status] ?? status;
-}
-
 function statusTone(status: string): 'neutral' | 'warning' | 'success' | 'danger' {
   if (status === 'created' || status === 'queued' || status === 'ready') return 'warning';
   if (status === 'delivered') return 'success';
@@ -370,36 +362,16 @@ function priorityScore(order: OrderRow, paymentStateByOrderId: Map<number, Payme
   return 4;
 }
 
-type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
-
-const OPERATIONAL_PHASES: Array<{ key: OperationalPhase; label: string; shortLabel: string }> = [
-  { key: 'new', label: 'Nuevas', shortLabel: 'Nuevas' },
-  { key: 'kitchen', label: 'Cocina', shortLabel: 'Cocina' },
-  { key: 'ready', label: 'Listas', shortLabel: 'Listas' },
-  { key: 'route', label: 'Camino', shortLabel: 'Camino' },
-  { key: 'closed', label: 'Entregadas', shortLabel: 'Entregadas' },
-];
-
 function operationalPhase(order: OrderRow): OperationalPhase {
-  if (order.status === 'cancelled') return 'cancelled';
-  if (order.status === 'delivered') return 'closed';
-  if (order.status === 'out_for_delivery') return 'route';
-  if (order.status === 'ready') return 'ready';
-  if (order.status === 'confirmed' || order.status === 'in_kitchen') return 'kitchen';
-  return 'new';
+  return getOperationalPhase(order.status);
 }
 
 function operationalPhaseIndex(order: OrderRow) {
-  const phase = operationalPhase(order);
-  if (phase === 'cancelled') return 0;
-  return Math.max(0, OPERATIONAL_PHASES.findIndex((item) => item.key === phase));
+  return getOperationalPhaseIndex(order.status);
 }
 
 function operationalPhaseLabel(order: OrderRow) {
-  if (order.status === 'ready' && order.fulfillment === 'pickup') return 'Lista para retiro';
-  if (order.status === 'ready') return 'Lista para salir';
-  if (order.status === 'out_for_delivery') return 'En camino';
-  return statusLabel(order.status);
+  return getOperationalStatusLabel(order);
 }
 
 function orderSearchText(order: OrderRow) {

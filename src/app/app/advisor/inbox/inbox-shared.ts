@@ -48,7 +48,7 @@ export type InboxRecipientCountRow = {
 };
 
 export const FILTERS: Array<{ key: InboxFilter; label: string }> = [
-  { key: 'pending', label: 'Accion' },
+  { key: 'pending', label: 'Acción' },
   { key: 'kitchen', label: 'Cocina' },
   { key: 'delivery', label: 'Entrega' },
   { key: 'payments', label: 'Pagos' },
@@ -176,7 +176,7 @@ export function eventTitle(eventType: string, fallbackTitle: string) {
     kitchen_taken: 'Cocina tomó la orden',
     kitchen_eta_updated: 'Tiempo actualizado',
     kitchen_delayed_prep: 'Retraso en cocina',
-    order_ready: 'Preparada',
+    order_ready: 'Lista',
     pickup_ready: 'Lista para retiro',
     driver_assigned: 'Motorizado asignado',
     out_for_delivery: 'En camino',
@@ -241,7 +241,7 @@ function fallbackMessageByType(eventType: string) {
     kitchen_taken: 'Cocina ya la tomo.',
     kitchen_eta_updated: 'Cocina actualizo el estimado.',
     kitchen_delayed_prep: 'La preparacion va con retraso.',
-    order_ready: 'Esta lista para salir.',
+    order_ready: 'Está lista para salir.',
     pickup_ready: 'Esta lista para retiro.',
     driver_assigned: 'Ya tiene motorizado.',
     out_for_delivery: 'Ya va en camino.',

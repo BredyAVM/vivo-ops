@@ -1,5 +1,13 @@
 import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
+import {
+  OPERATIONAL_PHASES,
+  type OperationalPhase,
+  getOperationalPhase,
+  getOperationalPhaseIndex,
+  getOperationalStatusLabel,
+  getPaymentMethodLabel,
+} from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import OrderDetailActions from './OrderDetailActions';
@@ -178,20 +186,6 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
-function statusLabel(status: string) {
-  const labels: Record<string, string> = {
-    created: 'Por confirmar',
-    queued: 'En cola',
-    confirmed: 'En cocina',
-    in_kitchen: 'Preparando',
-    ready: 'Lista para salir',
-    out_for_delivery: 'En camino',
-    delivered: 'Entregada',
-    cancelled: 'Cancelada',
-  };
-  return labels[status] ?? status;
-}
-
 function statusTone(status: string): 'neutral' | 'warning' | 'success' | 'danger' {
   if (status === 'created' || status === 'queued' || status === 'ready') return 'warning';
   if (status === 'delivered') return 'success';
@@ -212,19 +206,7 @@ function paymentTone(status: PaymentReportRow['status']): 'warning' | 'success' 
 }
 
 function paymentMethodCopyLabel(value: string | null | undefined) {
-  const labels: Record<string, string> = {
-    pending: 'pendiente',
-    payment_mobile: 'pago movil',
-    transfer: 'transferencia',
-    cash_usd: 'efectivo USD',
-    cash_ves: 'efectivo Bs',
-    pos: 'punto de venta',
-    zelle: 'zelle',
-    mixed: 'mixto',
-  };
-
-  const key = String(value || '').trim();
-  return labels[key] || 'pendiente';
+  return getPaymentMethodLabel(value, { lowercase: true });
 }
 
 function isMovingOrderStatus(status: string) {
@@ -278,36 +260,16 @@ function getPaymentSummary(
   };
 }
 
-type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
-
-const OPERATIONAL_PHASES: Array<{ key: OperationalPhase; label: string }> = [
-  { key: 'new', label: 'Nuevas' },
-  { key: 'kitchen', label: 'Cocina' },
-  { key: 'ready', label: 'Listas' },
-  { key: 'route', label: 'Camino' },
-  { key: 'closed', label: 'Entregadas' },
-];
-
 function operationalPhase(order: Pick<OrderRow, 'status'>): OperationalPhase {
-  if (order.status === 'cancelled') return 'cancelled';
-  if (order.status === 'delivered') return 'closed';
-  if (order.status === 'out_for_delivery') return 'route';
-  if (order.status === 'ready') return 'ready';
-  if (order.status === 'confirmed' || order.status === 'in_kitchen') return 'kitchen';
-  return 'new';
+  return getOperationalPhase(order.status);
 }
 
 function operationalPhaseIndex(order: Pick<OrderRow, 'status'>) {
-  const phase = operationalPhase(order);
-  if (phase === 'cancelled') return 0;
-  return Math.max(0, OPERATIONAL_PHASES.findIndex((item) => item.key === phase));
+  return getOperationalPhaseIndex(order.status);
 }
 
 function operationalPhaseLabel(order: Pick<OrderRow, 'status' | 'fulfillment'>) {
-  if (order.status === 'ready' && order.fulfillment === 'pickup') return 'Lista para retiro';
-  if (order.status === 'ready') return 'Lista para salir';
-  if (order.status === 'out_for_delivery') return 'En camino';
-  return statusLabel(order.status);
+  return getOperationalStatusLabel(order);
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {

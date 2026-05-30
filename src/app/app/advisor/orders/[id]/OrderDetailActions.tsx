@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import {
   createAdvisorPaymentReportAction,
@@ -52,14 +53,7 @@ function normalizeAdvisorLabel(value: string | null | undefined) {
 }
 
 function getPaymentMethodLabel(method: string) {
-  const labels: Record<string, string> = {
-    payment_mobile: 'Pago movil',
-    transfer: 'Transferencia',
-    pos: 'Punto de venta',
-    zelle: 'Zelle',
-  };
-
-  return labels[method] || method;
+  return getSharedPaymentMethodLabel(method, { fallback: method });
 }
 
 function patchAdvisorLabelInSummary(summary: string, advisorLabel: string) {

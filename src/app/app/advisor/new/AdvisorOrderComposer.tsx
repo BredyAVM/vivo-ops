@@ -2,6 +2,7 @@
 
 import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
@@ -387,18 +388,7 @@ const WHATSAPP_PRIMARY_BULLET = '\u25AA';
 const WHATSAPP_SECONDARY_BULLET = '-';
 
 function getPaymentMethodLabel(method: PaymentMethod) {
-  const labels: Record<PaymentMethod, string> = {
-    pending: 'pendiente',
-    payment_mobile: 'pago movil',
-    transfer: 'transferencia',
-    cash_usd: 'efectivo USD',
-    cash_ves: 'efectivo Bs',
-    pos: 'punto de venta',
-    zelle: 'zelle',
-    mixed: 'mixto',
-  };
-
-  return labels[method];
+  return getSharedPaymentMethodLabel(method, { lowercase: true });
 }
 
 function getVisibleDetailLines(lines: string[]) {
@@ -2499,17 +2489,6 @@ export default function AdvisorOrderComposer({
       deliveryHour12.trim() && deliveryMinute.trim()
         ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
         : 'Sin hora';
-    const paymentLabelMap: Record<PaymentMethod, string> = {
-      pending: 'pendiente',
-      payment_mobile: 'pago movil',
-      transfer: 'transferencia',
-      cash_usd: 'efectivo USD',
-      cash_ves: 'efectivo Bs',
-      pos: 'punto de venta',
-      zelle: 'zelle',
-      mixed: 'mixto',
-    };
-
     parts.push('*Presupuesto*');
     parts.push('');
     parts.push(`✅ Asesor: ${authUserLabel}`);
@@ -2545,7 +2524,7 @@ export default function AdvisorOrderComposer({
     parts.push('');
     parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${finalTotalUsd.toFixed(2)}$`);
     parts.push('');
-    parts.push(`✅ Forma de pago: ${paymentLabelMap[paymentMethod]}`);
+    parts.push(`✅ Forma de pago: ${getPaymentMethodLabel(paymentMethod)}`);
     parts.push('');
     parts.push('✅ Estatus de pago: Pendiente');
     parts.push('');
@@ -2588,17 +2567,6 @@ export default function AdvisorOrderComposer({
       deliveryHour12.trim() && deliveryMinute.trim()
         ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
         : 'Sin hora';
-    const paymentLabelMap: Record<PaymentMethod, string> = {
-      pending: 'pendiente',
-      payment_mobile: 'pago móvil',
-      transfer: 'transferencia',
-      cash_usd: 'efectivo USD',
-      cash_ves: 'efectivo Bs',
-      pos: 'punto de venta',
-      zelle: 'zelle',
-      mixed: 'mixto',
-    };
-
     parts.push('*Presupuesto*');
     parts.push('');
     parts.push(`✅ Asesor: ${authUserLabel}`);
@@ -2633,7 +2601,7 @@ export default function AdvisorOrderComposer({
     parts.push('');
     parts.push(`TOTAL: ${formatBsWhatsApp(finalTotalBs)} / ${finalTotalUsd.toFixed(2)}$`);
     parts.push('');
-    parts.push(`✅ Forma de pago: ${paymentLabelMap[paymentMethod]}`);
+    parts.push(`✅ Forma de pago: ${getPaymentMethodLabel(paymentMethod)}`);
     parts.push('');
     parts.push('✅ Estatus de pago: Pendiente');
     parts.push('');
@@ -3687,7 +3655,7 @@ export default function AdvisorOrderComposer({
             <Field label="Forma de pago">
               <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className={inputClass()}>
                 <option value="pending">Pendiente</option>
-                <option value="payment_mobile">Pago movil</option>
+                <option value="payment_mobile">Pago móvil</option>
                 <option value="transfer">Transferencia</option>
                 <option value="cash_usd">Efectivo USD</option>
                 <option value="cash_ves">Efectivo Bs</option>

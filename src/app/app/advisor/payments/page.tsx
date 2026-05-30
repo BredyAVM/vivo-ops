@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
+import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
@@ -87,18 +88,7 @@ function toSafeNumber(value: unknown, fallback = 0) {
 }
 
 function paymentMethodLabel(method: string | null | undefined) {
-  const labels: Record<string, string> = {
-    pending: 'Por definir',
-    payment_mobile: 'Pago movil',
-    transfer: 'Transferencia',
-    cash_usd: 'Efectivo USD',
-    cash_ves: 'Efectivo Bs',
-    pos: 'Punto de venta',
-    zelle: 'Zelle',
-    mixed: 'Mixto',
-  };
-
-  return labels[String(method || 'pending')] ?? 'Por definir';
+  return getPaymentMethodLabel(method);
 }
 
 function getOrderTotalUsd(order: OrderRow) {

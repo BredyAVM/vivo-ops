@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { ORDER_STATUS_LABELS, getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -887,16 +888,7 @@ type EditableInventoryLinkRow = {
   notes: string;
 };
 
-const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
-  created: 'Creada',
-  queued: 'En cola',
-  confirmed: 'Enviado a cocina',
-  in_kitchen: 'En preparación',
-  ready: 'Preparada',
-  out_for_delivery: 'En camino',
-  delivered: 'Entregado / Retirado',
-  cancelled: 'Cancelado',
-};
+const ORDER_STATUS_LABEL = ORDER_STATUS_LABELS as Record<OrderStatus, string>;
 
 const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
 const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos'];
@@ -2020,15 +2012,7 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
 }
 
 function getPaymentMethodLabel(method: string) {
-  if (method === 'pending') return 'Pendiente';
-  if (method === 'payment_mobile') return 'Pago móvil';
-  if (method === 'transfer') return 'Transferencia';
-  if (method === 'cash_usd') return 'Efectivo USD';
-  if (method === 'cash_ves') return 'Efectivo Bs';
-  if (method === 'zelle') return 'Zelle';
-  if (method === 'pos') return 'Punto de venta';
-  if (method === 'mixed') return 'Mixto';
-  return '—';
+  return getSharedPaymentMethodLabel(method, { fallback: '—' });
 }
 
 function isPaymentMethodCode(value: string): value is PaymentMethodCode {
@@ -2476,7 +2460,7 @@ function getProcessSteps(o: Order) {
     { key: 'created', label: 'Creada' },
     { key: 'queued', label: 'En cola' },
     { key: 'confirmed', label: 'En cocina' },
-    { key: 'ready', label: 'Preparada' },
+    { key: 'ready', label: 'Lista' },
     { key: isPickup ? 'pickup_ready' : 'out_for_delivery', label: isPickup ? 'Lista para retiro' : 'En camino' },
     { key: 'delivered', label: isPickup ? 'Retirada' : 'Entregada' },
   ];
@@ -2704,7 +2688,7 @@ function getDeliveryCompletionSummary(order: Order) {
     completedMs <= deliveryDueMs;
 
   return {
-    readyLabel: order.fulfillment === 'pickup' ? 'Lista a las' : 'Preparada a las',
+    readyLabel: order.fulfillment === 'pickup' ? 'Lista a las' : 'Lista a las',
     readyValue: readyMs != null ? fmtDateTimeES(new Date(readyMs).toISOString()) : '—',
     completedLabel: order.fulfillment === 'pickup' ? 'Retirada a las' : 'Entregada a las',
     completedValue: completedMs != null ? fmtDateTimeES(new Date(completedMs).toISOString()) : '—',
@@ -5461,7 +5445,7 @@ const handleSendToKitchen = async (orderId: number) => {
       showToast('error', result.message || 'Error enviando a cocina.');
       return;
     }
-    showToast('success', 'Enviado a cocina.');
+      showToast('success', 'Orden en cocina.');
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error enviando a cocina.';
