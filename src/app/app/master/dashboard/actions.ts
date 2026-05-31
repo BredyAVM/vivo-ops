@@ -278,16 +278,37 @@ export async function updateDashboardUserAction(input: {
 
   if (profileError) throw new Error(profileError.message);
 
-  const { error: deleteRolesError } = await supabase.from('user_roles').delete().eq('user_id', userId);
-  if (deleteRolesError) throw new Error(deleteRolesError.message);
-
-  const { error: insertRolesError } = await supabase
+  const { data: currentRoleRows, error: currentRolesError } = await supabase
     .from('user_roles')
-    .insert(nextRoles.map((role) => ({ user_id: userId, role })));
+    .select('role')
+    .eq('user_id', userId);
 
-  if (insertRolesError) throw new Error(insertRolesError.message);
+  if (currentRolesError) throw new Error(currentRolesError.message);
+
+  const currentRoles = normalizeUserRoles((currentRoleRows ?? []).map((row) => row.role));
+  const rolesToAdd = nextRoles.filter((role) => !currentRoles.includes(role));
+  const rolesToRemove = currentRoles.filter((role) => !nextRoles.includes(role));
+
+  if (rolesToRemove.length > 0) {
+    const { error: deleteRolesError } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+      .in('role', rolesToRemove);
+
+    if (deleteRolesError) throw new Error(deleteRolesError.message);
+  }
+
+  if (rolesToAdd.length > 0) {
+    const { error: insertRolesError } = await supabase
+      .from('user_roles')
+      .insert(rolesToAdd.map((role) => ({ user_id: userId, role })));
+
+    if (insertRolesError) throw new Error(insertRolesError.message);
+  }
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/users');
 }
 
 type MasterInboxStateItemInput = {
