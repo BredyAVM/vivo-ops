@@ -466,13 +466,15 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   if (normalizedSearchQuery.length >= 2) {
     const localMatches = orders.filter((order) => orderSearchText(order).includes(normalizedSearchQuery));
     let remoteMatches: OrderRow[] = [];
+    const phoneSearchTerms = getPhoneSearchTerms(remoteSearchQuery)
+      .map((term) => term.replace(/[,%]/g, ' '))
+      .filter(Boolean)
+      .slice(0, 5);
+    const shouldSearchRemoteClients =
+      remoteSearchQuery.length >= 3 || phoneSearchTerms.some((term) => term.replace(/\D/g, '').length >= 4);
 
-    if (remoteSearchQuery.length >= 2) {
-      const phoneFilters = getPhoneSearchTerms(remoteSearchQuery)
-        .map((term) => term.replace(/[,%]/g, ' '))
-        .filter(Boolean)
-        .slice(0, 5)
-        .map((term) => `phone.ilike.%${term}%`);
+    if (shouldSearchRemoteClients) {
+      const phoneFilters = phoneSearchTerms.map((term) => `phone.ilike.%${term}%`);
       const { data: clientMatches } = await ctx.supabase
         .from('clients')
         .select('id')
@@ -502,7 +504,9 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
           client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
         }));
       }
+    }
 
+    if (remoteSearchQuery.length >= 2) {
       const orderFilters = [`order_number.ilike.%${remoteSearchQuery}%`];
       const numericSearch = Number(remoteSearchQuery);
       if (Number.isFinite(numericSearch) && numericSearch > 0) {
@@ -535,19 +539,29 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const detailOrderIds = Array.from(
     new Set([...agendaOrders, ...searchResults].map((order) => order.id))
   );
+  const paymentOrderIds = Array.from(
+    new Set([...agendaOrders, ...searchResults].filter((order) => order.status !== 'cancelled').map((order) => order.id))
+  );
+  const reviewOrderIds = Array.from(
+    new Set([...agendaOrders, ...searchResults].filter((order) => isOpenStatus(order.status)).map((order) => order.id))
+  );
   const [paymentsData, timelineData] = detailOrderIds.length
     ? await Promise.all([
-      ctx.supabase
-        .from('payment_reports')
-        .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
-        .in('order_id', detailOrderIds),
-      ctx.supabase
-        .from('order_timeline_events')
-        .select('order_id, event_type, created_at')
-        .in('order_id', detailOrderIds)
-        .in('event_type', REVIEW_EVENT_TYPES)
-        .order('created_at', { ascending: false })
-        .limit(200),
+      paymentOrderIds.length
+        ? ctx.supabase
+            .from('payment_reports')
+            .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
+            .in('order_id', paymentOrderIds)
+        : Promise.resolve({ data: [] }),
+      reviewOrderIds.length
+        ? ctx.supabase
+            .from('order_timeline_events')
+            .select('order_id, event_type, created_at')
+            .in('order_id', reviewOrderIds)
+            .in('event_type', REVIEW_EVENT_TYPES)
+            .order('created_at', { ascending: false })
+            .limit(160)
+        : Promise.resolve({ data: [] }),
     ]).then(([paymentsResult, timelineResult]) => [
       paymentsResult.data ?? [],
       timelineResult.data ?? [],

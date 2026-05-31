@@ -421,19 +421,25 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   const orders = Array.from(orderById.values());
 
   const orderIds = orders.map((order) => order.id);
+  const paymentOrderIds = orders.filter((order) => order.status !== 'cancelled').map((order) => order.id);
+  const reviewOrderIds = orders.filter((order) => isOpenStatus(order.status)).map((order) => order.id);
   const [paymentsData, timelineData] = orderIds.length
     ? await Promise.all([
-      ctx.supabase
-        .from('payment_reports')
-        .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
-        .in('order_id', orderIds),
-      ctx.supabase
-        .from('order_timeline_events')
-        .select('order_id, event_type, created_at')
-        .in('order_id', orderIds)
-        .in('event_type', REVIEW_EVENT_TYPES)
-        .order('created_at', { ascending: false })
-        .limit(400),
+      paymentOrderIds.length
+        ? ctx.supabase
+            .from('payment_reports')
+            .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
+            .in('order_id', paymentOrderIds)
+        : Promise.resolve({ data: [] }),
+      reviewOrderIds.length
+        ? ctx.supabase
+            .from('order_timeline_events')
+            .select('order_id, event_type, created_at')
+            .in('order_id', reviewOrderIds)
+            .in('event_type', REVIEW_EVENT_TYPES)
+            .order('created_at', { ascending: false })
+            .limit(240)
+        : Promise.resolve({ data: [] }),
     ]).then(([paymentsResult, timelineResult]) => [
       paymentsResult.data ?? [],
       timelineResult.data ?? [],

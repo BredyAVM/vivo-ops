@@ -808,7 +808,8 @@ export default async function AdvisorOrderDetailPage({
         .from('order_timeline_events')
         .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
         .eq('order_id', orderId)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false })
+        .limit(80),
       ctx.supabase
         .from('exchange_rates')
         .select('rate_bs_per_usd')
