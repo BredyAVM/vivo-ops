@@ -42,8 +42,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       items.push(
         { href: "/app/master", label: "Master Home" },
         { href: "/app/master/payments", label: "Payment Reports (Pending)" },
-        { href: "/app/master/delivery-partners", label: "Delivery Partners" },
-        { href: "/app/master/users", label: "Users & Roles" }
+        { href: "/app/master/delivery-partners", label: "Delivery Partners" }
       );
     }
 

@@ -308,7 +308,6 @@ export async function updateDashboardUserAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
-  revalidatePath('/app/master/users');
 }
 
 type MasterInboxStateItemInput = {
