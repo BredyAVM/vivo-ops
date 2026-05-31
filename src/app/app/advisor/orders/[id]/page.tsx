@@ -936,6 +936,11 @@ export default async function AdvisorOrderDetailPage({
       order.status === 'in_kitchen' ||
       order.status === 'ready');
   const canDuplicateOrder = true;
+  const canCancelOrder =
+    ['created', 'queued'].includes(order.status) &&
+    confirmedPaidUsd <= 0.005 &&
+    pendingPaidUsd <= 0.005 &&
+    clientFundUsedUsd <= 0.005;
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
   const openPaymentOnLoad = resolvedSearchParams.reportPayment === '1';
   const paymentSummary = getPaymentSummary(
@@ -1064,6 +1069,7 @@ export default async function AdvisorOrderDetailPage({
             canDuplicateOrder={canDuplicateOrder}
             canReportPayment={canReportPayment}
             canRequestClientFund={canRequestClientFund}
+            canCancelOrder={canCancelOrder}
             clientFundAvailableUsd={clientFundAvailableUsd}
             fundRequestSuggestedUsd={fundRequestSuggestedUsd}
             hasPendingFundRequest={hasPendingFundRequest}

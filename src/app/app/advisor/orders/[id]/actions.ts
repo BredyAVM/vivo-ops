@@ -563,3 +563,112 @@ export async function requestClientFundApplicationAction(formData: FormData) {
   revalidatePath('/app/advisor/inbox');
   revalidatePath('/app/master/dashboard');
 }
+
+export async function cancelAdvisorOrderAction(formData: FormData) {
+  const ctx = await requireAuthContext();
+  if (!isAdvisorRole(ctx.roles) && !isMasterOrAdminRole(ctx.roles)) {
+    throw new Error('No autorizado.');
+  }
+
+  const orderId = Number(formData.get('orderId') || 0);
+  const reason = String(formData.get('reason') || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  if (!reason) {
+    throw new Error('Indica el motivo de cancelacion.');
+  }
+
+  const { data: order, error: orderError } = await ctx.supabase
+    .from('orders')
+    .select('id, order_number, attributed_advisor_id, status, notes, extra_fields')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  const isMasterOrAdmin = isMasterOrAdminRole(ctx.roles);
+  if (!isMasterOrAdmin && order.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes cancelar esta orden.');
+  }
+
+  if (!['created', 'queued'].includes(String(order.status || ''))) {
+    throw new Error('El asesor solo puede cancelar ordenes creadas o en cola.');
+  }
+
+  const { data: paymentReports, error: paymentReportsError } = await ctx.supabase
+    .from('payment_reports')
+    .select('id')
+    .eq('order_id', orderId)
+    .in('status', ['pending', 'confirmed'])
+    .limit(1);
+
+  if (paymentReportsError) {
+    throw new Error(paymentReportsError.message);
+  }
+
+  const clientFundUsedUsd = toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
+  if ((paymentReports ?? []).length > 0 || clientFundUsedUsd > 0.005) {
+    throw new Error('Esta orden ya tiene dinero involucrado. Pide a master/admin que la cancele.');
+  }
+
+  const nextNotes = [
+    String(order.notes || '').trim(),
+    `CANCELADA POR ASESOR: ${reason}`,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const { error: updateError } = await ctx.supabase
+    .from('orders')
+    .update({
+      status: 'cancelled',
+      review_notes: reason,
+      notes: nextNotes,
+      queued_needs_reapproval: false,
+      queued_last_modified_at: null,
+      queued_last_modified_by: null,
+      last_modified_at: new Date().toISOString(),
+      last_modified_by: ctx.user.id,
+    })
+    .eq('id', orderId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  const eventContext = await loadOrderEventContext(ctx.supabase, orderId);
+  await appendOrderEvent(ctx.supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'order_cancelled',
+    eventGroup: 'approval',
+    title: 'Orden cancelada',
+    message: reason,
+    severity: 'warning',
+    actorUserId: ctx.user.id,
+    payload: {
+      reason,
+      cancelled_by_role: isMasterOrAdmin ? 'master_admin' : 'advisor',
+      previous_status: order.status,
+      source: 'advisor_mobile',
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetRole: 'admin' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/dashboard');
+
+  return { ok: true };
+}

@@ -7,6 +7,7 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import {
+  cancelAdvisorOrderAction,
   createAdvisorPaymentReportAction,
   loadAdvisorPaymentOptionsAction,
   requestClientFundApplicationAction,
@@ -87,6 +88,7 @@ export default function OrderDetailActions({
   canDuplicateOrder,
   canReportPayment,
   canRequestClientFund,
+  canCancelOrder,
   clientFundAvailableUsd,
   fundRequestSuggestedUsd,
   hasPendingFundRequest,
@@ -105,6 +107,7 @@ export default function OrderDetailActions({
   canDuplicateOrder: boolean;
   canReportPayment: boolean;
   canRequestClientFund: boolean;
+  canCancelOrder: boolean;
   clientFundAvailableUsd: number;
   fundRequestSuggestedUsd: number;
   hasPendingFundRequest: boolean;
@@ -130,6 +133,9 @@ export default function OrderDetailActions({
   const [copyingSummary, setCopyingSummary] = useState(false);
   const [sendingFundRequest, setSendingFundRequest] = useState(false);
   const [sendingPaymentReport, setSendingPaymentReport] = useState(false);
+  const [cancelBoxOpen, setCancelBoxOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [sendingCancel, setSendingCancel] = useState(false);
   const [fundRequestSent, setFundRequestSent] = useState(hasPendingFundRequest);
   const [advisorLabel, setAdvisorLabel] = useState('Asesor');
   const [paymentAccounts, setPaymentAccounts] = useState<MoneyAccountOption[]>(moneyAccounts);
@@ -239,6 +245,7 @@ export default function OrderDetailActions({
 
   const fundRequestDisabled = fundRequestPending || sendingFundRequest || fundRequestSent || !canRequestClientFund;
   const paymentReportDisabled = isPending || sendingPaymentReport;
+  const cancelOrderDisabled = isPending || sendingCancel || !canCancelOrder;
 
   async function handleCopySummary() {
     if (copySummaryRef.current) return;
@@ -259,7 +266,7 @@ export default function OrderDetailActions({
     }
   }
 
-  if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !canRequestClientFund && !whatsappSummary.trim()) return null;
+  if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !canRequestClientFund && !canCancelOrder && !whatsappSummary.trim()) return null;
 
   return (
     <div className="space-y-3">
@@ -335,7 +342,95 @@ export default function OrderDetailActions({
             {reportBoxOpen ? 'Pago abierto' : 'Pago'}
           </button>
         ) : null}
+
+        {canCancelOrder ? (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setSuccess(null);
+              setCancelBoxOpen((current) => !current);
+            }}
+            className={[
+              'inline-flex h-9 items-center justify-center rounded-full border px-3.5 text-xs font-semibold',
+              cancelBoxOpen ? 'border-[#F0A6AE] bg-[#261114] text-[#F0A6AE]' : 'border-[#5E2229] text-[#F0A6AE]',
+            ].join(' ')}
+          >
+            Cancelar orden
+          </button>
+        ) : null}
       </div>
+
+      {canCancelOrder && cancelBoxOpen ? (
+        <div className="advisor-fade-in rounded-[18px] border border-[#5E2229] bg-[#140D10] px-3.5 py-3">
+          <div className="text-sm font-medium text-[#F5F7FB]">Cancelar orden</div>
+          <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">
+            Disponible solo antes de entrar a cocina. Si ya hay dinero reportado o confirmado, debe hacerlo master/admin.
+          </div>
+
+          <div className="mt-3">
+            <Field label="Motivo de cancelacion">
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className={inputClass(true)}
+                disabled={cancelOrderDisabled}
+                placeholder="Cliente cancelo, error en la solicitud, cambio de fecha..."
+              />
+            </Field>
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              aria-busy={sendingCancel}
+              data-busy={sendingCancel ? 'true' : undefined}
+              disabled={cancelOrderDisabled}
+              onClick={() => {
+                if (sendingCancel) return;
+
+                setError(null);
+                setSuccess(null);
+                setSendingCancel(true);
+
+                startTransition(async () => {
+                  try {
+                    const formData = new FormData();
+                    formData.set('orderId', String(orderId));
+                    formData.set('reason', cancelReason);
+
+                    await cancelAdvisorOrderAction(formData);
+
+                    setSuccess('Orden cancelada.');
+                    setCancelBoxOpen(false);
+                    router.refresh();
+                  } catch (submitError) {
+                    setError(
+                      submitError instanceof Error ? submitError.message : 'No se pudo cancelar la orden.',
+                    );
+                  } finally {
+                    setSendingCancel(false);
+                  }
+                });
+              }}
+              className={[
+                'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                cancelOrderDisabled ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#D92D3D] text-white',
+              ].join(' ')}
+            >
+              {sendingCancel ? 'Cancelando...' : 'Confirmar cancelacion'}
+            </button>
+            <button
+              type="button"
+              disabled={cancelOrderDisabled}
+              onClick={() => setCancelBoxOpen(false)}
+              className="h-11 rounded-[16px] border border-[#232632] px-4 text-sm font-semibold text-[#F5F7FB] transition active:scale-[0.98] disabled:cursor-not-allowed disabled:text-[#6F7890]"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {canOpenPaymentTools && reportBoxOpen ? (
         <div className="advisor-fade-in rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">

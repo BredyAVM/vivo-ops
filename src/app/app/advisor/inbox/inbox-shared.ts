@@ -62,6 +62,7 @@ export const INCLUDED_EVENT_TYPES = new Set([
   'order_reapproved',
   'order_changes_rejected',
   'order_changes_approved',
+  'order_cancelled',
   'order_sent_to_kitchen',
   'kitchen_taken',
   'kitchen_eta_updated',
@@ -173,6 +174,7 @@ export function eventTitle(eventType: string, fallbackTitle: string) {
     order_reapproved: 'Re-aprobada',
     order_changes_rejected: 'Corregir cambios',
     order_changes_approved: 'Cambios aprobados',
+    order_cancelled: 'Cancelada',
     order_sent_to_kitchen: 'En cocina',
     kitchen_taken: 'Cocina tomó la orden',
     kitchen_eta_updated: 'Tiempo actualizado',
@@ -194,7 +196,7 @@ export function eventTitle(eventType: string, fallbackTitle: string) {
 }
 
 export function eventTone(eventType: string): InboxEvent['tone'] {
-  if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected') return 'danger';
+  if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected' || eventType === 'order_cancelled') return 'danger';
   if (ACTION_EVENT_TYPES.has(eventType) || eventType.includes('delayed') || eventType === 'client_fund_application_requested') return 'warning';
   if (eventType === 'payment_confirmed' || eventType === 'order_delivered' || eventType === 'pickup_collected') return 'success';
   return 'neutral';
@@ -238,6 +240,7 @@ function fallbackMessageByType(eventType: string) {
     order_reapproved: 'Ya fue aprobada de nuevo.',
     order_changes_rejected: 'Revisa los cambios rechazados.',
     order_changes_approved: 'Los cambios fueron aprobados.',
+    order_cancelled: 'La orden fue cancelada.',
     order_sent_to_kitchen: 'Fue enviada a cocina.',
     kitchen_taken: 'Cocina ya la tomo.',
     kitchen_eta_updated: 'Cocina actualizo el estimado.',
