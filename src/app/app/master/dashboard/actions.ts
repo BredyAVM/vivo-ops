@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
@@ -12,6 +13,22 @@ import { getMasterDashboardPermissions } from './permissions';
 
 async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
+}
+
+function createSupabaseServiceRoleServer() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error('Falta configurar SUPABASE_SERVICE_ROLE_KEY para acciones administrativas.');
+  }
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 function stableStringify(value: unknown): string {
@@ -158,6 +175,7 @@ type OrderEventSeverity = 'info' | 'warning' | 'critical';
 type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos';
 
+const APP_USER_ROLES_VALUES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
 const APP_USER_ROLES = new Set<AppUserRole>(['admin', 'master', 'advisor', 'kitchen', 'driver']);
 const PAYMENT_METHOD_CODES = new Set<PaymentMethodCode>([
   'payment_mobile',
@@ -243,7 +261,7 @@ type OrderEventRecipientInput = {
   requiresAction?: boolean;
 };
 
-export async function updateDashboardUserAction(input: {
+async function updateDashboardUserActionLegacy(input: {
   userId: string;
   fullName: string;
   isActive: boolean;
@@ -308,6 +326,78 @@ export async function updateDashboardUserAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
+}
+
+export async function updateDashboardUserAction(input: {
+  userId: string;
+  fullName: string;
+  isActive: boolean;
+  roles: AppUserRole[];
+}) {
+  try {
+    const { user, roles } = await requireMasterOrAdmin();
+    requireAdminRole(roles);
+
+    const userId = String(input.userId || '').trim();
+    if (!userId) {
+      return { ok: false, error: 'Usuario invalido.' };
+    }
+
+    const nextRoles = normalizeUserRoles(input.roles);
+    if (nextRoles.length === 0) {
+      return { ok: false, error: 'Selecciona al menos un rol.' };
+    }
+
+    if (userId === user.id && !nextRoles.some((role) => role === 'admin' || role === 'master')) {
+      return { ok: false, error: 'No puedes quitarte tu propio acceso al dashboard master.' };
+    }
+
+    const adminSupabase = createSupabaseServiceRoleServer();
+    const fullName = String(input.fullName || '').trim();
+
+    const { error: profileError } = await adminSupabase
+      .from('profiles')
+      .update({
+        full_name: fullName || null,
+        is_active: Boolean(input.isActive),
+      })
+      .eq('id', userId);
+
+    if (profileError) return { ok: false, error: profileError.message };
+
+    const rolesToKeep = APP_USER_ROLES_VALUES.filter((role) => nextRoles.includes(role));
+    const rolesToRemove = APP_USER_ROLES_VALUES.filter((role) => !nextRoles.includes(role));
+
+    if (rolesToRemove.length > 0) {
+      const { error: deleteRolesError } = await adminSupabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId)
+        .in('role', rolesToRemove);
+
+      if (deleteRolesError) return { ok: false, error: deleteRolesError.message };
+    }
+
+    if (rolesToKeep.length > 0) {
+      const { error: upsertRolesError } = await adminSupabase
+        .from('user_roles')
+        .upsert(
+          rolesToKeep.map((role) => ({ user_id: userId, role })),
+          { onConflict: 'user_id,role' }
+        );
+
+      if (upsertRolesError) return { ok: false, error: upsertRolesError.message };
+    }
+
+    revalidatePath('/app/master/dashboard');
+    return { ok: true };
+  } catch (error) {
+    console.error('updateDashboardUserAction failed', error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'No se pudo actualizar el usuario.',
+    };
+  }
 }
 
 type MasterInboxStateItemInput = {

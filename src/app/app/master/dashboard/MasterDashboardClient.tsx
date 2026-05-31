@@ -5317,12 +5317,18 @@ const handleSaveDashboardUser = async () => {
 
   try {
     setUserSaving(true);
-    await updateDashboardUserAction({
+    const result = await updateDashboardUserAction({
       userId: selectedDashboardUser.id,
       fullName: userFormFullName,
       isActive: userFormIsActive,
       roles: nextRoles,
     });
+
+    if (!result.ok) {
+      showToast('error', result.error || 'No se pudo actualizar el usuario.');
+      return;
+    }
+
     showToast('success', 'Usuario actualizado.');
     closeEditDashboardUser();
     router.refresh();
