@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: 'VIVO Asesor',
     description: 'Operacion movil del asesor en VIVO OPS',
     start_url: '/app/advisor/orders',
-    scope: '/app/advisor/',
+    scope: '/',
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#090B10',
