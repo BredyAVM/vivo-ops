@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import AdvisorPendingLink from '../AdvisorPendingLink';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
 import {
   type InboxEvent,
@@ -225,7 +225,7 @@ export default function AdvisorInboxClient({
         <section className="overflow-x-auto pb-1">
           <div className="flex min-w-max gap-2">
             {visibleFilters.map((filter) => (
-              <Link
+              <AdvisorPendingLink
                 key={filter.key}
                 href={`/app/advisor/inbox?filter=${filter.key}`}
                 className={[
@@ -236,7 +236,7 @@ export default function AdvisorInboxClient({
                 ].join(' ')}
               >
                 {filter.label}
-              </Link>
+              </AdvisorPendingLink>
             ))}
           </div>
         </section>
@@ -342,7 +342,7 @@ export default function AdvisorInboxClient({
                                   : 'Visto'}
                             </button>
                           </div>
-                          <Link
+                          <AdvisorPendingLink
                             href={actionHref(event)}
                             onClick={() => {
                               if (!isRead && !isSaving(event.recipientId)) {
@@ -357,7 +357,7 @@ export default function AdvisorInboxClient({
                             ].join(' ')}
                           >
                             {actionLabel(event)}
-                          </Link>
+                          </AdvisorPendingLink>
                         </div>
                       </article>
                     );

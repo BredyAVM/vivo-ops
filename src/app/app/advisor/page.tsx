@@ -10,6 +10,7 @@ import {
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
+import AdvisorSearchForm from './AdvisorSearchForm';
 import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
 
 type SearchParams = Promise<{
@@ -622,21 +623,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
       />
 
       <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3.5">
-        <form action="/app/advisor" className="flex gap-2">
-          <input type="hidden" name="day" value={selectedDayKey} />
-          <input
-            name="q"
-            defaultValue={searchQuery}
-            placeholder="Cliente, telefono u orden"
-            className="h-11 min-w-0 flex-1 rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] outline-none placeholder:text-[#636C80]"
-          />
-          <button
-            type="submit"
-            className="h-11 rounded-[16px] bg-[#F0D000] px-4 text-sm font-semibold text-[#17191E]"
-          >
-            Buscar
-          </button>
-        </form>
+        <AdvisorSearchForm selectedDayKey={selectedDayKey} searchQuery={searchQuery} />
 
         {searchQuery ? (
           <div className="mt-3">

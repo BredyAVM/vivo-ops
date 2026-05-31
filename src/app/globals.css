@@ -44,14 +44,35 @@ body {
 
 .advisor-app a:active,
 .advisor-app button:active {
-  transform: scale(0.98);
-  opacity: 0.92;
+  transform: scale(0.965);
+  opacity: 0.9;
+  box-shadow: 0 0 0 2px rgba(240, 208, 0, 0.2);
 }
 
 .advisor-app button:disabled,
 .advisor-app a[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.64;
+}
+
+.advisor-app [data-busy='true'] {
+  pointer-events: none;
+  position: relative;
+  opacity: 0.78;
+  transform: scale(0.985);
+}
+
+.advisor-app [data-busy='true']::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: advisor-spin 650ms linear infinite;
 }
 
 .advisor-fade-in {
@@ -81,6 +102,12 @@ body {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes advisor-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

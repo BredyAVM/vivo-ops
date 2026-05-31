@@ -623,6 +623,8 @@ export default function OrderDetailActions({
             <div className="flex gap-2">
               <button
                 type="button"
+                aria-busy={sendingPaymentReport}
+                data-busy={sendingPaymentReport ? 'true' : undefined}
                 disabled={paymentReportDisabled}
                 onClick={() => {
                   if (paymentReportRef.current) return;

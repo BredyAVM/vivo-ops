@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
 import AdvisorInboxBell from './AdvisorInboxBell';
+import AdvisorPendingLink from './AdvisorPendingLink';
 import AdvisorRealtimeNotifier from './AdvisorRealtimeNotifier';
 
 type AdvisorShellProps = {
@@ -58,12 +59,12 @@ export default function AdvisorShell(props: AdvisorShellProps) {
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex min-w-0 items-center gap-2">
               {backHref ? (
-                <Link
+                <AdvisorPendingLink
                   href={backHref}
                   className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] bg-[#10131A] px-3 text-sm font-medium text-[#F5F7FB]"
                 >
                   Volver
-                </Link>
+                </AdvisorPendingLink>
               ) : null}
 
               <Link href="/app/advisor" className="min-w-0">
@@ -86,12 +87,12 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                 unreadUpdateCount={unreadUpdateCount}
               />
               {showCreateButton ? (
-                <Link
+                <AdvisorPendingLink
                   href="/app/advisor/new"
                   className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-sm font-semibold text-[#17191E]"
                 >
                   Nuevo
-                </Link>
+                </AdvisorPendingLink>
               ) : null}
               <button
                 type="button"
@@ -116,7 +117,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                   const active = isActive(pathname, item.href);
 
                   return (
-                    <Link
+                    <AdvisorPendingLink
                       key={item.href}
                       href={item.href}
                       onClick={() => setMenuOpen(false)}
@@ -128,18 +129,18 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                       ].join(' ')}
                     >
                       {item.label}
-                    </Link>
+                    </AdvisorPendingLink>
                   );
                 })}
 
                 {backHref ? (
-                  <Link
+                  <AdvisorPendingLink
                     href={backHref}
                     onClick={() => setMenuOpen(false)}
                     className="flex h-10 items-center rounded-[12px] px-3 text-sm font-medium text-[#AAB2C5] hover:bg-[#171B24] hover:text-[#F5F7FB]"
                   >
                     Volver
-                  </Link>
+                  </AdvisorPendingLink>
                 ) : null}
               </div>
             </div>

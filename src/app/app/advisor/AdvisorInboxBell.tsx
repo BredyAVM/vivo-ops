@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import AdvisorPendingLink from './AdvisorPendingLink';
 import { countCoalescedUnreadNotificationsByKind } from './inbox/inbox-shared';
 
 function ActionIcon() {
@@ -126,10 +126,10 @@ export default function AdvisorInboxBell({
 
   return (
     <div className="flex items-center gap-1.5">
-      <Link
+      <AdvisorPendingLink
         href="/app/advisor/inbox/actions"
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#3B3220] bg-[#151208] text-[#F7DA66]"
-        aria-label={`Acciones pendientes de ${advisorName}`}
+        ariaLabel={`Acciones pendientes de ${advisorName}`}
         title="Acciones"
       >
         <ActionIcon />
@@ -138,11 +138,11 @@ export default function AdvisorInboxBell({
             {counts.actions}
           </span>
         ) : null}
-      </Link>
-      <Link
+      </AdvisorPendingLink>
+      <AdvisorPendingLink
         href="/app/advisor/inbox/updates"
         className="relative inline-flex h-11 w-11 items-center justify-center rounded-[16px] border border-[#232632] bg-[#0F131B] text-[#D8E0F4]"
-        aria-label={`Seguimiento de pedidos de ${advisorName}`}
+        ariaLabel={`Seguimiento de pedidos de ${advisorName}`}
         title="Seguimiento"
       >
         <UpdatesIcon />
@@ -151,7 +151,7 @@ export default function AdvisorInboxBell({
             {counts.updates}
           </span>
         ) : null}
-      </Link>
+      </AdvisorPendingLink>
     </div>
   );
 }

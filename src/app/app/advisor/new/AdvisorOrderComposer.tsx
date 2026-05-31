@@ -3863,6 +3863,8 @@ export default function AdvisorOrderComposer({
               <button
                 type="button"
                 onClick={() => void handleCopyQuote()}
+                aria-busy={copyingQuote}
+                data-busy={copyingQuote ? 'true' : undefined}
                 disabled={copyingQuote || saving || draftItems.length === 0}
                 className={[
                   'h-11 rounded-[16px] border px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
@@ -3876,6 +3878,7 @@ export default function AdvisorOrderComposer({
               <button
                 type="submit"
                 aria-busy={saving}
+                data-busy={saving ? 'true' : undefined}
                 disabled={saving || !baseCreateReady}
                 className={[
                   'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
