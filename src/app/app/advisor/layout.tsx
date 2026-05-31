@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import AdvisorShell from './AdvisorShell';
 import AdvisorPwaRegistrar from './AdvisorPwaRegistrar';
-import { countCoalescedUnreadNotificationsByKind } from './inbox/inbox-shared';
+import { countCoalescedNotificationsByKind } from './inbox/inbox-shared';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -51,7 +51,8 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
     .from('order_timeline_event_recipients')
     .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
     .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
-    .limit(200);
+    .order('id', { ascending: false })
+    .limit(500);
 
   const reviewOrderIds = Array.from(
     new Set(
@@ -74,7 +75,7 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
         .in('status', ['delivered', 'cancelled'])
     : { data: [] };
   const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
-  const unreadCounts = countCoalescedUnreadNotificationsByKind(recipientsData ?? [], closedOrderIds);
+  const notificationCounts = countCoalescedNotificationsByKind(recipientsData ?? [], closedOrderIds);
 
   return (
     <AdvisorShell
@@ -85,8 +86,8 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
         ctx.user.user_metadata?.name ||
         'Asesor'
       }
-      unreadActionCount={unreadCounts.actions}
-      unreadUpdateCount={unreadCounts.updates}
+      actionCount={notificationCounts.actions}
+      updateCount={notificationCounts.updates}
     >
       <AdvisorPwaRegistrar />
       {children}

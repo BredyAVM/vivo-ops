@@ -120,10 +120,6 @@ export default function AdvisorInboxClient({
     () => events.filter((event) => !event.readAt).length,
     [events]
   );
-  const unreadActionCount = useMemo(
-    () => events.filter((event) => event.requiresAction && !event.readAt).length,
-    [events]
-  );
   const pendingEvents = useMemo(
     () => events.filter((event) => event.requiresAction),
     [events],
@@ -253,8 +249,8 @@ export default function AdvisorInboxClient({
         }
         action={
           <div className="flex items-center gap-2">
-            {unreadActionCount > 0 ? (
-              <StatusBadge label={`${unreadActionCount} por atender`} tone="warning" />
+            {pendingEvents.length > 0 ? (
+              <StatusBadge label={`${pendingEvents.length} por atender`} tone="warning" />
             ) : null}
             {unreadCount > 0 ? (
               <button

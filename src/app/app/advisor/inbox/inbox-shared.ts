@@ -325,6 +325,20 @@ export function countCoalescedUnreadNotificationsByKind(
   recipients: InboxRecipientCountRow[],
   closedOrderIds: Set<number> = new Set()
 ) {
+  const counts = countCoalescedNotificationsByKind(recipients, closedOrderIds);
+
+  return {
+    actions: counts.unreadActions,
+    updates: counts.unreadUpdates,
+    total: counts.unreadTotal,
+  };
+}
+
+export function countCoalescedNotificationsByKind(
+  recipients: InboxRecipientCountRow[],
+  closedOrderIds: Set<number> = new Set()
+) {
+  let actionCount = 0;
   let unreadActionCount = 0;
   const seenActionEventIds = new Set<string>();
   const latestInfoByOrderId = new Map<
@@ -350,9 +364,10 @@ export function countCoalescedUnreadNotificationsByKind(
     const orderStatus = closedOrderIds.has(orderId) ? 'delivered' : null;
 
     if (shouldRequireAdvisorAction(eventType, recipient.requires_action, orderStatus)) {
-      if (isUnread && !seenActionEventIds.has(eventId)) {
+      if (!seenActionEventIds.has(eventId)) {
         seenActionEventIds.add(eventId);
-        unreadActionCount += 1;
+        actionCount += 1;
+        if (isUnread) unreadActionCount += 1;
       }
       continue;
     }
@@ -372,10 +387,14 @@ export function countCoalescedUnreadNotificationsByKind(
     }
   }
 
+  const updateCount = latestInfoByOrderId.size;
   const unreadInfoCount = Array.from(latestInfoByOrderId.values()).filter((event) => event.hasUnreadRecipient).length;
   return {
-    actions: unreadActionCount,
-    updates: unreadInfoCount,
-    total: unreadActionCount + unreadInfoCount,
+    actions: actionCount,
+    updates: updateCount,
+    total: actionCount + updateCount,
+    unreadActions: unreadActionCount,
+    unreadUpdates: unreadInfoCount,
+    unreadTotal: unreadActionCount + unreadInfoCount,
   };
 }

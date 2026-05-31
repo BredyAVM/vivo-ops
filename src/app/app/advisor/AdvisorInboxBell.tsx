@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import AdvisorPendingLink from './AdvisorPendingLink';
-import { countCoalescedUnreadNotificationsByKind } from './inbox/inbox-shared';
+import { countCoalescedNotificationsByKind } from './inbox/inbox-shared';
 
 function ActionIcon() {
   return (
@@ -40,19 +40,24 @@ function UpdatesIcon() {
   );
 }
 
+function formatBadgeCount(value: number) {
+  if (value > 99) return '99+';
+  return String(value);
+}
+
 export default function AdvisorInboxBell({
   advisorName,
   userId,
-  unreadActionCount,
-  unreadUpdateCount,
+  actionCount,
+  updateCount,
 }: {
   advisorName: string;
   userId: string;
-  unreadActionCount: number;
-  unreadUpdateCount: number;
+  actionCount: number;
+  updateCount: number;
 }) {
   const supabase = useMemo(() => createSupabaseBrowser(), []);
-  const [counts, setCounts] = useState({ actions: unreadActionCount, updates: unreadUpdateCount });
+  const [counts, setCounts] = useState({ actions: actionCount, updates: updateCount });
 
   useEffect(() => {
     async function refreshUnreadCount() {
@@ -60,7 +65,8 @@ export default function AdvisorInboxBell({
         .from('order_timeline_event_recipients')
         .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
         .or(`target_user_id.eq.${userId},target_role.eq.advisor`)
-        .limit(200);
+        .order('id', { ascending: false })
+        .limit(500);
 
       const reviewOrderIds = Array.from(
         new Set(
@@ -80,7 +86,7 @@ export default function AdvisorInboxBell({
         : { data: [] };
       const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
 
-      const nextCounts = countCoalescedUnreadNotificationsByKind(data ?? [], closedOrderIds);
+      const nextCounts = countCoalescedNotificationsByKind(data ?? [], closedOrderIds);
       setCounts({ actions: nextCounts.actions, updates: nextCounts.updates });
     }
 
@@ -134,8 +140,8 @@ export default function AdvisorInboxBell({
       >
         <ActionIcon />
         {counts.actions > 0 ? (
-          <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold text-[#17191E]">
-            {counts.actions}
+          <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[24px] justify-center rounded-full bg-[#F0D000] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[#17191E] shadow-[0_0_0_2px_#090B10]">
+            {formatBadgeCount(counts.actions)}
           </span>
         ) : null}
       </AdvisorPendingLink>
@@ -147,8 +153,8 @@ export default function AdvisorInboxBell({
       >
         <UpdatesIcon />
         {counts.updates > 0 ? (
-          <span className="absolute -right-1 -top-1 inline-flex min-w-[20px] justify-center rounded-full bg-[#33405A] px-1.5 py-0.5 text-[11px] font-semibold text-[#F5F7FB]">
-            {counts.updates}
+          <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[24px] justify-center rounded-full bg-[#33405A] px-1.5 py-0.5 text-[11px] font-semibold leading-none text-[#F5F7FB] shadow-[0_0_0_2px_#090B10]">
+            {formatBadgeCount(counts.updates)}
           </span>
         ) : null}
       </AdvisorPendingLink>

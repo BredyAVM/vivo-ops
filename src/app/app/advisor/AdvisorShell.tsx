@@ -12,8 +12,8 @@ type AdvisorShellProps = {
   children: ReactNode;
   fullName: string;
   userId: string;
-  unreadActionCount: number;
-  unreadUpdateCount: number;
+  actionCount: number;
+  updateCount: number;
 };
 
 const navItems = [
@@ -36,7 +36,7 @@ function resolveBackHref(pathname: string) {
 }
 
 export default function AdvisorShell(props: AdvisorShellProps) {
-  const { children, userId, fullName, unreadActionCount, unreadUpdateCount } = props;
+  const { children, userId, fullName, actionCount, updateCount } = props;
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -83,8 +83,8 @@ export default function AdvisorShell(props: AdvisorShellProps) {
               <AdvisorInboxBell
                 advisorName={advisorName}
                 userId={userId}
-                unreadActionCount={unreadActionCount}
-                unreadUpdateCount={unreadUpdateCount}
+                actionCount={actionCount}
+                updateCount={updateCount}
               />
               {showCreateButton ? (
                 <AdvisorPendingLink
