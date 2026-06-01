@@ -456,13 +456,11 @@ function calculateCatalogSnapshotForDraftItem(item: DraftItem, product: ProductR
 
 function draftItemHasCatalogPriceDrift(item: DraftItem, product: ProductRow, fxRateNumber: number) {
   const current = calculateCatalogSnapshotForDraftItem(item, product, fxRateNumber);
-  const epsilon = 0.005;
+  const epsilon = current.sourceCurrency === 'VES' ? 0.01 : 0.005;
 
   return (
     item.source_price_currency !== current.sourceCurrency ||
-    Math.abs(Number(item.source_price_amount || 0) - current.sourceAmount) > epsilon ||
-    Math.abs(Number(item.unit_price_usd_snapshot || 0) - current.snapshot.unitUsd) > epsilon ||
-    Math.abs(Number(item.line_total_usd || 0) - current.snapshot.lineUsd) > epsilon
+    Math.abs(Number(item.source_price_amount || 0) - current.sourceAmount) > epsilon
   );
 }
 
