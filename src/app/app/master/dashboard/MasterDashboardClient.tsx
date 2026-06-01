@@ -2391,6 +2391,14 @@ function canSendToKitchen(o: Order) {
   return o.status === 'queued' && o.queuedNeedsReapproval === false;
 }
 
+function isScheduledClosingOrder(order: Order) {
+  return order.status !== 'cancelled' && order.totalUsd > 0.005;
+}
+
+function isRecognizedBillingOrder(order: Order) {
+  return !['created', 'cancelled'].includes(order.status) && order.totalUsd > 0.005;
+}
+
 function canKitchenTake(o: Order) {
   return o.status === 'confirmed';
 }
@@ -4258,20 +4266,22 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [orders, selectedDay]);
 
   const dayStats = useMemo(() => {
-    const list = dayOrders.filter((order) => order.status === 'delivered' && order.totalUsd > 0.005);
-    const cierres = list.length;
-    const fact = list.reduce((s, o) => s + o.totalUsd, 0);
-    const abonadoConfirmado = list.reduce((s, o) => s + o.confirmedPaidUsd, 0);
-    const pendiente = list.reduce((s, o) => s + o.balanceUsd, 0);
+    const scheduledOrders = dayOrders.filter(isScheduledClosingOrder);
+    const billingOrders = dayOrders.filter(isRecognizedBillingOrder);
+    const cierres = scheduledOrders.length;
+    const fact = billingOrders.reduce((s, o) => s + o.totalUsd, 0);
+    const abonadoConfirmado = billingOrders.reduce((s, o) => s + o.confirmedPaidUsd, 0);
+    const pendiente = billingOrders.reduce((s, o) => s + o.balanceUsd, 0);
     return { cierres, fact, abonadoConfirmado, pendiente };
   }, [dayOrders]);
 
   const weekStats = useMemo(() => {
-    const list = weekOrders.filter((order) => order.status === 'delivered' && order.totalUsd > 0.005);
-    const cierres = list.length;
-    const fact = list.reduce((s, o) => s + o.totalUsd, 0);
-    const abonadoConfirmado = list.reduce((s, o) => s + o.confirmedPaidUsd, 0);
-    const pendiente = list.reduce((s, o) => s + o.balanceUsd, 0);
+    const scheduledOrders = weekOrders.filter(isScheduledClosingOrder);
+    const billingOrders = weekOrders.filter(isRecognizedBillingOrder);
+    const cierres = scheduledOrders.length;
+    const fact = billingOrders.reduce((s, o) => s + o.totalUsd, 0);
+    const abonadoConfirmado = billingOrders.reduce((s, o) => s + o.confirmedPaidUsd, 0);
+    const pendiente = billingOrders.reduce((s, o) => s + o.balanceUsd, 0);
     return { cierres, fact, abonadoConfirmado, pendiente };
   }, [weekOrders]);
 
