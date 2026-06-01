@@ -399,6 +399,46 @@ const MASTER_DASHBOARD_ORDER_LIMIT = 90;
 const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
+const MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS = 2500;
+
+async function withDashboardOptionalTimeout<T>(
+  label: string,
+  promise: PromiseLike<T>,
+  fallback: T,
+  timeoutMs = MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((resolve) => {
+        timeout = setTimeout(() => {
+          console.warn(`master dashboard optional load timed out: ${label}`);
+          resolve(fallback);
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    console.warn(
+      `master dashboard optional load failed: ${label}`,
+      error instanceof Error ? error.message : 'unknown error'
+    );
+    return fallback;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function optionalSupabaseResponse<T>(data: T) {
+  return {
+    data,
+    error: null,
+    count: null,
+    status: 200,
+    statusText: 'OK',
+  };
+}
 
 function repairDisplayText(value: string | null | undefined) {
   return String(value ?? '')
@@ -622,16 +662,24 @@ const [
   userRolesResult,
   authUserEmailById,
 ] = await Promise.all([
-  supabase
-    .from('profiles')
-    .select('id, full_name, is_active, created_at')
-    .order('created_at', { ascending: false })
-    .limit(500),
+  withDashboardOptionalTimeout(
+    'profiles',
+    supabase
+      .from('profiles')
+      .select('id, full_name, is_active, created_at')
+      .order('created_at', { ascending: false })
+      .limit(500),
+    optionalSupabaseResponse([] as RawProfileRow[])
+  ),
   shouldLoadUserAdministration
-    ? supabase.rpc('admin_list_user_roles')
-    : Promise.resolve({ data: [] as RawUserRoleRow[], error: null }),
+    ? withDashboardOptionalTimeout(
+        'admin_list_user_roles',
+        supabase.rpc('admin_list_user_roles'),
+        optionalSupabaseResponse([] as RawUserRoleRow[])
+      )
+    : Promise.resolve(optionalSupabaseResponse([] as RawUserRoleRow[])),
   shouldLoadUserAdministration
-    ? loadAuthUserEmailById()
+    ? withDashboardOptionalTimeout('auth users email lookup', loadAuthUserEmailById(), new Map<string, string>(), 1800)
     : Promise.resolve(new Map<string, string>()),
 ]);
 
@@ -687,11 +735,15 @@ const dashboardUserRoles = ((userRolesData ?? []) as RawUserRoleRow[]).map((row)
 const {
   data: masterInboxStatesData,
   error: masterInboxStatesError,
-} = await supabase
-  .from('master_inbox_item_states')
-  .select('item_id, item_type, order_id, status')
-  .in('status', ['reviewed', 'resolved'])
-  .limit(MASTER_DASHBOARD_INBOX_STATE_LIMIT);
+} = await withDashboardOptionalTimeout(
+  'master_inbox_item_states',
+  supabase
+    .from('master_inbox_item_states')
+    .select('item_id, item_type, order_id, status')
+    .in('status', ['reviewed', 'resolved'])
+    .limit(MASTER_DASHBOARD_INBOX_STATE_LIMIT),
+  optionalSupabaseResponse([] as RawMasterInboxItemStateRow[])
+);
 
 if (masterInboxStatesError) {
   const message = masterInboxStatesError.message || '';
@@ -731,10 +783,14 @@ const initialMasterInboxItemStates = ((masterInboxStatesData ?? []) as RawMaster
     status: row.status === 'resolved' ? 'resolved' as const : 'reviewed' as const,
   }));
 
-const { data: deliveryPartnersData, error: deliveryPartnersError } = await supabase
-  .from('delivery_partners')
-  .select('id, name, partner_type, whatsapp_phone, is_active')
-  .order('name', { ascending: true });
+const { data: deliveryPartnersData, error: deliveryPartnersError } = await withDashboardOptionalTimeout(
+  'delivery_partners',
+  supabase
+    .from('delivery_partners')
+    .select('id, name, partner_type, whatsapp_phone, is_active')
+    .order('name', { ascending: true }),
+  optionalSupabaseResponse([] as Array<{ id: number; name: string; partner_type: string; whatsapp_phone: string | null; is_active: boolean }>)
+);
 
 if (deliveryPartnersError) {
   return (
@@ -779,12 +835,16 @@ const deliveryPartnerNameById = new Map<number, string>(
   deliveryPartnerOptions.map((partner) => [partner.id, partner.name])
 );
 
-const { data: advisorsRpcData, error: advisorsRpcError } = await supabase.rpc(
-  'get_advisor_profiles'
+const { data: advisorsRpcData, error: advisorsRpcError } = await withDashboardOptionalTimeout(
+  'get_advisor_profiles',
+  supabase.rpc('get_advisor_profiles'),
+  optionalSupabaseResponse([] as Array<{ user_id: string; full_name: string | null; is_active: boolean | null }>)
 );
 
-const { data: driversRpcData, error: driversRpcError } = await supabase.rpc(
-  'get_driver_profiles'
+const { data: driversRpcData, error: driversRpcError } = await withDashboardOptionalTimeout(
+  'get_driver_profiles',
+  supabase.rpc('get_driver_profiles'),
+  optionalSupabaseResponse([] as Array<{ user_id: string; full_name: string | null; is_active: boolean | null }>)
 );
 
 if (driversRpcError) {
