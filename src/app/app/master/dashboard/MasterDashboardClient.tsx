@@ -1148,6 +1148,7 @@ function toDateInputValue(d: Date) {
 }
 
 const CALENDAR_WEEKDAY_LABELS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'] as const;
+const MASTER_OPERATIONAL_TASK_LEAD_MINUTES = 60;
 
 function fmtCalendarMonthES(d: Date) {
   const month = d.toLocaleDateString('es-VE', {
@@ -1598,6 +1599,16 @@ function getMasterInboxEventActionLabel(event: MasterInboxEvent) {
 
 function isOrderUrgentForInbox(order: Order, severity: 'info' | 'warning' | 'critical') {
   return Boolean(order.editMeta?.isAsap) || severity === 'critical';
+}
+
+function isOrderWithinOperationalTaskWindow(order: Order, nowMs: number) {
+  if (order.editMeta?.isAsap) return true;
+
+  const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
+  if (deliveryDueMs == null) return true;
+
+  const minutesUntilDelivery = (deliveryDueMs - nowMs) / 60000;
+  return minutesUntilDelivery <= MASTER_OPERATIONAL_TASK_LEAD_MINUTES;
 }
 
 function getAdjustmentChangedFields(payload: Record<string, unknown>) {
@@ -4404,6 +4415,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       const alertReason = getCurrentProcessAlertReason(o, currentKey, currentTimeMs);
       const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
       const hasDriverAssigned = Boolean(o.riderName?.trim() || o.externalPartner?.trim());
+      const isInOperationalTaskWindow = isOrderWithinOperationalTaskWindow(o, currentTimeMs);
       const expiredQuoteReview = getExpiredQuotePriceReview(o, inboxCatalogItemById, currentTimeMs);
       const latestFundRequest = [...(o.events ?? [])]
         .filter((event) => event.eventType === 'client_fund_application_requested')
@@ -4499,7 +4511,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           detailLines: getOrderEventDetailLines(o, latestFundRequest),
         });
       }
-      if (canSendToKitchen(o)) {
+      if (canSendToKitchen(o) && isInOperationalTaskWindow) {
         tasks.push({
           id: `n-kitchen-send-${o.id}`,
           type: 'ENVIAR_COCINA',
@@ -4517,6 +4529,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       }
       if (
         o.fulfillment === 'delivery' &&
+        isInOperationalTaskWindow &&
         ['queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status) &&
         !hasDriverAssigned
       ) {
@@ -4535,7 +4548,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           isUrgent: isOrderUrgentForInbox(o, 'warning'),
         });
       }
-      if (alertLevel === 'danger' && alertReason) {
+      if (alertLevel === 'danger' && alertReason && isInOperationalTaskWindow) {
         if (
           (o.status === 'confirmed' || o.status === 'in_kitchen') &&
           ['Cocina aún no la toma', 'Se excedió el tiempo de preparación'].includes(alertReason)
