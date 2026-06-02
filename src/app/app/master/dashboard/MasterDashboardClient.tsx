@@ -55,6 +55,7 @@ import {
   createCatalogItemAction,
   createClientAction,
   createOrderClientQuickAction,
+  getClientFundSnapshotAction,
   searchClientsAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
@@ -3735,6 +3736,9 @@ export default function MasterDashboardClient({
   const [movementDescription, setMovementDescription] = useState('');
   const [movementNotes, setMovementNotes] = useState('');
   const [clients, setClients] = useState<ClientItem[]>(initialClients);
+  const [clientFundSnapshots, setClientFundSnapshots] = useState<
+    Record<number, { fundBalanceUsd: number; updatedAt: string | null }>
+  >({});
   const [clientsLoaded, setClientsLoaded] = useState(initialClients.length > 0);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
@@ -4181,6 +4185,45 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 }, [createOrderPaymentMethod]);
 
   const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) ?? null, [orders, selectedOrderId]);
+
+  useEffect(() => {
+    if (!detailOpen || selectedOrder?.clientId == null) return;
+
+    let cancelled = false;
+    const clientId = selectedOrder.clientId;
+
+    getClientFundSnapshotAction({ clientId })
+      .then((client) => {
+        if (cancelled) return;
+
+        const fundBalanceUsd = Number(client.fund_balance_usd ?? 0);
+        setClientFundSnapshots((prev) => ({
+          ...prev,
+          [clientId]: {
+            fundBalanceUsd,
+            updatedAt: client.updated_at ?? null,
+          },
+        }));
+        setClients((prev) =>
+          prev.map((item) =>
+            item.id === clientId
+              ? {
+                  ...item,
+                  fundBalanceUsd,
+                  updatedAt: client.updated_at ?? item.updatedAt,
+                }
+              : item
+          )
+        );
+      })
+      .catch(() => {
+        // If this lightweight refresh fails, the embedded order data still keeps the panel usable.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailOpen, selectedOrder?.clientId]);
 
   const selectedCatalogItem = useMemo(
     () => catalogItems.find((x) => x.id === selectedCatalogItemId) ?? null,
@@ -9269,9 +9312,17 @@ const selectedOrderClient =
     ? clients.find((client) => client.id === selectedOrder.clientId) ?? null
     : null;
 
+const selectedOrderClientFundSnapshot =
+  selectedOrder?.clientId != null ? clientFundSnapshots[selectedOrder.clientId] ?? null : null;
+
 const selectedOrderClientFundAvailableUsd = Math.max(
   0,
-  Number(selectedOrder?.clientFundBalanceUsd ?? selectedOrderClient?.fundBalanceUsd ?? 0)
+  Number(
+    selectedOrderClientFundSnapshot?.fundBalanceUsd ??
+      selectedOrderClient?.fundBalanceUsd ??
+      selectedOrder?.clientFundBalanceUsd ??
+      0
+  )
 );
 
 const selectedOrderChangeMovements = useMemo(() => {

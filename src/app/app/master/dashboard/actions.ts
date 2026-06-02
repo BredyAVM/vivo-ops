@@ -5835,6 +5835,30 @@ export async function searchClientsAction(input: {
   return data ?? [];
 }
 
+export async function getClientFundSnapshotAction(input: { clientId: number }) {
+  const { supabase } = await requireMasterOrAdmin();
+  const clientId = Number(input.clientId || 0);
+
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('Cliente invalido.');
+  }
+
+  const { data, error } = await supabase
+    .from('clients')
+    .select('id, fund_balance_usd, updated_at')
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('No se encontro el cliente.');
+
+  return {
+    id: Number(data.id),
+    fund_balance_usd: data.fund_balance_usd,
+    updated_at: data.updated_at ?? null,
+  };
+}
+
 export async function createOrderClientQuickAction(input: {
   fullName: string;
   phone: string;
