@@ -4121,6 +4121,9 @@ const [createOrderClientFundAmountUsd, setCreateOrderClientFundAmountUsd] = useS
 
 const [cancelOrderBoxOpen, setCancelOrderBoxOpen] = useState(false);
 const [cancelOrderReason, setCancelOrderReason] = useState('');
+const [cancelOrderPaidHandling, setCancelOrderPaidHandling] = useState<'store_fund' | 'refund'>('store_fund');
+const [cancelOrderRefundAccountId, setCancelOrderRefundAccountId] = useState('');
+const [cancelOrderRefundExchangeRate, setCancelOrderRefundExchangeRate] = useState('');
 
 const [toast, setToast] = useState<ToastState>(null);
 
@@ -5460,6 +5463,9 @@ const resetDeliveryEtaBox = () => {
 const resetCancelOrderBox = () => {
   setCancelOrderBoxOpen(false);
   setCancelOrderReason('');
+  setCancelOrderPaidHandling('store_fund');
+  setCancelOrderRefundAccountId('');
+  setCancelOrderRefundExchangeRate('');
 };
 
 const resetReturnToQueueBox = () => {
@@ -6098,9 +6104,41 @@ const handleCancelOrder = async (o: Order) => {
       return;
     }
 
+    const hasConfirmedPayment = o.confirmedPaidUsd > 0.005;
+    const refundAccount = moneyAccounts.find((account) => account.id === Number(cancelOrderRefundAccountId || 0)) ?? null;
+    const refundExchangeRate =
+      refundAccount?.currencyCode === 'VES'
+        ? Number(String(cancelOrderRefundExchangeRate || '').replace(',', '.'))
+        : null;
+
+    if (hasConfirmedPayment && cancelOrderPaidHandling === 'refund') {
+      if (!refundAccount) {
+        showToast('error', 'Selecciona la cuenta desde la cual se hará la devolución.');
+        return;
+      }
+
+      if (refundAccount.currencyCode === 'VES' && (!refundExchangeRate || refundExchangeRate <= 0)) {
+        showToast('error', 'Indica una tasa válida para la devolución en Bs.');
+        return;
+      }
+    }
+
     await cancelOrderAction({
       orderId: o.id,
       reason: cancelOrderReason.trim(),
+      paidHandling: hasConfirmedPayment ? cancelOrderPaidHandling : null,
+      refundMoneyAccountId:
+        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundAccount
+          ? refundAccount.id
+          : null,
+      refundCurrency:
+        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundAccount
+          ? refundAccount.currencyCode
+          : null,
+      refundExchangeRateVesPerUsd:
+        hasConfirmedPayment && cancelOrderPaidHandling === 'refund'
+          ? refundExchangeRate
+          : null,
     });
 
     showToast('success', 'Orden cancelada.');
@@ -17350,6 +17388,11 @@ deliveryAssignMode === 'external' ? (
     onClick={() => {
       setCancelOrderBoxOpen(true);
       setCancelOrderReason('');
+      setCancelOrderPaidHandling('store_fund');
+      setCancelOrderRefundAccountId('');
+      setCancelOrderRefundExchangeRate(
+        activeExchangeRate?.rateBsPerUsd ? String(activeExchangeRate.rateBsPerUsd) : ''
+      );
     }}
   >
     Cancelar
@@ -17369,6 +17412,87 @@ deliveryAssignMode === 'external' ? (
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
     </div>
+
+    {selectedOrder.confirmedPaidUsd > 0.005 || Number(selectedOrder.editMeta.clientFundUsedUsd || 0) > 0.005 ? (
+      <div className="mt-2 space-y-2 rounded-md border border-[#3B3220] bg-[#151208] p-2 text-[11px] text-[#E8E2D0]">
+        <div className="font-semibold text-[#F7DA66]">Esta orden tiene dinero involucrado</div>
+        {selectedOrder.confirmedPaidUsd > 0.005 ? (
+          <>
+            <div>
+              Pago confirmado: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.confirmedPaidUsd)}</span>
+            </div>
+            <div className="grid gap-1.5">
+              <label className="flex items-center gap-2 rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1.5">
+                <input
+                  type="radio"
+                  checked={cancelOrderPaidHandling === 'store_fund'}
+                  onChange={() => setCancelOrderPaidHandling('store_fund')}
+                />
+                <span>Enviar el pago al fondo del cliente</span>
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1.5">
+                <input
+                  type="radio"
+                  checked={cancelOrderPaidHandling === 'refund'}
+                  onChange={() => setCancelOrderPaidHandling('refund')}
+                />
+                <span>Registrar devolucion desde una cuenta</span>
+              </label>
+            </div>
+          </>
+        ) : null}
+
+        {Number(selectedOrder.editMeta.clientFundUsedUsd || 0) > 0.005 ? (
+          <div>
+            Fondo usado en la orden: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(Number(selectedOrder.editMeta.clientFundUsedUsd || 0))}</span>. Se restaurara al cliente al cancelar.
+          </div>
+        ) : null}
+
+        {selectedOrder.confirmedPaidUsd > 0.005 && cancelOrderPaidHandling === 'refund' ? (
+          <div className="space-y-1.5 rounded-md border border-[#242433] bg-[#0B0B0D] p-2">
+            <label className="block text-[10px] font-medium text-[#B7B7C2]">Cuenta de devolucion</label>
+            <select
+              value={cancelOrderRefundAccountId}
+              onChange={(e) => {
+                setCancelOrderRefundAccountId(e.target.value);
+                const account = moneyAccounts.find((item) => item.id === Number(e.target.value));
+                if (account?.currencyCode === 'VES' && activeExchangeRate?.rateBsPerUsd) {
+                  setCancelOrderRefundExchangeRate(String(activeExchangeRate.rateBsPerUsd));
+                }
+              }}
+              className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+            >
+              <option value="">Selecciona cuenta</option>
+              {moneyAccounts.filter((account) => account.isActive).map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name} ({account.currencyCode})
+                </option>
+              ))}
+            </select>
+
+            {moneyAccounts.find((account) => account.id === Number(cancelOrderRefundAccountId || 0))?.currencyCode === 'VES' ? (
+              <div>
+                <label className="block text-[10px] font-medium text-[#B7B7C2]">Tasa para devolucion en Bs</label>
+                <input
+                  value={cancelOrderRefundExchangeRate}
+                  onChange={(e) => setCancelOrderRefundExchangeRate(e.target.value)}
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                />
+              </div>
+            ) : null}
+
+            <div className="text-[10px] text-[#8A8A96]">
+              Se registrara un egreso confirmado por {fmtUSD(selectedOrder.confirmedPaidUsd)}
+              {moneyAccounts.find((account) => account.id === Number(cancelOrderRefundAccountId || 0))?.currencyCode === 'VES' &&
+              Number(String(cancelOrderRefundExchangeRate || '').replace(',', '.')) > 0
+                ? ` (${fmtBs(selectedOrder.confirmedPaidUsd * Number(String(cancelOrderRefundExchangeRate || '').replace(',', '.')))})`
+                : ''}.
+            </div>
+          </div>
+        ) : null}
+      </div>
+    ) : null}
 
     <div className="mt-2 flex flex-col gap-1.5">
       <button

@@ -2112,6 +2112,10 @@ export async function returnToCreatedAction(input: {
 export async function cancelOrderAction(input: {
   orderId: number;
   reason: string;
+  paidHandling?: 'store_fund' | 'refund' | null;
+  refundMoneyAccountId?: number | null;
+  refundCurrency?: string | null;
+  refundExchangeRateVesPerUsd?: number | null;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
@@ -2128,7 +2132,7 @@ export async function cancelOrderAction(input: {
 
   const { data: currentOrder, error: currentOrderError } = await supabase
     .from('orders')
-    .select('id, status, notes')
+    .select('id, client_id, status, notes, extra_fields')
     .eq('id', orderId)
     .single();
 
@@ -2140,9 +2144,121 @@ export async function cancelOrderAction(input: {
     throw new Error('La orden ya está cancelada.');
   }
 
+  const clientId = Number(currentOrder.client_id || 0);
+  const previousFundUsedUsd = roundMoney((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd);
+  const { data: orderMovements, error: orderMovementsError } = await supabase
+    .from('money_movements')
+    .select('direction, amount_usd_equivalent, status, confirmed_at')
+    .eq('order_id', orderId);
+
+  if (orderMovementsError) {
+    throw new Error(orderMovementsError.message);
+  }
+
+  const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
+    const isConfirmed = row.status === 'confirmed' || Boolean(row.confirmed_at);
+    if (!isConfirmed) return sum;
+
+    const signedAmount =
+      toSafeNumber(row.amount_usd_equivalent, 0) *
+      (row.direction === 'outflow' ? -1 : 1);
+    return sum + signedAmount;
+  }, 0));
+
+  const hasClientFundsToRestore = previousFundUsedUsd > 0.005;
+  const hasConfirmedMoneyToSettle = confirmedPaidUsd > 0.005;
+  const paidHandling = input.paidHandling ?? null;
+
+  if ((hasClientFundsToRestore || hasConfirmedMoneyToSettle) && (!Number.isFinite(clientId) || clientId <= 0)) {
+    throw new Error('La orden tiene dinero involucrado, pero no tiene cliente asociado para ajustar fondo/devoluciÃ³n.');
+  }
+
+  if (hasConfirmedMoneyToSettle && paidHandling !== 'store_fund' && paidHandling !== 'refund') {
+    throw new Error('Debes indicar si el pago confirmado se enviarÃ¡ al fondo o se registrarÃ¡ como devoluciÃ³n.');
+  }
+
+  if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
+    const refundMoneyAccountId = Number(input.refundMoneyAccountId || 0);
+    const refundCurrency = String(input.refundCurrency || '').trim().toUpperCase();
+    if (!Number.isFinite(refundMoneyAccountId) || refundMoneyAccountId <= 0) {
+      throw new Error('Debes seleccionar la cuenta desde la cual se harÃ¡ la devoluciÃ³n.');
+    }
+    if (!refundCurrency) {
+      throw new Error('Debes indicar la moneda de la devoluciÃ³n.');
+    }
+    if (refundCurrency === 'VES' && toSafeNumber(input.refundExchangeRateVesPerUsd, 0) <= 0) {
+      throw new Error('Debes indicar una tasa vÃ¡lida para la devoluciÃ³n en bolÃ­vares.');
+    }
+  }
+
+  if (hasClientFundsToRestore) {
+    await restoreClientFundToOrder(supabase, {
+      clientId,
+      orderId,
+      amountUsd: previousFundUsedUsd,
+      userId: user.id,
+      notes: `Fondo restaurado por cancelaciÃ³n: ${reason}`,
+    });
+  }
+
+  if (hasConfirmedMoneyToSettle && paidHandling === 'store_fund') {
+    await restoreClientFundToOrder(supabase, {
+      clientId,
+      orderId,
+      amountUsd: confirmedPaidUsd,
+      userId: user.id,
+      notes: `Pago enviado a fondo por cancelaciÃ³n: ${reason}`,
+    });
+  }
+
+  if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
+    const refundCurrency = String(input.refundCurrency || '').trim().toUpperCase();
+    const refundExchangeRate =
+      refundCurrency === 'VES'
+        ? Number(toSafeNumber(input.refundExchangeRateVesPerUsd, 0).toFixed(6))
+        : null;
+    const refundAmount = toNativeAmountFromUsd(confirmedPaidUsd, refundCurrency, refundExchangeRate);
+
+    const { error: refundMovementError } = await supabase
+      .from('money_movements')
+      .insert({
+        movement_date: new Date().toISOString().slice(0, 10),
+        created_by_user_id: user.id,
+        confirmed_at: new Date().toISOString(),
+        confirmed_by_user_id: user.id,
+        status: 'confirmed',
+        approval_required: false,
+        direction: 'outflow',
+        movement_type: 'withdrawal',
+        money_account_id: Number(input.refundMoneyAccountId),
+        currency_code: refundCurrency,
+        amount: refundAmount,
+        exchange_rate_ves_per_usd: refundExchangeRate,
+        amount_usd_equivalent: confirmedPaidUsd,
+        reference_code: null,
+        counterparty_name: null,
+        description: `DevoluciÃ³n por orden cancelada #${orderId}`,
+        notes: reason,
+        order_id: orderId,
+        payment_report_id: null,
+        movement_group_id: null,
+      });
+
+    if (refundMovementError) {
+      throw new Error(refundMovementError.message);
+    }
+  }
+
   const nextNotes = [
     currentOrder.notes?.trim() || '',
     `CANCELADA: ${reason}`,
+    hasClientFundsToRestore ? `FONDO RESTAURADO: $${previousFundUsedUsd.toFixed(2)}` : '',
+    hasConfirmedMoneyToSettle && paidHandling === 'store_fund'
+      ? `PAGO A FONDO: $${confirmedPaidUsd.toFixed(2)}`
+      : '',
+    hasConfirmedMoneyToSettle && paidHandling === 'refund'
+      ? `PAGO DEVUELTO: $${confirmedPaidUsd.toFixed(2)}`
+      : '',
   ]
     .filter(Boolean)
     .join(' | ');
@@ -2175,7 +2291,12 @@ export async function cancelOrderAction(input: {
     message: reason,
     severity: 'critical',
     actorUserId: user.id,
-    payload: { reason },
+    payload: {
+      reason,
+      paid_handling: paidHandling,
+      confirmed_paid_usd: confirmedPaidUsd,
+      restored_fund_usd: previousFundUsedUsd,
+    },
     recipients: [
       { targetRole: 'master' },
       { targetUserId: eventContext?.advisorUserId },
@@ -2185,6 +2306,9 @@ export async function cancelOrderAction(input: {
   });
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
 }
 
 export async function assignInternalDriverAction(input: {
