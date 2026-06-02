@@ -5,6 +5,7 @@ export type PaymentReportMethodCode =
   | 'cash_usd'
   | 'cash_ves'
   | 'pos'
+  | 'retention'
   | 'mixed'
   | 'pending';
 
@@ -13,6 +14,7 @@ export type PaymentReportRequirements = {
   requiresReference: boolean;
   requiresBank: boolean;
   requiresHolderName: boolean;
+  requiresInvoiceNumber: boolean;
 };
 
 export type PaymentReportDetailsInput = {
@@ -28,15 +30,27 @@ export const EMPTY_PAYMENT_REPORT_REQUIREMENTS: PaymentReportRequirements = {
   requiresReference: false,
   requiresBank: false,
   requiresHolderName: false,
+  requiresInvoiceNumber: false,
 };
 
 export function getPaymentReportRequirements(method: string | null | undefined): PaymentReportRequirements {
+  if (method === 'retention') {
+    return {
+      requiresOperationDate: true,
+      requiresReference: true,
+      requiresBank: false,
+      requiresHolderName: false,
+      requiresInvoiceNumber: true,
+    };
+  }
+
   if (method === 'payment_mobile' || method === 'transfer') {
     return {
       requiresOperationDate: true,
       requiresReference: true,
       requiresBank: true,
       requiresHolderName: false,
+      requiresInvoiceNumber: false,
     };
   }
 
@@ -46,6 +60,7 @@ export function getPaymentReportRequirements(method: string | null | undefined):
       requiresReference: true,
       requiresBank: false,
       requiresHolderName: true,
+      requiresInvoiceNumber: false,
     };
   }
 
@@ -69,6 +84,10 @@ export function validatePaymentReportDetails(input: PaymentReportDetailsInput) {
 
   if (requirements.requiresHolderName && !String(input.holderName || '').trim()) {
     return 'Debes indicar el nombre del titular de Zelle.';
+  }
+
+  if (requirements.requiresInvoiceNumber && !String(input.holderName || '').trim()) {
+    return 'Debes indicar el numero de factura.';
   }
 
   return null;

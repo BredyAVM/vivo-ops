@@ -173,7 +173,7 @@ const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
 type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
-type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos';
+type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
 
 const APP_USER_ROLES_VALUES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
 const APP_USER_ROLES = new Set<AppUserRole>(['admin', 'master', 'advisor', 'kitchen', 'driver']);
@@ -184,6 +184,7 @@ const PAYMENT_METHOD_CODES = new Set<PaymentMethodCode>([
   'cash_usd',
   'cash_ves',
   'pos',
+  'retention',
 ]);
 
 function normalizeUserRoles(input: unknown): AppUserRole[] {
@@ -1151,6 +1152,7 @@ export async function createPaymentReportAction(input: {
   const requiresOperationData = requirements.requiresOperationDate;
   const requiresBank = requirements.requiresBank;
   const requiresHolderName = requirements.requiresHolderName;
+  const requiresInvoiceNumber = requirements.requiresInvoiceNumber;
   const operationDate = String(input.operationDate || '').trim();
   const referenceCode = String(input.referenceCode || '').trim();
   const bankName = String(input.bankName || '').trim();
@@ -1176,14 +1178,20 @@ export async function createPaymentReportAction(input: {
     throw new Error('Debes indicar el nombre del titular de Zelle.');
   }
 
+  if (requiresInvoiceNumber && !payerName) {
+    throw new Error('Debes indicar el numero de factura.');
+  }
+
   const notesParts = [
+    paymentMethod === 'retention' && referenceCode ? `Comprobante retencion: ${referenceCode}` : null,
+    paymentMethod === 'retention' && payerName ? `Factura: ${payerName}` : null,
     operationDate ? `Fecha operación: ${operationDate}` : null,
     requiresBank && bankName ? `Banco: ${bankName}` : null,
     requiresHolderName && payerName ? `Titular: ${payerName}` : null,
     input.notes ? String(input.notes).trim() : null,
   ].filter((part): part is string => Boolean(part));
   const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
-  const reportPayerName = requirements.requiresBank ? bankName : payerName || null;
+  const reportPayerName = paymentMethod === 'retention' ? null : requirements.requiresBank ? bankName : payerName || null;
   let snapshotEquivalentUsd: number | null = null;
 
   if (String(input.reportedCurrency || '').trim().toUpperCase() === 'VES') {

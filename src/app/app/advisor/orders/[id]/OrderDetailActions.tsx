@@ -14,6 +14,7 @@ import {
 } from './actions';
 
 const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
+const ADVISOR_REPORT_PAYMENT_METHODS = ['payment_mobile', 'transfer', 'zelle'];
 
 type MoneyAccountOption = {
   id: number;
@@ -144,7 +145,7 @@ export default function OrderDetailActions({
   const [paymentOptionsError, setPaymentOptionsError] = useState<string | null>(null);
   const [moneyAccountId, setMoneyAccountId] = useState('');
   const [reportPaymentMethod, setReportPaymentMethod] = useState(
-    paymentMethod && ['payment_mobile', 'transfer', 'zelle'].includes(paymentMethod) ? paymentMethod : '',
+    paymentMethod && ADVISOR_REPORT_PAYMENT_METHODS.includes(paymentMethod) ? paymentMethod : '',
   );
   const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, balanceBs, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
@@ -166,7 +167,7 @@ export default function OrderDetailActions({
     () => activeAccounts.find((account) => account.id === Number(moneyAccountId)) ?? null,
     [activeAccounts, moneyAccountId],
   );
-  const orderLocksPaymentMethod = Boolean(paymentMethod && ['payment_mobile', 'transfer', 'zelle'].includes(paymentMethod));
+  const orderLocksPaymentMethod = Boolean(paymentMethod && ADVISOR_REPORT_PAYMENT_METHODS.includes(paymentMethod));
   const availablePaymentMethods = selectedAccount?.paymentMethodCodes?.length ? selectedAccount.paymentMethodCodes : [];
   const paymentRequirements = getPaymentReportRequirements(reportPaymentMethod);
   const whatsappButtonClass = preferWhatsApp

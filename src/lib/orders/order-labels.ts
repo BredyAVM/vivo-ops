@@ -18,6 +18,7 @@ export type PaymentMethodCode =
   | 'cash_ves'
   | 'pos'
   | 'zelle'
+  | 'retention'
   | 'mixed';
 
 export type OperationalPhase = 'new' | 'kitchen' | 'ready' | 'route' | 'closed' | 'cancelled';
@@ -41,6 +42,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethodCode, string> = {
   cash_ves: 'Efectivo Bs',
   pos: 'Punto de venta',
   zelle: 'Zelle',
+  retention: 'Retención',
   mixed: 'Mixto',
 };
 

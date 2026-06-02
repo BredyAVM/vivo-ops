@@ -151,7 +151,7 @@ type MoneyAccountPaymentRule = {
   isActive: boolean;
 };
 
-type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos';
+type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
 
 type AccountRuleDraft = {
   role: AppUserRole;
@@ -891,7 +891,7 @@ type EditableInventoryLinkRow = {
 const ORDER_STATUS_LABEL = ORDER_STATUS_LABELS as Record<OrderStatus, string>;
 
 const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
-const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos'];
+const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos', 'retention'];
 const ACCOUNT_REVIEW_ROLES: AppUserRole[] = ['master', 'admin', 'kitchen'];
 const KITCHEN_COUNTER_METHODS = new Set<PaymentMethodCode>(['cash_usd', 'cash_ves', 'pos']);
 
@@ -2017,6 +2017,7 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
   if (method === 'cash_usd') return 'USD';
   if (method === 'cash_ves') return 'VES';
   if (method === 'pos') return 'VES';
+  if (method === 'retention') return 'VES';
   if (method === 'zelle') return 'USD';
   if (method === 'pending') return 'USD';
   return 'USD';
@@ -2037,11 +2038,13 @@ function isPaymentMethodApplicableToAccount(method: PaymentMethodCode, account: 
   if (method === 'cash_usd') return account.currencyCode === 'USD' && account.accountKind === 'cash';
   if (method === 'cash_ves') return account.currencyCode === 'VES' && account.accountKind === 'cash';
   if (method === 'pos') return account.accountKind === 'pos';
+  if (method === 'retention') return account.currencyCode === 'VES' && ['bank', 'fund', 'other', 'wallet'].includes(account.accountKind);
   return false;
 }
 
 function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode): AccountRuleDraft {
-  const remoteMethod = method === 'payment_mobile' || method === 'transfer' || method === 'zelle';
+  const remoteMethod = method === 'payment_mobile' || method === 'transfer' || method === 'zelle' || method === 'retention';
+  const advisorRemoteMethod = remoteMethod && method !== 'retention';
   const counterMethod = method === 'cash_usd' || method === 'cash_ves' || method === 'pos';
   const driverCashMethod = method === 'cash_usd' || method === 'cash_ves';
 
@@ -2058,7 +2061,7 @@ function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode
     isActive: false,
   };
 
-  if (role === 'advisor' && remoteMethod) {
+  if (role === 'advisor' && advisorRemoteMethod) {
     return {
       ...draft,
       canViewAccount: true,
@@ -2074,7 +2077,7 @@ function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode
     return {
       ...draft,
       canViewAccount: true,
-      canShareWithClient: remoteMethod,
+      canShareWithClient: remoteMethod && method !== 'retention',
       canReportPayment: true,
       canConfirmPayment: true,
       autoConfirmsReport: counterMethod,
@@ -9152,9 +9155,11 @@ const selectedPaymentReportAccount =
 
 const paymentReportMethod = selectedOrder?.editMeta?.paymentMethod || '';
 const paymentReportRequirements = getPaymentReportRequirements(paymentReportMethod);
+const paymentReportIsRetention = paymentReportMethod === 'retention';
 const paymentReportRequiresOperationData = paymentReportRequirements.requiresOperationDate;
 const paymentReportRequiresBank = paymentReportRequirements.requiresBank;
 const paymentReportRequiresHolderName = paymentReportRequirements.requiresHolderName;
+const paymentReportRequiresInvoiceNumber = paymentReportRequirements.requiresInvoiceNumber;
 
 const selectedConfirmPaymentReport =
   selectedOrder?.paymentReports.find((report) => report.id === paymentConfirmReportId) ?? null;
@@ -16746,7 +16751,13 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       <input
         value={paymentReportReferenceCode}
         onChange={(e) => setPaymentReportReferenceCode(e.target.value)}
-        placeholder={paymentReportRequiresOperationData ? 'Referencia' : 'Referencia (opcional)'}
+        placeholder={
+          paymentReportIsRetention
+            ? 'Número de comprobante'
+            : paymentReportRequiresOperationData
+              ? 'Referencia'
+              : 'Referencia (opcional)'
+        }
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
 
@@ -16759,11 +16770,17 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
         />
       ) : null}
 
-      {paymentReportRequiresHolderName || !paymentReportRequiresBank ? (
+      {paymentReportRequiresInvoiceNumber || paymentReportRequiresHolderName || (!paymentReportRequiresBank && !paymentReportIsRetention) ? (
         <input
           value={paymentReportPayerName}
           onChange={(e) => setPaymentReportPayerName(e.target.value)}
-          placeholder={paymentReportRequiresHolderName ? 'Nombre del titular' : 'Pagador (opcional)'}
+          placeholder={
+            paymentReportRequiresInvoiceNumber
+              ? 'Número de factura'
+              : paymentReportRequiresHolderName
+                ? 'Nombre del titular'
+                : 'Pagador (opcional)'
+          }
           className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
         />
       ) : null}
@@ -21706,6 +21723,7 @@ deliveryAssignMode === 'external' ? (
 { value: 'cash_ves', label: 'Efectivo Bs' },
 { value: 'pos', label: 'Punto de venta' },
 { value: 'zelle', label: 'Zelle' },
+{ value: 'retention', label: 'Retención' },
 { value: 'mixed', label: 'Mixto' },
   ]}
 />
