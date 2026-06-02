@@ -5,6 +5,7 @@ import AdvisorInboxClient from './AdvisorInboxClient';
 import {
   type InboxEvent,
   INCLUDED_EVENT_TYPES,
+  buildLatestOrderActionState,
   buildDetailLines,
   coalesceInboxEvents,
   eventTitle,
@@ -117,8 +118,10 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
   const orderById = new Map(orders.map((order) => [order.id, order]));
+  const rawRecipients = (recipientsData ?? []) as TimelineRecipientRow[];
+  const latestActionState = buildLatestOrderActionState(rawRecipients);
 
-  const inboxEvents: InboxEvent[] = coalesceInboxEvents(((recipientsData ?? []) as TimelineRecipientRow[])
+  const inboxEvents: InboxEvent[] = coalesceInboxEvents(rawRecipients
     .map((recipient) => {
       const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
       if (!event) return null;
@@ -135,7 +138,13 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
           ? (event.payload as Record<string, unknown>)
           : {};
       const detailLines = buildDetailLines(eventType, payload);
-      const requiresAction = shouldRequireAdvisorAction(eventType, recipient.requires_action, order.status);
+      const requiresAction = shouldRequireAdvisorAction(
+        eventType,
+        recipient.requires_action,
+        order.status,
+        orderId,
+        latestActionState
+      );
 
       return {
         id: `recipient-${recipient.id}`,

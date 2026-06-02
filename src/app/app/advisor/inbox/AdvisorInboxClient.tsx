@@ -13,7 +13,7 @@ import {
 } from './inbox-shared';
 
 const UPDATE_FILTERS = FILTERS.filter((filter) =>
-  filter.key === 'updates' || filter.key === 'kitchen' || filter.key === 'delivery' || filter.key === 'payments'
+  filter.key === 'updates'
 );
 
 function getDayKey(value: string) {
@@ -174,7 +174,7 @@ export default function AdvisorInboxClient({
   const visibleFilters = activeFilter === 'pending'
     ? []
     : activeFilter === 'updates' || activeFilter === 'kitchen' || activeFilter === 'delivery' || activeFilter === 'payments'
-      ? UPDATE_FILTERS
+      ? []
       : FILTERS;
   const sectionTitle = activeFilter === 'pending'
     ? 'Acciones por atender'
@@ -258,6 +258,41 @@ export default function AdvisorInboxClient({
 
                   {section.rows.map((event) => {
                     const isRead = Boolean(event.readAt);
+                    const isCompactUpdate = !event.requiresAction;
+
+                    if (isCompactUpdate) {
+                      return (
+                        <AdvisorPendingLink
+                          key={event.id}
+                          href={actionHref(event)}
+                          onClick={() => {
+                            if (!isRead && !isSaving(event.recipientId)) {
+                              void setRecipientReadState(event.recipientId, true);
+                            }
+                          }}
+                          className={[
+                            'advisor-fade-in block rounded-[16px] border px-3.5 py-3 transition',
+                            isRead ? 'border-[#232632] bg-[#0F131B]' : 'border-[#33405A] bg-[#101722]',
+                          ].join(' ')}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                {!isRead ? <span className="h-2 w-2 rounded-full bg-[#F0D000]" /> : null}
+                                <div className="truncate text-sm font-semibold text-[#F5F7FB]">
+                                  {event.orderNumber} - {event.clientName}
+                                </div>
+                              </div>
+                              <div className="mt-1 line-clamp-2 text-xs leading-5 text-[#AAB2C5]">
+                                {event.title}: {event.message}
+                              </div>
+                              <div className="mt-1 text-[11px] text-[#6F7890]">{formatEventTime(event.createdAt)}</div>
+                            </div>
+                            <StatusBadge label={event.title} tone={event.tone} />
+                          </div>
+                        </AdvisorPendingLink>
+                      );
+                    }
 
                     return (
                       <article

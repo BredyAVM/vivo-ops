@@ -86,6 +86,25 @@ export const ACTION_EVENT_TYPES = new Set([
   'payment_rejected',
 ]);
 
+const REVIEW_STATE_EVENT_TYPES = new Set([
+  'order_returned_to_review',
+  'order_changes_rejected',
+  'order_changes_approved',
+  'order_reapproved',
+  'order_approved',
+]);
+
+const PAYMENT_STATE_EVENT_TYPES = new Set([
+  'payment_rejected',
+  'payment_reported',
+  'payment_confirmed',
+]);
+
+export type LatestOrderActionState = {
+  review: Map<number, { eventType: string; createdAt: string }>;
+  payment: Map<number, { eventType: string; createdAt: string }>;
+};
+
 export function normalizeFilter(value: string | undefined): InboxFilter {
   if (value === 'pending' || value === 'updates' || value === 'kitchen' || value === 'delivery' || value === 'payments' || value === 'all') {
     return value;
@@ -284,12 +303,81 @@ export function isOrderReviewActionEvent(eventType: string) {
   return eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected';
 }
 
+function updateLatestOrderActionState(
+  state: LatestOrderActionState,
+  orderId: number,
+  eventType: string,
+  createdAt: string
+) {
+  if (REVIEW_STATE_EVENT_TYPES.has(eventType)) {
+    const current = state.review.get(orderId);
+    if (!current || createdAt.localeCompare(current.createdAt) >= 0) {
+      state.review.set(orderId, { eventType, createdAt });
+    }
+  }
+
+  if (PAYMENT_STATE_EVENT_TYPES.has(eventType)) {
+    const current = state.payment.get(orderId);
+    if (!current || createdAt.localeCompare(current.createdAt) >= 0) {
+      state.payment.set(orderId, { eventType, createdAt });
+    }
+  }
+}
+
+export function buildLatestOrderActionState(recipients: InboxRecipientCountRow[]) {
+  const state: LatestOrderActionState = {
+    review: new Map(),
+    payment: new Map(),
+  };
+
+  for (const recipient of recipients) {
+    const event = getRecipientCountEvent(recipient);
+    const eventType = safeText(event?.event_type, '');
+    const orderId = Number(event?.order_id || 0);
+    if (!event || !Number.isFinite(orderId) || orderId <= 0) continue;
+    updateLatestOrderActionState(state, orderId, eventType, safeText(event.created_at, ''));
+  }
+
+  return state;
+}
+
+export function isLatestAdvisorActionEvent(
+  eventType: string,
+  orderId: number,
+  actionState: LatestOrderActionState
+) {
+  return !isSupersededAdvisorAction(eventType, orderId, actionState);
+}
+
+function isSupersededAdvisorAction(
+  eventType: string,
+  orderId: number,
+  actionState?: LatestOrderActionState | null
+) {
+  if (!actionState) return false;
+
+  if (isOrderReviewActionEvent(eventType)) {
+    const latest = actionState.review.get(orderId);
+    return Boolean(latest && latest.eventType !== eventType);
+  }
+
+  if (eventType === 'payment_rejected') {
+    const latest = actionState.payment.get(orderId);
+    return Boolean(latest && latest.eventType !== 'payment_rejected');
+  }
+
+  return false;
+}
+
 export function shouldRequireAdvisorAction(
   eventType: string,
   requiresAction: boolean | null | undefined,
-  orderStatus?: string | null
+  orderStatus?: string | null,
+  orderId?: number | null,
+  actionState?: LatestOrderActionState | null
 ) {
   if (isClosedOrderStatus(orderStatus) && isOrderReviewActionEvent(eventType)) return false;
+  if (orderId && isSupersededAdvisorAction(eventType, orderId, actionState)) return false;
   return isActionNotification(eventType, requiresAction);
 }
 
@@ -341,6 +429,7 @@ export function countCoalescedNotificationsByKind(
   let actionCount = 0;
   let unreadActionCount = 0;
   const seenActionEventIds = new Set<string>();
+  const actionState = buildLatestOrderActionState(recipients);
   const latestInfoByOrderId = new Map<
     number,
     {
@@ -363,7 +452,7 @@ export function countCoalescedNotificationsByKind(
     const isUnread = !recipient.read_at;
     const orderStatus = closedOrderIds.has(orderId) ? 'delivered' : null;
 
-    if (shouldRequireAdvisorAction(eventType, recipient.requires_action, orderStatus)) {
+    if (shouldRequireAdvisorAction(eventType, recipient.requires_action, orderStatus, orderId, actionState)) {
       if (!seenActionEventIds.has(eventId)) {
         seenActionEventIds.add(eventId);
         actionCount += 1;
