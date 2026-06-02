@@ -27,6 +27,59 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function roundMoney(value: unknown) {
+  return Number(toSafeNumber(value, 0).toFixed(2));
+}
+
+function normalizeDateOnly(value: unknown) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function getCaracasDateString(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+}
+
+function dateOnlyFromIso(value: unknown) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return getCaracasDateString(date);
+}
+
+function getOrderDeliveryReferenceDate(order: { status?: unknown; extra_fields?: unknown }) {
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as Record<string, any>)
+      : {};
+
+  const completedAt = dateOnlyFromIso(extraFields.delivery?.completed_at);
+  if (completedAt) return completedAt;
+
+  if (String(order.status || '') !== 'delivered') return null;
+
+  return normalizeDateOnly(extraFields.schedule?.date);
+}
+
+function canUseSnapshotForPaymentOperation(
+  order: { status?: unknown; extra_fields?: unknown },
+  operationDate: string | null
+) {
+  const deliveryDate = getOrderDeliveryReferenceDate(order);
+  if (!deliveryDate) return true;
+
+  const effectiveOperationDate = operationDate || getCaracasDateString(new Date());
+  return effectiveOperationDate.localeCompare(deliveryDate) <= 0;
+}
+
 async function loadOrderEventContext(
   supabase: Awaited<ReturnType<typeof requireAuthContext>>['supabase'],
   orderId: number,
@@ -184,7 +237,7 @@ export async function createAdvisorPaymentReportAction(input: {
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id, extra_fields')
+    .select('id, attributed_advisor_id, status, total_usd, total_bs_snapshot, extra_fields')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -299,13 +352,65 @@ export async function createAdvisorPaymentReportAction(input: {
   ].filter((part): part is string => Boolean(part));
   const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
   const reportPayerName = requirements.requiresBank ? bankName : payerName || null;
+  let snapshotEquivalentUsd: number | null = null;
+
+  if (reportedCurrency === 'VES') {
+    const orderPricing = getOrderMoneySnapshot(order);
+    const currentTotalUsd = orderPricing.totalUsd;
+    const currentTotalBs = orderPricing.totalBs;
+    const canUseSnapshot = canUseSnapshotForPaymentOperation(order, normalizeDateOnly(operationDate));
+
+    if (canUseSnapshot && currentTotalUsd > 0.005 && currentTotalBs > 0.005) {
+      const { data: orderPaymentReports, error: orderPaymentReportsError } = await ctx.supabase
+        .from('payment_reports')
+        .select('status, reported_currency_code, reported_amount, reported_amount_usd_equivalent')
+        .eq('order_id', orderId);
+
+      if (orderPaymentReportsError) {
+        throw new Error(orderPaymentReportsError.message);
+      }
+
+      const clientFundUsd = toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
+      const snapshotRate = currentTotalBs / currentTotalUsd;
+      const confirmedReportPaid = (orderPaymentReports ?? [])
+        .filter((report) => report.status === 'confirmed')
+        .reduce(
+          (state, report) => {
+            const reportUsd = toSafeNumber(report.reported_amount_usd_equivalent, 0);
+            const reportAmount = toSafeNumber(report.reported_amount, 0);
+            state.usd += reportUsd;
+            state.bs +=
+              String(report.reported_currency_code).toUpperCase() === 'VES'
+                ? reportAmount
+                : reportUsd * snapshotRate;
+            return state;
+          },
+          { usd: clientFundUsd, bs: clientFundUsd * snapshotRate },
+        );
+      const pendingUsd = roundMoney(Math.max(0, currentTotalUsd - confirmedReportPaid.usd));
+      const pendingBs = roundMoney(Math.max(0, currentTotalBs - confirmedReportPaid.bs));
+
+      if (pendingUsd > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
+        snapshotEquivalentUsd = pendingUsd;
+      } else if (reportedAmount > 0 && reportedAmount < pendingBs && snapshotRate > 0) {
+        snapshotEquivalentUsd = roundMoney(reportedAmount / snapshotRate);
+      } else if (Math.abs(reportedAmount - currentTotalBs) <= 0.01) {
+        snapshotEquivalentUsd = currentTotalUsd;
+      }
+    }
+  }
+
+  const effectiveReportedExchangeRate =
+    snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005
+      ? Number((reportedAmount / snapshotEquivalentUsd).toFixed(6))
+      : reportedExchangeRate;
 
   const { error } = await ctx.supabase.rpc('create_payment_report', {
     p_order_id: orderId,
     p_reported_money_account_id: reportedMoneyAccountId,
     p_reported_currency: reportedCurrency,
     p_reported_amount: reportedAmount,
-    p_reported_exchange_rate_ves_per_usd: reportedExchangeRate,
+    p_reported_exchange_rate_ves_per_usd: effectiveReportedExchangeRate,
     p_reference_code: referenceCode || null,
     p_payer_name: reportPayerName,
     p_notes: reportNotes,

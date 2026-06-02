@@ -883,20 +883,21 @@ export default async function AdvisorOrderDetailPage({
   }> = [];
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
   const totalBs = orderPricing.totalBs;
+  const snapshotBsRate = orderPricing.fxRate > 0 ? orderPricing.fxRate : activeBsRate;
   const confirmedPaidBs =
     payments
       .filter((paymentReport) => paymentReport.status === 'confirmed')
       .reduce((sum, paymentReport) => {
         const currency = safeText(paymentReport.reported_currency_code, '').toUpperCase();
         if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
-        return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * activeBsRate;
-      }, 0) + toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0) * activeBsRate;
+        return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * snapshotBsRate;
+      }, 0) + toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0) * snapshotBsRate;
   const pendingPaidBs = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => {
       const currency = safeText(paymentReport.reported_currency_code, '').toUpperCase();
       if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
-      return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * activeBsRate;
+      return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * snapshotBsRate;
     }, 0);
   const balanceBs =
     totalBs > 0
