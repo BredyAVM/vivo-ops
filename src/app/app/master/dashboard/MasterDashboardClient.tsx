@@ -3901,6 +3901,7 @@ const [paymentReportReferenceCode, setPaymentReportReferenceCode] = useState('')
 const [paymentReportBankName, setPaymentReportBankName] = useState('');
 const [paymentReportPayerName, setPaymentReportPayerName] = useState('');
 const [paymentReportNotes, setPaymentReportNotes] = useState('');
+const [paymentReportMethodOverride, setPaymentReportMethodOverride] = useState<string | null>(null);
 const [paymentApplyFundAmountUsd, setPaymentApplyFundAmountUsd] = useState('');
 const [paymentApplyFundNotes, setPaymentApplyFundNotes] = useState('');
 const [paymentGiveChangeBoxOpen, setPaymentGiveChangeBoxOpen] = useState(false);
@@ -5427,6 +5428,7 @@ const resetPaymentReportBox = () => {
   setPaymentReportBankName('');
   setPaymentReportPayerName('');
   setPaymentReportNotes('');
+  setPaymentReportMethodOverride(null);
   setPaymentApplyFundAmountUsd('');
   setPaymentApplyFundNotes('');
   setPaymentGiveChangeBoxOpen(false);
@@ -5657,7 +5659,7 @@ const handleCreatePaymentReport = async (o: Order) => {
     }
 
     let exchangeRate: number | null = null;
-    const paymentMethod = o.editMeta?.paymentMethod || '';
+    const paymentMethod = paymentReportMethodOverride || o.editMeta?.paymentMethod || '';
     const operationDate = paymentReportOperationDate.trim();
     const referenceCode = paymentReportReferenceCode.trim();
     const bankName = paymentReportBankName.trim();
@@ -9074,7 +9076,7 @@ const accountRulesByAccountId = useMemo(() => {
 
 const paymentReportAccountOptions = useMemo(() => {
   const activeAccounts = moneyAccounts.filter((account) => account.isActive);
-  const paymentMethod = selectedOrder?.editMeta?.paymentMethod || '';
+  const paymentMethod = paymentReportMethodOverride || selectedOrder?.editMeta?.paymentMethod || '';
   const methodIsSpecific = paymentMethod && paymentMethod !== 'pending' && paymentMethod !== 'mixed';
   const allowedAccountIds = new Set<number>();
 
@@ -9087,7 +9089,7 @@ const paymentReportAccountOptions = useMemo(() => {
   if (allowedAccountIds.size === 0) return activeAccounts;
 
   return activeAccounts.filter((account) => allowedAccountIds.has(account.id));
-}, [currentRoleSet, moneyAccountPaymentRules, moneyAccounts, selectedOrder?.editMeta?.paymentMethod]);
+}, [currentRoleSet, moneyAccountPaymentRules, moneyAccounts, paymentReportMethodOverride, selectedOrder?.editMeta?.paymentMethod]);
 
 const getAccountRuleBadges = useCallback(
   (accountId: number) => {
@@ -9165,7 +9167,7 @@ const getAccountRoleRows = useCallback(
 const selectedPaymentReportAccount =
   paymentReportAccountOptions.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
 
-const paymentReportMethod = selectedOrder?.editMeta?.paymentMethod || '';
+const paymentReportMethod = paymentReportMethodOverride || selectedOrder?.editMeta?.paymentMethod || '';
 const paymentReportRequirements = getPaymentReportRequirements(paymentReportMethod);
 const paymentReportIsRetention = paymentReportMethod === 'retention';
 const paymentReportRequiresOperationData = paymentReportRequirements.requiresOperationDate;
@@ -16620,11 +16622,12 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
-{detailTab === 'pagos' && (selectedOrder.balanceUsd > 0.01 || selectedOrder.editMeta?.paymentMethod === 'retention') ? (
+{detailTab === 'pagos' && selectedOrder.balanceUsd > 0.01 ? (
   <button
     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
     onClick={() => {
       setPaymentReportBoxOpen(true);
+      setPaymentReportMethodOverride(null);
       const today = new Date().toISOString().slice(0, 10);
       setPaymentReportOperationDate(today);
       const suggestedCurrency = selectedOrder.editMeta?.paymentCurrency || 'USD';
@@ -16645,13 +16648,40 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       setPaymentApplyFundNotes('');
     }}
   >
-    {selectedOrder.editMeta?.paymentMethod === 'retention' && selectedOrder.balanceUsd <= 0.01 ? 'Reportar retención' : 'Reportar pago'}
+    Reportar pago
+  </button>
+) : null}
+
+{detailTab === 'pagos' ? (
+  <button
+    className="rounded-md border border-[#3A2F12] bg-[#151208] px-2 py-1 text-[10px] text-[#FEEF00]"
+    onClick={() => {
+      setPaymentReportBoxOpen(true);
+      setPaymentReportMethodOverride('retention');
+      const today = new Date().toISOString().slice(0, 10);
+      setPaymentReportOperationDate(today);
+      setPaymentReportAmount('');
+      setPaymentReportExchangeRate(
+        activeBsRate > 0 ? String(Number(activeBsRate.toFixed(4))) : ''
+      );
+      setPaymentReportMoneyAccountId('');
+      setPaymentReportReferenceCode('');
+      setPaymentReportBankName('');
+      setPaymentReportPayerName('');
+      setPaymentReportNotes('');
+      setPaymentApplyFundAmountUsd('');
+      setPaymentApplyFundNotes('');
+    }}
+  >
+    Reportar retención
   </button>
 ) : null}
 
 {detailTab === 'pagos' && paymentReportBoxOpen ? (
   <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
-    <div className="text-[10px] font-medium text-[#B7B7C2]">Registrar reporte de pago</div>
+    <div className="text-[10px] font-medium text-[#B7B7C2]">
+      {paymentReportIsRetention ? 'Registrar retención' : 'Registrar reporte de pago'}
+    </div>
     <div className="mt-2 grid grid-cols-2 gap-2">
       <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
         <div className="text-[10px] text-[#8A8A96]">Saldo USD</div>
