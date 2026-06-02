@@ -5851,11 +5851,11 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
     );
     const reviewNotes = paymentConfirmReviewNotes.trim();
     let overpaymentHandling: 'change_given' | 'store_fund' | 'close_difference' | null =
-      predictedExcessUsd > 0.005 ? 'store_fund' : null;
+      predictedExcessUsd > 0.005 ? null : null;
     let overpaymentNotes: string | null = null;
 
     if (predictedExcessUsd > 0.005) {
-      if (false && !paymentConfirmOverpaymentHandling) {
+      if (!paymentConfirmOverpaymentHandling) {
         showToast('error', 'Debes elegir qué hacer con el excedente.');
         return;
       }
@@ -5894,7 +5894,9 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       }
 
       overpaymentHandling =
-        paymentConfirmOverpaymentHandling === 'close_difference'
+        paymentConfirmOverpaymentHandling === 'change_given'
+          ? 'change_given'
+          : paymentConfirmOverpaymentHandling === 'close_difference'
           ? 'close_difference'
           : 'store_fund';
       overpaymentNotes = paymentConfirmOverpaymentNotes.trim() || null;
@@ -5917,10 +5919,22 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
       overpaymentHandling,
       overpaymentNotes,
-      changeMoneyAccountId: null,
-      changeCurrency: null,
-      changeAmount: null,
-      changeExchangeRateVesPerUsd: null,
+      changeMoneyAccountId:
+        overpaymentHandling === 'change_given'
+          ? Number(paymentConfirmChangeMoneyAccountId || 0)
+          : null,
+      changeCurrency:
+        overpaymentHandling === 'change_given' && selectedConfirmChangeAccount
+          ? selectedConfirmChangeAccount.currencyCode
+          : null,
+      changeAmount:
+        overpaymentHandling === 'change_given'
+          ? Number(String(paymentConfirmChangeAmount || '').replace(',', '.'))
+          : null,
+      changeExchangeRateVesPerUsd:
+        overpaymentHandling === 'change_given' && selectedConfirmChangeAccount?.currencyCode === 'VES'
+          ? Number(String(paymentConfirmChangeExchangeRate || '').replace(',', '.'))
+          : null,
     });
 
     showToast('success', 'Pago confirmado.');
@@ -5967,16 +5981,14 @@ const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
   setPaymentConfirmChangeExchangeRate(
     rp.exchangeRate != null && rp.exchangeRate > 0 ? String(rp.exchangeRate) : ''
   );
+  const predictedChangeAmount =
+    rp.currencyCode === 'VES' && rp.exchangeRate != null && rp.exchangeRate > 0
+      ? Number((predictedExcessUsd * rp.exchangeRate).toFixed(2))
+      : predictedExcessUsd;
   setPaymentConfirmChangeAmount(
-    predictedExcessUsd > 0.005 ? String(Number(predictedExcessUsd.toFixed(2))) : ''
+    predictedExcessUsd > 0.005 ? String(predictedChangeAmount) : ''
   );
-  setPaymentConfirmOverpaymentHandling(
-    predictedExcessUsd > 0.005
-      ? predictedExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD && isAdmin
-        ? 'close_difference'
-        : 'store_fund'
-      : ''
-  );
+  setPaymentConfirmOverpaymentHandling('');
   setPaymentConfirmBoxOpen(true);
 };
 
@@ -16608,7 +16620,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
-{detailTab === 'pagos' && selectedOrder.balanceUsd > 0.01 ? (
+{detailTab === 'pagos' && (selectedOrder.balanceUsd > 0.01 || selectedOrder.editMeta?.paymentMethod === 'retention') ? (
   <button
     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
     onClick={() => {
@@ -16633,7 +16645,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       setPaymentApplyFundNotes('');
     }}
   >
-    Reportar pago
+    {selectedOrder.editMeta?.paymentMethod === 'retention' && selectedOrder.balanceUsd <= 0.01 ? 'Reportar retención' : 'Reportar pago'}
   </button>
 ) : null}
 
@@ -17013,6 +17025,20 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
               <div className="mt-1 text-[11px]">El excedente quedará como saldo a favor y luego podrás dar cambio desde la orden.</div>
             </button>
 
+            <button
+              type="button"
+              className={[
+                'rounded-xl border px-3 py-2 text-left',
+                paymentConfirmOverpaymentHandling === 'change_given'
+                  ? 'border-sky-400 bg-[#08151A] text-[#F5F5F7]'
+                  : 'border-[#242433] bg-[#121218] text-[#B7B7C2]',
+              ].join(' ')}
+              onClick={() => setPaymentConfirmOverpaymentHandling('change_given')}
+            >
+              <div className="text-sm font-semibold">Devolver ahora</div>
+              <div className="mt-1 text-[11px]">Registra un egreso confirmado por el excedente.</div>
+            </button>
+
             {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD ? (
               <button
                 type="button"
@@ -17029,6 +17055,61 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
               </button>
             ) : null}
           </div>
+
+          {paymentConfirmOverpaymentHandling === 'change_given' ? (
+            <div className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-[#242433] bg-[#111118] p-2 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-[11px] text-[#8A8A96]">Cuenta de devolución</label>
+                <select
+                  value={paymentConfirmChangeMoneyAccountId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setPaymentConfirmChangeMoneyAccountId(nextId);
+                    const account = moneyAccounts.find((item) => item.id === Number(nextId));
+                    if (account?.currencyCode === 'VES' && selectedConfirmPaymentReport?.exchangeRate) {
+                      setPaymentConfirmChangeExchangeRate(String(selectedConfirmPaymentReport.exchangeRate));
+                      setPaymentConfirmChangeAmount(
+                        String(Number((selectedConfirmPaymentExcessUsd * selectedConfirmPaymentReport.exchangeRate).toFixed(2)))
+                      );
+                    } else {
+                      setPaymentConfirmChangeExchangeRate('');
+                      setPaymentConfirmChangeAmount(String(Number(selectedConfirmPaymentExcessUsd.toFixed(2))));
+                    }
+                  }}
+                  className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                >
+                  <option value="">Selecciona cuenta</option>
+                  {moneyAccounts.filter((account) => account.isActive).map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} ({account.currencyCode})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-[#8A8A96]">Monto devuelto</label>
+                <input
+                  value={paymentConfirmChangeAmount}
+                  onChange={(e) => setPaymentConfirmChangeAmount(e.target.value)}
+                  inputMode="decimal"
+                  className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                />
+              </div>
+
+              {selectedConfirmChangeAccount?.currencyCode === 'VES' ? (
+                <div>
+                  <label className="mb-1 block text-[11px] text-[#8A8A96]">Tasa Bs/USD</label>
+                  <input
+                    value={paymentConfirmChangeExchangeRate}
+                    onChange={(e) => setPaymentConfirmChangeExchangeRate(e.target.value)}
+                    inputMode="decimal"
+                    className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-3">
             <label className="mb-1 block text-[11px] text-[#8A8A96]">Nota del excedente</label>
