@@ -196,7 +196,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         }
       />
 
-      <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} userId={ctx.user.id} />
+      <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} />
     </div>
   );
 }

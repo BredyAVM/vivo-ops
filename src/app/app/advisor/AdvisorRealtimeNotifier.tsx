@@ -93,6 +93,17 @@ export default function AdvisorRealtimeNotifier({ userId }: { userId: string }) 
       const requiresAction = shouldRequireAdvisorAction(eventType, row.requires_action, orderStatusData?.status ?? null);
       if (!requiresAction && ACTION_EVENT_TYPES.has(eventType)) return;
 
+      window.dispatchEvent(
+        new CustomEvent('advisor:timeline-recipient', {
+          detail: {
+            recipientId,
+            orderId,
+            eventType,
+            requiresAction,
+          },
+        }),
+      );
+
       setToast({
         recipientId,
         orderId,

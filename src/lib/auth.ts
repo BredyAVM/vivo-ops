@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createSupabaseServer } from '@/lib/supabase/server';
 
 export type AppRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
@@ -31,7 +32,7 @@ export function resolveHomePath(roles: readonly string[]) {
   return '/orders';
 }
 
-export async function getAuthContext(): Promise<AuthContext | null> {
+export const getAuthContext = cache(async function getAuthContext(): Promise<AuthContext | null> {
   const supabase = await createSupabaseServer();
 
   const {
@@ -53,7 +54,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     user,
     roles: normalizeRoles(rolesData),
   };
-}
+});
 
 export async function requireAuthContext() {
   const ctx = await getAuthContext();

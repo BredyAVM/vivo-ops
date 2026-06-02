@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import AdvisorPendingLink from './AdvisorPendingLink';
 import { countCoalescedNotificationsByKind } from './inbox/inbox-shared';
@@ -56,17 +56,24 @@ export default function AdvisorInboxBell({
   actionCount: number;
   updateCount: number;
 }) {
-  const supabase = useMemo(() => createSupabaseBrowser(), []);
+  const supabaseRef = useRef(createSupabaseBrowser());
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [counts, setCounts] = useState({ actions: actionCount, updates: updateCount });
 
   useEffect(() => {
+    setCounts({ actions: actionCount, updates: updateCount });
+  }, [actionCount, updateCount]);
+
+  useEffect(() => {
+    const supabase = supabaseRef.current;
+
     async function refreshUnreadCount() {
       const { data } = await supabase
         .from('order_timeline_event_recipients')
         .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
         .or(`target_user_id.eq.${userId},target_role.eq.advisor`)
         .order('id', { ascending: false })
-        .limit(500);
+        .limit(220);
 
       const reviewOrderIds = Array.from(
         new Set(
@@ -90,45 +97,27 @@ export default function AdvisorInboxBell({
       setCounts({ actions: nextCounts.actions, updates: nextCounts.updates });
     }
 
-    void refreshUnreadCount();
+    function scheduleCountRefresh() {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
 
-    const ownChannel = supabase
-      .channel(`advisor-bell-user-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'order_timeline_event_recipients',
-          filter: `target_user_id=eq.${userId}`,
-        },
-        () => {
-          void refreshUnreadCount();
-        },
-      )
-      .subscribe();
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        void refreshUnreadCount();
+      }, 1800);
+    }
 
-    const roleChannel = supabase
-      .channel(`advisor-bell-role-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'order_timeline_event_recipients',
-          filter: 'target_role=eq.advisor',
-        },
-        () => {
-          void refreshUnreadCount();
-        },
-      )
-      .subscribe();
+    window.addEventListener('advisor:timeline-recipient', scheduleCountRefresh);
 
     return () => {
-      void supabase.removeChannel(ownChannel);
-      void supabase.removeChannel(roleChannel);
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      window.removeEventListener('advisor:timeline-recipient', scheduleCountRefresh);
     };
-  }, [supabase, userId]);
+  }, [userId]);
 
   return (
     <div className="flex items-center gap-1.5">
