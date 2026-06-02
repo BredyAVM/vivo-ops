@@ -10973,6 +10973,11 @@ const hasBlockingOverlay =
 const realtimeRefreshTimerRef = useRef<number | null>(null);
 const realtimeQueuedRefreshRef = useRef(false);
 const realtimeNotificationEventIdsRef = useRef<Set<string>>(new Set());
+const hasBlockingOverlayRef = useRef(false);
+
+useEffect(() => {
+  hasBlockingOverlayRef.current = hasBlockingOverlay;
+}, [hasBlockingOverlay]);
 
 useEffect(() => {
   if (!toast) return;
@@ -11043,7 +11048,7 @@ useEffect(() => {
       return;
     }
 
-    if (hasBlockingOverlay) {
+    if (hasBlockingOverlayRef.current) {
       realtimeQueuedRefreshRef.current = true;
       return;
     }
@@ -11057,7 +11062,7 @@ useEffect(() => {
       realtimeQueuedRefreshRef.current = false;
       router.refresh();
       showToast('info', 'Dashboard actualizado en vivo.');
-    }, 450);
+    }, 1200);
   };
 
   const channels = [
@@ -11109,7 +11114,6 @@ useEffect(() => {
   };
 }, [
   currentUser.id,
-  hasBlockingOverlay,
   isMounted,
   roles,
   router,
@@ -11118,7 +11122,7 @@ useEffect(() => {
 
 useEffect(() => {
   if (!isMounted) return;
-  if (hasBlockingOverlay) return;
+  if (hasBlockingOverlayRef.current) return;
   if (typeof document !== 'undefined' && document.hidden) return;
   if (!realtimeQueuedRefreshRef.current) return;
 
@@ -11129,32 +11133,15 @@ useEffect(() => {
 useEffect(() => {
   if (!isMounted) return;
 
-  const interval = window.setInterval(() => {
-    if (document.hidden || hasBlockingOverlay) return;
-
-    router.refresh();
-  }, 20000);
-
-  return () => window.clearInterval(interval);
-}, [
-  isMounted,
-  router,
-  hasBlockingOverlay,
-]);
-
-useEffect(() => {
-  if (!isMounted) return;
-
   const handleVisibilityChange = () => {
     if (document.hidden) return;
 
-    if (hasBlockingOverlay) return;
+    if (hasBlockingOverlayRef.current) return;
 
     if (realtimeQueuedRefreshRef.current) {
       realtimeQueuedRefreshRef.current = false;
+      router.refresh();
     }
-
-    router.refresh();
   };
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -11162,11 +11149,7 @@ useEffect(() => {
   return () => {
     document.removeEventListener('visibilitychange', handleVisibilityChange);
   };
-}, [
-  isMounted,
-  router,
-  hasBlockingOverlay,
-]);
+}, [isMounted, router]);
 
 useEffect(() => {
   if (!createOrderOpen) return;
