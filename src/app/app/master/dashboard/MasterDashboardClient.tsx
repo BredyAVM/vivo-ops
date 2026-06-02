@@ -5633,7 +5633,10 @@ const handleReturn = async (o: Order) => {
 
 const handleCreatePaymentReport = async (o: Order) => {
   try {
-    if (o.balanceUsd <= 0.01) {
+    const paymentMethod = paymentReportMethodOverride || o.editMeta?.paymentMethod || '';
+    const isRetentionReport = paymentMethod === 'retention';
+
+    if (!isRetentionReport && o.balanceUsd <= 0.01) {
       showToast('error', 'Esta orden ya no tiene saldo pendiente.');
       return;
     }
@@ -5659,7 +5662,6 @@ const handleCreatePaymentReport = async (o: Order) => {
     }
 
     let exchangeRate: number | null = null;
-    const paymentMethod = paymentReportMethodOverride || o.editMeta?.paymentMethod || '';
     const operationDate = paymentReportOperationDate.trim();
     const referenceCode = paymentReportReferenceCode.trim();
     const bankName = paymentReportBankName.trim();

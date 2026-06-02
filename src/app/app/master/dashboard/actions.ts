@@ -1264,18 +1264,57 @@ export async function createPaymentReportAction(input: {
       ? Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6))
       : input.reportedExchangeRateVesPerUsd;
 
-  const { error } = await supabase.rpc('create_payment_report', {
-    p_order_id: input.orderId,
-    p_reported_money_account_id: input.reportedMoneyAccountId,
-    p_reported_currency: input.reportedCurrency,
-    p_reported_amount: input.reportedAmount,
-    p_reported_exchange_rate_ves_per_usd: effectiveReportedExchangeRate,
-    p_reference_code: referenceCode || null,
-    p_payer_name: reportPayerName,
-    p_notes: reportNotes,
-  });
+  if (paymentMethod === 'retention') {
+    const reportedCurrency = String(input.reportedCurrency || '').trim().toUpperCase();
+    const reportedAmount = roundMoney(input.reportedAmount);
+    const exchangeRate = toSafeNumber(effectiveReportedExchangeRate, 0);
+    const reportedAmountUsdEquivalent =
+      reportedCurrency === 'VES'
+        ? exchangeRate > 0
+          ? roundMoney(reportedAmount / exchangeRate)
+          : 0
+        : reportedAmount;
 
-  if (error) throw new Error(error.message);
+    if (reportedCurrency === 'VES' && exchangeRate <= 0) {
+      throw new Error('Debes indicar una tasa válida para registrar la retención.');
+    }
+
+    if (reportedAmountUsdEquivalent <= 0.005) {
+      throw new Error('El monto de la retención no es válido.');
+    }
+
+    const { error: insertRetentionError } = await supabase
+      .from('payment_reports')
+      .insert({
+        order_id: input.orderId,
+        status: 'pending',
+        created_by_user_id: user.id,
+        reported_currency_code: reportedCurrency,
+        reported_amount: reportedAmount,
+        reported_exchange_rate_ves_per_usd:
+          reportedCurrency === 'VES' ? exchangeRate : null,
+        reported_amount_usd_equivalent: reportedAmountUsdEquivalent,
+        reported_money_account_id: input.reportedMoneyAccountId,
+        reference_code: referenceCode || null,
+        payer_name: reportPayerName,
+        notes: reportNotes,
+      });
+
+    if (insertRetentionError) throw new Error(insertRetentionError.message);
+  } else {
+    const { error } = await supabase.rpc('create_payment_report', {
+      p_order_id: input.orderId,
+      p_reported_money_account_id: input.reportedMoneyAccountId,
+      p_reported_currency: input.reportedCurrency,
+      p_reported_amount: input.reportedAmount,
+      p_reported_exchange_rate_ves_per_usd: effectiveReportedExchangeRate,
+      p_reference_code: referenceCode || null,
+      p_payer_name: reportPayerName,
+      p_notes: reportNotes,
+    });
+
+    if (error) throw new Error(error.message);
+  }
 
   if (snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005) {
     const impliedRate = Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6));
