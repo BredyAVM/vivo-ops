@@ -5835,6 +5835,26 @@ export async function searchClientsAction(input: {
   return data ?? [];
 }
 
+export async function loadClientStatsAction() {
+  const { supabase } = await requireMasterOrAdmin();
+
+  const [
+    { count: total, error: totalError },
+    { count: active, error: activeError },
+  ] = await Promise.all([
+    supabase.from('clients').select('id', { count: 'exact', head: true }),
+    supabase.from('clients').select('id', { count: 'exact', head: true }).eq('is_active', true),
+  ]);
+
+  if (totalError) throw new Error(totalError.message);
+  if (activeError) throw new Error(activeError.message);
+
+  return {
+    total: total ?? 0,
+    active: active ?? 0,
+  };
+}
+
 export async function getClientFundSnapshotAction(input: { clientId: number }) {
   const { supabase } = await requireMasterOrAdmin();
   const clientId = Number(input.clientId || 0);

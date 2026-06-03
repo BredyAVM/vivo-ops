@@ -56,6 +56,7 @@ import {
   createClientAction,
   createOrderClientQuickAction,
   getClientFundSnapshotAction,
+  loadClientStatsAction,
   searchClientsAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
@@ -3551,14 +3552,12 @@ export default function MasterDashboardClient({
   moneyAccountPaymentRules = [],
   moneyMovements: initialMoneyMovements = [],
   moneyAccountClosures: initialMoneyAccountClosures = [],
-    inventoryItems = [],
-    inventoryMovements: initialInventoryMovements = [],
-    inventoryRecipes = [],
-    inventoryRecipeComponents = [],
+  inventoryItems = [],
+  inventoryMovements: initialInventoryMovements = [],
+  inventoryRecipes = [],
+  inventoryRecipeComponents = [],
   productInventoryLinks = [],
   clients: initialClients = [],
-  clientTotalCount,
-  clientActiveCount,
   drivers = [],
   deliveryPartners: initialDeliveryPartners = [],
   catalogItems = [],
@@ -3582,14 +3581,12 @@ export default function MasterDashboardClient({
   moneyAccountPaymentRules?: MoneyAccountPaymentRule[];
   moneyMovements?: MoneyMovementItem[];
   moneyAccountClosures?: MoneyAccountClosureItem[];
-    inventoryItems?: InventoryItem[];
-    inventoryMovements?: InventoryMovementItem[];
-    inventoryRecipes?: InventoryRecipeItem[];
-    inventoryRecipeComponents?: InventoryRecipeComponentItem[];
-    productInventoryLinks?: ProductInventoryLink[];
-    clients?: ClientItem[];
-    clientTotalCount?: number;
-    clientActiveCount?: number;
+  inventoryItems?: InventoryItem[];
+  inventoryMovements?: InventoryMovementItem[];
+  inventoryRecipes?: InventoryRecipeItem[];
+  inventoryRecipeComponents?: InventoryRecipeComponentItem[];
+  productInventoryLinks?: ProductInventoryLink[];
+  clients?: ClientItem[];
   drivers?: DriverOption[];
   deliveryPartners?: DeliveryPartnerOption[];
   catalogItems?: CatalogItem[];
@@ -3742,6 +3739,9 @@ export default function MasterDashboardClient({
   const [clientsLoaded, setClientsLoaded] = useState(initialClients.length > 0);
   const [clientsLoading, setClientsLoading] = useState(false);
   const [clientsLoadError, setClientsLoadError] = useState<string | null>(null);
+  const [clientCounts, setClientCounts] = useState<{ total: number; active: number } | null>(null);
+  const [clientCountsLoading, setClientCountsLoading] = useState(false);
+  const [clientCountsLoaded, setClientCountsLoaded] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [clientDetailOpen, setClientDetailOpen] = useState(false);
@@ -7404,6 +7404,33 @@ const handleSaveQuickCatalog = async () => {
     []
   );
 
+  useEffect(() => {
+    if (settingsTab !== 'clients') return;
+    if (clientCountsLoaded || clientCountsLoading) return;
+
+    let cancelled = false;
+    setClientCountsLoading(true);
+
+    loadClientStatsAction()
+      .then((stats) => {
+        if (cancelled) return;
+        setClientCounts(stats);
+        setClientCountsLoaded(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'No se pudieron cargar estadisticas de clientes.';
+        setClientsLoadError(message);
+      })
+      .finally(() => {
+        if (!cancelled) setClientCountsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clientCountsLoaded, clientCountsLoading, settingsTab]);
+
   const handleCreateClient = async () => {
     try {
       setClientSaving(true);
@@ -9974,8 +10001,12 @@ const selectedCreateOrderClientAddresses = useMemo(
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
     const base = {
-      total: hasClientSearch ? filteredClients.length : Math.max(0, Number(clientTotalCount ?? filteredClients.length)),
-      active: hasClientSearch ? 0 : Math.max(0, Number(clientActiveCount ?? 0)),
+      total: hasClientSearch
+        ? filteredClients.length
+        : Math.max(0, Number(clientCounts?.total ?? filteredClients.length)),
+      active: hasClientSearch
+        ? 0
+        : Math.max(0, Number(clientCounts?.active ?? filteredClients.filter((client) => client.isActive).length)),
       withBilling: 0,
       withDeliveryNote: 0,
       withAddresses: 0,
@@ -10005,7 +10036,7 @@ const selectedCreateOrderClientAddresses = useMemo(
     }
 
     return base;
-  }, [clientActiveCount, clientSearch, clientTotalCount, filteredClients]);
+  }, [clientCounts, clientSearch, filteredClients]);
 
   const advisorNameById = useMemo(() => {
     return new Map(advisors.map((advisor) => [advisor.userId, advisor.fullName]));
@@ -11104,11 +11135,7 @@ useEffect(() => {
   if (!currentUser.id) return;
 
   const realtimeRoles = new Set<string>();
-  if (roles.includes('master')) realtimeRoles.add('master');
-  if (roles.includes('admin')) {
-    realtimeRoles.add('admin');
-    realtimeRoles.add('master');
-  }
+  if (roles.includes('master') || roles.includes('admin')) realtimeRoles.add('master');
 
   if (realtimeRoles.size === 0) return;
 
@@ -11181,7 +11208,7 @@ useEffect(() => {
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'order_timeline_event_recipients',
           filter: `target_user_id=eq.${currentUser.id}`,
@@ -11198,7 +11225,7 @@ useEffect(() => {
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'INSERT',
             schema: 'public',
             table: 'order_timeline_event_recipients',
             filter: `target_role=eq.${role}`,

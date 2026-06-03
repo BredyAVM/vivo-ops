@@ -1469,51 +1469,6 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] = [];
 
-  const [
-    { count: clientTotalCount, error: clientTotalCountError },
-    { count: clientActiveCount, error: clientActiveCountError },
-  ] = await Promise.all([
-    supabase
-      .from('clients')
-      .select('id', { count: 'exact', head: true }),
-    supabase
-      .from('clients')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_active', true),
-  ]);
-
-  if (clientTotalCountError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error contando clientes</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudo obtener el total de clientes.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {clientTotalCountError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (clientActiveCountError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error contando clientes activos</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudo obtener el total de clientes activos.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {clientActiveCountError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
   const moneyAccountNameById = new Map<number, string>();
   for (const a of moneyAccounts) {
     moneyAccountNameById.set(Number(a.id), a.name);
@@ -2341,8 +2296,6 @@ currentUser={{
       inventoryRecipeComponents={inventoryRecipeComponents}
       productInventoryLinks={productInventoryLinks}
       clients={[]}
-      clientTotalCount={clientTotalCount ?? 0}
-      clientActiveCount={clientActiveCount ?? 0}
       catalogItems={catalogItems}
       productComponents={productComponents}
       activeExchangeRate={
