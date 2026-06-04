@@ -6766,17 +6766,35 @@ export async function voidFinancialMovementAction(input: {
     if (voidError) throw new Error(voidError.message);
 
     if (paymentReportIds.length > 0) {
+      const { data: reportsToReject, error: reportsToRejectError } = await supabase
+        .from('payment_reports')
+        .select('id, notes')
+        .in('id', paymentReportIds);
+
+      if (reportsToRejectError) throw new Error(reportsToRejectError.message);
+
       const { error: reportError } = await supabase
         .from('payment_reports')
         .update({
           status: 'rejected',
           reviewed_at: now,
           reviewed_by_user_id: user.id,
-          rejection_reason: `Anulado desde cuentas: ${reason}`,
         })
         .in('id', paymentReportIds);
 
       if (reportError) throw new Error(reportError.message);
+
+      for (const report of reportsToReject ?? []) {
+        const previousNotes = String(report.notes || '').trim();
+        const voidNote = `Anulado desde cuentas: ${reason}`;
+        const nextNotes = previousNotes ? `${previousNotes}\n${voidNote}` : voidNote;
+        const { error: notesError } = await supabase
+          .from('payment_reports')
+          .update({ notes: nextNotes })
+          .eq('id', Number(report.id));
+
+        if (notesError) throw new Error(notesError.message);
+      }
     }
 
     revalidatePath('/app/master/dashboard');
