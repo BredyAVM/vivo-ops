@@ -1526,6 +1526,8 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const confirmedPaidByOrder = new Map<number, number>();
   for (const mv of movementsData ?? []) {
+    if ((mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending')) !== 'confirmed') continue;
+
     const orderId = Number(mv.order_id);
     const directionSign = mv.direction === 'outflow' ? -1 : 1;
     const amt = toNumber(mv.amount_usd_equivalent, 0) * directionSign;

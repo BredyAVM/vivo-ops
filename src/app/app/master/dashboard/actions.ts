@@ -1213,7 +1213,8 @@ export async function createPaymentReportAction(input: {
         const { data: orderMovements } = await supabase
           .from('money_movements')
           .select('direction, amount_usd_equivalent')
-          .eq('order_id', input.orderId);
+          .eq('order_id', input.orderId)
+          .eq('status', 'confirmed');
 
         const { data: orderPaymentReports } = await supabase
           .from('payment_reports')
@@ -1424,7 +1425,8 @@ export async function confirmPaymentReportAction(input: {
     const { data: orderMovements, error: orderMovementsError } = await supabase
       .from('money_movements')
       .select('direction, amount_usd_equivalent')
-      .eq('order_id', orderId);
+      .eq('order_id', orderId)
+      .eq('status', 'confirmed');
 
     if (orderMovementsError) {
       throw new Error(orderMovementsError.message);
@@ -1722,7 +1724,8 @@ export async function applyClientFundPaymentAction(input: {
   const { data: orderMovements, error: orderMovementsError } = await supabase
     .from('money_movements')
     .select('direction, amount_usd_equivalent')
-    .eq('order_id', orderId);
+    .eq('order_id', orderId)
+    .eq('status', 'confirmed');
 
   if (orderMovementsError) {
     throw new Error(orderMovementsError.message);
@@ -3813,7 +3816,8 @@ export async function createExtraMoneyMovementAction(input: {
     const { data: orderMovements, error: orderMovementsError } = await supabase
       .from('money_movements')
       .select('direction, amount_usd_equivalent')
-      .eq('order_id', orderId);
+      .eq('order_id', orderId)
+      .eq('status', 'confirmed');
 
     if (orderMovementsError) {
       throw new Error(orderMovementsError.message);
@@ -4088,7 +4092,8 @@ export async function createInventoryItemAction(input: {
     const { data: orderMovements, error: orderMovementsError } = await supabase
       .from('money_movements')
       .select('direction, amount_usd_equivalent')
-      .eq('order_id', orderId);
+      .eq('order_id', orderId)
+      .eq('status', 'confirmed');
 
     if (orderMovementsError) {
       throw new Error(orderMovementsError.message);
@@ -4897,7 +4902,8 @@ export async function closeOrderRoundingBalanceAction(input: {
   const { data: orderMovements, error: orderMovementsError } = await supabase
     .from('money_movements')
     .select('direction, amount_usd_equivalent')
-    .eq('order_id', orderId);
+    .eq('order_id', orderId)
+    .eq('status', 'confirmed');
 
   if (orderMovementsError) {
     throw new Error(orderMovementsError.message);
@@ -6634,6 +6640,153 @@ export async function voidMoneyMovementGroupAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
+}
+
+export async function voidFinancialMovementAction(input: {
+  movementId: number;
+  movementGroupId: string | null;
+  reason: string;
+}) {
+  try {
+    const { supabase, user, roles } = await requireMasterOrAdmin();
+    if (!getMasterDashboardPermissions(roles).isAdmin) {
+      return { ok: false as const, message: 'Solo admin puede anular movimientos financieros.' };
+    }
+
+    const movementId = Number(input.movementId || 0);
+    const movementGroupId = String(input.movementGroupId || '').trim() || null;
+    if ((!Number.isFinite(movementId) || movementId <= 0) && !movementGroupId) {
+      return { ok: false as const, message: 'Movimiento invalido.' };
+    }
+
+    const reason = String(input.reason || '').trim();
+    if (reason.length < 6) {
+      return { ok: false as const, message: 'Debes indicar un motivo claro para anular.' };
+    }
+
+    const movementsQuery = supabase
+      .from('money_movements')
+      .select('id, payment_report_id')
+      .in('status', ['pending', 'confirmed']);
+    const { data: movementsToVoid, error: movementsToVoidError } = movementGroupId
+      ? await movementsQuery.eq('movement_group_id', movementGroupId)
+      : await movementsQuery.eq('id', movementId);
+
+    if (movementsToVoidError) throw new Error(movementsToVoidError.message);
+    if (!movementsToVoid || movementsToVoid.length === 0) {
+      return { ok: false as const, message: 'No hubo movimientos disponibles para anular.' };
+    }
+
+    const movementIds = movementsToVoid.map((movement) => Number(movement.id)).filter((id) => id > 0);
+    const paymentReportIds = Array.from(
+      new Set(
+        movementsToVoid
+          .map((movement) => Number(movement.payment_report_id || 0))
+          .filter((id) => id > 0)
+      )
+    );
+
+    if (paymentReportIds.length > 0) {
+      const { data: fundCredits, error: fundCreditsError } = await supabase
+        .from('client_fund_movements')
+        .select('client_id, amount_usd')
+        .in('payment_report_id', paymentReportIds)
+        .eq('movement_type', 'credit');
+
+      if (fundCreditsError) throw new Error(fundCreditsError.message);
+
+      const fundCreditByClient = new Map<number, number>();
+      for (const credit of fundCredits ?? []) {
+        const clientId = Number(credit.client_id || 0);
+        const amountUsd = roundMoney(credit.amount_usd);
+        if (!Number.isFinite(clientId) || clientId <= 0 || amountUsd <= 0) continue;
+        fundCreditByClient.set(clientId, roundMoney((fundCreditByClient.get(clientId) ?? 0) + amountUsd));
+      }
+
+      for (const [clientId, amountUsd] of fundCreditByClient) {
+        const { data: currentClient, error: currentClientError } = await supabase
+          .from('clients')
+          .select('id, fund_balance_usd')
+          .eq('id', clientId)
+          .single();
+
+        if (currentClientError || !currentClient) {
+          throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
+        }
+
+        const currentFundUsd = roundMoney(currentClient.fund_balance_usd);
+        if (currentFundUsd + 0.0001 < amountUsd) {
+          return {
+            ok: false as const,
+            message:
+              'Este pago envio dinero al fondo, pero el cliente ya no tiene saldo suficiente para revertirlo automaticamente.',
+          };
+        }
+
+        const { error: updateFundError } = await supabase
+          .from('clients')
+          .update({ fund_balance_usd: roundMoney(currentFundUsd - amountUsd) })
+          .eq('id', clientId);
+
+        if (updateFundError) throw new Error(updateFundError.message);
+
+        const { error: fundMovementError } = await supabase
+          .from('client_fund_movements')
+          .insert({
+            client_id: clientId,
+            movement_type: 'debit',
+            currency_code: 'USD',
+            amount: amountUsd,
+            amount_usd: amountUsd,
+            money_account_id: null,
+            order_id: null,
+            payment_report_id: paymentReportIds[0] ?? null,
+            reason_code: 'payment_void_fund_reversal',
+            notes: `Reverso por anulacion financiera: ${reason}`,
+            created_by_user_id: user.id,
+          });
+
+        if (fundMovementError) throw new Error(fundMovementError.message);
+      }
+    }
+
+    const now = new Date().toISOString();
+    const { error: voidError } = await supabase
+      .from('money_movements')
+      .update({
+        status: 'voided',
+        reviewed_at: now,
+        reviewed_by_user_id: user.id,
+        voided_at: now,
+        voided_by_user_id: user.id,
+        void_reason: reason,
+      })
+      .in('id', movementIds);
+
+    if (voidError) throw new Error(voidError.message);
+
+    if (paymentReportIds.length > 0) {
+      const { error: reportError } = await supabase
+        .from('payment_reports')
+        .update({
+          status: 'rejected',
+          reviewed_at: now,
+          reviewed_by_user_id: user.id,
+          rejection_reason: `Anulado desde cuentas: ${reason}`,
+        })
+        .in('id', paymentReportIds);
+
+      if (reportError) throw new Error(reportError.message);
+    }
+
+    revalidatePath('/app/master/dashboard');
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo anular el movimiento.',
+    };
+  }
 }
 
 export async function createMoneyAccountClosureAction(input: {

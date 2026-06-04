@@ -45,7 +45,6 @@ import {
   createMoneyTransferAction,
   approveMoneyMovementGroupAction,
   rejectMoneyMovementGroupAction,
-  voidMoneyMovementGroupAction,
   createMoneyAccountClosureAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
@@ -70,6 +69,7 @@ import {
   updateMoneyAccountPaymentRulesAction,
   createOrderAction,
   updateOrderAction,
+  voidFinancialMovementAction,
   logoutAction,
 } from './actions';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
@@ -7051,11 +7051,17 @@ const handleSaveQuickCatalog = async () => {
 
     try {
       setMovementVoidSaving(true);
-      await voidMoneyMovementGroupAction({
+      const result = await voidFinancialMovementAction({
         movementId: selectedMovementGroup.primaryMovement.id,
         movementGroupId: selectedMovementGroup.primaryMovement.movementGroupId,
         reason: movementVoidReason,
       });
+
+      if (!result.ok) {
+        showToast('error', result.message);
+        return;
+      }
+
       showToast('success', 'Movimiento anulado.');
       setMovementDetailOpen(false);
       setMovementVoidReason('');
