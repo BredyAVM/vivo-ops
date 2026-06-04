@@ -6648,10 +6648,11 @@ export async function voidFinancialMovementAction(input: {
   reason: string;
 }) {
   try {
-    const { supabase, user, roles } = await requireMasterOrAdmin();
+    const { user, roles } = await requireMasterOrAdmin();
     if (!getMasterDashboardPermissions(roles).isAdmin) {
       return { ok: false as const, message: 'Solo admin puede anular movimientos financieros.' };
     }
+    const supabase = createSupabaseServiceRoleServer();
 
     const movementId = Number(input.movementId || 0);
     const movementGroupId = String(input.movementGroupId || '').trim() || null;
@@ -6666,7 +6667,7 @@ export async function voidFinancialMovementAction(input: {
 
     const movementsQuery = supabase
       .from('money_movements')
-      .select('id, payment_report_id, status');
+      .select('id, payment_report_id, status, confirmed_at');
     const { data: movementsToVoid, error: movementsToVoidError } = movementGroupId
       ? await movementsQuery.eq('movement_group_id', movementGroupId)
       : await movementsQuery.eq('id', movementId);
@@ -6677,7 +6678,10 @@ export async function voidFinancialMovementAction(input: {
     }
 
     const movementIds = movementsToVoid
-      .filter((movement) => ['pending', 'confirmed'].includes(String(movement.status || '')))
+      .filter((movement) => {
+        const effectiveStatus = movement.status ?? (movement.confirmed_at ? 'confirmed' : 'pending');
+        return ['pending', 'confirmed'].includes(String(effectiveStatus));
+      })
       .map((movement) => Number(movement.id))
       .filter((id) => id > 0);
     const paymentReportIds = Array.from(
@@ -6754,8 +6758,9 @@ export async function voidFinancialMovementAction(input: {
 
     const now = new Date().toISOString();
 
+    let voidedMovementIds: number[] = [];
     if (movementIds.length > 0) {
-      const { error: voidError } = await supabase
+      const { data: voidedRows, error: voidError } = await supabase
         .from('money_movements')
         .update({
           status: 'voided',
@@ -6765,11 +6770,22 @@ export async function voidFinancialMovementAction(input: {
           voided_by_user_id: user.id,
           void_reason: reason,
         })
-        .in('id', movementIds);
+        .in('id', movementIds)
+        .select('id');
 
       if (voidError) throw new Error(voidError.message);
+      voidedMovementIds = (voidedRows ?? [])
+        .map((movement) => Number(movement.id))
+        .filter((id) => id > 0);
+
+      if (voidedMovementIds.length !== movementIds.length) {
+        throw new Error(
+          `La anulacion no se guardo completa en movimientos financieros (${voidedMovementIds.length}/${movementIds.length}).`
+        );
+      }
     }
 
+    let rejectedPaymentReportIds: number[] = [];
     if (paymentReportIds.length > 0) {
       const { data: reportsToReject, error: reportsToRejectError } = await supabase
         .from('payment_reports')
@@ -6778,16 +6794,26 @@ export async function voidFinancialMovementAction(input: {
 
       if (reportsToRejectError) throw new Error(reportsToRejectError.message);
 
-      const { error: reportError } = await supabase
+      const { data: rejectedRows, error: reportError } = await supabase
         .from('payment_reports')
         .update({
           status: 'rejected',
           reviewed_at: now,
           reviewed_by_user_id: user.id,
         })
-        .in('id', paymentReportIds);
+        .in('id', paymentReportIds)
+        .select('id');
 
       if (reportError) throw new Error(reportError.message);
+      rejectedPaymentReportIds = (rejectedRows ?? [])
+        .map((report) => Number(report.id))
+        .filter((id) => id > 0);
+
+      if (rejectedPaymentReportIds.length !== paymentReportIds.length) {
+        throw new Error(
+          `La anulacion no se guardo completa en reportes de pago (${rejectedPaymentReportIds.length}/${paymentReportIds.length}).`
+        );
+      }
 
       for (const report of reportsToReject ?? []) {
         const previousNotes = String(report.notes || '').trim();
@@ -6803,7 +6829,7 @@ export async function voidFinancialMovementAction(input: {
     }
 
     revalidatePath('/app/master/dashboard');
-    return { ok: true as const, movementIds, paymentReportIds };
+    return { ok: true as const, movementIds: voidedMovementIds, paymentReportIds: rejectedPaymentReportIds };
   } catch (error) {
     return {
       ok: false as const,
