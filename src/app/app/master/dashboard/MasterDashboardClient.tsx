@@ -7086,6 +7086,7 @@ const handleSaveQuickCatalog = async () => {
       setMovementDetailOpen(false);
       setMovementVoidReason('');
       await loadMoneyActivity(true);
+      router.refresh();
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo anular el movimiento.');
     } finally {

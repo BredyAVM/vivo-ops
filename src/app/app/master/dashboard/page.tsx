@@ -85,6 +85,13 @@ type RawPaymentReportRow = {
   notes: string | null;
 };
 
+type RawPaymentReportMovementStatusRow = {
+  payment_report_id: number | null;
+  status: 'pending' | 'confirmed' | 'rejected' | 'voided' | null;
+  voided_at: string | null;
+  void_reason: string | null;
+};
+
 type PaymentReportDetail = {
   id: number;
   status: 'pending' | 'confirmed' | 'rejected';
@@ -1317,6 +1324,34 @@ const { data: ordersData, error: ordersError } = await supabase
     .order('payment_method_code', { ascending: true });
 
   const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
+  const reportIdsForMovementStatus = rawReports
+    .map((report) => Number(report.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const { data: reportMovementStatusData, error: reportMovementStatusError } =
+    reportIdsForMovementStatus.length > 0
+      ? await supabase
+          .from('money_movements')
+          .select('payment_report_id, status, voided_at, void_reason')
+          .in('payment_report_id', reportIdsForMovementStatus)
+      : { data: [], error: null };
+
+  if (reportMovementStatusError) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error conciliando pagos anulados</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo verificar el estado financiero de los reportes de pago.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {reportMovementStatusError.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+
   const reporterIds = Array.from(
     new Set(
       rawReports
@@ -1492,10 +1527,23 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const paymentReportsByOrder = new Map<number, PaymentReportDetail[]>();
   const voidedPaymentReportIds = new Set<number>();
+  const voidedPaymentReportReasonById = new Map<number, string>();
   for (const mv of movementsData ?? []) {
     if ((mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending')) !== 'voided') continue;
     const reportId = Number(mv.payment_report_id || 0);
-    if (reportId > 0) voidedPaymentReportIds.add(reportId);
+    if (reportId > 0) {
+      voidedPaymentReportIds.add(reportId);
+      if (mv.void_reason) voidedPaymentReportReasonById.set(reportId, String(mv.void_reason));
+    }
+  }
+
+  for (const mv of (reportMovementStatusData ?? []) as RawPaymentReportMovementStatusRow[]) {
+    if ((mv.status ?? 'pending') !== 'voided') continue;
+    const reportId = Number(mv.payment_report_id || 0);
+    if (reportId > 0) {
+      voidedPaymentReportIds.add(reportId);
+      if (mv.void_reason) voidedPaymentReportReasonById.set(reportId, String(mv.void_reason));
+    }
   }
 
   for (const rp of rawReports) {
@@ -1529,7 +1577,16 @@ const { data: ordersData, error: ordersError } = await supabase
       payerName: rp.payer_name ?? null,
       notes:
         voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
-          ? [rp.notes, 'Movimiento financiero anulado desde cuentas.'].filter(Boolean).join('\n')
+          ? [
+              rp.notes,
+              `Movimiento financiero anulado desde cuentas${
+                voidedPaymentReportReasonById.get(reportId)
+                  ? `: ${voidedPaymentReportReasonById.get(reportId)}`
+                  : '.'
+              }`,
+            ]
+              .filter(Boolean)
+              .join('\n')
           : rp.notes ?? null,
     };
 
