@@ -62,6 +62,7 @@ select
   mm.voided_at,
   mm.void_reason,
   pr.status as report_status,
+  pr.confirmed_movement_id,
   pr.reported_amount_usd_equivalent,
   pr.reference_code
 from public.money_movements mm
@@ -69,6 +70,23 @@ join public.payment_reports pr on pr.id = mm.payment_report_id
 where mm.status = 'voided'
   and pr.status = 'confirmed'
 order by mm.voided_at desc nulls last, mm.created_at desc;
+
+-- 4b) Reportes rechazados que todavia conservan confirmed_movement_id.
+select
+  pr.id as payment_report_id,
+  pr.order_id,
+  pr.status as report_status,
+  pr.confirmed_movement_id,
+  mm.status as movement_status,
+  mm.voided_at,
+  mm.void_reason,
+  pr.reported_amount_usd_equivalent,
+  pr.reference_code
+from public.payment_reports pr
+left join public.money_movements mm on mm.id = pr.confirmed_movement_id
+where pr.status = 'rejected'
+  and pr.confirmed_movement_id is not null
+order by pr.created_at desc;
 
 -- 5) Movimientos confirmados sin order_id ni payment_report_id.
 -- No todos son errores: puede haber ingresos/egresos generales.
@@ -216,4 +234,3 @@ left join public.money_movements mm on mm.payment_report_id = pr.id
 where lower(coalesce(pr.notes, '')) like '%retencion%'
    or lower(coalesce(pr.notes, '')) like '%retención%'
 order by pr.created_at desc;
-

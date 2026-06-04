@@ -6798,6 +6798,7 @@ export async function voidFinancialMovementAction(input: {
         .from('payment_reports')
         .update({
           status: 'rejected',
+          confirmed_movement_id: null,
           reviewed_at: now,
           reviewed_by_user_id: user.id,
         })

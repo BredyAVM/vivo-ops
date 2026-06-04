@@ -129,11 +129,12 @@ Resultado atomico:
 - `payment_reports.status = confirmed`
 - crea `money_movements.status = confirmed`
 - liga `money_movements.payment_report_id`
+- guarda `payment_reports.confirmed_movement_id` con el movimiento financiero creado
 - recalcula saldo de la orden
 - si hay excedente, obliga decision: cambio, fondo o cierre por redondeo permitido
 - crea evento `payment_confirmed`
 
-Regla: confirmar pago debe ser una sola operacion atomica. No puede quedar reporte confirmado sin movimiento real.
+Regla: confirmar pago debe ser una sola operacion atomica. No puede quedar reporte confirmado sin movimiento real ni sin `confirmed_movement_id`.
 
 ### 3. Rechazar reporte pendiente
 
@@ -165,12 +166,13 @@ Resultado atomico:
 - `money_movements.status = voided`
 - `money_movements.voided_at/by/reason`
 - `payment_reports.status = rejected` o estado equivalente visible como anulado
+- `payment_reports.confirmed_movement_id = null`
 - el pago deja de contar en saldo de cuenta
 - el pago deja de contar en saldo de orden
 - si ese pago genero fondo, se crea reverso de fondo
 - crea evento `payment_voided`
 
-Regla: no se elimina nada. Se conserva huella completa.
+Regla: no se elimina nada. Se conserva huella completa. Si el reporte queda en `confirmed`, debe tener `confirmed_movement_id`; si queda en `rejected`, no debe conservar `confirmed_movement_id`.
 
 ### 5. Aplicar fondo a orden
 
@@ -354,4 +356,3 @@ Eliminar calculos duplicados en pantallas. La UI solo muestra:
 - Toda anulacion debe tener motivo, usuario y fecha.
 - Toda diferencia por redondeo debe quedar auditada.
 - Toda retencion debe estar ligada a factura/comprobante.
-
