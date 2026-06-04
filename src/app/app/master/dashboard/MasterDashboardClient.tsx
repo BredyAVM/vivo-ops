@@ -6671,8 +6671,10 @@ const handleSaveQuickCatalog = async () => {
         const result = await loadMoneyActivityAction({ movementLimit: 350, closureLimit: 120 });
         const movementById = new Map<number, MoneyMovementItem>();
 
-        for (const movement of initialMoneyMovements) {
-          movementById.set(movement.id, movement);
+        if (!force) {
+          for (const movement of initialMoneyMovements) {
+            movementById.set(movement.id, movement);
+          }
         }
 
         for (const movement of result.movements as MoneyMovementItem[]) {
@@ -7061,6 +7063,24 @@ const handleSaveQuickCatalog = async () => {
         showToast('error', result.message);
         return;
       }
+
+      const voidedIds = new Set(result.movementIds ?? []);
+      const voidedAt = new Date().toISOString();
+      setMoneyMovements((prev) =>
+        prev.map((movement) =>
+          voidedIds.has(movement.id)
+            ? {
+                ...movement,
+                status: 'voided',
+                reviewedAt: voidedAt,
+                reviewedByUserId: currentUser.id,
+                voidedAt,
+                voidedByUserId: currentUser.id,
+                voidReason: movementVoidReason.trim(),
+              }
+            : movement
+        )
+      );
 
       showToast('success', 'Movimiento anulado.');
       setMovementDetailOpen(false);

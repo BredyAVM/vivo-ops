@@ -6803,7 +6803,7 @@ export async function voidFinancialMovementAction(input: {
     }
 
     revalidatePath('/app/master/dashboard');
-    return { ok: true as const };
+    return { ok: true as const, movementIds, paymentReportIds };
   } catch (error) {
     return {
       ok: false as const,
