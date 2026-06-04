@@ -6666,8 +6666,7 @@ export async function voidFinancialMovementAction(input: {
 
     const movementsQuery = supabase
       .from('money_movements')
-      .select('id, payment_report_id')
-      .in('status', ['pending', 'confirmed']);
+      .select('id, payment_report_id, status');
     const { data: movementsToVoid, error: movementsToVoidError } = movementGroupId
       ? await movementsQuery.eq('movement_group_id', movementGroupId)
       : await movementsQuery.eq('id', movementId);
@@ -6677,7 +6676,10 @@ export async function voidFinancialMovementAction(input: {
       return { ok: false as const, message: 'No hubo movimientos disponibles para anular.' };
     }
 
-    const movementIds = movementsToVoid.map((movement) => Number(movement.id)).filter((id) => id > 0);
+    const movementIds = movementsToVoid
+      .filter((movement) => ['pending', 'confirmed'].includes(String(movement.status || '')))
+      .map((movement) => Number(movement.id))
+      .filter((id) => id > 0);
     const paymentReportIds = Array.from(
       new Set(
         movementsToVoid
@@ -6686,7 +6688,7 @@ export async function voidFinancialMovementAction(input: {
       )
     );
 
-    if (paymentReportIds.length > 0) {
+    if (movementIds.length > 0 && paymentReportIds.length > 0) {
       const { data: fundCredits, error: fundCreditsError } = await supabase
         .from('client_fund_movements')
         .select('client_id, amount_usd')
@@ -6751,19 +6753,22 @@ export async function voidFinancialMovementAction(input: {
     }
 
     const now = new Date().toISOString();
-    const { error: voidError } = await supabase
-      .from('money_movements')
-      .update({
-        status: 'voided',
-        reviewed_at: now,
-        reviewed_by_user_id: user.id,
-        voided_at: now,
-        voided_by_user_id: user.id,
-        void_reason: reason,
-      })
-      .in('id', movementIds);
 
-    if (voidError) throw new Error(voidError.message);
+    if (movementIds.length > 0) {
+      const { error: voidError } = await supabase
+        .from('money_movements')
+        .update({
+          status: 'voided',
+          reviewed_at: now,
+          reviewed_by_user_id: user.id,
+          voided_at: now,
+          voided_by_user_id: user.id,
+          void_reason: reason,
+        })
+        .in('id', movementIds);
+
+      if (voidError) throw new Error(voidError.message);
+    }
 
     if (paymentReportIds.length > 0) {
       const { data: reportsToReject, error: reportsToRejectError } = await supabase

@@ -1491,13 +1491,24 @@ const { data: ordersData, error: ordersError } = await supabase
   }
 
   const paymentReportsByOrder = new Map<number, PaymentReportDetail[]>();
+  const voidedPaymentReportIds = new Set<number>();
+  for (const mv of movementsData ?? []) {
+    if ((mv.status ?? (mv.confirmed_at ? 'confirmed' : 'pending')) !== 'voided') continue;
+    const reportId = Number(mv.payment_report_id || 0);
+    if (reportId > 0) voidedPaymentReportIds.add(reportId);
+  }
 
   for (const rp of rawReports) {
     const orderId = Number(rp.order_id);
+    const reportId = Number(rp.id);
+    const effectiveStatus =
+      voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
+        ? 'rejected'
+        : rp.status;
 
     const detail: PaymentReportDetail = {
-      id: Number(rp.id),
-      status: rp.status,
+      id: reportId,
+      status: effectiveStatus,
       createdAt: rp.created_at ?? null,
       reporterUserId: rp.created_by_user_id ?? null,
       reporterName: rp.created_by_user_id
@@ -1516,7 +1527,10 @@ const { data: ordersData, error: ordersError } = await supabase
         `Cuenta #${rp.reported_money_account_id}`,
       referenceCode: rp.reference_code ?? null,
       payerName: rp.payer_name ?? null,
-      notes: rp.notes ?? null,
+      notes:
+        voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
+          ? [rp.notes, 'Movimiento financiero anulado desde cuentas.'].filter(Boolean).join('\n')
+          : rp.notes ?? null,
     };
 
     const arr = paymentReportsByOrder.get(orderId) ?? [];
@@ -1559,6 +1573,11 @@ const { data: ordersData, error: ordersError } = await supabase
 
   for (const rp of reportsData ?? []) {
     const orderId = Number(rp.order_id);
+    const reportId = Number(rp.id);
+    const effectiveStatus =
+      voidedPaymentReportIds.has(reportId) && rp.status === 'confirmed'
+        ? 'rejected'
+        : rp.status;
     const amountUsd = toNumber(rp.reported_amount_usd_equivalent, 0);
 
     let state = reportsByOrder.get(orderId);
@@ -1575,13 +1594,13 @@ const { data: ordersData, error: ordersError } = await supabase
       reportsByOrder.set(orderId, state);
     }
 
-    if (rp.status === 'pending') {
+    if (effectiveStatus === 'pending') {
       state.pendingCount += 1;
       state.pendingUsd += amountUsd;
 
       if (!state.latestPendingReport) {
         state.latestPendingReport = {
-          id: Number(rp.id),
+          id: reportId,
           created_at: rp.created_at ?? null,
           reported_currency_code: String(rp.reported_currency_code),
           reported_amount: toNumber(rp.reported_amount, 0),
@@ -1596,9 +1615,9 @@ const { data: ordersData, error: ordersError } = await supabase
           notes: rp.notes ?? null,
         };
       }
-    } else if (rp.status === 'confirmed') {
+    } else if (effectiveStatus === 'confirmed') {
       state.confirmedCount += 1;
-    } else if (rp.status === 'rejected') {
+    } else if (effectiveStatus === 'rejected') {
       state.rejectedCount += 1;
       state.rejectedUsd += amountUsd;
     }
