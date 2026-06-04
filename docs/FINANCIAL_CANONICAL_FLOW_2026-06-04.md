@@ -320,6 +320,12 @@ Implementar `get_order_financial_state(order_id)` como fuente unica de saldo.
 
 Primero usarla en Master dashboard. Luego Advisor home, Advisor pagos y Advisor detalle.
 
+Primer SQL propuesto:
+
+- `docs/ORDER_FINANCIAL_STATE_RPC_2026-06-04.sql`
+
+Esta funcion recibe opcionalmente `p_operation_date` y `p_active_bs_rate` para respetar la regla de pagos en bolivares: antes o durante el dia de entrega usa el snapshot Bs congelado; despues del dia de entrega puede calcular cobranza dolarizada con tasa activa.
+
 ### Fase 3 - Rehacer confirmacion/anulacion
 
 Centralizar:

@@ -179,6 +179,37 @@ type RawMoneyMovementRow = {
   movement_group_id: string | null;
 };
 
+type RawOrderFinancialStateRow = {
+  order_id: number | string;
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  confirmed_paid_bs_snapshot: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  rejected_reports_usd: number | string | null;
+  voided_movements_count: number | string | null;
+  rejected_reports_count: number | string | null;
+  pending_reports_count: number | string | null;
+  confirmed_reports_count: number | string | null;
+  client_fund_used_usd: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+  overpaid_usd: number | string | null;
+  collection_mode: 'closed' | 'snapshot_quote' | 'post_delivery_usd' | string | null;
+  payment_status:
+    | 'cancelled'
+    | 'unpaid'
+    | 'partial'
+    | 'pending_review'
+    | 'paid'
+    | 'overpaid'
+    | string
+    | null;
+  delivery_reference_date: string | null;
+  effective_operation_date: string | null;
+};
+
 type RawProfileRow = {
   id: string;
   full_name: string | null;
@@ -993,6 +1024,26 @@ const { data: ordersData, error: ordersError } = await supabase
 
   const rawOrders = (ordersData ?? []) as RawOrderRow[];
   const orderIds = rawOrders.map((o) => o.id);
+  const { data: financialStateData, error: financialStateError } =
+    orderIds.length > 0
+      ? await (supabase as any).rpc('get_orders_financial_state', {
+          p_order_ids: orderIds,
+          p_operation_date: null,
+          p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
+        })
+      : { data: [], error: null };
+
+  if (financialStateError) {
+    console.warn('get_orders_financial_state skipped', financialStateError.message);
+  }
+
+  const financialStateByOrderId = new Map<number, RawOrderFinancialStateRow>();
+  for (const state of (financialStateData ?? []) as RawOrderFinancialStateRow[]) {
+    const orderId = Number(state.order_id);
+    if (Number.isFinite(orderId) && orderId > 0) {
+      financialStateByOrderId.set(orderId, state);
+    }
+  }
 
   const orderEventsByOrder = new Map<
     number,
@@ -2045,14 +2096,23 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     const isCancelled = row.status === 'cancelled';
     const clientFundUsedUsd = roundMoney(row.extra_fields?.payment?.client_fund_used_usd);
     const moneySnapshot = getOrderMoneySnapshot(row);
-    const totalUsd = roundMoney(moneySnapshot.totalUsd);
-    const totalBs = roundMoney(moneySnapshot.totalBs);
+    const financialState = financialStateByOrderId.get(row.id);
+    const totalUsd = financialState
+      ? roundMoney(financialState.total_usd)
+      : roundMoney(moneySnapshot.totalUsd);
+    const totalBs = financialState
+      ? roundMoney(financialState.total_bs)
+      : roundMoney(moneySnapshot.totalBs);
     const confirmedPaidUsd = isCancelled
       ? 0
-      : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
+      : financialState
+        ? roundMoney(financialState.confirmed_paid_usd)
+        : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
     const balanceUsd = isCancelled
       ? 0
-      : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
+      : financialState
+        ? roundMoney(financialState.pending_usd)
+        : roundMoney(Math.max(0, totalUsd - confirmedPaidUsd));
 
     const reportState = reportsByOrder.get(row.id) ?? {
       pendingCount: 0,
@@ -2062,12 +2122,21 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
       rejectedUsd: 0,
       latestPendingReport: null,
     };
+    const pendingReportCount = financialState
+      ? Math.max(0, Math.trunc(toNumber(financialState.pending_reports_count, 0)))
+      : reportState.pendingCount;
+    const rejectedReportCount = financialState
+      ? Math.max(0, Math.trunc(toNumber(financialState.rejected_reports_count, 0)))
+      : reportState.rejectedCount;
+    const confirmedReportCount = financialState
+      ? Math.max(0, Math.trunc(toNumber(financialState.confirmed_reports_count, 0)))
+      : reportState.confirmedCount;
 
     let paymentVerify: 'none' | 'pending' | 'confirmed' | 'rejected' = 'none';
     if (isCancelled) paymentVerify = 'none';
-    else if (reportState.pendingCount > 0) paymentVerify = 'pending';
-    else if (reportState.rejectedCount > 0) paymentVerify = 'rejected';
-    else if (confirmedPaidUsd > 0.01 || reportState.confirmedCount > 0) paymentVerify = 'confirmed';
+    else if (pendingReportCount > 0) paymentVerify = 'pending';
+    else if (rejectedReportCount > 0 && confirmedPaidUsd <= 0.01) paymentVerify = 'rejected';
+    else if (confirmedPaidUsd > 0.01 || confirmedReportCount > 0) paymentVerify = 'confirmed';
 
 const creatorRow = Array.isArray(row.creator) ? row.creator[0] : row.creator;
 const advisorRow = Array.isArray(row.advisor) ? row.advisor[0] : row.advisor;
@@ -2206,8 +2275,12 @@ return {
       totalBs,
       paymentVerify,
       confirmedPaidUsd,
-      pendingReportedUsd: reportState.pendingUsd,
-      rejectedReportedUsd: reportState.rejectedUsd,
+      pendingReportedUsd: financialState
+        ? roundMoney(financialState.pending_reports_usd)
+        : reportState.pendingUsd,
+      rejectedReportedUsd: financialState
+        ? roundMoney(financialState.rejected_reports_usd)
+        : reportState.rejectedUsd,
       latestPendingReportId: reportState.latestPendingReport?.id,
       latestPendingReportAmountUsd: reportState.latestPendingReport?.reported_amount_usd_equivalent,
       latestPendingReportCurrency: reportState.latestPendingReport?.reported_currency_code,
