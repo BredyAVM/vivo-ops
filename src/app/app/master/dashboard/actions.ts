@@ -172,6 +172,19 @@ const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
 const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 const MASTER_OUTFLOW_ADMIN_APPROVAL_MIN_USD = 10;
 
+type OrderFinancialState = {
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  snapshot_rate_bs_per_usd: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+  overpaid_usd: number | string | null;
+  collection_mode: string | null;
+};
+
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
 type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
@@ -205,6 +218,57 @@ function normalizeUserRoles(input: unknown): AppUserRole[] {
 function normalizePaymentMethodCode(input: unknown): PaymentMethodCode | null {
   if (typeof input !== 'string') return null;
   return PAYMENT_METHOD_CODES.has(input as PaymentMethodCode) ? (input as PaymentMethodCode) : null;
+}
+
+async function loadOrderFinancialState(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    orderId: number;
+    operationDate?: string | null;
+    activeBsRate?: number | null;
+  }
+) {
+  const { data, error } = await (supabase as any).rpc('get_order_financial_state', {
+    p_order_id: input.orderId,
+    p_operation_date: input.operationDate || null,
+    p_active_bs_rate: input.activeBsRate && input.activeBsRate > 0 ? input.activeBsRate : null,
+  });
+
+  if (error) {
+    console.warn('get_order_financial_state skipped in master action', error.message);
+    return null;
+  }
+
+  return (((data ?? []) as OrderFinancialState[])[0] ?? null);
+}
+
+function getSnapshotEquivalentUsdFromFinancialState(input: {
+  state: OrderFinancialState | null;
+  reportedAmount: number;
+}) {
+  const state = input.state;
+  if (!state || state.collection_mode !== 'snapshot_quote') return null;
+
+  const reportedAmount = roundMoney(input.reportedAmount);
+  const pendingUsd = roundMoney(state.pending_usd);
+  const pendingBs = roundMoney(state.pending_bs);
+  const totalUsd = roundMoney(state.total_usd);
+  const totalBs = roundMoney(state.total_bs);
+  const snapshotRate = toSafeNumber(state.snapshot_rate_bs_per_usd, 0);
+
+  if (pendingUsd > 0.005 && pendingBs > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
+    return pendingUsd;
+  }
+
+  if (reportedAmount > 0 && pendingBs > 0.005 && reportedAmount < pendingBs && snapshotRate > 0) {
+    return roundMoney(reportedAmount / snapshotRate);
+  }
+
+  if (totalUsd > 0.005 && totalBs > 0.005 && Math.abs(reportedAmount - totalBs) <= 0.01) {
+    return totalUsd;
+  }
+
+  return null;
 }
 
 function requiresAdminMovementApproval(
@@ -1197,67 +1261,15 @@ export async function createPaymentReportAction(input: {
   let snapshotEquivalentUsd: number | null = null;
 
   if (String(input.reportedCurrency || '').trim().toUpperCase() === 'VES') {
-    const reportedAmount = roundMoney(input.reportedAmount);
-    const { data: currentOrder } = await supabase
-      .from('orders')
-      .select('id, total_usd, total_bs_snapshot, extra_fields')
-      .eq('id', input.orderId)
-      .maybeSingle();
-
-    if (currentOrder) {
-      const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
-      const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
-      const canUseSnapshot = canUseSnapshotForPaymentOperation(currentOrder, normalizeDateOnly(operationDate));
-
-      if (canUseSnapshot && currentTotalUsd > 0.005 && currentTotalBs > 0.005) {
-        const { data: orderMovements } = await supabase
-          .from('money_movements')
-          .select('direction, amount_usd_equivalent')
-          .eq('order_id', input.orderId)
-          .eq('status', 'confirmed');
-
-        const { data: orderPaymentReports } = await supabase
-          .from('payment_reports')
-          .select('status, reported_currency_code, reported_amount, reported_amount_usd_equivalent')
-          .eq('order_id', input.orderId);
-
-        const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
-          const signedAmount =
-            toSafeNumber(row.amount_usd_equivalent, 0) *
-            (row.direction === 'outflow' ? -1 : 1);
-          return sum + signedAmount;
-        }, 0));
-
-        const pendingUsd = roundMoney(Math.max(0, currentTotalUsd - confirmedPaidUsd));
-        const snapshotRate = currentTotalBs / currentTotalUsd;
-        const confirmedReportPaid = (orderPaymentReports ?? [])
-          .filter((report) => report.status === 'confirmed')
-          .reduce(
-            (state, report) => {
-              const reportUsd = toSafeNumber(report.reported_amount_usd_equivalent, 0);
-              const reportAmount = toSafeNumber(report.reported_amount, 0);
-              state.usd += reportUsd;
-              state.bs +=
-                String(report.reported_currency_code).toUpperCase() === 'VES'
-                  ? reportAmount
-                  : reportUsd * snapshotRate;
-              return state;
-            },
-            { usd: 0, bs: 0 },
-          );
-        const otherPaidUsd = Math.max(0, confirmedPaidUsd - confirmedReportPaid.usd);
-        const confirmedPaidBs = roundMoney(confirmedReportPaid.bs + otherPaidUsd * snapshotRate);
-        const pendingBs = roundMoney(Math.max(0, currentTotalBs - confirmedPaidBs));
-
-        if (pendingUsd > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
-          snapshotEquivalentUsd = pendingUsd;
-        } else if (reportedAmount > 0 && reportedAmount < pendingBs && snapshotRate > 0) {
-          snapshotEquivalentUsd = roundMoney(reportedAmount / snapshotRate);
-        } else if (Math.abs(reportedAmount - currentTotalBs) <= 0.01) {
-          snapshotEquivalentUsd = currentTotalUsd;
-        }
-      }
-    }
+    const financialState = await loadOrderFinancialState(supabase, {
+      orderId: input.orderId,
+      operationDate: normalizeDateOnly(operationDate),
+      activeBsRate: input.reportedExchangeRateVesPerUsd,
+    });
+    snapshotEquivalentUsd = getSnapshotEquivalentUsdFromFinancialState({
+      state: financialState,
+      reportedAmount: input.reportedAmount,
+    });
   }
 
   const effectiveReportedExchangeRate =
@@ -1422,26 +1434,42 @@ export async function confirmPaymentReportAction(input: {
       throw new Error(currentOrderError?.message || 'No se pudo recalcular el saldo de la orden.');
     }
 
-    const { data: orderMovements, error: orderMovementsError } = await supabase
-      .from('money_movements')
-      .select('direction, amount_usd_equivalent')
-      .eq('order_id', orderId)
-      .eq('status', 'confirmed');
+    const financialState = await loadOrderFinancialState(supabase, {
+      orderId,
+      operationDate: normalizeDateOnly(input.movementDate),
+      activeBsRate: input.confirmedExchangeRateVesPerUsd,
+    });
+    let fallbackConfirmedPaidUsd = 0;
+    if (!financialState) {
+      const { data: orderMovements, error: orderMovementsError } = await supabase
+        .from('money_movements')
+        .select('direction, amount_usd_equivalent')
+        .eq('order_id', orderId)
+        .eq('status', 'confirmed');
 
-    if (orderMovementsError) {
-      throw new Error(orderMovementsError.message);
+      if (orderMovementsError) {
+        throw new Error(orderMovementsError.message);
+      }
+
+      fallbackConfirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
+        const signedAmount =
+          toSafeNumber(row.amount_usd_equivalent, 0) *
+          (row.direction === 'outflow' ? -1 : 1);
+        return sum + signedAmount;
+      }, 0));
     }
-
-    const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
-      const signedAmount =
-        toSafeNumber(row.amount_usd_equivalent, 0) *
-        (row.direction === 'outflow' ? -1 : 1);
-      return sum + signedAmount;
-    }, 0));
-
-    const currentTotalUsd = getEffectiveOrderTotalUsd(currentOrder);
-    const currentTotalBs = getEffectiveOrderTotalBs(currentOrder);
-    const excessUsd = roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
+    const confirmedPaidUsd = financialState
+      ? roundMoney(financialState.confirmed_paid_usd)
+      : fallbackConfirmedPaidUsd;
+    const currentTotalUsd = financialState
+      ? roundMoney(financialState.total_usd)
+      : getEffectiveOrderTotalUsd(currentOrder);
+    const currentTotalBs = financialState
+      ? roundMoney(financialState.total_bs)
+      : getEffectiveOrderTotalBs(currentOrder);
+    const excessUsd = financialState
+      ? roundMoney(financialState.overpaid_usd)
+      : roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
@@ -1718,29 +1746,33 @@ export async function applyClientFundPaymentAction(input: {
     throw new Error('La orden no tiene cliente asociado.');
   }
 
-  const totalUsd = getEffectiveOrderTotalUsd(currentOrder);
   const previousFundUsedUsd = roundMoney((currentOrder.extra_fields as any)?.payment?.client_fund_used_usd);
+  const financialState = await loadOrderFinancialState(supabase, { orderId });
+  let pendingUsd = financialState ? roundMoney(financialState.pending_usd) : 0;
 
-  const { data: orderMovements, error: orderMovementsError } = await supabase
-    .from('money_movements')
-    .select('direction, amount_usd_equivalent')
-    .eq('order_id', orderId)
-    .eq('status', 'confirmed');
+  if (!financialState) {
+    const totalUsd = getEffectiveOrderTotalUsd(currentOrder);
+    const { data: orderMovements, error: orderMovementsError } = await supabase
+      .from('money_movements')
+      .select('direction, amount_usd_equivalent')
+      .eq('order_id', orderId)
+      .eq('status', 'confirmed');
 
-  if (orderMovementsError) {
-    throw new Error(orderMovementsError.message);
+    if (orderMovementsError) {
+      throw new Error(orderMovementsError.message);
+    }
+
+    const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
+      const signedAmount =
+        toSafeNumber(
+          (row as { amount_usd_equivalent?: number | string | null }).amount_usd_equivalent,
+          0
+        ) * (((row as { direction?: string | null }).direction ?? 'inflow') === 'outflow' ? -1 : 1);
+      return sum + signedAmount;
+    }, 0));
+
+    pendingUsd = roundMoney(Math.max(0, totalUsd - confirmedPaidUsd - previousFundUsedUsd));
   }
-
-  const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
-    const signedAmount =
-      toSafeNumber(
-        (row as { amount_usd_equivalent?: number | string | null }).amount_usd_equivalent,
-        0
-      ) * (((row as { direction?: string | null }).direction ?? 'inflow') === 'outflow' ? -1 : 1);
-    return sum + signedAmount;
-  }, 0));
-
-  const pendingUsd = roundMoney(Math.max(0, totalUsd - confirmedPaidUsd - previousFundUsedUsd));
 
   if (pendingUsd <= 0.005) {
     throw new Error('Esta orden ya no tiene saldo pendiente.');

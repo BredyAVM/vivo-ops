@@ -10,6 +10,18 @@ type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
 
 const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle']);
 
+type OrderFinancialState = {
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  snapshot_rate_bs_per_usd: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+  collection_mode: string | null;
+};
+
 type OrderEventContext = {
   orderId: number;
   orderNumber: string | null;
@@ -78,6 +90,57 @@ function canUseSnapshotForPaymentOperation(
 
   const effectiveOperationDate = operationDate || getCaracasDateString(new Date());
   return effectiveOperationDate.localeCompare(deliveryDate) <= 0;
+}
+
+async function loadOrderFinancialState(
+  supabase: Awaited<ReturnType<typeof requireAuthContext>>['supabase'],
+  input: {
+    orderId: number;
+    operationDate?: string | null;
+    activeBsRate?: number | null;
+  }
+) {
+  const { data, error } = await (supabase as any).rpc('get_order_financial_state', {
+    p_order_id: input.orderId,
+    p_operation_date: input.operationDate || null,
+    p_active_bs_rate: input.activeBsRate && input.activeBsRate > 0 ? input.activeBsRate : null,
+  });
+
+  if (error) {
+    console.warn('get_order_financial_state skipped in advisor action', error.message);
+    return null;
+  }
+
+  return (((data ?? []) as OrderFinancialState[])[0] ?? null);
+}
+
+function getSnapshotEquivalentUsdFromFinancialState(input: {
+  state: OrderFinancialState | null;
+  reportedAmount: number;
+}) {
+  const state = input.state;
+  if (!state || state.collection_mode !== 'snapshot_quote') return null;
+
+  const reportedAmount = roundMoney(input.reportedAmount);
+  const pendingUsd = roundMoney(state.pending_usd);
+  const pendingBs = roundMoney(state.pending_bs);
+  const totalUsd = roundMoney(state.total_usd);
+  const totalBs = roundMoney(state.total_bs);
+  const snapshotRate = toSafeNumber(state.snapshot_rate_bs_per_usd, 0);
+
+  if (pendingUsd > 0.005 && pendingBs > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
+    return pendingUsd;
+  }
+
+  if (reportedAmount > 0 && pendingBs > 0.005 && reportedAmount < pendingBs && snapshotRate > 0) {
+    return roundMoney(reportedAmount / snapshotRate);
+  }
+
+  if (totalUsd > 0.005 && totalBs > 0.005 && Math.abs(reportedAmount - totalBs) <= 0.01) {
+    return totalUsd;
+  }
+
+  return null;
 }
 
 async function loadOrderEventContext(
@@ -355,49 +418,15 @@ export async function createAdvisorPaymentReportAction(input: {
   let snapshotEquivalentUsd: number | null = null;
 
   if (reportedCurrency === 'VES') {
-    const orderPricing = getOrderMoneySnapshot(order);
-    const currentTotalUsd = orderPricing.totalUsd;
-    const currentTotalBs = orderPricing.totalBs;
-    const canUseSnapshot = canUseSnapshotForPaymentOperation(order, normalizeDateOnly(operationDate));
-
-    if (canUseSnapshot && currentTotalUsd > 0.005 && currentTotalBs > 0.005) {
-      const { data: orderPaymentReports, error: orderPaymentReportsError } = await ctx.supabase
-        .from('payment_reports')
-        .select('status, reported_currency_code, reported_amount, reported_amount_usd_equivalent')
-        .eq('order_id', orderId);
-
-      if (orderPaymentReportsError) {
-        throw new Error(orderPaymentReportsError.message);
-      }
-
-      const clientFundUsd = toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
-      const snapshotRate = currentTotalBs / currentTotalUsd;
-      const confirmedReportPaid = (orderPaymentReports ?? [])
-        .filter((report) => report.status === 'confirmed')
-        .reduce(
-          (state, report) => {
-            const reportUsd = toSafeNumber(report.reported_amount_usd_equivalent, 0);
-            const reportAmount = toSafeNumber(report.reported_amount, 0);
-            state.usd += reportUsd;
-            state.bs +=
-              String(report.reported_currency_code).toUpperCase() === 'VES'
-                ? reportAmount
-                : reportUsd * snapshotRate;
-            return state;
-          },
-          { usd: clientFundUsd, bs: clientFundUsd * snapshotRate },
-        );
-      const pendingUsd = roundMoney(Math.max(0, currentTotalUsd - confirmedReportPaid.usd));
-      const pendingBs = roundMoney(Math.max(0, currentTotalBs - confirmedReportPaid.bs));
-
-      if (pendingUsd > 0.005 && Math.abs(reportedAmount - pendingBs) <= 0.01) {
-        snapshotEquivalentUsd = pendingUsd;
-      } else if (reportedAmount > 0 && reportedAmount < pendingBs && snapshotRate > 0) {
-        snapshotEquivalentUsd = roundMoney(reportedAmount / snapshotRate);
-      } else if (Math.abs(reportedAmount - currentTotalBs) <= 0.01) {
-        snapshotEquivalentUsd = currentTotalUsd;
-      }
-    }
+    const financialState = await loadOrderFinancialState(ctx.supabase, {
+      orderId,
+      operationDate: normalizeDateOnly(operationDate),
+      activeBsRate: reportedExchangeRate,
+    });
+    snapshotEquivalentUsd = getSnapshotEquivalentUsdFromFinancialState({
+      state: financialState,
+      reportedAmount,
+    });
   }
 
   const effectiveReportedExchangeRate =
@@ -607,25 +636,32 @@ export async function requestClientFundApplicationAction(formData: FormData) {
     throw new Error('El cliente no tiene fondo disponible.');
   }
 
-  const { data: paymentReports, error: paymentReportsError } = await ctx.supabase
-    .from('payment_reports')
-    .select('status, reported_amount_usd_equivalent')
-    .eq('order_id', orderId);
+  const financialState = await loadOrderFinancialState(ctx.supabase, { orderId });
+  let balanceUsd = financialState ? roundMoney(financialState.pending_usd) : 0;
+  let pendingUsd = financialState ? roundMoney(financialState.pending_reports_usd) : 0;
 
-  if (paymentReportsError) {
-    throw new Error(paymentReportsError.message);
+  if (!financialState) {
+    const { data: paymentReports, error: paymentReportsError } = await ctx.supabase
+      .from('payment_reports')
+      .select('status, reported_amount_usd_equivalent')
+      .eq('order_id', orderId);
+
+    if (paymentReportsError) {
+      throw new Error(paymentReportsError.message);
+    }
+
+    const confirmedUsd =
+      (paymentReports ?? [])
+        .filter((report) => report.status === 'confirmed')
+        .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0) +
+      toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
+    pendingUsd = (paymentReports ?? [])
+      .filter((report) => report.status === 'pending')
+      .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
+    const orderTotalUsd = getOrderMoneySnapshot(order).totalUsd;
+    balanceUsd = Math.max(0, Number((orderTotalUsd - confirmedUsd).toFixed(2)));
   }
 
-  const confirmedUsd =
-    (paymentReports ?? [])
-      .filter((report) => report.status === 'confirmed')
-      .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0) +
-    toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
-  const pendingUsd = (paymentReports ?? [])
-    .filter((report) => report.status === 'pending')
-    .reduce((sum, report) => sum + toSafeNumber(report.reported_amount_usd_equivalent, 0), 0);
-  const orderTotalUsd = getOrderMoneySnapshot(order).totalUsd;
-  const balanceUsd = Math.max(0, Number((orderTotalUsd - confirmedUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingUsd).toFixed(2)));
   const applicableAmountUsd = Number(
     Math.min(requestedAmountUsd, availableFundUsd, reportableBalanceUsd > 0 ? reportableBalanceUsd : balanceUsd).toFixed(2)
