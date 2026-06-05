@@ -63,6 +63,20 @@ export const ORDER_ACTION_LABELS = {
   paymentPending: 'Cobro pendiente',
 } as const;
 
+export function formatOrderDisplayNumber(orderId: number | string | null | undefined) {
+  const numericId = Number(orderId);
+
+  if (Number.isFinite(numericId) && numericId > 0) {
+    return String(Math.trunc(numericId)).padStart(2, '0');
+  }
+
+  return String(orderId ?? '').trim() || 'Sin orden';
+}
+
+export function formatOrderDisplayLabel(orderId: number | string | null | undefined) {
+  return `Orden ${formatOrderDisplayNumber(orderId)}`;
+}
+
 function isOrderStatus(value: string): value is OrderStatus {
   return value in ORDER_STATUS_LABELS;
 }

@@ -7,6 +7,7 @@ import {
   getOperationalPhaseIndex,
   getOperationalStatusLabel,
   getPaymentMethodLabel,
+  formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
@@ -1011,8 +1012,8 @@ export default async function AdvisorOrderDetailPage({
     <div className="space-y-4">
       <PageIntro
         eyebrow="Orden"
-        title={`Orden #${order.id}`}
-        description={`${client?.full_name?.trim() || safeText(order.order_number, 'Sin localizador')} · ${safeText(order.order_number, 'Sin localizador')}`}
+        title={`Orden ${formatOrderDisplayNumber(order.id)}`}
+        description={client?.full_name?.trim() || 'Cliente sin nombre'}
       />
 
       <SectionCard
@@ -1134,13 +1135,7 @@ export default async function AdvisorOrderDetailPage({
         <div className="grid gap-2 text-sm text-[#AAB2C5]">
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Orden</span>
-            <span className="text-[#F5F7FB]">#{order.id}</span>
-          </div>
-          <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
-            <span>Localizador</span>
-            <span className="max-w-[60%] truncate text-right text-[#F5F7FB]">
-              {safeText(order.order_number, 'Sin localizador')}
-            </span>
+            <span className="text-[#F5F7FB]">{formatOrderDisplayNumber(order.id)}</span>
           </div>
           <div className="flex items-center justify-between rounded-[16px] bg-[#0F131B] px-3.5 py-3">
             <span>Cliente</span>

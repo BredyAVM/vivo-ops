@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
+import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 
 export type StoredPushSubscription = {
   endpoint: string;
@@ -67,7 +68,7 @@ function buildAdvisorPushCopy(input: {
   body?: string | null;
   payload?: Record<string, unknown> | null;
 }) {
-  const orderLabel = safeText(input.orderNumber, `Orden #${input.orderId}`);
+  const orderLabel = formatOrderDisplayLabel(input.orderId);
   const clientName = safeText(input.clientName, 'Cliente');
   const payload = input.payload && typeof input.payload === 'object' ? input.payload : {};
   const reason = safeText(payload.reason ?? payload.review_notes ?? payload.notes ?? payload.note, '');

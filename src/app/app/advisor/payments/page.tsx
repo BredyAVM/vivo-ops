@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
-import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { formatOrderDisplayNumber, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
@@ -417,9 +417,9 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-[#F5F7FB]">
-                      {order.client?.full_name?.trim() || order.order_number}
+                      {order.client?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
                     </div>
-                    <div className="mt-1 text-xs text-[#8B93A7]">{order.order_number}</div>
+                    <div className="mt-1 text-xs text-[#8B93A7]">Orden {formatOrderDisplayNumber(order.id)}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
                     <StatusBadge label={`Saldo ${formatBs(order.reportableBalanceBs)}`} tone="warning" />
@@ -483,7 +483,7 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
                   const order = ordersById.get(payment.order_id);
                   const equivalentUsd = toSafeNumber(payment.reported_amount_usd_equivalent, 0);
                   const equivalentBs = getPaymentEquivalentBs(payment, order);
-                  const orderLabel = order?.client?.full_name?.trim() || order?.order_number || `Orden #${payment.order_id}`;
+                  const orderLabel = order?.client?.full_name?.trim() || formatOrderDisplayNumber(payment.order_id);
 
                   return (
                     <article
@@ -501,7 +501,7 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-[#F5F7FB]">{orderLabel}</div>
                           <div className="mt-1 text-xs text-[#8B93A7]">
-                            {order?.order_number || `Orden #${payment.order_id}`} · {formatDate(payment.created_at)}
+                            Orden {formatOrderDisplayNumber(payment.order_id)} · {formatDate(payment.created_at)}
                           </div>
                         </div>
                         <StatusBadge label={label(payment.status)} tone={tone(payment.status)} />

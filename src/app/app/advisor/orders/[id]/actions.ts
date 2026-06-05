@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { sendPushToRoleDevices } from '@/lib/push';
 
@@ -255,7 +256,7 @@ async function appendOrderEvent(
 
   if (rolePushTargets.size > 0) {
     try {
-      const orderLabel = context?.orderNumber ? `Orden ${context.orderNumber}` : `Orden #${input.orderId}`;
+      const orderLabel = formatOrderDisplayLabel(input.orderId);
       await sendPushToRoleDevices({
         roles: Array.from(rolePushTargets),
         title: `${orderLabel}: ${input.title}`,

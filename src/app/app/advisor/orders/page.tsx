@@ -7,6 +7,7 @@ import {
   getOperationalPhaseIndex,
   getOperationalStatusLabel,
   getPaymentMethodLabel,
+  formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
@@ -657,10 +658,10 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-[#F5F7FB]">
-                          {order.client?.full_name?.trim() || order.order_number}
+                          {order.client?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
                         </div>
                         <div className="mt-1 truncate text-xs text-[#8B93A7]">
-                          {order.order_number} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
+                          Orden {formatOrderDisplayNumber(order.id)} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">

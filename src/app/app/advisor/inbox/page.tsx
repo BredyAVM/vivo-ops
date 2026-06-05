@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { PageIntro } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
 import {
@@ -150,7 +151,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         id: `recipient-${recipient.id}`,
         recipientId: Number(recipient.id),
         orderId,
-        orderNumber: safeText(event.order_number || order.order_number, `Orden ${orderId}`),
+        orderNumber: `Orden ${formatOrderDisplayNumber(orderId)}`,
         clientName: getClientName(order),
         deliveryLabel: getDeliveryLabel(order),
         title: eventTitle(eventType, String(event.title || '')),

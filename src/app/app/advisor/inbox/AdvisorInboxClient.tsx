@@ -280,7 +280,7 @@ export default function AdvisorInboxClient({
                               <div className="flex items-center gap-2">
                                 {!isRead ? <span className="h-2 w-2 rounded-full bg-[#F0D000]" /> : null}
                                 <div className="truncate text-sm font-semibold text-[#F5F7FB]">
-                                  {event.orderNumber} - {event.clientName}
+                                  {event.orderNumber} · {event.clientName}
                                 </div>
                               </div>
                               <div className="mt-1 line-clamp-2 text-xs leading-5 text-[#AAB2C5]">

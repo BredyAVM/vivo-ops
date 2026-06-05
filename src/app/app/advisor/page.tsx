@@ -6,6 +6,7 @@ import {
   getOperationalPhase,
   getOperationalPhaseIndex,
   getOperationalStatusLabel,
+  formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
@@ -727,10 +728,10 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-[#F5F7FB]">
-                          {getOrderClient(order)?.full_name?.trim() || order.order_number}
+                          {getOrderClient(order)?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
                         </div>
                         <div className="mt-1 truncate text-xs text-[#8B93A7]">
-                          {order.order_number} · {formatDateLabel(new Date(`${getAgendaDayKey(order)}T12:00:00-04:00`))}
+                          Orden {formatOrderDisplayNumber(order.id)} · {formatDateLabel(new Date(`${getAgendaDayKey(order)}T12:00:00-04:00`))}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
@@ -884,7 +885,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-[#F5F7FB]">
-                        {getOrderClient(order)?.full_name?.trim() || order.order_number}
+                        {getOrderClient(order)?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
                       </div>
                       <div className="mt-1 text-xs text-[#8B93A7]">
                         {getAgendaTimeLabel(order)} · {operationalPhaseLabel(order)}
@@ -949,10 +950,10 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-[#F5F7FB]">
-                        {getOrderClient(order)?.full_name?.trim() || order.order_number}
+                        {getOrderClient(order)?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
                       </div>
                       <div className="mt-1 truncate text-xs text-[#8B93A7]">
-                        {order.order_number} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
+                        Orden {formatOrderDisplayNumber(order.id)} · {order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}
                       </div>
                     </div>
                     <div className="shrink-0 text-right">

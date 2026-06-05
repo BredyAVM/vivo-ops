@@ -5,7 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
-import { ORDER_STATUS_LABELS, getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
+import {
+  ORDER_STATUS_LABELS,
+  formatOrderDisplayNumber as fmtShortOrderLabel,
+  getPaymentMethodLabel as getSharedPaymentMethodLabel,
+} from '@/lib/orders/order-labels';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -1256,10 +1260,6 @@ function buildCommittedProductsRows(
       statusTone,
     };
   });
-}
-
-function fmtShortOrderLabel(orderId: number) {
-  return String(orderId).padStart(2, '0');
 }
 
 function fmtInventoryUnits(
@@ -4392,8 +4392,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 10)
       .map((o) => ({
         id: o.order.id,
-        label: `${o.order.orderNumber} · ${o.order.clientName}`,
-        sub: `${o.order.orderNumber} · Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
+        label: `${fmtShortOrderLabel(o.order.id)} · ${o.order.clientName}`,
+        sub: `Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
         operationalDate: toDateInputValue(new Date(o.order.deliveryAtISO)),
         source: 'local' as const,
       }));
@@ -4405,7 +4405,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .filter((result) => !localIds.has(result.id))
       .map((result) => ({
         id: result.id,
-        label: `${result.orderNumber} · ${result.clientName}`,
+        label: `${fmtShortOrderLabel(result.id)} · ${result.clientName}`,
         sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} · ${result.operationalDate} · ${fmtUSD(result.totalUsd)}`,
         operationalDate: result.operationalDate,
         source: 'remote' as const,
@@ -9074,7 +9074,7 @@ items: createOrderDraftItems.map((item) => ({
 })),
     });
 
-    showToast('success', `Orden creada #${result.orderNumber}.`);
+    showToast('success', `Orden creada ${fmtShortOrderLabel(result.id)}.`);
     setCreateOrderOpen(false);
     router.refresh();
   } catch (err) {
@@ -18664,7 +18664,7 @@ deliveryAssignMode === 'external' ? (
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="text-sm font-medium text-[#F5F5F7]">Orden {order.orderNumber}</div>
+                        <div className="text-sm font-medium text-[#F5F5F7]">Orden {fmtShortOrderLabel(order.id)}</div>
                         <div className="mt-1 text-xs text-[#8A8A96]">
                           {repairDisplayText(order.clientName)} · {repairDisplayText(order.advisorName)}
                         </div>
@@ -20707,7 +20707,7 @@ deliveryAssignMode === 'external' ? (
                             </div>
                             {linkedOrder ? (
                               <div className="mt-1 text-xs text-[#8A8A96]">
-                                Orden {linkedOrder.orderNumber} · {linkedOrder.clientName}
+                                Orden {fmtShortOrderLabel(linkedOrder.id)} · {linkedOrder.clientName}
                               </div>
                             ) : null}
                             {movement.notes ? (

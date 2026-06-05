@@ -9,6 +9,7 @@ import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
+import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { getMasterDashboardPermissions } from './permissions';
 
 async function requireMasterOrAdmin() {
@@ -756,7 +757,7 @@ async function appendOrderEvent(
 
     if (rolePushTargets.size > 0) {
       try {
-        const orderLabel = context?.orderNumber ? `Orden ${context.orderNumber}` : `Orden #${input.orderId}`;
+        const orderLabel = formatOrderDisplayLabel(input.orderId);
         const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
         await sendPushToRoleDevices({
           roles: Array.from(rolePushTargets),
@@ -5597,7 +5598,7 @@ async function applyDeliveredOrderInventoryDeductions(
 
     const nextStock = inventoryItem.currentStockUnits - quantityUnits;
     const noteLines = notesByInventoryItemId.get(inventoryItemId) ?? [];
-    const notes = [`Orden #${orderRow.order_number}`, ...noteLines].join(' · ');
+    const notes = [formatOrderDisplayLabel(orderId), ...noteLines].join(' · ');
 
     const { error: movementError } = await supabase
       .from('inventory_movements')
