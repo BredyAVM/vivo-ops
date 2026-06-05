@@ -43,6 +43,11 @@ advisor: { full_name: string | null }[] | { full_name: string | null } | null;
 
 type MasterDashboardSearchParams = Promise<{
   focusDate?: string;
+  calcFrom?: string;
+  calcTo?: string;
+  calcSource?: string;
+  calcAdvisor?: string;
+  calcBasePct?: string;
 }>;
 
 type RawOrderSummaryRow = {
@@ -463,6 +468,7 @@ function roundMoney(value: unknown, fallback = 0) {
 }
 
 const MASTER_DASHBOARD_ORDER_LIMIT = 500;
+const MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT = 900;
 const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
@@ -476,6 +482,10 @@ function getCaracasTodayKey() {
 
 function normalizeDashboardFocusDate(value: string | null | undefined) {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : getCaracasTodayKey();
+}
+
+function isDateKey(value: string | null | undefined) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
 function getCaracasDayRange(dayKey: string) {
@@ -729,6 +739,23 @@ export default async function MasterDashboardPage({
   const focusDateKey = normalizeDashboardFocusDate(params.focusDate);
   const focusDayRange = getCaracasDayRange(focusDateKey);
   const focusWeekRange = getCaracasWeekRange(focusDateKey);
+  const calculationRangeRequested = isDateKey(params.calcFrom) && isDateKey(params.calcTo);
+  const calcFromKey = calculationRangeRequested ? String(params.calcFrom) : null;
+  const calcToKey = calculationRangeRequested ? String(params.calcTo) : null;
+  const calcSourceRaw = String(params.calcSource || '');
+  const calcSource: '' | 'advisor' | 'master' | 'walk_in' =
+    calcSourceRaw === 'advisor' || calcSourceRaw === 'master' || calcSourceRaw === 'walk_in'
+      ? calcSourceRaw
+      : '';
+  const calcAdvisorId = String(params.calcAdvisor || '').trim();
+  const calcBasePct = String(params.calcBasePct || '').trim();
+  const calculationRange =
+    calcFromKey && calcToKey
+      ? {
+          start: getCaracasDayRange(calcFromKey).startISO,
+          end: getCaracasDayRange(calcToKey).endISO,
+        }
+      : null;
 
   const {
     data: { user },
@@ -1225,7 +1252,75 @@ const ordersLimitExceeded = ordersData.length > MASTER_DASHBOARD_ORDER_LIMIT;
     );
   }
 
-  const rawOrders = ordersData.slice(0, MASTER_DASHBOARD_ORDER_LIMIT) as RawOrderRow[];
+const calcEndExclusiveKey =
+  calcToKey ? toCaracasDateKey(addDays(new Date(`${calcToKey}T12:00:00-04:00`), 1)) : null;
+const applyCalculationFilters = (query: any) => {
+  let next = query;
+  if (calcSource) {
+    next = next.eq('source', calcSource);
+  }
+  if (calcAdvisorId && (!calcSource || calcSource === 'advisor')) {
+    next = next.eq('attributed_advisor_id', calcAdvisorId);
+  }
+  return next;
+};
+
+const [calculationScheduledOrdersResult, calculationCreatedOrdersResult] =
+  calculationRange && calcFromKey && calcEndExclusiveKey
+    ? await Promise.all([
+        applyCalculationFilters(
+          supabase
+            .from('orders')
+            .select(orderSelect)
+            .gte('extra_fields->schedule->>date', calcFromKey)
+            .lt('extra_fields->schedule->>date', calcEndExclusiveKey)
+        )
+          .order('created_at', { ascending: false })
+          .limit(MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT + 1),
+        applyCalculationFilters(
+          supabase
+            .from('orders')
+            .select(orderSelect)
+            .gte('created_at', calculationRange.start)
+            .lt('created_at', calculationRange.end)
+        )
+          .order('created_at', { ascending: false })
+          .limit(MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT + 1),
+      ])
+    : [
+        { data: [] as RawOrderRow[], error: null },
+        { data: [] as RawOrderRow[], error: null },
+      ];
+
+const calculationOrdersError = calculationScheduledOrdersResult.error ?? calculationCreatedOrdersResult.error;
+if (calculationOrdersError) {
+  console.warn('master dashboard calculation orders skipped', calculationOrdersError.message);
+}
+
+const calculationOrdersDataById = new Map<number, RawOrderRow>();
+if (!calculationOrdersError) {
+  for (const row of [
+    ...((calculationScheduledOrdersResult.data ?? []) as RawOrderRow[]),
+    ...((calculationCreatedOrdersResult.data ?? []) as RawOrderRow[]),
+  ]) {
+    calculationOrdersDataById.set(Number(row.id), row);
+  }
+}
+
+const calculationOrdersData = Array.from(calculationOrdersDataById.values())
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+const calculationOrdersLimitExceeded =
+  calculationOrdersData.length > MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT;
+
+  const operationRawOrders = ordersData.slice(0, MASTER_DASHBOARD_ORDER_LIMIT) as RawOrderRow[];
+  const calculationRawOrders = calculationOrdersData.slice(0, MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT) as RawOrderRow[];
+  const rawOrdersById = new Map<number, RawOrderRow>();
+  for (const row of [...operationRawOrders, ...calculationRawOrders]) {
+    rawOrdersById.set(Number(row.id), row);
+  }
+  const rawOrders = Array.from(rawOrdersById.values());
+  const operationOrderIdSet = new Set(operationRawOrders.map((o) => Number(o.id)));
+  const calculationOrderIdSet = new Set(calculationRawOrders.map((o) => Number(o.id)));
   const orderIds = rawOrders.map((o) => o.id);
   const { data: financialStateData, error: financialStateError } =
     orderIds.length > 0
@@ -2296,7 +2391,7 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
     };
   })
   .filter((row) => row.parentProductId && row.componentProductId);
-  const initialOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
+  const allDashboardOrders: ComponentProps<typeof MasterDashboardClient>['initialOrders'] = rawOrders.map((row) => {
     const isCancelled = row.status === 'cancelled';
     const clientFundUsedUsd = roundMoney(row.extra_fields?.payment?.client_fund_used_usd);
     const moneySnapshot = getOrderMoneySnapshot(row);
@@ -2624,6 +2719,9 @@ return {
     };
   });
 
+  const initialOrders = allDashboardOrders.filter((order) => operationOrderIdSet.has(order.id));
+  const calculationOrders = allDashboardOrders.filter((order) => calculationOrderIdSet.has(order.id));
+
   return (
     <MasterDashboardClient
 currentUser={{
@@ -2641,6 +2739,17 @@ currentUser={{
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}
       initialOrders={initialOrders}
+      calculationOrders={calculationOrders}
+      calculationScope={{
+        generated: Boolean(calculationRangeRequested),
+        dateFrom: calcFromKey,
+        dateTo: calcToKey,
+        source: calcSource,
+        advisorId: calcAdvisorId || null,
+        basePct: calcBasePct || null,
+        limit: MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT,
+        limitExceeded: calculationOrdersLimitExceeded,
+      }}
       orderScope={{
         focusDate: focusDateKey,
         limit: MASTER_DASHBOARD_ORDER_LIMIT,

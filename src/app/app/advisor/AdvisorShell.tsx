@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
 import AdvisorInboxBell from './AdvisorInboxBell';
 import AdvisorPendingLink from './AdvisorPendingLink';
-import AdvisorRealtimeNotifier from './AdvisorRealtimeNotifier';
 
 type AdvisorShellProps = {
   children: ReactNode;
@@ -148,7 +147,6 @@ export default function AdvisorShell(props: AdvisorShellProps) {
         </header>
 
         <main className="advisor-safe-content flex-1 px-4 py-4">{children}</main>
-        <AdvisorRealtimeNotifier userId={userId} />
       </div>
     </div>
   );

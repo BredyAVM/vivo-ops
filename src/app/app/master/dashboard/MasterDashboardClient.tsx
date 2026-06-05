@@ -3557,6 +3557,8 @@ export default function MasterDashboardClient({
   initialMasterInboxItemStates = [],
   advisors = [],
   initialOrders,
+  calculationOrders = [],
+  calculationScope,
   orderScope,
   operationSummary,
   moneyAccounts,
@@ -3588,6 +3590,17 @@ export default function MasterDashboardClient({
   }>;
   advisors?: AdvisorOption[];
   initialOrders: Order[];
+  calculationOrders?: Order[];
+  calculationScope?: {
+    generated: boolean;
+    dateFrom: string | null;
+    dateTo: string | null;
+    source: CalculationsSource;
+    advisorId: string | null;
+    basePct: string | null;
+    limit: number;
+    limitExceeded: boolean;
+  };
   orderScope?: {
     focusDate: string;
     limit: number;
@@ -3680,11 +3693,11 @@ export default function MasterDashboardClient({
   const [inventoryProductionNotes, setInventoryProductionNotes] = useState('');
   const [calculationsTab, setCalculationsTab] = useState<CalculationsTab>('general');
   const [deliveriesTab, setDeliveriesTab] = useState<DeliveriesTab>('overview');
-  const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState('');
-  const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState('');
-  const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>('');
-  const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState('');
-  const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState('8');
+  const [advisorCalcDateFrom, setAdvisorCalcDateFrom] = useState(calculationScope?.dateFrom ?? '');
+  const [advisorCalcDateTo, setAdvisorCalcDateTo] = useState(calculationScope?.dateTo ?? '');
+  const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>(calculationScope?.source ?? '');
+  const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState(calculationScope?.advisorId ?? '');
+  const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState(calculationScope?.basePct ?? '8');
   const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
   const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
   const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerOption[]>(initialDeliveryPartners);
@@ -5420,6 +5433,44 @@ const openEditOrderDrawer = (order: Order) => {
 const showToast = (type: 'success' | 'error' | 'info', message: string) => {
   setToast({ type, message });
 };
+
+const generateCalculationsReport = useCallback(() => {
+  if (!advisorCalcDateFrom || !advisorCalcDateTo) {
+    showToast('error', 'Selecciona desde y hasta para generar el reporte.');
+    return;
+  }
+
+  if (advisorCalcDateFrom > advisorCalcDateTo) {
+    showToast('error', 'El rango de fechas no es válido.');
+    return;
+  }
+
+  const params = new URLSearchParams(searchParams.toString());
+  params.set('calcFrom', advisorCalcDateFrom);
+  params.set('calcTo', advisorCalcDateTo);
+
+  if (advisorCalcSource) params.set('calcSource', advisorCalcSource);
+  else params.delete('calcSource');
+
+  if (advisorCalcAdvisorId && (!advisorCalcSource || advisorCalcSource === 'advisor')) {
+    params.set('calcAdvisor', advisorCalcAdvisorId);
+  } else {
+    params.delete('calcAdvisor');
+  }
+
+  if (advisorCalcBasePct.trim()) params.set('calcBasePct', advisorCalcBasePct.trim());
+  else params.delete('calcBasePct');
+
+  router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
+}, [
+  advisorCalcAdvisorId,
+  advisorCalcBasePct,
+  advisorCalcDateFrom,
+  advisorCalcDateTo,
+  advisorCalcSource,
+  router,
+  searchParams,
+]);
 
 const openEditDashboardUser = (userItem: DashboardUser) => {
   const userRoles = new Set(dashboardRolesByUserId.get(userItem.id) ?? []);
@@ -10389,9 +10440,14 @@ const selectedCreateOrderClientAddresses = useMemo(
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
 
+  const calculationBaseOrders = useMemo(
+    () => (calculationScope?.generated ? calculationOrders : []),
+    [calculationOrders, calculationScope?.generated],
+  );
+
   const deliveredOrders = useMemo(
-    () => orders.filter((order) => order.status === 'delivered'),
-    [orders]
+    () => calculationBaseOrders.filter((order) => order.status === 'delivered'),
+    [calculationBaseOrders]
   );
 
   const settingsAdjustmentsRows = useMemo(() => {
@@ -11164,63 +11220,6 @@ const resetCreateOrderForm = () => {
   setAdminEditReason('');
 };
 
-const hasBlockingOverlay =
-  calendarOpen ||
-  userEditOpen ||
-  inventoryItemCreateOpen ||
-  inventoryItemEditOpen ||
-  inventoryMovementOpen ||
-  inventoryProductionOpen ||
-  deliveryPartnerDetailOpen ||
-  deliveryPartnerEditOpen ||
-  deliveryPartnerCreateOpen ||
-  deliveryPartnerRateEditOpen ||
-  deliveryPartnerRateCreateOpen ||
-  accountDetailOpen ||
-  accountCreateOpen ||
-  accountEditOpen ||
-  accountRulesOpen ||
-  clientDetailOpen ||
-  clientCreateOpen ||
-  clientEditOpen ||
-  catalogDetailOpen ||
-  catalogEditMode ||
-  createCatalogOpen ||
-  quickCatalogOpen ||
-  detailOpen ||
-  notifOpen ||
-  productsExpanded ||
-  taskPanelOpen ||
-  paymentsPanelOpen ||
-  deliveryPanelOpen ||
-  kitchenPanelOpen ||
-  movementOpen ||
-  transferOpen ||
-  movementDetailOpen ||
-  financePendingOpen ||
-  closureOpen ||
-  createOrderOpen ||
-  createOrderConfigOpen ||
-  priceAdjustOpen ||
-  paymentReportBoxOpen ||
-  paymentGiveChangeBoxOpen ||
-  paymentConfirmBoxOpen ||
-  kitchenTakeBoxOpen ||
-  deliveryEtaBoxOpen ||
-  deliveryAssignMode !== null ||
-  reviewActionMode !== null ||
-  returnToQueueBoxOpen ||
-  cancelOrderBoxOpen;
-
-const realtimeRefreshTimerRef = useRef<number | null>(null);
-const realtimeQueuedRefreshRef = useRef(false);
-const realtimeNotificationEventIdsRef = useRef<Set<string>>(new Set());
-const hasBlockingOverlayRef = useRef(false);
-
-useEffect(() => {
-  hasBlockingOverlayRef.current = hasBlockingOverlay;
-}, [hasBlockingOverlay]);
-
 useEffect(() => {
   if (!toast) return;
 
@@ -11232,164 +11231,6 @@ useEffect(() => {
 }, [toast]);
 
 useEffect(() => {
-  if (!isMounted) return;
-  if (!currentUser.id) return;
-
-  const realtimeRoles = new Set<string>();
-  if (roles.includes('master') || roles.includes('admin')) realtimeRoles.add('master');
-
-  if (realtimeRoles.size === 0) return;
-
-  const showRealtimeNotification = (payload: {
-    eventType?: string;
-    new?: {
-      event_id?: number | string | null;
-      requires_action?: boolean | null;
-    };
-  }) => {
-    if (payload.eventType !== 'INSERT') return;
-    if (!payload.new?.requires_action) return;
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
-
-    const eventId = payload.new.event_id == null ? `unknown-${Date.now()}` : String(payload.new.event_id);
-    if (realtimeNotificationEventIdsRef.current.has(eventId)) return;
-    realtimeNotificationEventIdsRef.current.add(eventId);
-
-    const title = 'VIVO OPS';
-    const options: NotificationOptions = {
-      body: 'Nueva accion pendiente en el dashboard.',
-      icon: '/pwa/advisor-192.png',
-      badge: '/pwa/advisor-192.png',
-      tag: `master-realtime-${eventId}`,
-      requireInteraction: true,
-      data: {
-        url: '/app/master/dashboard',
-      },
-    };
-
-    if ('serviceWorker' in navigator) {
-      void navigator.serviceWorker.ready
-        .then((registration) => registration.showNotification(title, options))
-        .catch(() => {
-          new Notification(title, options);
-        });
-      return;
-    }
-
-    new Notification(title, options);
-  };
-
-  const scheduleRealtimeRefresh = () => {
-    if (typeof document !== 'undefined' && document.hidden) {
-      realtimeQueuedRefreshRef.current = true;
-      return;
-    }
-
-    if (hasBlockingOverlayRef.current) {
-      realtimeQueuedRefreshRef.current = true;
-      return;
-    }
-
-    if (realtimeRefreshTimerRef.current != null) {
-      window.clearTimeout(realtimeRefreshTimerRef.current);
-    }
-
-    realtimeRefreshTimerRef.current = window.setTimeout(() => {
-      realtimeRefreshTimerRef.current = null;
-      realtimeQueuedRefreshRef.current = false;
-      router.refresh();
-      showToast('info', 'Dashboard actualizado en vivo.');
-    }, 1200);
-  };
-
-  const channels = [
-    supabase
-      .channel(`master-dashboard-user-${currentUser.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'order_timeline_event_recipients',
-          filter: `target_user_id=eq.${currentUser.id}`,
-        },
-        (payload) => {
-          showRealtimeNotification(payload);
-          scheduleRealtimeRefresh();
-        },
-      )
-      .subscribe(),
-    ...Array.from(realtimeRoles).map((role) =>
-      supabase
-        .channel(`master-dashboard-role-${role}-${currentUser.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'order_timeline_event_recipients',
-            filter: `target_role=eq.${role}`,
-          },
-          (payload) => {
-            showRealtimeNotification(payload);
-            scheduleRealtimeRefresh();
-          },
-        )
-        .subscribe(),
-    ),
-  ];
-
-  return () => {
-    if (realtimeRefreshTimerRef.current != null) {
-      window.clearTimeout(realtimeRefreshTimerRef.current);
-      realtimeRefreshTimerRef.current = null;
-    }
-
-    channels.forEach((channel) => {
-      void supabase.removeChannel(channel);
-    });
-  };
-}, [
-  currentUser.id,
-  isMounted,
-  roles,
-  router,
-  supabase,
-]);
-
-useEffect(() => {
-  if (!isMounted) return;
-  if (hasBlockingOverlayRef.current) return;
-  if (typeof document !== 'undefined' && document.hidden) return;
-  if (!realtimeQueuedRefreshRef.current) return;
-
-  realtimeQueuedRefreshRef.current = false;
-  router.refresh();
-}, [hasBlockingOverlay, isMounted, router]);
-
-useEffect(() => {
-  if (!isMounted) return;
-
-  const handleVisibilityChange = () => {
-    if (document.hidden) return;
-
-    if (hasBlockingOverlayRef.current) return;
-
-    if (realtimeQueuedRefreshRef.current) {
-      realtimeQueuedRefreshRef.current = false;
-      router.refresh();
-    }
-  };
-
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-
-  return () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-  };
-}, [isMounted, router]);
-
-useEffect(() => {
   if (!createOrderOpen) return;
   if (orderEditorMode !== 'create') return;
 
@@ -11399,9 +11240,6 @@ useEffect(() => {
   useEffect(() => {
     if (!selectedDay) return;
 
-    const dateValue = toDateInputValue(selectedDay);
-    setAdvisorCalcDateFrom((prev) => (prev ? prev : dateValue));
-    setAdvisorCalcDateTo((prev) => (prev ? prev : dateValue));
     setCalendarViewMonth(new Date(selectedDay.getFullYear(), selectedDay.getMonth(), 1));
   }, [selectedDay]);
 
@@ -12182,7 +12020,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_220px_120px]">
                     <FieldInput
                       label="Desde"
                       value={advisorCalcDateFrom}
@@ -12219,7 +12057,24 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         })),
                       ]}
                     />
+                    <button
+                      className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3.5 py-2 text-sm font-semibold text-[#0B0B0D] transition hover:bg-[#FFF45C]"
+                      onClick={generateCalculationsReport}
+                      type="button"
+                    >
+                      Generar
+                    </button>
                   </div>
+
+                  {!calculationScope?.generated ? (
+                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+                      Selecciona un periodo y genera el reporte. No se cargan órdenes de cálculos hasta pedirlo.
+                    </div>
+                  ) : calculationScope.limitExceeded ? (
+                    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
+                      El periodo superó {calculationScope.limit} órdenes. Reduce el rango para evitar resultados incompletos.
+                    </div>
+                  ) : null}
 
                 </div>
               </div>
@@ -12450,7 +12305,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_220px_120px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_220px_120px_120px]">
                     <FieldInput label="Desde" value={advisorCalcDateFrom} onChange={setAdvisorCalcDateFrom} type="date" />
                     <FieldInput label="Hasta" value={advisorCalcDateTo} onChange={setAdvisorCalcDateTo} type="date" />
                     <FieldSelect
@@ -12466,7 +12321,23 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       ]}
                     />
                     <FieldInput label="% base" value={advisorCalcBasePct} onChange={setAdvisorCalcBasePct} type="text" />
+                    <button
+                      className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3.5 py-2 text-sm font-semibold text-[#0B0B0D] transition hover:bg-[#FFF45C]"
+                      onClick={generateCalculationsReport}
+                      type="button"
+                    >
+                      Generar
+                    </button>
                   </div>
+                  {!calculationScope?.generated ? (
+                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+                      Genera un periodo para calcular comisiones.
+                    </div>
+                  ) : calculationScope.limitExceeded ? (
+                    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
+                      El periodo superó {calculationScope.limit} órdenes. Reduce el rango para evitar resultados incompletos.
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -12588,7 +12459,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_180px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_180px_180px_120px]">
                     <FieldInput label="Desde" value={advisorCalcDateFrom} onChange={setAdvisorCalcDateFrom} type="date" />
                     <FieldInput label="Hasta" value={advisorCalcDateTo} onChange={setAdvisorCalcDateTo} type="date" />
                     <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
@@ -12599,7 +12470,24 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <div className="text-[10px] uppercase tracking-[0.18em] text-[#8A8A96]">Externos</div>
                       <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{deliveryCalculatedData.externalCount}</div>
                     </div>
+                    <button
+                      className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3.5 py-2 text-sm font-semibold text-[#0B0B0D] transition hover:bg-[#FFF45C]"
+                      onClick={generateCalculationsReport}
+                      type="button"
+                    >
+                      Generar
+                    </button>
                   </div>
+
+                  {!calculationScope?.generated ? (
+                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+                      Genera un periodo para calcular deliveries.
+                    </div>
+                  ) : calculationScope.limitExceeded ? (
+                    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
+                      El periodo superó {calculationScope.limit} órdenes. Reduce el rango para evitar resultados incompletos.
+                    </div>
+                  ) : null}
 
                   <div className="flex gap-2 overflow-x-auto">
                     <Chip active={deliveriesTab === 'overview'} onClick={() => setDeliveriesTab('overview')}>
