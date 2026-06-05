@@ -71,6 +71,19 @@ type PaymentState = {
   hasRejected: boolean;
 };
 
+type RawOrderFinancialStateRow = {
+  order_id: number | string;
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  confirmed_paid_bs_snapshot: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  rejected_reports_count: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+};
+
 type TimelineEventRow = {
   order_id: number | string | null;
   event_type: string | null;
@@ -266,6 +279,26 @@ function getPaymentState(order: OrderRow, paymentReportsByOrderId: Map<number, P
     reportableBalanceBs,
     totalBs,
     hasRejected,
+  };
+}
+
+function getCanonicalPaymentState(state: RawOrderFinancialStateRow): PaymentState {
+  const pendingUsd = toSafeNumber(state.pending_reports_usd, 0);
+  const pendingBs = toSafeNumber(state.pending_reports_bs_snapshot, 0);
+  const balanceUsd = toSafeNumber(state.pending_usd, 0);
+  const balanceBs = toSafeNumber(state.pending_bs, 0);
+
+  return {
+    confirmedUsd: toSafeNumber(state.confirmed_paid_usd, 0),
+    confirmedBs: toSafeNumber(state.confirmed_paid_bs_snapshot, 0),
+    pendingUsd,
+    pendingBs,
+    balanceUsd,
+    balanceBs,
+    reportableBalanceUsd: Math.max(0, Number((balanceUsd - pendingUsd).toFixed(2))),
+    reportableBalanceBs: Math.max(0, Number((balanceBs - pendingBs).toFixed(2))),
+    totalBs: toSafeNumber(state.total_bs, 0),
+    hasRejected: toSafeNumber(state.rejected_reports_count, 0) > 0,
   };
 }
 
@@ -545,14 +578,26 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const reviewOrderIds = Array.from(
     new Set([...agendaOrders, ...searchResults].filter((order) => isOpenStatus(order.status)).map((order) => order.id))
   );
-  const [paymentsData, timelineData] = detailOrderIds.length
+  const { data: activeRateData } = detailOrderIds.length
+    ? await ctx.supabase
+        .from('exchange_rates')
+        .select('rate_bs_per_usd')
+        .eq('is_active', true)
+        .order('effective_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+  const activeRateBsPerUsd = toSafeNumber((activeRateData as { rate_bs_per_usd?: number | string } | null)?.rate_bs_per_usd, 0);
+
+  const [financialStateResult, timelineData] = detailOrderIds.length
     ? await Promise.all([
       paymentOrderIds.length
-        ? ctx.supabase
-            .from('payment_reports')
-            .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
-            .in('order_id', paymentOrderIds)
-        : Promise.resolve({ data: [] }),
+        ? (ctx.supabase as any).rpc('get_orders_financial_state', {
+            p_order_ids: paymentOrderIds,
+            p_operation_date: null,
+            p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
+          })
+        : Promise.resolve({ data: [], error: null }),
       reviewOrderIds.length
         ? ctx.supabase
             .from('order_timeline_events')
@@ -562,12 +607,29 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
             .order('created_at', { ascending: false })
             .limit(160)
         : Promise.resolve({ data: [] }),
-    ]).then(([paymentsResult, timelineResult]) => [
-      paymentsResult.data ?? [],
+    ]).then(([financialResult, timelineResult]) => [
+      financialResult,
       timelineResult.data ?? [],
     ] as const)
-    : [[], []] as const;
-  const paymentReports = (paymentsData ?? []) as PaymentRow[];
+    : [{ data: [], error: null }, []] as const;
+  const financialStateRows = (financialStateResult.data ?? []) as RawOrderFinancialStateRow[];
+  const financialStateByOrderId = new Map<number, RawOrderFinancialStateRow>();
+  for (const state of financialStateRows) {
+    const orderId = Number(state.order_id);
+    if (Number.isFinite(orderId)) financialStateByOrderId.set(orderId, state);
+  }
+
+  const { data: fallbackPaymentsData } =
+    financialStateResult.error && paymentOrderIds.length
+      ? await ctx.supabase
+          .from('payment_reports')
+          .select('order_id, status, reported_amount, reported_currency_code, reported_amount_usd_equivalent')
+          .in('order_id', paymentOrderIds)
+      : { data: [] };
+  if (financialStateResult.error) {
+    console.warn('get_orders_financial_state skipped in advisor home', financialStateResult.error.message);
+  }
+  const paymentReports = (fallbackPaymentsData ?? []) as PaymentRow[];
 
   const paymentReportsByOrderId = new Map<number, PaymentRow[]>();
   for (const report of paymentReports) {
@@ -577,7 +639,11 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   }
   const paymentStateByOrderId = new Map<number, PaymentState>();
   for (const order of [...agendaOrders, ...searchResults]) {
-    paymentStateByOrderId.set(order.id, getPaymentState(order, paymentReportsByOrderId));
+    const canonicalState = financialStateByOrderId.get(order.id);
+    paymentStateByOrderId.set(
+      order.id,
+      canonicalState ? getCanonicalPaymentState(canonicalState) : getPaymentState(order, paymentReportsByOrderId)
+    );
   }
 
   const reviewEventByOrderId = new Map<number, TimelineEventRow>();

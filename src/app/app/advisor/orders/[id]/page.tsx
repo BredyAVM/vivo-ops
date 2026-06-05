@@ -126,6 +126,19 @@ type PaymentReportRow = {
   created_at: string | null;
 };
 
+type RawOrderFinancialStateRow = {
+  order_id: number | string;
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  confirmed_paid_bs_snapshot: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  rejected_reports_count: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+};
+
 type RawTimelineEvent = {
   id: number | string | null;
   order_id: number | string | null;
@@ -847,18 +860,40 @@ export default async function AdvisorOrderDetailPage({
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
-  const confirmedPaidUsd =
+  const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
+  const { data: financialStateData, error: financialStateError } = await (ctx.supabase as any).rpc(
+    'get_order_financial_state',
+    {
+      p_order_id: orderId,
+      p_operation_date: null,
+      p_active_bs_rate: activeBsRate > 0 ? activeBsRate : null,
+    }
+  );
+  if (financialStateError) {
+    console.warn('get_order_financial_state skipped in advisor order detail', financialStateError.message);
+  }
+  const financialState = ((financialStateData ?? []) as RawOrderFinancialStateRow[])[0] ?? null;
+
+  const localConfirmedPaidUsd =
     payments
       .filter((paymentReport) => paymentReport.status === 'confirmed')
       .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0) +
     Number(order.extra_fields?.payment?.client_fund_used_usd || 0);
   const clientFundUsedUsd = toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0);
-  const pendingPaidUsd = payments
+  const localPendingPaidUsd = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => sum + Number(paymentReport.reported_amount_usd_equivalent || 0), 0);
   const orderPricing = getOrderMoneySnapshot(order);
-  const orderTotalUsd = orderPricing.totalUsd;
-  const balanceUsd = Math.max(0, Number((orderTotalUsd - confirmedPaidUsd).toFixed(2)));
+  const orderTotalUsd = financialState ? toSafeNumber(financialState.total_usd, orderPricing.totalUsd) : orderPricing.totalUsd;
+  const confirmedPaidUsd = financialState
+    ? toSafeNumber(financialState.confirmed_paid_usd, 0)
+    : localConfirmedPaidUsd;
+  const pendingPaidUsd = financialState
+    ? toSafeNumber(financialState.pending_reports_usd, 0)
+    : localPendingPaidUsd;
+  const balanceUsd = financialState
+    ? toSafeNumber(financialState.pending_usd, 0)
+    : Math.max(0, Number((orderTotalUsd - confirmedPaidUsd).toFixed(2)));
   const reportableBalanceUsd = Math.max(0, Number((balanceUsd - pendingPaidUsd).toFixed(2)));
   const client = order.client && !Array.isArray(order.client) ? order.client : null;
   const clientFundAvailableUsd = Math.max(0, toSafeNumber(client?.fund_balance_usd, 0));
@@ -881,10 +916,9 @@ export default async function AdvisorOrderDetailPage({
     isActive: boolean;
     paymentMethodCodes: string[];
   }> = [];
-  const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
-  const totalBs = orderPricing.totalBs;
+  const totalBs = financialState ? toSafeNumber(financialState.total_bs, orderPricing.totalBs) : orderPricing.totalBs;
   const snapshotBsRate = orderPricing.fxRate > 0 ? orderPricing.fxRate : activeBsRate;
-  const confirmedPaidBs =
+  const localConfirmedPaidBs =
     payments
       .filter((paymentReport) => paymentReport.status === 'confirmed')
       .reduce((sum, paymentReport) => {
@@ -892,15 +926,22 @@ export default async function AdvisorOrderDetailPage({
         if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
         return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * snapshotBsRate;
       }, 0) + toSafeNumber(order.extra_fields?.payment?.client_fund_used_usd, 0) * snapshotBsRate;
-  const pendingPaidBs = payments
+  const localPendingPaidBs = payments
     .filter((paymentReport) => paymentReport.status === 'pending')
     .reduce((sum, paymentReport) => {
       const currency = safeText(paymentReport.reported_currency_code, '').toUpperCase();
       if (currency === 'VES') return sum + toSafeNumber(paymentReport.reported_amount, 0);
       return sum + toSafeNumber(paymentReport.reported_amount_usd_equivalent, 0) * snapshotBsRate;
     }, 0);
-  const balanceBs =
-    totalBs > 0
+  const confirmedPaidBs = financialState
+    ? toSafeNumber(financialState.confirmed_paid_bs_snapshot, 0)
+    : localConfirmedPaidBs;
+  const pendingPaidBs = financialState
+    ? toSafeNumber(financialState.pending_reports_bs_snapshot, 0)
+    : localPendingPaidBs;
+  const balanceBs = financialState
+    ? toSafeNumber(financialState.pending_bs, 0)
+    : totalBs > 0
       ? Math.max(0, Number((totalBs - confirmedPaidBs).toFixed(2)))
       : activeBsRate > 0
         ? Number((balanceUsd * activeBsRate).toFixed(2))

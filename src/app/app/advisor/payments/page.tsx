@@ -54,6 +54,16 @@ type PaymentRow = {
   created_at: string | null;
 };
 
+type RawOrderFinancialStateRow = {
+  order_id: number | string;
+  total_bs: number | string | null;
+  pending_reports_usd: number | string | null;
+  pending_reports_bs_snapshot: number | string | null;
+  rejected_reports_count: number | string | null;
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+};
+
 function formatDate(value: string | null) {
   if (!value) return 'Sin fecha';
   return new Date(value).toLocaleString('es-VE', {
@@ -154,6 +164,24 @@ function getPaymentEquivalentBs(payment: PaymentRow, order: OrderRow | undefined
   return usdToOrderBs(order, toSafeNumber(payment.reported_amount_usd_equivalent, 0));
 }
 
+function getCanonicalPaymentState(state: RawOrderFinancialStateRow) {
+  const pendingUsd = toSafeNumber(state.pending_reports_usd, 0);
+  const pendingBs = toSafeNumber(state.pending_reports_bs_snapshot, 0);
+  const balanceUsd = toSafeNumber(state.pending_usd, 0);
+  const balanceBs = toSafeNumber(state.pending_bs, 0);
+
+  return {
+    totalBs: toSafeNumber(state.total_bs, 0),
+    balanceUsd,
+    balanceBs,
+    reportableBalanceUsd: Math.max(0, Number((balanceUsd - pendingUsd).toFixed(2))),
+    reportableBalanceBs: Math.max(0, Number((balanceBs - pendingBs).toFixed(2))),
+    pendingUsd,
+    pendingBs,
+    hasRejected: toSafeNumber(state.rejected_reports_count, 0) > 0,
+  };
+}
+
 function getAgendaLabel(order: OrderRow) {
   const schedule = order.extra_fields?.schedule;
   if (schedule?.asap) return 'Lo antes posible';
@@ -208,17 +236,46 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
   const ordersById = new Map(orders.map((order) => [order.id, order]));
 
   const orderIds = orders.map((order) => order.id);
-  const { data: paymentData } = orderIds.length
-    ? await ctx.supabase
-        .from('payment_reports')
-        .select(
-          'id, order_id, status, reported_currency_code, reported_amount, reported_amount_usd_equivalent, reference_code, created_at'
-        )
-        .in('order_id', orderIds)
-        .order('created_at', { ascending: false })
-        .limit(200)
-    : { data: [] };
+  const [paymentResult, activeRateResult] = orderIds.length
+    ? await Promise.all([
+        ctx.supabase
+          .from('payment_reports')
+          .select(
+            'id, order_id, status, reported_currency_code, reported_amount, reported_amount_usd_equivalent, reference_code, created_at'
+          )
+          .in('order_id', orderIds)
+          .order('created_at', { ascending: false })
+          .limit(200),
+        ctx.supabase
+          .from('exchange_rates')
+          .select('rate_bs_per_usd')
+          .eq('is_active', true)
+          .order('effective_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+    : [{ data: [] }, { data: null }];
+  const paymentData = paymentResult.data ?? [];
+  const activeRateBsPerUsd = toSafeNumber(
+    (activeRateResult.data as { rate_bs_per_usd?: number | string } | null)?.rate_bs_per_usd,
+    0
+  );
   const payments = (paymentData ?? []) as PaymentRow[];
+  const { data: financialStateData, error: financialStateError } = orderIds.length
+    ? await (ctx.supabase as any).rpc('get_orders_financial_state', {
+        p_order_ids: orderIds,
+        p_operation_date: null,
+        p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
+      })
+    : { data: [], error: null };
+  if (financialStateError) {
+    console.warn('get_orders_financial_state skipped in advisor payments', financialStateError.message);
+  }
+  const financialStateByOrderId = new Map<number, RawOrderFinancialStateRow>();
+  for (const state of (financialStateData ?? []) as RawOrderFinancialStateRow[]) {
+    const orderId = Number(state.order_id);
+    if (Number.isFinite(orderId)) financialStateByOrderId.set(orderId, state);
+  }
 
   const reportsByOrderId = new Map<number, PaymentRow[]>();
   for (const payment of payments) {
@@ -230,6 +287,16 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
   const ordersPendingPayment = orders
     .map((order) => {
       const reports = reportsByOrderId.get(order.id) ?? [];
+      const canonicalState = financialStateByOrderId.get(order.id);
+      if (canonicalState) {
+        return {
+          ...order,
+          ...getCanonicalPaymentState(canonicalState),
+          hasPending: reports.some((payment) => payment.status === 'pending'),
+          paymentMethod: paymentMethodLabel(order.extra_fields?.payment?.method),
+        };
+      }
+
       const confirmedUsd =
         reports
           .filter((payment) => payment.status === 'confirmed')
