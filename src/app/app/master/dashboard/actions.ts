@@ -1397,6 +1397,7 @@ export async function confirmPaymentReportAction(input: {
   referenceCode: string | null;
   counterpartyName: string | null;
   description: string | null;
+  paymentKind?: 'retention' | null;
   overpaymentHandling?: 'change_given' | 'store_fund' | 'close_difference' | null;
   overpaymentNotes?: string | null;
   changeMoneyAccountId?: number | null;
@@ -1470,6 +1471,7 @@ export async function confirmPaymentReportAction(input: {
     const excessUsd = financialState
       ? roundMoney(financialState.overpaid_usd)
       : roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
+    const isRetentionPayment = input.paymentKind === 'retention';
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
 
@@ -1505,7 +1507,7 @@ export async function confirmPaymentReportAction(input: {
           confirmed_at: new Date().toISOString(),
           confirmed_by_user_id: user.id,
           direction: 'outflow',
-          movement_type: 'change_given',
+          movement_type: isRetentionPayment ? 'withdrawal' : 'change_given',
           money_account_id: changeMoneyAccountId,
           currency_code: changeCurrency,
           amount: changeAmount,
@@ -1518,8 +1520,8 @@ export async function confirmPaymentReportAction(input: {
           counterparty_name: input.counterpartyName,
           description:
             input.description
-              ? `${input.description} · cambio entregado`
-              : `Cambio entregado · orden ${orderId} · reporte ${input.reportId}`,
+              ? `${input.description} · ${isRetentionPayment ? 'devolución de retención' : 'cambio entregado'}`
+              : `${isRetentionPayment ? 'Devolución de retención' : 'Cambio entregado'} · orden ${orderId} · reporte ${input.reportId}`,
           notes,
           order_id: orderId,
           payment_report_id: null,
@@ -1575,7 +1577,7 @@ export async function confirmPaymentReportAction(input: {
           money_account_id: input.confirmedMoneyAccountId,
           order_id: orderId,
           payment_report_id: input.reportId,
-          reason_code: 'payment_overage_stored',
+          reason_code: isRetentionPayment ? 'retention_overage_stored' : 'payment_overage_stored',
           notes,
           created_by_user_id: user.id,
         });

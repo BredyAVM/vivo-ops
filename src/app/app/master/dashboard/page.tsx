@@ -107,6 +107,7 @@ type PaymentReportDetail = {
   referenceCode: string | null;
   payerName: string | null;
   notes: string | null;
+  isRetention: boolean;
 };
 
 type MoneyAccountRow = {
@@ -1639,6 +1640,7 @@ const { data: ordersData, error: ordersError } = await supabase
               .filter(Boolean)
               .join('\n')
           : rp.notes ?? null,
+      isRetention: String(rp.notes || '').toLowerCase().includes('comprobante retencion'),
     };
 
     const arr = paymentReportsByOrder.get(orderId) ?? [];

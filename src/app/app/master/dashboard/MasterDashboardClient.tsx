@@ -458,6 +458,7 @@ type PaymentReportItem = {
   referenceCode: string | null;
   payerName: string | null;
   notes: string | null;
+  isRetention?: boolean;
 };
 
 type OrderEditMeta = {
@@ -5893,6 +5894,7 @@ const handleCloseRoundingBalance = async (o: Order) => {
 const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
+    const isRetentionConfirmation = Boolean(rp.isRetention);
     const predictedExcessUsd = Number(
       Math.max(0, o.confirmedPaidUsd + rp.usdEquivalent - o.totalUsd).toFixed(2)
     );
@@ -5909,9 +5911,9 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
 
       if (
         paymentConfirmOverpaymentHandling === 'close_difference' &&
-        (!isAdmin || predictedExcessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD)
+        (isRetentionConfirmation || !isAdmin || predictedExcessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD)
       ) {
-        showToast('error', 'Ese excedente no puede cerrarse por redondeo.');
+        showToast('error', isRetentionConfirmation ? 'Una retención no puede cerrarse por redondeo.' : 'Ese excedente no puede cerrarse por redondeo.');
         return;
       }
 
@@ -5964,6 +5966,7 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       referenceCode: rp.referenceCode ?? null,
       counterpartyName: rp.payerName ?? null,
       description: `Pago confirmado desde Master Dashboard · orden ${o.id} · reporte ${rp.id}`,
+      paymentKind: isRetentionConfirmation ? 'retention' : null,
       overpaymentHandling,
       overpaymentNotes,
       changeMoneyAccountId:
@@ -16789,6 +16792,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
     <div className="text-[10px] font-medium text-[#B7B7C2]">
       {paymentReportIsRetention ? 'Registrar retención' : 'Registrar reporte de pago'}
     </div>
+    {paymentReportIsRetention ? (
+      <div className="mt-2 rounded-md border border-[#3A2F12] bg-[#151208] px-2 py-1.5 text-[11px] text-[#F7DA66]">
+        La retención se registra como documento fiscal. Puede cargarse aunque la orden ya esté pagada y se decidirá su destino al confirmarla.
+      </div>
+    ) : null}
     <div className="mt-2 grid grid-cols-2 gap-2">
       <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
         <div className="text-[10px] text-[#8A8A96]">Saldo USD</div>
@@ -16821,12 +16829,22 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
 
           const nextAccount = paymentReportAccountOptions.find((a) => a.id === Number(nextId));
           if (nextAccount?.currencyCode === 'VES') {
-            setPaymentReportAmount(
-              getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode, paymentReportOperationDate)
+            if (!paymentReportIsRetention) {
+              setPaymentReportAmount(
+                getSuggestedOrderPaymentAmount(selectedOrder, nextAccount.currencyCode, paymentReportOperationDate)
+              );
+            }
+            setPaymentReportExchangeRate(
+              paymentReportIsRetention
+                ? activeBsRate > 0
+                  ? String(Number(activeBsRate.toFixed(4)))
+                  : ''
+                : getSuggestedOrderPaymentExchangeRate(selectedOrder, paymentReportOperationDate)
             );
-            setPaymentReportExchangeRate(getSuggestedOrderPaymentExchangeRate(selectedOrder, paymentReportOperationDate));
           } else {
-            setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount?.currencyCode));
+            if (!paymentReportIsRetention) {
+              setPaymentReportAmount(getSuggestedOrderPaymentAmount(selectedOrder, nextAccount?.currencyCode));
+            }
             setPaymentReportExchangeRate('');
           }
         }}
@@ -16851,13 +16869,14 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
         type="number"
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
-      {selectedPaymentReportAccount?.currencyCode === 'VES' ? (
+      {selectedPaymentReportAccount?.currencyCode === 'VES' && !paymentReportIsRetention ? (
         <div className="rounded-md border border-[#3A3212] bg-[#1D1A00] px-2 py-1.5 text-[11px] text-[#FEEF00]">
           Usar monto Bs de la orden: {fmtBs(getOrderPaymentBalanceBs(selectedOrder, paymentReportOperationDate))}
         </div>
       ) : null}
 
       {selectedPaymentReportAccount?.currencyCode === 'VES' &&
+      !paymentReportIsRetention &&
       getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key === 'snapshot_quote' ? (
         <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#B7B7C2]">
           Si el pago coincide con el saldo Bs snapshot, el sistema cierra contra el monto USD del pedido.
@@ -16865,7 +16884,8 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       ) : null}
 
       {selectedPaymentReportAccount?.currencyCode === 'VES' &&
-      getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key !== 'snapshot_quote' ? (
+      (paymentReportIsRetention ||
+        getOrderCollectionMode(selectedOrder, activeBsRate, currentTimeMs, paymentReportOperationDate)?.key !== 'snapshot_quote') ? (
         <input
           value={paymentReportExchangeRate}
           onChange={(e) => setPaymentReportExchangeRate(e.target.value)}
@@ -16884,11 +16904,17 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
             setPaymentReportOperationDate(nextOperationDate);
 
             if (selectedPaymentReportAccount?.currencyCode === 'VES') {
-              setPaymentReportAmount(
-                getSuggestedOrderPaymentAmount(selectedOrder, 'VES', nextOperationDate)
-              );
+              if (!paymentReportIsRetention) {
+                setPaymentReportAmount(
+                  getSuggestedOrderPaymentAmount(selectedOrder, 'VES', nextOperationDate)
+                );
+              }
               setPaymentReportExchangeRate(
-                getSuggestedOrderPaymentExchangeRate(selectedOrder, nextOperationDate)
+                paymentReportIsRetention
+                  ? activeBsRate > 0
+                    ? String(Number(activeBsRate.toFixed(4)))
+                    : ''
+                  : getSuggestedOrderPaymentExchangeRate(selectedOrder, nextOperationDate)
               );
             }
           }}
@@ -16942,7 +16968,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
         className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
       />
 
-      {selectedOrderClientFundAvailableUsd > 0.005 ? (
+      {!paymentReportIsRetention && selectedOrderClientFundAvailableUsd > 0.005 ? (
         <div className="rounded-lg border border-emerald-500/20 bg-[#0F1512] p-3">
           <div className="text-[11px] font-medium text-[#F5F5F7]">Aplicar fondo del cliente</div>
           <div className="mt-1 text-[11px] text-[#8A8A96]">
@@ -17113,9 +17139,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   <div className="mt-2 rounded-lg border border-[#3A2F12] bg-[#120F08] p-3">
     <div className="flex items-start justify-between gap-3">
       <div>
-        <div className="text-[11px] font-semibold text-[#F5F5F7]">Confirmar pago</div>
+        <div className="text-[11px] font-semibold text-[#F5F5F7]">
+          {selectedConfirmPaymentReport.isRetention ? 'Confirmar retención' : 'Confirmar pago'}
+        </div>
         <div className="mt-1 text-[11px] text-[#B7B7C2]">
-          Reporte #{selectedConfirmPaymentReport.id} · {fmtUSD(selectedConfirmPaymentReport.usdEquivalent)}
+          {selectedConfirmPaymentReport.isRetention ? 'Retención' : 'Reporte'} #{selectedConfirmPaymentReport.id} · {fmtUSD(selectedConfirmPaymentReport.usdEquivalent)}
         </div>
       </div>
       <SmallBadge
@@ -17142,9 +17170,13 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
 
       {selectedConfirmPaymentExcessUsd > 0.005 ? (
         <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-3">
-          <div className="text-[11px] font-medium text-[#F5F5F7]">Qué hacer con el excedente</div>
+          <div className="text-[11px] font-medium text-[#F5F5F7]">
+            {selectedConfirmPaymentReport.isRetention ? 'Destino de la retención' : 'Qué hacer con el excedente'}
+          </div>
           <div className="mt-1 text-[11px] text-[#8A8A96]">
-            El cliente está pagando {fmtUSD(selectedConfirmPaymentExcessUsd)} de más.
+            {selectedConfirmPaymentReport.isRetention
+              ? `La retención deja ${fmtUSD(selectedConfirmPaymentExcessUsd)} por encima del saldo actual de la orden.`
+              : `El cliente está pagando ${fmtUSD(selectedConfirmPaymentExcessUsd)} de más.`}
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -17159,7 +17191,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
               onClick={() => setPaymentConfirmOverpaymentHandling('store_fund')}
             >
               <div className="text-sm font-semibold">Fondo automático</div>
-              <div className="mt-1 text-[11px]">El excedente quedará como saldo a favor y luego podrás dar cambio desde la orden.</div>
+              <div className="mt-1 text-[11px]">
+                {selectedConfirmPaymentReport.isRetention
+                  ? 'La retención quedará como saldo a favor del cliente.'
+                  : 'El excedente quedará como saldo a favor y luego podrás dar cambio desde la orden.'}
+              </div>
             </button>
 
             <button
@@ -17172,11 +17208,19 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
               ].join(' ')}
               onClick={() => setPaymentConfirmOverpaymentHandling('change_given')}
             >
-              <div className="text-sm font-semibold">Devolver ahora</div>
-              <div className="mt-1 text-[11px]">Registra un egreso confirmado por el excedente.</div>
+              <div className="text-sm font-semibold">
+                {selectedConfirmPaymentReport.isRetention ? 'Registrar devolución' : 'Devolver ahora'}
+              </div>
+              <div className="mt-1 text-[11px]">
+                {selectedConfirmPaymentReport.isRetention
+                  ? 'Registra la devolución asociada a esta retención.'
+                  : 'Registra un egreso confirmado por el excedente.'}
+              </div>
             </button>
 
-            {isAdmin && selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD ? (
+            {isAdmin &&
+            !selectedConfirmPaymentReport.isRetention &&
+            selectedConfirmPaymentExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD ? (
               <button
                 type="button"
                 className={[
