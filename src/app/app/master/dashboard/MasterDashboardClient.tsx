@@ -57,6 +57,7 @@ import {
   getClientFundSnapshotAction,
   loadClientStatsAction,
   searchClientsAction,
+  searchMasterOrdersAction,
   createMoneyAccountAction,
   toggleCatalogItemActiveAction,
   toggleClientActiveAction,
@@ -573,6 +574,20 @@ type OperationStatsSummary = {
   fact: number;
   abonadoConfirmado: number;
   pendiente: number;
+};
+
+type MasterOrderSearchResult = {
+  id: number;
+  orderNumber: string;
+  status: string;
+  fulfillment: string;
+  clientName: string;
+  clientPhone: string | null;
+  advisorName: string;
+  totalUsd: number;
+  totalBs: number;
+  createdAt: string;
+  operationalDate: string;
 };
 
 type OrderDetailTab = 'detalle' | 'entrega' | 'pagos' | 'eventos' | 'notas' | 'ajustes';
@@ -3911,6 +3926,9 @@ const [editIsActive, setEditIsActive] = useState(true);
 
   const [tray, setTray] = useState<MasterTray>('all');
   const [search, setSearch] = useState('');
+  const [remoteOrderSearchResults, setRemoteOrderSearchResults] = useState<MasterOrderSearchResult[]>([]);
+  const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
+  const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
 
   const selectOperationalDay = useCallback(
@@ -4334,7 +4352,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     [quickCatalogPriceImpacts]
   );
 
-  const searchResults = useMemo(() => {
+  const localOrderSearchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
 
@@ -4374,10 +4392,64 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 10)
       .map((o) => ({
         id: o.order.id,
-        label: `${o.order.id} · ${o.order.clientName}`,
+        label: `${o.order.orderNumber} · ${o.order.clientName}`,
         sub: `${o.order.orderNumber} · Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
+        operationalDate: toDateInputValue(new Date(o.order.deliveryAtISO)),
+        source: 'local' as const,
       }));
   }, [orders, search]);
+
+  const mergedOrderSearchResults = useMemo(() => {
+    const localIds = new Set(localOrderSearchResults.map((result) => result.id));
+    const remote = remoteOrderSearchResults
+      .filter((result) => !localIds.has(result.id))
+      .map((result) => ({
+        id: result.id,
+        label: `${result.orderNumber} · ${result.clientName}`,
+        sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} · ${result.operationalDate} · ${fmtUSD(result.totalUsd)}`,
+        operationalDate: result.operationalDate,
+        source: 'remote' as const,
+      }));
+
+    return [...localOrderSearchResults, ...remote].slice(0, 12);
+  }, [localOrderSearchResults, remoteOrderSearchResults]);
+
+  useEffect(() => {
+    const query = search.trim();
+
+    if (query.length < 2) {
+      setRemoteOrderSearchResults([]);
+      setRemoteOrderSearchLoading(false);
+      setRemoteOrderSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRemoteOrderSearchLoading(true);
+    setRemoteOrderSearchError(null);
+
+    const timer = window.setTimeout(() => {
+      searchMasterOrdersAction({ query, limit: 10 })
+        .then((results) => {
+          if (cancelled) return;
+          setRemoteOrderSearchResults(results as MasterOrderSearchResult[]);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setRemoteOrderSearchResults([]);
+          setRemoteOrderSearchError(error instanceof Error ? error.message : 'No se pudo buscar en el historial.');
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setRemoteOrderSearchLoading(false);
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search]);
 
   const dayOrders = useMemo(() => {
     if (!selectedDay) return [];
@@ -5267,6 +5339,39 @@ const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
   resetReturnToQueueBox();
   setDetailOpen(true);
 };
+
+const openSearchOrderResult = (result: { id: number; operationalDate: string }) => {
+  setSearch('');
+  setRemoteOrderSearchResults([]);
+  setRemoteOrderSearchError(null);
+
+  if (orders.some((order) => order.id === result.id)) {
+    openOrderPanel(result.id, 'detalle');
+    return;
+  }
+
+  const params = new URLSearchParams(searchParams.toString());
+  params.set('focusDate', result.operationalDate);
+  params.set('openOrder', String(result.id));
+  router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
+};
+
+useEffect(() => {
+  const openOrderValue = searchParams.get('openOrder');
+  if (!openOrderValue) return;
+
+  const openOrderId = Number(openOrderValue);
+  if (!Number.isFinite(openOrderId) || openOrderId <= 0) return;
+
+  const order = orders.find((item) => item.id === openOrderId);
+  if (!order) return;
+
+  openOrderPanel(openOrderId, 'detalle');
+
+  const params = new URLSearchParams(searchParams.toString());
+  params.delete('openOrder');
+  router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
+}, [orders, router, searchParams]);
 
 const openCreateOrderDrawer = () => {
   setOrderEditorMode('create');
@@ -11857,21 +11962,35 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 placeholder="Buscar orden o cliente"
                 className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
-              {searchResults.length > 0 ? (
+              {search.trim().length >= 2 && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError) ? (
                 <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
-                  {searchResults.map((r) => (
+                  {mergedOrderSearchResults.map((r) => (
                     <button
-                      key={r.id}
+                      key={`${r.source}-${r.id}`}
                       className="w-full px-4 py-3 text-left hover:bg-[#121218]"
                       onClick={() => {
-                        setSearch('');
-                        openOrderPanel(r.id, 'detalle');
+                        openSearchOrderResult(r);
                       }}
                     >
-                      <div className="text-sm font-medium text-[#F5F5F7]">{r.label}</div>
-                      <div className="text-xs text-[#B7B7C2]">{r.sub}</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 text-sm font-medium text-[#F5F5F7]">{r.label}</div>
+                        <span className="shrink-0 rounded-full border border-[#2C3142] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[#8A8A96]">
+                          {r.source === 'local' ? 'Día' : 'Historial'}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-[#B7B7C2]">{r.sub}</div>
                     </button>
                   ))}
+                  {remoteOrderSearchLoading ? (
+                    <div className="border-t border-[#242433] px-4 py-2 text-xs text-[#8A8A96]">
+                      Buscando en historial...
+                    </div>
+                  ) : null}
+                  {remoteOrderSearchError ? (
+                    <div className="border-t border-[#3A1F25] px-4 py-2 text-xs text-[#F0A6AE]">
+                      {remoteOrderSearchError}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
