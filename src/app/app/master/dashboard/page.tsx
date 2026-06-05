@@ -434,7 +434,7 @@ function roundMoney(value: unknown, fallback = 0) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-const MASTER_DASHBOARD_ORDER_LIMIT = 90;
+const MASTER_DASHBOARD_ORDER_LIMIT = 240;
 const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;

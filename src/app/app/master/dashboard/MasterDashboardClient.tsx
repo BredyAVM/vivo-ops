@@ -4287,13 +4287,45 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const searchResults = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
+
+    const numericQuery = Number(q);
+
     return orders
-      .filter((o) => String(o.id).includes(q) || o.clientName.toLowerCase().includes(q))
-      .slice(0, 7)
+      .map((o) => {
+        const idText = String(o.id);
+        const orderNumberText = String(o.orderNumber || '').toLowerCase();
+        const clientText = o.clientName.toLowerCase();
+        const advisorText = o.advisorName.toLowerCase();
+        const addressText = String(o.address || '').toLowerCase();
+        const matches =
+          idText.includes(q) ||
+          orderNumberText.includes(q) ||
+          clientText.includes(q) ||
+          advisorText.includes(q) ||
+          addressText.includes(q);
+
+        if (!matches) return null;
+
+        const rank =
+          Number.isFinite(numericQuery) && o.id === Math.trunc(numericQuery)
+            ? 0
+            : orderNumberText === q
+              ? 1
+              : orderNumberText.includes(q)
+                ? 2
+                : clientText.startsWith(q)
+                  ? 3
+                  : 4;
+
+        return { order: o, rank };
+      })
+      .filter((row): row is { order: Order; rank: number } => Boolean(row))
+      .sort((a, b) => a.rank - b.rank || b.order.id - a.order.id)
+      .slice(0, 10)
       .map((o) => ({
-        id: o.id,
-        label: `${o.id} · ${o.clientName}`,
-        sub: `Entrega: ${fmtDeliveryTextES(o.deliveryAtISO)}`,
+        id: o.order.id,
+        label: `${o.order.id} · ${o.order.clientName}`,
+        sub: `${o.order.orderNumber} · Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
       }));
   }, [orders, search]);
 
