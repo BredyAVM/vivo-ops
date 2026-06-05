@@ -3549,6 +3549,7 @@ export default function MasterDashboardClient({
   initialMasterInboxItemStates = [],
   advisors = [],
   initialOrders,
+  orderScope,
   moneyAccounts,
   moneyAccountPaymentRules = [],
   moneyMovements: initialMoneyMovements = [],
@@ -3578,6 +3579,11 @@ export default function MasterDashboardClient({
   }>;
   advisors?: AdvisorOption[];
   initialOrders: Order[];
+  orderScope?: {
+    focusDate: string;
+    limit: number;
+    limitExceeded: boolean;
+  };
   moneyAccounts: MoneyAccountOption[];
   moneyAccountPaymentRules?: MoneyAccountPaymentRule[];
   moneyMovements?: MoneyMovementItem[];
@@ -3881,6 +3887,25 @@ const [editIsActive, setEditIsActive] = useState(true);
   const [tray, setTray] = useState<MasterTray>('all');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+
+  const selectOperationalDay = useCallback(
+    (next: Date) => {
+      const normalized = new Date(next);
+      normalized.setHours(0, 0, 0, 0);
+      const nextKey = toDateInputValue(normalized);
+      const currentKey = selectedDay ? toDateInputValue(selectedDay) : '';
+
+      setSelectedDay(normalized);
+      setCalendarViewMonth(new Date(normalized.getFullYear(), normalized.getMonth(), 1));
+
+      if (nextKey === currentKey && orderScope?.focusDate === nextKey) return;
+
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('focusDate', nextKey);
+      router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
+    },
+    [orderScope?.focusDate, router, searchParams, selectedDay],
+  );
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -11506,7 +11531,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       onClick={() => {
                         const next = new Date(date);
                         next.setHours(0, 0, 0, 0);
-                        setSelectedDay(next);
+                        selectOperationalDay(next);
                         setCalendarOpen(false);
                       }}
                       type="button"
@@ -11523,8 +11548,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   onClick={() => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    setSelectedDay(today);
-                    setCalendarViewMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+                    selectOperationalDay(today);
                     setCalendarOpen(false);
                   }}
                   type="button"
@@ -11969,6 +11993,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           </div>
 
           <div className="mt-3 flex flex-col gap-2 rounded-2xl border border-[#242433] bg-[#121218] p-2.5 md:flex-row md:items-center md:justify-between">
+            {orderScope?.limitExceeded ? (
+              <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-[12px] text-orange-200 md:max-w-sm">
+                Este día superó {orderScope.limit} órdenes. Se muestran las más recientes; conviene abrir una búsqueda paginada.
+              </div>
+            ) : null}
             <div className="relative w-full md:max-w-md">
               <input
                 value={search}

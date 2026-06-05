@@ -38,8 +38,12 @@ type RawOrderRow = {
   eta_minutes: number | string | null;
 client: { full_name: string | null; phone: string | null; fund_balance_usd: number | string | null }[] | { full_name: string | null; phone: string | null; fund_balance_usd: number | string | null } | null;
 advisor: { full_name: string | null }[] | { full_name: string | null } | null;
-creator: { full_name: string | null }[] | { full_name: string | null } | null;
+  creator: { full_name: string | null }[] | { full_name: string | null } | null;
 };
+
+type MasterDashboardSearchParams = Promise<{
+  focusDate?: string;
+}>;
 
 type RawOrderItemRow = {
   id: number;
@@ -434,11 +438,31 @@ function roundMoney(value: unknown, fallback = 0) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-const MASTER_DASHBOARD_ORDER_LIMIT = 240;
+const MASTER_DASHBOARD_ORDER_LIMIT = 500;
 const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
 const MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS = 2500;
+
+function getCaracasTodayKey() {
+  return new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function normalizeDashboardFocusDate(value: string | null | undefined) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : getCaracasTodayKey();
+}
+
+function getCaracasDayRange(dayKey: string) {
+  const start = new Date(`${dayKey}T00:00:00-04:00`);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 1);
+  return {
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
 
 async function withDashboardOptionalTimeout<T>(
   label: string,
@@ -631,8 +655,15 @@ function estimateBsFromUsd(usd: number, rateBsPerUsd: number) {
   return usd * rateBsPerUsd;
 }
 
-export default async function MasterDashboardPage() {
+export default async function MasterDashboardPage({
+  searchParams,
+}: {
+  searchParams?: MasterDashboardSearchParams;
+}) {
   const supabase = await createSupabaseServer();
+  const params = (await searchParams) ?? {};
+  const focusDateKey = normalizeDashboardFocusDate(params.focusDate);
+  const focusDayRange = getCaracasDayRange(focusDateKey);
 
   const {
     data: { user },
@@ -968,9 +999,7 @@ const advisorOptions = ((advisorsRpcData ?? []) as Array<{
   const activeRateRow = exchangeRateData as RawExchangeRateRow | null;
   const activeRateBsPerUsd = activeRateRow ? toNumber(activeRateRow.rate_bs_per_usd, 0) : 0;
 
-const { data: ordersData, error: ordersError } = await supabase
-  .from('orders')
-  .select(`
+const orderSelect = `
       id,
       order_number,
       client_id,
@@ -1003,9 +1032,38 @@ const { data: ordersData, error: ordersError } = await supabase
       creator:profiles!orders_created_by_user_id_fkey (
         full_name
       )
-    `)
+    `;
+
+const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
+  supabase
+    .from('orders')
+    .select(orderSelect)
+    .eq('extra_fields->schedule->>date', focusDateKey)
     .order('created_at', { ascending: false })
-    .limit(MASTER_DASHBOARD_ORDER_LIMIT);
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+  supabase
+    .from('orders')
+    .select(orderSelect)
+    .gte('created_at', focusDayRange.startISO)
+    .lt('created_at', focusDayRange.endISO)
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+]);
+
+const ordersError = scheduledOrdersResult.error ?? createdOrdersResult.error;
+const ordersDataById = new Map<number, RawOrderRow>();
+
+for (const row of [
+  ...((scheduledOrdersResult.data ?? []) as RawOrderRow[]),
+  ...((createdOrdersResult.data ?? []) as RawOrderRow[]),
+]) {
+  ordersDataById.set(Number(row.id), row);
+}
+
+const ordersData = Array.from(ordersDataById.values())
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+const ordersLimitExceeded = ordersData.length > MASTER_DASHBOARD_ORDER_LIMIT;
 
   if (ordersError) {
     return (
@@ -1023,7 +1081,7 @@ const { data: ordersData, error: ordersError } = await supabase
     );
   }
 
-  const rawOrders = (ordersData ?? []) as RawOrderRow[];
+  const rawOrders = ordersData.slice(0, MASTER_DASHBOARD_ORDER_LIMIT) as RawOrderRow[];
   const orderIds = rawOrders.map((o) => o.id);
   const { data: financialStateData, error: financialStateError } =
     orderIds.length > 0
@@ -2439,6 +2497,11 @@ currentUser={{
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}
       initialOrders={initialOrders}
+      orderScope={{
+        focusDate: focusDateKey,
+        limit: MASTER_DASHBOARD_ORDER_LIMIT,
+        limitExceeded: ordersLimitExceeded,
+      }}
       moneyAccounts={moneyAccounts}
       moneyAccountPaymentRules={moneyAccountPaymentRules}
       moneyMovements={moneyMovements}
