@@ -567,6 +567,14 @@ type Order = {
   riderName?: string;
   externalPartner?: string;
 };
+
+type OperationStatsSummary = {
+  cierres: number;
+  fact: number;
+  abonadoConfirmado: number;
+  pendiente: number;
+};
+
 type OrderDetailTab = 'detalle' | 'entrega' | 'pagos' | 'eventos' | 'notas' | 'ajustes';
 
 type MasterTray =
@@ -3550,6 +3558,7 @@ export default function MasterDashboardClient({
   advisors = [],
   initialOrders,
   orderScope,
+  operationSummary,
   moneyAccounts,
   moneyAccountPaymentRules = [],
   moneyMovements: initialMoneyMovements = [],
@@ -3583,6 +3592,9 @@ export default function MasterDashboardClient({
     focusDate: string;
     limit: number;
     limitExceeded: boolean;
+  };
+  operationSummary?: {
+    weekStats: OperationStatsSummary;
   };
   moneyAccounts: MoneyAccountOption[];
   moneyAccountPaymentRules?: MoneyAccountPaymentRule[];
@@ -4384,6 +4396,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [dayOrders]);
 
   const weekStats = useMemo(() => {
+    if (operationSummary?.weekStats) return operationSummary.weekStats;
+
     const scheduledOrders = weekOrders.filter(isScheduledClosingOrder);
     const billingOrders = weekOrders.filter(isRecognizedBillingOrder);
     const cierres = scheduledOrders.length;
@@ -4391,7 +4405,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const abonadoConfirmado = billingOrders.reduce((s, o) => s + o.confirmedPaidUsd, 0);
     const pendiente = billingOrders.reduce((s, o) => s + o.balanceUsd, 0);
     return { cierres, fact, abonadoConfirmado, pendiente };
-  }, [weekOrders]);
+  }, [operationSummary?.weekStats, weekOrders]);
 
   const approvalsStats = useMemo(() => {
     const list = weekOrders;

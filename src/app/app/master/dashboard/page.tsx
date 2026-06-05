@@ -45,6 +45,30 @@ type MasterDashboardSearchParams = Promise<{
   focusDate?: string;
 }>;
 
+type RawOrderSummaryRow = {
+  id: number;
+  status:
+    | 'created'
+    | 'queued'
+    | 'confirmed'
+    | 'in_kitchen'
+    | 'ready'
+    | 'out_for_delivery'
+    | 'delivered'
+    | 'cancelled';
+  total_usd: number | string;
+  total_bs_snapshot: number | string | null;
+  created_at: string;
+  extra_fields: any;
+};
+
+type OperationStatsSummary = {
+  cierres: number;
+  fact: number;
+  abonadoConfirmado: number;
+  pendiente: number;
+};
+
 type RawOrderItemRow = {
   id: number;
   order_id: number;
@@ -464,6 +488,46 @@ function getCaracasDayRange(dayKey: string) {
   };
 }
 
+function toCaracasDateKey(value: Date) {
+  return value.toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getCaracasWeekRange(dayKey: string) {
+  const noon = new Date(`${dayKey}T12:00:00-04:00`);
+  const weekday = noon.getDay();
+  const daysFromMonday = weekday === 0 ? 6 : weekday - 1;
+  const monday = addDays(noon, -daysFromMonday);
+  const nextMonday = addDays(monday, 7);
+  const startKey = toCaracasDateKey(monday);
+  const endExclusiveKey = toCaracasDateKey(nextMonday);
+  const start = new Date(`${startKey}T00:00:00-04:00`);
+  const end = new Date(`${endExclusiveKey}T00:00:00-04:00`);
+
+  return {
+    startKey,
+    endExclusiveKey,
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}
+
+function emptyOperationStatsSummary(): OperationStatsSummary {
+  return {
+    cierres: 0,
+    fact: 0,
+    abonadoConfirmado: 0,
+    pendiente: 0,
+  };
+}
+
 async function withDashboardOptionalTimeout<T>(
   label: string,
   promise: PromiseLike<T>,
@@ -664,6 +728,7 @@ export default async function MasterDashboardPage({
   const params = (await searchParams) ?? {};
   const focusDateKey = normalizeDashboardFocusDate(params.focusDate);
   const focusDayRange = getCaracasDayRange(focusDateKey);
+  const focusWeekRange = getCaracasWeekRange(focusDateKey);
 
   const {
     data: { user },
@@ -998,6 +1063,85 @@ const advisorOptions = ((advisorsRpcData ?? []) as Array<{
 
   const activeRateRow = exchangeRateData as RawExchangeRateRow | null;
   const activeRateBsPerUsd = activeRateRow ? toNumber(activeRateRow.rate_bs_per_usd, 0) : 0;
+
+const orderSummarySelect = 'id, status, total_usd, total_bs_snapshot, created_at, extra_fields';
+const [weekScheduledSummaryResult, weekCreatedSummaryResult] = await Promise.all([
+  supabase
+    .from('orders')
+    .select(orderSummarySelect)
+    .gte('extra_fields->schedule->>date', focusWeekRange.startKey)
+    .lt('extra_fields->schedule->>date', focusWeekRange.endExclusiveKey)
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+  supabase
+    .from('orders')
+    .select(orderSummarySelect)
+    .gte('created_at', focusWeekRange.startISO)
+    .lt('created_at', focusWeekRange.endISO)
+    .limit(MASTER_DASHBOARD_ORDER_LIMIT + 1),
+]);
+
+const weekSummaryError = weekScheduledSummaryResult.error ?? weekCreatedSummaryResult.error;
+if (weekSummaryError) {
+  console.warn('master dashboard weekly summary skipped', weekSummaryError.message);
+}
+
+const weekSummaryRowsById = new Map<number, RawOrderSummaryRow>();
+if (!weekSummaryError) {
+  for (const row of [
+    ...((weekScheduledSummaryResult.data ?? []) as RawOrderSummaryRow[]),
+    ...((weekCreatedSummaryResult.data ?? []) as RawOrderSummaryRow[]),
+  ]) {
+    weekSummaryRowsById.set(Number(row.id), row);
+  }
+}
+
+const weekSummaryRows = Array.from(weekSummaryRowsById.values())
+  .slice(0, MASTER_DASHBOARD_ORDER_LIMIT);
+const weekSummaryIds = weekSummaryRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
+const { data: weekFinancialStateData, error: weekFinancialStateError } =
+  weekSummaryIds.length > 0
+    ? await (supabase as any).rpc('get_orders_financial_state', {
+        p_order_ids: weekSummaryIds,
+        p_operation_date: null,
+        p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
+      })
+    : { data: [], error: null };
+
+if (weekFinancialStateError) {
+  console.warn('master dashboard weekly financial summary skipped', weekFinancialStateError.message);
+}
+
+const weekFinancialStateByOrderId = new Map<number, RawOrderFinancialStateRow>();
+for (const state of (weekFinancialStateData ?? []) as RawOrderFinancialStateRow[]) {
+  const orderId = Number(state.order_id);
+  if (Number.isFinite(orderId) && orderId > 0) {
+    weekFinancialStateByOrderId.set(orderId, state);
+  }
+}
+
+const operationWeekStats = weekSummaryRows.reduce((summary, row) => {
+  const financialState = weekFinancialStateByOrderId.get(Number(row.id));
+  const snapshot = getOrderMoneySnapshot(row);
+  const totalUsd = financialState ? roundMoney(financialState.total_usd) : roundMoney(snapshot.totalUsd);
+  const confirmedPaidUsd = financialState ? roundMoney(financialState.confirmed_paid_usd) : 0;
+  const pendingUsd = financialState
+    ? roundMoney(financialState.pending_usd)
+    : row.status === 'cancelled'
+      ? 0
+      : roundMoney(totalUsd);
+
+  if (row.status !== 'cancelled' && totalUsd > 0.005) {
+    summary.cierres += 1;
+  }
+
+  if (!['created', 'cancelled'].includes(row.status) && totalUsd > 0.005) {
+    summary.fact += totalUsd;
+    summary.abonadoConfirmado += confirmedPaidUsd;
+    summary.pendiente += pendingUsd;
+  }
+
+  return summary;
+}, emptyOperationStatsSummary());
 
 const orderSelect = `
       id,
@@ -2501,6 +2645,9 @@ currentUser={{
         focusDate: focusDateKey,
         limit: MASTER_DASHBOARD_ORDER_LIMIT,
         limitExceeded: ordersLimitExceeded,
+      }}
+      operationSummary={{
+        weekStats: operationWeekStats,
       }}
       moneyAccounts={moneyAccounts}
       moneyAccountPaymentRules={moneyAccountPaymentRules}
