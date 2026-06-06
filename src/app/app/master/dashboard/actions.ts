@@ -2022,7 +2022,6 @@ export async function approveOrderAction(input: {
         { targetUserId: eventContext?.advisorUserId },
       ],
     });
-    revalidatePath('/app/master/dashboard');
     return { ok: true as const };
   } catch (error) {
     return {
@@ -2063,7 +2062,6 @@ export async function reapproveQueuedOrderAction(input: {
         { targetUserId: eventContext?.advisorUserId },
       ],
     });
-    revalidatePath('/app/master/dashboard');
     return { ok: true as const };
   } catch (error) {
     return {
@@ -2100,7 +2098,6 @@ export async function sendToKitchenAction(input: {
         { targetUserId: eventContext?.advisorUserId },
       ],
     });
-    revalidatePath('/app/master/dashboard');
     return { ok: true as const };
   } catch (error) {
     return {
@@ -2597,7 +2594,6 @@ export async function kitchenTakeAction(input: {
       { targetUserId: eventContext?.advisorUserId },
     ],
   });
-  revalidatePath('/app/master/dashboard');
 }
 
 export async function markReadyAction(input: {
@@ -2610,7 +2606,6 @@ export async function markReadyAction(input: {
   });
 
   if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
 }
 
 export async function outForDeliveryAction(input: {
@@ -2699,7 +2694,6 @@ export async function outForDeliveryAction(input: {
       { targetUserId: eventContext?.internalDriverUserId },
     ],
   });
-  revalidatePath('/app/master/dashboard');
 }
 
 export async function markDeliveredAction(input: {
@@ -2779,7 +2773,6 @@ export async function markDeliveredAction(input: {
       { targetUserId: eventContext?.internalDriverUserId },
     ],
   });
-  revalidatePath('/app/master/dashboard');
 }
 
 export async function clearDeliveryAssignmentAction(input: {

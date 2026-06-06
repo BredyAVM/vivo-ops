@@ -4243,7 +4243,26 @@ const [createOrderStatus, setCreateOrderStatus] = useState<'created' | 'queued'>
 );
 const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
-  const orders = initialOrders;
+  const [localOrders, setLocalOrders] = useState(initialOrders);
+
+  useEffect(() => {
+    setLocalOrders(initialOrders);
+  }, [initialOrders]);
+
+  const orders = localOrders;
+
+  const updateLocalOrder = useCallback((orderId: number, updater: (order: Order) => Partial<Order>) => {
+    setLocalOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId
+          ? {
+              ...order,
+              ...updater(order),
+            }
+          : order
+      )
+    );
+  }, []);
 
   const currentOperatorLabel = getCurrentOperatorLabel(roles, currentUser);
 
@@ -5758,8 +5777,13 @@ const handleSendToKitchen = async (orderId: number) => {
       showToast('error', result.message || 'Error enviando a cocina.');
       return;
     }
-      showToast('success', 'Orden en cocina.');
-    router.refresh();
+    const now = new Date().toISOString();
+    updateLocalOrder(orderId, () => ({
+      status: 'confirmed',
+      queuedNeedsReapproval: false,
+      sentToKitchenAtISO: now,
+    }));
+    showToast('success', 'Orden en cocina.');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error enviando a cocina.';
     showToast('error', message);
@@ -5856,8 +5880,11 @@ const handleApprove = async (o: Order) => {
         return;
       }
       showToast('success', 'Pedido aprobado.');
+      updateLocalOrder(o.id, () => ({
+        status: 'queued',
+        queuedNeedsReapproval: false,
+      }));
       resetReviewActionBox();
-      router.refresh();
       return;
     }
 
@@ -5871,8 +5898,11 @@ const handleApprove = async (o: Order) => {
         return;
       }
       showToast('success', 'Pedido re-aprobado.');
+      updateLocalOrder(o.id, () => ({
+        status: 'queued',
+        queuedNeedsReapproval: false,
+      }));
       resetReviewActionBox();
-      router.refresh();
       return;
     }
 
@@ -6285,9 +6315,17 @@ const handleKitchenTake = async (o: Order) => {
       etaMinutes,
     });
 
+    const now = new Date().toISOString();
+    updateLocalOrder(o.id, (order) => ({
+      status: 'in_kitchen',
+      kitchenStartedAtISO: now,
+      editMeta: {
+        ...order.editMeta,
+        deliveryEtaMinutes: etaMinutes,
+      },
+    }));
     showToast('success', 'Pedido tomado por cocina.');
     resetKitchenTakeBox();
-    router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error tomando pedido en cocina.';
     showToast('error', message);
@@ -6300,8 +6338,11 @@ const handleMarkReady = async (o: Order) => {
       orderId: o.id,
     });
 
+    updateLocalOrder(o.id, () => ({
+      status: 'ready',
+      readyAtISO: new Date().toISOString(),
+    }));
     showToast('success', 'Pedido marcado como preparado.');
-    router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error marcando como preparado.';
     showToast('error', message);
@@ -6326,9 +6367,17 @@ const handleOutForDelivery = async (o: Order) => {
       etaMinutes,
     });
 
+    const now = new Date().toISOString();
+    updateLocalOrder(o.id, (order) => ({
+      status: 'out_for_delivery',
+      editMeta: {
+        ...order.editMeta,
+        deliveryEtaMinutes: etaMinutes ?? order.editMeta.deliveryEtaMinutes,
+        deliveryEtaRecordedAtISO: etaMinutes != null ? now : order.editMeta.deliveryEtaRecordedAtISO,
+      },
+    }));
     showToast('success', 'Pedido marcado en camino.');
     resetDeliveryEtaBox();
-    router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error enviando a delivery.';
     showToast('error', message);
@@ -6358,11 +6407,17 @@ const handleMarkDelivered = async (o: Order) => {
       orderId: o.id,
     });
 
+    updateLocalOrder(o.id, (order) => ({
+      status: 'delivered',
+      editMeta: {
+        ...order.editMeta,
+        deliveryCompletedAtISO: new Date().toISOString(),
+      },
+    }));
     showToast(
       'success',
       o.fulfillment === 'pickup' ? 'Pedido retirado.' : 'Pedido entregado.'
     );
-    router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error marcando entregado.';
     showToast('error', message);
