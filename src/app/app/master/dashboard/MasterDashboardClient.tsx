@@ -3954,6 +3954,7 @@ const [editIsActive, setEditIsActive] = useState(true);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifMode, setNotifMode] = useState<'actions' | 'updates'>('actions');
   const [detailTab, setDetailTab] = useState<OrderDetailTab>('detalle');
 
   const [returnMode, setReturnMode] = useState(false);
@@ -4969,6 +4970,11 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const masterInboxResolvedCount = useMemo(
     () => [...masterInboxActiveActivityIds].filter((id) => masterInboxItemStatusById.get(id) === 'resolved').length,
     [masterInboxActiveActivityIds, masterInboxItemStatusById]
+  );
+
+  const masterInboxUnreadActivityCount = useMemo(
+    () => masterInbox.activity.filter((item) => !masterInboxItemStatusById.has(item.id)).length,
+    [masterInbox.activity, masterInboxItemStatusById]
   );
 
   const masterInboxFilteredActivityGroups = useMemo(() => {
@@ -11497,7 +11503,26 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           {permissions.canViewCalculations ? (
             <TopNavButton label="Cálculos" icon={<TopNavIcon kind="calculations" />} active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
           ) : null}
-          <TopNavButton label="Alertas" icon={<TopNavIcon kind="alerts" />} active={notifOpen} onClick={() => setNotifOpen(true)} count={masterInboxUnreviewedCount} />
+          <TopNavButton
+            label="Acciones"
+            icon={<TopNavIcon kind="alerts" />}
+            active={notifOpen && notifMode === 'actions'}
+            onClick={() => {
+              setNotifMode('actions');
+              setNotifOpen(true);
+            }}
+            count={masterInboxUnreviewedCount}
+          />
+          <TopNavButton
+            label="Seguimiento"
+            icon={<TopNavIcon kind="operations" />}
+            active={notifOpen && notifMode === 'updates'}
+            onClick={() => {
+              setNotifMode('updates');
+              setNotifOpen(true);
+            }}
+            count={masterInboxUnreadActivityCount}
+          />
         </div>
 
         <div className="w-[200px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
@@ -14427,29 +14452,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </div>
       )}
 
-      <Drawer open={notifOpen} title="Acciones y seguimiento" onClose={() => setNotifOpen(false)} widthClass="w-[460px]">
-        {masterInbox.tasks.length === 0 && masterInbox.activity.length === 0 ? (
-          <div className="text-sm text-[#B7B7C2]">Sin tareas ni actividad reciente.</div>
+      <Drawer
+        open={notifOpen}
+        title={notifMode === 'actions' ? 'Acciones' : 'Seguimiento'}
+        onClose={() => setNotifOpen(false)}
+        widthClass="w-[460px]"
+      >
+        {notifMode === 'actions' && masterInbox.tasks.length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin acciones pendientes.</div>
+        ) : notifMode === 'updates' && masterInbox.activity.length === 0 ? (
+          <div className="text-sm text-[#B7B7C2]">Sin seguimiento reciente.</div>
         ) : (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-xl border border-[#3A3212] bg-[#151307] px-3 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#FEEF00]">Acciones</div>
-                <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{masterInboxUnreviewedCount}</div>
-                <div className="text-[11px] text-[#B7B7C2]">requieren decisión</div>
-              </div>
-              <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Seguimiento</div>
-                <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">
-                  {masterInbox.activity.length}
-                </div>
-                <div className="text-[11px] text-[#B7B7C2]">
-                  {masterInboxReviewedCount} leídos · {masterInboxResolvedCount} cerrados
-                </div>
-              </div>
-            </div>
-
-            <section className="space-y-2 rounded-2xl border border-[#242433] bg-[#101014] p-3">
+            {notifMode === 'actions' ? (
+            <section className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#FEEF00]">Acciones pendientes</div>
@@ -14518,8 +14534,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   );
                 })}
             </section>
+            ) : null}
 
-            <section className="space-y-2 rounded-2xl border border-[#242433] bg-[#101014] p-3">
+            {notifMode === 'updates' ? (
+            <section className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Seguimiento operativo</div>
@@ -14535,7 +14553,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <Chip active={masterInboxFilter === 'updates'} onClick={() => setMasterInboxFilter('updates')}>Todo</Chip>
                   <Chip active={masterInboxFilter === 'payments'} onClick={() => setMasterInboxFilter('payments')}>Pagos</Chip>
                   <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
-                  <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap gap-1.5">
@@ -14649,6 +14666,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 ))}
             </section>
+            ) : null}
           </div>
         )}
       </Drawer>
