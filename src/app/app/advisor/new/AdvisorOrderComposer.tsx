@@ -7,6 +7,7 @@ import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { replaceAdvisorOrderItemsAction } from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
 type FulfillmentType = 'pickup' | 'delivery';
@@ -2957,13 +2958,6 @@ export default function AdvisorOrderComposer({
           .eq('attributed_advisor_id', authUserId);
 
         if (updateOrderError) throw new Error(updateOrderError.message);
-
-        const { error: deleteItemsError } = await supabase
-          .from('order_items')
-          .delete()
-          .eq('order_id', Number(existingOrderId));
-
-        if (deleteItemsError) throw new Error(deleteItemsError.message);
       } else {
         const orderNumber = await generateOrderNumber();
         const { data: order, error: orderError } = await supabase
@@ -2999,8 +2993,31 @@ export default function AdvisorOrderComposer({
         };
       });
 
-      const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-      if (itemsError) throw new Error(itemsError.message);
+      if (isEditingOrder) {
+        await replaceAdvisorOrderItemsAction({
+          orderId: targetOrderId,
+          items: draftItems.map((item, idx) => {
+            const snapshot = draftItemSnapshots[idx];
+
+            return {
+              productId: Number(item.product_id),
+              qty: Number(item.qty || 0),
+              sourcePriceCurrency: item.source_price_currency,
+              sourcePriceAmount: Number(item.source_price_amount || 0),
+              unitPriceUsdSnapshot: snapshot.unitUsd,
+              lineTotalUsd: snapshot.lineUsd,
+              unitPriceBsSnapshot: snapshot.unitBs,
+              lineTotalBsSnapshot: snapshot.lineBs,
+              skuSnapshot: item.sku_snapshot,
+              productNameSnapshot: item.product_name_snapshot,
+              editableDetailLines: item.editable_detail_lines,
+            };
+          }),
+        });
+      } else {
+        const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
+        if (itemsError) throw new Error(itemsError.message);
+      }
 
       if (isEditingOrder && nextEditSnapshot && originalEditSnapshot) {
         const changeMeta = buildOrderEditChangeSummary(originalEditSnapshot, nextEditSnapshot);
