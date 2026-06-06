@@ -458,6 +458,14 @@ type RawOrderEventRow = {
   order_number?: string | null;
 };
 
+type RawTimelineEventRecipientRow = {
+  event_id: string | number | null;
+  target_role: string | null;
+  target_user_id: string | null;
+  requires_action: boolean | null;
+  read_at: string | null;
+};
+
 function toNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -965,6 +973,7 @@ const {
     .from('master_inbox_item_states')
     .select('item_id, item_type, order_id, status')
     .in('status', ['reviewed', 'resolved'])
+    .order('updated_at', { ascending: false })
     .limit(MASTER_DASHBOARD_INBOX_STATE_LIMIT),
   optionalSupabaseResponse([] as RawMasterInboxItemStateRow[])
 );
@@ -1399,6 +1408,8 @@ const calculationOrdersLimitExceeded =
       actorName: string;
       payload: Record<string, unknown>;
       createdAt: string;
+      recipientRequiresAction: boolean;
+      recipientReadAt: string | null;
     }>
   >();
 
@@ -1427,6 +1438,28 @@ const calculationOrdersLimitExceeded =
       ...(orderEventsError ? [] : ((orderEventsData ?? []) as RawOrderEventRow[])),
       ...(legacyOrderEventsError ? [] : ((legacyOrderEventsData ?? []) as RawOrderEventRow[])),
     ];
+    const timelineEventIds = Array.from(
+      new Set(
+        rawOrderEvents
+          .filter((event) => event.event_type)
+          .map((event) => Number(event.id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    );
+    const { data: timelineRecipientsData } = timelineEventIds.length > 0
+      ? await supabase
+          .from('order_timeline_event_recipients')
+          .select('event_id, target_role, target_user_id, requires_action, read_at')
+          .in('event_id', timelineEventIds)
+      : { data: [] };
+    const timelineRecipientsByEventId = new Map<string, RawTimelineEventRecipientRow[]>();
+    for (const recipient of (timelineRecipientsData ?? []) as RawTimelineEventRecipientRow[]) {
+      const eventId = String(recipient.event_id ?? '');
+      if (!eventId) continue;
+      const bucket = timelineRecipientsByEventId.get(eventId) ?? [];
+      bucket.push(recipient);
+      timelineRecipientsByEventId.set(eventId, bucket);
+    }
     const orderEventActorIds = Array.from(
       new Set(
         rawOrderEvents
@@ -1463,6 +1496,14 @@ const calculationOrdersLimitExceeded =
           })
         : null;
       const actorUserId = event.actor_user_id ?? event.performed_by ?? null;
+      const eventRecipientRows = timelineRecipientsByEventId.get(String(event.id ?? '')) ?? [];
+      const matchingRecipient = eventRecipientRows.find((recipient) => {
+        if (recipient.target_user_id && recipient.target_user_id === user.id) return true;
+        const targetRole = String(recipient.target_role || '');
+        return targetRole === 'master' || targetRole === 'admin' || roles.includes(targetRole);
+      });
+      if (!isLegacyEvent && eventRecipientRows.length > 0 && !matchingRecipient) continue;
+
       const bucket = orderEventsByOrder.get(orderId) ?? [];
       bucket.push({
         id: `${isLegacyEvent ? 'legacy' : 'timeline'}-${String(event.id ?? '')}`,
@@ -1486,6 +1527,8 @@ const calculationOrdersLimitExceeded =
             : {}
         ),
         createdAt: String(event.created_at || ''),
+        recipientRequiresAction: Boolean(matchingRecipient?.requires_action),
+        recipientReadAt: matchingRecipient?.read_at ?? null,
       });
       orderEventsByOrder.set(orderId, bucket);
     }

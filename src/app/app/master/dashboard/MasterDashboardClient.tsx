@@ -554,6 +554,8 @@ type Order = {
     actorName: string;
     payload: Record<string, unknown>;
     createdAt: string;
+    recipientRequiresAction?: boolean;
+    recipientReadAt?: string | null;
   }>;
   paymentReports: PaymentReportItem[];
   adminAdjustments: Array<{
@@ -647,7 +649,7 @@ type MasterInboxEvent = {
   isUrgent: boolean;
 };
 
-type MasterInboxFilter = 'tasks' | 'delays' | 'payments' | 'changes' | 'all';
+type MasterInboxFilter = 'actions' | 'updates' | 'payments' | 'changes' | 'all';
 type MasterInboxStatusFilter = 'open' | 'reviewed' | 'resolved' | 'all';
 type MasterInboxItemStatus = 'reviewed' | 'resolved';
 type MasterInboxStateItemInput = {
@@ -4629,7 +4631,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [productsExpanded, setProductsExpanded] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
-  const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('tasks');
+  const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('actions');
   const [masterInboxStatusFilter, setMasterInboxStatusFilter] = useState<MasterInboxStatusFilter>('open');
   const [masterInboxItemStatusById, setMasterInboxItemStatusById] = useState<Map<string, MasterInboxItemStatus>>(
     () => new Map(initialMasterInboxItemStates.map((item) => [item.itemId, item.status]))
@@ -4649,11 +4651,6 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const inboxCatalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
     for (const o of orders) {
       const delText = fmtDeliveryTextES(o.deliveryAtISO);
-      const currentKey = getProcessCurrentKey(o);
-      const alertReason = getCurrentProcessAlertReason(o, currentKey, currentTimeMs);
-      const alertLevel = getCurrentProcessAlertLevel(o, currentKey, currentTimeMs);
-      const hasDriverAssigned = Boolean(o.riderName?.trim() || o.externalPartner?.trim());
-      const isInOperationalTaskWindow = isOrderWithinOperationalTaskWindow(o, currentTimeMs);
       const expiredQuoteReview = getExpiredQuotePriceReview(o, inboxCatalogItemById, currentTimeMs);
       const latestFundRequest = [...(o.events ?? [])]
         .filter((event) => event.eventType === 'client_fund_application_requested')
@@ -4749,87 +4746,16 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           detailLines: getOrderEventDetailLines(o, latestFundRequest),
         });
       }
-      if (canSendToKitchen(o) && isInOperationalTaskWindow) {
-        tasks.push({
-          id: `n-kitchen-send-${o.id}`,
-          type: 'ENVIAR_COCINA',
-          orderId: o.id,
-          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
-          deliveryText: `Entrega: ${delText}`,
-          advisorName: o.advisorName,
-          title: 'Pendiente de enviar a cocina',
-          message: 'La orden ya está aprobada y falta enviarla a cocina.',
-          severity: 'warning',
-          openTab: 'detalle',
-          createdAtISO: o.createdAtISO,
-          isUrgent: isOrderUrgentForInbox(o, 'warning'),
-        });
-      }
-      if (
-        o.fulfillment === 'delivery' &&
-        isInOperationalTaskWindow &&
-        ['queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status) &&
-        !hasDriverAssigned
-      ) {
-        tasks.push({
-          id: `n-driver-${o.id}`,
-          type: 'ASIGNAR_DRIVER',
-          orderId: o.id,
-          label: `${o.id} · ${repairDisplayText(o.clientName)}`,
-          deliveryText: `Entrega: ${delText}`,
-          advisorName: o.advisorName,
-          title: 'Pendiente de asignar driver',
-          message: 'La orden de delivery no tiene asignación de motorizado.',
-          severity: 'warning',
-          openTab: 'entrega',
-          createdAtISO: o.readyAtISO || o.sentToKitchenAtISO || o.createdAtISO,
-          isUrgent: isOrderUrgentForInbox(o, 'warning'),
-        });
-      }
-      if (alertLevel === 'danger' && alertReason && isInOperationalTaskWindow) {
-        if (
-          (o.status === 'confirmed' || o.status === 'in_kitchen') &&
-          ['Cocina aún no la toma', 'Se excedió el tiempo de preparación'].includes(alertReason)
-        ) {
-          tasks.push({
-            id: `n-kitchen-late-${o.id}`,
-            type: 'COCINA_RETRASADA',
-            orderId: o.id,
-            label: `${o.id} · ${repairDisplayText(o.clientName)}`,
-            deliveryText: `Entrega: ${delText}`,
-            advisorName: o.advisorName,
-            title: 'Cocina con retraso',
-            message: alertReason,
-            severity: 'critical',
-            openTab: 'entrega',
-            createdAtISO: o.kitchenStartedAtISO || o.sentToKitchenAtISO || o.createdAtISO,
-            isUrgent: isOrderUrgentForInbox(o, 'critical'),
-          });
-        }
-        if (
-          (o.status === 'ready' && o.fulfillment === 'delivery' && alertReason === 'Falta salir en camino') ||
-          (o.status === 'out_for_delivery' && alertReason === 'Se excedió el tiempo de entrega')
-        ) {
-          tasks.push({
-            id: `n-delivery-late-${o.id}`,
-            type: 'DELIVERY_RETRASADO',
-            orderId: o.id,
-            label: `${o.id} · ${repairDisplayText(o.clientName)}`,
-            deliveryText: `Entrega: ${delText}`,
-            advisorName: o.advisorName,
-            title: o.status === 'ready' ? 'Pendiente de salir en camino' : 'Delivery con retraso',
-            message: alertReason,
-            severity: 'critical',
-            openTab: 'entrega',
-            createdAtISO: o.readyAtISO || o.createdAtISO,
-            isUrgent: isOrderUrgentForInbox(o, 'critical'),
-          });
-        }
-      }
     }
     const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(orders
       .flatMap((order) =>
-        (order.events ?? []).map((event) => {
+        (order.events ?? [])
+        .filter((event) => {
+          if (event.recipientRequiresAction) return false;
+          const isOwnInformationalEvent = event.actorUserId === currentUser.id && event.severity === 'info';
+          return !isOwnInformationalEvent;
+        })
+        .map((event) => {
           const display = getOrderEventDisplay(order, event);
           return {
             id: `evt-${event.id}`,
@@ -4851,11 +4777,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     ).slice(0, 20);
 
     const pr = (t: MasterTaskType) => {
-      if (t === 'COCINA_RETRASADA' || t === 'DELIVERY_RETRASADO') return 0;
       if (t === 'RE-APROBAR' || t === 'RECALCULAR_PRESUPUESTO') return 1;
       if (t === 'CONFIRMAR PAGO' || t === 'APLICAR FONDO') return 2;
-      if (t === 'ASIGNAR_DRIVER') return 3;
-      if (t === 'ENVIAR_COCINA') return 4;
       return 5;
     };
 
@@ -4868,7 +4791,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       activity,
       count: tasks.length,
     };
-  }, [catalogItems, orders, currentTimeMs]);
+  }, [catalogItems, orders, currentTimeMs, currentUser.id]);
 
   const masterInboxActiveIds = useMemo(
     () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
@@ -4877,6 +4800,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const masterInboxActiveTaskIds = useMemo(
     () => new Set(masterInbox.tasks.map((item) => item.id)),
     [masterInbox.tasks]
+  );
+  const masterInboxActiveActivityIds = useMemo(
+    () => new Set(masterInbox.activity.map((item) => item.id)),
+    [masterInbox.activity]
   );
   const autoResolvedMasterInboxTaskIdsRef = useRef<Set<string>>(new Set());
 
@@ -4915,16 +4842,13 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         orderId: item.orderId,
       })),
     })
-      .then(() => {
-        router.refresh();
-      })
       .catch((error) => {
         for (const item of staleReviewedTasks) {
           autoResolvedMasterInboxTaskIdsRef.current.delete(item.itemId);
         }
         showToast('error', error instanceof Error ? error.message : 'No se pudieron resolver tareas cerradas.');
       });
-  }, [initialMasterInboxItemStates, masterInboxActiveTaskIds, router]);
+  }, [initialMasterInboxItemStates, masterInboxActiveTaskIds]);
 
   const setMasterInboxItemsSaving = useCallback((ids: string[], isSaving: boolean) => {
     setMasterInboxSavingIds((prev) => {
@@ -4963,7 +4887,6 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       } else {
         await markMasterInboxItemsReviewedAction({ items: normalizedItems });
       }
-      router.refresh();
     } catch (error) {
       setMasterInboxItemStatusById(previous);
       showToast(
@@ -4977,7 +4900,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     } finally {
       setMasterInboxItemsSaving(ids, false);
     }
-  }, [masterInboxActiveIds, masterInboxItemStatusById, router, setMasterInboxItemsSaving]);
+  }, [masterInboxActiveIds, masterInboxItemStatusById, setMasterInboxItemsSaving]);
 
   const markMasterInboxReviewed = useCallback((items: MasterInboxStateItemInput[]) => {
     return setMasterInboxItemsStatus(items, 'reviewed');
@@ -5002,14 +4925,13 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
     try {
       await reopenMasterInboxItemsAction({ itemIds: ids });
-      router.refresh();
     } catch (error) {
       setMasterInboxItemStatusById(previous);
       showToast('error', error instanceof Error ? error.message : 'No se pudo reabrir.');
     } finally {
       setMasterInboxItemsSaving(ids, false);
     }
-  }, [masterInboxActiveIds, masterInboxItemStatusById, router, setMasterInboxItemsSaving]);
+  }, [masterInboxActiveIds, masterInboxItemStatusById, setMasterInboxItemsSaving]);
 
   const toggleMasterInboxReviewed = useCallback((item: MasterInboxStateItemInput, isReviewed: boolean) => {
     if (isReviewed) {
@@ -5034,12 +4956,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const masterInboxFilteredTasks = useMemo(() => {
     let filteredTasks: MasterInboxTask[] = [];
 
-    if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') {
+    if (masterInboxFilter === 'all' || masterInboxFilter === 'actions') {
       filteredTasks = masterInbox.tasks;
-    } else if (masterInboxFilter === 'delays') {
-      filteredTasks = masterInbox.tasks.filter((task) =>
-        task.type === 'COCINA_RETRASADA' || task.type === 'DELIVERY_RETRASADO'
-      );
     } else if (masterInboxFilter === 'payments') {
       filteredTasks = masterInbox.tasks.filter(
         (task) => task.type === 'CONFIRMAR PAGO' || task.type === 'APLICAR FONDO'
@@ -5054,31 +4972,25 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [masterInbox.tasks, masterInboxFilter, matchesMasterInboxStatusFilter]);
 
   const masterInboxUnreviewedCount = useMemo(() => {
-    const taskCount = masterInbox.tasks.filter((item) => !masterInboxItemStatusById.has(item.id)).length;
-    const criticalActivityCount = masterInbox.activity.filter(
-      (item) => item.severity !== 'info' && !masterInboxItemStatusById.has(item.id)
-    ).length;
-    return taskCount + criticalActivityCount;
-  }, [masterInbox.activity, masterInbox.tasks, masterInboxItemStatusById]);
+    return masterInbox.tasks.length;
+  }, [masterInbox.tasks]);
 
   const masterInboxReviewedCount = useMemo(
-    () => [...masterInboxActiveIds].filter((id) => masterInboxItemStatusById.get(id) === 'reviewed').length,
-    [masterInboxActiveIds, masterInboxItemStatusById]
+    () => [...masterInboxActiveActivityIds].filter((id) => masterInboxItemStatusById.get(id) === 'reviewed').length,
+    [masterInboxActiveActivityIds, masterInboxItemStatusById]
   );
 
   const masterInboxResolvedCount = useMemo(
-    () => [...masterInboxActiveIds].filter((id) => masterInboxItemStatusById.get(id) === 'resolved').length,
-    [masterInboxActiveIds, masterInboxItemStatusById]
+    () => [...masterInboxActiveActivityIds].filter((id) => masterInboxItemStatusById.get(id) === 'resolved').length,
+    [masterInboxActiveActivityIds, masterInboxItemStatusById]
   );
 
   const masterInboxFilteredActivityGroups = useMemo(() => {
     const activity = masterInbox.activity.filter((item) => {
       const group = getMasterInboxActivityGroup(item);
       if (!matchesMasterInboxStatusFilter(item.id)) return false;
-      if (masterInboxFilter === 'all' || masterInboxFilter === 'tasks') return true;
-      if (masterInboxFilter === 'delays') {
-        return item.severity === 'critical' || item.title.includes('retras');
-      }
+      if (masterInboxFilter === 'actions') return false;
+      if (masterInboxFilter === 'all' || masterInboxFilter === 'updates') return true;
       if (masterInboxFilter === 'payments') return group.key === 'payments';
       if (masterInboxFilter === 'changes') return group.key === 'changes';
       return true;
@@ -5098,11 +5010,6 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [masterInbox.activity, masterInboxFilter, matchesMasterInboxStatusFilter]);
 
   const masterInboxFilteredItemsForState = useMemo<MasterInboxStateItemInput[]>(() => {
-    const taskItems = masterInboxFilteredTasks.map((item) => ({
-      itemId: item.id,
-      itemType: 'task' as const,
-      orderId: item.orderId,
-    }));
     const activityItems = masterInboxFilteredActivityGroups.flatMap((group) =>
       group.items.map((item) => ({
         itemId: item.id,
@@ -5110,8 +5017,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         orderId: item.orderId,
       }))
     );
-    return [...taskItems, ...activityItems];
-  }, [masterInboxFilteredActivityGroups, masterInboxFilteredTasks]);
+    return activityItems;
+  }, [masterInboxFilteredActivityGroups]);
 
   const masterInboxReviewableFilteredItems = useMemo(
     () => masterInboxFilteredItemsForState.filter((item) => !masterInboxItemStatusById.has(item.itemId)),
@@ -14534,14 +14441,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </div>
       )}
 
-      <Drawer open={notifOpen} title="Tareas y actividad" onClose={() => setNotifOpen(false)} widthClass="w-[460px]">
+      <Drawer open={notifOpen} title="Acciones y seguimiento" onClose={() => setNotifOpen(false)} widthClass="w-[460px]">
         {masterInbox.tasks.length === 0 && masterInbox.activity.length === 0 ? (
           <div className="text-sm text-[#B7B7C2]">Sin tareas ni actividad reciente.</div>
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-1.5">
-              <Chip active={masterInboxFilter === 'tasks'} onClick={() => setMasterInboxFilter('tasks')}>Accion</Chip>
-              <Chip active={masterInboxFilter === 'delays'} onClick={() => setMasterInboxFilter('delays')}>Retrasos</Chip>
+              <Chip active={masterInboxFilter === 'actions'} onClick={() => setMasterInboxFilter('actions')}>Acciones</Chip>
+              <Chip active={masterInboxFilter === 'updates'} onClick={() => setMasterInboxFilter('updates')}>Seguimiento</Chip>
               <Chip active={masterInboxFilter === 'payments'} onClick={() => setMasterInboxFilter('payments')}>Pagos</Chip>
               <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
               <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
@@ -14555,8 +14462,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <div className="flex items-center justify-between gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
               <div className="text-[11px] text-[#B7B7C2]">
-                <span className="font-semibold text-[#F5F5F7]">{masterInboxUnreviewedCount}</span> sin revisar ·{' '}
-                {masterInboxReviewedCount} revisadas · {masterInboxResolvedCount} resueltas
+                <span className="font-semibold text-[#F5F5F7]">{masterInboxUnreviewedCount}</span> acciones pendientes ·{' '}
+                {masterInboxReviewedCount} seguimientos leídos · {masterInboxResolvedCount} cerrados
               </div>
               <button
                 className="rounded-lg border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-40"
@@ -14564,7 +14471,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 onClick={() => markVisibleMasterInboxReviewed(masterInboxReviewableFilteredItems)}
                 type="button"
               >
-                Marcar pendientes
+                Marcar seguimiento
               </button>
             </div>
 
@@ -14581,24 +14488,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <SmallBadge label={`${masterInboxFilteredTasks.length}`} tone="warn" />
                 </div>
                 {masterInboxFilteredTasks.map((n) => {
-                  const inboxStatus = masterInboxItemStatusById.get(n.id);
-                  const isReviewed = inboxStatus === 'reviewed';
-                  const isResolved = inboxStatus === 'resolved';
-                  const isSaving = masterInboxSavingIds.has(n.id);
-                  const stateItem: MasterInboxStateItemInput = {
-                    itemId: n.id,
-                    itemType: 'task',
-                    orderId: n.orderId,
-                  };
-
                   return (
                   <div
                     key={n.id}
                     className={[
                       'rounded-2xl border p-3 transition',
-                      isReviewed || isResolved
-                        ? 'border-[#242433] bg-[#101014] opacity-75'
-                        : n.severity === 'critical'
+                      n.severity === 'critical'
                           ? 'border-red-500/40 bg-[#151217]'
                           : 'border-[#242433] bg-[#121218]',
                     ].join(' ')}
@@ -14610,11 +14505,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           tone={n.severity === 'critical' || n.type !== 'APROBAR' ? 'warn' : 'brand'}
                         />
                         {n.isUrgent ? <SmallBadge label="Urgente" tone="warn" /> : null}
-                        {isResolved ? (
-                          <SmallBadge label="Resuelta" tone="brand" />
-                        ) : isReviewed ? (
-                          <SmallBadge label="Revisada" tone="muted" />
-                        ) : null}
                       </div>
                       <div className={`text-xs ${n.isUrgent ? 'font-semibold text-red-300' : 'text-[#B7B7C2]'}`}>{n.deliveryText}</div>
                     </div>
@@ -14641,25 +14531,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <button
                         className="flex-1 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm transition hover:border-[#FEEF00]/40"
                         onClick={() => {
-                          if (!isResolved) void markMasterInboxReviewed([stateItem]);
                           setNotifOpen(false);
                           openOrderPanel(n.orderId, n.openTab);
                         }}
-                        disabled={isSaving}
                         type="button"
                       >
                         {getMasterInboxTaskActionLabel(n.type)}
                       </button>
-                      {!isResolved ? (
-                        <button
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7]"
-                          onClick={() => toggleMasterInboxReviewed(stateItem, Boolean(inboxStatus))}
-                          disabled={isSaving}
-                          type="button"
-                        >
-                          {isSaving ? '...' : inboxStatus ? 'Reabrir' : 'Revisada'}
-                        </button>
-                      ) : null}
                     </div>
                   </div>
                   );
