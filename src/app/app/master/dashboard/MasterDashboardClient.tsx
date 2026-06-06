@@ -4414,10 +4414,12 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return [...localOrderSearchResults, ...remote].slice(0, 12);
   }, [localOrderSearchResults, remoteOrderSearchResults]);
 
+  const shouldSearchOrders = search.trim().length >= 2 || /^\d+$/.test(search.trim());
+
   useEffect(() => {
     const query = search.trim();
 
-    if (query.length < 2) {
+    if (!shouldSearchOrders) {
       setRemoteOrderSearchResults([]);
       setRemoteOrderSearchLoading(false);
       setRemoteOrderSearchError(null);
@@ -4449,7 +4451,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [search]);
+  }, [search, shouldSearchOrders]);
 
   const dayOrders = useMemo(() => {
     if (!selectedDay) return [];
@@ -11962,7 +11964,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 placeholder="Buscar orden o cliente"
                 className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
-              {search.trim().length >= 2 && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError) ? (
+              {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError) ? (
                 <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
                   {mergedOrderSearchResults.map((r) => (
                     <button

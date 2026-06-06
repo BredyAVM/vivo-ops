@@ -5895,15 +5895,15 @@ function getOrderOperationalDate(order: { created_at?: unknown; extra_fields?: u
 export async function searchMasterOrdersAction(input: { query: string; limit?: number }) {
   const { supabase } = await requireMasterOrAdmin();
   const query = String(input.query || '').trim().replace(/[,%]/g, ' ');
+  const numericQuery = Number(query);
+  const exactOrderId = Number.isFinite(numericQuery) && numericQuery > 0 ? Math.trunc(numericQuery) : null;
 
-  if (query.length < 2) {
+  if (query.length < 2 && exactOrderId == null) {
     return [];
   }
 
   const limit = Math.max(1, Math.min(20, Math.floor(Number(input.limit ?? 10) || 10)));
   const pattern = `%${query}%`;
-  const numericQuery = Number(query);
-  const exactOrderId = Number.isFinite(numericQuery) && numericQuery > 0 ? Math.trunc(numericQuery) : null;
   const phonePatterns = getPhoneSearchTerms(query)
     .map((term) => term.replace(/[,%]/g, ' '))
     .filter(Boolean)
