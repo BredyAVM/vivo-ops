@@ -4631,7 +4631,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const [productsExpanded, setProductsExpanded] = useState(false);
   const [committedProductsScope, setCommittedProductsScope] = useState<'day' | 'week'>('day');
   const [committedProductsBucket, setCommittedProductsBucket] = useState<CommittedBucket>('products');
-  const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('actions');
+  const [masterInboxFilter, setMasterInboxFilter] = useState<MasterInboxFilter>('updates');
   const [masterInboxStatusFilter, setMasterInboxStatusFilter] = useState<MasterInboxStatusFilter>('open');
   const [masterInboxItemStatusById, setMasterInboxItemStatusById] = useState<Map<string, MasterInboxItemStatus>>(
     () => new Map(initialMasterInboxItemStates.map((item) => [item.itemId, item.status]))
@@ -4954,22 +4954,8 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [masterInboxItemStatusById, masterInboxStatusFilter]);
 
   const masterInboxFilteredTasks = useMemo(() => {
-    let filteredTasks: MasterInboxTask[] = [];
-
-    if (masterInboxFilter === 'all' || masterInboxFilter === 'actions') {
-      filteredTasks = masterInbox.tasks;
-    } else if (masterInboxFilter === 'payments') {
-      filteredTasks = masterInbox.tasks.filter(
-        (task) => task.type === 'CONFIRMAR PAGO' || task.type === 'APLICAR FONDO'
-      );
-    } else if (masterInboxFilter === 'changes') {
-      filteredTasks = masterInbox.tasks.filter((task) =>
-        task.type === 'RE-APROBAR' || task.type === 'RECALCULAR_PRESUPUESTO'
-      );
-    }
-
-    return filteredTasks.filter((task) => matchesMasterInboxStatusFilter(task.id));
-  }, [masterInbox.tasks, masterInboxFilter, matchesMasterInboxStatusFilter]);
+    return masterInbox.tasks;
+  }, [masterInbox.tasks]);
 
   const masterInboxUnreviewedCount = useMemo(() => {
     return masterInbox.tasks.length;
@@ -14446,47 +14432,36 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <div className="text-sm text-[#B7B7C2]">Sin tareas ni actividad reciente.</div>
         ) : (
           <div className="space-y-3">
-            <div className="flex flex-wrap gap-1.5">
-              <Chip active={masterInboxFilter === 'actions'} onClick={() => setMasterInboxFilter('actions')}>Acciones</Chip>
-              <Chip active={masterInboxFilter === 'updates'} onClick={() => setMasterInboxFilter('updates')}>Seguimiento</Chip>
-              <Chip active={masterInboxFilter === 'payments'} onClick={() => setMasterInboxFilter('payments')}>Pagos</Chip>
-              <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
-              <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Chip active={masterInboxStatusFilter === 'open'} onClick={() => setMasterInboxStatusFilter('open')}>Pendientes</Chip>
-              <Chip active={masterInboxStatusFilter === 'reviewed'} onClick={() => setMasterInboxStatusFilter('reviewed')}>Revisadas</Chip>
-              <Chip active={masterInboxStatusFilter === 'resolved'} onClick={() => setMasterInboxStatusFilter('resolved')}>Resueltas</Chip>
-              <Chip active={masterInboxStatusFilter === 'all'} onClick={() => setMasterInboxStatusFilter('all')}>Todos</Chip>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-              <div className="text-[11px] text-[#B7B7C2]">
-                <span className="font-semibold text-[#F5F5F7]">{masterInboxUnreviewedCount}</span> acciones pendientes ·{' '}
-                {masterInboxReviewedCount} seguimientos leídos · {masterInboxResolvedCount} cerrados
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-[#3A3212] bg-[#151307] px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#FEEF00]">Acciones</div>
+                <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{masterInboxUnreviewedCount}</div>
+                <div className="text-[11px] text-[#B7B7C2]">requieren decisión</div>
               </div>
-              <button
-                className="rounded-lg border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={masterInboxReviewableFilteredItems.length === 0}
-                onClick={() => markVisibleMasterInboxReviewed(masterInboxReviewableFilteredItems)}
-                type="button"
-              >
-                Marcar seguimiento
-              </button>
+              <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Seguimiento</div>
+                <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">
+                  {masterInbox.activity.length}
+                </div>
+                <div className="text-[11px] text-[#B7B7C2]">
+                  {masterInboxReviewedCount} leídos · {masterInboxResolvedCount} cerrados
+                </div>
+              </div>
             </div>
 
-            {masterInboxFilteredTasks.length === 0 && masterInboxFilteredActivityGroups.length === 0 ? (
-              <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-4 text-sm text-[#B7B7C2]">
-                Sin items para este filtro.
-              </div>
-            ) : null}
-
-            {masterInboxFilteredTasks.length > 0 ? (
-              <div className="space-y-2">
+            <section className="space-y-2 rounded-2xl border border-[#242433] bg-[#101014] p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Accion requerida</div>
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#FEEF00]">Acciones pendientes</div>
+                    <div className="mt-0.5 text-[11px] text-[#8A8A96]">Se cierran haciendo la acción real.</div>
+                  </div>
                   <SmallBadge label={`${masterInboxFilteredTasks.length}`} tone="warn" />
                 </div>
+                {masterInboxFilteredTasks.length === 0 ? (
+                  <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-4 text-sm text-[#B7B7C2]">
+                    No hay acciones pendientes.
+                  </div>
+                ) : null}
                 {masterInboxFilteredTasks.map((n) => {
                   return (
                   <div
@@ -14542,17 +14517,48 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                   );
                 })}
-              </div>
-            ) : null}
+            </section>
 
-            {masterInboxFilteredActivityGroups.length > 0 ? (
-              <div className="space-y-2">
+            <section className="space-y-2 rounded-2xl border border-[#242433] bg-[#101014] p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Actividad reciente</div>
-                  <div className="text-[11px] text-[#8A8A96]">
-                    {masterInboxFilteredActivityGroups.reduce((sum, group) => sum + group.items.length, 0)} estados
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">Seguimiento operativo</div>
+                    <div className="mt-0.5 text-[11px] text-[#8A8A96]">Estados informativos, separados de acciones.</div>
                   </div>
+                  <SmallBadge
+                    label={`${masterInboxFilteredActivityGroups.reduce((sum, group) => sum + group.items.length, 0)}`}
+                    tone="muted"
+                  />
                 </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  <Chip active={masterInboxFilter === 'updates'} onClick={() => setMasterInboxFilter('updates')}>Todo</Chip>
+                  <Chip active={masterInboxFilter === 'payments'} onClick={() => setMasterInboxFilter('payments')}>Pagos</Chip>
+                  <Chip active={masterInboxFilter === 'changes'} onClick={() => setMasterInboxFilter('changes')}>Cambios</Chip>
+                  <Chip active={masterInboxFilter === 'all'} onClick={() => setMasterInboxFilter('all')}>Todo</Chip>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    <Chip active={masterInboxStatusFilter === 'open'} onClick={() => setMasterInboxStatusFilter('open')}>Pendientes</Chip>
+                    <Chip active={masterInboxStatusFilter === 'reviewed'} onClick={() => setMasterInboxStatusFilter('reviewed')}>Leídos</Chip>
+                    <Chip active={masterInboxStatusFilter === 'resolved'} onClick={() => setMasterInboxStatusFilter('resolved')}>Cerrados</Chip>
+                    <Chip active={masterInboxStatusFilter === 'all'} onClick={() => setMasterInboxStatusFilter('all')}>Todos</Chip>
+                  </div>
+                  <button
+                    className="rounded-lg border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2] transition hover:border-[#FEEF00]/40 hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={masterInboxReviewableFilteredItems.length === 0}
+                    onClick={() => markVisibleMasterInboxReviewed(masterInboxReviewableFilteredItems)}
+                    type="button"
+                  >
+                    Marcar leídos
+                  </button>
+                </div>
+
+                {masterInboxFilteredActivityGroups.length === 0 ? (
+                  <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-4 text-sm text-[#B7B7C2]">
+                    Sin seguimiento para este filtro.
+                  </div>
+                ) : null}
                 {masterInboxFilteredActivityGroups.map((group) => (
                   <div key={group.label} className="space-y-2">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A8A96]">{group.label}</div>
@@ -14642,8 +14648,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     })}
                   </div>
                 ))}
-              </div>
-            ) : null}
+            </section>
           </div>
         )}
       </Drawer>
