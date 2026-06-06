@@ -1,6 +1,6 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, updateTag } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
@@ -11,6 +11,13 @@ import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { getMasterDashboardPermissions } from './permissions';
+
+const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
+
+function revalidateMasterDashboardFinancialReferences() {
+  updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
+  revalidatePath('/app/master/dashboard');
+}
 
 async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
@@ -3348,7 +3355,7 @@ export async function createMoneyAccountAction(input: {
   });
 
   if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
+  revalidateMasterDashboardFinancialReferences();
 }
 
 export async function updateMoneyAccountAction(input: {
@@ -3386,7 +3393,7 @@ export async function updateMoneyAccountAction(input: {
     .eq('id', accountId);
 
   if (error) throw new Error(error.message);
-  revalidatePath('/app/master/dashboard');
+  revalidateMasterDashboardFinancialReferences();
 }
 
 export async function toggleMoneyAccountActiveAction(input: {
@@ -3408,7 +3415,7 @@ export async function toggleMoneyAccountActiveAction(input: {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/app/master/dashboard');
+  revalidateMasterDashboardFinancialReferences();
 }
 
 export async function updateMoneyAccountPaymentRulesAction(input: {
@@ -3489,7 +3496,7 @@ export async function updateMoneyAccountPaymentRulesAction(input: {
 
   if (error) throw new Error(error.message);
 
-  revalidatePath('/app/master/dashboard');
+  revalidateMasterDashboardFinancialReferences();
 }
 
 export async function loadMoneyActivityAction(input?: {

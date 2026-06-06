@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
+import { unstable_cache } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { createSupabaseServer } from '@/lib/supabase/server';
@@ -473,6 +474,67 @@ const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
 const MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS = 2500;
+const MASTER_DASHBOARD_REFERENCE_CACHE_SECONDS = 60;
+
+function createDashboardReferenceClient() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    throw new Error('Falta configurar las variables de Supabase para cargar referencias del dashboard.');
+  }
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+const loadMasterDashboardFinancialReferences = unstable_cache(
+  async () => {
+    const supabase = createDashboardReferenceClient();
+    const [moneyAccountsResult, moneyAccountPaymentRulesResult] = await Promise.all([
+      supabase
+        .from('money_accounts')
+        .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
+        .order('id', { ascending: true }),
+      supabase
+        .from('money_account_payment_rules')
+        .select(`
+          id,
+          money_account_id,
+          role,
+          payment_method_code,
+          can_view_account,
+          can_share_with_client,
+          can_report_payment,
+          can_confirm_payment,
+          auto_confirms_report,
+          review_required,
+          review_roles,
+          is_active
+        `)
+        .order('money_account_id', { ascending: true })
+        .order('role', { ascending: true })
+        .order('payment_method_code', { ascending: true }),
+    ]);
+
+    if (moneyAccountsResult.error) throw new Error(moneyAccountsResult.error.message);
+    if (moneyAccountPaymentRulesResult.error) throw new Error(moneyAccountPaymentRulesResult.error.message);
+
+    return {
+      moneyAccountsData: (moneyAccountsResult.data ?? []) as MoneyAccountRow[],
+      moneyAccountPaymentRulesData: (moneyAccountPaymentRulesResult.data ?? []) as MoneyAccountPaymentRuleRow[],
+    };
+  },
+  ['master-dashboard-financial-references-v1'],
+  {
+    revalidate: MASTER_DASHBOARD_REFERENCE_CACHE_SECONDS,
+    tags: ['master-dashboard-financial-references'],
+  }
+);
 
 function getCaracasTodayKey() {
   return new Date().toLocaleDateString('en-CA', {
@@ -1125,50 +1187,6 @@ if (!weekSummaryError) {
 const weekSummaryRows = Array.from(weekSummaryRowsById.values())
   .slice(0, MASTER_DASHBOARD_ORDER_LIMIT);
 const weekSummaryIds = weekSummaryRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
-const { data: weekFinancialStateData, error: weekFinancialStateError } =
-  weekSummaryIds.length > 0
-    ? await (supabase as any).rpc('get_orders_financial_state', {
-        p_order_ids: weekSummaryIds,
-        p_operation_date: null,
-        p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
-      })
-    : { data: [], error: null };
-
-if (weekFinancialStateError) {
-  console.warn('master dashboard weekly financial summary skipped', weekFinancialStateError.message);
-}
-
-const weekFinancialStateByOrderId = new Map<number, RawOrderFinancialStateRow>();
-for (const state of (weekFinancialStateData ?? []) as RawOrderFinancialStateRow[]) {
-  const orderId = Number(state.order_id);
-  if (Number.isFinite(orderId) && orderId > 0) {
-    weekFinancialStateByOrderId.set(orderId, state);
-  }
-}
-
-const operationWeekStats = weekSummaryRows.reduce((summary, row) => {
-  const financialState = weekFinancialStateByOrderId.get(Number(row.id));
-  const snapshot = getOrderMoneySnapshot(row);
-  const totalUsd = financialState ? roundMoney(financialState.total_usd) : roundMoney(snapshot.totalUsd);
-  const confirmedPaidUsd = financialState ? roundMoney(financialState.confirmed_paid_usd) : 0;
-  const pendingUsd = financialState
-    ? roundMoney(financialState.pending_usd)
-    : row.status === 'cancelled'
-      ? 0
-      : roundMoney(totalUsd);
-
-  if (row.status !== 'cancelled' && totalUsd > 0.005) {
-    summary.cierres += 1;
-  }
-
-  if (!['created', 'cancelled'].includes(row.status) && totalUsd > 0.005) {
-    summary.fact += totalUsd;
-    summary.abonadoConfirmado += confirmedPaidUsd;
-    summary.pendiente += pendingUsd;
-  }
-
-  return summary;
-}, emptyOperationStatsSummary());
 
 const orderSelect = `
       id,
@@ -1322,10 +1340,11 @@ const calculationOrdersLimitExceeded =
   const operationOrderIdSet = new Set(operationRawOrders.map((o) => Number(o.id)));
   const calculationOrderIdSet = new Set(calculationRawOrders.map((o) => Number(o.id)));
   const orderIds = rawOrders.map((o) => o.id);
+  const financialStateOrderIds = Array.from(new Set([...orderIds, ...weekSummaryIds]));
   const { data: financialStateData, error: financialStateError } =
-    orderIds.length > 0
+    financialStateOrderIds.length > 0
       ? await (supabase as any).rpc('get_orders_financial_state', {
-          p_order_ids: orderIds,
+          p_order_ids: financialStateOrderIds,
           p_operation_date: null,
           p_active_bs_rate: activeRateBsPerUsd > 0 ? activeRateBsPerUsd : null,
         })
@@ -1342,6 +1361,30 @@ const calculationOrdersLimitExceeded =
       financialStateByOrderId.set(orderId, state);
     }
   }
+
+  const operationWeekStats = weekSummaryRows.reduce((summary, row) => {
+    const financialState = financialStateByOrderId.get(Number(row.id));
+    const snapshot = getOrderMoneySnapshot(row);
+    const totalUsd = financialState ? roundMoney(financialState.total_usd) : roundMoney(snapshot.totalUsd);
+    const confirmedPaidUsd = financialState ? roundMoney(financialState.confirmed_paid_usd) : 0;
+    const pendingUsd = financialState
+      ? roundMoney(financialState.pending_usd)
+      : row.status === 'cancelled'
+        ? 0
+        : roundMoney(totalUsd);
+
+    if (row.status !== 'cancelled' && totalUsd > 0.005) {
+      summary.cierres += 1;
+    }
+
+    if (!['created', 'cancelled'].includes(row.status) && totalUsd > 0.005) {
+      summary.fact += totalUsd;
+      summary.abonadoConfirmado += confirmedPaidUsd;
+      summary.pendiente += pendingUsd;
+    }
+
+    return summary;
+  }, emptyOperationStatsSummary());
 
   const orderEventsByOrder = new Map<
     number,
@@ -1647,30 +1690,26 @@ const calculationOrdersLimitExceeded =
     adjustmentCreatorNameById.set(String(row.id), row.full_name ?? 'Admin');
   }
 
-  const { data: moneyAccountsData, error: moneyAccountsError } = await supabase
-    .from('money_accounts')
-    .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
-    .order('id', { ascending: true });
+  let financialReferences: Awaited<ReturnType<typeof loadMasterDashboardFinancialReferences>>;
+  try {
+    financialReferences = await loadMasterDashboardFinancialReferences();
+  } catch (error) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando referencias financieras</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudieron obtener las cuentas y reglas de pago.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {error instanceof Error ? error.message : 'Error desconocido'}
+          </pre>
+        </div>
+      </div>
+    );
+  }
 
-  const { data: moneyAccountPaymentRulesData, error: moneyAccountPaymentRulesError } = await supabase
-    .from('money_account_payment_rules')
-    .select(`
-      id,
-      money_account_id,
-      role,
-      payment_method_code,
-      can_view_account,
-      can_share_with_client,
-      can_report_payment,
-      can_confirm_payment,
-      auto_confirms_report,
-      review_required,
-      review_roles,
-      is_active
-    `)
-    .order('money_account_id', { ascending: true })
-    .order('role', { ascending: true })
-    .order('payment_method_code', { ascending: true });
+  const { moneyAccountsData, moneyAccountPaymentRulesData } = financialReferences;
 
   const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
   const reportIdsForMovementStatus = rawReports
@@ -1738,38 +1777,6 @@ const calculationOrdersLimitExceeded =
   const reporterNameById = new Map<string, string>();
   for (const r of reportersData ?? []) {
     reporterNameById.set(String(r.id), r.full_name ?? 'Usuario');
-  }
-
-  if (moneyAccountsError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando cuentas</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener las cuentas activas.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {moneyAccountsError.message}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (moneyAccountPaymentRulesError) {
-    return (
-      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
-        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-lg font-semibold">Error cargando reglas financieras</div>
-          <div className="mt-2 text-sm text-[#B7B7C2]">
-            No se pudieron obtener las reglas de cuentas y pagos.
-          </div>
-          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
-            {moneyAccountPaymentRulesError.message}
-          </pre>
-        </div>
-      </div>
-    );
   }
 
   if (movementsError) {
