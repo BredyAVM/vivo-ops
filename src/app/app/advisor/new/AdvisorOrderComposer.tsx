@@ -465,6 +465,42 @@ function draftItemHasCatalogPriceDrift(item: DraftItem, product: ProductRow, fxR
   );
 }
 
+function buildRepeatedDraftItemFromCatalog(input: {
+  item: ExistingOrderItemRow;
+  product: ProductRow;
+  activeRate: number;
+}): DraftItem {
+  const qty = Number(input.item.qty || 0);
+  const { sourceCurrency, sourceAmount } = getProductSourcePricing(input.product);
+  const snapshot = calculateOrderLineSnapshot({
+    sourceCurrency,
+    sourceAmount,
+    quantity: qty,
+    fxRate: input.activeRate,
+    fallbackUnitUsd: Number(input.product.base_price_usd ?? 0),
+  });
+
+  return {
+    localId: `repeat-${input.item.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    product_id: input.product.id,
+    product_type: input.product.type,
+    sku_snapshot: input.product.sku,
+    product_name_snapshot: input.product.name,
+    units_per_service: Number(input.product.units_per_service ?? 0) || 0,
+    qty,
+    source_price_currency: sourceCurrency,
+    source_price_amount: sourceAmount,
+    unit_price_usd_snapshot: snapshot.unitUsd,
+    line_total_usd: snapshot.lineUsd,
+    editable_detail_lines: input.item.notes?.trim()
+      ? input.item.notes
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
 function clientTypeLabel(value: string | null | undefined) {
   if (value === 'assigned') return 'Asignado';
   if (value === 'own') return 'Propio';
@@ -1674,8 +1710,25 @@ export default function AdvisorOrderComposer({
           }
 
           const orderClient = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
-          const orderItems = ((existingItemsResult?.data ?? []) as ExistingOrderItemRow[]).map((item) => {
+          const existingOrderItems = (existingItemsResult?.data ?? []) as ExistingOrderItemRow[];
+          const activeProductById = new Map(nextProducts.map((product) => [product.id, product]));
+          const skippedRepeatItems: ExistingOrderItemRow[] = [];
+          const orderItems = existingOrderItems.map((item) => {
             const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
+
+            if (isRepeatingOrder) {
+              const currentProduct = activeProductById.get(Number(item.product_id));
+              if (!currentProduct) {
+                skippedRepeatItems.push(item);
+                return null;
+              }
+
+              return buildRepeatedDraftItemFromCatalog({
+                item,
+                product: currentProduct,
+                activeRate,
+              });
+            }
 
             return {
               localId: `existing-${item.id}`,
@@ -1697,7 +1750,7 @@ export default function AdvisorOrderComposer({
                     .filter(Boolean)
                 : [],
             };
-          });
+          }).filter((item): item is DraftItem => !!item);
           const schedule = order.extra_fields?.schedule;
           const paymentData = order.extra_fields?.payment;
           const pricing = order.extra_fields?.pricing;
@@ -1725,26 +1778,26 @@ export default function AdvisorOrderComposer({
           setDeliveryAddressTouched(Boolean(order.delivery_address || order.extra_fields?.delivery?.gps_url));
           rememberAddress(order.delivery_address || '', order.extra_fields?.delivery?.gps_url || '');
           setOrderNote(order.notes || order.extra_fields?.note || '');
-          setPaymentMethod((paymentData?.method as PaymentMethod) || 'pending');
-          setPaymentCurrency((paymentData?.currency as CurrencyCode) || 'USD');
-          setPaymentRequiresChange(Boolean(paymentData?.requires_change));
+          setPaymentMethod(isRepeatingOrder ? 'pending' : (paymentData?.method as PaymentMethod) || 'pending');
+          setPaymentCurrency(isRepeatingOrder ? 'USD' : (paymentData?.currency as CurrencyCode) || 'USD');
+          setPaymentRequiresChange(isRepeatingOrder ? false : Boolean(paymentData?.requires_change));
           setPaymentChangeFor(
-            paymentData?.change_for == null ? '' : String(paymentData.change_for)
+            isRepeatingOrder || paymentData?.change_for == null ? '' : String(paymentData.change_for)
           );
-          setPaymentChangeCurrency((paymentData?.change_currency as CurrencyCode) || 'USD');
-          setPaymentNote(paymentData?.notes || '');
-          setFxRate(pricing?.fx_rate == null ? (activeRate > 0 ? String(Number(activeRate.toFixed(2))) : '') : String(pricing.fx_rate));
-          setDiscountEnabled(Boolean(pricing?.discount_enabled));
+          setPaymentChangeCurrency(isRepeatingOrder ? 'USD' : (paymentData?.change_currency as CurrencyCode) || 'USD');
+          setPaymentNote(isRepeatingOrder ? '' : paymentData?.notes || '');
+          setFxRate(activeRate > 0 ? String(Number(activeRate.toFixed(2))) : '');
+          setDiscountEnabled(isRepeatingOrder ? false : Boolean(pricing?.discount_enabled));
           setDiscountPct(
-            pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
+            isRepeatingOrder || pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
           );
           setInvoiceTaxPct(
-            pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
+            isRepeatingOrder || pricing?.invoice_tax_pct == null ? '16' : String(pricing.invoice_tax_pct)
           );
-          setHasDeliveryNote(Boolean(documents?.has_delivery_note));
-          setHasInvoice(Boolean(documents?.has_invoice));
-          setDeliveryNotePanelOpen(Boolean(documents?.has_delivery_note));
-          setInvoicePanelOpen(Boolean(documents?.has_invoice));
+          setHasDeliveryNote(isRepeatingOrder ? false : Boolean(documents?.has_delivery_note));
+          setHasInvoice(isRepeatingOrder ? false : Boolean(documents?.has_invoice));
+          setDeliveryNotePanelOpen(isRepeatingOrder ? false : Boolean(documents?.has_delivery_note));
+          setInvoicePanelOpen(isRepeatingOrder ? false : Boolean(documents?.has_invoice));
           setInvoiceCompanyName(
             documents?.invoice_snapshot?.company_name ||
               orderClient?.billing_company_name ||
@@ -1856,7 +1909,11 @@ export default function AdvisorOrderComposer({
             setOriginalEditSnapshot(null);
             setExistingOrderNumber('');
             setExistingOrderStatus('');
-            setInfo('Pedido base listo para repetir.');
+            setInfo(
+              skippedRepeatItems.length > 0
+                ? `Pedido base listo para repetir con precios vigentes. ${skippedRepeatItems.length} item${skippedRepeatItems.length === 1 ? '' : 's'} ya no esta${skippedRepeatItems.length === 1 ? '' : 'n'} activo${skippedRepeatItems.length === 1 ? '' : 's'} y no se copio${skippedRepeatItems.length === 1 ? '' : 'n'}.`
+                : 'Pedido base listo para repetir con precios, tasa y condiciones vigentes.'
+            );
           }
         }
       }
