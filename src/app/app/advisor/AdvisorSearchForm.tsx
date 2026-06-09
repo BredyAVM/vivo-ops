@@ -6,9 +6,13 @@ import { useEffect, useState } from 'react';
 export default function AdvisorSearchForm({
   selectedDayKey,
   searchQuery,
+  actionPath = '/app/advisor',
+  bucket,
 }: {
   selectedDayKey: string;
   searchQuery: string;
+  actionPath?: string;
+  bucket?: string;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -19,8 +23,9 @@ export default function AdvisorSearchForm({
   }, [pathname, searchParams]);
 
   return (
-    <form action="/app/advisor" className="flex gap-2" onSubmit={() => setBusy(true)}>
+    <form action={actionPath} className="flex gap-2" onSubmit={() => setBusy(true)}>
       <input type="hidden" name="day" value={selectedDayKey} />
+      {bucket ? <input type="hidden" name="bucket" value={bucket} /> : null}
       <input
         name="q"
         defaultValue={searchQuery}

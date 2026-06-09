@@ -10,16 +10,20 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
+import AdvisorSearchForm from '../AdvisorSearchForm';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type SearchParams = Promise<{
   day?: string;
   bucket?: string;
+  q?: string;
 }>;
 
 type OrderRow = {
   id: number;
+  client_id?: number | string | null;
   order_number: string;
   status: string;
   queued_needs_reapproval?: boolean | null;
@@ -116,6 +120,18 @@ function formatBs(value: number | string) {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function normalizeSearchValue(value: string | null | undefined) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeRemoteSearchValue(value: string) {
+  return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function paymentMethodLabel(method: string | null | undefined) {
@@ -345,6 +361,29 @@ function operationalPhaseLabel(order: OrderRow) {
   return getOperationalStatusLabel(order);
 }
 
+function normalizeOrderRow(order: RawOrderRow): OrderRow {
+  return {
+    ...order,
+    client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
+  };
+}
+
+function orderSearchText(order: OrderRow) {
+  const clientPhone = order.client?.phone ?? null;
+  return normalizeSearchValue(
+    [
+      order.id,
+      order.order_number,
+      order.client?.full_name,
+      clientPhone,
+      ...getPhoneSearchTerms(clientPhone),
+      order.delivery_address,
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
+}
+
 function phaseLabelForBucket(bucket: string) {
   if (!bucket.startsWith('phase_')) return null;
   const phaseKey = bucket.replace('phase_', '') as OperationalPhase;
@@ -423,9 +462,14 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
   const bucket = params.bucket ?? 'priority';
+  const searchQuery = String(params.q || '').trim();
+  const normalizedSearchQuery = normalizeSearchValue(searchQuery);
+  const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
+  const searchIsNumeric = /^\d+$/.test(remoteSearchQuery);
+  const searchCanRun = normalizedSearchQuery.length >= 2 || searchIsNumeric;
   const dayRange = getCaracasDayRange(selectedDayKey);
   const orderSelect =
-    'id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
+    'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
 
   const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
     ctx.supabase
@@ -447,16 +491,90 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
 
   const orderById = new Map<number, OrderRow>();
   for (const order of ([...(scheduledOrdersResult.data ?? []), ...(createdOrdersResult.data ?? [])] as RawOrderRow[])) {
-    orderById.set(Number(order.id), {
-      ...order,
-      client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
-    });
+    orderById.set(Number(order.id), normalizeOrderRow(order));
   }
   const orders = Array.from(orderById.values());
 
-  const orderIds = orders.map((order) => order.id);
-  const paymentOrderIds = orders.filter((order) => order.status !== 'cancelled').map((order) => order.id);
-  const reviewOrderIds = orders.filter((order) => isOpenStatus(order.status)).map((order) => order.id);
+  let searchResults: OrderRow[] = [];
+
+  if (searchCanRun) {
+    const localMatches = orders.filter((order) => orderSearchText(order).includes(normalizedSearchQuery));
+    let remoteMatches: OrderRow[] = [];
+    const phoneSearchTerms = getPhoneSearchTerms(remoteSearchQuery)
+      .map((term) => term.replace(/[,%]/g, ' '))
+      .filter(Boolean)
+      .slice(0, 5);
+    const shouldSearchRemoteClients =
+      remoteSearchQuery.length >= 2 || phoneSearchTerms.some((term) => term.replace(/\D/g, '').length >= 4);
+
+    if (shouldSearchRemoteClients) {
+      const clientFilters = [
+        `full_name.ilike.%${remoteSearchQuery}%`,
+        `phone.ilike.%${remoteSearchQuery}%`,
+        ...phoneSearchTerms.map((term) => `phone.ilike.%${term}%`),
+      ];
+      const { data: clientMatches } = await ctx.supabase
+        .from('clients')
+        .select('id')
+        .or(clientFilters.join(','))
+        .order('id', { ascending: false })
+        .limit(25);
+
+      const clientIds = Array.from(
+        new Set(
+          (clientMatches ?? [])
+            .map((client) => Number((client as { id?: number | string }).id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        )
+      );
+
+      if (clientIds.length > 0) {
+        const { data: clientOrders } = await ctx.supabase
+          .from('orders')
+          .select(orderSelect)
+          .eq('attributed_advisor_id', ctx.user.id)
+          .in('client_id', clientIds)
+          .order('created_at', { ascending: false })
+          .limit(120);
+
+        remoteMatches = ((clientOrders ?? []) as RawOrderRow[]).map(normalizeOrderRow);
+      }
+    }
+
+    if (remoteSearchQuery.length >= 2 || searchIsNumeric) {
+      const orderFilters = remoteSearchQuery.length >= 2 ? [`order_number.ilike.%${remoteSearchQuery}%`] : [];
+      const numericSearch = Number(remoteSearchQuery);
+      if (searchIsNumeric && Number.isFinite(numericSearch) && numericSearch > 0) {
+        orderFilters.push(`id.eq.${Math.trunc(numericSearch)}`);
+      }
+
+      const { data: directOrderMatches } = await ctx.supabase
+        .from('orders')
+        .select(orderSelect)
+        .eq('attributed_advisor_id', ctx.user.id)
+        .or(orderFilters.join(','))
+        .order('created_at', { ascending: false })
+        .limit(80);
+
+      remoteMatches = [
+        ...remoteMatches,
+        ...(((directOrderMatches ?? []) as RawOrderRow[]).map(normalizeOrderRow)),
+      ];
+    }
+
+    const searchResultById = new Map<number, OrderRow>();
+    for (const order of [...remoteMatches, ...localMatches]) {
+      searchResultById.set(order.id, order);
+    }
+    searchResults = Array.from(searchResultById.values()).sort((a, b) =>
+      String(b.created_at).localeCompare(String(a.created_at))
+    );
+  }
+
+  const detailOrders = Array.from(new Map([...orders, ...searchResults].map((order) => [order.id, order])).values());
+  const orderIds = detailOrders.map((order) => order.id);
+  const paymentOrderIds = detailOrders.filter((order) => order.status !== 'cancelled').map((order) => order.id);
+  const reviewOrderIds = detailOrders.filter((order) => isOpenStatus(order.status)).map((order) => order.id);
   const { data: activeRateData } = orderIds.length
     ? await ctx.supabase
         .from('exchange_rates')
@@ -517,7 +635,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     paymentReportsByOrderId.set(report.order_id, current);
   }
   const paymentStateByOrderId = new Map<number, PaymentState>();
-  for (const order of orders) {
+  for (const order of detailOrders) {
     const canonicalState = financialStateByOrderId.get(order.id);
     paymentStateByOrderId.set(
       order.id,
@@ -536,6 +654,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     .filter((order) => getAgendaDayKey(order) === selectedDayKey)
     .sort((a, b) => getAgendaSortKey(a).localeCompare(getAgendaSortKey(b)));
 
+  const searchActive = searchQuery.length > 0;
   const filteredOrders = dayOrders.filter((order) => {
     const unpaid = isUnpaidOrder(order, paymentStateByOrderId);
     const overdue = isOverdueOrder(order, selectedDayKey);
@@ -553,7 +672,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     return true;
   });
 
-  const visibleOrders =
+  const bucketOrders =
     bucket === 'priority'
       ? [...filteredOrders].sort((a, b) => {
           const attentionDiff =
@@ -563,6 +682,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
           return getAgendaSortKey(a).localeCompare(getAgendaSortKey(b));
         })
       : filteredOrders;
+  const visibleOrders = searchActive ? searchResults : bucketOrders;
   const bucketLinks = [
     { key: 'priority', label: 'Prioridad' },
     { key: 'returned', label: 'Devueltas' },
@@ -588,8 +708,12 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
 
       <PageIntro
         eyebrow="Agenda"
-        title={titleForBucket(bucket)}
-        description={subtitleForBucket(bucket)}
+        title={searchActive ? 'Buscar pedidos' : titleForBucket(bucket)}
+        description={
+          searchActive
+            ? 'Pedidos encontrados por numero o cliente, desde el mas reciente.'
+            : subtitleForBucket(bucket)
+        }
         action={
           <Link
             href={`/app/advisor?day=${selectedDayKey}`}
@@ -600,6 +724,31 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
         }
       />
 
+      <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3.5">
+        <AdvisorSearchForm
+          selectedDayKey={selectedDayKey}
+          searchQuery={searchQuery}
+          actionPath="/app/advisor/orders"
+          bucket={bucket}
+        />
+        {searchActive ? (
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+            <span>
+              {searchCanRun
+                ? `${visibleOrders.length} pedido${visibleOrders.length === 1 ? '' : 's'}`
+                : 'Escribe 2 letras o un numero de orden'}
+            </span>
+            <Link
+              href={`/app/advisor/orders?day=${selectedDayKey}&bucket=${bucket}`}
+              className="font-medium text-[#F7DA66]"
+            >
+              Limpiar
+            </Link>
+          </div>
+        ) : null}
+      </section>
+
+      {!searchActive ? (
       <section className="overflow-x-auto pb-1">
         <div className="flex min-w-max gap-2">
           {bucketLinks.map((item) => {
@@ -621,14 +770,26 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
           })}
         </div>
       </section>
+      ) : null}
 
       <SectionCard
-        title="Ordenes"
-        subtitle="Fase operativa, cobro y alertas del dia."
+        title={searchActive ? 'Resultados' : 'Ordenes'}
+        subtitle={
+          searchActive ? 'Historial filtrado sin depender del dia activo.' : 'Fase operativa, cobro y alertas del dia.'
+        }
         action={visibleOrders.length > 0 ? <StatusBadge label={String(visibleOrders.length)} tone="neutral" /> : null}
       >
         {visibleOrders.length === 0 ? (
-          <EmptyBlock title="Sin ordenes" detail="No hay elementos en esta vista para el dia activo." />
+          <EmptyBlock
+            title="Sin ordenes"
+            detail={
+              searchActive
+                ? searchCanRun
+                  ? 'No encontramos pedidos para esa busqueda.'
+                  : 'Para buscar por cliente usa al menos 2 letras; para orden puedes usar un solo numero.'
+                : 'No hay elementos en esta vista para el dia activo.'
+            }
+          />
         ) : (
           <div className="space-y-2.5">
             {visibleOrders.map((order) => {

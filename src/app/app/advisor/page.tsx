@@ -440,16 +440,6 @@ function attentionLabels(order: OrderRow, paymentStateByOrderId: Map<number, Pay
   return labels;
 }
 
-function searchResultRank(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>) {
-  if (order.status === 'cancelled') return 5;
-  const unpaid = isUnpaidOrder(order, paymentStateByOrderId);
-  if (unpaid && isOpenStatus(order.status)) return 0;
-  if (isOpenStatus(order.status)) return 1;
-  if (unpaid) return 2;
-  if (order.status === 'delivered') return 3;
-  return 4;
-}
-
 export default async function AdvisorHomePage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
   const ctx = await getAuthContext();
@@ -460,6 +450,8 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   const searchQuery = String(params.q || '').trim();
   const normalizedSearchQuery = normalizeSearchValue(searchQuery);
   const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
+  const searchIsNumeric = /^\d+$/.test(remoteSearchQuery);
+  const searchCanRun = normalizedSearchQuery.length >= 2 || searchIsNumeric;
   const orderSelect =
     'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
   const dayRange = getCaracasDayRange(selectedDayKey);
@@ -497,7 +489,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
 
   let searchResults: OrderRow[] = [];
 
-  if (normalizedSearchQuery.length >= 2) {
+  if (searchCanRun) {
     const localMatches = orders.filter((order) => orderSearchText(order).includes(normalizedSearchQuery));
     let remoteMatches: OrderRow[] = [];
     const phoneSearchTerms = getPhoneSearchTerms(remoteSearchQuery)
@@ -505,7 +497,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
       .filter(Boolean)
       .slice(0, 5);
     const shouldSearchRemoteClients =
-      remoteSearchQuery.length >= 3 || phoneSearchTerms.some((term) => term.replace(/\D/g, '').length >= 4);
+      remoteSearchQuery.length >= 2 || phoneSearchTerms.some((term) => term.replace(/\D/g, '').length >= 4);
 
     if (shouldSearchRemoteClients) {
       const phoneFilters = phoneSearchTerms.map((term) => `phone.ilike.%${term}%`);
@@ -540,10 +532,10 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
       }
     }
 
-    if (remoteSearchQuery.length >= 2) {
-      const orderFilters = [`order_number.ilike.%${remoteSearchQuery}%`];
+    if (remoteSearchQuery.length >= 2 || searchIsNumeric) {
+      const orderFilters = remoteSearchQuery.length >= 2 ? [`order_number.ilike.%${remoteSearchQuery}%`] : [];
       const numericSearch = Number(remoteSearchQuery);
-      if (Number.isFinite(numericSearch) && numericSearch > 0) {
+      if (searchIsNumeric && Number.isFinite(numericSearch) && numericSearch > 0) {
         orderFilters.push(`id.eq.${Math.trunc(numericSearch)}`);
       }
       const { data: directOrderMatches } = await ctx.supabase
@@ -689,11 +681,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
     count: agendaOrders.filter((order) => operationalPhase(order) === phase.key).length,
   }));
   const displayedSearchResults = searchResults
-    .sort((a, b) => {
-      const rankDiff = searchResultRank(a, paymentStateByOrderId) - searchResultRank(b, paymentStateByOrderId);
-      if (rankDiff !== 0) return rankDiff;
-      return String(b.created_at).localeCompare(String(a.created_at));
-    })
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
     .slice(0, 30);
 
   return (
@@ -751,7 +739,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                   </Link>
                 ))}
               </div>
-            ) : normalizedSearchQuery.length >= 2 ? (
+            ) : searchCanRun ? (
               <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
                 Sin coincidencias.
               </div>
