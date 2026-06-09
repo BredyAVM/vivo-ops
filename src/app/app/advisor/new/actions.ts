@@ -18,6 +18,25 @@ type ReplaceAdvisorOrderItemInput = {
   editableDetailLines: string[];
 };
 
+type AdvisorOrderHeaderInput = {
+  orderId: number;
+  payload: {
+    client_id: number;
+    attributed_advisor_id: string;
+    source: string;
+    status: string;
+    fulfillment: 'pickup' | 'delivery';
+    total_usd: number;
+    total_bs_snapshot: number;
+    is_price_locked: boolean;
+    delivery_address: string | null;
+    receiver_name: string | null;
+    receiver_phone: string | null;
+    notes: string | null;
+    extra_fields: Record<string, unknown>;
+  };
+};
+
 function createSupabaseServiceRoleServer() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -37,6 +56,61 @@ function createSupabaseServiceRoleServer() {
 function toFiniteNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderInput) {
+  const ctx = await requireAuthContext();
+  const orderId = Number(input.orderId);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const payload = input.payload;
+  if (!payload || Number(payload.client_id) <= 0) {
+    throw new Error('Falta el cliente de la orden.');
+  }
+
+  if (payload.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes modificar esta orden.');
+  }
+
+  const { data: order, error: orderError } = await ctx.supabase
+    .from('orders')
+    .select('id, attributed_advisor_id, status')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (order.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes modificar esta orden.');
+  }
+
+  if (['cancelled', 'delivered'].includes(String(order.status || ''))) {
+    throw new Error('Esta orden ya no admite modificaciones.');
+  }
+
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const { error: updateError } = await adminSupabase
+    .from('orders')
+    .update({
+      ...payload,
+      delivery_address: payload.fulfillment === 'delivery' ? payload.delivery_address : null,
+      extra_fields: payload.extra_fields,
+    })
+    .eq('id', orderId)
+    .eq('attributed_advisor_id', ctx.user.id);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/master/dashboard');
 }
 
 export async function replaceAdvisorOrderItemsAction(input: {

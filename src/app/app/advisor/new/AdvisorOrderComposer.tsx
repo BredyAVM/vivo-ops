@@ -7,7 +7,7 @@ import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
-import { replaceAdvisorOrderItemsAction } from './actions';
+import { replaceAdvisorOrderItemsAction, updateAdvisorOrderHeaderAction } from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
 type FulfillmentType = 'pickup' | 'delivery';
@@ -3008,13 +3008,10 @@ export default function AdvisorOrderComposer({
       let targetOrderId = Number(existingOrderId || 0);
 
       if (isEditingOrder) {
-        const { error: updateOrderError } = await supabase
-          .from('orders')
-          .update(payload)
-          .eq('id', Number(existingOrderId))
-          .eq('attributed_advisor_id', authUserId);
-
-        if (updateOrderError) throw new Error(updateOrderError.message);
+        await updateAdvisorOrderHeaderAction({
+          orderId: Number(existingOrderId),
+          payload,
+        });
       } else {
         const orderNumber = await generateOrderNumber();
         const { data: order, error: orderError } = await supabase
