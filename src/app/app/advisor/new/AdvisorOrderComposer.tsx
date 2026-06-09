@@ -7,6 +7,7 @@ import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { buildWhatsAppOrderSummaryText, formatWhatsAppBs } from '@/lib/orders/whatsapp-summary';
 import { replaceAdvisorOrderItemsAction, updateAdvisorOrderHeaderAction } from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
@@ -377,16 +378,11 @@ function formatBs(value: number) {
 }
 
 function formatBsWhatsApp(value: number) {
-  return `Bs ${new Intl.NumberFormat('es-VE', {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(value)}`;
+  return formatWhatsAppBs(value);
 }
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
-const WHATSAPP_CHECK = '\u2705';
-const WHATSAPP_PRIMARY_BULLET = '\u25AA';
-const WHATSAPP_SECONDARY_BULLET = '-';
+const WHATSAPP_PRIMARY_BULLET = '\u2022';
 
 function getPaymentMethodLabel(method: PaymentMethod) {
   return getSharedPaymentMethodLabel(method, { lowercase: true });
@@ -2683,7 +2679,6 @@ export default function AdvisorOrderComposer({
   }
 
   function buildMasterStyleQuoteSummary() {
-    const parts: string[] = [];
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
     const deliveryDayLabel = deliveryDate
@@ -2699,82 +2694,58 @@ export default function AdvisorOrderComposer({
       deliveryHour12.trim() && deliveryMinute.trim()
         ? `${deliveryHour12}:${deliveryMinute}${deliveryAmPm.toLowerCase()}`
         : 'Sin hora';
+    const paymentChangeText =
+      paymentRequiresChange && paymentChangeFor.trim()
+        ? `${paymentChangeFor.trim()} ${paymentChangeCurrency}`.trim()
+        : null;
 
-    parts.push('*Presupuesto*');
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Asesor:* ${authUserLabel}`);
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Cliente:* ${clientName}`);
-
-    if (clientPhone) {
-      parts.push('');
-      parts.push(`${WHATSAPP_CHECK} *Telefono:* ${clientPhone}`);
-    }
-
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Pedido:*`);
-    parts.push('');
-
-    if (draftItems.length === 0) {
-      parts.push('- Sin items cargados');
-    } else {
-      for (const item of draftItems) {
-        parts.push(formatDraftItemWhatsAppLine(item, fxRateNumber));
-
-        for (const detail of getVisibleDetailLines(item.editable_detail_lines)) {
-          parts.push(`   ${WHATSAPP_SECONDARY_BULLET} ${detail}`);
-        }
-      }
-    }
-
-    parts.push('');
-    if (discountEnabled && discountPctNumber > 0) {
-      parts.push(`*SUBTOTAL:* ${formatBsWhatsApp(draftSubtotalBs)} / ${formatUsd(draftTotalUsd)}`);
-      parts.push(
-        `*DESCUENTO (${discountPctNumber}%):* -${formatBsWhatsApp(discountAmountBs)} / -${formatUsd(discountAmountUsd)}`
-      );
-      if (hasInvoice && invoiceTaxPctNumber > 0) {
-        parts.push(
-          `*IVA (${invoiceTaxPctNumber}%):* ${formatBsWhatsApp(invoiceTaxAmountBs)} / ${formatUsd(invoiceTaxAmountUsd)}`
-        );
-      }
-    }
-    parts.push(`*TOTAL:* ${formatBsWhatsApp(finalTotalBs)} / ${formatUsd(finalTotalUsd)}`);
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Entrega:* ${fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Forma de pago:* ${getPaymentMethodLabel(paymentMethod)}`);
-    if (paymentRequiresChange && paymentChangeFor.trim()) {
-      parts.push('');
-      parts.push(
-        `${WHATSAPP_CHECK} *Cambio:* ${paymentChangeFor.trim()} ${paymentChangeCurrency}`
-      );
-    }
-    if (paymentNote.trim()) {
-      parts.push('');
-      parts.push(`${WHATSAPP_CHECK} *Nota de pago:* ${paymentNote.trim()}`);
-    }
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Estatus de pago:* Pendiente`);
-    parts.push('');
-    parts.push(`${WHATSAPP_CHECK} *Dia de entrega:* ${isAsap ? 'lo antes posible' : deliveryDayLabel}`);
-
-    if (!isAsap) {
-      parts.push('');
-      parts.push(`${WHATSAPP_CHECK} *Hora:* ${deliveryHourLabel}`);
-    }
-
-    if (fulfillment === 'delivery' && deliveryAddress.trim()) {
-      parts.push('');
-      parts.push(`${WHATSAPP_CHECK} *Direccion:* ${deliveryAddress.trim()}`);
-    }
-
-    if (orderNote.trim()) {
-      parts.push('');
-      parts.push(`*Nota:* ${orderNote.trim()}`);
-    }
-
-    return parts.join('\n');
+    return buildWhatsAppOrderSummaryText({
+      title: 'Presupuesto',
+      advisorName: authUserLabel,
+      clientName,
+      clientPhone,
+      receiverName,
+      receiverPhone,
+      lines: draftItems.map((item) => ({
+        text: formatDraftItemWhatsAppLine(item, fxRateNumber),
+        detailLines: getVisibleDetailLines(item.editable_detail_lines),
+      })),
+      price: {
+        subtotalBs: draftSubtotalBs,
+        subtotalUsd: draftTotalUsd,
+        discountPct: discountPctNumber,
+        discountAmountBs: discountEnabled ? discountAmountBs : 0,
+        discountAmountUsd: discountEnabled ? discountAmountUsd : 0,
+        invoiceTaxPct: invoiceTaxPctNumber,
+        invoiceTaxAmountBs: hasInvoice ? invoiceTaxAmountBs : 0,
+        invoiceTaxAmountUsd: hasInvoice ? invoiceTaxAmountUsd : 0,
+        totalBs: finalTotalBs,
+        totalUsd: finalTotalUsd,
+      },
+      fulfillment,
+      deliveryText: isAsap ? 'Lo antes posible' : `${deliveryDayLabel} - ${deliveryHourLabel}`,
+      address: deliveryAddress,
+      gpsUrl: deliveryGpsUrl,
+      paymentMethodLabel: getPaymentMethodLabel(paymentMethod),
+      paymentChangeText,
+      paymentNote,
+      paymentStatus: 'Pendiente',
+      invoice: {
+        enabled: hasInvoice,
+        companyName: invoiceCompanyName,
+        taxId: invoiceTaxId,
+        address: invoiceAddress,
+        phone: invoicePhone,
+      },
+      deliveryNote: {
+        enabled: hasDeliveryNote,
+        name: deliveryNoteName,
+        documentId: deliveryNoteDocumentId,
+        address: deliveryNoteAddress,
+        phone: deliveryNotePhone,
+      },
+      notes: orderNote,
+    });
   }
 
   async function handleCopyQuote() {

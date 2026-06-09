@@ -10,6 +10,7 @@ import {
   formatOrderDisplayNumber as fmtShortOrderLabel,
   getPaymentMethodLabel as getSharedPaymentMethodLabel,
 } from '@/lib/orders/order-labels';
+import { buildWhatsAppOrderSummaryText } from '@/lib/orders/whatsapp-summary';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -528,6 +529,7 @@ type Order = {
   attributedAdvisorUserId: string | null;
   advisorName: string;
   clientName: string;
+  clientPhone?: string | null;
   fulfillment: Fulfillment;
   address?: string;
   status: OrderStatus;
@@ -2296,50 +2298,73 @@ function buildComponentDetailLines(
 
 function buildWhatsAppOrderSummary(order: Order) {
   const lines = orderMainLinesForPreview(order.lines);
+  const paymentChangeText =
+    order.editMeta.paymentRequiresChange && order.editMeta.paymentChangeFor
+      ? `${order.editMeta.paymentChangeFor} ${order.editMeta.paymentChangeCurrency || ''}`.trim()
+      : null;
+  const paymentStatus =
+    order.paymentVerify === 'confirmed'
+      ? 'Confirmado'
+      : order.paymentVerify === 'rejected'
+        ? 'Rechazado'
+        : order.paymentVerify === 'pending'
+          ? 'Por confirmar'
+          : 'Pendiente';
 
-  const parts: string[] = [];
-
-  parts.push(`*Resumen de Pedido*`);
-  parts.push('');
-  parts.push(`*Orden:* ${order.id}`);
-  parts.push(`*Asesor:* ${order.advisorName}`);
-  parts.push(`*Cliente:* ${order.clientName}`);
-
-  parts.push('');
-  parts.push(`*Pedido:*`);
-  parts.push('');
-
-  if (lines.length === 0) {
-    parts.push(`- Sin ítems cargados`);
-  } else {
-    for (const line of lines) {
-      parts.push(lineTextWhatsAppStyle(line));
-
-      if (line.editableDetailLines && line.editableDetailLines.length > 0) {
-        for (const detail of getVisibleEditableDetailLines(line.editableDetailLines)) {
-          parts.push(`- ${detail}`);
-        }
-      }
-    }
-  }
-
-  parts.push('');
-  parts.push(`*TOTAL:* ${fmtBs(order.totalBs)} / ${fmtUSD(order.totalUsd)}`);
-
-  parts.push('');
-  parts.push(`*Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`*Día de entrega:* ${fmtDeliveryTextES(order.deliveryAtISO)}`);
-
-  if (order.fulfillment === 'delivery' && order.address?.trim()) {
-    parts.push(`*Dirección:* ${order.address.trim()}`);
-  }
-
-  if (order.notes?.trim()) {
-    parts.push('');
-    parts.push(`*Nota:* ${order.notes.trim()}`);
-  }
-
-  return parts.join('\n');
+  return buildWhatsAppOrderSummaryText({
+    title: 'Resumen de Pedido',
+    orderLabel: String(order.id),
+    advisorName: order.advisorName,
+    clientName: order.clientName,
+    clientPhone: order.clientPhone,
+    receiverName: order.editMeta.receiverName,
+    receiverPhone: order.editMeta.receiverPhone,
+    lines: lines.map((line) => ({
+      text: lineTextWhatsAppStyle(line),
+      detailLines: getVisibleEditableDetailLines(line.editableDetailLines ?? []),
+    })),
+    price: {
+      subtotalBs: order.editMeta.subtotalBs,
+      subtotalUsd: order.editMeta.subtotalUsd,
+      discountPct: order.editMeta.discountPct,
+      discountAmountBs:
+        order.editMeta.discountEnabled && order.editMeta.subtotalBs != null && order.editMeta.subtotalAfterDiscountBs != null
+          ? Math.max(0, order.editMeta.subtotalBs - order.editMeta.subtotalAfterDiscountBs)
+          : 0,
+      discountAmountUsd:
+        order.editMeta.discountEnabled && order.editMeta.subtotalUsd != null && order.editMeta.subtotalAfterDiscountUsd != null
+          ? Math.max(0, order.editMeta.subtotalUsd - order.editMeta.subtotalAfterDiscountUsd)
+          : 0,
+      invoiceTaxPct: order.editMeta.invoiceTaxPct,
+      invoiceTaxAmountBs: order.editMeta.invoiceTaxAmountBs,
+      invoiceTaxAmountUsd: order.editMeta.invoiceTaxAmountUsd,
+      totalBs: order.totalBs,
+      totalUsd: order.totalUsd,
+    },
+    fulfillment: order.fulfillment,
+    deliveryText: fmtDeliveryTextES(order.deliveryAtISO),
+    address: order.address,
+    gpsUrl: order.editMeta.deliveryGpsUrl,
+    paymentMethodLabel: getSharedPaymentMethodLabel(order.editMeta.paymentMethod),
+    paymentChangeText,
+    paymentNote: order.editMeta.paymentNote,
+    paymentStatus,
+    invoice: {
+      enabled: order.editMeta.hasInvoice,
+      companyName: order.editMeta.invoiceSnapshot?.companyName,
+      taxId: order.editMeta.invoiceSnapshot?.taxId,
+      address: order.editMeta.invoiceSnapshot?.address,
+      phone: order.editMeta.invoiceSnapshot?.phone,
+    },
+    deliveryNote: {
+      enabled: order.editMeta.hasDeliveryNote,
+      name: order.editMeta.deliveryNoteSnapshot?.name,
+      documentId: order.editMeta.deliveryNoteSnapshot?.documentId,
+      address: order.editMeta.deliveryNoteSnapshot?.address,
+      phone: order.editMeta.deliveryNoteSnapshot?.phone,
+    },
+    notes: order.notes,
+  });
 }
 
 function isCommittedStatus(s: OrderStatus) {
