@@ -15,6 +15,8 @@ type RawOrderRow = {
   source: 'advisor' | 'master' | 'walk_in';
   fulfillment: 'pickup' | 'delivery';
   delivery_address: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
   status:
     | 'created'
     | 'queued'
@@ -1205,6 +1207,8 @@ const orderSelect = `
       source,
       fulfillment,
       delivery_address,
+      receiver_name,
+      receiver_phone,
       status,
       total_usd,
       total_bs_snapshot,
@@ -2648,8 +2652,8 @@ return {
         source: row.source,
         attributedAdvisorUserId: row.attributed_advisor_id ?? null,
         isAsap: Boolean(row.extra_fields?.schedule?.asap ?? false),
-        receiverName: row.extra_fields?.receiver?.name ?? null,
-        receiverPhone: row.extra_fields?.receiver?.phone ?? null,
+        receiverName: row.extra_fields?.receiver?.name ?? row.receiver_name ?? null,
+        receiverPhone: row.extra_fields?.receiver?.phone ?? row.receiver_phone ?? null,
         deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
         kitchenEtaMinutes:
           row.eta_minutes != null

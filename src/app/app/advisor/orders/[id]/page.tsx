@@ -10,6 +10,7 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { buildWhatsAppOrderSummaryText } from '@/lib/orders/whatsapp-summary';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import { shouldRequireAdvisorAction } from '../../inbox/inbox-shared';
 import OrderDetailActions from './OrderDetailActions';
@@ -38,6 +39,10 @@ type OrderRow = {
       date?: string | null;
       time_12?: string | null;
       asap?: boolean | null;
+    } | null;
+    receiver?: {
+      name?: string | null;
+      phone?: string | null;
     } | null;
     delivery?: {
       gps_url?: string | null;
@@ -68,11 +73,18 @@ type OrderRow = {
       total_bs?: number | string | null;
     } | null;
     documents?: {
+      has_delivery_note?: boolean | null;
       has_invoice?: boolean | null;
       invoice_data_note?: string | null;
       invoice_snapshot?: {
         company_name?: string | null;
         tax_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
+      delivery_note_snapshot?: {
+        name?: string | null;
+        document_id?: string | null;
         address?: string | null;
         phone?: string | null;
       } | null;
@@ -537,85 +549,67 @@ function buildCleanWhatsAppOrderSummary({
   items: OrderItemRow[];
   advisorLabel: string;
 }) {
-  const parts: string[] = [];
   const fxRate = getOrderFxRate(order);
-  const check = '\u2705';
-  const primaryBullet = '\u25AA';
-  const secondaryBullet = '-';
-
-  parts.push('*Resumen de Pedido*');
-  parts.push('');
-  parts.push(`${check} *Asesor:* ${advisorLabel}`);
-  parts.push('');
-  parts.push(`${check} *Cliente:* ${order.client?.full_name?.trim() || 'Cliente'}`);
-
-  if (order.client?.phone?.trim()) {
-    parts.push('');
-    parts.push(`${check} *Telefono:* ${order.client.phone.trim()}`);
-  }
-
-  parts.push('');
-  parts.push(`${check} *Pedido:*`);
-  parts.push('');
-
-  if (items.length === 0) {
-    parts.push('- Sin items cargados');
-  } else {
-    for (const item of items) {
-      parts.push(lineTextWhatsAppStyle(item, fxRate).replace(/^- /, `${primaryBullet} `));
-      for (const detail of getVisibleEditableDetailLines(item.notes)) {
-        parts.push(`   ${secondaryBullet} ${detail}`);
-      }
-    }
-  }
-
-  parts.push('');
-  parts.push(...buildWhatsAppPricingLines(order));
-  parts.push('');
-  parts.push(`${check} *Entrega:* ${order.fulfillment === 'delivery' ? 'Delivery' : 'Retiro'}`);
-  parts.push('');
-  parts.push(`${check} *Forma de pago:* ${paymentMethodCopyLabel(order.extra_fields?.payment?.method)}`);
-  if (
-    order.extra_fields?.payment?.requires_change &&
-    String(order.extra_fields?.payment?.change_for ?? '').trim()
-  ) {
-    parts.push('');
-    parts.push(
-      `${check} *Cambio:* ${String(order.extra_fields?.payment?.change_for).trim()} ${safeText(order.extra_fields?.payment?.change_currency, 'USD')}`
-    );
-  }
-  if (safeText(order.extra_fields?.payment?.notes, '')) {
-    parts.push('');
-    parts.push(`${check} *Nota de pago:* ${safeText(order.extra_fields?.payment?.notes, '')}`);
-  }
-  parts.push('');
-  parts.push(`${check} *Estatus de pago:* Pendiente`);
-  parts.push('');
-  parts.push(`${check} *Dia de entrega:* ${deliveryDayText(order.extra_fields?.schedule)}`);
-
+  const pricing = getOrderMoneySnapshot(order);
+  const payment = order.extra_fields?.payment;
+  const documents = order.extra_fields?.documents;
+  const invoiceSnapshot = documents?.invoice_snapshot;
+  const deliveryNoteSnapshot = documents?.delivery_note_snapshot;
   const deliveryHour = deliveryHourText(order.extra_fields?.schedule);
-  if (deliveryHour) {
-    parts.push('');
-    parts.push(`${check} *Hora:* ${deliveryHour}`);
-  }
+  const deliveryFullText = [deliveryDayText(order.extra_fields?.schedule), deliveryHour].filter(Boolean).join(' - ');
+  const paymentChangeText =
+    payment?.requires_change && String(payment.change_for ?? '').trim()
+      ? `${String(payment.change_for).trim()} ${safeText(payment.change_currency, 'USD')}`.trim()
+      : null;
 
-  if (order.fulfillment === 'delivery' && order.delivery_address?.trim()) {
-    parts.push('');
-    parts.push(`${check} *Direccion:* ${order.delivery_address.trim()}`);
-  }
-
-  const invoiceLines = buildWhatsAppInvoiceLines(order, check);
-  if (invoiceLines.length > 0) {
-    parts.push('');
-    parts.push(...invoiceLines);
-  }
-
-  if (order.notes?.trim()) {
-    parts.push('');
-    parts.push(`*Notas:* ${order.notes.trim()}`);
-  }
-
-  return parts.join('\n');
+  return buildWhatsAppOrderSummaryText({
+    title: 'Resumen de Pedido',
+    orderLabel: String(order.id),
+    advisorName: advisorLabel,
+    clientName: order.client?.full_name?.trim() || 'Cliente',
+    clientPhone: order.client?.phone,
+    receiverName: order.extra_fields?.receiver?.name ?? order.receiver_name,
+    receiverPhone: order.extra_fields?.receiver?.phone ?? order.receiver_phone,
+    lines: items.map((item) => ({
+      text: lineTextWhatsAppStyle(item, fxRate),
+      detailLines: getVisibleEditableDetailLines(item.notes),
+    })),
+    price: {
+      subtotalBs: pricing.subtotalBs,
+      subtotalUsd: pricing.subtotalUsd,
+      discountPct: pricing.discountPct,
+      discountAmountBs: pricing.discountAmountBs,
+      discountAmountUsd: pricing.discountAmountUsd,
+      invoiceTaxPct: pricing.invoiceTaxPct,
+      invoiceTaxAmountBs: pricing.invoiceTaxAmountBs,
+      invoiceTaxAmountUsd: pricing.invoiceTaxAmountUsd,
+      totalBs: pricing.totalBs,
+      totalUsd: pricing.totalUsd,
+    },
+    fulfillment: order.fulfillment,
+    deliveryText: deliveryFullText || deliveryText(order.extra_fields?.schedule),
+    address: order.delivery_address,
+    gpsUrl: order.extra_fields?.delivery?.gps_url,
+    paymentMethodLabel: paymentMethodCopyLabel(payment?.method),
+    paymentChangeText,
+    paymentNote: payment?.notes,
+    paymentStatus: 'Pendiente',
+    invoice: {
+      enabled: Boolean(documents?.has_invoice),
+      companyName: invoiceSnapshot?.company_name,
+      taxId: invoiceSnapshot?.tax_id,
+      address: invoiceSnapshot?.address,
+      phone: invoiceSnapshot?.phone,
+    },
+    deliveryNote: {
+      enabled: Boolean(documents?.has_delivery_note),
+      name: deliveryNoteSnapshot?.name,
+      documentId: deliveryNoteSnapshot?.document_id,
+      address: deliveryNoteSnapshot?.address,
+      phone: deliveryNoteSnapshot?.phone,
+    },
+    notes: order.notes,
+  });
 }
 
 function normalizeEventType(event: RawTimelineEvent) {
