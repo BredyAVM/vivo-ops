@@ -46,6 +46,7 @@ type OrderRow = {
     } | null;
     delivery?: {
       gps_url?: string | null;
+      completed_at?: string | null;
     } | null;
     payment?: {
       method?: string | null;
@@ -612,6 +613,20 @@ function buildCleanWhatsAppOrderSummary({
   });
 }
 
+function formatCaracasDateOnly(value: string | null | undefined) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 function normalizeEventType(event: RawTimelineEvent) {
   return safeText(event.event_type ?? event.event, '');
 }
@@ -904,6 +919,9 @@ export default async function AdvisorOrderDetailPage({
   const whatsappContactHref = whatsappPhone ? `https://wa.me/${whatsappPhone}` : '';
   const schedule = order.extra_fields?.schedule;
   const payment = order.extra_fields?.payment;
+  const deliveryReferenceDate =
+    formatCaracasDateOnly(order.extra_fields?.delivery?.completed_at ?? null) ??
+    (safeText(schedule?.date, '') || null);
   const moneyAccounts: Array<{
     id: number;
     name: string;
@@ -1114,6 +1132,8 @@ export default async function AdvisorOrderDetailPage({
             paymentMethod={orderPaymentMethod || null}
             moneyAccounts={moneyAccounts}
             activeBsRate={activeBsRate}
+            snapshotBsRate={snapshotBsRate}
+            deliveryReferenceDate={deliveryReferenceDate}
             whatsappSummary={whatsappSummary}
             whatsappContactHref={whatsappContactHref}
             preferWhatsApp={shouldHighlightWhatsApp}

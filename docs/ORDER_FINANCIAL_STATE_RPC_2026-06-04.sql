@@ -70,8 +70,7 @@ with base_order as (
       when o.extra_fields->'delivery'->>'completed_at' is not null
         and trim(o.extra_fields->'delivery'->>'completed_at') <> ''
         then ((o.extra_fields->'delivery'->>'completed_at')::timestamptz at time zone 'America/Caracas')::date
-      when o.status = 'delivered'
-        and o.extra_fields->'schedule'->>'date' ~ '^\d{4}-\d{2}-\d{2}$'
+      when o.extra_fields->'schedule'->>'date' ~ '^\d{4}-\d{2}-\d{2}$'
         then (o.extra_fields->'schedule'->>'date')::date
       else null
     end as delivery_reference_date

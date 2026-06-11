@@ -77,8 +77,6 @@ function getOrderDeliveryReferenceDate(order: { status?: unknown; extra_fields?:
   const completedAt = dateOnlyFromIso(extraFields.delivery?.completed_at);
   if (completedAt) return completedAt;
 
-  if (String(order.status || '') !== 'delivered') return null;
-
   return normalizeDateOnly(extraFields.schedule?.date);
 }
 

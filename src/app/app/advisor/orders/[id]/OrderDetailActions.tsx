@@ -29,8 +29,9 @@ function getSuggestedAccountAmount(
   bsAmount: number,
   currencyCode: string | null | undefined,
   activeBsRate: number,
+  useSnapshotQuote = true,
 ) {
-  if (currencyCode === 'VES' && Number.isFinite(bsAmount) && bsAmount > 0) {
+  if (currencyCode === 'VES' && useSnapshotQuote && Number.isFinite(bsAmount) && bsAmount > 0) {
     return String(Number(bsAmount.toFixed(2)));
   }
 
@@ -41,6 +42,48 @@ function getSuggestedAccountAmount(
   if (!Number.isFinite(usdAmount) || usdAmount <= 0) return '';
 
   return String(Number(usdAmount.toFixed(2)));
+}
+
+function getCaracasDateInputValue() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Caracas',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function normalizeDateOnly(value: string | null | undefined) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function operationDateIsAfterDeliveryDate(operationDate: string | null | undefined, deliveryReferenceDate: string | null | undefined) {
+  const deliveryDate = normalizeDateOnly(deliveryReferenceDate);
+  if (!deliveryDate) return false;
+
+  const effectiveOperationDate = normalizeDateOnly(operationDate) ?? getCaracasDateInputValue();
+  return effectiveOperationDate.localeCompare(deliveryDate) > 0;
+}
+
+function getPaymentCollectionMode(operationDate: string | null | undefined, deliveryReferenceDate: string | null | undefined) {
+  if (operationDateIsAfterDeliveryDate(operationDate, deliveryReferenceDate)) {
+    return {
+      key: 'post_delivery_usd',
+      label: 'Cobranza dolarizada',
+      description: 'La fecha de operacion es posterior a la entrega: el saldo Bs se calcula con la tasa activa.',
+    } as const;
+  }
+
+  return {
+    key: 'snapshot_quote',
+    label: 'Presupuesto snapshot',
+    description: 'Se mantiene el monto Bs congelado del presupuesto.',
+  } as const;
 }
 
 function inputClass(multiline = false) {
@@ -96,6 +139,8 @@ export default function OrderDetailActions({
   paymentMethod,
   moneyAccounts,
   activeBsRate,
+  snapshotBsRate,
+  deliveryReferenceDate,
   whatsappSummary,
   whatsappContactHref,
   preferWhatsApp = false,
@@ -115,6 +160,8 @@ export default function OrderDetailActions({
   paymentMethod: string | null;
   moneyAccounts: MoneyAccountOption[];
   activeBsRate: number;
+  snapshotBsRate: number;
+  deliveryReferenceDate: string | null;
   whatsappSummary: string;
   whatsappContactHref?: string;
   preferWhatsApp?: boolean;
@@ -147,9 +194,9 @@ export default function OrderDetailActions({
   const [reportPaymentMethod, setReportPaymentMethod] = useState(
     paymentMethod && ADVISOR_REPORT_PAYMENT_METHODS.includes(paymentMethod) ? paymentMethod : '',
   );
+  const [operationDate, setOperationDate] = useState(getCaracasDateInputValue());
   const [amount, setAmount] = useState(getSuggestedAccountAmount(balanceUsd, balanceBs, 'USD', activeBsRate));
   const [exchangeRate, setExchangeRate] = useState('');
-  const [operationDate, setOperationDate] = useState(new Date().toISOString().slice(0, 10));
   const [referenceCode, setReferenceCode] = useState('');
   const [bankName, setBankName] = useState('');
   const [payerName, setPayerName] = useState('');
@@ -170,6 +217,35 @@ export default function OrderDetailActions({
   const orderLocksPaymentMethod = Boolean(paymentMethod && ADVISOR_REPORT_PAYMENT_METHODS.includes(paymentMethod));
   const availablePaymentMethods = selectedAccount?.paymentMethodCodes?.length ? selectedAccount.paymentMethodCodes : [];
   const paymentRequirements = getPaymentReportRequirements(reportPaymentMethod);
+  const collectionMode = getPaymentCollectionMode(operationDate, deliveryReferenceDate);
+  const useSnapshotQuote = collectionMode.key === 'snapshot_quote';
+  const suggestedVesAmount = getSuggestedAccountAmount(balanceUsd, balanceBs, 'VES', activeBsRate, useSnapshotQuote);
+  const getSuggestedPaymentAmount = useCallback(
+    (currencyCode: string | null | undefined, nextOperationDate = operationDate) => {
+      const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate);
+      return getSuggestedAccountAmount(
+        balanceUsd,
+        balanceBs,
+        currencyCode,
+        activeBsRate,
+        nextMode.key === 'snapshot_quote',
+      );
+    },
+    [activeBsRate, balanceBs, balanceUsd, deliveryReferenceDate, operationDate],
+  );
+  const getSuggestedPaymentExchangeRate = useCallback(
+    (currencyCode: string | null | undefined, nextOperationDate = operationDate) => {
+      if (currencyCode !== 'VES') return '';
+
+      const nextMode = getPaymentCollectionMode(nextOperationDate, deliveryReferenceDate);
+      if (nextMode.key === 'snapshot_quote' && snapshotBsRate > 0) {
+        return String(Number(snapshotBsRate.toFixed(4)));
+      }
+
+      return activeBsRate > 0 ? String(Number(activeBsRate.toFixed(4))) : '';
+    },
+    [activeBsRate, deliveryReferenceDate, operationDate, snapshotBsRate],
+  );
   const whatsappButtonClass = preferWhatsApp
     ? 'inline-flex h-9 items-center justify-center rounded-full bg-[#25D366] px-3.5 text-xs font-semibold text-[#07150C]'
     : 'inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#25D366]';
@@ -578,12 +654,11 @@ export default function OrderDetailActions({
 
           {canReportPayment && selectedAccount?.currencyCode === 'VES' && activeBsRate > 0 ? (
             <div className="mt-2 rounded-[14px] border border-[#232632] bg-[#0B1017] px-3 py-2 text-xs text-[#8B93A7]">
-              Sugerido en Bs:{' '}
+              {collectionMode.label}:{' '}
               <span className="font-medium text-[#F5F7FB]">
-                {getSuggestedAccountAmount(balanceUsd, balanceBs, 'VES', activeBsRate)}
+                {suggestedVesAmount || '0'}
               </span>{' '}
-              | Tasa activa:{' '}
-              <span className="font-medium text-[#F5F7FB]">{Number(activeBsRate.toFixed(2))}</span>
+              | {collectionMode.description}
             </div>
           ) : null}
 
@@ -597,12 +672,8 @@ export default function OrderDetailActions({
                   setMoneyAccountId(nextId);
                   const account = activeAccounts.find((row) => row.id === Number(nextId)) ?? null;
                   const accountMethods = account?.paymentMethodCodes ?? [];
-                  setAmount(getSuggestedAccountAmount(balanceUsd, balanceBs, account?.currencyCode, activeBsRate));
-                  setExchangeRate(
-                    account?.currencyCode === 'VES' && activeBsRate > 0
-                      ? String(Number(activeBsRate.toFixed(2)))
-                      : '',
-                  );
+                  setAmount(getSuggestedPaymentAmount(account?.currencyCode));
+                  setExchangeRate(getSuggestedPaymentExchangeRate(account?.currencyCode));
                   if (orderLocksPaymentMethod) {
                     setReportPaymentMethod(paymentMethod || '');
                   } else if (!accountMethods.includes(reportPaymentMethod)) {
@@ -641,6 +712,25 @@ export default function OrderDetailActions({
               </Field>
             ) : null}
 
+            {paymentRequirements.requiresOperationDate ? (
+              <Field label="Fecha de operacion">
+                <input
+                  value={operationDate}
+                  onChange={(e) => {
+                    const nextOperationDate = e.target.value;
+                    setOperationDate(nextOperationDate);
+
+                    if (selectedAccount) {
+                      setAmount(getSuggestedPaymentAmount(selectedAccount.currencyCode, nextOperationDate));
+                      setExchangeRate(getSuggestedPaymentExchangeRate(selectedAccount.currencyCode, nextOperationDate));
+                    }
+                  }}
+                  className={inputClass()}
+                  type="date"
+                />
+              </Field>
+            ) : null}
+
             <Field label="Monto reportado">
               <input
                 value={amount}
@@ -652,7 +742,16 @@ export default function OrderDetailActions({
               />
             </Field>
 
-            {selectedAccount?.currencyCode === 'VES' ? (
+            {selectedAccount?.currencyCode === 'VES' && useSnapshotQuote ? (
+              <div className="rounded-[14px] border border-[#3A3212] bg-[#1D1A00] px-3 py-2 text-xs leading-5 text-[#FEEF00]">
+                Usar monto Bs de la orden: {suggestedVesAmount || '0'}.
+                <span className="block text-[#B7B7C2]">
+                  La fecha de operacion no pasa la fecha de entrega, por eso no se modifica la tasa.
+                </span>
+              </div>
+            ) : null}
+
+            {selectedAccount?.currencyCode === 'VES' && !useSnapshotQuote ? (
               <Field label="Tasa VES por USD">
                 <input
                   value={exchangeRate}
@@ -661,17 +760,6 @@ export default function OrderDetailActions({
                   className={inputClass()}
                   inputMode="decimal"
                   placeholder="Tasa"
-                />
-              </Field>
-            ) : null}
-
-            {paymentRequirements.requiresOperationDate ? (
-              <Field label="Fecha de operacion">
-                <input
-                  value={operationDate}
-                  onChange={(e) => setOperationDate(e.target.value)}
-                  className={inputClass()}
-                  type="date"
                 />
               </Field>
             ) : null}
