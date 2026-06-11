@@ -1870,7 +1870,24 @@ const calculationOrdersLimitExceeded =
     isActive: Boolean(rule.is_active),
   }));
 
-  const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => ({
+  const movementOrderClientById = new Map<
+    number,
+    { clientId: number | null; clientName: string | null; clientPhone: string | null }
+  >();
+  for (const row of rawOrders) {
+    const client = Array.isArray(row.client) ? row.client[0] ?? null : row.client ?? null;
+    movementOrderClientById.set(Number(row.id), {
+      clientId: row.client_id == null ? null : Number(row.client_id),
+      clientName: client?.full_name == null ? null : repairDisplayText(client.full_name),
+      clientPhone: client?.phone == null ? null : String(client.phone),
+    });
+  }
+
+  const moneyMovements = ((movementsData ?? []) as RawMoneyMovementRow[]).map((mv) => {
+    const orderId = mv.order_id == null ? null : Number(mv.order_id);
+    const orderClient = orderId ? movementOrderClientById.get(orderId) ?? null : null;
+
+    return {
     id: Number(mv.id),
     movementDate: mv.movement_date,
     createdAt: mv.created_at,
@@ -1900,10 +1917,14 @@ const calculationOrdersLimitExceeded =
     counterpartyName: mv.counterparty_name ?? null,
     description: mv.description ?? null,
     notes: mv.notes ?? null,
-    orderId: mv.order_id == null ? null : Number(mv.order_id),
+    orderId,
+    clientId: orderClient?.clientId ?? null,
+    clientName: orderClient?.clientName ?? null,
+    clientPhone: orderClient?.clientPhone ?? null,
     paymentReportId: mv.payment_report_id == null ? null : Number(mv.payment_report_id),
     movementGroupId: mv.movement_group_id ?? null,
-  }));
+    };
+  });
 
   const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] = [];
 

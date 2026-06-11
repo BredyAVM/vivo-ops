@@ -212,6 +212,9 @@ type MoneyMovementItem = {
   description: string | null;
   notes: string | null;
   orderId: number | null;
+  clientId?: number | null;
+  clientName?: string | null;
+  clientPhone?: string | null;
   paymentReportId: number | null;
   movementGroupId: string | null;
 };
@@ -7361,6 +7364,7 @@ const handleSaveQuickCatalog = async () => {
       'neto',
       'usd_ref',
       'orden',
+      'cliente',
       'reporte_pago',
       'referencia',
       'contraparte',
@@ -7387,7 +7391,7 @@ const handleSaveQuickCatalog = async () => {
     };
     const movementRows = selectedAccountFilteredMovementGroups.map((group) => {
       const movement = group.primaryMovement;
-      const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+      const clientLabel = getMovementGroupClientLabel(group);
       return [
         'movimiento',
         movement.movementDate,
@@ -7401,9 +7405,10 @@ const handleSaveQuickCatalog = async () => {
         group.netNative.toFixed(2),
         group.netUsd.toFixed(2),
         movement.orderId ?? '',
+        clientLabel,
         movement.paymentReportId ?? '',
         movement.referenceCode || movement.paymentReportId || movement.id,
-        movement.counterpartyName || linkedOrder?.clientName || '',
+        movement.counterpartyName || clientLabel || '',
         getDashboardUserLabel(movement.createdByUserId),
         getDashboardUserLabel(movement.confirmedByUserId),
         movement.confirmedAt || '',
@@ -7476,6 +7481,7 @@ const handleSaveQuickCatalog = async () => {
       'comision_ref_usd',
       'neto_ref_usd',
       'orden',
+      'cliente',
       'reporte_pago',
       'referencia',
       'contraparte',
@@ -7500,7 +7506,7 @@ const handleSaveQuickCatalog = async () => {
         new Set(group.movements.map((item) => moneyAccountById.get(item.moneyAccountId)?.name ?? `Cuenta #${item.moneyAccountId}`))
       );
       const currencies = Array.from(new Set(group.movements.map((item) => item.currencyCode)));
-      const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+      const clientLabel = getMovementGroupClientLabel(group);
 
       return [
         movement.movementDate,
@@ -7513,9 +7519,10 @@ const handleSaveQuickCatalog = async () => {
         group.feeUsd.toFixed(2),
         group.netUsd.toFixed(2),
         movement.orderId ?? '',
+        clientLabel,
         movement.paymentReportId ?? '',
         movement.referenceCode || movement.paymentReportId || movement.id,
-        movement.counterpartyName || linkedOrder?.clientName || '',
+        movement.counterpartyName || clientLabel || '',
         getDashboardUserLabel(movement.createdByUserId),
         getDashboardUserLabel(movement.confirmedByUserId),
         movement.confirmedAt || '',
@@ -9991,6 +9998,36 @@ const selectedCreateOrderClientAddresses = useMemo(
     selectedAccountMovementGroups,
   ]);
 
+  const selectedAccountFilteredMovementSummary = useMemo(() => {
+    return selectedAccountFilteredMovementGroups.reduce(
+      (summary, group) => {
+        if (group.netNative > 0) {
+          summary.inflowNative += group.netNative;
+        } else if (group.netNative < 0) {
+          summary.outflowNative += Math.abs(group.netNative);
+        }
+
+        summary.feeNative += group.feeNative;
+        summary.netNative += group.netNative;
+        summary.netUsd += group.netUsd;
+
+        if (group.primaryMovement.status === 'confirmed') {
+          summary.confirmedNetNative += group.netNative;
+        }
+
+        return summary;
+      },
+      {
+        inflowNative: 0,
+        outflowNative: 0,
+        feeNative: 0,
+        netNative: 0,
+        netUsd: 0,
+        confirmedNetNative: 0,
+      },
+    );
+  }, [selectedAccountFilteredMovementGroups]);
+
   const selectedMovementGroup = useMemo(() => {
     if (!selectedMovementGroupKey) return null;
     return (
@@ -10525,6 +10562,34 @@ const selectedCreateOrderClientAddresses = useMemo(
   const orderLookupById = useMemo(() => {
     return new Map(orders.map((order) => [order.id, order]));
   }, [orders]);
+
+  const getMovementClientLabel = useCallback(
+    (movement: MoneyMovementItem) => {
+      const directClientName = repairDisplayText(String(movement.clientName || '').trim());
+      if (directClientName) return directClientName;
+
+      const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+      return linkedOrder?.clientName ? repairDisplayText(linkedOrder.clientName) : '';
+    },
+    [orderLookupById],
+  );
+
+  const getMovementGroupClientLabel = useCallback(
+    (group: AccountMovementGroup) => {
+      const orderedMovements = [
+        group.primaryMovement,
+        ...group.movements.filter((movement) => movement.id !== group.primaryMovement.id),
+      ];
+
+      for (const movement of orderedMovements) {
+        const label = getMovementClientLabel(movement);
+        if (label) return label;
+      }
+
+      return '';
+    },
+    [getMovementClientLabel],
+  );
 
   const calculationBaseOrders = useMemo(
     () => (calculationScope?.generated ? calculationOrders : []),
@@ -19181,6 +19246,37 @@ deliveryAssignMode === 'external' ? (
                   onChange={setAccountAuditExceptionOnly}
                 />
               </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
+                <InfoCell
+                  label="Total general"
+                  value={`${selectedAccountFilteredMovementSummary.netNative >= 0 ? '' : '-'}${fmtMoneyByCurrency(
+                    Math.abs(selectedAccountFilteredMovementSummary.netNative),
+                    selectedAccount.currencyCode
+                  )}`}
+                />
+                <InfoCell
+                  label="Ingresos"
+                  value={fmtMoneyByCurrency(
+                    selectedAccountFilteredMovementSummary.inflowNative,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Egresos"
+                  value={fmtMoneyByCurrency(
+                    selectedAccountFilteredMovementSummary.outflowNative,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Comisiones"
+                  value={fmtMoneyByCurrency(
+                    selectedAccountFilteredMovementSummary.feeNative,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell label="Ref. USD" value={fmtUSD(selectedAccountFilteredMovementSummary.netUsd)} />
+              </div>
               <div className="mt-3 overflow-x-auto">
                 {selectedAccountFilteredMovementGroups.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
@@ -19203,6 +19299,7 @@ deliveryAssignMode === 'external' ? (
                       {selectedAccountFilteredMovementGroups.map((group, idx) => {
                         const movement = group.primaryMovement;
                         const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+                        const clientLabel = getMovementGroupClientLabel(group);
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
                         const primaryAmount = fmtMoneyByCurrency(group.amountNative, selectedAccount.currencyCode);
                         const feeAmount = group.feeNative > 0 ? fmtMoneyByCurrency(group.feeNative, selectedAccount.currencyCode) : '—';
@@ -19270,10 +19367,10 @@ deliveryAssignMode === 'external' ? (
                                 {MONEY_MOVEMENT_STATUS_LABEL[movement.status]}
                               </span>
                             </td>
-                            <td className="px-2 py-2">{linkedOrder?.clientName || '—'}</td>
+                            <td className="px-2 py-2">{clientLabel || '—'}</td>
                             <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
                             <td className="px-2 py-2">
-                              {movement.counterpartyName || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
+                              {movement.counterpartyName || clientLabel || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
                             </td>
                             <td className="px-2 py-2">
                               {movement.referenceCode || movement.paymentReportId || movement.id}

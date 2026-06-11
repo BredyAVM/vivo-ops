@@ -3569,7 +3569,43 @@ export async function loadMoneyActivityAction(input?: {
   if (movementsResult.error) throw new Error(movementsResult.error.message);
   if (closuresResult.error) throw new Error(closuresResult.error.message);
 
-  const movements = ((movementsResult.data ?? []) as any[]).map((mv) => ({
+  const movementRows = (movementsResult.data ?? []) as any[];
+  const movementOrderIds = Array.from(
+    new Set(
+      movementRows
+        .map((mv) => Number(mv.order_id || 0))
+        .filter((orderId) => Number.isFinite(orderId) && orderId > 0)
+    )
+  );
+  const { data: movementOrdersData, error: movementOrdersError } =
+    movementOrderIds.length > 0
+      ? await supabase
+          .from('orders')
+          .select('id, client_id, client:clients!orders_client_id_fkey(full_name, phone)')
+          .in('id', movementOrderIds)
+      : { data: [], error: null };
+
+  if (movementOrdersError) throw new Error(movementOrdersError.message);
+
+  const movementOrderClientById = new Map<
+    number,
+    { clientId: number | null; clientName: string | null; clientPhone: string | null }
+  >();
+
+  for (const order of (movementOrdersData ?? []) as any[]) {
+    const client = Array.isArray(order.client) ? order.client[0] ?? null : order.client ?? null;
+    movementOrderClientById.set(Number(order.id), {
+      clientId: order.client_id == null ? null : Number(order.client_id),
+      clientName: client?.full_name == null ? null : String(client.full_name),
+      clientPhone: client?.phone == null ? null : String(client.phone),
+    });
+  }
+
+  const movements = movementRows.map((mv) => {
+    const orderId = mv.order_id == null ? null : Number(mv.order_id);
+    const orderClient = orderId ? movementOrderClientById.get(orderId) ?? null : null;
+
+    return {
     id: Number(mv.id),
     movementDate: mv.movement_date,
     createdAt: mv.created_at,
@@ -3599,10 +3635,14 @@ export async function loadMoneyActivityAction(input?: {
     counterpartyName: mv.counterparty_name ?? null,
     description: mv.description ?? null,
     notes: mv.notes ?? null,
-    orderId: mv.order_id == null ? null : Number(mv.order_id),
+    orderId,
+    clientId: orderClient?.clientId ?? null,
+    clientName: orderClient?.clientName ?? null,
+    clientPhone: orderClient?.clientPhone ?? null,
     paymentReportId: mv.payment_report_id == null ? null : Number(mv.payment_report_id),
     movementGroupId: mv.movement_group_id ?? null,
-  }));
+    };
+  });
 
   const closures = ((closuresResult.data ?? []) as any[]).map((row) => ({
     id: Number(row.id),
