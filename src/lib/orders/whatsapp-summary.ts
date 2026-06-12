@@ -145,13 +145,14 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
   if (input.lines.length === 0) {
     parts.push('- Sin items cargados');
   } else {
-    for (const line of input.lines) {
+    input.lines.forEach((line, index) => {
       parts.push(line.text);
       for (const detail of line.detailLines ?? []) {
         const normalized = clean(detail);
-        if (normalized) parts.push(`  - ${normalized}`);
+        if (normalized) parts.push(`    - ${normalized}`);
       }
-    }
+      if (index < input.lines.length - 1) parts.push('');
+    });
   }
 
   parts.push('');
