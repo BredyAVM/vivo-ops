@@ -149,7 +149,7 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
       parts.push(line.text);
       for (const detail of line.detailLines ?? []) {
         const normalized = clean(detail);
-        if (normalized) parts.push(`- ${normalized}`);
+        if (normalized) parts.push(`  - ${normalized}`);
       }
     }
   }
