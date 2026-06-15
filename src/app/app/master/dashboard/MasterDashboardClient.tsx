@@ -16218,6 +16218,29 @@ onClose={() => {
                   : 'Sin asignación'}
             </div>
           </div>
+
+          {isDeliveredDeliveryCorrection(selectedOrder) ? (
+            <div className="rounded-lg border border-[#3A2F12] bg-[#151208] px-3 py-2">
+              <div className="text-[10px] text-[#8A8A96]">Corrección administrativa</div>
+              <div className="mt-1 text-xs text-[#B7B7C2]">
+                Ajusta driver, partner, distancia o costo sin reabrir el pedido entregado.
+              </div>
+              <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                <button
+                  className="rounded-md border border-[#FEEF00]/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
+                  onClick={() => openDeliveryAssignBox(selectedOrder, 'internal')}
+                >
+                  Corregir interno
+                </button>
+                <button
+                  className="rounded-md border border-[#FEEF00]/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
+                  onClick={() => openDeliveryAssignBox(selectedOrder, 'external')}
+                >
+                  Corregir externo
+                </button>
+              </div>
+            </div>
+          ) : null}
         </>
       ) : (
         <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
