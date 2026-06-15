@@ -2547,6 +2547,203 @@ export async function assignExternalPartnerAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function correctDeliveredDeliveryAssignmentAction(input: {
+  orderId: number;
+  assignmentKind: 'internal' | 'external';
+  driverUserId?: string | null;
+  partnerId?: number | null;
+  reference?: string | null;
+  distanceKm?: number | null;
+  costUsd?: number | null;
+  notes: string;
+}) {
+  try {
+    const { user, roles } = await requireMasterOrAdmin();
+    requireAdminRole(roles);
+
+    const supabase = createSupabaseServiceRoleServer();
+    const orderId = Number(input.orderId || 0);
+    if (!Number.isFinite(orderId) || orderId <= 0) {
+      return { ok: false as const, message: 'Orden invalida.' };
+    }
+
+    const notes = String(input.notes || '').trim();
+    if (notes.length < 6) {
+      return { ok: false as const, message: 'Indica un motivo claro para la correccion.' };
+    }
+
+    const { data: currentOrder, error: currentOrderError } = await supabase
+      .from('orders')
+      .select(
+        'id, status, fulfillment, extra_fields, internal_driver_user_id, external_partner_id, external_driver_name, external_driver_phone, external_reference'
+      )
+      .eq('id', orderId)
+      .single();
+
+    if (currentOrderError) throw new Error(currentOrderError.message);
+    if (!currentOrder) {
+      return { ok: false as const, message: 'No se pudo cargar la orden.' };
+    }
+
+    if (currentOrder.fulfillment !== 'delivery' || currentOrder.status !== 'delivered') {
+      return {
+        ok: false as const,
+        message: 'Esta correccion solo aplica a pedidos delivery ya entregados.',
+      };
+    }
+
+    const extraFields =
+      currentOrder.extra_fields &&
+      typeof currentOrder.extra_fields === 'object' &&
+      !Array.isArray(currentOrder.extra_fields)
+        ? (currentOrder.extra_fields as Record<string, unknown>)
+        : {};
+    const currentDelivery =
+      extraFields.delivery && typeof extraFields.delivery === 'object' && !Array.isArray(extraFields.delivery)
+        ? (extraFields.delivery as Record<string, unknown>)
+        : {};
+    const nowIso = new Date().toISOString();
+    const normalizedCostUsd =
+      input.costUsd != null && Number.isFinite(Number(input.costUsd))
+        ? Math.max(0, roundMoney(input.costUsd))
+        : null;
+    const previousDelivery = {
+      internal_driver_user_id: currentOrder.internal_driver_user_id ?? null,
+      external_partner_id: currentOrder.external_partner_id ?? null,
+      external_driver_name: currentOrder.external_driver_name ?? null,
+      external_driver_phone: currentOrder.external_driver_phone ?? null,
+      external_reference: currentOrder.external_reference ?? null,
+      distance_km: currentDelivery.distance_km ?? null,
+      cost_usd: currentDelivery.cost_usd ?? null,
+      cost_source: currentDelivery.cost_source ?? null,
+    };
+
+    const updatePayload: Record<string, unknown> = {
+      last_modified_at: nowIso,
+      last_modified_by: user.id,
+    };
+    const eventPayload: Record<string, unknown> = {
+      assignment_kind: input.assignmentKind,
+      notes,
+      previous: previousDelivery,
+    };
+    const recipients: OrderEventRecipientInput[] = [{ targetRole: 'master' }];
+
+    if (input.assignmentKind === 'internal') {
+      const driverUserId = String(input.driverUserId || '').trim();
+      if (!driverUserId) {
+        return { ok: false as const, message: 'Selecciona el driver interno.' };
+      }
+
+      updatePayload.internal_driver_user_id = driverUserId;
+      updatePayload.external_partner_id = null;
+      updatePayload.external_driver_name = null;
+      updatePayload.external_driver_phone = null;
+      updatePayload.external_reference = null;
+      updatePayload.extra_fields = {
+        ...extraFields,
+        delivery: {
+          ...currentDelivery,
+          cost_usd: normalizedCostUsd,
+          cost_source: 'admin_delivered_correction_internal',
+          corrected_at: nowIso,
+          corrected_by_user_id: user.id,
+          correction_notes: notes,
+        },
+      };
+
+      eventPayload.driver_user_id = driverUserId;
+      eventPayload.cost_usd = normalizedCostUsd;
+      recipients.push({ targetUserId: driverUserId });
+    } else {
+      const partnerId = Number(input.partnerId || 0);
+      if (!Number.isFinite(partnerId) || partnerId <= 0) {
+        return { ok: false as const, message: 'Selecciona el partner externo.' };
+      }
+
+      const distanceKm = Number(input.distanceKm);
+      if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+        return { ok: false as const, message: 'Indica la distancia en km.' };
+      }
+
+      const { data: partner, error: partnerError } = await supabase
+        .from('delivery_partners')
+        .select('id, name, whatsapp_phone')
+        .eq('id', partnerId)
+        .single();
+
+      if (partnerError) throw new Error(partnerError.message);
+      if (!partner) {
+        return { ok: false as const, message: 'No se pudo cargar el partner externo.' };
+      }
+
+      const reference = String(input.reference || '').trim() || null;
+      updatePayload.internal_driver_user_id = null;
+      updatePayload.external_partner_id = partnerId;
+      updatePayload.external_driver_name = partner.name ?? null;
+      updatePayload.external_driver_phone = partner.whatsapp_phone ?? null;
+      updatePayload.external_reference = reference;
+      updatePayload.extra_fields = {
+        ...extraFields,
+        delivery: {
+          ...currentDelivery,
+          distance_km: Math.max(0, roundMoney(distanceKm)),
+          cost_usd: normalizedCostUsd,
+          cost_source: 'admin_delivered_correction_external',
+          corrected_at: nowIso,
+          corrected_by_user_id: user.id,
+          correction_notes: notes,
+        },
+      };
+
+      eventPayload.partner_id = partnerId;
+      eventPayload.partner_name = partner.name ?? null;
+      eventPayload.reference = reference;
+      eventPayload.distance_km = Math.max(0, roundMoney(distanceKm));
+      eventPayload.cost_usd = normalizedCostUsd;
+    }
+
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .eq('id', orderId)
+      .eq('status', 'delivered')
+      .eq('fulfillment', 'delivery');
+
+    if (updateError) throw new Error(updateError.message);
+
+    const eventContext = await loadOrderEventContext(supabase as any, orderId);
+    await appendOrderEvent(supabase as any, {
+      orderId,
+      context: eventContext,
+      eventType: 'delivery_assignment_corrected',
+      eventGroup: 'delivery',
+      title: 'Entrega corregida',
+      message: notes,
+      severity: 'warning',
+      actorUserId: user.id,
+      payload: eventPayload,
+      recipients: [
+        ...recipients,
+        { targetUserId: eventContext?.advisorUserId },
+        { targetUserId: eventContext?.internalDriverUserId },
+      ],
+    });
+
+    revalidatePath('/app/master/dashboard');
+    revalidatePath('/app/advisor');
+    revalidatePath('/app/advisor/orders');
+    revalidatePath('/app/advisor/inbox');
+    return { ok: true as const };
+  } catch (error) {
+    console.error('correctDeliveredDeliveryAssignmentAction failed', error);
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo corregir la entrega.',
+    };
+  }
+}
+
 export async function reviewOrderChangesAction(input: {
   orderId: number;
   approved: boolean;

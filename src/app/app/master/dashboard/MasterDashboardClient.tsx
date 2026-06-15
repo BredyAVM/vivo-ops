@@ -18,6 +18,7 @@ import {
   assignInternalDriverAction,
   closeOrderRoundingBalanceAction,
   confirmPaymentReportAction,
+  correctDeliveredDeliveryAssignmentAction,
   createPaymentReportAction,
   deliverClientFundChangeAction,
   createInventoryProductionAction,
@@ -576,6 +577,7 @@ type Order = {
   }>;
   internalDriverUserId?: string | null;
   externalPartnerId?: number | null;
+  externalReference?: string | null;
   riderName?: string;
   externalPartner?: string;
 };
@@ -2531,6 +2533,10 @@ function canManageDeliveryAssignment(o: Order) {
   );
 }
 
+function canCorrectDeliveredDeliveryAssignment(o: Order, canEditClosedOrders: boolean) {
+  return canEditClosedOrders && o.fulfillment === 'delivery' && o.status === 'delivered';
+}
+
 function getProcessSteps(o: Order) {
   const isPickup = o.fulfillment === 'pickup';
 
@@ -3995,6 +4001,7 @@ const [deliveryAssignReference, setDeliveryAssignReference] = useState('');
 const [deliveryAssignDistanceKm, setDeliveryAssignDistanceKm] = useState('');
 const [deliveryAssignCostUsd, setDeliveryAssignCostUsd] = useState('');
 const [deliveryAssignCostManuallyEdited, setDeliveryAssignCostManuallyEdited] = useState(false);
+const [deliveryCorrectionReason, setDeliveryCorrectionReason] = useState('');
 
 const [paymentReportBoxOpen, setPaymentReportBoxOpen] = useState(false);
 const [paymentReportMoneyAccountId, setPaymentReportMoneyAccountId] = useState('');
@@ -5628,6 +5635,7 @@ const resetDeliveryAssignBox = () => {
   setDeliveryAssignDistanceKm('');
   setDeliveryAssignCostUsd('');
   setDeliveryAssignCostManuallyEdited(false);
+  setDeliveryCorrectionReason('');
 };
 
 const resetPriceAdjustBox = () => {
@@ -5745,6 +5753,32 @@ const handleAssignInternal = async (o: Order) => {
     }
 
     const inferredCostUsd = getInternalDeliveryPayUsd(o, catalogItemById);
+    const correctionMode = isDeliveredDeliveryCorrection(o);
+
+    if (correctionMode && deliveryCorrectionReason.trim().length < 6) {
+      showToast('error', 'Indica el motivo de la correccion.');
+      return;
+    }
+
+    if (correctionMode) {
+      const result = await correctDeliveredDeliveryAssignmentAction({
+        orderId: o.id,
+        assignmentKind: 'internal',
+        driverUserId: deliveryAssignDriverId,
+        costUsd: inferredCostUsd > 0 ? inferredCostUsd : o.editMeta?.deliveryCostUsd ?? null,
+        notes: deliveryCorrectionReason,
+      });
+
+      if (!result.ok) {
+        showToast('error', result.message || 'Error corrigiendo entrega.');
+        return;
+      }
+
+      showToast('success', 'Correccion de entrega guardada.');
+      resetDeliveryAssignBox();
+      router.refresh();
+      return;
+    }
 
     await assignInternalDriverAction({
       orderId: o.id,
@@ -5778,6 +5812,34 @@ const handleAssignExternal = async (o: Order) => {
 
     if (!Number.isFinite(costUsd) || costUsd < 0) {
       showToast('error', 'Debes indicar el costo del delivery.');
+      return;
+    }
+
+    const correctionMode = isDeliveredDeliveryCorrection(o);
+    if (correctionMode && deliveryCorrectionReason.trim().length < 6) {
+      showToast('error', 'Indica el motivo de la correccion.');
+      return;
+    }
+
+    if (correctionMode) {
+      const result = await correctDeliveredDeliveryAssignmentAction({
+        orderId: o.id,
+        assignmentKind: 'external',
+        partnerId: Number(deliveryAssignPartnerId),
+        reference: deliveryAssignReference.trim() || null,
+        distanceKm,
+        costUsd,
+        notes: deliveryCorrectionReason,
+      });
+
+      if (!result.ok) {
+        showToast('error', result.message || 'Error corrigiendo entrega.');
+        return;
+      }
+
+      showToast('success', 'Correccion de entrega guardada.');
+      resetDeliveryAssignBox();
+      router.refresh();
       return;
     }
 
@@ -10332,6 +10394,50 @@ const selectedCreateOrderClientAddresses = useMemo(
   const catalogItemById = useMemo(() => {
     return new Map(catalogItems.map((item) => [item.id, item]));
   }, [catalogItems]);
+
+  const canUseDeliveryAssignmentForm = useCallback(
+    (order: Order) =>
+      canManageDeliveryAssignment(order) ||
+      canCorrectDeliveredDeliveryAssignment(order, permissions.canEditClosedOrders),
+    [permissions.canEditClosedOrders]
+  );
+
+  const isDeliveredDeliveryCorrection = useCallback(
+    (order: Order) => canCorrectDeliveredDeliveryAssignment(order, permissions.canEditClosedOrders),
+    [permissions.canEditClosedOrders]
+  );
+
+  const openDeliveryAssignBox = useCallback(
+    (order: Order, mode: 'internal' | 'external') => {
+      setDeliveryAssignMode(mode);
+      setDeliveryCorrectionReason('');
+      setDeliveryAssignCostManuallyEdited(mode === 'external' && order.editMeta?.deliveryCostUsd != null);
+
+      if (mode === 'internal') {
+        setDeliveryAssignDriverId(order.internalDriverUserId ?? '');
+        setDeliveryAssignPartnerId('');
+        setDeliveryAssignReference('');
+        setDeliveryAssignDistanceKm('');
+        setDeliveryAssignCostUsd(
+          order.editMeta?.deliveryCostUsd != null
+            ? String(order.editMeta.deliveryCostUsd)
+            : String(getInternalDeliveryPayUsd(order, catalogItemById) || '')
+        );
+        return;
+      }
+
+      setDeliveryAssignDriverId('');
+      setDeliveryAssignPartnerId(order.externalPartnerId != null ? String(order.externalPartnerId) : '');
+      setDeliveryAssignReference(order.externalReference ?? '');
+      setDeliveryAssignDistanceKm(
+        order.editMeta?.deliveryDistanceKm != null ? String(order.editMeta.deliveryDistanceKm) : ''
+      );
+      setDeliveryAssignCostUsd(
+        order.editMeta?.deliveryCostUsd != null ? String(order.editMeta.deliveryCostUsd) : ''
+      );
+    },
+    [catalogItemById]
+  );
 
   const selectedOrderExpiredQuoteReview = useMemo(
     () =>
@@ -16809,37 +16915,22 @@ onClick={() => {
           </button>
         ) : null}
 
-{canManageDeliveryAssignment(selectedOrder) ? (
+{canUseDeliveryAssignmentForm(selectedOrder) ? (
   <>
     <button
       className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-      onClick={() => {
-        setDeliveryAssignMode('internal');
-        setDeliveryAssignPartnerId('');
-        setDeliveryAssignReference('');
-        setDeliveryAssignDistanceKm('');
-        setDeliveryAssignCostUsd(String(getInternalDeliveryPayUsd(selectedOrder, catalogItemById) || ''));
-      }}
+      onClick={() => openDeliveryAssignBox(selectedOrder, 'internal')}
     >
-      Asignar interno
+      {isDeliveredDeliveryCorrection(selectedOrder) ? 'Corregir interno' : 'Asignar interno'}
     </button>
 
     <button
       className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-      onClick={() => {
-        setDeliveryAssignMode('external');
-        setDeliveryAssignDriverId('');
-        setDeliveryAssignDistanceKm(
-          selectedOrder.editMeta?.deliveryDistanceKm != null ? String(selectedOrder.editMeta.deliveryDistanceKm) : ''
-        );
-        setDeliveryAssignCostUsd(
-          selectedOrder.editMeta?.deliveryCostUsd != null ? String(selectedOrder.editMeta.deliveryCostUsd) : ''
-        );
-      }}
+      onClick={() => openDeliveryAssignBox(selectedOrder, 'external')}
     >
-      Asignar externo
+      {isDeliveredDeliveryCorrection(selectedOrder) ? 'Corregir externo' : 'Asignar externo'}
     </button>
-    {hasDeliveryAssignment(selectedOrder) ? (
+    {canManageDeliveryAssignment(selectedOrder) && hasDeliveryAssignment(selectedOrder) ? (
       <button
         className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
         onClick={() => handleClearDeliveryAssignment(selectedOrder)}
@@ -17457,10 +17548,12 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </div>
 ) : null}
 
-{canManageDeliveryAssignment(selectedOrder) &&
+{canUseDeliveryAssignmentForm(selectedOrder) &&
 deliveryAssignMode === 'internal' ? (
   <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
-    <div className="text-[10px] font-medium text-[#B7B7C2]">Asignar driver interno</div>
+    <div className="text-[10px] font-medium text-[#B7B7C2]">
+      {isDeliveredDeliveryCorrection(selectedOrder) ? 'Corregir driver interno' : 'Asignar driver interno'}
+    </div>
 
     <div className="mt-2">
       <select
@@ -17481,12 +17574,24 @@ deliveryAssignMode === 'internal' ? (
       Pago interno aplicado: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(getInternalDeliveryPayUsd(selectedOrder, catalogItemById))}</span>
     </div>
 
+    {isDeliveredDeliveryCorrection(selectedOrder) ? (
+      <div className="mt-2">
+        <textarea
+          value={deliveryCorrectionReason}
+          onChange={(e) => setDeliveryCorrectionReason(e.target.value)}
+          rows={3}
+          placeholder="Motivo de la correccion"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+      </div>
+    ) : null}
+
     <div className="mt-2 flex flex-col gap-1.5">
       <button
         className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
         onClick={() => handleAssignInternal(selectedOrder)}
       >
-        Guardar interno
+        {isDeliveredDeliveryCorrection(selectedOrder) ? 'Guardar correccion' : 'Guardar interno'}
       </button>
 
       <button
@@ -17499,10 +17604,12 @@ deliveryAssignMode === 'internal' ? (
   </div>
 ) : null}
 
-{canManageDeliveryAssignment(selectedOrder) &&
+{canUseDeliveryAssignmentForm(selectedOrder) &&
 deliveryAssignMode === 'external' ? (
   <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-2">
-    <div className="text-[10px] font-medium text-[#B7B7C2]">Asignar partner externo</div>
+    <div className="text-[10px] font-medium text-[#B7B7C2]">
+      {isDeliveredDeliveryCorrection(selectedOrder) ? 'Corregir partner externo' : 'Asignar partner externo'}
+    </div>
 
     <div className="mt-2">
       <select
@@ -17566,12 +17673,24 @@ deliveryAssignMode === 'external' ? (
       />
     </div>
 
+    {isDeliveredDeliveryCorrection(selectedOrder) ? (
+      <div className="mt-2">
+        <textarea
+          value={deliveryCorrectionReason}
+          onChange={(e) => setDeliveryCorrectionReason(e.target.value)}
+          rows={3}
+          placeholder="Motivo de la correccion"
+          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+        />
+      </div>
+    ) : null}
+
     <div className="mt-2 flex flex-col gap-1.5">
       <button
         className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
         onClick={() => handleAssignExternal(selectedOrder)}
       >
-        Guardar externo
+        {isDeliveredDeliveryCorrection(selectedOrder) ? 'Guardar correccion' : 'Guardar externo'}
       </button>
 
       <button

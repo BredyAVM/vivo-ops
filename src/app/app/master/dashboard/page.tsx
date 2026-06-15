@@ -36,6 +36,7 @@ type RawOrderRow = {
   extra_fields: any;
   queued_needs_reapproval: boolean;
   external_driver_name: string | null;
+  external_reference: string | null;
   external_partner_id: number | null;
   internal_driver_user_id: string | null;
   eta_minutes: number | string | null;
@@ -1220,6 +1221,7 @@ const orderSelect = `
       extra_fields,
       queued_needs_reapproval,
       external_driver_name,
+      external_reference,
       external_partner_id,
       internal_driver_user_id,
       eta_minutes,
@@ -2782,6 +2784,7 @@ return {
       adminAdjustments,
       internalDriverUserId: row.internal_driver_user_id ?? null,
       externalPartnerId: row.external_partner_id ?? null,
+      externalReference: row.external_reference ?? null,
       riderName:
         (row.internal_driver_user_id
           ? internalDriverNameById.get(row.internal_driver_user_id)
