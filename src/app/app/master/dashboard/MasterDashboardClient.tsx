@@ -4035,6 +4035,9 @@ const [paymentConfirmChangeMoneyAccountId, setPaymentConfirmChangeMoneyAccountId
 const [paymentConfirmChangeAmount, setPaymentConfirmChangeAmount] = useState('');
 const [paymentConfirmChangeExchangeRate, setPaymentConfirmChangeExchangeRate] = useState('');
 const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
+const [orderActionBusyKey, setOrderActionBusyKey] = useState<string | null>(null);
+const [orderActionBusyLabel, setOrderActionBusyLabel] = useState('');
+const orderActionBusyRef = useRef(false);
 
   const [movementOpen, setMovementOpen] = useState(false);
   const [movementType, setMovementType] = useState<'Ingreso' | 'Egreso'>('Ingreso');
@@ -5708,6 +5711,30 @@ const resetReturnToQueueBox = () => {
   setReturnToQueueBoxOpen(false);
   setReturnToQueueReason('');
 };
+
+const runOrderAction = async (
+  key: string,
+  busyLabel: string,
+  action: () => Promise<void>,
+) => {
+  if (orderActionBusyRef.current) return;
+
+  orderActionBusyRef.current = true;
+  setOrderActionBusyKey(key);
+  setOrderActionBusyLabel(busyLabel);
+
+  try {
+    await action();
+  } finally {
+    orderActionBusyRef.current = false;
+    setOrderActionBusyKey(null);
+    setOrderActionBusyLabel('');
+  }
+};
+
+const isOrderActionBusy = orderActionBusyKey != null;
+const getOrderActionLabel = (key: string, idleLabel: string) =>
+  orderActionBusyKey === key ? orderActionBusyLabel : idleLabel;
 
 const handleSendToKitchen = async (orderId: number) => {
   try {
@@ -16837,10 +16864,13 @@ onClose={() => {
         {processFlag(selectedOrder) === 'APROBAR' ? (
           <>
             <button
-              className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
-              onClick={() => handleApprove(selectedOrder)}
+              className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7] disabled:cursor-wait disabled:opacity-60"
+              onClick={() =>
+                runOrderAction(`approve:${selectedOrder.id}`, 'Aprobando...', () => handleApprove(selectedOrder))
+              }
+              disabled={isOrderActionBusy}
             >
-              Aprobar
+              {getOrderActionLabel(`approve:${selectedOrder.id}`, 'Aprobar')}
             </button>
             <button
               className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
@@ -16910,10 +16940,15 @@ onClick={() => {
 
         {canSendToKitchen(selectedOrder) ? (
           <button
-            className="rounded-md border border-[#FEEF00]/60 bg-[#15120A] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
-            onClick={() => handleSendToKitchen(selectedOrder.id)}
+            className="rounded-md border border-[#FEEF00]/60 bg-[#15120A] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
+            onClick={() =>
+              runOrderAction(`send-kitchen:${selectedOrder.id}`, 'Enviando...', () =>
+                handleSendToKitchen(selectedOrder.id)
+              )
+            }
+            disabled={isOrderActionBusy}
           >
-            Enviar a cocina
+            {getOrderActionLabel(`send-kitchen:${selectedOrder.id}`, 'Enviar a cocina')}
           </button>
         ) : null}
 
@@ -16931,10 +16966,13 @@ onClick={() => {
 
         {canMarkReady(selectedOrder) ? (
           <button
-            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] text-emerald-300"
-            onClick={() => handleMarkReady(selectedOrder)}
+            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] text-emerald-300 disabled:cursor-wait disabled:opacity-60"
+            onClick={() =>
+              runOrderAction(`ready:${selectedOrder.id}`, 'Marcando...', () => handleMarkReady(selectedOrder))
+            }
+            disabled={isOrderActionBusy}
           >
-            Marcar preparada
+            {getOrderActionLabel(`ready:${selectedOrder.id}`, 'Marcar preparada')}
           </button>
         ) : null}
 
@@ -16949,10 +16987,16 @@ onClick={() => {
 
         {canMarkDelivered(selectedOrder) ? (
           <button
-            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] text-emerald-300"
-            onClick={() => handleMarkDelivered(selectedOrder)}
+            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] text-emerald-300 disabled:cursor-wait disabled:opacity-60"
+            onClick={() =>
+              runOrderAction(`delivered:${selectedOrder.id}`, 'Guardando...', () => handleMarkDelivered(selectedOrder))
+            }
+            disabled={isOrderActionBusy}
           >
-            {selectedOrder.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado'}
+            {getOrderActionLabel(
+              `delivered:${selectedOrder.id}`,
+              selectedOrder.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado'
+            )}
           </button>
         ) : null}
 
@@ -16990,10 +17034,15 @@ onClick={() => {
     </button>
     {canManageDeliveryAssignment(selectedOrder) && hasDeliveryAssignment(selectedOrder) ? (
       <button
-        className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
-        onClick={() => handleClearDeliveryAssignment(selectedOrder)}
+        className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400 disabled:cursor-wait disabled:opacity-60"
+        onClick={() =>
+          runOrderAction(`clear-delivery:${selectedOrder.id}`, 'Quitando...', () =>
+            handleClearDeliveryAssignment(selectedOrder)
+          )
+        }
+        disabled={isOrderActionBusy}
       >
-        Quitar asignación
+        {getOrderActionLabel(`clear-delivery:${selectedOrder.id}`, 'Quitar asignación')}
       </button>
     ) : null}
   </>
@@ -17004,10 +17053,15 @@ permissions.canCloseOrderRoundingBalance &&
 selectedOrder.balanceUsd > 0.005 &&
 selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   <button
-    className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-orange-400"
-    onClick={() => handleCloseRoundingBalance(selectedOrder)}
+    className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-orange-400 disabled:cursor-wait disabled:opacity-60"
+    onClick={() =>
+      runOrderAction(`close-rounding:${selectedOrder.id}`, 'Cerrando...', () =>
+        handleCloseRoundingBalance(selectedOrder)
+      )
+    }
+    disabled={isOrderActionBusy}
   >
-    Cerrar redondeo
+    {getOrderActionLabel(`close-rounding:${selectedOrder.id}`, 'Cerrar redondeo')}
   </button>
 ) : null}
 
@@ -17646,10 +17700,18 @@ deliveryAssignMode === 'internal' ? (
 
     <div className="mt-2 flex flex-col gap-1.5">
       <button
-        className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-        onClick={() => handleAssignInternal(selectedOrder)}
+        className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+        onClick={() =>
+          runOrderAction(`assign-internal:${selectedOrder.id}`, 'Guardando...', () =>
+            handleAssignInternal(selectedOrder)
+          )
+        }
+        disabled={isOrderActionBusy}
       >
-        {isDeliveredDeliveryCorrection(selectedOrder) ? 'Guardar correccion' : 'Guardar interno'}
+        {getOrderActionLabel(
+          `assign-internal:${selectedOrder.id}`,
+          isDeliveredDeliveryCorrection(selectedOrder) ? 'Guardar correccion' : 'Guardar interno'
+        )}
       </button>
 
       <button
@@ -17745,10 +17807,18 @@ deliveryAssignMode === 'external' ? (
 
     <div className="mt-2 flex flex-col gap-1.5">
       <button
-        className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-        onClick={() => handleAssignExternal(selectedOrder)}
+        className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+        onClick={() =>
+          runOrderAction(`assign-external:${selectedOrder.id}`, 'Guardando...', () =>
+            handleAssignExternal(selectedOrder)
+          )
+        }
+        disabled={isOrderActionBusy}
       >
-        {isDeliveredDeliveryCorrection(selectedOrder) ? 'Guardar correccion' : 'Guardar externo'}
+        {getOrderActionLabel(
+          `assign-external:${selectedOrder.id}`,
+          isDeliveredDeliveryCorrection(selectedOrder) ? 'Guardar correccion' : 'Guardar externo'
+        )}
       </button>
 
       <button
@@ -17786,28 +17856,37 @@ deliveryAssignMode === 'external' ? (
     <div className="mt-2 flex flex-col gap-1.5">
       {reviewActionMode === 'approve' ? (
         <button
-          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-          onClick={() => handleApprove(selectedOrder)}
+          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+          onClick={() =>
+            runOrderAction(`approve:${selectedOrder.id}`, 'Aprobando...', () => handleApprove(selectedOrder))
+          }
+          disabled={isOrderActionBusy}
         >
-          Confirmar aprobación
+          {getOrderActionLabel(`approve:${selectedOrder.id}`, 'Confirmar aprobación')}
         </button>
       ) : null}
 
       {reviewActionMode === 'reapprove' ? (
         <button
-          className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-          onClick={() => handleApprove(selectedOrder)}
+          className="rounded-md border border-orange-500 bg-orange-500 px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+          onClick={() =>
+            runOrderAction(`reapprove:${selectedOrder.id}`, 'Re-aprobando...', () => handleApprove(selectedOrder))
+          }
+          disabled={isOrderActionBusy}
         >
-          Confirmar re-aprobación
+          {getOrderActionLabel(`reapprove:${selectedOrder.id}`, 'Confirmar re-aprobación')}
         </button>
       ) : null}
 
       {reviewActionMode === 'return' ? (
         <button
-          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-          onClick={() => handleReturn(selectedOrder)}
+          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+          onClick={() =>
+            runOrderAction(`return:${selectedOrder.id}`, 'Enviando...', () => handleReturn(selectedOrder))
+          }
+          disabled={isOrderActionBusy}
         >
-          Enviar devolución
+          {getOrderActionLabel(`return:${selectedOrder.id}`, 'Enviar devolución')}
         </button>
       ) : null}
 
@@ -17851,10 +17930,15 @@ deliveryAssignMode === 'external' ? (
 
       <div className="flex flex-col gap-1.5">
         <button
-          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-          onClick={() => handleKitchenTake(selectedOrder)}
+          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+          onClick={() =>
+            runOrderAction(`kitchen-take:${selectedOrder.id}`, 'Confirmando...', () =>
+              handleKitchenTake(selectedOrder)
+            )
+          }
+          disabled={isOrderActionBusy}
         >
-          Confirmar cocina
+          {getOrderActionLabel(`kitchen-take:${selectedOrder.id}`, 'Confirmar cocina')}
         </button>
 
         <button
@@ -17907,10 +17991,15 @@ deliveryAssignMode === 'external' ? (
 
       <div className="flex flex-col gap-1.5">
         <button
-          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]"
-          onClick={() => handleOutForDelivery(selectedOrder)}
+          className="rounded-md border border-[#FEEF00] bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+          onClick={() =>
+            runOrderAction(`out-delivery:${selectedOrder.id}`, 'Confirmando...', () =>
+              handleOutForDelivery(selectedOrder)
+            )
+          }
+          disabled={isOrderActionBusy}
         >
-          Confirmar salida
+          {getOrderActionLabel(`out-delivery:${selectedOrder.id}`, 'Confirmar salida')}
         </button>
 
         <button
@@ -17952,10 +18041,15 @@ deliveryAssignMode === 'external' ? (
 
     <div className="mt-2 flex flex-col gap-1.5">
       <button
-        className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-orange-400"
-        onClick={() => handleReturnFromKitchenToQueue(selectedOrder)}
+        className="rounded-md border border-orange-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-orange-400 disabled:cursor-wait disabled:opacity-60"
+        onClick={() =>
+          runOrderAction(`return-queue:${selectedOrder.id}`, 'Regresando...', () =>
+            handleReturnFromKitchenToQueue(selectedOrder)
+          )
+        }
+        disabled={isOrderActionBusy}
       >
-        Confirmar regreso
+        {getOrderActionLabel(`return-queue:${selectedOrder.id}`, 'Confirmar regreso')}
       </button>
 
       <button
@@ -18082,10 +18176,13 @@ deliveryAssignMode === 'external' ? (
 
     <div className="mt-2 flex flex-col gap-1.5">
       <button
-        className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400"
-        onClick={() => handleCancelOrder(selectedOrder)}
+        className="rounded-md border border-red-500/50 bg-[#0D0D11] px-2 py-1 text-[10px] text-red-400 disabled:cursor-wait disabled:opacity-60"
+        onClick={() =>
+          runOrderAction(`cancel:${selectedOrder.id}`, 'Cancelando...', () => handleCancelOrder(selectedOrder))
+        }
+        disabled={isOrderActionBusy}
       >
-        Confirmar cancelación
+        {getOrderActionLabel(`cancel:${selectedOrder.id}`, 'Confirmar cancelación')}
       </button>
 
       <button
