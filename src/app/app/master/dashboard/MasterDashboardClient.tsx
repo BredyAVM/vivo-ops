@@ -2533,8 +2533,12 @@ function canManageDeliveryAssignment(o: Order) {
   );
 }
 
+function isDeliveredDeliveryOrder(o: Order) {
+  return o.fulfillment === 'delivery' && o.status === 'delivered';
+}
+
 function canCorrectDeliveredDeliveryAssignment(o: Order, canEditClosedOrders: boolean) {
-  return canEditClosedOrders && o.fulfillment === 'delivery' && o.status === 'delivered';
+  return canEditClosedOrders && isDeliveredDeliveryOrder(o);
 }
 
 function getProcessSteps(o: Order) {
@@ -16219,22 +16223,36 @@ onClose={() => {
             </div>
           </div>
 
-          {isDeliveredDeliveryCorrection(selectedOrder) ? (
+          {isDeliveredDeliveryOrder(selectedOrder) ? (
             <div className="rounded-lg border border-[#3A2F12] bg-[#151208] px-3 py-2">
               <div className="text-[10px] text-[#8A8A96]">Corrección administrativa</div>
               <div className="mt-1 text-xs text-[#B7B7C2]">
-                Ajusta driver, partner, distancia o costo sin reabrir el pedido entregado.
+                {isDeliveredDeliveryCorrection(selectedOrder)
+                  ? 'Ajusta driver, partner, distancia o costo sin reabrir el pedido entregado.'
+                  : 'Solo admin puede corregir un pedido entregado.'}
               </div>
               <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 <button
-                  className="rounded-md border border-[#FEEF00]/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
+                  className={[
+                    'rounded-md border bg-[#0D0D11] px-2.5 py-1.5 text-[11px] font-medium',
+                    isDeliveredDeliveryCorrection(selectedOrder)
+                      ? 'border-[#FEEF00]/50 text-[#FEEF00]'
+                      : 'border-[#242433] text-[#656570]',
+                  ].join(' ')}
                   onClick={() => openDeliveryAssignBox(selectedOrder, 'internal')}
+                  disabled={!isDeliveredDeliveryCorrection(selectedOrder)}
                 >
                   Corregir interno
                 </button>
                 <button
-                  className="rounded-md border border-[#FEEF00]/50 bg-[#0D0D11] px-2.5 py-1.5 text-[11px] font-medium text-[#FEEF00]"
+                  className={[
+                    'rounded-md border bg-[#0D0D11] px-2.5 py-1.5 text-[11px] font-medium',
+                    isDeliveredDeliveryCorrection(selectedOrder)
+                      ? 'border-[#FEEF00]/50 text-[#FEEF00]'
+                      : 'border-[#242433] text-[#656570]',
+                  ].join(' ')}
                   onClick={() => openDeliveryAssignBox(selectedOrder, 'external')}
+                  disabled={!isDeliveredDeliveryCorrection(selectedOrder)}
                 >
                   Corregir externo
                 </button>
@@ -16938,18 +16956,35 @@ onClick={() => {
           </button>
         ) : null}
 
-{canUseDeliveryAssignmentForm(selectedOrder) ? (
+{canUseDeliveryAssignmentForm(selectedOrder) || isDeliveredDeliveryOrder(selectedOrder) ? (
   <>
+    {isDeliveredDeliveryOrder(selectedOrder) && !isDeliveredDeliveryCorrection(selectedOrder) ? (
+      <div className="rounded-md border border-[#3A2F12] bg-[#151208] px-2 py-1.5 text-[10px] text-[#B7B7C2]">
+        Solo admin puede corregir entrega cerrada.
+      </div>
+    ) : null}
     <button
-      className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+      className={[
+        'rounded-md border px-2 py-1 text-[10px]',
+        isDeliveredDeliveryOrder(selectedOrder) && !isDeliveredDeliveryCorrection(selectedOrder)
+          ? 'border-[#242433] bg-[#0D0D11] text-[#656570]'
+          : 'border-[#2A2A38] bg-[#0D0D11] text-[#F5F5F7]',
+      ].join(' ')}
       onClick={() => openDeliveryAssignBox(selectedOrder, 'internal')}
+      disabled={isDeliveredDeliveryOrder(selectedOrder) && !isDeliveredDeliveryCorrection(selectedOrder)}
     >
       {isDeliveredDeliveryCorrection(selectedOrder) ? 'Corregir interno' : 'Asignar interno'}
     </button>
 
     <button
-      className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+      className={[
+        'rounded-md border px-2 py-1 text-[10px]',
+        isDeliveredDeliveryOrder(selectedOrder) && !isDeliveredDeliveryCorrection(selectedOrder)
+          ? 'border-[#242433] bg-[#0D0D11] text-[#656570]'
+          : 'border-[#2A2A38] bg-[#0D0D11] text-[#F5F5F7]',
+      ].join(' ')}
       onClick={() => openDeliveryAssignBox(selectedOrder, 'external')}
+      disabled={isDeliveredDeliveryOrder(selectedOrder) && !isDeliveredDeliveryCorrection(selectedOrder)}
     >
       {isDeliveredDeliveryCorrection(selectedOrder) ? 'Corregir externo' : 'Asignar externo'}
     </button>
