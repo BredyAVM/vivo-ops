@@ -2575,7 +2575,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
     const { data: currentOrder, error: currentOrderError } = await supabase
       .from('orders')
       .select(
-        'id, status, fulfillment, extra_fields, internal_driver_user_id, external_partner_id, external_driver_name, external_driver_phone, external_reference'
+        'id, status, fulfillment, delivery_mode, extra_fields, internal_driver_user_id, external_partner_id, external_driver_name, external_driver_phone, external_reference'
       )
       .eq('id', orderId)
       .single();
@@ -2613,6 +2613,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
       external_driver_name: currentOrder.external_driver_name ?? null,
       external_driver_phone: currentOrder.external_driver_phone ?? null,
       external_reference: currentOrder.external_reference ?? null,
+      delivery_mode: currentOrder.delivery_mode ?? null,
       distance_km: currentDelivery.distance_km ?? null,
       cost_usd: currentDelivery.cost_usd ?? null,
       cost_source: currentDelivery.cost_source ?? null,
@@ -2636,6 +2637,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
       }
 
       updatePayload.internal_driver_user_id = driverUserId;
+      updatePayload.delivery_mode = 'internal';
       updatePayload.external_partner_id = null;
       updatePayload.external_driver_name = null;
       updatePayload.external_driver_phone = null;
@@ -2644,6 +2646,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
         ...extraFields,
         delivery: {
           ...currentDelivery,
+          delivery_mode: 'internal',
           cost_usd: normalizedCostUsd,
           cost_source: 'admin_delivered_correction_internal',
           corrected_at: nowIso,
@@ -2679,6 +2682,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
 
       const reference = String(input.reference || '').trim() || null;
       updatePayload.internal_driver_user_id = null;
+      updatePayload.delivery_mode = 'external';
       updatePayload.external_partner_id = partnerId;
       updatePayload.external_driver_name = partner.name ?? null;
       updatePayload.external_driver_phone = partner.whatsapp_phone ?? null;
@@ -2687,6 +2691,7 @@ export async function correctDeliveredDeliveryAssignmentAction(input: {
         ...extraFields,
         delivery: {
           ...currentDelivery,
+          delivery_mode: 'external',
           distance_km: Math.max(0, roundMoney(distanceKm)),
           cost_usd: normalizedCostUsd,
           cost_source: 'admin_delivered_correction_external',
