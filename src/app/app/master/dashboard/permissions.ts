@@ -1,4 +1,4 @@
-export type MasterDashboardRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+export type MasterDashboardRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
 export type MasterDashboardPermissionKey = keyof MasterDashboardPermissions;
 

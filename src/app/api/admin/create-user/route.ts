@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-type Role = "admin" | "master" | "advisor" | "kitchen" | "driver";
+type Role = "admin" | "master" | "advisor" | "kitchen" | "counter" | "driver";
 
 type CreateUserBody = {
   accessToken: string;

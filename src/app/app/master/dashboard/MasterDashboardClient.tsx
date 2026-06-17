@@ -287,7 +287,7 @@ type AccountMovementFilter =
   | 'transfers';
 
 type AccountDetailTab = 'operation' | 'closures' | 'rules' | 'audit';
-type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'advisor' | 'review' | 'pending';
+type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'counter' | 'advisor' | 'review' | 'pending';
 type GlobalAuditFocusFilter = 'all' | 'pending' | 'exceptions' | 'transfers' | 'fees' | 'approvals';
 type MoneyMovementOutflowPurpose = 'change' | 'expense';
 
@@ -711,7 +711,7 @@ type ToastState = {
   message: string;
 } | null;
 type SettingsTab = 'catalog' | 'inventory' | 'exchange_rate' | 'accounts' | 'clients' | 'notifications' | 'users' | 'adjustments';
-type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 type CalculationsTab = 'general' | 'commissions' | 'deliveries';
 type DeliveriesTab = 'overview' | 'internal' | 'external' | 'partners';
 type CalculationsSource = '' | 'advisor' | 'master' | 'walk_in';
@@ -919,6 +919,7 @@ const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   all: 'Todas',
   active: 'Activas',
   kitchen: 'Cocina',
+  counter: 'Mostrador',
   advisor: 'Asesor',
   review: 'Revisión',
   pending: 'Pendiente',
@@ -982,16 +983,16 @@ type EditableInventoryLinkRow = {
 
 const ORDER_STATUS_LABEL = ORDER_STATUS_LABELS as Record<OrderStatus, string>;
 
-const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'driver'];
+const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'counter', 'driver'];
 const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos', 'retention'];
-const ACCOUNT_REVIEW_ROLES: AppUserRole[] = ['master', 'admin', 'kitchen'];
-const KITCHEN_COUNTER_METHODS = new Set<PaymentMethodCode>(['cash_usd', 'cash_ves', 'pos']);
+const ACCOUNT_REVIEW_ROLES: AppUserRole[] = ['master', 'admin', 'counter'];
 
 const APP_USER_ROLE_LABEL: Record<AppUserRole, string> = {
   admin: 'Admin',
   master: 'Master',
   advisor: 'Asesor',
   kitchen: 'Cocina',
+  counter: 'Mostrador',
   driver: 'Motorizado',
 };
 
@@ -2137,7 +2138,7 @@ function getPaymentMethodRolesForAccount(method: PaymentMethodCode, account: Mon
   if (!isPaymentMethodApplicableToAccount(method, account)) return [];
 
   if (method === 'payment_mobile' || method === 'transfer' || method === 'zelle') {
-    return ['admin', 'master', 'advisor'];
+    return ['admin', 'master', 'advisor', 'counter'];
   }
 
   if (method === 'retention') {
@@ -2145,11 +2146,11 @@ function getPaymentMethodRolesForAccount(method: PaymentMethodCode, account: Mon
   }
 
   if (method === 'pos') {
-    return ['admin', 'master', 'kitchen'];
+    return ['admin', 'master', 'counter'];
   }
 
   if (method === 'cash_usd' || method === 'cash_ves') {
-    return ['admin', 'master', 'kitchen', 'driver'];
+    return ['admin', 'master', 'counter', 'driver'];
   }
 
   return ['admin', 'master'];
@@ -2200,15 +2201,16 @@ function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode
     };
   }
 
-  if (role === 'kitchen' && counterMethod) {
+  if (role === 'counter' && (remoteMethod || counterMethod)) {
     return {
       ...draft,
       canViewAccount: true,
+      canShareWithClient: remoteMethod && method !== 'retention',
       canReportPayment: true,
       canConfirmPayment: counterMethod,
       autoConfirmsReport: counterMethod,
-      reviewRequired: false,
-      reviewRoles: [],
+      reviewRequired: remoteMethod,
+      reviewRoles: remoteMethod ? ['master', 'admin'] : [],
       isActive: true,
     };
   }
@@ -2219,7 +2221,7 @@ function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode
       canViewAccount: true,
       canReportPayment: true,
       reviewRequired: true,
-      reviewRoles: ['kitchen', 'master', 'admin'],
+      reviewRoles: ['counter', 'master', 'admin'],
       isActive: true,
     };
   }
@@ -3786,6 +3788,7 @@ export default function MasterDashboardClient({
     master: false,
     advisor: false,
     kitchen: false,
+    counter: false,
     driver: false,
   });
   const [inventorySearch, setInventorySearch] = useState('');
@@ -5641,6 +5644,7 @@ const openEditDashboardUser = (userItem: DashboardUser) => {
     master: userRoles.has('master'),
     advisor: userRoles.has('advisor'),
     kitchen: userRoles.has('kitchen'),
+    counter: userRoles.has('counter'),
     driver: userRoles.has('driver'),
   });
   setUserEditOpen(true);
@@ -5656,6 +5660,7 @@ const closeEditDashboardUser = () => {
     master: false,
     advisor: false,
     kitchen: false,
+    counter: false,
     driver: false,
   });
 };
@@ -9641,6 +9646,7 @@ const accountRulesByAccountId = useMemo(() => {
     if (!isPaymentMethodCode(rule.paymentMethodCode)) continue;
     const account = accountById.get(rule.moneyAccountId);
     if (!account || !isPaymentMethodApplicableToAccount(rule.paymentMethodCode, account)) continue;
+    if (!getPaymentMethodRolesForAccount(rule.paymentMethodCode, account).includes(rule.role)) continue;
     const list = map.get(rule.moneyAccountId) ?? [];
     list.push(rule);
     map.set(rule.moneyAccountId, list);
@@ -9660,6 +9666,7 @@ const paymentReportAccountOptions = useMemo(() => {
     if (!isPaymentMethodCode(rule.paymentMethodCode)) continue;
     const account = activeAccounts.find((item) => item.id === rule.moneyAccountId) ?? null;
     if (!account || !isPaymentMethodApplicableToAccount(rule.paymentMethodCode, account)) continue;
+    if (!getPaymentMethodRolesForAccount(rule.paymentMethodCode, account).includes(rule.role)) continue;
     if (methodIsSpecific && rule.paymentMethodCode !== paymentMethod) continue;
     allowedAccountIds.add(rule.moneyAccountId);
   }
@@ -9993,6 +10000,7 @@ const selectedCreateOrderClientAddresses = useMemo(
     return moneyAccounts.filter((account) => {
       const rules = accountRulesByAccountId.get(account.id) ?? [];
       const hasKitchenRule = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
+      const hasCounterRule = rules.some((rule) => rule.role === 'counter' && rule.canViewAccount);
       const hasAdvisorRule = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
       const hasReviewRule = rules.some((rule) => rule.reviewRequired);
       const hasPendingMovement = moneyMovements.some(
@@ -10001,6 +10009,7 @@ const selectedCreateOrderClientAddresses = useMemo(
 
       if (accountQuickFilter === 'active' && !account.isActive) return false;
       if (accountQuickFilter === 'kitchen' && !hasKitchenRule) return false;
+      if (accountQuickFilter === 'counter' && !hasCounterRule) return false;
       if (accountQuickFilter === 'advisor' && !hasAdvisorRule) return false;
       if (accountQuickFilter === 'review' && !hasReviewRule) return false;
       if (accountQuickFilter === 'pending' && !hasPendingMovement) return false;
@@ -14139,6 +14148,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const rules = accountRulesByAccountId.get(account.id) ?? [];
             const hasAdvisor = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
             const hasKitchen = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
+            const hasCounter = rules.some((rule) => rule.role === 'counter' && rule.canViewAccount);
             const hasReview = rules.some((rule) => rule.reviewRequired);
             const latestClosure = moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
             const activeBaseline =
@@ -14148,7 +14158,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
               .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
             const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-            const accountTags = [hasAdvisor ? 'Asesor' : null, hasKitchen ? 'Cocina' : null, hasReview ? 'Revisión' : null].filter(
+            const accountTags = [
+              hasAdvisor ? 'Asesor' : null,
+              hasKitchen ? 'Cocina' : null,
+              hasCounter ? 'Mostrador' : null,
+              hasReview ? 'Revisión' : null,
+            ].filter(
               (tag): tag is string => Boolean(tag)
             );
 

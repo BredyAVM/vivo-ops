@@ -163,7 +163,7 @@ type MoneyAccountRow = {
 type MoneyAccountPaymentRuleRow = {
   id: number;
   money_account_id: number;
-  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
   payment_method_code: string;
   can_view_account: boolean;
   can_share_with_client: boolean;
@@ -171,7 +171,7 @@ type MoneyAccountPaymentRuleRow = {
   can_confirm_payment: boolean;
   auto_confirms_report: boolean;
   review_required: boolean;
-  review_roles: Array<'admin' | 'master' | 'advisor' | 'kitchen' | 'driver'> | null;
+  review_roles: Array<'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver'> | null;
   is_active: boolean;
 };
 
@@ -268,7 +268,7 @@ type RawProfileRow = {
 
 type RawUserRoleRow = {
   user_id: string;
-  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+  role: 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 };
 
 type RawMasterInboxItemStateRow = {

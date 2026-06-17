@@ -7,7 +7,7 @@ import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { sendPushToRoleDevices } from '@/lib/push';
 
-type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
 const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle']);
 

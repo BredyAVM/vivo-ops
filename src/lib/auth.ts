@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { createSupabaseServer } from '@/lib/supabase/server';
 
-export type AppRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'driver';
+export type AppRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
 export type AuthContext = {
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>;
@@ -14,7 +14,7 @@ export type AuthContext = {
 function normalizeRoles(value: unknown): AppRole[] {
   if (!Array.isArray(value)) return [];
 
-  const allowed = new Set<AppRole>(['admin', 'master', 'advisor', 'kitchen', 'driver']);
+  const allowed = new Set<AppRole>(['admin', 'master', 'advisor', 'kitchen', 'counter', 'driver']);
   return value.filter((role): role is AppRole => typeof role === 'string' && allowed.has(role as AppRole));
 }
 
