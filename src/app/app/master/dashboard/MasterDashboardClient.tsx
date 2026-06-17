@@ -13949,7 +13949,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <InfoCell label="Pendiente ref." value={fmtUSD(globalAuditSummary.pendingUsd)} />
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[180px_minmax(0,1fr)_220px]">
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[180px_minmax(220px,520px)_minmax(340px,1fr)]">
         <FieldSelect
           label="Estado"
           value={globalAuditStatusFilter}
@@ -13964,14 +13964,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         />
         <div>
           <label className="mb-1 block text-xs text-[#8A8A96]">Vista</label>
-          <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-1">
             {(Object.keys(GLOBAL_AUDIT_FOCUS_LABEL) as GlobalAuditFocusFilter[]).map((filter) => (
               <button
                 key={filter}
                 type="button"
                 onClick={() => setGlobalAuditFocusFilter(filter)}
                 className={[
-                  'whitespace-nowrap rounded-full border px-2.5 py-2 text-[11px]',
+                  'whitespace-nowrap rounded-full border px-2.5 py-2 text-[11px] leading-none',
                   globalAuditFocusFilter === filter
                     ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
                     : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
