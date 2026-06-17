@@ -4,6 +4,10 @@ Fecha: 2026-06-04
 
 Este documento define el contrato base para pagos, movimientos, fondos, retenciones, redondeos, anulaciones y saldos de orden. La meta es dejar de resolver cada caso financiero desde la UI y mover la verdad del dinero a una capa unica y verificable.
 
+Documento complementario obligatorio:
+
+- `docs/FINANCIAL_GOVERNANCE_POLICY_2026-06-16.md`: define reglas canonicas para fechas, tipos de cuenta, cierres, diferencias, conciliacion, anulaciones, reaperturas y auditoria.
+
 ## Principio central
 
 `money_movements` es la fuente de verdad contable.
