@@ -160,6 +160,17 @@ type MoneyAccountPaymentRule = {
   isActive: boolean;
 };
 
+type MoneyAccountClosureProfile = {
+  moneyAccountId: number;
+  closureKind: 'bank' | 'cash' | 'pos' | 'wallet_usd' | 'retention' | 'fund' | 'other';
+  requiresZeroDifference: boolean;
+  allowsClassifiedDifference: boolean;
+  generatesTransferOnClose: boolean;
+  defaultTargetMoneyAccountId: number | null;
+  baselineRequired: boolean;
+  notes: string | null;
+};
+
 type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
 
 type AccountRuleDraft = {
@@ -838,6 +849,16 @@ const MONEY_ACCOUNT_KIND_LABEL: Record<MoneyAccountOption['accountKind'], string
   other: 'Otro',
   pos: 'Punto',
   wallet: 'Wallet',
+};
+
+const MONEY_ACCOUNT_CLOSURE_KIND_LABEL: Record<MoneyAccountClosureProfile['closureKind'], string> = {
+  bank: 'Banco',
+  cash: 'Caja',
+  pos: 'Punto',
+  wallet_usd: 'Wallet USD',
+  retention: 'Retenciones',
+  fund: 'Fondo',
+  other: 'Otro',
 };
 
 const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
@@ -3618,6 +3639,7 @@ export default function MasterDashboardClient({
   operationSummary,
   moneyAccounts,
   moneyAccountPaymentRules = [],
+  moneyAccountClosureProfiles = [],
   moneyMovements: initialMoneyMovements = [],
   moneyAccountClosures: initialMoneyAccountClosures = [],
   inventoryItems = [],
@@ -3666,6 +3688,7 @@ export default function MasterDashboardClient({
   };
   moneyAccounts: MoneyAccountOption[];
   moneyAccountPaymentRules?: MoneyAccountPaymentRule[];
+  moneyAccountClosureProfiles?: MoneyAccountClosureProfile[];
   moneyMovements?: MoneyMovementItem[];
   moneyAccountClosures?: MoneyAccountClosureItem[];
   inventoryItems?: InventoryItem[];
@@ -9711,6 +9734,14 @@ const selectedOrderChangeMovements = useMemo(() => {
     () => moneyAccounts.find((account) => account.id === selectedAccountId) ?? null,
     [moneyAccounts, selectedAccountId]
   );
+
+  const moneyAccountClosureProfileByAccountId = useMemo(() => {
+    return new Map(moneyAccountClosureProfiles.map((profile) => [profile.moneyAccountId, profile]));
+  }, [moneyAccountClosureProfiles]);
+
+  const selectedAccountClosureProfile = selectedAccount
+    ? moneyAccountClosureProfileByAccountId.get(selectedAccount.id) ?? null
+    : null;
 
   const selectedDeliveryPartner = useMemo(
     () => deliveryPartners.find((partner) => partner.id === selectedDeliveryPartnerId) ?? null,
@@ -19220,6 +19251,24 @@ deliveryAssignMode === 'external' ? (
             <div className="grid grid-cols-2 gap-3">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
+              <InfoCell
+                label="Perfil cierre"
+                value={
+                  selectedAccountClosureProfile
+                    ? MONEY_ACCOUNT_CLOSURE_KIND_LABEL[selectedAccountClosureProfile.closureKind]
+                    : 'Sin perfil'
+                }
+              />
+              <InfoCell
+                label="Regla cierre"
+                value={
+                  selectedAccountClosureProfile?.requiresZeroDifference
+                    ? 'Diferencia cero'
+                    : selectedAccountClosureProfile?.allowsClassifiedDifference
+                      ? 'Diferencia clasificada'
+                      : 'Por definir'
+                }
+              />
               <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
               <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
             </div>

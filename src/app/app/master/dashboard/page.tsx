@@ -175,6 +175,17 @@ type MoneyAccountPaymentRuleRow = {
   is_active: boolean;
 };
 
+type MoneyAccountClosureProfileRow = {
+  money_account_id: number;
+  closure_kind: 'bank' | 'cash' | 'pos' | 'wallet_usd' | 'retention' | 'fund' | 'other';
+  requires_zero_difference: boolean;
+  allows_classified_difference: boolean;
+  generates_transfer_on_close: boolean;
+  default_target_money_account_id: number | null;
+  baseline_required: boolean;
+  notes: string | null;
+};
+
 type RawMoneyMovementRow = {
   id: number;
   movement_date: string;
@@ -506,7 +517,7 @@ function createDashboardReferenceClient() {
 const loadMasterDashboardFinancialReferences = unstable_cache(
   async () => {
     const supabase = createDashboardReferenceClient();
-    const [moneyAccountsResult, moneyAccountPaymentRulesResult] = await Promise.all([
+    const [moneyAccountsResult, moneyAccountPaymentRulesResult, moneyAccountClosureProfilesResult] = await Promise.all([
       supabase
         .from('money_accounts')
         .select('id, name, currency_code, account_kind, institution_name, owner_name, notes, is_active, created_at, created_by_user_id')
@@ -530,17 +541,38 @@ const loadMasterDashboardFinancialReferences = unstable_cache(
         .order('money_account_id', { ascending: true })
         .order('role', { ascending: true })
         .order('payment_method_code', { ascending: true }),
+      supabase
+        .from('money_account_closure_profiles')
+        .select(`
+          money_account_id,
+          closure_kind,
+          requires_zero_difference,
+          allows_classified_difference,
+          generates_transfer_on_close,
+          default_target_money_account_id,
+          baseline_required,
+          notes
+        `)
+        .order('money_account_id', { ascending: true }),
     ]);
 
     if (moneyAccountsResult.error) throw new Error(moneyAccountsResult.error.message);
     if (moneyAccountPaymentRulesResult.error) throw new Error(moneyAccountPaymentRulesResult.error.message);
+    const profileError = moneyAccountClosureProfilesResult.error;
+    const profileTableMissing =
+      profileError &&
+      ('code' in profileError ? String(profileError.code || '') === 'PGRST205' || String(profileError.code || '') === '42P01' : false);
+    if (profileError && !profileTableMissing) throw new Error(profileError.message);
 
     return {
       moneyAccountsData: (moneyAccountsResult.data ?? []) as MoneyAccountRow[],
       moneyAccountPaymentRulesData: (moneyAccountPaymentRulesResult.data ?? []) as MoneyAccountPaymentRuleRow[],
+      moneyAccountClosureProfilesData: profileTableMissing
+        ? ([] as MoneyAccountClosureProfileRow[])
+        : ((moneyAccountClosureProfilesResult.data ?? []) as MoneyAccountClosureProfileRow[]),
     };
   },
-  ['master-dashboard-financial-references-v1'],
+  ['master-dashboard-financial-references-v2'],
   {
     revalidate: MASTER_DASHBOARD_REFERENCE_CACHE_SECONDS,
     tags: ['master-dashboard-financial-references'],
@@ -1758,7 +1790,7 @@ const calculationOrdersLimitExceeded =
     );
   }
 
-  const { moneyAccountsData, moneyAccountPaymentRulesData } = financialReferences;
+  const { moneyAccountsData, moneyAccountPaymentRulesData, moneyAccountClosureProfilesData } = financialReferences;
 
   const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
   const reportIdsForMovementStatus = rawReports
@@ -1871,6 +1903,19 @@ const calculationOrdersLimitExceeded =
     reviewRoles: rule.review_roles ?? [],
     isActive: Boolean(rule.is_active),
   }));
+
+  const moneyAccountClosureProfiles: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosureProfiles'] =
+    ((moneyAccountClosureProfilesData ?? []) as MoneyAccountClosureProfileRow[]).map((profile) => ({
+      moneyAccountId: Number(profile.money_account_id),
+      closureKind: profile.closure_kind,
+      requiresZeroDifference: Boolean(profile.requires_zero_difference),
+      allowsClassifiedDifference: Boolean(profile.allows_classified_difference),
+      generatesTransferOnClose: Boolean(profile.generates_transfer_on_close),
+      defaultTargetMoneyAccountId:
+        profile.default_target_money_account_id == null ? null : Number(profile.default_target_money_account_id),
+      baselineRequired: Boolean(profile.baseline_required),
+      notes: profile.notes ?? null,
+    }));
 
   const movementOrderClientById = new Map<
     number,
@@ -2839,6 +2884,7 @@ currentUser={{
       }}
       moneyAccounts={moneyAccounts}
       moneyAccountPaymentRules={moneyAccountPaymentRules}
+      moneyAccountClosureProfiles={moneyAccountClosureProfiles}
       moneyMovements={moneyMovements}
       moneyAccountClosures={moneyAccountClosures}
       inventoryItems={inventoryItems}
