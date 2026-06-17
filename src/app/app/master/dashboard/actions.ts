@@ -2496,6 +2496,13 @@ export async function cancelOrderAction(input: {
   orderId: number;
   reason: string;
   paidHandling?: 'store_fund' | 'refund' | null;
+  refundLines?: Array<{
+    moneyAccountId: number;
+    currencyCode: string;
+    amount: number;
+    exchangeRateVesPerUsd?: number | null;
+    notes?: string | null;
+  }>;
   refundMoneyAccountId?: number | null;
   refundCurrency?: string | null;
   refundExchangeRateVesPerUsd?: number | null;
@@ -2551,6 +2558,49 @@ export async function cancelOrderAction(input: {
   const hasClientFundsToRestore = previousFundUsedUsd > 0.005;
   const hasConfirmedMoneyToSettle = confirmedPaidUsd > 0.005;
   const paidHandling = input.paidHandling ?? null;
+  const cleanRefundLines =
+    hasConfirmedMoneyToSettle && paidHandling === 'refund'
+      ? (Array.isArray(input.refundLines) && input.refundLines.length > 0
+          ? input.refundLines
+          : [
+              {
+                moneyAccountId: Number(input.refundMoneyAccountId || 0),
+                currencyCode: String(input.refundCurrency || '').trim().toUpperCase(),
+                amount: toNativeAmountFromUsd(
+                  confirmedPaidUsd,
+                  String(input.refundCurrency || '').trim().toUpperCase(),
+                  input.refundExchangeRateVesPerUsd ?? null
+                ),
+                exchangeRateVesPerUsd: input.refundExchangeRateVesPerUsd ?? null,
+                notes: reason,
+              },
+            ]
+        )
+          .map((line) => {
+            const moneyAccountId = Number(line.moneyAccountId || 0);
+            const currencyCode = String(line.currencyCode || '').trim().toUpperCase();
+            const amount = Number(toSafeNumber(line.amount, 0).toFixed(2));
+            const exchangeRate =
+              line.exchangeRateVesPerUsd == null
+                ? null
+                : Number(toSafeNumber(line.exchangeRateVesPerUsd, 0).toFixed(6));
+            const amountUsd = Number(
+              (currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount).toFixed(2)
+            );
+
+            return {
+              moneyAccountId,
+              currencyCode,
+              amount,
+              exchangeRate,
+              amountUsd,
+              notes: String(line.notes || reason || '').trim() || null,
+            };
+          })
+          .filter((line) => line.moneyAccountId > 0 && line.currencyCode && line.amount > 0)
+      : [];
+  const cleanRefundUsd = roundMoney(cleanRefundLines.reduce((sum, line) => sum + line.amountUsd, 0));
+  const refundRemainderUsd = roundMoney(Math.max(0, confirmedPaidUsd - cleanRefundUsd));
 
   if ((hasClientFundsToRestore || hasConfirmedMoneyToSettle) && (!Number.isFinite(clientId) || clientId <= 0)) {
     throw new Error('La orden tiene dinero involucrado, pero no tiene cliente asociado para ajustar fondo/devoluciÃ³n.');
@@ -2561,6 +2611,25 @@ export async function cancelOrderAction(input: {
   }
 
   if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
+    if (cleanRefundLines.length === 0) {
+      throw new Error('Debes agregar al menos una linea de devolucion.');
+    }
+
+    for (const line of cleanRefundLines) {
+      if (line.currencyCode === 'VES' && (!line.exchangeRate || line.exchangeRate <= 0)) {
+        throw new Error('Debes indicar una tasa valida para cada devolucion en Bs.');
+      }
+      if (!Number.isFinite(line.amountUsd) || line.amountUsd <= 0) {
+        throw new Error('Una linea de devolucion tiene monto invalido.');
+      }
+    }
+
+    if (cleanRefundUsd > confirmedPaidUsd + 0.01) {
+      throw new Error('La devolucion no puede superar el pago confirmado.');
+    }
+  }
+
+  if (false && hasConfirmedMoneyToSettle && paidHandling === 'refund') {
     const refundMoneyAccountId = Number(input.refundMoneyAccountId || 0);
     const refundCurrency = String(input.refundCurrency || '').trim().toUpperCase();
     if (!Number.isFinite(refundMoneyAccountId) || refundMoneyAccountId <= 0) {
@@ -2594,7 +2663,7 @@ export async function cancelOrderAction(input: {
     });
   }
 
-  if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
+  if (false && hasConfirmedMoneyToSettle && paidHandling === 'refund') {
     const refundCurrency = String(input.refundCurrency || '').trim().toUpperCase();
     const refundExchangeRate =
       refundCurrency === 'VES'
@@ -2628,7 +2697,51 @@ export async function cancelOrderAction(input: {
       });
 
     if (refundMovementError) {
-      throw new Error(refundMovementError.message);
+      throw new Error(refundMovementError?.message || 'Error registrando la devolucion.');
+    }
+  }
+
+  if (hasConfirmedMoneyToSettle && paidHandling === 'refund') {
+    const movementGroupId = cleanRefundLines.length > 1 || refundRemainderUsd > 0.005 ? crypto.randomUUID() : null;
+    const now = new Date().toISOString();
+
+    const { error: refundMovementError } = await supabase
+      .from('money_movements')
+      .insert(cleanRefundLines.map((line, index) => ({
+        movement_date: now.slice(0, 10),
+        created_by_user_id: user.id,
+        confirmed_at: now,
+        confirmed_by_user_id: user.id,
+        status: 'confirmed',
+        approval_required: false,
+        direction: 'outflow',
+        movement_type: 'withdrawal',
+        money_account_id: line.moneyAccountId,
+        currency_code: line.currencyCode,
+        amount: line.amount,
+        exchange_rate_ves_per_usd: line.currencyCode === 'VES' ? line.exchangeRate : null,
+        amount_usd_equivalent: line.amountUsd,
+        reference_code: null,
+        counterparty_name: null,
+        description: `Devolucion por orden cancelada #${orderId} - linea ${index + 1}`,
+        notes: line.notes,
+        order_id: orderId,
+        payment_report_id: null,
+        movement_group_id: movementGroupId,
+      })));
+
+    if (refundMovementError) {
+      throw new Error(refundMovementError?.message || 'Error registrando la devolucion.');
+    }
+
+    if (refundRemainderUsd > 0.005) {
+      await restoreClientFundToOrder(supabase, {
+        clientId,
+        orderId,
+        amountUsd: refundRemainderUsd,
+        userId: user.id,
+        notes: `Resto de devolucion enviado a fondo por cancelacion: ${reason}`,
+      });
     }
   }
 

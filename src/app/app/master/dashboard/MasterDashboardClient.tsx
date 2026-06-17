@@ -4352,8 +4352,7 @@ const [createOrderClientFundAmountUsd, setCreateOrderClientFundAmountUsd] = useS
 const [cancelOrderBoxOpen, setCancelOrderBoxOpen] = useState(false);
 const [cancelOrderReason, setCancelOrderReason] = useState('');
 const [cancelOrderPaidHandling, setCancelOrderPaidHandling] = useState<'store_fund' | 'refund'>('store_fund');
-const [cancelOrderRefundAccountId, setCancelOrderRefundAccountId] = useState('');
-const [cancelOrderRefundExchangeRate, setCancelOrderRefundExchangeRate] = useState('');
+const [cancelOrderRefundLines, setCancelOrderRefundLines] = useState<ClientFundPayoutLineDraft[]>([]);
 
 const [toast, setToast] = useState<ToastState>(null);
 
@@ -5812,8 +5811,7 @@ const resetCancelOrderBox = () => {
   setCancelOrderBoxOpen(false);
   setCancelOrderReason('');
   setCancelOrderPaidHandling('store_fund');
-  setCancelOrderRefundAccountId('');
-  setCancelOrderRefundExchangeRate('');
+  setCancelOrderRefundLines([]);
 };
 
 const resetReturnToQueueBox = () => {
@@ -6646,20 +6644,51 @@ const handleCancelOrder = async (o: Order) => {
     }
 
     const hasConfirmedPayment = o.confirmedPaidUsd > 0.005;
-    const refundAccount = moneyAccounts.find((account) => account.id === Number(cancelOrderRefundAccountId || 0)) ?? null;
-    const refundExchangeRate =
-      refundAccount?.currencyCode === 'VES'
-        ? Number(String(cancelOrderRefundExchangeRate || '').replace(',', '.'))
-        : null;
+    const refundLines = cancelOrderRefundLines
+      .map((line) => {
+        const moneyAccountId = Number(line.moneyAccountId || 0);
+        const account = moneyAccounts.find((item) => item.id === moneyAccountId) ?? null;
+        const amount = Number(String(line.amount || '').replace(',', '.'));
+        const exchangeRate =
+          account?.currencyCode === 'VES'
+            ? Number(String(line.exchangeRate || '').replace(',', '.'))
+            : null;
+
+        return {
+          account,
+          moneyAccountId,
+          amount,
+          exchangeRate,
+          notes: line.notes.trim() || cancelOrderReason.trim(),
+        };
+      })
+      .filter((line) => line.moneyAccountId > 0 || line.amount > 0 || line.notes);
 
     if (hasConfirmedPayment && cancelOrderPaidHandling === 'refund') {
-      if (!refundAccount) {
-        showToast('error', 'Selecciona la cuenta desde la cual se hará la devolución.');
+      if (refundLines.length === 0) {
+        showToast('error', 'Agrega al menos una línea de devolución.');
         return;
       }
 
-      if (refundAccount.currencyCode === 'VES' && (!refundExchangeRate || refundExchangeRate <= 0)) {
-        showToast('error', 'Indica una tasa válida para la devolución en Bs.');
+      for (const line of refundLines) {
+        if (!line.account) {
+          showToast('error', 'Todas las líneas de devolución deben tener una cuenta válida.');
+          return;
+        }
+
+        if (!Number.isFinite(line.amount) || line.amount <= 0) {
+          showToast('error', 'Todas las líneas de devolución deben tener un monto válido.');
+          return;
+        }
+
+        if (line.account.currencyCode === 'VES' && (!Number.isFinite(line.exchangeRate) || !line.exchangeRate || line.exchangeRate <= 0)) {
+          showToast('error', 'Cada línea en Bs debe tener una tasa válida.');
+          return;
+        }
+      }
+
+      if (selectedCancelRefundUsd > o.confirmedPaidUsd + 0.01) {
+        showToast('error', 'La devolución no puede superar el pago confirmado.');
         return;
       }
     }
@@ -6668,17 +6697,29 @@ const handleCancelOrder = async (o: Order) => {
       orderId: o.id,
       reason: cancelOrderReason.trim(),
       paidHandling: hasConfirmedPayment ? cancelOrderPaidHandling : null,
+      refundLines:
+        hasConfirmedPayment && cancelOrderPaidHandling === 'refund'
+          ? refundLines
+              .filter((line) => line.account)
+              .map((line) => ({
+                moneyAccountId: line.moneyAccountId,
+                currencyCode: line.account!.currencyCode,
+                amount: line.amount,
+                exchangeRateVesPerUsd: line.exchangeRate,
+                notes: line.notes,
+              }))
+          : [],
       refundMoneyAccountId:
-        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundAccount
-          ? refundAccount.id
+        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundLines[0]?.account
+          ? refundLines[0].account.id
           : null,
       refundCurrency:
-        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundAccount
-          ? refundAccount.currencyCode
+        hasConfirmedPayment && cancelOrderPaidHandling === 'refund' && refundLines[0]?.account
+          ? refundLines[0].account.currencyCode
           : null,
       refundExchangeRateVesPerUsd:
         hasConfirmedPayment && cancelOrderPaidHandling === 'refund'
-          ? refundExchangeRate
+          ? refundLines[0]?.exchangeRate ?? null
           : null,
     });
 
@@ -9871,6 +9912,27 @@ const selectedConfirmChangeLinesUsd = Number(
 const selectedConfirmExcessToFundUsd = Math.max(
   0,
   Number((selectedConfirmPaymentExcessUsd - selectedConfirmChangeLinesUsd).toFixed(2))
+);
+
+const getCancelOrderRefundLineUsd = (line: ClientFundPayoutLineDraft) => {
+  const account = moneyAccounts.find((item) => item.id === Number(line.moneyAccountId || 0));
+  const amount = Number(String(line.amount || '').replace(',', '.'));
+  if (!account || !Number.isFinite(amount) || amount <= 0) return 0;
+
+  if (account.currencyCode === 'VES') {
+    const exchangeRate = Number(String(line.exchangeRate || '').replace(',', '.'));
+    return Number.isFinite(exchangeRate) && exchangeRate > 0 ? amount / exchangeRate : 0;
+  }
+
+  return amount;
+};
+
+const selectedCancelRefundUsd = Number(
+  cancelOrderRefundLines.reduce((sum, line) => sum + getCancelOrderRefundLineUsd(line), 0).toFixed(2)
+);
+const selectedCancelRefundToFundUsd = Math.max(
+  0,
+  Number(((selectedOrder?.confirmedPaidUsd ?? 0) - selectedCancelRefundUsd).toFixed(2))
 );
 
 const selectedMovementAccount =
@@ -18473,10 +18535,15 @@ deliveryAssignMode === 'external' ? (
       setCancelOrderBoxOpen(true);
       setCancelOrderReason('');
       setCancelOrderPaidHandling('store_fund');
-      setCancelOrderRefundAccountId('');
-      setCancelOrderRefundExchangeRate(
-        activeExchangeRate?.rateBsPerUsd ? String(activeExchangeRate.rateBsPerUsd) : ''
-      );
+      setCancelOrderRefundLines([
+        {
+          localId: crypto.randomUUID(),
+          moneyAccountId: '',
+          amount: selectedOrder.confirmedPaidUsd > 0.005 ? String(Number(selectedOrder.confirmedPaidUsd.toFixed(2))) : '',
+          exchangeRate: activeExchangeRate?.rateBsPerUsd ? String(activeExchangeRate.rateBsPerUsd) : '',
+          notes: '',
+        },
+      ]);
     }}
   >
     Cancelar
@@ -18533,46 +18600,147 @@ deliveryAssignMode === 'external' ? (
         ) : null}
 
         {selectedOrder.confirmedPaidUsd > 0.005 && cancelOrderPaidHandling === 'refund' ? (
-          <div className="space-y-1.5 rounded-md border border-[#242433] bg-[#0B0B0D] p-2">
-            <label className="block text-[10px] font-medium text-[#B7B7C2]">Cuenta de devolucion</label>
-            <select
-              value={cancelOrderRefundAccountId}
-              onChange={(e) => {
-                setCancelOrderRefundAccountId(e.target.value);
-                const account = moneyAccounts.find((item) => item.id === Number(e.target.value));
-                if (account?.currencyCode === 'VES' && activeExchangeRate?.rateBsPerUsd) {
-                  setCancelOrderRefundExchangeRate(String(activeExchangeRate.rateBsPerUsd));
-                }
-              }}
-              className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-            >
-              <option value="">Selecciona cuenta</option>
-              {moneyAccounts.filter((account) => account.isActive).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name} ({account.currencyCode})
-                </option>
-              ))}
-            </select>
-
-            {moneyAccounts.find((account) => account.id === Number(cancelOrderRefundAccountId || 0))?.currencyCode === 'VES' ? (
+          <div className="space-y-2 rounded-md border border-[#242433] bg-[#0B0B0D] p-2">
+            <div className="grid grid-cols-3 gap-2 rounded-md border border-[#242433] bg-[#121218] p-2">
               <div>
-                <label className="block text-[10px] font-medium text-[#B7B7C2]">Tasa para devolucion en Bs</label>
-                <input
-                  value={cancelOrderRefundExchangeRate}
-                  onChange={(e) => setCancelOrderRefundExchangeRate(e.target.value)}
-                  inputMode="decimal"
-                  className="mt-1 w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-                />
+                <div className="text-[10px] text-[#8A8A96]">Pagado</div>
+                <div className="font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.confirmedPaidUsd)}</div>
               </div>
-            ) : null}
-
-            <div className="text-[10px] text-[#8A8A96]">
-              Se registrara un egreso confirmado por {fmtUSD(selectedOrder.confirmedPaidUsd)}
-              {moneyAccounts.find((account) => account.id === Number(cancelOrderRefundAccountId || 0))?.currencyCode === 'VES' &&
-              Number(String(cancelOrderRefundExchangeRate || '').replace(',', '.')) > 0
-                ? ` (${fmtBs(selectedOrder.confirmedPaidUsd * Number(String(cancelOrderRefundExchangeRate || '').replace(',', '.')))})`
-                : ''}.
+              <div>
+                <div className="text-[10px] text-[#8A8A96]">Devuelto</div>
+                <div className="font-semibold text-sky-300">{fmtUSD(selectedCancelRefundUsd)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-[#8A8A96]">A fondo</div>
+                <div className="font-semibold text-[#7FE7C4]">{fmtUSD(selectedCancelRefundToFundUsd)}</div>
+              </div>
             </div>
+
+            {cancelOrderRefundLines.map((line, index) => {
+              const lineAccount = moneyAccounts.find((account) => account.id === Number(line.moneyAccountId || 0));
+              const lineUsd = getCancelOrderRefundLineUsd(line);
+
+              return (
+                <div key={line.localId} className="rounded-md border border-[#242433] bg-[#101016] p-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-[10px] font-semibold text-[#F5F5F7]">Devolución {index + 1}</div>
+                    {cancelOrderRefundLines.length > 1 ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-red-500/40 bg-[#120B0B] px-2 py-1 text-[10px] text-red-300"
+                        onClick={() =>
+                          setCancelOrderRefundLines((prev) => prev.filter((item) => item.localId !== line.localId))
+                        }
+                      >
+                        Quitar
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-medium text-[#B7B7C2]">Cuenta</label>
+                      <select
+                        value={line.moneyAccountId}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          const account = moneyAccounts.find((item) => item.id === Number(nextId));
+                          const remainingUsd = Math.max(
+                            0,
+                            selectedOrder.confirmedPaidUsd -
+                              cancelOrderRefundLines.reduce(
+                                (sum, item) => sum + (item.localId === line.localId ? 0 : getCancelOrderRefundLineUsd(item)),
+                                0
+                              )
+                          );
+
+                          setCancelOrderRefundLines((prev) =>
+                            prev.map((item) =>
+                              item.localId === line.localId
+                                ? {
+                                    ...item,
+                                    moneyAccountId: nextId,
+                                    amount: getSuggestedAccountAmount(remainingUsd, account?.currencyCode),
+                                    exchangeRate:
+                                      account?.currencyCode === 'VES' && activeBsRate > 0
+                                        ? String(Number(activeBsRate.toFixed(2)))
+                                        : '',
+                                  }
+                                : item
+                            )
+                          );
+                        }}
+                        className="mt-1 w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                      >
+                        <option value="">Selecciona cuenta</option>
+                        {moneyAccounts.filter((account) => account.isActive).map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.name} ({account.currencyCode})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-medium text-[#B7B7C2]">Monto</label>
+                      <input
+                        value={line.amount}
+                        onChange={(e) =>
+                          setCancelOrderRefundLines((prev) =>
+                            prev.map((item) =>
+                              item.localId === line.localId ? { ...item, amount: e.target.value } : item
+                            )
+                          )
+                        }
+                        inputMode="decimal"
+                        className="mt-1 w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                      />
+                    </div>
+
+                    {lineAccount?.currencyCode === 'VES' ? (
+                      <div>
+                        <label className="block text-[10px] font-medium text-[#B7B7C2]">Tasa Bs/USD</label>
+                        <input
+                          value={line.exchangeRate}
+                          onChange={(e) =>
+                            setCancelOrderRefundLines((prev) =>
+                              prev.map((item) =>
+                                item.localId === line.localId ? { ...item, exchangeRate: e.target.value } : item
+                              )
+                            )
+                          }
+                          inputMode="decimal"
+                          className="mt-1 w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[10px] text-[#8A8A96]">
+                        {lineAccount ? `Equivale a ${fmtUSD(lineUsd)}.` : 'Selecciona cuenta.'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+              onClick={() =>
+                setCancelOrderRefundLines((prev) => [
+                  ...prev,
+                  {
+                    localId: crypto.randomUUID(),
+                    moneyAccountId: '',
+                    amount: '',
+                    exchangeRate: '',
+                    notes: '',
+                  },
+                ])
+              }
+            >
+              Agregar devolución
+            </button>
           </div>
         ) : null}
       </div>
