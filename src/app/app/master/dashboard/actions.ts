@@ -3702,7 +3702,7 @@ export async function loadMoneyActivityAction(input?: {
   const movementLimit = Math.max(50, Math.min(800, Math.floor(Number(input?.movementLimit ?? 350) || 350)));
   const closureLimit = Math.max(25, Math.min(300, Math.floor(Number(input?.closureLimit ?? 120) || 120)));
 
-  const [movementsResult, closuresResult] = await Promise.all([
+  const [movementsResult, closuresResult, baselinesResult] = await Promise.all([
     supabase
       .from('money_movements')
       .select(`
@@ -3766,10 +3766,37 @@ export async function loadMoneyActivityAction(input?: {
       .order('closure_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(closureLimit),
+    supabase
+      .from('money_account_closure_baselines')
+      .select(`
+        id,
+        money_account_id,
+        baseline_date,
+        baseline_at,
+        expected_amount,
+        counted_amount,
+        difference_amount,
+        expected_amount_usd,
+        counted_amount_usd,
+        difference_amount_usd,
+        currency_code,
+        exchange_rate_ves_per_usd,
+        reason,
+        notes,
+        status,
+        created_by_user_id,
+        created_at,
+        voided_by_user_id,
+        voided_at,
+        void_reason
+      `)
+      .eq('status', 'active')
+      .order('baseline_at', { ascending: false }),
   ]);
 
   if (movementsResult.error) throw new Error(movementsResult.error.message);
   if (closuresResult.error) throw new Error(closuresResult.error.message);
+  if (baselinesResult.error) throw new Error(baselinesResult.error.message);
 
   const movementRows = (movementsResult.data ?? []) as any[];
   const movementOrderIds = Array.from(
@@ -3868,7 +3895,31 @@ export async function loadMoneyActivityAction(input?: {
     reviewedAt: row.reviewed_at ?? null,
   }));
 
-  return { movements, closures };
+  const baselines = ((baselinesResult.data ?? []) as any[]).map((row) => ({
+    id: Number(row.id),
+    moneyAccountId: Number(row.money_account_id),
+    baselineDate: row.baseline_date,
+    baselineAt: row.baseline_at,
+    expectedAmount: toSafeNumber(row.expected_amount, 0),
+    countedAmount: toSafeNumber(row.counted_amount, 0),
+    differenceAmount: toSafeNumber(row.difference_amount, 0),
+    expectedAmountUsd: toSafeNumber(row.expected_amount_usd, 0),
+    countedAmountUsd: toSafeNumber(row.counted_amount_usd, 0),
+    differenceAmountUsd: toSafeNumber(row.difference_amount_usd, 0),
+    currencyCode: row.currency_code,
+    exchangeRateVesPerUsd:
+      row.exchange_rate_ves_per_usd == null ? null : toSafeNumber(row.exchange_rate_ves_per_usd, 0),
+    reason: row.reason ?? null,
+    notes: row.notes ?? null,
+    status: row.status,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+    voidedByUserId: row.voided_by_user_id ?? null,
+    voidedAt: row.voided_at ?? null,
+    voidReason: row.void_reason ?? null,
+  }));
+
+  return { movements, closures, baselines };
 }
 
 export async function loadInventoryMovementsAction(input?: {
@@ -7345,6 +7396,118 @@ export async function createMoneyAccountClosureAction(input: {
     reason,
     notes,
     status: 'recorded',
+    created_by_user_id: user.id,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function createMoneyAccountBaselineAction(input: {
+  moneyAccountId: number;
+  baselineDate: string;
+  countedAmount: number;
+  exchangeRateVesPerUsd: number | null;
+  reason: string;
+  notes: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const baselineDate = String(input.baselineDate || '').trim();
+  const countedAmount = Number(input.countedAmount || 0);
+  const reason = String(input.reason || '').trim() || null;
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Cuenta inválida.');
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(baselineDate)) {
+    throw new Error('Debes indicar una fecha válida para la línea base.');
+  }
+
+  if (!Number.isFinite(countedAmount) || countedAmount < 0) {
+    throw new Error('El saldo real no es válido.');
+  }
+
+  const { data: existingBaseline, error: existingBaselineError } = await supabase
+    .from('money_account_closure_baselines')
+    .select('id')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (existingBaselineError) throw new Error(existingBaselineError.message);
+  if (existingBaseline) {
+    throw new Error('Esta cuenta ya tiene una línea base activa.');
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, currency_code')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
+  }
+
+  const currencyCode = String(account.currency_code || '').toUpperCase();
+  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+    throw new Error('La moneda de la cuenta no es válida.');
+  }
+
+  const exchangeRate =
+    currencyCode === 'VES' ? Number(input.exchangeRateVesPerUsd || 0) : null;
+  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
+    throw new Error('Debes indicar una tasa válida para una línea base en Bs.');
+  }
+
+  const { data: movements, error: movementsError } = await supabase
+    .from('money_movements')
+    .select('direction, amount, amount_usd_equivalent')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'confirmed')
+    .lte('movement_date', baselineDate);
+
+  if (movementsError) throw new Error(movementsError.message);
+
+  let expectedAmount = 0;
+  let expectedAmountUsd = 0;
+
+  for (const movement of movements ?? []) {
+    const signed = movement.direction === 'inflow' ? 1 : -1;
+    expectedAmount += signed * toSafeNumber(movement.amount, 0);
+    expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
+  }
+
+  expectedAmount = Number(expectedAmount.toFixed(2));
+  expectedAmountUsd = Number(expectedAmountUsd.toFixed(2));
+  const countedAmountRounded = Number(countedAmount.toFixed(2));
+  const countedAmountUsd =
+    currencyCode === 'USD'
+      ? countedAmountRounded
+      : Number((countedAmountRounded / (exchangeRate ?? 1)).toFixed(2));
+  const differenceAmount = Number((countedAmountRounded - expectedAmount).toFixed(2));
+  const differenceAmountUsd = Number((countedAmountUsd - expectedAmountUsd).toFixed(2));
+
+  const { error } = await supabase.from('money_account_closure_baselines').insert({
+    money_account_id: moneyAccountId,
+    baseline_date: baselineDate,
+    baseline_at: `${baselineDate}T23:59:59-04:00`,
+    expected_amount: expectedAmount,
+    counted_amount: countedAmountRounded,
+    difference_amount: differenceAmount,
+    expected_amount_usd: expectedAmountUsd,
+    counted_amount_usd: countedAmountUsd,
+    difference_amount_usd: differenceAmountUsd,
+    currency_code: currencyCode,
+    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+    reason,
+    notes,
+    status: 'active',
     created_by_user_id: user.id,
   });
 

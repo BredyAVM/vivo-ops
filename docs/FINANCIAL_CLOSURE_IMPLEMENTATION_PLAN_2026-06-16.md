@@ -67,6 +67,12 @@ Ventajas:
 
 ## Paso 2: cierre linea base
 
+Archivo:
+
+```text
+docs/FINANCIAL_ACCOUNT_BASELINES_2026-06-16.sql
+```
+
 Antes de cambiar la pantalla de cierres, cada cuenta debe poder tener un cierre de linea base.
 
 La linea base debe registrar:
@@ -88,6 +94,8 @@ saldo final del cierre anterior
 +/- pendientes heredados resueltos
 = saldo esperado del nuevo cierre
 ```
+
+La tabla `money_account_reconciliation_items` guarda diferencias abiertas, resueltas o anuladas. Esto permite que una diferencia de un cierre anterior no desaparezca, sino que se arrastre hasta ser identificada o corregida formalmente.
 
 ## Paso 3: diferencias clasificadas
 

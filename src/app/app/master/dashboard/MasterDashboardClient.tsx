@@ -48,6 +48,7 @@ import {
   updateCatalogPricesQuickAction,
   createInventoryMovementAction,
   createExtraMoneyMovementAction,
+  createMoneyAccountBaselineAction,
   createMoneyTransferAction,
   approveMoneyMovementGroupAction,
   rejectMoneyMovementGroupAction,
@@ -250,6 +251,29 @@ type MoneyAccountClosureItem = {
   createdAt: string;
   reviewedByUserId: string | null;
   reviewedAt: string | null;
+};
+
+type MoneyAccountBaselineItem = {
+  id: number;
+  moneyAccountId: number;
+  baselineDate: string;
+  baselineAt: string;
+  expectedAmount: number;
+  countedAmount: number;
+  differenceAmount: number;
+  expectedAmountUsd: number;
+  countedAmountUsd: number;
+  differenceAmountUsd: number;
+  currencyCode: 'USD' | 'VES';
+  exchangeRateVesPerUsd: number | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'active' | 'superseded' | 'voided';
+  createdByUserId: string;
+  createdAt: string;
+  voidedByUserId: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
 };
 
 type AccountMovementFilter =
@@ -3824,6 +3848,7 @@ export default function MasterDashboardClient({
   const [moneyAccountClosures, setMoneyAccountClosures] = useState<MoneyAccountClosureItem[]>(
     initialMoneyAccountClosures
   );
+  const [moneyAccountBaselines, setMoneyAccountBaselines] = useState<MoneyAccountBaselineItem[]>([]);
   const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
   const [moneyActivityLoading, setMoneyActivityLoading] = useState(false);
   const [moneyActivityError, setMoneyActivityError] = useState<string | null>(null);
@@ -4079,6 +4104,13 @@ const orderActionBusyRef = useRef(false);
   const [movementVoidReason, setMovementVoidReason] = useState('');
   const [movementVoidSaving, setMovementVoidSaving] = useState(false);
   const [financePendingOpen, setFinancePendingOpen] = useState(false);
+  const [baselineOpen, setBaselineOpen] = useState(false);
+  const [baselineSaving, setBaselineSaving] = useState(false);
+  const [baselineDate, setBaselineDate] = useState(new Date().toISOString().slice(0, 10));
+  const [baselineCountedAmount, setBaselineCountedAmount] = useState('');
+  const [baselineExchangeRate, setBaselineExchangeRate] = useState('');
+  const [baselineReason, setBaselineReason] = useState('');
+  const [baselineNotes, setBaselineNotes] = useState('');
   const [closureOpen, setClosureOpen] = useState(false);
   const [closureSaving, setClosureSaving] = useState(false);
   const [closureCountedAmount, setClosureCountedAmount] = useState('');
@@ -6827,6 +6859,14 @@ const handleSaveQuickCatalog = async () => {
     setClosureNotes('');
   };
 
+  const resetBaselineForm = () => {
+    setBaselineDate(new Date().toISOString().slice(0, 10));
+    setBaselineCountedAmount('');
+    setBaselineExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+    setBaselineReason('');
+    setBaselineNotes('');
+  };
+
   const openCreateAccount = () => {
     if (!permissions.canCreateMoneyAccounts) {
       showToast('error', 'Solo admin puede crear cuentas.');
@@ -6876,6 +6916,24 @@ const handleSaveQuickCatalog = async () => {
     setClosureCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
     setAccountDetailOpen(false);
     setClosureOpen(true);
+  };
+
+  const openAccountBaselineDrawer = (account: MoneyAccountOption) => {
+    if (!permissions.canRegisterAccountClosures) {
+      showToast('error', 'No tienes permiso para registrar líneas base.');
+      return;
+    }
+
+    if (moneyAccountBaselines.some((baseline) => baseline.moneyAccountId === account.id && baseline.status === 'active')) {
+      showToast('error', 'Esta cuenta ya tiene una línea base activa.');
+      return;
+    }
+
+    setSelectedAccountId(account.id);
+    resetBaselineForm();
+    setBaselineCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
+    setAccountDetailOpen(false);
+    setBaselineOpen(true);
   };
 
   const openEditAccount = (account: MoneyAccountOption) => {
@@ -7019,6 +7077,7 @@ const handleSaveQuickCatalog = async () => {
           })
         );
         setMoneyAccountClosures(result.closures as MoneyAccountClosureItem[]);
+        setMoneyAccountBaselines(result.baselines as MoneyAccountBaselineItem[]);
         setMoneyActivityLoaded(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'No se pudo cargar la actividad financiera.';
@@ -7461,6 +7520,46 @@ const handleSaveQuickCatalog = async () => {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el cierre.');
     } finally {
       setClosureSaving(false);
+    }
+  };
+
+  const handleCreateMoneyAccountBaseline = async () => {
+    if (!selectedAccount) return;
+
+    const countedAmount = Number(String(baselineCountedAmount || '').replace(',', '.'));
+    const exchangeRate =
+      selectedAccount.currencyCode === 'VES'
+        ? Number(String(baselineExchangeRate || '').replace(',', '.'))
+        : null;
+
+    if (!Number.isFinite(countedAmount) || countedAmount < 0) {
+      showToast('error', 'El saldo real no es válido.');
+      return;
+    }
+
+    if (selectedAccount.currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
+      showToast('error', 'Debes indicar una tasa válida para la línea base.');
+      return;
+    }
+
+    try {
+      setBaselineSaving(true);
+      await createMoneyAccountBaselineAction({
+        moneyAccountId: selectedAccount.id,
+        baselineDate,
+        countedAmount,
+        exchangeRateVesPerUsd: exchangeRate,
+        reason: baselineReason,
+        notes: baselineNotes,
+      });
+      showToast('success', 'Línea base registrada.');
+      setBaselineOpen(false);
+      resetBaselineForm();
+      await loadMoneyActivity(true);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo registrar la línea base.');
+    } finally {
+      setBaselineSaving(false);
     }
   };
 
@@ -9741,6 +9840,10 @@ const selectedOrderChangeMovements = useMemo(() => {
 
   const selectedAccountClosureProfile = selectedAccount
     ? moneyAccountClosureProfileByAccountId.get(selectedAccount.id) ?? null
+    : null;
+
+  const selectedAccountBaseline = selectedAccount
+    ? moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === selectedAccount.id && baseline.status === 'active') ?? null
     : null;
 
   const selectedDeliveryPartner = useMemo(
@@ -19070,6 +19173,92 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
 
       <Drawer
+        open={baselineOpen}
+        title={selectedAccount ? `Línea base: ${selectedAccount.name}` : 'Línea base'}
+        onClose={() => {
+          setBaselineOpen(false);
+          resetBaselineForm();
+        }}
+        widthClass="w-[620px]"
+      >
+        {!selectedAccount ? (
+          <div className="text-sm text-[#B7B7C2]">Sin cuenta seleccionada.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell
+                  label="Esperado sistema"
+                  value={fmtMoneyByCurrency(
+                    accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Perfil cierre"
+                  value={
+                    selectedAccountClosureProfile
+                      ? MONEY_ACCOUNT_CLOSURE_KIND_LABEL[selectedAccountClosureProfile.closureKind]
+                      : 'Sin perfil'
+                  }
+                />
+                <FieldInput label="Fecha corte" value={baselineDate} onChange={setBaselineDate} type="date" />
+                <FieldInput
+                  label="Saldo real"
+                  value={baselineCountedAmount}
+                  onChange={setBaselineCountedAmount}
+                />
+                {selectedAccount.currencyCode === 'VES' ? (
+                  <FieldInput
+                    label="Tasa Bs/USD"
+                    value={baselineExchangeRate}
+                    onChange={setBaselineExchangeRate}
+                  />
+                ) : (
+                  <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
+                )}
+                <FieldInput
+                  label="Motivo"
+                  value={baselineReason}
+                  onChange={setBaselineReason}
+                  hint="Ej. inicio de control, corte inicial, auditoría."
+                />
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
+                <textarea
+                  value={baselineNotes}
+                  onChange={(e) => setBaselineNotes(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+                onClick={() => {
+                  setBaselineOpen(false);
+                  resetBaselineForm();
+                }}
+                disabled={baselineSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+                onClick={handleCreateMoneyAccountBaseline}
+                disabled={baselineSaving}
+              >
+                {baselineSaving ? 'Guardando...' : 'Guardar línea base'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
         open={closureOpen}
         title={selectedAccount ? `Cierre: ${selectedAccount.name}` : 'Cierre de cuenta'}
         onClose={() => {
@@ -19211,6 +19400,15 @@ deliveryAssignMode === 'external' ? (
                     >
                       Cierre
                     </button>
+                    {!selectedAccountBaseline ? (
+                      <button
+                        type="button"
+                        className="rounded-xl border border-[#FEEF00]/50 bg-[#161409] px-3 py-2 text-sm text-[#FEEF00]"
+                        onClick={() => openAccountBaselineDrawer(selectedAccount)}
+                      >
+                        Línea base
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -19271,6 +19469,28 @@ deliveryAssignMode === 'external' ? (
               />
               <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
               <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
+              <InfoCell
+                label="Línea base"
+                value={
+                  selectedAccountBaseline
+                    ? `${selectedAccountBaseline.baselineDate} · ${fmtMoneyByCurrency(
+                        selectedAccountBaseline.countedAmount,
+                        selectedAccount.currencyCode
+                      )}`
+                    : 'Pendiente'
+                }
+              />
+              <InfoCell
+                label="Dif. inicial"
+                value={
+                  selectedAccountBaseline
+                    ? `${selectedAccountBaseline.differenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
+                        selectedAccountBaseline.differenceAmount,
+                        selectedAccount.currencyCode
+                      )}`
+                    : '—'
+                }
+              />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
