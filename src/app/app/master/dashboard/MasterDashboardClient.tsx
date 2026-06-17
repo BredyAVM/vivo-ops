@@ -3856,6 +3856,7 @@ export default function MasterDashboardClient({
   const [accountDateTo, setAccountDateTo] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [accountDetailOpen, setAccountDetailOpen] = useState(false);
+  const [accountMoreOpenId, setAccountMoreOpenId] = useState<number | null>(null);
   const [accountEditOpen, setAccountEditOpen] = useState(false);
   const [accountCreateOpen, setAccountCreateOpen] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
@@ -14143,6 +14144,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 key={account.id}
                 className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
                 onClick={() => {
+                  setAccountMoreOpenId(null);
                   setSelectedAccountId(account.id);
                   setAccountDetailOpen(true);
                 }}
@@ -14222,53 +14224,101 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px] text-[#B7B7C2]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setSelectedAccountId(account.id);
-                      setAccountDetailOpen(true);
-                    }}
-                  >
-                    Ver
-                  </button>
-                  {permissions.canManageMoneyAccountRules ? (
+                  <div className="flex flex-wrap items-start gap-1.5">
                     <button
                       type="button"
                       className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px] text-[#B7B7C2]"
                       onClick={(event) => {
                         event.stopPropagation();
-                        openAccountRulesEditor(account);
+                        setAccountMoreOpenId(null);
+                        setSelectedAccountId(account.id);
+                        setAccountDetailOpen(true);
                       }}
                     >
-                      Reglas
+                      Abrir
                     </button>
-                  ) : null}
-                  {activeBaseline ? (
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[#FEEF00]/40 bg-[#1D1A00] px-2.5 py-1.5 text-[11px] font-semibold text-[#FEEF00]"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openAccountClosureDrawer(account);
-                      }}
-                    >
-                      Cierre
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[#FEEF00]/40 bg-[#161409] px-2.5 py-1.5 text-[11px] font-semibold text-[#FEEF00]"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openAccountBaselineDrawer(account);
-                      }}
-                    >
-                      Línea base
-                    </button>
-                  )}
+                    {activeBaseline ? (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[#FEEF00]/40 bg-[#1D1A00] px-2.5 py-1.5 text-[11px] font-semibold text-[#FEEF00]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setAccountMoreOpenId(null);
+                          openAccountClosureDrawer(account);
+                        }}
+                      >
+                        Cierre
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[#FEEF00]/40 bg-[#161409] px-2.5 py-1.5 text-[11px] font-semibold text-[#FEEF00]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setAccountMoreOpenId(null);
+                          openAccountBaselineDrawer(account);
+                        }}
+                      >
+                        Línea base
+                      </button>
+                    )}
+                    <div className="min-w-[116px]" onClick={(event) => event.stopPropagation()}>
+                      <button
+                        type="button"
+                        className={[
+                          'w-full rounded-lg border px-2.5 py-1.5 text-[11px]',
+                          accountMoreOpenId === account.id
+                            ? 'border-[#FEEF00]/50 bg-[#1D1A00] text-[#FEEF00]'
+                            : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                        ].join(' ')}
+                        onClick={() => setAccountMoreOpenId((current) => (current === account.id ? null : account.id))}
+                      >
+                        Más
+                      </button>
+                      {accountMoreOpenId === account.id ? (
+                        <div className="mt-1 overflow-hidden rounded-xl border border-[#242433] bg-[#0B0B0D] p-1 shadow-2xl">
+                          {permissions.canManageMoneyAccountRules ? (
+                            <button
+                              type="button"
+                              className="block w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                              onClick={() => {
+                                setAccountMoreOpenId(null);
+                                openAccountRulesEditor(account);
+                              }}
+                            >
+                              Reglas
+                            </button>
+                          ) : null}
+                          {permissions.canManageMoneyAccounts ? (
+                            <button
+                              type="button"
+                              className="block w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                              onClick={() => {
+                                setAccountMoreOpenId(null);
+                                openEditAccount(account);
+                              }}
+                            >
+                              Editar
+                            </button>
+                          ) : null}
+                          {permissions.canManageMoneyAccounts ? (
+                            <button
+                              type="button"
+                              className="block w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                              onClick={() => {
+                                setAccountMoreOpenId(null);
+                                handleToggleMoneyAccountActive(account);
+                              }}
+                            >
+                              {account.isActive ? 'Desactivar' : 'Activar'}
+                            </button>
+                          ) : null}
+                          {!permissions.canManageMoneyAccountRules && !permissions.canManageMoneyAccounts ? (
+                            <div className="px-2.5 py-1.5 text-[11px] text-[#8A8A96]">Sin acciones extra</div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </td>
               </tr>
