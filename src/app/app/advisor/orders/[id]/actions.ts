@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { createClient } from '@supabase/supabase-js';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
@@ -10,6 +11,22 @@ import { sendPushToRoleDevices } from '@/lib/push';
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
 const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle', 'wallet_usd']);
+
+function createSupabaseServiceRoleServer() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error('Falta configurar SUPABASE_SERVICE_ROLE_KEY para acciones administrativas.');
+  }
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 type OrderFinancialState = {
   total_usd: number | string | null;
@@ -47,6 +64,27 @@ function roundMoney(value: unknown) {
 function normalizeDateOnly(value: unknown) {
   const text = String(value || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function parseRpcId(value: unknown) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(candidate);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function savePaymentReportOperationDate(reportId: unknown, operationDate: unknown) {
+  const id = parseRpcId(reportId);
+  const normalizedOperationDate = normalizeDateOnly(operationDate);
+
+  if (!id || !normalizedOperationDate) return;
+
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const { error } = await adminSupabase
+    .from('payment_reports')
+    .update({ operation_date: normalizedOperationDate })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
 }
 
 function getCaracasDateString(value: Date) {
@@ -433,7 +471,7 @@ export async function createAdvisorPaymentReportAction(input: {
       ? Number((reportedAmount / snapshotEquivalentUsd).toFixed(6))
       : reportedExchangeRate;
 
-  const { error } = await ctx.supabase.rpc('create_payment_report', {
+  const { data: createdReportId, error } = await ctx.supabase.rpc('create_payment_report', {
     p_order_id: orderId,
     p_reported_money_account_id: reportedMoneyAccountId,
     p_reported_currency: reportedCurrency,
@@ -445,6 +483,8 @@ export async function createAdvisorPaymentReportAction(input: {
   });
 
   if (error) throw new Error(error.message);
+
+  await savePaymentReportOperationDate(createdReportId, operationDate);
 
   const eventContext = await loadOrderEventContext(ctx.supabase, orderId);
   await appendOrderEvent(ctx.supabase, {

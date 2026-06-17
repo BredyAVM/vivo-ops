@@ -14159,7 +14159,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <table className="w-full text-[12px]">
             <thead className="border-b border-[#242433] text-[#B7B7C2]">
               <tr>
-                <th className="px-2 py-2 text-left font-medium">Fecha</th>
+                <th className="px-2 py-2 text-left font-medium">Fecha operación</th>
                 <th className="px-2 py-2 text-left font-medium">Cuenta(s)</th>
                 <th className="px-2 py-2 text-left font-medium">Movimiento</th>
                 <th className="px-2 py-2 text-left font-medium">Estado</th>
@@ -20340,6 +20340,7 @@ deliveryAssignMode === 'external' ? (
                   <table className="w-full text-[12px]">
                     <thead className="border-b border-[#242433] text-[#B7B7C2]">
                       <tr>
+                        <th className="px-2 py-2 text-left font-medium">Fecha operación</th>
                         <th className="px-2 py-2 text-left font-medium">Tipo</th>
                         <th className="px-2 py-2 text-left font-medium">Monto</th>
                         <th className="px-2 py-2 text-left font-medium">Comisión</th>
@@ -20384,6 +20385,7 @@ deliveryAssignMode === 'external' ? (
                               setMovementDetailOpen(true);
                             }}
                           >
+                            <td className="px-2 py-2">{movement.movementDate}</td>
                             <td className="px-2 py-2">
                               {groupLabel}
                               <div className="mt-1 text-[11px] text-[#8A8A96]">
@@ -20465,7 +20467,7 @@ deliveryAssignMode === 'external' ? (
                   label="Estado"
                   value={MONEY_MOVEMENT_STATUS_LABEL[selectedMovementGroup.primaryMovement.status]}
                 />
-                <InfoCell label="Fecha" value={selectedMovementGroup.primaryMovement.movementDate} />
+                <InfoCell label="Fecha operación" value={selectedMovementGroup.primaryMovement.movementDate} />
                 <InfoCell
                   label="Total en esta cuenta"
                   value={`${selectedMovementGroup.netNative >= 0 ? '' : '-'}${fmtMoneyByCurrency(

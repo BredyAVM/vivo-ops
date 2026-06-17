@@ -126,6 +126,27 @@ function normalizeDateOnly(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
+function parseRpcId(value: unknown) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(candidate);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function savePaymentReportOperationDate(reportId: unknown, operationDate: unknown) {
+  const id = parseRpcId(reportId);
+  const normalizedOperationDate = normalizeDateOnly(operationDate);
+
+  if (!id || !normalizedOperationDate) return;
+
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const { error } = await adminSupabase
+    .from('payment_reports')
+    .update({ operation_date: normalizedOperationDate })
+    .eq('id', id);
+
+  if (error) throw new Error(error.message);
+}
+
 function getCaracasDateString(value: Date) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Caracas',
@@ -1321,11 +1342,12 @@ export async function createPaymentReportAction(input: {
         reference_code: referenceCode || null,
         payer_name: reportPayerName,
         notes: reportNotes,
+        operation_date: operationDate || null,
       });
 
     if (insertRetentionError) throw new Error(insertRetentionError.message);
   } else {
-    const { error } = await supabase.rpc('create_payment_report', {
+    const { data: createdReportId, error } = await supabase.rpc('create_payment_report', {
       p_order_id: input.orderId,
       p_reported_money_account_id: input.reportedMoneyAccountId,
       p_reported_currency: input.reportedCurrency,
@@ -1337,6 +1359,8 @@ export async function createPaymentReportAction(input: {
     });
 
     if (error) throw new Error(error.message);
+
+    await savePaymentReportOperationDate(createdReportId, operationDate);
   }
 
   if (snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005) {
@@ -1423,13 +1447,25 @@ export async function confirmPaymentReportAction(input: {
   changeExchangeRateVesPerUsd?: number | null;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
+  const { data: paymentReportForDate, error: paymentReportForDateError } = await supabase
+    .from('payment_reports')
+    .select('operation_date')
+    .eq('id', input.reportId)
+    .maybeSingle();
+
+  if (paymentReportForDateError) throw new Error(paymentReportForDateError.message);
+
+  const effectiveMovementDate =
+    normalizeDateOnly(paymentReportForDate?.operation_date) ||
+    normalizeDateOnly(input.movementDate) ||
+    getCaracasDateString(new Date());
 
   const { error } = await supabase.rpc('confirm_payment_report', {
     p_report_id: input.reportId,
     p_confirmed_money_account_id: input.confirmedMoneyAccountId,
     p_confirmed_currency: input.confirmedCurrency,
     p_confirmed_amount: input.confirmedAmount,
-    p_movement_date: input.movementDate,
+    p_movement_date: effectiveMovementDate,
     p_confirmed_exchange_rate_ves_per_usd: input.confirmedExchangeRateVesPerUsd,
     p_review_notes: input.reviewNotes,
     p_reference_code: input.referenceCode,
@@ -1454,7 +1490,7 @@ export async function confirmPaymentReportAction(input: {
 
     const financialState = await loadOrderFinancialState(supabase, {
       orderId,
-      operationDate: normalizeDateOnly(input.movementDate),
+      operationDate: effectiveMovementDate,
       activeBsRate: input.confirmedExchangeRateVesPerUsd,
     });
     let fallbackConfirmedPaidUsd = 0;
@@ -1563,7 +1599,7 @@ export async function confirmPaymentReportAction(input: {
       const { error: changeMovementError } = await supabase
         .from('money_movements')
         .insert(changeLines.map((line, index) => ({
-          movement_date: input.movementDate,
+          movement_date: effectiveMovementDate,
           created_by_user_id: user.id,
           confirmed_at: confirmedAt,
           confirmed_by_user_id: user.id,
@@ -1617,7 +1653,7 @@ export async function confirmPaymentReportAction(input: {
       const { error: changeMovementError } = await supabase
         .from('money_movements')
         .insert({
-          movement_date: input.movementDate,
+          movement_date: effectiveMovementDate,
           created_by_user_id: user.id,
           confirmed_at: new Date().toISOString(),
           confirmed_by_user_id: user.id,
@@ -1817,7 +1853,7 @@ export async function confirmPaymentReportAction(input: {
         confirmed_money_account_id: input.confirmedMoneyAccountId,
         confirmed_currency: input.confirmedCurrency,
         confirmed_amount: input.confirmedAmount,
-        movement_date: input.movementDate,
+        movement_date: effectiveMovementDate,
         exchange_rate_ves_per_usd: input.confirmedExchangeRateVesPerUsd,
       },
       recipients: [
