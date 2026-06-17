@@ -286,6 +286,7 @@ type AccountMovementFilter =
   | 'adjustments'
   | 'transfers';
 
+type AccountDetailTab = 'operation' | 'closures' | 'rules' | 'audit';
 type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'advisor' | 'review' | 'pending';
 type GlobalAuditFocusFilter = 'all' | 'pending' | 'exceptions' | 'transfers' | 'fees' | 'approvals';
 type MoneyMovementOutflowPurpose = 'change' | 'expense';
@@ -905,6 +906,13 @@ const ACCOUNT_MOVEMENT_FILTER_LABEL: Record<AccountMovementFilter, string> = {
   changes: 'Cambios',
   adjustments: 'Ajustes',
   transfers: 'Traspasos',
+};
+
+const ACCOUNT_DETAIL_TAB_LABEL: Record<AccountDetailTab, string> = {
+  operation: 'Operación',
+  closures: 'Cierres',
+  rules: 'Reglas',
+  audit: 'Auditoría',
 };
 
 const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
@@ -3860,6 +3868,8 @@ export default function MasterDashboardClient({
   const [accountEditOpen, setAccountEditOpen] = useState(false);
   const [accountCreateOpen, setAccountCreateOpen] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
+  const [accountDetailTab, setAccountDetailTab] = useState<AccountDetailTab>('operation');
+  const [accountDetailMoreOpen, setAccountDetailMoreOpen] = useState(false);
   const [accountRulesOpen, setAccountRulesOpen] = useState(false);
   const [accountRulesSaving, setAccountRulesSaving] = useState(false);
   const [accountRuleDrafts, setAccountRuleDrafts] = useState<AccountRuleDraft[]>([]);
@@ -6938,6 +6948,7 @@ const handleSaveQuickCatalog = async () => {
     }
 
     setSelectedAccountId(account.id);
+    setAccountDetailTab('closures');
     resetClosureForm();
     setClosureCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
     setAccountDetailOpen(false);
@@ -6956,6 +6967,7 @@ const handleSaveQuickCatalog = async () => {
     }
 
     setSelectedAccountId(account.id);
+    setAccountDetailTab('closures');
     resetBaselineForm();
     setBaselineCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
     setAccountDetailOpen(false);
@@ -7022,6 +7034,7 @@ const handleSaveQuickCatalog = async () => {
     }
 
     setSelectedAccountId(account.id);
+    setAccountDetailTab('rules');
     setAccountRuleDrafts(buildAccountRuleDrafts(account));
     setAccountRulesOpen(true);
   };
@@ -14145,6 +14158,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
                 onClick={() => {
                   setAccountMoreOpenId(null);
+                  setAccountDetailTab('operation');
                   setSelectedAccountId(account.id);
                   setAccountDetailOpen(true);
                 }}
@@ -14231,6 +14245,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       onClick={(event) => {
                         event.stopPropagation();
                         setAccountMoreOpenId(null);
+                        setAccountDetailTab('operation');
                         setSelectedAccountId(account.id);
                         setAccountDetailOpen(true);
                       }}
@@ -19271,7 +19286,10 @@ deliveryAssignMode === 'external' ? (
       <Drawer
         open={accountDetailOpen}
         title={selectedAccount ? `Cuenta: ${selectedAccount.name}` : 'Cuenta'}
-        onClose={() => setAccountDetailOpen(false)}
+        onClose={() => {
+          setAccountDetailOpen(false);
+          setAccountDetailMoreOpen(false);
+        }}
         widthClass="w-[760px]"
       >
         {!selectedAccount ? (
@@ -19308,7 +19326,10 @@ deliveryAssignMode === 'external' ? (
                     <button
                       type="button"
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => openMoneyMovementDrawer(selectedAccount.id)}
+                      onClick={() => {
+                        setAccountDetailMoreOpen(false);
+                        openMoneyMovementDrawer(selectedAccount.id);
+                      }}
                     >
                       Movimiento
                     </button>
@@ -19316,62 +19337,122 @@ deliveryAssignMode === 'external' ? (
                       <button
                         type="button"
                         className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                        onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
+                        onClick={() => {
+                          setAccountDetailMoreOpen(false);
+                          openMoneyTransferDrawer(selectedAccount.id);
+                        }}
                       >
                         Traspaso
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => openAccountClosureDrawer(selectedAccount)}
-                    >
-                      Cierre
-                    </button>
-                    {!selectedAccountBaseline ? (
+                    {selectedAccountBaseline ? (
+                      <button
+                        type="button"
+                        className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00]"
+                        onClick={() => {
+                          setAccountDetailMoreOpen(false);
+                          openAccountClosureDrawer(selectedAccount);
+                        }}
+                      >
+                        Cierre
+                      </button>
+                    ) : (
                       <button
                         type="button"
                         className="rounded-xl border border-[#FEEF00]/50 bg-[#161409] px-3 py-2 text-sm text-[#FEEF00]"
-                        onClick={() => openAccountBaselineDrawer(selectedAccount)}
+                        onClick={() => {
+                          setAccountDetailMoreOpen(false);
+                          openAccountBaselineDrawer(selectedAccount);
+                        }}
                       >
                         Línea base
                       </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={downloadSelectedAccountReportCsv}
-                    >
-                      Exportar
-                    </button>
-                    {permissions.canManageMoneyAccounts ? (
-                      <>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => openEditAccount(selectedAccount)}
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => openAccountRulesEditor(selectedAccount)}
-                        >
-                          Reglas
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                          onClick={() => handleToggleMoneyAccountActive(selectedAccount)}
-                        >
-                          {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                      </>
-                    ) : null}
+                    )}
+                    <div className="min-w-[124px]">
+                      <button
+                        type="button"
+                        className={[
+                          'w-full rounded-xl border px-3 py-2 text-sm',
+                          accountDetailMoreOpen
+                            ? 'border-[#FEEF00]/50 bg-[#1D1A00] text-[#FEEF00]'
+                            : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                        ].join(' ')}
+                        onClick={() => setAccountDetailMoreOpen((current) => !current)}
+                      >
+                        Más
+                      </button>
+                      {accountDetailMoreOpen ? (
+                        <div className="mt-1 overflow-hidden rounded-xl border border-[#242433] bg-[#0B0B0D] p-1 text-sm shadow-2xl">
+                          <button
+                            type="button"
+                            className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                            onClick={() => {
+                              setAccountDetailMoreOpen(false);
+                              downloadSelectedAccountReportCsv();
+                            }}
+                          >
+                            Exportar
+                          </button>
+                          {permissions.canManageMoneyAccountRules ? (
+                            <button
+                              type="button"
+                              className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                              onClick={() => {
+                                setAccountDetailMoreOpen(false);
+                                openAccountRulesEditor(selectedAccount);
+                              }}
+                            >
+                              Reglas
+                            </button>
+                          ) : null}
+                          {permissions.canManageMoneyAccounts ? (
+                            <>
+                              <button
+                                type="button"
+                                className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                                onClick={() => {
+                                  setAccountDetailMoreOpen(false);
+                                  openEditAccount(selectedAccount);
+                                }}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                                onClick={() => {
+                                  setAccountDetailMoreOpen(false);
+                                  handleToggleMoneyAccountActive(selectedAccount);
+                                }}
+                              >
+                                {selectedAccount.isActive ? 'Desactivar' : 'Activar'}
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#242433] bg-[#121218] p-2">
+              {(Object.keys(ACCOUNT_DETAIL_TAB_LABEL) as AccountDetailTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={[
+                    'whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold',
+                    accountDetailTab === tab
+                      ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:text-[#F5F5F7]',
+                  ].join(' ')}
+                  onClick={() => setAccountDetailTab(tab)}
+                >
+                  {ACCOUNT_DETAIL_TAB_LABEL[tab]}
+                </button>
+              ))}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -19421,6 +19502,7 @@ deliveryAssignMode === 'external' ? (
               />
             </div>
 
+            {accountDetailTab === 'operation' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Resumen del período</div>
               <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -19465,7 +19547,9 @@ deliveryAssignMode === 'external' ? (
                 />
               </div>
             </div>
+            ) : null}
 
+            {accountDetailTab === 'audit' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -19548,7 +19632,9 @@ deliveryAssignMode === 'external' ? (
                 </div>
               ) : null}
             </div>
+            ) : null}
 
+            {accountDetailTab === 'closures' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -19596,7 +19682,9 @@ deliveryAssignMode === 'external' ? (
                 )}
               </div>
             </div>
+            ) : null}
 
+            {accountDetailTab === 'rules' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -19666,7 +19754,9 @@ deliveryAssignMode === 'external' ? (
                 </table>
               </div>
             </div>
+            ) : null}
 
+            {accountDetailTab === 'operation' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -19854,6 +19944,7 @@ deliveryAssignMode === 'external' ? (
                 )}
               </div>
             </div>
+            ) : null}
           </div>
         )}
       </Drawer>
