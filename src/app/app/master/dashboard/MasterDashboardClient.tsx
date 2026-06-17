@@ -14105,6 +14105,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             <tbody>
               {kitchenCashdeskRows.map((row, index) => {
                 const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                const activeBaseline =
+                  moneyAccountBaselines.find(
+                    (baseline) => baseline.moneyAccountId === row.account.id && baseline.status === 'active'
+                  ) ?? null;
                 return (
                   <tr key={row.account.id} className={`${zebra} border-b border-[#242433] align-top`}>
                     <td className="px-2 py-3">
@@ -14155,6 +14159,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       ) : null}
                     </td>
                     <td className="px-2 py-3">
+                      {activeBaseline ? (
+                        <div className="mb-2">
+                          <div className="text-[#F5F5F7]">Base {activeBaseline.baselineDate}</div>
+                          <div
+                            className={
+                              activeBaseline.differenceAmount === 0
+                                ? 'mt-1 text-[11px] text-emerald-300'
+                                : 'mt-1 text-[11px] text-[#FEEF00]'
+                            }
+                          >
+                            Dif. inicial {fmtMoneyByCurrency(activeBaseline.differenceAmount, row.account.currencyCode)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mb-2 text-[#FEEF00]">Base pendiente</div>
+                      )}
                       {row.lastClosure ? (
                         <div>
                           <div className="text-[#F5F5F7]">{row.lastClosure.closureDate}</div>
@@ -14269,6 +14289,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const hasReview = rules.some((rule) => rule.reviewRequired);
             const isShareable = rules.some((rule) => rule.canShareWithClient);
             const latestClosure = moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
+            const activeBaseline =
+              moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === account.id && baseline.status === 'active') ??
+              null;
             const pendingUsd = moneyMovements
               .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
               .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
@@ -14358,6 +14381,26 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </div>
 
+                <div className="mt-2 rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-[#8A8A96]">Línea base</span>
+                    <span className={activeBaseline ? 'text-emerald-300' : 'text-[#FEEF00]'}>
+                      {activeBaseline ? activeBaseline.baselineDate : 'Pendiente'}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-[#8A8A96]">Dif. inicial</span>
+                    <span className={activeBaseline?.differenceAmount === 0 ? 'text-emerald-300' : 'text-[#B7B7C2]'}>
+                      {activeBaseline
+                        ? `${activeBaseline.differenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
+                            activeBaseline.differenceAmount,
+                            account.currencyCode
+                          )}`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+
                 <div className="mt-2 flex min-h-[20px] flex-wrap gap-1">
                   {tags.slice(0, 5).map((tag) => (
                     <span
@@ -14395,6 +14438,18 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   >
                     Cierre
                   </button>
+                  {!activeBaseline ? (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[#FEEF00]/40 bg-[#161409] px-2.5 py-1 text-[11px] font-semibold text-[#FEEF00]"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openAccountBaselineDrawer(account);
+                      }}
+                    >
+                      Línea base
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );
