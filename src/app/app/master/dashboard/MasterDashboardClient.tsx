@@ -13904,11 +13904,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-[#F5F5F7]">Auditoría financiera</div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos financieros</div>
           <div className="mt-1 text-xs text-[#8A8A96]">
             {moneyActivityLoading
-              ? 'Cargando huella financiera...'
-              : `${globalAuditSummary.totalGroups} huellas · ${globalAuditSummary.accountsTouched} cuenta(s)`}
+              ? 'Cargando movimientos...'
+              : `${globalAuditSummary.totalGroups} movimientos · ${globalAuditSummary.accountsTouched} cuenta(s)`}
           </div>
         </div>
         <div className="flex flex-wrap items-start justify-end gap-2">
@@ -13995,15 +13995,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <tr>
                 <th className="px-2 py-2 text-left font-medium">Fecha</th>
                 <th className="px-2 py-2 text-left font-medium">Cuenta(s)</th>
-                <th className="px-2 py-2 text-left font-medium">Tipo</th>
+                <th className="px-2 py-2 text-left font-medium">Movimiento</th>
                 <th className="px-2 py-2 text-left font-medium">Estado</th>
                 <th className="px-2 py-2 text-left font-medium">Monto ref.</th>
+                <th className="px-2 py-2 text-left font-medium">Cliente / referencia</th>
                 <th className="px-2 py-2 text-left font-medium">Usuario</th>
-                <th className="px-2 py-2 text-left font-medium">Huella</th>
               </tr>
             </thead>
             <tbody>
-              {globalAuditFilteredGroups.slice(0, 10).map((group, index) => {
+              {globalAuditFilteredGroups.slice(0, 20).map((group, index) => {
                 const movement = group.primaryMovement;
                 const accountNames = Array.from(
                   new Set(
@@ -14055,10 +14055,17 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {fmtUSD(Math.abs(group.netUsd || group.amountUsd))}
                       </div>
                     </td>
-                    <td className="px-2 py-2">{getDashboardUserLabel(movement.createdByUserId)}</td>
                     <td className="px-2 py-2">
-                      <div className="max-w-[180px] truncate text-[#B7B7C2]">{group.key}</div>
+                      {movement.clientName ? (
+                        <div className="max-w-[220px] truncate text-[#F5F5F7]">
+                          {repairDisplayText(movement.clientName)}
+                        </div>
+                      ) : null}
+                      <div className="max-w-[220px] truncate text-[#B7B7C2]">
+                        {movement.referenceCode || movement.counterpartyName || group.key}
+                      </div>
                     </td>
+                    <td className="px-2 py-2">{getDashboardUserLabel(movement.createdByUserId)}</td>
                   </tr>
                 );
               })}
@@ -14068,12 +14075,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       </div>
     </div>
 
-    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <details className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <summary className="flex cursor-pointer list-none flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-[#F5F5F7]">Caja local</div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Reglas de cobro de cocina</div>
           <div className="mt-1 text-xs text-[#8A8A96]">
-            Cuentas y métodos que cocina puede ver, reportar o confirmar.
+            Cuentas y métodos que cocina puede ver, reportar o confirmar. Abrir solo para administrar permisos.
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
@@ -14082,7 +14089,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <InfoCell label="Revisión" value={String(kitchenCashdeskSummary.reviewAccounts)} />
           <InfoCell label="Pendiente" value={fmtUSD(kitchenCashdeskSummary.pendingReviewUsd)} />
         </div>
-      </div>
+      </summary>
 
       <div className="mt-4 overflow-x-auto">
         {kitchenCashdeskRows.length === 0 ? (
@@ -14213,7 +14220,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           </table>
         )}
       </div>
-    </div>
+    </details>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -14268,8 +14275,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           No hay cuentas que coincidan con el filtro.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-4">
-          {filteredAccounts.map((account) => {
+        <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-[12px]">
+              <thead className="border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
+                <tr>
+                  <th className="px-3 py-3 text-left font-medium">Cuenta</th>
+                  <th className="px-3 py-3 text-left font-medium">Saldo</th>
+                  <th className="px-3 py-3 text-left font-medium">Período</th>
+                  <th className="px-3 py-3 text-left font-medium">Línea base</th>
+                  <th className="px-3 py-3 text-left font-medium">Último cierre</th>
+                  <th className="px-3 py-3 text-left font-medium">Pendiente</th>
+                  <th className="px-3 py-3 text-left font-medium">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+          {filteredAccounts.map((account, index) => {
             const stats = accountStatsById.get(account.id) ?? {
               balanceNative: 0,
               periodInflowNative: 0,
@@ -14285,9 +14306,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const rules = accountRulesByAccountId.get(account.id) ?? [];
             const hasAdvisor = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
             const hasKitchen = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
-            const hasAuto = rules.some((rule) => rule.autoConfirmsReport);
             const hasReview = rules.some((rule) => rule.reviewRequired);
-            const isShareable = rules.some((rule) => rule.canShareWithClient);
             const latestClosure = moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
             const activeBaseline =
               moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === account.id && baseline.status === 'active') ??
@@ -14295,131 +14314,111 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const pendingUsd = moneyMovements
               .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
               .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
-            const tags = [
-              hasAdvisor ? 'Asesor' : null,
-              hasKitchen ? 'Cocina' : null,
-              hasAuto ? 'Auto' : null,
-              hasReview ? 'Master revisa' : null,
-              isShareable ? 'Compartible' : null,
-              !isShareable ? 'Interna' : null,
-            ].filter((tag): tag is string => Boolean(tag));
+            const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+            const accountTags = [hasAdvisor ? 'Asesor' : null, hasKitchen ? 'Cocina' : null, hasReview ? 'Revisión' : null].filter(
+              (tag): tag is string => Boolean(tag)
+            );
 
             return (
-              <div
+              <tr
                 key={account.id}
-                role="button"
-                tabIndex={0}
-                className="rounded-xl border border-[#242433] bg-[#121218] p-3 text-left transition-colors hover:border-[#3A3A4B] hover:bg-[#171722]"
+                className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
                 onClick={() => {
                   setSelectedAccountId(account.id);
                   setAccountDetailOpen(true);
                 }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  setSelectedAccountId(account.id);
-                  setAccountDetailOpen(true);
-                }}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[#F5F5F7]">{account.name}</div>
-                    <div className="mt-0.5 truncate text-[11px] text-[#8A8A96]">
+                <td className="px-3 py-3">
+                  <div className="font-semibold text-[#F5F5F7]">{account.name}</div>
+                  <div className="mt-1 text-[11px] text-[#8A8A96]">
                       {MONEY_ACCOUNT_KIND_LABEL[account.accountKind]} · {account.currencyCode}
                       {account.institutionName ? ` · ${account.institutionName}` : ''}
-                    </div>
                   </div>
-                  <span
-                    className={[
-                      'shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]',
-                      account.isActive
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                        : 'border-[#2A2A38] bg-[#0B0B0D] text-[#8A8A96]',
-                    ].join(' ')}
-                  >
-                    {account.isActive ? 'Activa' : 'Inactiva'}
-                  </span>
-                </div>
-
-                <div className="mt-3 flex items-end justify-between gap-3">
-                  <div className="min-w-0">
-                  <div className="text-[10px] text-[#8A8A96]">Balance</div>
-                  <div className="mt-0.5 truncate text-lg font-semibold text-[#F5F5F7]">
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <span
+                      className={[
+                        'rounded-full border px-1.5 py-0.5 text-[10px]',
+                        account.isActive
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                          : 'border-[#2A2A38] bg-[#0B0B0D] text-[#8A8A96]',
+                      ].join(' ')}
+                    >
+                      {account.isActive ? 'Activa' : 'Inactiva'}
+                    </span>
+                    {accountTags.map((tag) => (
+                      <span
+                        key={`${account.id}-${tag}`}
+                        className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="font-semibold text-[#F5F5F7]">
                     {fmtMoneyByCurrency(stats.balanceNative, account.currencyCode)}
                   </div>
-                  </div>
-                  <div className="shrink-0 text-right text-[11px] text-[#8A8A96]">
+                  <div className="mt-1 text-[11px] text-[#8A8A96]">
                     {account.currencyCode === 'VES'
                       ? fmtUSD(stats.balanceUsdRef)
                       : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                   </div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-2 border-y border-[#242433] py-2">
-                  <div>
-                    <div className="text-[10px] text-[#8A8A96]">Ing.</div>
-                    <div className="mt-0.5 truncate text-xs font-medium text-emerald-300">
-                      {fmtMoneyByCurrency(stats.periodInflowNative, account.currencyCode)}
+                </td>
+                <td className="px-3 py-3">
+                  <div className="text-emerald-300">
+                    +{fmtMoneyByCurrency(stats.periodInflowNative, account.currencyCode)}
+                  </div>
+                  <div className="mt-1 text-red-300">
+                    -{fmtMoneyByCurrency(stats.periodOutflowNative, account.currencyCode)}
+                  </div>
+                </td>
+                <td className="px-3 py-3">
+                  {activeBaseline ? (
+                    <div>
+                      <div className="text-emerald-300">{activeBaseline.baselineDate}</div>
+                      <div className={activeBaseline.differenceAmount === 0 ? 'mt-1 text-[11px] text-emerald-300' : 'mt-1 text-[11px] text-[#FEEF00]'}>
+                        Dif. inicial {fmtMoneyByCurrency(activeBaseline.differenceAmount, account.currencyCode)}
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-[#8A8A96]">Egr.</div>
-                    <div className="mt-0.5 truncate text-xs font-medium text-red-300">
-                      {fmtMoneyByCurrency(stats.periodOutflowNative, account.currencyCode)}
+                  ) : (
+                    <span className="text-[#FEEF00]">Pendiente</span>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {latestClosure ? (
+                    <div>
+                      <div className="text-[#F5F5F7]">{latestClosure.closureDate}</div>
+                      <div className={latestClosure.differenceAmount === 0 ? 'mt-1 text-[11px] text-emerald-300' : 'mt-1 text-[11px] text-[#FEEF00]'}>
+                        Dif. {fmtMoneyByCurrency(latestClosure.differenceAmount, latestClosure.currencyCode)}
+                      </div>
                     </div>
+                  ) : (
+                    <span className="text-[#8A8A96]">Sin cierre</span>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  <div className={pendingUsd > 0 ? 'font-semibold text-[#FEEF00]' : 'text-[#B7B7C2]'}>
+                    {fmtUSD(pendingUsd)}
                   </div>
-                  <div>
-                    <div className="text-[10px] text-[#8A8A96]">Pend.</div>
-                    <div className={pendingUsd > 0 ? 'mt-0.5 truncate text-xs font-medium text-[#FEEF00]' : 'mt-0.5 truncate text-xs font-medium text-[#B7B7C2]'}>
-                      {fmtUSD(pendingUsd)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <div className="min-w-0 truncate text-[11px] text-[#8A8A96]">
-                    Cierre: <span className="text-[#B7B7C2]">{latestClosure ? latestClosure.closureDate : 'sin cierre'}</span>
-                  </div>
-                </div>
-
-                <div className="mt-2 rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-2">
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-[#8A8A96]">Línea base</span>
-                    <span className={activeBaseline ? 'text-emerald-300' : 'text-[#FEEF00]'}>
-                      {activeBaseline ? activeBaseline.baselineDate : 'Pendiente'}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-[#8A8A96]">Dif. inicial</span>
-                    <span className={activeBaseline?.differenceAmount === 0 ? 'text-emerald-300' : 'text-[#B7B7C2]'}>
-                      {activeBaseline
-                        ? `${activeBaseline.differenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
-                            activeBaseline.differenceAmount,
-                            account.currencyCode
-                          )}`
-                        : '—'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex min-h-[20px] flex-wrap gap-1">
-                  {tags.slice(0, 5).map((tag) => (
-                    <span
-                      key={`${account.id}-${tag}`}
-                      className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[9px] text-[#B7B7C2]"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <span className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]">
-                    Abrir
-                  </span>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px] text-[#B7B7C2]"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedAccountId(account.id);
+                      setAccountDetailOpen(true);
+                    }}
+                  >
+                    Ver
+                  </button>
                   {permissions.canManageMoneyAccountRules ? (
                     <button
                       type="button"
-                      className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-[#B7B7C2]"
+                      className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px] text-[#B7B7C2]"
                       onClick={(event) => {
                         event.stopPropagation();
                         openAccountRulesEditor(account);
@@ -14428,20 +14427,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       Reglas
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[#FEEF00]/40 bg-[#1D1A00] px-2.5 py-1 text-[11px] font-semibold text-[#FEEF00]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openAccountClosureDrawer(account);
-                    }}
-                  >
-                    Cierre
-                  </button>
-                  {!activeBaseline ? (
+                  {activeBaseline ? (
                     <button
                       type="button"
-                      className="rounded-lg border border-[#FEEF00]/40 bg-[#161409] px-2.5 py-1 text-[11px] font-semibold text-[#FEEF00]"
+                      className="rounded-lg border border-[#FEEF00]/40 bg-[#1D1A00] px-2.5 py-1.5 text-[11px] font-semibold text-[#FEEF00]"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openAccountClosureDrawer(account);
+                      }}
+                    >
+                      Cierre
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[#FEEF00]/40 bg-[#161409] px-2.5 py-1.5 text-[11px] font-semibold text-[#FEEF00]"
                       onClick={(event) => {
                         event.stopPropagation();
                         openAccountBaselineDrawer(account);
@@ -14449,11 +14449,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     >
                       Línea base
                     </button>
-                  ) : null}
-                </div>
-              </div>
+                  )}
+                  </div>
+                </td>
+              </tr>
             );
           })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
