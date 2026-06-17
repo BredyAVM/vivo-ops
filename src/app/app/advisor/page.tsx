@@ -10,6 +10,7 @@ import {
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
+import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
 import AdvisorSearchForm from './AdvisorSearchForm';
 import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
@@ -112,18 +113,6 @@ function formatBs(value: number | string) {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
-}
-
-function normalizeSearchValue(value: string | null | undefined) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function normalizeRemoteSearchValue(value: string) {
-  return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function getCaracasDayRange(dayKey: string) {
@@ -501,12 +490,20 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
 
     if (shouldSearchRemoteClients) {
       const phoneFilters = phoneSearchTerms.map((term) => `phone.ilike.%${term}%`);
-      const { data: clientMatches } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .or([`phone.ilike.%${remoteSearchQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteSearchQuery}%`].join(','))
-        .order('id', { ascending: false })
-        .limit(18);
+      const { data: accentSafeClientMatches, error: accentSafeClientError } = await ctx.supabase.rpc('search_clients_unaccent', {
+        p_query: remoteSearchQuery,
+        p_limit: 18,
+      });
+
+      const clientMatches =
+        !accentSafeClientError && Array.isArray(accentSafeClientMatches)
+          ? accentSafeClientMatches
+          : (await ctx.supabase
+              .from('clients')
+              .select('id')
+              .or([`phone.ilike.%${remoteSearchQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteSearchQuery}%`].join(','))
+              .order('id', { ascending: false })
+              .limit(18)).data;
 
       const clientIds = Array.from(
         new Set(

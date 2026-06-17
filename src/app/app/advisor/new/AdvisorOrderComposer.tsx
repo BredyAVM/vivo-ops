@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
+import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { buildWhatsAppOrderSummaryText, formatWhatsAppBs } from '@/lib/orders/whatsapp-summary';
@@ -594,22 +595,6 @@ function writeCatalogCache(input: Omit<AdvisorCatalogCache, 'cachedAt'>) {
   } catch {
     // Cache is optional; storage quota or private mode should not block order capture.
   }
-}
-
-function normalizeSearchValue(value: string | null | undefined) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function splitSearchTokens(value: string | null | undefined) {
-  return normalizeSearchValue(value).split(/\s+/).filter(Boolean);
-}
-
-function sanitizeRemoteSearchTerm(value: string) {
-  return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function extractInitials(value: string) {
@@ -2076,7 +2061,7 @@ export default function AdvisorOrderComposer({
     clearMessages();
 
     const query = searchTerm.trim();
-    const remoteQuery = sanitizeRemoteSearchTerm(query);
+    const remoteQuery = normalizeRemoteSearchValue(query);
     if (!query) {
       setClientResults([]);
       return;
@@ -2098,12 +2083,19 @@ export default function AdvisorOrderComposer({
         .slice(0, 5)
         .map((term) => `phone.ilike.%${term}%`);
 
-      const { data, error: searchError } = await supabase
-        .from('clients')
-        .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
-        .or([`phone.ilike.%${remoteQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteQuery}%`].join(','))
-        .order('id', { ascending: false })
-        .limit(12);
+      const { data: accentSafeData, error: accentSafeError } = await supabase.rpc('search_clients_unaccent', {
+        p_query: remoteQuery,
+        p_limit: 12,
+      });
+
+      const { data, error: searchError } = accentSafeError
+        ? await supabase
+            .from('clients')
+            .select('id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
+            .or([`phone.ilike.%${remoteQuery}%`, ...phoneFilters, `full_name.ilike.%${remoteQuery}%`].join(','))
+            .order('id', { ascending: false })
+            .limit(12)
+        : { data: accentSafeData, error: null };
 
       if (searchError) {
         setError(searchError.message);

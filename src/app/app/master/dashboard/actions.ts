@@ -9,6 +9,7 @@ import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
+import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { getMasterDashboardPermissions } from './permissions';
 
@@ -6509,7 +6510,7 @@ export async function searchClientsAction(input: {
   includeRecentWhenEmpty?: boolean;
 }) {
   const { supabase } = await requireMasterOrAdmin();
-  const query = String(input.query || '').trim().replace(/[,%]/g, ' ');
+  const query = normalizeRemoteSearchValue(input.query);
   const includeRecentWhenEmpty = Boolean(input.includeRecentWhenEmpty);
 
   if (query.length < 2 && !includeRecentWhenEmpty) {
@@ -6517,6 +6518,18 @@ export async function searchClientsAction(input: {
   }
 
   const limit = Math.max(1, Math.min(120, Math.floor(Number(input.limit ?? 15) || 15)));
+
+  if (query.length >= 2) {
+    const { data: accentSafeClients, error: accentSafeError } = await supabase.rpc('search_clients_unaccent', {
+      p_query: query,
+      p_limit: limit,
+    });
+
+    if (!accentSafeError && Array.isArray(accentSafeClients)) {
+      return accentSafeClients;
+    }
+  }
+
   const pattern = `%${query}%`;
   const phonePatterns = getPhoneSearchTerms(query)
     .map((term) => term.replace(/[,%]/g, ' '))
@@ -6592,7 +6605,7 @@ function getOrderOperationalDate(order: { created_at?: unknown; extra_fields?: u
 
 export async function searchMasterOrdersAction(input: { query: string; limit?: number }) {
   const { supabase } = await requireMasterOrAdmin();
-  const query = String(input.query || '').trim().replace(/[,%]/g, ' ');
+  const query = normalizeRemoteSearchValue(input.query);
   const numericQuery = Number(query);
   const exactOrderId = Number.isFinite(numericQuery) && numericQuery > 0 ? Math.trunc(numericQuery) : null;
 
@@ -6607,19 +6620,25 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
     .filter(Boolean)
     .slice(0, 4);
 
-  const { data: matchedClients, error: clientsError } = await supabase
-    .from('clients')
-    .select('id')
-    .or(
-      [
-        `full_name.ilike.${pattern}`,
-        `phone.ilike.${pattern}`,
-        ...phonePatterns.map((term) => `phone.ilike.%${term}%`),
-      ].join(','),
-    )
-    .limit(25);
+  const { data: accentSafeClients, error: accentSafeClientsError } = await supabase.rpc('search_clients_unaccent', {
+    p_query: query,
+    p_limit: 25,
+  });
 
-  if (clientsError) throw new Error(clientsError.message);
+  const matchedClients =
+    !accentSafeClientsError && Array.isArray(accentSafeClients)
+      ? accentSafeClients
+      : (await supabase
+          .from('clients')
+          .select('id')
+          .or(
+            [
+              `full_name.ilike.${pattern}`,
+              `phone.ilike.${pattern}`,
+              ...phonePatterns.map((term) => `phone.ilike.%${term}%`),
+            ].join(','),
+          )
+          .limit(25)).data;
 
   const matchedClientIds = Array.from(
     new Set((matchedClients ?? []).map((client) => Number(client.id)).filter((id) => Number.isFinite(id) && id > 0)),

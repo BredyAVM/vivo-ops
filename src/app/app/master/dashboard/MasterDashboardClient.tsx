@@ -4524,7 +4524,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   );
 
   const localOrderSearchResults = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = normalizeLooseText(search);
     if (!q) return [];
 
     const numericQuery = Number(q);
@@ -4532,10 +4532,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return orders
       .map((o) => {
         const idText = String(o.id);
-        const orderNumberText = String(o.orderNumber || '').toLowerCase();
-        const clientText = o.clientName.toLowerCase();
-        const advisorText = o.advisorName.toLowerCase();
-        const addressText = String(o.address || '').toLowerCase();
+        const orderNumberText = normalizeLooseText(String(o.orderNumber || ''));
+        const clientText = normalizeLooseText(o.clientName);
+        const advisorText = normalizeLooseText(o.advisorName);
+        const addressText = normalizeLooseText(String(o.address || ''));
         const matches =
           idText.includes(q) ||
           orderNumberText.includes(q) ||
@@ -10172,7 +10172,7 @@ const selectedCreateOrderClientAddresses = useMemo(
   }, [accountDateFrom, accountDateTo, moneyMovements]);
 
   const filteredAccounts = useMemo(() => {
-    const query = accountSearch.trim().toLowerCase();
+    const query = normalizeLooseText(accountSearch);
 
     return moneyAccounts.filter((account) => {
       const rules = accountRulesByAccountId.get(account.id) ?? [];
@@ -10200,13 +10200,13 @@ const selectedCreateOrderClientAddresses = useMemo(
         account.ownerName,
       ]
         .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(query));
+        .some((value) => normalizeLooseText(String(value)).includes(query));
     });
   }, [accountQuickFilter, accountRulesByAccountId, accountSearch, moneyAccounts, moneyMovements]);
 
   const filteredClients = useMemo(() => {
-    const query = clientSearch.trim().toLowerCase();
-    const normalizedPhoneTerms = getPhoneSearchTerms(clientSearch).map((term) => term.toLowerCase());
+    const query = normalizeLooseText(clientSearch);
+    const normalizedPhoneTerms = getPhoneSearchTerms(clientSearch).map(normalizeLooseText);
 
     return clients.filter((client) => {
       if (!query) return true;
@@ -10226,7 +10226,7 @@ const selectedCreateOrderClientAddresses = useMemo(
         ...addresses.map((row) => row.addressText),
       ]
         .filter(Boolean)
-        .map((value) => value.toLowerCase());
+        .map((value) => normalizeLooseText(String(value)));
 
       return (
         searchableValues.some((value) => value.includes(query)) ||

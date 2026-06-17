@@ -11,6 +11,7 @@ import {
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
+import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
 import AdvisorSearchForm from '../AdvisorSearchForm';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
@@ -120,18 +121,6 @@ function formatBs(value: number | string) {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
-}
-
-function normalizeSearchValue(value: string | null | undefined) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function normalizeRemoteSearchValue(value: string) {
-  return value.replace(/[,%]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function paymentMethodLabel(method: string | null | undefined) {
@@ -508,17 +497,26 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
       remoteSearchQuery.length >= 2 || phoneSearchTerms.some((term) => term.replace(/\D/g, '').length >= 4);
 
     if (shouldSearchRemoteClients) {
-      const clientFilters = [
-        `full_name.ilike.%${remoteSearchQuery}%`,
-        `phone.ilike.%${remoteSearchQuery}%`,
-        ...phoneSearchTerms.map((term) => `phone.ilike.%${term}%`),
-      ];
-      const { data: clientMatches } = await ctx.supabase
-        .from('clients')
-        .select('id')
-        .or(clientFilters.join(','))
-        .order('id', { ascending: false })
-        .limit(25);
+      const { data: accentSafeClientMatches, error: accentSafeClientError } = await ctx.supabase.rpc('search_clients_unaccent', {
+        p_query: remoteSearchQuery,
+        p_limit: 25,
+      });
+
+      const clientMatches =
+        !accentSafeClientError && Array.isArray(accentSafeClientMatches)
+          ? accentSafeClientMatches
+          : (await ctx.supabase
+              .from('clients')
+              .select('id')
+              .or(
+                [
+                  `full_name.ilike.%${remoteSearchQuery}%`,
+                  `phone.ilike.%${remoteSearchQuery}%`,
+                  ...phoneSearchTerms.map((term) => `phone.ilike.%${term}%`),
+                ].join(',')
+              )
+              .order('id', { ascending: false })
+              .limit(25)).data;
 
       const clientIds = Array.from(
         new Set(
