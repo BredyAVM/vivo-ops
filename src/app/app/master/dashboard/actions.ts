@@ -2191,7 +2191,7 @@ export async function settleClientFundPayoutAction(input: {
         confirmed_by_user_id: user.id,
         status: 'confirmed',
         direction: 'outflow',
-        movement_type: 'change_given',
+        movement_type: 'withdrawal',
         money_account_id: line.moneyAccountId,
         currency_code: line.currencyCode,
         amount: line.amount,

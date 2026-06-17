@@ -6201,7 +6201,7 @@ const handleDeliverClientChange = async (o: Order) => {
       .filter((line) => line.moneyAccountId > 0 || line.amount > 0 || line.notes);
 
     if (lines.length === 0) {
-      showToast('error', 'Debes agregar al menos una línea de devolución.');
+      showToast('error', 'Debes agregar al menos una salida de devolución.');
       return;
     }
 
@@ -6239,11 +6239,11 @@ const handleDeliverClientChange = async (o: Order) => {
       return;
     }
 
-    showToast('success', 'Devolución de fondo registrada.');
+    showToast('success', 'Fondo devuelto al cliente.');
     resetPaymentReportBox();
     router.refresh();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error entregando el cambio.';
+    const message = err instanceof Error ? err.message : 'Error devolviendo el fondo.';
     showToast('error', message);
   }
 };
@@ -17628,9 +17628,9 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   <div className="mt-2 rounded-lg border border-sky-500/20 bg-[#0B1016] p-3">
     <div className="flex items-start justify-between gap-3">
       <div>
-        <div className="text-[11px] font-medium text-[#F5F5F7]">Dar cambio desde fondo</div>
+        <div className="text-[11px] font-medium text-[#F5F5F7]">Devolver fondo al cliente</div>
         <div className="mt-1 text-[11px] text-[#8A8A96]">
-          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}.
+          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Registra la salida desde una o varias cuentas.
         </div>
       </div>
       <button
@@ -17651,7 +17651,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
           setPaymentGiveChangeNotes('');
         }}
       >
-        {paymentGiveChangeBoxOpen ? 'Ocultar' : 'Dar cambio'}
+        {paymentGiveChangeBoxOpen ? 'Ocultar' : 'Devolver fondo'}
       </button>
     </div>
 
@@ -17663,11 +17663,11 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
             <div className="font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrderClientFundAvailableUsd)}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">A devolver</div>
+            <div className="text-[#8A8A96]">Devuelto</div>
             <div className="font-semibold text-sky-300">{fmtUSD(selectedClientFundPayoutUsd)}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">Queda fondo</div>
+            <div className="text-[#8A8A96]">Queda en fondo</div>
             <div className="font-semibold text-[#7FE7C4]">{fmtUSD(selectedClientFundRemainingUsd)}</div>
           </div>
         </div>
@@ -17834,7 +17834,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
             className="rounded-md border border-sky-500/40 bg-[#0D141D] px-3 py-2 text-[11px] font-semibold text-sky-300"
             onClick={() => handleDeliverClientChange(selectedOrder)}
           >
-            Confirmar cambio
+            Confirmar devolución
           </button>
         </div>
       </div>
