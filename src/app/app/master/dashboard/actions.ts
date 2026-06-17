@@ -196,7 +196,7 @@ type OrderFinancialState = {
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 type OrderEventSeverity = 'info' | 'warning' | 'critical';
 type AppUserRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
-type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
+type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'wallet_usd' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
 
 const APP_USER_ROLES_VALUES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'counter', 'driver'];
 const APP_USER_ROLES = new Set<AppUserRole>(['admin', 'master', 'advisor', 'kitchen', 'counter', 'driver']);
@@ -204,6 +204,7 @@ const PAYMENT_METHOD_CODES = new Set<PaymentMethodCode>([
   'payment_mobile',
   'transfer',
   'zelle',
+  'wallet_usd',
   'cash_usd',
   'cash_ves',
   'pos',

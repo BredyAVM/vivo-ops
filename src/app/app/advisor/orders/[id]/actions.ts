@@ -9,7 +9,7 @@ import { sendPushToRoleDevices } from '@/lib/push';
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
-const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle']);
+const ADVISOR_REPORT_PAYMENT_METHODS = new Set(['payment_mobile', 'transfer', 'zelle', 'wallet_usd']);
 
 type OrderFinancialState = {
   total_usd: number | string | null;

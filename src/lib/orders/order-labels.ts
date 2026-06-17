@@ -18,6 +18,7 @@ export type PaymentMethodCode =
   | 'cash_ves'
   | 'pos'
   | 'zelle'
+  | 'wallet_usd'
   | 'retention'
   | 'mixed';
 
@@ -42,6 +43,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethodCode, string> = {
   cash_ves: 'Efectivo Bs',
   pos: 'Punto de venta',
   zelle: 'Zelle',
+  wallet_usd: 'Wallet USD',
   retention: 'Retención',
   mixed: 'Mixto',
 };

@@ -14,7 +14,7 @@ import {
 } from './actions';
 
 const ADVISOR_DISPLAY_NAME_KEY = 'advisor_display_name_v1';
-const ADVISOR_REPORT_PAYMENT_METHODS = ['payment_mobile', 'transfer', 'zelle'];
+const ADVISOR_REPORT_PAYMENT_METHODS = ['payment_mobile', 'transfer', 'zelle', 'wallet_usd'];
 
 type MoneyAccountOption = {
   id: number;

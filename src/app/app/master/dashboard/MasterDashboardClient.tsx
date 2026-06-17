@@ -172,7 +172,7 @@ type MoneyAccountClosureProfile = {
   notes: string | null;
 };
 
-type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
+type PaymentMethodCode = 'payment_mobile' | 'transfer' | 'zelle' | 'wallet_usd' | 'cash_usd' | 'cash_ves' | 'pos' | 'retention';
 
 type AccountRuleDraft = {
   role: AppUserRole;
@@ -984,7 +984,7 @@ type EditableInventoryLinkRow = {
 const ORDER_STATUS_LABEL = ORDER_STATUS_LABELS as Record<OrderStatus, string>;
 
 const APP_USER_ROLES: AppUserRole[] = ['admin', 'master', 'advisor', 'kitchen', 'counter', 'driver'];
-const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'cash_usd', 'cash_ves', 'pos', 'retention'];
+const PAYMENT_METHOD_CODES: PaymentMethodCode[] = ['payment_mobile', 'transfer', 'zelle', 'wallet_usd', 'cash_usd', 'cash_ves', 'pos', 'retention'];
 const ACCOUNT_REVIEW_ROLES: AppUserRole[] = ['master', 'admin', 'counter'];
 
 const APP_USER_ROLE_LABEL: Record<AppUserRole, string> = {
@@ -2108,6 +2108,7 @@ function getPaymentCurrencyByMethod(method: string): 'USD' | 'VES' {
   if (method === 'pos') return 'VES';
   if (method === 'retention') return 'VES';
   if (method === 'zelle') return 'USD';
+  if (method === 'wallet_usd') return 'USD';
   if (method === 'pending') return 'USD';
   return 'USD';
 }
@@ -2126,7 +2127,8 @@ function isPaymentMethodApplicableToAccount(method: PaymentMethodCode, account: 
 
   if (method === 'payment_mobile') return account.currencyCode === 'VES' && ['bank', 'wallet'].includes(account.accountKind);
   if (method === 'transfer') return account.accountKind === 'bank';
-  if (method === 'zelle') return account.currencyCode === 'USD' && ['bank', 'wallet'].includes(account.accountKind);
+  if (method === 'zelle') return account.currencyCode === 'USD' && account.accountKind === 'bank';
+  if (method === 'wallet_usd') return account.currencyCode === 'USD' && account.accountKind === 'wallet';
   if (method === 'cash_usd') return account.currencyCode === 'USD' && account.accountKind === 'cash';
   if (method === 'cash_ves') return account.currencyCode === 'VES' && account.accountKind === 'cash';
   if (method === 'pos') return account.accountKind === 'pos';
@@ -2137,7 +2139,7 @@ function isPaymentMethodApplicableToAccount(method: PaymentMethodCode, account: 
 function getPaymentMethodRolesForAccount(method: PaymentMethodCode, account: MoneyAccountOption): AppUserRole[] {
   if (!isPaymentMethodApplicableToAccount(method, account)) return [];
 
-  if (method === 'payment_mobile' || method === 'transfer' || method === 'zelle') {
+  if (method === 'payment_mobile' || method === 'transfer' || method === 'zelle' || method === 'wallet_usd') {
     return ['admin', 'master', 'advisor', 'counter'];
   }
 
@@ -2157,7 +2159,12 @@ function getPaymentMethodRolesForAccount(method: PaymentMethodCode, account: Mon
 }
 
 function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode): AccountRuleDraft {
-  const remoteMethod = method === 'payment_mobile' || method === 'transfer' || method === 'zelle' || method === 'retention';
+  const remoteMethod =
+    method === 'payment_mobile' ||
+    method === 'transfer' ||
+    method === 'zelle' ||
+    method === 'wallet_usd' ||
+    method === 'retention';
   const advisorRemoteMethod = remoteMethod && method !== 'retention';
   const counterMethod = method === 'cash_usd' || method === 'cash_ves' || method === 'pos';
   const driverCashMethod = method === 'cash_usd' || method === 'cash_ves';
@@ -22750,6 +22757,7 @@ deliveryAssignMode === 'external' ? (
 { value: 'cash_ves', label: 'Efectivo Bs' },
 { value: 'pos', label: 'Punto de venta' },
 { value: 'zelle', label: 'Zelle' },
+{ value: 'wallet_usd', label: 'Wallet USD' },
 { value: 'retention', label: 'Retención' },
 { value: 'mixed', label: 'Mixto' },
   ]}

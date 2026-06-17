@@ -2,6 +2,7 @@ export type PaymentReportMethodCode =
   | 'payment_mobile'
   | 'transfer'
   | 'zelle'
+  | 'wallet_usd'
   | 'cash_usd'
   | 'cash_ves'
   | 'pos'
@@ -54,7 +55,7 @@ export function getPaymentReportRequirements(method: string | null | undefined):
     };
   }
 
-  if (method === 'zelle') {
+  if (method === 'zelle' || method === 'wallet_usd') {
     return {
       requiresOperationDate: true,
       requiresReference: true,
@@ -83,7 +84,9 @@ export function validatePaymentReportDetails(input: PaymentReportDetailsInput) {
   }
 
   if (requirements.requiresHolderName && !String(input.holderName || '').trim()) {
-    return 'Debes indicar el nombre del titular de Zelle.';
+    return input.method === 'wallet_usd'
+      ? 'Debes indicar el nombre del titular de la wallet.'
+      : 'Debes indicar el nombre del titular de Zelle.';
   }
 
   if (requirements.requiresInvoiceNumber && !String(input.holderName || '').trim()) {

@@ -20,6 +20,7 @@ type PaymentMethod =
   | 'cash_ves'
   | 'pos'
   | 'zelle'
+  | 'wallet_usd'
   | 'mixed';
 type CurrencyCode = 'USD' | 'VES';
 
@@ -1928,7 +1929,7 @@ export default function AdvisorOrderComposer({
       paymentMethod === 'pos'
     ) {
       setPaymentCurrency('VES');
-    } else if (paymentMethod === 'cash_usd' || paymentMethod === 'zelle' || paymentMethod === 'pending') {
+    } else if (paymentMethod === 'cash_usd' || paymentMethod === 'zelle' || paymentMethod === 'wallet_usd' || paymentMethod === 'pending') {
       setPaymentCurrency('USD');
     }
   }, [paymentMethod]);
@@ -3702,6 +3703,7 @@ export default function AdvisorOrderComposer({
                 <option value="cash_ves">Efectivo Bs</option>
                 <option value="pos">Punto de venta</option>
                 <option value="zelle">Zelle</option>
+                <option value="wallet_usd">Wallet USD</option>
                 <option value="mixed">Mixto</option>
               </select>
             </Field>
