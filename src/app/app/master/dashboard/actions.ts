@@ -1976,6 +1976,192 @@ export async function deliverClientFundChangeAction(input: {
   }
 }
 
+export async function settleClientFundPayoutAction(input: {
+  orderId: number;
+  lines: Array<{
+    moneyAccountId: number;
+    currencyCode: string;
+    amount: number;
+    exchangeRateVesPerUsd?: number | null;
+    notes?: string | null;
+  }>;
+  notes?: string | null;
+}) {
+  try {
+    const { supabase, user } = await requireMasterOrAdmin();
+
+    const orderId = Number(input.orderId || 0);
+    if (!Number.isFinite(orderId) || orderId <= 0) throw new Error('Orden invalida.');
+
+    const cleanLines = (Array.isArray(input.lines) ? input.lines : [])
+      .map((line) => {
+        const moneyAccountId = Number(line.moneyAccountId || 0);
+        const currencyCode = String(line.currencyCode || '').trim().toUpperCase();
+        const amount = Number(toSafeNumber(line.amount, 0).toFixed(2));
+        const exchangeRate =
+          line.exchangeRateVesPerUsd == null
+            ? null
+            : Number(toSafeNumber(line.exchangeRateVesPerUsd, 0).toFixed(6));
+        const amountUsd = Number(
+          (currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount).toFixed(2)
+        );
+
+        return {
+          moneyAccountId,
+          currencyCode,
+          amount,
+          exchangeRate,
+          amountUsd,
+          notes: String(line.notes || input.notes || '').trim() || null,
+        };
+      })
+      .filter((line) => line.moneyAccountId > 0 && line.currencyCode && line.amount > 0);
+
+    if (cleanLines.length === 0) {
+      throw new Error('Debes agregar al menos una linea de devolucion.');
+    }
+
+    for (const line of cleanLines) {
+      if (line.currencyCode === 'VES' && (!line.exchangeRate || line.exchangeRate <= 0)) {
+        throw new Error('Debes indicar una tasa valida para cada devolucion en Bs.');
+      }
+
+      if (!Number.isFinite(line.amountUsd) || line.amountUsd <= 0) {
+        throw new Error('Una linea de devolucion tiene monto invalido.');
+      }
+    }
+
+    const { data: currentOrder, error: currentOrderError } = await supabase
+      .from('orders')
+      .select('id, client_id')
+      .eq('id', orderId)
+      .single();
+
+    if (currentOrderError || !currentOrder) {
+      throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+    }
+
+    const clientId = Number(currentOrder.client_id || 0);
+    if (!Number.isFinite(clientId) || clientId <= 0) {
+      throw new Error('La orden no tiene cliente asociado.');
+    }
+
+    const { data: currentClient, error: currentClientError } = await supabase
+      .from('clients')
+      .select('id, fund_balance_usd')
+      .eq('id', clientId)
+      .single();
+
+    if (currentClientError || !currentClient) {
+      throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
+    }
+
+    const currentBalanceUsd = roundMoney(currentClient.fund_balance_usd);
+    const totalAmountUsd = roundMoney(cleanLines.reduce((sum, line) => sum + line.amountUsd, 0));
+
+    if (totalAmountUsd > currentBalanceUsd + 0.0001) {
+      throw new Error('El cliente no tiene suficiente fondo para esa devolucion.');
+    }
+
+    const groupId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const movementDate = now.slice(0, 10);
+    const sharedNotes = String(input.notes || '').trim() || null;
+
+    const { error: updateClientError } = await supabase
+      .from('clients')
+      .update({
+        fund_balance_usd: roundMoney(currentBalanceUsd - totalAmountUsd),
+      })
+      .eq('id', clientId);
+
+    if (updateClientError) throw new Error(updateClientError.message);
+
+    let insertedMoneyMovementIds: number[] = [];
+    try {
+      const moneyRows = cleanLines.map((line, index) => ({
+        movement_date: movementDate,
+        created_by_user_id: user.id,
+        confirmed_at: now,
+        confirmed_by_user_id: user.id,
+        status: 'confirmed',
+        direction: 'outflow',
+        movement_type: 'change_given',
+        money_account_id: line.moneyAccountId,
+        currency_code: line.currencyCode,
+        amount: line.amount,
+        exchange_rate_ves_per_usd: line.currencyCode === 'VES' ? line.exchangeRate : null,
+        amount_usd_equivalent: line.amountUsd,
+        reference_code: null,
+        counterparty_name: null,
+        description: `Devolucion de fondo cliente - linea ${index + 1} - orden ${orderId}`,
+        notes: line.notes ?? sharedNotes,
+        order_id: orderId,
+        payment_report_id: null,
+        movement_group_id: groupId,
+      }));
+
+      const { data: insertedMoneyMovements, error: moneyMovementError } = await supabase
+        .from('money_movements')
+        .insert(moneyRows)
+        .select('id');
+
+      if (moneyMovementError) throw new Error(moneyMovementError.message);
+      insertedMoneyMovementIds = (insertedMoneyMovements ?? [])
+        .map((movement) => Number(movement.id || 0))
+        .filter((id) => id > 0);
+
+      const fundRows = cleanLines.map((line) => ({
+        client_id: clientId,
+        movement_type: 'debit',
+        currency_code: line.currencyCode,
+        amount: line.amount,
+        amount_usd: line.amountUsd,
+        money_account_id: line.moneyAccountId,
+        order_id: orderId,
+        payment_report_id: null,
+        reason_code: 'client_fund_payout',
+        notes: line.notes,
+        created_by_user_id: user.id,
+      }));
+
+      const { error: fundMovementError } = await supabase
+        .from('client_fund_movements')
+        .insert(fundRows);
+
+      if (fundMovementError) throw new Error(fundMovementError.message);
+    } catch (error) {
+      await supabase
+        .from('clients')
+        .update({ fund_balance_usd: currentBalanceUsd })
+        .eq('id', clientId);
+
+      if (insertedMoneyMovementIds.length > 0) {
+        await supabase
+          .from('money_movements')
+          .update({
+            status: 'voided',
+            reviewed_at: now,
+            reviewed_by_user_id: user.id,
+            voided_at: now,
+            voided_by_user_id: user.id,
+            void_reason: 'Anulacion automatica por fallo registrando ledger de fondo.',
+          })
+          .in('id', insertedMoneyMovementIds);
+      }
+      throw error;
+    }
+
+    revalidatePath('/app/master/dashboard');
+    return { ok: true as const, groupId };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'Error devolviendo fondo del cliente.',
+    };
+  }
+}
+
 export async function rejectPaymentReportAction(input: {
   reportId: number;
   reviewNotes: string;
