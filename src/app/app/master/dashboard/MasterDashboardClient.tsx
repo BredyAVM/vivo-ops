@@ -10466,72 +10466,6 @@ const selectedCreateOrderClientAddresses = useMemo(
   const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
   const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
 
-  const kitchenCashdeskRows = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-
-    return moneyAccounts
-      .map((account) => {
-        const rules = (accountRulesByAccountId.get(account.id) ?? []).filter(
-          (rule) => rule.role === 'kitchen' && (rule.canViewAccount || rule.canReportPayment || rule.canConfirmPayment)
-        );
-        if (rules.length === 0) return null;
-
-        const reportRules = rules.filter((rule) => rule.canReportPayment);
-        const autoRules = rules.filter((rule) => rule.autoConfirmsReport);
-        const reviewRules = rules.filter((rule) => rule.reviewRequired);
-        const counterRules = rules.filter(
-          (rule) => isPaymentMethodCode(rule.paymentMethodCode) && KITCHEN_COUNTER_METHODS.has(rule.paymentMethodCode)
-        );
-        const stats = accountStatsById.get(account.id);
-        const todayInflow = moneyMovements
-          .filter(
-            (movement) =>
-              movement.moneyAccountId === account.id &&
-              movement.status === 'confirmed' &&
-              movement.direction === 'inflow' &&
-              movement.movementDate === today
-          )
-          .reduce((sum, movement) => sum + movement.amount, 0);
-        const pendingReviewUsd = moneyMovements
-          .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
-          .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
-        const lastClosure =
-          moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
-
-        return {
-          account,
-          rules,
-          methods: reportRules.map((rule) => getPaymentMethodLabel(rule.paymentMethodCode)),
-          autoMethods: autoRules.map((rule) => getPaymentMethodLabel(rule.paymentMethodCode)),
-          reviewMethods: reviewRules.map((rule) => getPaymentMethodLabel(rule.paymentMethodCode)),
-          hasCounterOperation: counterRules.length > 0,
-          balanceNative: stats?.balanceNative ?? 0,
-          balanceUsdRef: stats?.balanceUsdRef ?? 0,
-          todayInflow,
-          pendingReviewUsd,
-          lastClosure,
-        };
-      })
-      .filter((row): row is NonNullable<typeof row> => row !== null)
-      .sort((a, b) => {
-        if (a.hasCounterOperation !== b.hasCounterOperation) return a.hasCounterOperation ? -1 : 1;
-        return a.account.name.localeCompare(b.account.name);
-      });
-  }, [accountRulesByAccountId, accountStatsById, moneyAccountClosures, moneyAccounts, moneyMovements]);
-
-  const kitchenCashdeskSummary = useMemo(() => {
-    return kitchenCashdeskRows.reduce(
-      (summary, row) => {
-        summary.accounts += 1;
-        if (row.hasCounterOperation) summary.counterAccounts += 1;
-        if (row.reviewMethods.length > 0) summary.reviewAccounts += 1;
-        summary.pendingReviewUsd += row.pendingReviewUsd;
-        return summary;
-      },
-      { accounts: 0, counterAccounts: 0, reviewAccounts: 0, pendingReviewUsd: 0 }
-    );
-  }, [kitchenCashdeskRows]);
-
   const clientStats = useMemo(() => {
     const hasClientSearch = clientSearch.trim().length > 0;
     const base = {
@@ -14106,153 +14040,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         )}
       </div>
     </div>
-
-    <details className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <summary className="flex cursor-pointer list-none flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-[#F5F5F7]">Reglas de cobro de cocina</div>
-          <div className="mt-1 text-xs text-[#8A8A96]">
-            Cuentas y métodos que cocina puede ver, reportar o confirmar. Abrir solo para administrar permisos.
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
-          <InfoCell label="Cuentas" value={String(kitchenCashdeskSummary.accounts)} />
-          <InfoCell label="Mostrador" value={String(kitchenCashdeskSummary.counterAccounts)} />
-          <InfoCell label="Revisión" value={String(kitchenCashdeskSummary.reviewAccounts)} />
-          <InfoCell label="Pendiente" value={fmtUSD(kitchenCashdeskSummary.pendingReviewUsd)} />
-        </div>
-      </summary>
-
-      <div className="mt-4 overflow-x-auto">
-        {kitchenCashdeskRows.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
-            No hay cuentas configuradas para cocina.
-          </div>
-        ) : (
-          <table className="w-full text-[12px]">
-            <thead className="border-b border-[#242433] text-[#B7B7C2]">
-              <tr>
-                <th className="px-2 py-2 text-left font-medium">Cuenta</th>
-                <th className="px-2 py-2 text-left font-medium">Cocina reporta</th>
-                <th className="px-2 py-2 text-left font-medium">Confirmación</th>
-                <th className="px-2 py-2 text-left font-medium">Balance</th>
-                <th className="px-2 py-2 text-left font-medium">Hoy</th>
-                <th className="px-2 py-2 text-left font-medium">Último cierre</th>
-                <th className="px-2 py-2 text-left font-medium">Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {kitchenCashdeskRows.map((row, index) => {
-                const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                const activeBaseline =
-                  moneyAccountBaselines.find(
-                    (baseline) => baseline.moneyAccountId === row.account.id && baseline.status === 'active'
-                  ) ?? null;
-                return (
-                  <tr key={row.account.id} className={`${zebra} border-b border-[#242433] align-top`}>
-                    <td className="px-2 py-3">
-                      <div className="font-semibold text-[#F5F5F7]">{row.account.name}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">
-                        {MONEY_ACCOUNT_KIND_LABEL[row.account.accountKind]} · {row.account.currencyCode}
-                      </div>
-                    </td>
-                    <td className="px-2 py-3">
-                      <div className="flex max-w-[240px] flex-wrap gap-1">
-                        {row.methods.length > 0 ? (
-                          row.methods.map((method) => (
-                            <span
-                              key={`${row.account.id}-${method}`}
-                              className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-2 py-0.5 text-[10px] text-[#B7B7C2]"
-                            >
-                              {method}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-[#8A8A96]">Solo visible</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-2 py-3">
-                      {row.autoMethods.length > 0 ? (
-                        <div className="text-emerald-300">Auto: {row.autoMethods.join(', ')}</div>
-                      ) : null}
-                      {row.reviewMethods.length > 0 ? (
-                        <div className="mt-1 text-[#FEEF00]">Master: {row.reviewMethods.join(', ')}</div>
-                      ) : null}
-                      {row.autoMethods.length === 0 && row.reviewMethods.length === 0 ? (
-                        <span className="text-[#8A8A96]">Sin confirmación</span>
-                      ) : null}
-                    </td>
-                    <td className="px-2 py-3">
-                      <div className="text-[#F5F5F7]">
-                        {fmtMoneyByCurrency(row.balanceNative, row.account.currencyCode)}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">{fmtUSD(row.balanceUsdRef)}</div>
-                    </td>
-                    <td className="px-2 py-3 text-emerald-300">
-                      {fmtMoneyByCurrency(row.todayInflow, row.account.currencyCode)}
-                      {row.pendingReviewUsd > 0 ? (
-                        <div className="mt-1 text-[11px] text-[#FEEF00]">
-                          Pendiente {fmtUSD(row.pendingReviewUsd)}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-2 py-3">
-                      {activeBaseline ? (
-                        <div className="mb-2">
-                          <div className="text-[#F5F5F7]">Base {activeBaseline.baselineDate}</div>
-                          <div
-                            className={
-                              activeBaseline.differenceAmount === 0
-                                ? 'mt-1 text-[11px] text-emerald-300'
-                                : 'mt-1 text-[11px] text-[#FEEF00]'
-                            }
-                          >
-                            Dif. inicial {fmtMoneyByCurrency(activeBaseline.differenceAmount, row.account.currencyCode)}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mb-2 text-[#FEEF00]">Base pendiente</div>
-                      )}
-                      {row.lastClosure ? (
-                        <div>
-                          <div className="text-[#F5F5F7]">{row.lastClosure.closureDate}</div>
-                          <div className={row.lastClosure.differenceAmount === 0 ? 'mt-1 text-[11px] text-emerald-300' : 'mt-1 text-[11px] text-[#FEEF00]'}>
-                            Dif. {fmtMoneyByCurrency(row.lastClosure.differenceAmount, row.lastClosure.currencyCode)}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-[#8A8A96]">Sin cierre</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-1.5 text-xs font-semibold text-[#FEEF00]"
-                          onClick={() => openAccountClosureDrawer(row.account)}
-                        >
-                          Cierre
-                        </button>
-                        {permissions.canManageMoneyAccountRules ? (
-                          <button
-                            type="button"
-                            className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs text-[#B7B7C2]"
-                            onClick={() => openAccountRulesEditor(row.account)}
-                          >
-                            Reglas
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </details>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -20233,139 +20020,165 @@ deliveryAssignMode === 'external' ? (
                 <div className="text-xs text-[#8A8A96]">{accountRuleDrafts.length} reglas aplicables</div>
               </div>
 
-              <div className="mt-4 overflow-x-auto">
+              <div className="mt-4 space-y-3">
                 {accountRuleDrafts.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">
                     Esta cuenta no tiene métodos de pago compatibles con su tipo y moneda.
                   </div>
                 ) : (
-                  <table className="w-full min-w-[880px] text-[12px]">
-                    <thead className="border-b border-[#242433] text-[#B7B7C2]">
-                      <tr>
-                        <th className="px-2 py-2 text-left font-medium">Método</th>
-                        <th className="px-2 py-2 text-left font-medium">Rol</th>
-                        <th className="px-2 py-2 text-center font-medium">Activa</th>
-                        <th className="px-2 py-2 text-center font-medium">Ver</th>
-                        <th className="px-2 py-2 text-center font-medium">Compartir</th>
-                        <th className="px-2 py-2 text-center font-medium">Reportar</th>
-                        <th className="px-2 py-2 text-center font-medium">Confirmar</th>
-                        <th className="px-2 py-2 text-center font-medium">Auto</th>
-                        <th className="px-2 py-2 text-left font-medium">Revisión</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {accountRuleDrafts.map((rule, index) => {
-                        const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                        const key = `${rule.role}-${rule.paymentMethodCode}`;
-                        const checkClass = 'h-4 w-4 accent-[#FEEF00]';
+                  PAYMENT_METHOD_CODES.map((method) => {
+                    const methodRules = accountRuleDrafts
+                      .map((rule, index) => ({ rule, index }))
+                      .filter((entry) => entry.rule.paymentMethodCode === method);
 
-                        return (
-                          <tr key={key} className={`${zebra} border-b border-[#242433] align-middle`}>
-                            <td className="px-2 py-2 font-medium text-[#F5F5F7]">
-                              {getPaymentMethodLabel(rule.paymentMethodCode)}
-                            </td>
-                            <td className="px-2 py-2 text-[#B7B7C2]">{APP_USER_ROLE_LABEL[rule.role]}</td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={rule.isActive}
-                                onChange={(event) => updateAccountRuleDraft(index, { isActive: event.target.checked })}
-                                className={checkClass}
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={rule.canViewAccount}
-                                disabled={!rule.isActive}
-                                onChange={(event) =>
-                                  updateAccountRuleDraft(index, { canViewAccount: event.target.checked })
-                                }
-                                className={checkClass}
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={rule.canShareWithClient}
-                                disabled={!rule.isActive}
-                                onChange={(event) =>
-                                  updateAccountRuleDraft(index, { canShareWithClient: event.target.checked })
-                                }
-                                className={checkClass}
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={rule.canReportPayment}
-                                disabled={!rule.isActive}
-                                onChange={(event) =>
-                                  updateAccountRuleDraft(index, { canReportPayment: event.target.checked })
-                                }
-                                className={checkClass}
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={rule.canConfirmPayment}
-                                disabled={!rule.isActive || rule.autoConfirmsReport}
-                                onChange={(event) =>
-                                  updateAccountRuleDraft(index, { canConfirmPayment: event.target.checked })
-                                }
-                                className={checkClass}
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={rule.autoConfirmsReport}
-                                disabled={!rule.isActive}
-                                onChange={(event) =>
-                                  updateAccountRuleDraft(index, { autoConfirmsReport: event.target.checked })
-                                }
-                                className={checkClass}
-                              />
-                            </td>
-                            <td className="px-2 py-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <label className="flex items-center gap-1 text-[#B7B7C2]">
-                                  <input
-                                    type="checkbox"
-                                    checked={rule.reviewRequired}
-                                    disabled={!rule.isActive || rule.autoConfirmsReport}
-                                    onChange={(event) =>
-                                      updateAccountRuleDraft(index, {
-                                        reviewRequired: event.target.checked,
-                                        reviewRoles: event.target.checked ? rule.reviewRoles : [],
-                                      })
-                                    }
-                                    className={checkClass}
-                                  />
-                                  Requiere
-                                </label>
-                                {rule.reviewRequired
-                                  ? ACCOUNT_REVIEW_ROLES.map((role) => (
-                                      <label key={`${key}-${role}`} className="flex items-center gap-1 text-[#8A8A96]">
-                                        <input
-                                          type="checkbox"
-                                          checked={rule.reviewRoles.includes(role)}
-                                          disabled={!rule.isActive || rule.autoConfirmsReport}
-                                          onChange={() => toggleAccountRuleReviewRole(index, role)}
-                                          className={checkClass}
-                                        />
-                                        {APP_USER_ROLE_LABEL[role]}
-                                      </label>
-                                    ))
-                                  : null}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                    if (methodRules.length === 0) return null;
+
+                    return (
+                      <div key={method} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-semibold text-[#F5F5F7]">
+                              {getPaymentMethodLabel(method)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-[#8A8A96]">
+                              Ver cuenta se activa automáticamente cuando el rol comparte, reporta o confirma.
+                            </div>
+                          </div>
+                          <div className="rounded-full border border-[#242433] px-2 py-1 text-[11px] text-[#B7B7C2]">
+                            {methodRules.length} rol(es)
+                          </div>
+                        </div>
+
+                        <div className="mt-3 overflow-x-auto">
+                          <table className="w-full min-w-[720px] text-[12px]">
+                            <thead className="border-b border-[#242433] text-[#B7B7C2]">
+                              <tr>
+                                <th className="px-2 py-2 text-left font-medium">Rol</th>
+                                <th className="px-2 py-2 text-center font-medium">Activa</th>
+                                <th className="px-2 py-2 text-center font-medium">Compartir</th>
+                                <th className="px-2 py-2 text-center font-medium">Reportar</th>
+                                <th className="px-2 py-2 text-left font-medium">Confirmación</th>
+                                <th className="px-2 py-2 text-left font-medium">Revisión</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {methodRules.map(({ rule, index }, rowIndex) => {
+                                const zebra = rowIndex % 2 === 0 ? 'bg-[#0B0B0D]' : 'bg-[#151522]';
+                                const key = `${rule.role}-${rule.paymentMethodCode}`;
+                                const checkClass = 'h-4 w-4 accent-[#FEEF00]';
+
+                                return (
+                                  <tr key={key} className={`${zebra} border-b border-[#242433] align-middle`}>
+                                    <td className="px-2 py-2 text-[#B7B7C2]">{APP_USER_ROLE_LABEL[rule.role]}</td>
+                                    <td className="px-2 py-2 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={rule.isActive}
+                                        onChange={(event) =>
+                                          updateAccountRuleDraft(index, { isActive: event.target.checked })
+                                        }
+                                        className={checkClass}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-2 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={rule.canShareWithClient}
+                                        disabled={!rule.isActive}
+                                        onChange={(event) =>
+                                          updateAccountRuleDraft(index, { canShareWithClient: event.target.checked })
+                                        }
+                                        className={checkClass}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-2 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={rule.canReportPayment}
+                                        disabled={!rule.isActive}
+                                        onChange={(event) =>
+                                          updateAccountRuleDraft(index, { canReportPayment: event.target.checked })
+                                        }
+                                        className={checkClass}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        <label className="flex items-center gap-1 text-[#B7B7C2]">
+                                          <input
+                                            type="checkbox"
+                                            checked={rule.canConfirmPayment}
+                                            disabled={!rule.isActive || rule.autoConfirmsReport}
+                                            onChange={(event) =>
+                                              updateAccountRuleDraft(index, {
+                                                canConfirmPayment: event.target.checked,
+                                              })
+                                            }
+                                            className={checkClass}
+                                          />
+                                          Confirmar
+                                        </label>
+                                        <label className="flex items-center gap-1 text-[#B7B7C2]">
+                                          <input
+                                            type="checkbox"
+                                            checked={rule.autoConfirmsReport}
+                                            disabled={!rule.isActive}
+                                            onChange={(event) =>
+                                              updateAccountRuleDraft(index, {
+                                                autoConfirmsReport: event.target.checked,
+                                              })
+                                            }
+                                            className={checkClass}
+                                          />
+                                          Auto
+                                        </label>
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <label className="flex items-center gap-1 text-[#B7B7C2]">
+                                          <input
+                                            type="checkbox"
+                                            checked={rule.reviewRequired}
+                                            disabled={!rule.isActive || rule.autoConfirmsReport}
+                                            onChange={(event) =>
+                                              updateAccountRuleDraft(index, {
+                                                reviewRequired: event.target.checked,
+                                                reviewRoles: event.target.checked ? rule.reviewRoles : [],
+                                              })
+                                            }
+                                            className={checkClass}
+                                          />
+                                          Requiere
+                                        </label>
+                                        {rule.reviewRequired
+                                          ? ACCOUNT_REVIEW_ROLES.map((role) => (
+                                              <label
+                                                key={`${key}-${role}`}
+                                                className="flex items-center gap-1 text-[#8A8A96]"
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={rule.reviewRoles.includes(role)}
+                                                  disabled={!rule.isActive || rule.autoConfirmsReport}
+                                                  onChange={() => toggleAccountRuleReviewRole(index, role)}
+                                                  className={checkClass}
+                                                />
+                                                {APP_USER_ROLE_LABEL[role]}
+                                              </label>
+                                            ))
+                                          : null}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
