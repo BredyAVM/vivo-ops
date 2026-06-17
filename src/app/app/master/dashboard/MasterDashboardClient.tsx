@@ -2112,14 +2112,39 @@ function isPaymentMethodCode(value: string): value is PaymentMethodCode {
 }
 
 function isPaymentMethodApplicableToAccount(method: PaymentMethodCode, account: MoneyAccountOption) {
+  const normalizedAccountName = normalizeLooseText(account.name);
+  if (normalizedAccountName.includes('retencion')) return method === 'retention';
+
   if (method === 'payment_mobile') return account.currencyCode === 'VES' && ['bank', 'wallet'].includes(account.accountKind);
   if (method === 'transfer') return account.accountKind === 'bank';
   if (method === 'zelle') return account.currencyCode === 'USD' && ['bank', 'wallet'].includes(account.accountKind);
   if (method === 'cash_usd') return account.currencyCode === 'USD' && account.accountKind === 'cash';
   if (method === 'cash_ves') return account.currencyCode === 'VES' && account.accountKind === 'cash';
   if (method === 'pos') return account.accountKind === 'pos';
-  if (method === 'retention') return account.currencyCode === 'VES' && ['bank', 'fund', 'other', 'wallet'].includes(account.accountKind);
+  if (method === 'retention') return account.accountKind === 'fund';
   return false;
+}
+
+function getPaymentMethodRolesForAccount(method: PaymentMethodCode, account: MoneyAccountOption): AppUserRole[] {
+  if (!isPaymentMethodApplicableToAccount(method, account)) return [];
+
+  if (method === 'payment_mobile' || method === 'transfer' || method === 'zelle') {
+    return ['admin', 'master', 'advisor'];
+  }
+
+  if (method === 'retention') {
+    return ['admin', 'master'];
+  }
+
+  if (method === 'pos') {
+    return ['admin', 'master', 'kitchen'];
+  }
+
+  if (method === 'cash_usd' || method === 'cash_ves') {
+    return ['admin', 'master', 'kitchen', 'driver'];
+  }
+
+  return ['admin', 'master'];
 }
 
 function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode): AccountRuleDraft {
@@ -2167,15 +2192,15 @@ function getDefaultAccountRuleDraft(role: AppUserRole, method: PaymentMethodCode
     };
   }
 
-  if (role === 'kitchen' && (method === 'payment_mobile' || counterMethod)) {
+  if (role === 'kitchen' && counterMethod) {
     return {
       ...draft,
       canViewAccount: true,
       canReportPayment: true,
       canConfirmPayment: counterMethod,
       autoConfirmsReport: counterMethod,
-      reviewRequired: method === 'payment_mobile',
-      reviewRoles: method === 'payment_mobile' ? ['master', 'admin'] : [],
+      reviewRequired: false,
+      reviewRoles: [],
       isActive: true,
     };
   }
@@ -6963,7 +6988,7 @@ const handleSaveQuickCatalog = async () => {
     for (const method of PAYMENT_METHOD_CODES) {
       if (!isPaymentMethodApplicableToAccount(method, account)) continue;
 
-      for (const role of APP_USER_ROLES) {
+      for (const role of getPaymentMethodRolesForAccount(method, account)) {
         const existing = existingByKey.get(`${role}:${method}`);
         const fallback = getDefaultAccountRuleDraft(role, method);
 
@@ -9595,16 +9620,20 @@ const getDashboardUserLabel = useCallback(
 
 const accountRulesByAccountId = useMemo(() => {
   const map = new Map<number, MoneyAccountPaymentRule[]>();
+  const accountById = new Map(moneyAccounts.map((account) => [account.id, account]));
 
   for (const rule of moneyAccountPaymentRules) {
     if (!rule.isActive) continue;
+    if (!isPaymentMethodCode(rule.paymentMethodCode)) continue;
+    const account = accountById.get(rule.moneyAccountId);
+    if (!account || !isPaymentMethodApplicableToAccount(rule.paymentMethodCode, account)) continue;
     const list = map.get(rule.moneyAccountId) ?? [];
     list.push(rule);
     map.set(rule.moneyAccountId, list);
   }
 
   return map;
-}, [moneyAccountPaymentRules]);
+}, [moneyAccountPaymentRules, moneyAccounts]);
 
 const paymentReportAccountOptions = useMemo(() => {
   const activeAccounts = moneyAccounts.filter((account) => account.isActive);
@@ -9614,6 +9643,9 @@ const paymentReportAccountOptions = useMemo(() => {
 
   for (const rule of moneyAccountPaymentRules) {
     if (!rule.isActive || !rule.canReportPayment || !currentRoleSet.has(rule.role)) continue;
+    if (!isPaymentMethodCode(rule.paymentMethodCode)) continue;
+    const account = activeAccounts.find((item) => item.id === rule.moneyAccountId) ?? null;
+    if (!account || !isPaymentMethodApplicableToAccount(rule.paymentMethodCode, account)) continue;
     if (methodIsSpecific && rule.paymentMethodCode !== paymentMethod) continue;
     allowedAccountIds.add(rule.moneyAccountId);
   }
@@ -20193,12 +20225,12 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Permisos por método y rol</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Reglas operativas de cobro</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Activa solo lo que cada rol puede ver, compartir, registrar o confirmar.
+                    Solo aparecen métodos y roles compatibles con esta cuenta.
                   </div>
                 </div>
-                <div className="text-xs text-[#8A8A96]">{accountRuleDrafts.length} reglas</div>
+                <div className="text-xs text-[#8A8A96]">{accountRuleDrafts.length} reglas aplicables</div>
               </div>
 
               <div className="mt-4 overflow-x-auto">
