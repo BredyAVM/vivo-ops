@@ -1409,6 +1409,13 @@ export async function confirmPaymentReportAction(input: {
   paymentKind?: 'retention' | null;
   overpaymentHandling?: 'change_given' | 'store_fund' | 'close_difference' | null;
   overpaymentNotes?: string | null;
+  changeLines?: Array<{
+    moneyAccountId: number;
+    currencyCode: string;
+    amount: number;
+    exchangeRateVesPerUsd?: number | null;
+    notes?: string | null;
+  }>;
   changeMoneyAccountId?: number | null;
   changeCurrency?: string | null;
   changeAmount?: number | null;
@@ -1483,8 +1490,106 @@ export async function confirmPaymentReportAction(input: {
     const isRetentionPayment = input.paymentKind === 'retention';
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
+    let excessStoredInFundUsd = handling === 'store_fund' ? excessUsd : 0;
 
     if (excessUsd > 0.005 && handling === 'change_given') {
+      const inputChangeLines =
+        Array.isArray(input.changeLines) && input.changeLines.length > 0
+          ? input.changeLines
+          : [
+              {
+                moneyAccountId: Number(input.changeMoneyAccountId || 0),
+                currencyCode: String(input.changeCurrency || '').trim().toUpperCase(),
+                amount:
+                  input.changeAmount != null && Number.isFinite(Number(input.changeAmount))
+                    ? Number(input.changeAmount)
+                    : toNativeAmountFromUsd(
+                        excessUsd,
+                        String(input.changeCurrency || '').trim().toUpperCase(),
+                        input.changeExchangeRateVesPerUsd ?? null
+                      ),
+                exchangeRateVesPerUsd: input.changeExchangeRateVesPerUsd ?? null,
+                notes,
+              },
+            ];
+
+      const changeLines = inputChangeLines
+        .map((line) => {
+          const moneyAccountId = Number(line.moneyAccountId || 0);
+          const currencyCode = String(line.currencyCode || '').trim().toUpperCase();
+          const amount = Number(toSafeNumber(line.amount, 0).toFixed(2));
+          const exchangeRate =
+            line.exchangeRateVesPerUsd == null
+              ? null
+              : Number(toSafeNumber(line.exchangeRateVesPerUsd, 0).toFixed(6));
+          const amountUsd = Number(
+            (currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount).toFixed(2)
+          );
+
+          return {
+            moneyAccountId,
+            currencyCode,
+            amount,
+            exchangeRate,
+            amountUsd,
+            notes: String(line.notes || notes || '').trim() || null,
+          };
+        })
+        .filter((line) => line.moneyAccountId > 0 && line.currencyCode && line.amount > 0);
+
+      if (changeLines.length === 0) {
+        throw new Error('Debes agregar al menos una linea de devolucion.');
+      }
+
+      for (const line of changeLines) {
+        if (line.currencyCode === 'VES' && (!line.exchangeRate || line.exchangeRate <= 0)) {
+          throw new Error('Debes indicar una tasa valida para cada devolucion en Bs.');
+        }
+        if (!Number.isFinite(line.amountUsd) || line.amountUsd <= 0) {
+          throw new Error('Una linea de devolucion tiene monto invalido.');
+        }
+      }
+
+      const totalChangeUsd = roundMoney(changeLines.reduce((sum, line) => sum + line.amountUsd, 0));
+      if (totalChangeUsd > excessUsd + 0.01) {
+        throw new Error('La devolucion no puede superar el excedente.');
+      }
+
+      excessStoredInFundUsd = roundMoney(Math.max(0, excessUsd - totalChangeUsd));
+      const groupId = changeLines.length > 1 || excessStoredInFundUsd > 0.005 ? crypto.randomUUID() : null;
+      const confirmedAt = new Date().toISOString();
+
+      const { error: changeMovementError } = await supabase
+        .from('money_movements')
+        .insert(changeLines.map((line, index) => ({
+          movement_date: input.movementDate,
+          created_by_user_id: user.id,
+          confirmed_at: confirmedAt,
+          confirmed_by_user_id: user.id,
+          status: 'confirmed',
+          direction: 'outflow',
+          movement_type: isRetentionPayment ? 'withdrawal' : 'change_given',
+          money_account_id: line.moneyAccountId,
+          currency_code: line.currencyCode,
+          amount: line.amount,
+          exchange_rate_ves_per_usd: line.currencyCode === 'VES' ? line.exchangeRate : null,
+          amount_usd_equivalent: line.amountUsd,
+          reference_code: input.referenceCode,
+          counterparty_name: input.counterpartyName,
+          description:
+            input.description
+              ? `${input.description} - ${isRetentionPayment ? 'devolucion de retencion' : 'cambio entregado'} ${index + 1}`
+              : `${isRetentionPayment ? 'Devolucion de retencion' : 'Cambio entregado'} - linea ${index + 1} - orden ${orderId} - reporte ${input.reportId}`,
+          notes: line.notes,
+          order_id: orderId,
+          payment_report_id: null,
+          movement_group_id: groupId,
+        })));
+
+      if (changeMovementError) throw new Error(changeMovementError.message);
+    }
+
+    if (false && excessUsd > 0.005 && handling === 'change_given') {
       const changeMoneyAccountId = Number(input.changeMoneyAccountId || 0);
       if (!Number.isFinite(changeMoneyAccountId) || changeMoneyAccountId <= 0) {
         throw new Error('Debes seleccionar la cuenta desde la cual se dará el cambio.');
@@ -1538,18 +1643,18 @@ export async function confirmPaymentReportAction(input: {
         });
 
       if (changeMovementError) {
-        throw new Error(changeMovementError.message);
+        throw new Error(changeMovementError?.message || 'Error registrando el cambio.');
       }
     }
 
-    if (excessUsd > 0.005 && handling === 'store_fund') {
+    if (excessStoredInFundUsd > 0.005) {
       const clientId = Number(input.clientId || currentOrder.client_id || 0);
       if (!Number.isFinite(clientId) || clientId <= 0) {
         throw new Error('La orden no tiene un cliente válido para guardar el fondo.');
       }
 
       const nativeAmount = toNativeAmountFromUsd(
-        excessUsd,
+        excessStoredInFundUsd,
         input.confirmedCurrency,
         input.confirmedExchangeRateVesPerUsd
       );
@@ -1567,7 +1672,7 @@ export async function confirmPaymentReportAction(input: {
       const { error: updateClientFundError } = await supabase
         .from('clients')
         .update({
-          fund_balance_usd: Number((toSafeNumber(currentClient.fund_balance_usd, 0) + excessUsd).toFixed(2)),
+          fund_balance_usd: Number((toSafeNumber(currentClient.fund_balance_usd, 0) + excessStoredInFundUsd).toFixed(2)),
         })
         .eq('id', clientId);
 
@@ -1582,7 +1687,7 @@ export async function confirmPaymentReportAction(input: {
           movement_type: 'credit',
           currency_code: input.confirmedCurrency,
           amount: nativeAmount,
-          amount_usd: excessUsd,
+          amount_usd: excessStoredInFundUsd,
           money_account_id: input.confirmedMoneyAccountId,
           order_id: orderId,
           payment_report_id: input.reportId,

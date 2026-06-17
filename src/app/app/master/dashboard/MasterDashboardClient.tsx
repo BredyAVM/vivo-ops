@@ -4134,6 +4134,7 @@ const [paymentConfirmOverpaymentNotes, setPaymentConfirmOverpaymentNotes] = useS
 const [paymentConfirmChangeMoneyAccountId, setPaymentConfirmChangeMoneyAccountId] = useState('');
 const [paymentConfirmChangeAmount, setPaymentConfirmChangeAmount] = useState('');
 const [paymentConfirmChangeExchangeRate, setPaymentConfirmChangeExchangeRate] = useState('');
+const [paymentConfirmChangeLines, setPaymentConfirmChangeLines] = useState<ClientFundPayoutLineDraft[]>([]);
 const [paymentConfirmSaving, setPaymentConfirmSaving] = useState(false);
 const [orderActionBusyKey, setOrderActionBusyKey] = useState<string | null>(null);
 const [orderActionBusyLabel, setOrderActionBusyLabel] = useState('');
@@ -5788,6 +5789,7 @@ const resetPaymentConfirmBox = () => {
   setPaymentConfirmChangeMoneyAccountId('');
   setPaymentConfirmChangeAmount('');
   setPaymentConfirmChangeExchangeRate('');
+  setPaymentConfirmChangeLines([]);
   setPaymentConfirmSaving(false);
 };
 
@@ -6322,27 +6324,45 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       }
 
       if (paymentConfirmOverpaymentHandling === 'change_given') {
-        const selectedChangeAccount = moneyAccounts.find(
-          (account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)
-        );
+        const lines = paymentConfirmChangeLines
+          .map((line) => {
+            const moneyAccountId = Number(line.moneyAccountId || 0);
+            const selectedAccount = moneyAccounts.find((account) => account.id === moneyAccountId);
+            const amount = Number(String(line.amount || '').replace(',', '.'));
+            const exchangeRate =
+              selectedAccount?.currencyCode === 'VES'
+                ? Number(String(line.exchangeRate || '').replace(',', '.'))
+                : null;
 
-        if (!selectedChangeAccount) {
-          showToast('error', 'Debes seleccionar la cuenta desde la cual se dará el cambio.');
+            return { selectedAccount, moneyAccountId, amount, exchangeRate };
+          })
+          .filter((line) => line.moneyAccountId > 0 || line.amount > 0);
+
+        if (lines.length === 0) {
+          showToast('error', 'Debes agregar al menos una línea para devolver ahora.');
           return;
         }
 
-        const changeAmount = Number(String(paymentConfirmChangeAmount || '').replace(',', '.'));
-        if (!Number.isFinite(changeAmount) || changeAmount <= 0) {
-          showToast('error', 'Debes indicar el monto real del cambio.');
-          return;
-        }
-
-        if (selectedChangeAccount.currencyCode === 'VES') {
-          const changeRate = Number(String(paymentConfirmChangeExchangeRate || '').replace(',', '.'));
-          if (!Number.isFinite(changeRate) || changeRate <= 0) {
-            showToast('error', 'Debes indicar una tasa válida para el cambio en Bs.');
+        for (const line of lines) {
+          if (!line.selectedAccount) {
+            showToast('error', 'Todas las líneas de devolución deben tener una cuenta válida.');
             return;
           }
+
+          if (!Number.isFinite(line.amount) || line.amount <= 0) {
+            showToast('error', 'Todas las líneas de devolución deben tener un monto válido.');
+            return;
+          }
+
+          if (line.selectedAccount.currencyCode === 'VES' && (!Number.isFinite(line.exchangeRate) || !line.exchangeRate || line.exchangeRate <= 0)) {
+            showToast('error', 'Cada línea en Bs debe tener una tasa válida.');
+            return;
+          }
+        }
+
+        if (selectedConfirmChangeLinesUsd > predictedExcessUsd + 0.01) {
+          showToast('error', 'La devolución no puede superar el excedente.');
+          return;
         }
       }
 
@@ -6373,6 +6393,24 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
       paymentKind: isRetentionConfirmation ? 'retention' : null,
       overpaymentHandling,
       overpaymentNotes,
+      changeLines:
+        overpaymentHandling === 'change_given'
+          ? paymentConfirmChangeLines
+              .map((line) => {
+                const account = moneyAccounts.find((item) => item.id === Number(line.moneyAccountId || 0));
+                return {
+                  moneyAccountId: Number(line.moneyAccountId || 0),
+                  currencyCode: account?.currencyCode ?? '',
+                  amount: Number(String(line.amount || '').replace(',', '.')),
+                  exchangeRateVesPerUsd:
+                    account?.currencyCode === 'VES'
+                      ? Number(String(line.exchangeRate || '').replace(',', '.'))
+                      : null,
+                  notes: line.notes.trim() || paymentConfirmOverpaymentNotes.trim() || null,
+                };
+              })
+              .filter((line) => line.moneyAccountId > 0 && line.currencyCode && line.amount > 0)
+          : [],
       changeMoneyAccountId:
         overpaymentHandling === 'change_given'
           ? Number(paymentConfirmChangeMoneyAccountId || 0)
@@ -6442,6 +6480,15 @@ const openConfirmPaymentBox = (o: Order, rp: PaymentReportItem) => {
   setPaymentConfirmChangeAmount(
     predictedExcessUsd > 0.005 ? String(predictedChangeAmount) : ''
   );
+  setPaymentConfirmChangeLines([
+    {
+      localId: crypto.randomUUID(),
+      moneyAccountId: String(rp.moneyAccountId || ''),
+      amount: predictedExcessUsd > 0.005 ? String(predictedChangeAmount) : '',
+      exchangeRate: rp.exchangeRate != null && rp.exchangeRate > 0 ? String(rp.exchangeRate) : '',
+      notes: '',
+    },
+  ]);
   setPaymentConfirmOverpaymentHandling('');
   setPaymentConfirmBoxOpen(true);
 };
@@ -9804,6 +9851,27 @@ const selectedConfirmPaymentExcessUsd =
 
 const selectedConfirmChangeAccount =
   moneyAccounts.find((account) => account.id === Number(paymentConfirmChangeMoneyAccountId || 0)) ?? null;
+
+const getPaymentConfirmChangeLineUsd = (line: ClientFundPayoutLineDraft) => {
+  const account = moneyAccounts.find((item) => item.id === Number(line.moneyAccountId || 0));
+  const amount = Number(String(line.amount || '').replace(',', '.'));
+  if (!account || !Number.isFinite(amount) || amount <= 0) return 0;
+
+  if (account.currencyCode === 'VES') {
+    const exchangeRate = Number(String(line.exchangeRate || '').replace(',', '.'));
+    return Number.isFinite(exchangeRate) && exchangeRate > 0 ? amount / exchangeRate : 0;
+  }
+
+  return amount;
+};
+
+const selectedConfirmChangeLinesUsd = Number(
+  paymentConfirmChangeLines.reduce((sum, line) => sum + getPaymentConfirmChangeLineUsd(line), 0).toFixed(2)
+);
+const selectedConfirmExcessToFundUsd = Math.max(
+  0,
+  Number((selectedConfirmPaymentExcessUsd - selectedConfirmChangeLinesUsd).toFixed(2))
+);
 
 const selectedMovementAccount =
   moneyAccounts.find((account) => account.id === Number(movementMoneyAccountId || 0)) ?? null;
@@ -17815,57 +17883,149 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
           </div>
 
           {paymentConfirmOverpaymentHandling === 'change_given' ? (
-            <div className="mt-3 grid grid-cols-1 gap-2 rounded-lg border border-[#242433] bg-[#111118] p-2 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <label className="mb-1 block text-[11px] text-[#8A8A96]">Cuenta de devolución</label>
-                <select
-                  value={paymentConfirmChangeMoneyAccountId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setPaymentConfirmChangeMoneyAccountId(nextId);
-                    const account = moneyAccounts.find((item) => item.id === Number(nextId));
-                    if (account?.currencyCode === 'VES' && selectedConfirmPaymentReport?.exchangeRate) {
-                      setPaymentConfirmChangeExchangeRate(String(selectedConfirmPaymentReport.exchangeRate));
-                      setPaymentConfirmChangeAmount(
-                        String(Number((selectedConfirmPaymentExcessUsd * selectedConfirmPaymentReport.exchangeRate).toFixed(2)))
-                      );
-                    } else {
-                      setPaymentConfirmChangeExchangeRate('');
-                      setPaymentConfirmChangeAmount(String(Number(selectedConfirmPaymentExcessUsd.toFixed(2))));
-                    }
-                  }}
-                  className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-                >
-                  <option value="">Selecciona cuenta</option>
-                  {moneyAccounts.filter((account) => account.isActive).map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name} ({account.currencyCode})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-[11px] text-[#8A8A96]">Monto devuelto</label>
-                <input
-                  value={paymentConfirmChangeAmount}
-                  onChange={(e) => setPaymentConfirmChangeAmount(e.target.value)}
-                  inputMode="decimal"
-                  className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-                />
-              </div>
-
-              {selectedConfirmChangeAccount?.currencyCode === 'VES' ? (
+            <div className="mt-3 space-y-2 rounded-lg border border-[#242433] bg-[#111118] p-2">
+              <div className="grid grid-cols-3 gap-2 rounded-md border border-[#242433] bg-[#0B0B0D] p-2 text-[11px]">
                 <div>
-                  <label className="mb-1 block text-[11px] text-[#8A8A96]">Tasa Bs/USD</label>
-                  <input
-                    value={paymentConfirmChangeExchangeRate}
-                    onChange={(e) => setPaymentConfirmChangeExchangeRate(e.target.value)}
-                    inputMode="decimal"
-                    className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
-                  />
+                  <div className="text-[#8A8A96]">Excedente</div>
+                  <div className="font-semibold text-[#F5F5F7]">{fmtUSD(selectedConfirmPaymentExcessUsd)}</div>
                 </div>
-              ) : null}
+                <div>
+                  <div className="text-[#8A8A96]">Devuelto</div>
+                  <div className="font-semibold text-sky-300">{fmtUSD(selectedConfirmChangeLinesUsd)}</div>
+                </div>
+                <div>
+                  <div className="text-[#8A8A96]">A fondo</div>
+                  <div className="font-semibold text-[#7FE7C4]">{fmtUSD(selectedConfirmExcessToFundUsd)}</div>
+                </div>
+              </div>
+
+              {paymentConfirmChangeLines.map((line, index) => {
+                const lineAccount = moneyAccounts.find((account) => account.id === Number(line.moneyAccountId || 0));
+                const lineUsd = getPaymentConfirmChangeLineUsd(line);
+
+                return (
+                  <div key={line.localId} className="rounded-md border border-[#242433] bg-[#0B0B0D] p-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold text-[#F5F5F7]">Devolución {index + 1}</div>
+                      {paymentConfirmChangeLines.length > 1 ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-red-500/40 bg-[#120B0B] px-2 py-1 text-[10px] text-red-300"
+                          onClick={() =>
+                            setPaymentConfirmChangeLines((prev) => prev.filter((item) => item.localId !== line.localId))
+                          }
+                        >
+                          Quitar
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <label className="mb-1 block text-[11px] text-[#8A8A96]">Cuenta</label>
+                        <select
+                          value={line.moneyAccountId}
+                          onChange={(e) => {
+                            const nextId = e.target.value;
+                            const account = moneyAccounts.find((item) => item.id === Number(nextId));
+                            const remainingUsd = Math.max(
+                              0,
+                              selectedConfirmPaymentExcessUsd -
+                                paymentConfirmChangeLines.reduce(
+                                  (sum, item) => sum + (item.localId === line.localId ? 0 : getPaymentConfirmChangeLineUsd(item)),
+                                  0
+                                )
+                            );
+
+                            setPaymentConfirmChangeLines((prev) =>
+                              prev.map((item) =>
+                                item.localId === line.localId
+                                  ? {
+                                      ...item,
+                                      moneyAccountId: nextId,
+                                      amount: getSuggestedAccountAmount(remainingUsd, account?.currencyCode),
+                                      exchangeRate:
+                                        account?.currencyCode === 'VES' && selectedConfirmPaymentReport?.exchangeRate
+                                          ? String(selectedConfirmPaymentReport.exchangeRate)
+                                          : account?.currencyCode === 'VES' && activeBsRate > 0
+                                            ? String(Number(activeBsRate.toFixed(2)))
+                                            : '',
+                                    }
+                                  : item
+                              )
+                            );
+                          }}
+                          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                        >
+                          <option value="">Selecciona cuenta</option>
+                          {moneyAccounts.filter((account) => account.isActive).map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.name} ({account.currencyCode})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1 block text-[11px] text-[#8A8A96]">Monto</label>
+                        <input
+                          value={line.amount}
+                          onChange={(e) =>
+                            setPaymentConfirmChangeLines((prev) =>
+                              prev.map((item) =>
+                                item.localId === line.localId ? { ...item, amount: e.target.value } : item
+                              )
+                            )
+                          }
+                          inputMode="decimal"
+                          className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                        />
+                      </div>
+
+                      {lineAccount?.currencyCode === 'VES' ? (
+                        <div>
+                          <label className="mb-1 block text-[11px] text-[#8A8A96]">Tasa Bs/USD</label>
+                          <input
+                            value={line.exchangeRate}
+                            onChange={(e) =>
+                              setPaymentConfirmChangeLines((prev) =>
+                                prev.map((item) =>
+                                  item.localId === line.localId ? { ...item, exchangeRate: e.target.value } : item
+                                )
+                              )
+                            }
+                            inputMode="decimal"
+                            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+                          />
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#8A8A96]">
+                          {lineAccount ? `Equivale a ${fmtUSD(lineUsd)}.` : 'Selecciona cuenta.'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <button
+                type="button"
+                className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+                onClick={() =>
+                  setPaymentConfirmChangeLines((prev) => [
+                    ...prev,
+                    {
+                      localId: crypto.randomUUID(),
+                      moneyAccountId: '',
+                      amount: '',
+                      exchangeRate: '',
+                      notes: '',
+                    },
+                  ])
+                }
+              >
+                Agregar devolución
+              </button>
             </div>
           ) : null}
 
