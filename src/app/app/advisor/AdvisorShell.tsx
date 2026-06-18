@@ -20,6 +20,7 @@ const navItems = [
   { href: '/app/advisor/orders', label: 'Pedidos' },
   { href: '/app/advisor/payments', label: 'Pagos' },
   { href: '/app/advisor/settings', label: 'Configuracion' },
+  { href: '/app', label: 'Cambiar modulo' },
 ];
 
 function isActive(pathname: string, href: string) {

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getAuthContext, isAdvisorRole, isMasterOrAdminRole } from '@/lib/auth';
+import { getAuthContext, isAdvisorRole, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 export default async function LegacyOrdersPage() {
   const ctx = await getAuthContext();
@@ -16,13 +16,5 @@ export default async function LegacyOrdersPage() {
     redirect('/app/advisor/orders');
   }
 
-  if (ctx.roles.includes('kitchen')) {
-    redirect('/app/kitchen');
-  }
-
-  if (ctx.roles.includes('driver')) {
-    redirect('/app/driver');
-  }
-
-  redirect('/app');
+  redirect(resolveHomePath(ctx.roles));
 }

@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
@@ -12196,7 +12197,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           />
         </div>
 
-        <div className="w-[200px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
+        <div className="w-[240px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
           <div className="flex items-start justify-between gap-0">
             <div className="min-w-0">
               <div className="truncate text-[13px] font-semibold leading-none text-[#F5F5F7]">
@@ -12207,6 +12208,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 {roles.length > 0 ? ` ${roles.map((r) => r.toUpperCase()).join(' · ')}` : 'Sin roles'}
               </div>
             </div>
+
+            <Link
+              href="/app"
+              className="mr-1 shrink-0 rounded-xl border border-[#242433] bg-[#0B0B0D] px-2 py-2 text-[11px] text-[#B7B7C2] hover:text-[#F5F5F7]"
+              title="Cambiar módulo"
+            >
+              Módulos
+            </Link>
 
             <button
               className="shrink-0 rounded-xl border border-red-500/40 bg-[#0B0B0D] px-2 py-2 text-[11px] text-red-400"

@@ -3,12 +3,7 @@
 import { useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-
-function resolveHomePath(roles: readonly string[]) {
-  if (roles.includes('admin') || roles.includes('master')) return '/app/master/dashboard';
-  if (roles.includes('advisor')) return '/app/advisor/orders';
-  return '/orders';
-}
+import { resolveHomePathForRoles } from '@/lib/app-modules';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -42,7 +37,9 @@ export default function LoginForm() {
       }
 
       const roles = Array.isArray(rolesData) ? (rolesData as string[]) : [];
-      router.push(resolveHomePath(roles));
+      const preferredModule =
+        typeof window !== 'undefined' ? window.localStorage.getItem('vivo:last-module') : null;
+      router.push(resolveHomePathForRoles(roles, preferredModule));
       router.refresh();
     } finally {
       setLoading(false);

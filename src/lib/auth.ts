@@ -1,7 +1,6 @@
 import { cache } from 'react';
 import { createSupabaseServer } from '@/lib/supabase/server';
-
-export type AppRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
+import { normalizeAppRoles, resolveHomePathForRoles, type AppRole } from '@/lib/app-modules';
 
 export type AuthContext = {
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>;
@@ -10,13 +9,6 @@ export type AuthContext = {
   >;
   roles: AppRole[];
 };
-
-function normalizeRoles(value: unknown): AppRole[] {
-  if (!Array.isArray(value)) return [];
-
-  const allowed = new Set<AppRole>(['admin', 'master', 'advisor', 'kitchen', 'counter', 'driver']);
-  return value.filter((role): role is AppRole => typeof role === 'string' && allowed.has(role as AppRole));
-}
 
 export function isMasterOrAdminRole(roles: readonly string[]) {
   return roles.includes('admin') || roles.includes('master');
@@ -27,9 +19,7 @@ export function isAdvisorRole(roles: readonly string[]) {
 }
 
 export function resolveHomePath(roles: readonly string[]) {
-  if (isMasterOrAdminRole(roles)) return '/app/master/dashboard';
-  if (isAdvisorRole(roles)) return '/app/advisor/orders';
-  return '/orders';
+  return resolveHomePathForRoles(roles);
 }
 
 export const getAuthContext = cache(async function getAuthContext(): Promise<AuthContext | null> {
@@ -52,7 +42,7 @@ export const getAuthContext = cache(async function getAuthContext(): Promise<Aut
   return {
     supabase,
     user,
-    roles: normalizeRoles(rolesData),
+    roles: normalizeAppRoles(rolesData),
   };
 });
 

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getAuthContext, isAdvisorRole, isMasterOrAdminRole } from '@/lib/auth';
+import { getAuthContext, isAdvisorRole, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 type PageParams = Promise<{
   id: string;
@@ -27,13 +27,5 @@ export default async function LegacyOrderDetailPage({
     redirect('/app/master/dashboard');
   }
 
-  if (ctx.roles.includes('kitchen')) {
-    redirect('/app/kitchen');
-  }
-
-  if (ctx.roles.includes('driver')) {
-    redirect('/app/driver');
-  }
-
-  redirect('/app');
+  redirect(resolveHomePath(ctx.roles));
 }
