@@ -4868,7 +4868,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
       const hasAppliedClientFund = (o.editMeta?.clientFundUsedUsd ?? 0) > 0.005;
 
-      if (expiredQuoteReview) {
+      if (expiredQuoteReview && o.status !== 'created') {
         tasks.push({
           id: `n-budget-recalc-${o.id}`,
           type: 'RECALCULAR_PRESUPUESTO',
@@ -4877,10 +4877,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
           deliveryText: `Entrega: ${delText}`,
           advisorName: o.advisorName,
           title: 'Presupuesto vencido',
-          message:
-            o.status === 'created'
-              ? 'El presupuesto tiene más de 3 días sin pago y hay precios actualizados. El asesor debe recalcularlo.'
-              : 'El presupuesto tiene más de 3 días sin pago y hay precios actualizados. Devuélvelo a creado para recalcular.',
+          message: 'El presupuesto tiene más de 3 días sin pago y hay precios actualizados. Devuélvelo a creado para recalcular.',
           severity: 'warning',
           openTab: 'detalle',
           createdAtISO: o.createdAtISO,
