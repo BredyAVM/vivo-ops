@@ -9685,15 +9685,18 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
 
 const parseMoneyInput = (value: string) => Number(String(value || '').replace(',', '.'));
 
-const formatMoneyInput = (value: number) =>
-  Number.isFinite(value) ? String(Number(value.toFixed(2))) : '';
+const formatMoneyInput = (value: number, fractionDigits = 2) => {
+  if (!Number.isFinite(value)) return '';
+  const fixed = value.toFixed(fractionDigits);
+  return fixed.replace(/\.?0+$/, '') || '0';
+};
 
 const handleChangePriceAdjustUsd = (value: string) => {
   setPriceAdjustValue(value);
 
   const unitUsd = parseMoneyInput(value);
   if (Number.isFinite(unitUsd) && unitUsd >= 0 && createOrderFxRateNumber > 0) {
-    setPriceAdjustBsValue(formatMoneyInput(unitUsd * createOrderFxRateNumber));
+    setPriceAdjustBsValue(formatMoneyInput(unitUsd * createOrderFxRateNumber, 0));
   } else if (!value.trim()) {
     setPriceAdjustBsValue('');
   }
@@ -9704,7 +9707,7 @@ const handleChangePriceAdjustBs = (value: string) => {
 
   const unitBs = parseMoneyInput(value);
   if (Number.isFinite(unitBs) && unitBs >= 0 && createOrderFxRateNumber > 0) {
-    setPriceAdjustValue(formatMoneyInput(unitBs / createOrderFxRateNumber));
+    setPriceAdjustValue(formatMoneyInput(unitBs / createOrderFxRateNumber, 6));
   } else if (!value.trim()) {
     setPriceAdjustValue('');
   }
@@ -9725,8 +9728,8 @@ const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
         : 0;
 
   setPriceAdjustItemLocalId(item.localId);
-  setPriceAdjustValue(formatMoneyInput(unitUsd));
-  setPriceAdjustBsValue(unitBs > 0 ? formatMoneyInput(unitBs) : '');
+  setPriceAdjustValue(formatMoneyInput(unitUsd, item.adminPriceOverrideUsd != null ? 6 : 2));
+  setPriceAdjustBsValue(unitBs > 0 ? formatMoneyInput(unitBs, 0) : '');
   setPriceAdjustReason(item.adminPriceOverrideReason || '');
   setPriceAdjustOpen(true);
 };
