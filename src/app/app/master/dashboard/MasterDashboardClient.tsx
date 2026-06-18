@@ -4169,6 +4169,7 @@ const orderActionBusyRef = useRef(false);
   const [closureCountedAmount, setClosureCountedAmount] = useState('');
   const [closureDate, setClosureDate] = useState(new Date().toISOString().slice(0, 10));
   const [closureExchangeRate, setClosureExchangeRate] = useState('');
+  const [closureTargetAccountId, setClosureTargetAccountId] = useState('');
   const [closureReason, setClosureReason] = useState('');
   const [closureNotes, setClosureNotes] = useState('');
   const [transferOpen, setTransferOpen] = useState(false);
@@ -7013,6 +7014,7 @@ const handleSaveQuickCatalog = async () => {
     setClosureDate(new Date().toISOString().slice(0, 10));
     setClosureCountedAmount('');
     setClosureExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+    setClosureTargetAccountId('');
     setClosureReason('');
     setClosureNotes('');
   };
@@ -7072,6 +7074,8 @@ const handleSaveQuickCatalog = async () => {
     setSelectedAccountId(account.id);
     setAccountDetailTab('closures');
     resetClosureForm();
+    const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === account.id) ?? null;
+    setClosureTargetAccountId(profile?.defaultTargetMoneyAccountId ? String(profile.defaultTargetMoneyAccountId) : '');
     setClosureCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
     setAccountDetailOpen(false);
     setClosureOpen(true);
@@ -7663,6 +7667,13 @@ const handleSaveQuickCatalog = async () => {
       return;
     }
 
+    const requiresClosureTransfer = Boolean(selectedAccountClosureProfile?.generatesTransferOnClose) && countedAmount > 0;
+    const targetMoneyAccountId = Number(closureTargetAccountId || 0);
+    if (requiresClosureTransfer && (!Number.isFinite(targetMoneyAccountId) || targetMoneyAccountId <= 0)) {
+      showToast('error', 'Selecciona la cuenta destino para consolidar el punto.');
+      return;
+    }
+
     try {
       setClosureSaving(true);
       await createMoneyAccountClosureAction({
@@ -7670,6 +7681,7 @@ const handleSaveQuickCatalog = async () => {
         closureDate,
         countedAmount,
         exchangeRateVesPerUsd: exchangeRate,
+        targetMoneyAccountId: requiresClosureTransfer ? targetMoneyAccountId : null,
         reason: closureReason,
         notes: closureNotes,
       });
@@ -10659,9 +10671,23 @@ const selectedCreateOrderClientAddresses = useMemo(
       .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime());
   }, [orders]);
 
-  const selectedAccountExpectedAmount = selectedAccount
-    ? accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0
-    : 0;
+  const selectedAccountExpectedAmount = useMemo(() => {
+    if (!selectedAccount) return 0;
+
+    const cutoffDate = closureDate || new Date().toISOString().slice(0, 10);
+    const baselineAmount = selectedAccountBaseline ? selectedAccountBaseline.countedAmount : 0;
+    const baselineDate = selectedAccountBaseline?.baselineDate ?? null;
+
+    const movementDelta = moneyMovements.reduce((sum, movement) => {
+      if (movement.moneyAccountId !== selectedAccount.id) return sum;
+      if (movement.status !== 'confirmed') return sum;
+      if (movement.movementDate > cutoffDate) return sum;
+      if (baselineDate && movement.movementDate <= baselineDate) return sum;
+      return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
+    }, 0);
+
+    return Number((baselineAmount + movementDelta).toFixed(2));
+  }, [closureDate, moneyMovements, selectedAccount, selectedAccountBaseline]);
 
   const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
   const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
@@ -19728,6 +19754,28 @@ deliveryAssignMode === 'external' ? (
                   value={closureCountedAmount}
                   onChange={setClosureCountedAmount}
                 />
+                {selectedAccountClosureProfile?.generatesTransferOnClose && closureCountedNumber > 0 ? (
+                  <FieldSelect
+                    label="Cuenta destino"
+                    value={closureTargetAccountId}
+                    onChange={setClosureTargetAccountId}
+                    options={[
+                      { value: '', label: 'Seleccionar cuenta' },
+                      ...moneyAccounts
+                        .filter(
+                          (account) =>
+                            account.isActive &&
+                            account.id !== selectedAccount.id &&
+                            account.currencyCode === selectedAccount.currencyCode &&
+                            account.accountKind === 'bank'
+                        )
+                        .map((account) => ({
+                          value: String(account.id),
+                          label: `${account.name} · ${account.currencyCode}`,
+                        })),
+                    ]}
+                  />
+                ) : null}
                 {selectedAccount.currencyCode === 'VES' ? (
                   <FieldInput
                     label="Tasa Bs/USD"
@@ -19744,6 +19792,12 @@ deliveryAssignMode === 'external' ? (
                   hint="Ej. cierre diario, arqueo, cambio de responsable."
                 />
               </div>
+              {selectedAccountClosureProfile?.generatesTransferOnClose ? (
+                <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+                  Este cierre consolida el monto contado hacia la cuenta destino y registra el traspaso
+                  financiero del punto al banco.
+                </div>
+              ) : null}
               <div className="mt-3">
                 <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
                 <textarea

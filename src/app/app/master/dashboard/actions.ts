@@ -7771,6 +7771,7 @@ export async function createMoneyAccountClosureAction(input: {
   closureDate: string;
   countedAmount: number;
   exchangeRateVesPerUsd: number | null;
+  targetMoneyAccountId?: number | null;
   reason: string;
   notes: string;
 }) {
@@ -7779,6 +7780,7 @@ export async function createMoneyAccountClosureAction(input: {
   const moneyAccountId = Number(input.moneyAccountId || 0);
   const closureDate = String(input.closureDate || '').trim();
   const countedAmount = Number(input.countedAmount || 0);
+  const requestedTargetMoneyAccountId = Number(input.targetMoneyAccountId || 0);
   const reason = String(input.reason || '').trim() || null;
   const notes = String(input.notes || '').trim() || null;
 
@@ -7796,7 +7798,7 @@ export async function createMoneyAccountClosureAction(input: {
 
   const { data: account, error: accountError } = await supabase
     .from('money_accounts')
-    .select('id, currency_code')
+    .select('id, name, currency_code')
     .eq('id', moneyAccountId)
     .single();
 
@@ -7815,16 +7817,40 @@ export async function createMoneyAccountClosureAction(input: {
     throw new Error('Debes indicar una tasa vÃ¡lida para cerrar una cuenta en Bs.');
   }
 
-  const { data: movements, error: movementsError } = await supabase
+  const { data: profile, error: profileError } = await supabase
+    .from('money_account_closure_profiles')
+    .select('closure_kind, requires_zero_difference, generates_transfer_on_close, default_target_money_account_id')
+    .eq('money_account_id', moneyAccountId)
+    .maybeSingle();
+
+  if (profileError) throw new Error(profileError.message);
+
+  const { data: activeBaseline, error: baselineError } = await supabase
+    .from('money_account_closure_baselines')
+    .select('baseline_date, counted_amount, counted_amount_usd')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (baselineError) throw new Error(baselineError.message);
+
+  let movementsQuery = supabase
     .from('money_movements')
     .select('direction, amount, amount_usd_equivalent')
     .eq('money_account_id', moneyAccountId)
-    .eq('status', 'confirmed');
+    .eq('status', 'confirmed')
+    .lte('movement_date', closureDate);
+
+  if (activeBaseline?.baseline_date) {
+    movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
+  }
+
+  const { data: movements, error: movementsError } = await movementsQuery;
 
   if (movementsError) throw new Error(movementsError.message);
 
-  let expectedAmount = 0;
-  let expectedAmountUsd = 0;
+  let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
+  let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
 
   for (const movement of movements ?? []) {
     const signed = movement.direction === 'inflow' ? 1 : -1;
@@ -7842,7 +7868,51 @@ export async function createMoneyAccountClosureAction(input: {
   const differenceAmount = Number((countedAmountRounded - expectedAmount).toFixed(2));
   const differenceAmountUsd = Number((countedAmountUsd - expectedAmountUsd).toFixed(2));
 
-  const { error } = await supabase.from('money_account_closures').insert({
+  if (Boolean(profile?.requires_zero_difference) && Math.abs(differenceAmount) > 0.009) {
+    throw new Error('Esta cuenta debe cerrar con diferencia cero antes de registrar el cierre.');
+  }
+
+  const shouldGenerateTransfer = Boolean(profile?.generates_transfer_on_close) && countedAmountRounded > 0.005;
+  let closureTransferTargetMoneyAccountId = 0;
+  let closureTransferTargetAccount: { id: number; name: string; currency_code: string; is_active: boolean } | null = null;
+
+  if (shouldGenerateTransfer) {
+    closureTransferTargetMoneyAccountId =
+      requestedTargetMoneyAccountId > 0
+        ? requestedTargetMoneyAccountId
+        : Number(profile?.default_target_money_account_id || 0);
+
+    if (!Number.isFinite(closureTransferTargetMoneyAccountId) || closureTransferTargetMoneyAccountId <= 0) {
+      throw new Error('Debes seleccionar la cuenta destino para consolidar el cierre del punto.');
+    }
+
+    if (closureTransferTargetMoneyAccountId === moneyAccountId) {
+      throw new Error('La cuenta destino del cierre debe ser distinta al punto.');
+    }
+
+    const { data: targetAccount, error: targetAccountError } = await supabase
+      .from('money_accounts')
+      .select('id, name, currency_code, is_active')
+      .eq('id', closureTransferTargetMoneyAccountId)
+      .single();
+
+    if (targetAccountError || !targetAccount) {
+      throw new Error(targetAccountError?.message || 'No se pudo cargar la cuenta destino del cierre.');
+    }
+
+    if (!targetAccount.is_active) {
+      throw new Error('La cuenta destino del cierre debe estar activa.');
+    }
+
+    const targetCurrencyCode = String(targetAccount.currency_code || '').toUpperCase();
+    if (targetCurrencyCode !== currencyCode) {
+      throw new Error('La cuenta destino del cierre debe tener la misma moneda del punto.');
+    }
+
+    closureTransferTargetAccount = targetAccount;
+  }
+
+  const { data: insertedClosure, error } = await supabase.from('money_account_closures').insert({
     money_account_id: moneyAccountId,
     closure_date: closureDate,
     expected_amount: expectedAmount,
@@ -7857,9 +7927,69 @@ export async function createMoneyAccountClosureAction(input: {
     notes,
     status: 'recorded',
     created_by_user_id: user.id,
-  });
+  }).select('id').single();
 
   if (error) throw new Error(error.message);
+
+  if (shouldGenerateTransfer && closureTransferTargetAccount) {
+    const closureId = Number(insertedClosure?.id || 0);
+    const groupId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const transferDescription = `Consolidacion cierre ${account.name} -> ${closureTransferTargetAccount.name}`;
+    const transferReference = closureId > 0 ? `closure-${closureId}` : `closure-${moneyAccountId}-${closureDate}`;
+    const transferNotes = [notes, `Cierre de cuenta ${closureId || ''}`].filter(Boolean).join('\n') || null;
+
+    const { error: transferError } = await supabase.from('money_movements').insert([
+      {
+        movement_date: closureDate,
+        created_by_user_id: user.id,
+        confirmed_at: now,
+        confirmed_by_user_id: user.id,
+        status: 'confirmed',
+        approval_required: false,
+        approval_required_reason: null,
+        direction: 'outflow',
+        movement_type: 'withdrawal',
+        money_account_id: moneyAccountId,
+        currency_code: currencyCode,
+        amount: countedAmountRounded,
+        exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+        amount_usd_equivalent: countedAmountUsd,
+        reference_code: transferReference,
+        counterparty_name: closureTransferTargetAccount.name,
+        description: `Traspaso salida - ${transferDescription}`,
+        notes: transferNotes,
+        order_id: null,
+        payment_report_id: null,
+        movement_group_id: groupId,
+      },
+      {
+        movement_date: closureDate,
+        created_by_user_id: user.id,
+        confirmed_at: now,
+        confirmed_by_user_id: user.id,
+        status: 'confirmed',
+        approval_required: false,
+        approval_required_reason: null,
+        direction: 'inflow',
+        movement_type: 'other_income',
+        money_account_id: closureTransferTargetMoneyAccountId,
+        currency_code: currencyCode,
+        amount: countedAmountRounded,
+        exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+        amount_usd_equivalent: countedAmountUsd,
+        reference_code: transferReference,
+        counterparty_name: account.name,
+        description: `Traspaso entrada - ${transferDescription}`,
+        notes: transferNotes,
+        order_id: null,
+        payment_report_id: null,
+        movement_group_id: groupId,
+      },
+    ]);
+
+    if (transferError) throw new Error(transferError.message);
+  }
 
   revalidatePath('/app/master/dashboard');
 }
