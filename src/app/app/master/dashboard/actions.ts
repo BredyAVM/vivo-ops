@@ -4139,12 +4139,17 @@ export async function updateMoneyAccountPaymentRulesAction(input: {
 export async function loadMoneyActivityAction(input?: {
   movementLimit?: number;
   closureLimit?: number;
+  reconciliationLimit?: number;
 }) {
   const { supabase } = await requireMasterOrAdmin();
   const movementLimit = Math.max(50, Math.min(800, Math.floor(Number(input?.movementLimit ?? 350) || 350)));
   const closureLimit = Math.max(25, Math.min(300, Math.floor(Number(input?.closureLimit ?? 120) || 120)));
+  const reconciliationLimit = Math.max(
+    25,
+    Math.min(300, Math.floor(Number(input?.reconciliationLimit ?? 120) || 120))
+  );
 
-  const [movementsResult, closuresResult, baselinesResult] = await Promise.all([
+  const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult] = await Promise.all([
     supabase
       .from('money_movements')
       .select(`
@@ -4234,11 +4239,40 @@ export async function loadMoneyActivityAction(input?: {
       `)
       .eq('status', 'active')
       .order('baseline_at', { ascending: false }),
+    supabase
+      .from('money_account_reconciliation_items')
+      .select(`
+        id,
+        money_account_id,
+        source_kind,
+        source_id,
+        item_type,
+        direction,
+        currency_code,
+        amount,
+        amount_usd_equivalent,
+        operation_date,
+        reference_code,
+        counterparty_name,
+        description,
+        status,
+        created_by_user_id,
+        created_at,
+        resolved_by_user_id,
+        resolved_at,
+        resolution_notes,
+        voided_by_user_id,
+        voided_at,
+        void_reason
+      `)
+      .order('created_at', { ascending: false })
+      .limit(reconciliationLimit),
   ]);
 
   if (movementsResult.error) throw new Error(movementsResult.error.message);
   if (closuresResult.error) throw new Error(closuresResult.error.message);
   if (baselinesResult.error) throw new Error(baselinesResult.error.message);
+  if (reconciliationItemsResult.error) throw new Error(reconciliationItemsResult.error.message);
 
   const movementRows = (movementsResult.data ?? []) as any[];
   const movementOrderIds = Array.from(
@@ -4361,7 +4395,32 @@ export async function loadMoneyActivityAction(input?: {
     voidReason: row.void_reason ?? null,
   }));
 
-  return { movements, closures, baselines };
+  const reconciliationItems = ((reconciliationItemsResult.data ?? []) as any[]).map((row) => ({
+    id: Number(row.id),
+    moneyAccountId: Number(row.money_account_id),
+    sourceKind: row.source_kind,
+    sourceId: row.source_id == null ? null : Number(row.source_id),
+    itemType: row.item_type,
+    direction: row.direction,
+    currencyCode: row.currency_code,
+    amount: toSafeNumber(row.amount, 0),
+    amountUsdEquivalent: toSafeNumber(row.amount_usd_equivalent, 0),
+    operationDate: row.operation_date ?? null,
+    referenceCode: row.reference_code ?? null,
+    counterpartyName: row.counterparty_name ?? null,
+    description: row.description,
+    status: row.status,
+    createdByUserId: row.created_by_user_id,
+    createdAt: row.created_at,
+    resolvedByUserId: row.resolved_by_user_id ?? null,
+    resolvedAt: row.resolved_at ?? null,
+    resolutionNotes: row.resolution_notes ?? null,
+    voidedByUserId: row.voided_by_user_id ?? null,
+    voidedAt: row.voided_at ?? null,
+    voidReason: row.void_reason ?? null,
+  }));
+
+  return { movements, closures, baselines, reconciliationItems };
 }
 
 export async function loadInventoryMovementsAction(input?: {
@@ -7819,7 +7878,9 @@ export async function createMoneyAccountClosureAction(input: {
 
   const { data: profile, error: profileError } = await supabase
     .from('money_account_closure_profiles')
-    .select('closure_kind, requires_zero_difference, generates_transfer_on_close, default_target_money_account_id')
+    .select(
+      'closure_kind, requires_zero_difference, allows_classified_difference, generates_transfer_on_close, default_target_money_account_id'
+    )
     .eq('money_account_id', moneyAccountId)
     .maybeSingle();
 
@@ -7931,8 +7992,37 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (error) throw new Error(error.message);
 
+  const closureId = Number(insertedClosure?.id || 0);
+  const shouldCreateReconciliationItem =
+    Boolean(profile?.allows_classified_difference) && Math.abs(differenceAmount) > 0.009;
+
+  if (shouldCreateReconciliationItem) {
+    const absoluteDifference = Math.abs(differenceAmount);
+    const absoluteDifferenceUsd = Math.abs(differenceAmountUsd);
+    const { error: reconciliationError } = await supabase.from('money_account_reconciliation_items').insert({
+      money_account_id: moneyAccountId,
+      source_kind: 'closure',
+      source_id: closureId > 0 ? closureId : null,
+      item_type: 'other_pending',
+      direction: differenceAmount > 0 ? 'surplus' : 'shortage',
+      currency_code: currencyCode,
+      amount: absoluteDifference,
+      amount_usd_equivalent: absoluteDifferenceUsd,
+      operation_date: closureDate,
+      reference_code: closureId > 0 ? `closure-${closureId}` : `closure-${moneyAccountId}-${closureDate}`,
+      counterparty_name: null,
+      description:
+        differenceAmount > 0
+          ? `Pendiente por identificar en cierre de ${account.name}`
+          : `Faltante pendiente por explicar en cierre de ${account.name}`,
+      status: 'open',
+      created_by_user_id: user.id,
+    });
+
+    if (reconciliationError) throw new Error(reconciliationError.message);
+  }
+
   if (shouldGenerateTransfer && closureTransferTargetAccount) {
-    const closureId = Number(insertedClosure?.id || 0);
     const groupId = crypto.randomUUID();
     const now = new Date().toISOString();
     const transferDescription = `Consolidacion cierre ${account.name} -> ${closureTransferTargetAccount.name}`;
@@ -8100,6 +8190,38 @@ export async function createMoneyAccountBaselineAction(input: {
     status: 'active',
     created_by_user_id: user.id,
   });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function resolveMoneyAccountReconciliationItemAction(input: {
+  itemId: number;
+  resolutionNotes: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const itemId = Number(input.itemId || 0);
+  const resolutionNotes = String(input.resolutionNotes || '').trim();
+
+  if (!Number.isFinite(itemId) || itemId <= 0) {
+    throw new Error('Pendiente de conciliaciÃ³n invÃ¡lido.');
+  }
+
+  if (!resolutionNotes) {
+    throw new Error('Debes indicar una nota de resoluciÃ³n.');
+  }
+
+  const { error } = await supabase
+    .from('money_account_reconciliation_items')
+    .update({
+      status: 'resolved',
+      resolved_by_user_id: user.id,
+      resolved_at: new Date().toISOString(),
+      resolution_notes: resolutionNotes,
+    })
+    .eq('id', itemId)
+    .eq('status', 'open');
 
   if (error) throw new Error(error.message);
 

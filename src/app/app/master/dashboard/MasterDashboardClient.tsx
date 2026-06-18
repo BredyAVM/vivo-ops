@@ -53,6 +53,7 @@ import {
   approveMoneyMovementGroupAction,
   rejectMoneyMovementGroupAction,
   createMoneyAccountClosureAction,
+  resolveMoneyAccountReconciliationItemAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
   markMasterInboxItemsReviewedAction,
@@ -279,6 +280,39 @@ type MoneyAccountBaselineItem = {
   status: 'active' | 'superseded' | 'voided';
   createdByUserId: string;
   createdAt: string;
+  voidedByUserId: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+};
+
+type MoneyAccountReconciliationItem = {
+  id: number;
+  moneyAccountId: number;
+  sourceKind: 'baseline' | 'closure' | 'manual';
+  sourceId: number | null;
+  itemType:
+    | 'unidentified_payment'
+    | 'unregistered_fee'
+    | 'unregistered_transfer'
+    | 'conversion_difference'
+    | 'amount_error'
+    | 'timing_difference'
+    | 'manual_adjustment'
+    | 'other_pending';
+  direction: 'surplus' | 'shortage';
+  currencyCode: 'USD' | 'VES';
+  amount: number;
+  amountUsdEquivalent: number;
+  operationDate: string | null;
+  referenceCode: string | null;
+  counterpartyName: string | null;
+  description: string;
+  status: 'open' | 'resolved' | 'voided';
+  createdByUserId: string;
+  createdAt: string;
+  resolvedByUserId: string | null;
+  resolvedAt: string | null;
+  resolutionNotes: string | null;
   voidedByUserId: string | null;
   voidedAt: string | null;
   voidReason: string | null;
@@ -968,6 +1002,22 @@ const MONEY_ACCOUNT_CLOSURE_STATUS_LABEL: Record<MoneyAccountClosureItem['status
   approved: 'Aprobado',
   recorded: 'Registrado',
   rejected: 'Rechazado',
+};
+
+const RECONCILIATION_ITEM_TYPE_LABEL: Record<MoneyAccountReconciliationItem['itemType'], string> = {
+  unidentified_payment: 'Pago no identificado',
+  unregistered_fee: 'Comisión no registrada',
+  unregistered_transfer: 'Traspaso no registrado',
+  conversion_difference: 'Diferencia de conversión',
+  amount_error: 'Error de monto',
+  timing_difference: 'Diferencia temporal',
+  manual_adjustment: 'Ajuste manual',
+  other_pending: 'Pendiente por identificar',
+};
+
+const RECONCILIATION_DIRECTION_LABEL: Record<MoneyAccountReconciliationItem['direction'], string> = {
+  surplus: 'Sobrante',
+  shortage: 'Faltante',
 };
 
 type EditableComponentRow = {
@@ -3903,6 +3953,9 @@ export default function MasterDashboardClient({
     initialMoneyAccountClosures
   );
   const [moneyAccountBaselines, setMoneyAccountBaselines] = useState<MoneyAccountBaselineItem[]>([]);
+  const [moneyAccountReconciliationItems, setMoneyAccountReconciliationItems] = useState<
+    MoneyAccountReconciliationItem[]
+  >([]);
   const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
   const [moneyActivityLoading, setMoneyActivityLoading] = useState(false);
   const [moneyActivityError, setMoneyActivityError] = useState<string | null>(null);
@@ -4172,6 +4225,9 @@ const orderActionBusyRef = useRef(false);
   const [closureTargetAccountId, setClosureTargetAccountId] = useState('');
   const [closureReason, setClosureReason] = useState('');
   const [closureNotes, setClosureNotes] = useState('');
+  const [reconciliationResolveItemId, setReconciliationResolveItemId] = useState<number | null>(null);
+  const [reconciliationResolveNotes, setReconciliationResolveNotes] = useState('');
+  const [reconciliationResolveSaving, setReconciliationResolveSaving] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
@@ -7221,7 +7277,11 @@ const handleSaveQuickCatalog = async () => {
       try {
         setMoneyActivityLoading(true);
         setMoneyActivityError(null);
-        const result = await loadMoneyActivityAction({ movementLimit: 350, closureLimit: 120 });
+        const result = await loadMoneyActivityAction({
+          movementLimit: 350,
+          closureLimit: 120,
+          reconciliationLimit: 120,
+        });
         const movementById = new Map<number, MoneyMovementItem>();
 
         if (!force) {
@@ -7243,6 +7303,7 @@ const handleSaveQuickCatalog = async () => {
         );
         setMoneyAccountClosures(result.closures as MoneyAccountClosureItem[]);
         setMoneyAccountBaselines(result.baselines as MoneyAccountBaselineItem[]);
+        setMoneyAccountReconciliationItems(result.reconciliationItems as MoneyAccountReconciliationItem[]);
         setMoneyActivityLoaded(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'No se pudo cargar la actividad financiera.';
@@ -7693,6 +7754,31 @@ const handleSaveQuickCatalog = async () => {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el cierre.');
     } finally {
       setClosureSaving(false);
+    }
+  };
+
+  const handleResolveReconciliationItem = async () => {
+    if (!selectedReconciliationResolveItem) return;
+
+    if (!reconciliationResolveNotes.trim()) {
+      showToast('error', 'Indica una nota de resolución.');
+      return;
+    }
+
+    try {
+      setReconciliationResolveSaving(true);
+      await resolveMoneyAccountReconciliationItemAction({
+        itemId: selectedReconciliationResolveItem.id,
+        resolutionNotes: reconciliationResolveNotes,
+      });
+      showToast('success', 'Pendiente resuelto.');
+      setReconciliationResolveItemId(null);
+      setReconciliationResolveNotes('');
+      await loadMoneyActivity(true);
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo resolver el pendiente.');
+    } finally {
+      setReconciliationResolveSaving(false);
     }
   };
 
@@ -10415,6 +10501,38 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!selectedAccountId) return [];
     return moneyAccountClosures.filter((closure) => closure.moneyAccountId === selectedAccountId);
   }, [moneyAccountClosures, selectedAccountId]);
+
+  const selectedAccountReconciliationItems = useMemo(() => {
+    if (!selectedAccountId) return [];
+    return moneyAccountReconciliationItems.filter((item) => item.moneyAccountId === selectedAccountId);
+  }, [moneyAccountReconciliationItems, selectedAccountId]);
+
+  const selectedAccountOpenReconciliationItems = useMemo(
+    () => selectedAccountReconciliationItems.filter((item) => item.status === 'open'),
+    [selectedAccountReconciliationItems]
+  );
+
+  const selectedReconciliationResolveItem = useMemo(
+    () =>
+      reconciliationResolveItemId == null
+        ? null
+        : moneyAccountReconciliationItems.find((item) => item.id === reconciliationResolveItemId) ?? null,
+    [moneyAccountReconciliationItems, reconciliationResolveItemId]
+  );
+
+  const selectedAccountReconciliationSummary = useMemo(() => {
+    return selectedAccountOpenReconciliationItems.reduce(
+      (summary, item) => {
+        if (item.direction === 'surplus') {
+          summary.surplus += item.amount;
+        } else {
+          summary.shortage += item.amount;
+        }
+        return summary;
+      },
+      { surplus: 0, shortage: 0 }
+    );
+  }, [selectedAccountOpenReconciliationItems]);
 
   const accountAuditUserOptions = useMemo(() => {
     const userIds = new Set<string>();
@@ -19833,6 +19951,77 @@ deliveryAssignMode === 'external' ? (
       </Drawer>
 
       <Drawer
+        open={Boolean(reconciliationResolveItemId)}
+        title="Resolver pendiente"
+        onClose={() => {
+          if (reconciliationResolveSaving) return;
+          setReconciliationResolveItemId(null);
+          setReconciliationResolveNotes('');
+        }}
+        widthClass="w-[520px]"
+      >
+        {!selectedReconciliationResolveItem ? (
+          <div className="text-sm text-[#B7B7C2]">Sin pendiente seleccionado.</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <InfoCell
+                  label="Tipo"
+                  value={RECONCILIATION_ITEM_TYPE_LABEL[selectedReconciliationResolveItem.itemType]}
+                />
+                <InfoCell
+                  label="Dirección"
+                  value={RECONCILIATION_DIRECTION_LABEL[selectedReconciliationResolveItem.direction]}
+                />
+                <InfoCell
+                  label="Monto"
+                  value={fmtMoneyByCurrency(
+                    selectedReconciliationResolveItem.amount,
+                    selectedReconciliationResolveItem.currencyCode
+                  )}
+                />
+                <InfoCell label="Fecha" value={selectedReconciliationResolveItem.operationDate || '—'} />
+              </div>
+              <div className="mt-3 text-sm text-[#B7B7C2]">
+                {selectedReconciliationResolveItem.description}
+              </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs text-[#8A8A96]">Nota de resolución</label>
+                <textarea
+                  value={reconciliationResolveNotes}
+                  onChange={(e) => setReconciliationResolveNotes(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  placeholder="Ej. identificado como pago no reportado, comisión bancaria registrada, error corregido..."
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+                onClick={() => {
+                  setReconciliationResolveItemId(null);
+                  setReconciliationResolveNotes('');
+                }}
+                disabled={reconciliationResolveSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+                onClick={handleResolveReconciliationItem}
+                disabled={reconciliationResolveSaving}
+              >
+                {reconciliationResolveSaving ? 'Guardando...' : 'Marcar resuelto'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
         open={accountDetailOpen}
         title={selectedAccount ? `Cuenta: ${selectedAccount.name}` : 'Cuenta'}
         onClose={() => {
@@ -20197,8 +20386,72 @@ deliveryAssignMode === 'external' ? (
                   className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
                   onClick={() => openAccountClosureDrawer(selectedAccount)}
                 >
-                  Registrar cierre
+                  {selectedAccountClosureProfile?.allowsClassifiedDifference ? 'Conciliar cuenta' : 'Registrar cierre'}
                 </button>
+              </div>
+              <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Pendientes de conciliación</div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      Diferencias abiertas hasta que se identifique el origen o se registre la corrección.
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-right text-xs">
+                    <div className="rounded-lg border border-[#242433] px-3 py-2">
+                      <div className="text-[#8A8A96]">Sobrante</div>
+                      <div className="mt-1 font-semibold text-emerald-300">
+                        {fmtMoneyByCurrency(
+                          selectedAccountReconciliationSummary.surplus,
+                          selectedAccount.currencyCode
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-[#242433] px-3 py-2">
+                      <div className="text-[#8A8A96]">Faltante</div>
+                      <div className="mt-1 font-semibold text-red-300">
+                        {fmtMoneyByCurrency(
+                          selectedAccountReconciliationSummary.shortage,
+                          selectedAccount.currencyCode
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {selectedAccountOpenReconciliationItems.length === 0 ? (
+                    <div className="text-sm text-[#B7B7C2]">Sin pendientes abiertos.</div>
+                  ) : (
+                    selectedAccountOpenReconciliationItems.slice(0, 6).map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-[#242433] bg-[#121218] p-3 text-sm"
+                      >
+                        <div>
+                          <div className="font-medium text-[#F5F5F7]">
+                            {RECONCILIATION_DIRECTION_LABEL[item.direction]} ·{' '}
+                            {fmtMoneyByCurrency(item.amount, item.currencyCode)}
+                          </div>
+                          <div className="mt-1 text-xs text-[#8A8A96]">
+                            {item.operationDate || 'Sin fecha'} · {RECONCILIATION_ITEM_TYPE_LABEL[item.itemType]}
+                            {item.referenceCode ? ` · ${item.referenceCode}` : ''}
+                          </div>
+                          <div className="mt-1 text-xs text-[#B7B7C2]">{item.description}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-[#2A2A38] bg-[#0B0B0D] px-3 py-1.5 text-xs font-semibold text-[#F5F5F7]"
+                          onClick={() => {
+                            setReconciliationResolveItemId(item.id);
+                            setReconciliationResolveNotes('');
+                          }}
+                        >
+                          Resolver
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
               <div className="mt-3 space-y-2">
                 {selectedAccountClosures.length === 0 ? (
