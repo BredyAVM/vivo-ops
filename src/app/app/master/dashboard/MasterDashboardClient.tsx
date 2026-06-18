@@ -123,6 +123,7 @@ type DraftItem = {
   lineTotalUsd: number;
   editableDetailLines: string[];
   adminPriceOverrideUsd: number | null;
+  adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
   adminPriceOverrideReason: string | null;
   adminPriceOverrideByUserId?: string | null;
   adminPriceOverrideAt?: string | null;
@@ -4429,6 +4430,7 @@ const [priceAdjustOpen, setPriceAdjustOpen] = useState(false);
 const [priceAdjustItemLocalId, setPriceAdjustItemLocalId] = useState<string | null>(null);
 const [priceAdjustValue, setPriceAdjustValue] = useState('');
 const [priceAdjustBsValue, setPriceAdjustBsValue] = useState('');
+const [priceAdjustCurrency, setPriceAdjustCurrency] = useState<'USD' | 'VES'>('USD');
 const [priceAdjustReason, setPriceAdjustReason] = useState('');
 const [adminEditReason, setAdminEditReason] = useState('');
 
@@ -5818,6 +5820,7 @@ const resetPriceAdjustBox = () => {
   setPriceAdjustItemLocalId(null);
   setPriceAdjustValue('');
   setPriceAdjustBsValue('');
+  setPriceAdjustCurrency('USD');
   setPriceAdjustReason('');
 };
 
@@ -9414,6 +9417,7 @@ const nextItem: DraftItem = {
   lineTotalUsd: configSnapshot.lineUsd,
   editableDetailLines: detailLines,
   adminPriceOverrideUsd: null,
+  adminPriceOverrideCurrency: null,
   adminPriceOverrideReason: null,
   adminPriceOverrideByUserId: null,
   adminPriceOverrideAt: null,
@@ -9425,17 +9429,28 @@ const nextItem: DraftItem = {
 
   if (existingEditingItem) {
     nextItem.adminPriceOverrideUsd = existingEditingItem.adminPriceOverrideUsd;
+    nextItem.adminPriceOverrideCurrency = existingEditingItem.adminPriceOverrideCurrency ?? null;
     nextItem.adminPriceOverrideReason = existingEditingItem.adminPriceOverrideReason;
     nextItem.adminPriceOverrideByUserId = existingEditingItem.adminPriceOverrideByUserId ?? null;
     nextItem.adminPriceOverrideAt = existingEditingItem.adminPriceOverrideAt ?? null;
-    nextItem.lineTotalUsd = calculateOrderLineSnapshot({
+    if (existingEditingItem.adminPriceOverrideCurrency) {
+      nextItem.sourcePriceCurrency = existingEditingItem.sourcePriceCurrency;
+      nextItem.sourcePriceAmount = existingEditingItem.sourcePriceAmount;
+    }
+    const preservedSnapshot = calculateOrderLineSnapshot({
       sourceCurrency: nextItem.sourcePriceCurrency,
       sourceAmount: nextItem.sourcePriceAmount,
       quantity: nextItem.qty,
       fxRate: createOrderFxRateNumber,
-      overrideUnitUsd: existingEditingItem.adminPriceOverrideUsd,
+      overrideUnitUsd: existingEditingItem.adminPriceOverrideCurrency
+        ? null
+        : existingEditingItem.adminPriceOverrideUsd,
       fallbackUnitUsd: nextItem.unitPriceUsdSnapshot,
-    }).lineUsd;
+    });
+    nextItem.unitPriceUsdSnapshot = existingEditingItem.adminPriceOverrideCurrency
+      ? preservedSnapshot.unitUsd
+      : nextItem.unitPriceUsdSnapshot;
+    nextItem.lineTotalUsd = preservedSnapshot.lineUsd;
   }
 
   setCreateOrderDraftItems((prev) => {
@@ -9535,6 +9550,7 @@ items: createOrderDraftItems.map((item) => ({
   lineTotalUsd: item.lineTotalUsd,
   editableDetailLines: item.editableDetailLines,
   adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+  adminPriceOverrideCurrency: item.adminPriceOverrideCurrency ?? null,
   adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
     });
@@ -9639,6 +9655,7 @@ items: createOrderDraftItems.map((item) => ({
   lineTotalUsd: item.lineTotalUsd,
   editableDetailLines: item.editableDetailLines,
   adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+  adminPriceOverrideCurrency: item.adminPriceOverrideCurrency ?? null,
   adminPriceOverrideReason: item.adminPriceOverrideReason,
 })),
       adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
@@ -9668,7 +9685,7 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
         sourceAmount: item.sourcePriceAmount,
         quantity: nextQty,
         fxRate: createOrderFxRateNumber,
-        overrideUnitUsd: item.adminPriceOverrideUsd,
+        overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
         fallbackUnitUsd: item.unitPriceUsdSnapshot,
       });
 
@@ -9676,7 +9693,9 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
         ...item,
         qty: nextQty,
         unitPriceUsdSnapshot:
-          item.adminPriceOverrideUsd != null ? item.unitPriceUsdSnapshot : snapshot.unitUsd,
+          item.adminPriceOverrideUsd != null && !item.adminPriceOverrideCurrency
+            ? item.unitPriceUsdSnapshot
+            : snapshot.unitUsd,
         lineTotalUsd: snapshot.lineUsd,
       };
     })
@@ -9692,6 +9711,7 @@ const formatMoneyInput = (value: number, fractionDigits = 2) => {
 };
 
 const handleChangePriceAdjustUsd = (value: string) => {
+  setPriceAdjustCurrency('USD');
   setPriceAdjustValue(value);
 
   const unitUsd = parseMoneyInput(value);
@@ -9703,6 +9723,7 @@ const handleChangePriceAdjustUsd = (value: string) => {
 };
 
 const handleChangePriceAdjustBs = (value: string) => {
+  setPriceAdjustCurrency('VES');
   setPriceAdjustBsValue(value);
 
   const unitBs = parseMoneyInput(value);
@@ -9730,6 +9751,7 @@ const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
   setPriceAdjustItemLocalId(item.localId);
   setPriceAdjustValue(formatMoneyInput(unitUsd, item.adminPriceOverrideUsd != null ? 6 : 2));
   setPriceAdjustBsValue(unitBs > 0 ? formatMoneyInput(unitBs, 0) : '');
+  setPriceAdjustCurrency(item.adminPriceOverrideCurrency ?? item.sourcePriceCurrency);
   setPriceAdjustReason(item.adminPriceOverrideReason || '');
   setPriceAdjustOpen(true);
 };
@@ -9737,9 +9759,19 @@ const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
 const handleSaveAdjustedCreateOrderItemPrice = () => {
   if (!isAdmin || !priceAdjustItemLocalId) return;
 
-  const nextUnitUsd = parseMoneyInput(priceAdjustValue);
-  if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
+  const nextUnitUsdInput = parseMoneyInput(priceAdjustValue);
+  const nextUnitBsInput = parseMoneyInput(priceAdjustBsValue);
+  const isVesAdjustment = priceAdjustCurrency === 'VES';
+  const nextSourceCurrency: 'USD' | 'VES' = isVesAdjustment ? 'VES' : 'USD';
+  const nextSourceAmount = isVesAdjustment ? nextUnitBsInput : nextUnitUsdInput;
+
+  if (!Number.isFinite(nextSourceAmount) || nextSourceAmount < 0) {
     showToast('error', 'El precio ajustado es inválido.');
+    return;
+  }
+
+  if (isVesAdjustment && createOrderFxRateNumber <= 0) {
+    showToast('error', 'La tasa snapshot es obligatoria para ajustar en bolívares.');
     return;
   }
 
@@ -9751,14 +9783,32 @@ const handleSaveAdjustedCreateOrderItemPrice = () => {
   setCreateOrderDraftItems((prev) =>
     prev.map((item) =>
       item.localId === priceAdjustItemLocalId
-        ? {
+        ? (() => {
+            const snapshot = calculateOrderLineSnapshot({
+              sourceCurrency: nextSourceCurrency,
+              sourceAmount: nextSourceAmount,
+              quantity: item.qty,
+              fxRate: createOrderFxRateNumber,
+              fallbackUnitUsd: item.unitPriceUsdSnapshot,
+            });
+            const nextUnitUsd =
+              nextSourceCurrency === 'VES' && createOrderFxRateNumber > 0
+                ? nextSourceAmount / createOrderFxRateNumber
+                : nextSourceAmount;
+
+            return {
             ...item,
+            sourcePriceCurrency: nextSourceCurrency,
+            sourcePriceAmount: nextSourceAmount,
+            unitPriceUsdSnapshot: snapshot.unitUsd,
             adminPriceOverrideUsd: nextUnitUsd,
+            adminPriceOverrideCurrency: nextSourceCurrency,
             adminPriceOverrideReason: priceAdjustReason.trim(),
             adminPriceOverrideByUserId: currentUser.id,
             adminPriceOverrideAt: new Date().toISOString(),
-            lineTotalUsd: nextUnitUsd * Number(item.qty || 0),
-          }
+            lineTotalUsd: snapshot.lineUsd,
+          };
+        })()
         : item
     )
   );
@@ -9770,18 +9820,34 @@ const handleClearAdjustedCreateOrderItemPrice = (localId: string) => {
   if (!isAdmin) return;
 
   setCreateOrderDraftItems((prev) =>
-    prev.map((item) =>
-      item.localId === localId
-        ? {
+    prev.map((item) => {
+      if (item.localId !== localId) return item;
+
+      const product = catalogItems.find((catalogItem) => catalogItem.id === item.productId);
+      const sourceCurrency: 'USD' | 'VES' =
+        product?.sourcePriceCurrency === 'USD' ? 'USD' : 'VES';
+      const sourceAmount = Number(product?.sourcePriceAmount ?? item.sourcePriceAmount ?? 0);
+      const snapshot = calculateOrderLineSnapshot({
+        sourceCurrency,
+        sourceAmount,
+        quantity: item.qty,
+        fxRate: createOrderFxRateNumber,
+        fallbackUnitUsd: Number(product?.basePriceUsd ?? item.unitPriceUsdSnapshot ?? 0),
+      });
+
+      return {
             ...item,
+            sourcePriceCurrency: sourceCurrency,
+            sourcePriceAmount: sourceAmount,
+            unitPriceUsdSnapshot: snapshot.unitUsd,
             adminPriceOverrideUsd: null,
+            adminPriceOverrideCurrency: null,
             adminPriceOverrideReason: null,
             adminPriceOverrideByUserId: null,
             adminPriceOverrideAt: null,
-            lineTotalUsd: item.unitPriceUsdSnapshot * Number(item.qty || 0),
-          }
-        : item
-    )
+            lineTotalUsd: snapshot.lineUsd,
+          };
+    })
   );
 };
 
@@ -9807,7 +9873,7 @@ const createOrderLineSnapshots = createOrderDraftItems.map((item) =>
     sourceAmount: item.sourcePriceAmount,
     quantity: item.qty,
     fxRate: createOrderFxRateNumber,
-    overrideUnitUsd: item.adminPriceOverrideUsd,
+    overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
     fallbackUnitUsd: item.unitPriceUsdSnapshot,
   })
 );
@@ -23257,14 +23323,27 @@ deliveryAssignMode === 'external' ? (
   <div className="rounded-xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-[13px] text-[#F5F5F7]">
     {item.adminPriceOverrideUsd != null ? (
       <div>
-        <div>{fmtUSD(item.adminPriceOverrideUsd)}</div>
-        {createOrderFxRateNumber > 0 ? (
-          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">
-            {fmtBs(item.adminPriceOverrideUsd * createOrderFxRateNumber)}
-          </div>
-        ) : null}
+        {item.adminPriceOverrideCurrency === 'VES' ? (
+          <>
+            <div>{fmtBs(item.sourcePriceAmount)}</div>
+            <div className="mt-0.5 text-[11px] text-[#B7B7C2]">
+              {fmtUSD(item.unitPriceUsdSnapshot)}
+            </div>
+          </>
+        ) : (
+          <>
+            <div>{fmtUSD(item.adminPriceOverrideUsd)}</div>
+            {createOrderFxRateNumber > 0 ? (
+              <div className="mt-0.5 text-[11px] text-[#B7B7C2]">
+                {fmtBs(item.adminPriceOverrideUsd * createOrderFxRateNumber)}
+              </div>
+            ) : null}
+          </>
+        )}
         <div className="mt-1 text-[11px] text-orange-400">
-          Orig: {item.sourcePriceCurrency === 'VES' ? fmtBs(item.sourcePriceAmount) : fmtUSD(item.sourcePriceAmount)}
+          {item.adminPriceOverrideCurrency
+            ? `Ajuste en ${item.adminPriceOverrideCurrency === 'VES' ? 'Bs' : 'USD'}`
+            : `Orig: ${item.sourcePriceCurrency === 'VES' ? fmtBs(item.sourcePriceAmount) : fmtUSD(item.sourcePriceAmount)}`}
         </div>
       </div>
     ) : item.sourcePriceCurrency === 'VES'

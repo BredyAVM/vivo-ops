@@ -8526,7 +8526,10 @@ function buildOrderItemOverrideAuditPayload(item: {
   productNameSnapshot: string;
   unitPriceUsdSnapshot: number;
   adminPriceOverrideUsd: number | null;
+  adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
   adminPriceOverrideReason?: string | null;
+  sourcePriceCurrency?: 'USD' | 'VES';
+  sourcePriceAmount?: number;
   qty: number;
   lineTotalUsd: number;
 }) {
@@ -8542,6 +8545,11 @@ function buildOrderItemOverrideAuditPayload(item: {
     qty,
     original_unit_price_usd: originalUnitPriceUsd,
     override_unit_price_usd: overrideUnitPriceUsd,
+    override_source_currency: item.adminPriceOverrideCurrency ?? null,
+    override_source_amount:
+      item.adminPriceOverrideCurrency && item.sourcePriceAmount != null
+        ? Number(item.sourcePriceAmount || 0)
+        : null,
     original_line_total_usd: originalLineTotalUsd,
     override_line_total_usd: overrideLineTotalUsd,
     delta_usd: overrideLineTotalUsd - originalLineTotalUsd,
@@ -8552,7 +8560,10 @@ function buildOrderItemOverrideAuditSignature(item: {
   productNameSnapshot: string;
   unitPriceUsdSnapshot: number;
   adminPriceOverrideUsd: number | null;
+  adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
   adminPriceOverrideReason?: string | null;
+  sourcePriceCurrency?: 'USD' | 'VES';
+  sourcePriceAmount?: number;
   qty: number;
   lineTotalUsd: number;
 }) {
@@ -8562,6 +8573,8 @@ function buildOrderItemOverrideAuditSignature(item: {
     qty: payload.qty,
     original_unit_price_usd: payload.original_unit_price_usd,
     override_unit_price_usd: payload.override_unit_price_usd,
+    override_source_currency: payload.override_source_currency,
+    override_source_amount: payload.override_source_amount,
     override_line_total_usd: payload.override_line_total_usd,
     reason: String(item.adminPriceOverrideReason || '').trim(),
   });
@@ -8678,6 +8691,7 @@ export async function createOrderAction(input: {
     unitPriceUsdSnapshot: number;
     lineTotalUsd: number;
     adminPriceOverrideUsd: number | null;
+    adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
     adminPriceOverrideReason: string | null;
     editableDetailLines: string[];
   }>;
@@ -8871,7 +8885,7 @@ export async function createOrderAction(input: {
       sourceAmount: Number(item.sourcePriceAmount || 0),
       quantity: Number(item.qty || 0),
       fxRate: fxRateNumber,
-      overrideUnitUsd: item.adminPriceOverrideUsd,
+      overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
       fallbackUnitUsd: Number(item.unitPriceUsdSnapshot || 0),
     })
   );
@@ -9185,6 +9199,7 @@ export async function updateOrderAction(input: {
     unitPriceUsdSnapshot: number;
     lineTotalUsd: number;
     adminPriceOverrideUsd: number | null;
+    adminPriceOverrideCurrency?: 'USD' | 'VES' | null;
     adminPriceOverrideReason: string | null;
     editableDetailLines: string[];
   }>;
@@ -9396,7 +9411,7 @@ export async function updateOrderAction(input: {
       sourceAmount: Number(item.sourcePriceAmount || 0),
       quantity: Number(item.qty || 0),
       fxRate: fxRateNumber,
-      overrideUnitUsd: item.adminPriceOverrideUsd,
+      overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
       fallbackUnitUsd: Number(item.unitPriceUsdSnapshot || 0),
     })
   );
@@ -9603,7 +9618,10 @@ export async function updateOrderAction(input: {
     .select(`
       id,
       product_name_snapshot,
+      pricing_origin_currency,
+      pricing_origin_amount,
       unit_price_usd_snapshot,
+      unit_price_bs_snapshot,
       admin_price_override_usd,
       admin_price_override_reason,
       qty,
@@ -9669,10 +9687,26 @@ export async function updateOrderAction(input: {
   const previousOverrideSignatureCounts = new Map<string, number>();
   for (const previousItem of previousOrderItems ?? []) {
     if (previousItem.admin_price_override_usd == null) continue;
+    const previousOriginCurrency: 'USD' | 'VES' =
+      previousItem.pricing_origin_currency === 'VES' ? 'VES' : 'USD';
+    const previousOriginAmount = Number(previousItem.pricing_origin_amount || 0);
+    const previousUnitPriceUsd = Number(previousItem.unit_price_usd_snapshot || 0);
+    const previousUnitPriceBs = Number(previousItem.unit_price_bs_snapshot || 0);
+    const previousOverrideCurrency: 'USD' | 'VES' | null =
+      previousOriginCurrency === 'VES' &&
+      Math.abs(previousOriginAmount - previousUnitPriceBs) < 0.01
+        ? 'VES'
+        : previousOriginCurrency === 'USD' &&
+            Math.abs(previousOriginAmount - previousUnitPriceUsd) < 0.000001
+          ? 'USD'
+          : null;
     const signature = buildOrderItemOverrideAuditSignature({
       productNameSnapshot: String(previousItem.product_name_snapshot || ''),
-      unitPriceUsdSnapshot: Number(previousItem.unit_price_usd_snapshot || 0),
+      sourcePriceCurrency: previousOriginCurrency,
+      sourcePriceAmount: previousOriginAmount,
+      unitPriceUsdSnapshot: previousUnitPriceUsd,
       adminPriceOverrideUsd: Number(previousItem.admin_price_override_usd || 0),
+      adminPriceOverrideCurrency: previousOverrideCurrency,
       adminPriceOverrideReason: previousItem.admin_price_override_reason ?? null,
       qty: Number(previousItem.qty || 0),
       lineTotalUsd: Number(previousItem.line_total_usd || 0),

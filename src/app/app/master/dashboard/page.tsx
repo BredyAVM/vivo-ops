@@ -2605,12 +2605,27 @@ const draftItems = rowItems.map((item) => {
   const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
 const pricingOriginCurrency: 'VES' | 'USD' =
   (item as any).pricing_origin_currency === 'VES' ? 'VES' : 'USD';
+  const unitPriceBsSnapshot = toNumber((item as any).unit_price_bs_snapshot, 0);
   const pricingOriginAmount = toNumber(
     (item as any).pricing_origin_amount,
     pricingOriginCurrency === 'VES'
-      ? toNumber((item as any).unit_price_bs_snapshot, 0)
+      ? unitPriceBsSnapshot
       : unitPriceUsdSnapshot
   );
+  const adminPriceOverrideUsd =
+    (item as any).admin_price_override_usd == null
+      ? null
+      : toNumber((item as any).admin_price_override_usd, 0);
+  const adminPriceOverrideCurrency: 'VES' | 'USD' | null =
+    adminPriceOverrideUsd == null
+      ? null
+      : pricingOriginCurrency === 'VES' &&
+          Math.abs(pricingOriginAmount - unitPriceBsSnapshot) < 0.01
+        ? 'VES'
+        : pricingOriginCurrency === 'USD' &&
+            Math.abs(pricingOriginAmount - unitPriceUsdSnapshot) < 0.000001
+          ? 'USD'
+          : null;
 
   return {
     localId: `existing-${item.id}`,
@@ -2628,10 +2643,8 @@ const pricingOriginCurrency: 'VES' | 'USD' =
           .map((x) => x.trim())
           .filter(Boolean)
       : [],
-    adminPriceOverrideUsd:
-      (item as any).admin_price_override_usd == null
-        ? null
-        : toNumber((item as any).admin_price_override_usd, 0),
+    adminPriceOverrideUsd,
+    adminPriceOverrideCurrency,
     adminPriceOverrideReason: (item as any).admin_price_override_reason ?? null,
     adminPriceOverrideByUserId: (item as any).admin_price_override_by_user_id ?? null,
     adminPriceOverrideAt: (item as any).admin_price_override_at ?? null,
