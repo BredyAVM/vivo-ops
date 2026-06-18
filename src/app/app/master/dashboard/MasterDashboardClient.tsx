@@ -4428,6 +4428,7 @@ const [createOrderDeliveryNotePhone, setCreateOrderDeliveryNotePhone] = useState
 const [priceAdjustOpen, setPriceAdjustOpen] = useState(false);
 const [priceAdjustItemLocalId, setPriceAdjustItemLocalId] = useState<string | null>(null);
 const [priceAdjustValue, setPriceAdjustValue] = useState('');
+const [priceAdjustBsValue, setPriceAdjustBsValue] = useState('');
 const [priceAdjustReason, setPriceAdjustReason] = useState('');
 const [adminEditReason, setAdminEditReason] = useState('');
 
@@ -5816,6 +5817,7 @@ const resetPriceAdjustBox = () => {
   setPriceAdjustOpen(false);
   setPriceAdjustItemLocalId(null);
   setPriceAdjustValue('');
+  setPriceAdjustBsValue('');
   setPriceAdjustReason('');
 };
 
@@ -9681,15 +9683,50 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
   );
 };
 
+const parseMoneyInput = (value: string) => Number(String(value || '').replace(',', '.'));
+
+const formatMoneyInput = (value: number) =>
+  Number.isFinite(value) ? String(Number(value.toFixed(2))) : '';
+
+const handleChangePriceAdjustUsd = (value: string) => {
+  setPriceAdjustValue(value);
+
+  const unitUsd = parseMoneyInput(value);
+  if (Number.isFinite(unitUsd) && unitUsd >= 0 && createOrderFxRateNumber > 0) {
+    setPriceAdjustBsValue(formatMoneyInput(unitUsd * createOrderFxRateNumber));
+  } else if (!value.trim()) {
+    setPriceAdjustBsValue('');
+  }
+};
+
+const handleChangePriceAdjustBs = (value: string) => {
+  setPriceAdjustBsValue(value);
+
+  const unitBs = parseMoneyInput(value);
+  if (Number.isFinite(unitBs) && unitBs >= 0 && createOrderFxRateNumber > 0) {
+    setPriceAdjustValue(formatMoneyInput(unitBs / createOrderFxRateNumber));
+  } else if (!value.trim()) {
+    setPriceAdjustValue('');
+  }
+};
+
 const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
   if (!isAdmin) return;
 
-  setPriceAdjustItemLocalId(item.localId);
-  setPriceAdjustValue(
+  const unitUsd =
     item.adminPriceOverrideUsd != null
-      ? String(item.adminPriceOverrideUsd)
-      : String(item.unitPriceUsdSnapshot)
-  );
+      ? Number(item.adminPriceOverrideUsd || 0)
+      : Number(item.unitPriceUsdSnapshot || 0);
+  const unitBs =
+    createOrderFxRateNumber > 0
+      ? unitUsd * createOrderFxRateNumber
+      : item.sourcePriceCurrency === 'VES'
+        ? Number(item.sourcePriceAmount || 0)
+        : 0;
+
+  setPriceAdjustItemLocalId(item.localId);
+  setPriceAdjustValue(formatMoneyInput(unitUsd));
+  setPriceAdjustBsValue(unitBs > 0 ? formatMoneyInput(unitBs) : '');
   setPriceAdjustReason(item.adminPriceOverrideReason || '');
   setPriceAdjustOpen(true);
 };
@@ -9697,7 +9734,7 @@ const openAdjustCreateOrderItemPrice = (item: DraftItem) => {
 const handleSaveAdjustedCreateOrderItemPrice = () => {
   if (!isAdmin || !priceAdjustItemLocalId) return;
 
-  const nextUnitUsd = Number(String(priceAdjustValue || '').replace(',', '.'));
+  const nextUnitUsd = parseMoneyInput(priceAdjustValue);
   if (!Number.isFinite(nextUnitUsd) || nextUnitUsd < 0) {
     showToast('error', 'El precio ajustado es inválido.');
     return;
@@ -23218,6 +23255,11 @@ deliveryAssignMode === 'external' ? (
     {item.adminPriceOverrideUsd != null ? (
       <div>
         <div>{fmtUSD(item.adminPriceOverrideUsd)}</div>
+        {createOrderFxRateNumber > 0 ? (
+          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">
+            {fmtBs(item.adminPriceOverrideUsd * createOrderFxRateNumber)}
+          </div>
+        ) : null}
         <div className="mt-1 text-[11px] text-orange-400">
           Orig: {item.sourcePriceCurrency === 'VES' ? fmtBs(item.sourcePriceAmount) : fmtUSD(item.sourcePriceAmount)}
         </div>
@@ -24033,12 +24075,29 @@ deliveryAssignMode === 'external' ? (
   widthClass="w-[440px]"
 >
   <div className="space-y-3">
-    <FieldInput
-      label="Precio unitario ajustado (USD)"
-      value={priceAdjustValue}
-      onChange={setPriceAdjustValue}
-      type="text"
-    />
+    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+      Tasa snapshot usada para convertir: {' '}
+      <span className="font-semibold text-[#F5F5F7]">
+        {createOrderFxRateNumber > 0 ? fmtRateBs(createOrderFxRateNumber) : 'Sin tasa'}
+      </span>
+    </div>
+
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <FieldInput
+        label="Precio unitario USD"
+        value={priceAdjustValue}
+        onChange={handleChangePriceAdjustUsd}
+        type="text"
+        hint="Se guarda como valor canónico."
+      />
+      <FieldInput
+        label="Precio unitario Bs"
+        value={priceAdjustBsValue}
+        onChange={handleChangePriceAdjustBs}
+        type="text"
+        hint="Convierte usando la tasa snapshot."
+      />
+    </div>
     <div>
       <label className="mb-1 block text-xs text-[#8A8A96]">Motivo</label>
       <textarea
