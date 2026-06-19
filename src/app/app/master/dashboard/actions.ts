@@ -1528,6 +1528,14 @@ export async function confirmPaymentReportAction(input: {
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
     let excessStoredInFundUsd = handling === 'store_fund' ? excessUsd : 0;
+    let overChangeDebtLines: Array<{
+      moneyAccountId: number;
+      currencyCode: string;
+      amount: number;
+      exchangeRate: number | null;
+      amountUsd: number;
+      notes: string | null;
+    }> = [];
 
     if (excessUsd > 0.005 && handling === 'change_given') {
       const inputChangeLines =
@@ -1588,12 +1596,34 @@ export async function confirmPaymentReportAction(input: {
       }
 
       const totalChangeUsd = roundMoney(changeLines.reduce((sum, line) => sum + line.amountUsd, 0));
-      if (totalChangeUsd > excessUsd + 0.01) {
-        throw new Error('La devolucion no puede superar el excedente.');
-      }
-
       excessStoredInFundUsd = roundMoney(Math.max(0, excessUsd - totalChangeUsd));
-      const groupId = changeLines.length > 1 || excessStoredInFundUsd > 0.005 ? crypto.randomUUID() : null;
+      let remainingExcessUsd = excessUsd;
+      overChangeDebtLines = changeLines.flatMap((line) => {
+        const coveredByExcessUsd = Math.min(remainingExcessUsd, line.amountUsd);
+        remainingExcessUsd = roundMoney(Math.max(0, remainingExcessUsd - line.amountUsd));
+        const debtUsd = roundMoney(line.amountUsd - coveredByExcessUsd);
+        if (debtUsd <= 0.005) return [];
+
+        const debtAmount =
+          line.currencyCode === 'VES'
+            ? roundMoney(debtUsd * Number(line.exchangeRate || 0))
+            : debtUsd;
+
+        return [
+          {
+            ...line,
+            amount: debtAmount,
+            amountUsd: debtUsd,
+          },
+        ];
+      });
+      const overChangeDebtUsd = roundMoney(
+        overChangeDebtLines.reduce((sum, line) => sum + line.amountUsd, 0)
+      );
+      const groupId =
+        changeLines.length > 1 || excessStoredInFundUsd > 0.005 || overChangeDebtUsd > 0.005
+          ? crypto.randomUUID()
+          : null;
       const confirmedAt = new Date().toISOString();
 
       const { error: changeMovementError } = await supabase
@@ -1624,6 +1654,65 @@ export async function confirmPaymentReportAction(input: {
         })));
 
       if (changeMovementError) throw new Error(changeMovementError.message);
+    }
+
+    if (overChangeDebtLines.length > 0) {
+      const clientId = Number(input.clientId || currentOrder.client_id || 0);
+      if (!Number.isFinite(clientId) || clientId <= 0) {
+        throw new Error('La orden no tiene un cliente valido para registrar la deuda por cambio.');
+      }
+
+      const overChangeDebtUsd = roundMoney(
+        overChangeDebtLines.reduce((sum, line) => sum + line.amountUsd, 0)
+      );
+
+      const { data: currentClient, error: currentClientError } = await supabase
+        .from('clients')
+        .select('id, fund_balance_usd')
+        .eq('id', clientId)
+        .single();
+
+      if (currentClientError || !currentClient) {
+        throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
+      }
+
+      const { error: updateClientFundError } = await supabase
+        .from('clients')
+        .update({
+          fund_balance_usd: roundMoney(
+            toSafeNumber(currentClient.fund_balance_usd, 0) - overChangeDebtUsd
+          ),
+        })
+        .eq('id', clientId);
+
+      if (updateClientFundError) {
+        throw new Error(updateClientFundError.message);
+      }
+
+      const { error: fundMovementError } = await supabase
+        .from('client_fund_movements')
+        .insert(
+          overChangeDebtLines.map((line) => ({
+            client_id: clientId,
+            movement_type: 'debit',
+            currency_code: line.currencyCode,
+            amount: line.amount,
+            amount_usd: line.amountUsd,
+            money_account_id: line.moneyAccountId,
+            order_id: orderId,
+            payment_report_id: input.reportId,
+            reason_code: 'change_given_from_fund',
+            notes:
+              line.notes ||
+              notes ||
+              'Cambio entregado por encima del excedente; queda como saldo pendiente del cliente.',
+            created_by_user_id: user.id,
+          }))
+        );
+
+      if (fundMovementError) {
+        throw new Error(fundMovementError.message);
+      }
     }
 
     if (false && excessUsd > 0.005 && handling === 'change_given') {
@@ -2036,10 +2125,6 @@ export async function deliverClientFundChangeAction(input: {
     );
     const currentBalanceUsd = Number(toSafeNumber(currentClient.fund_balance_usd, 0).toFixed(2));
 
-    if (amountUsd > currentBalanceUsd + 0.0001) {
-      throw new Error('El cliente no tiene suficiente fondo para entregar ese cambio.');
-    }
-
     const { error: updateClientError } = await supabase
       .from('clients')
       .update({
@@ -2200,10 +2285,6 @@ export async function settleClientFundPayoutAction(input: {
 
     const currentBalanceUsd = roundMoney(currentClient.fund_balance_usd);
     const totalAmountUsd = roundMoney(cleanLines.reduce((sum, line) => sum + line.amountUsd, 0));
-
-    if (totalAmountUsd > currentBalanceUsd + 0.0001) {
-      throw new Error('El cliente no tiene suficiente fondo para esa devolucion.');
-    }
 
     const groupId = crypto.randomUUID();
     const now = new Date().toISOString();

@@ -6441,10 +6441,6 @@ const handleConfirmPayment = async (o: Order, rp: PaymentReportItem) => {
           }
         }
 
-        if (selectedConfirmChangeLinesUsd > predictedExcessUsd + 0.01) {
-          showToast('error', 'La devolución no puede superar el excedente.');
-          return;
-        }
       }
 
       overpaymentHandling =
@@ -10202,6 +10198,10 @@ const selectedConfirmExcessToFundUsd = Math.max(
   0,
   Number((selectedConfirmPaymentExcessUsd - selectedConfirmChangeLinesUsd).toFixed(2))
 );
+const selectedConfirmChangeDebtUsd = Math.max(
+  0,
+  Number((selectedConfirmChangeLinesUsd - selectedConfirmPaymentExcessUsd).toFixed(2))
+);
 
 const getCancelOrderRefundLineUsd = (line: ClientFundPayoutLineDraft) => {
   const account = moneyAccounts.find((item) => item.id === Number(line.moneyAccountId || 0));
@@ -10326,9 +10326,11 @@ const getClientFundPayoutLineUsd = (line: ClientFundPayoutLineDraft) => {
 const selectedClientFundPayoutUsd = Number(
   paymentGiveChangeLines.reduce((sum, line) => sum + getClientFundPayoutLineUsd(line), 0).toFixed(2)
 );
-const selectedClientFundRemainingUsd = Math.max(
+const selectedClientFundRemainingUsd =
+  Number((selectedOrderClientFundAvailableUsd - selectedClientFundPayoutUsd).toFixed(2));
+const selectedClientFundDebtUsd = Math.max(
   0,
-  Number((selectedOrderClientFundAvailableUsd - selectedClientFundPayoutUsd).toFixed(2))
+  Number((selectedClientFundPayoutUsd - selectedOrderClientFundAvailableUsd).toFixed(2))
 );
 
 const selectedOrderChangeMovements = useMemo(() => {
@@ -17986,7 +17988,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       <div>
         <div className="text-[11px] font-medium text-[#F5F5F7]">Devolver fondo al cliente</div>
         <div className="mt-1 text-[11px] text-[#8A8A96]">
-          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Registra la salida desde una o varias cuentas.
+          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Si entregas mas, la diferencia queda como saldo pendiente del cliente.
         </div>
       </div>
       <button
@@ -18023,10 +18025,28 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
             <div className="font-semibold text-sky-300">{fmtUSD(selectedClientFundPayoutUsd)}</div>
           </div>
           <div>
-            <div className="text-[#8A8A96]">Queda en fondo</div>
-            <div className="font-semibold text-[#7FE7C4]">{fmtUSD(selectedClientFundRemainingUsd)}</div>
+            <div className="text-[#8A8A96]">
+              {selectedClientFundDebtUsd > 0.005 ? 'Cliente debe' : 'Queda en fondo'}
+            </div>
+            <div
+              className={[
+                'font-semibold',
+                selectedClientFundDebtUsd > 0.005 ? 'text-orange-300' : 'text-[#7FE7C4]',
+              ].join(' ')}
+            >
+              {selectedClientFundDebtUsd > 0.005
+                ? fmtUSD(selectedClientFundDebtUsd)
+                : fmtUSD(selectedClientFundRemainingUsd)}
+            </div>
           </div>
         </div>
+
+        {selectedClientFundDebtUsd > 0.005 ? (
+          <div className="rounded-md border border-orange-500/30 bg-[#1A1208] px-2 py-1.5 text-[11px] text-orange-200">
+            Se registrara una salida mayor al fondo disponible. El cliente quedara debiendo{' '}
+            {fmtUSD(selectedClientFundDebtUsd)}.
+          </div>
+        ) : null}
 
         <div className="space-y-2">
           {paymentGiveChangeLines.map((line, index) => {
@@ -18312,10 +18332,28 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
                   <div className="font-semibold text-sky-300">{fmtUSD(selectedConfirmChangeLinesUsd)}</div>
                 </div>
                 <div>
-                  <div className="text-[#8A8A96]">A fondo</div>
-                  <div className="font-semibold text-[#7FE7C4]">{fmtUSD(selectedConfirmExcessToFundUsd)}</div>
+                  <div className="text-[#8A8A96]">
+                    {selectedConfirmChangeDebtUsd > 0.005 ? 'Cliente debe' : 'A fondo'}
+                  </div>
+                  <div
+                    className={[
+                      'font-semibold',
+                      selectedConfirmChangeDebtUsd > 0.005 ? 'text-orange-300' : 'text-[#7FE7C4]',
+                    ].join(' ')}
+                  >
+                    {selectedConfirmChangeDebtUsd > 0.005
+                      ? fmtUSD(selectedConfirmChangeDebtUsd)
+                      : fmtUSD(selectedConfirmExcessToFundUsd)}
+                  </div>
                 </div>
               </div>
+
+              {selectedConfirmChangeDebtUsd > 0.005 ? (
+                <div className="rounded-md border border-orange-500/30 bg-[#1A1208] px-2 py-1.5 text-[11px] text-orange-200">
+                  El cambio supera el excedente. La diferencia quedara como saldo pendiente del cliente:{' '}
+                  {fmtUSD(selectedConfirmChangeDebtUsd)}.
+                </div>
+              ) : null}
 
               {paymentConfirmChangeLines.map((line, index) => {
                 const lineAccount = moneyAccounts.find((account) => account.id === Number(line.moneyAccountId || 0));
