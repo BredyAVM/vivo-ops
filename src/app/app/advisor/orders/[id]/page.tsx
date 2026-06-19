@@ -982,15 +982,11 @@ export default async function AdvisorOrderDetailPage({
     reportableBalanceUsd > 0.005 &&
     order.status !== 'cancelled';
   const canCorrectOrder =
-    order.status !== 'delivered' &&
-    order.status !== 'cancelled' &&
+    ['created', 'queued'].includes(order.status) &&
     (latestReviewEvent?.eventType === 'order_returned_to_review' ||
       latestReviewEvent?.eventType === 'order_changes_rejected' ||
       order.status === 'created' ||
-      order.status === 'queued' ||
-      order.status === 'confirmed' ||
-      order.status === 'in_kitchen' ||
-      order.status === 'ready');
+      order.status === 'queued');
   const canDuplicateOrder = true;
   const canCancelOrder =
     ['created', 'queued'].includes(order.status) &&

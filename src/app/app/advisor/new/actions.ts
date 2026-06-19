@@ -58,6 +58,12 @@ function toFiniteNumber(value: unknown, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function assertAdvisorCanEditOrderStatus(status: unknown) {
+  if (!['created', 'queued'].includes(String(status || ''))) {
+    throw new Error('El asesor solo puede modificar una orden antes de entrar a cocina.');
+  }
+}
+
 export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderInput) {
   const ctx = await requireAuthContext();
   const orderId = Number(input.orderId);
@@ -89,9 +95,7 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
     throw new Error('No puedes modificar esta orden.');
   }
 
-  if (['cancelled', 'delivered'].includes(String(order.status || ''))) {
-    throw new Error('Esta orden ya no admite modificaciones.');
-  }
+  assertAdvisorCanEditOrderStatus(order.status);
 
   const adminSupabase = createSupabaseServiceRoleServer();
   const { error: updateError } = await adminSupabase
@@ -142,9 +146,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
     throw new Error('No puedes modificar esta orden.');
   }
 
-  if (['cancelled', 'delivered'].includes(String(order.status || ''))) {
-    throw new Error('Esta orden ya no admite modificaciones.');
-  }
+  assertAdvisorCanEditOrderStatus(order.status);
 
   const itemsPayload = input.items.map((item) => ({
     order_id: orderId,

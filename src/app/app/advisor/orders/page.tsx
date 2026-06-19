@@ -219,6 +219,10 @@ function isOpenStatus(status: string) {
   return !['delivered', 'cancelled'].includes(status);
 }
 
+function canAdvisorModifyOrder(status: string) {
+  return ['created', 'queued'].includes(status);
+}
+
 function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
   if (!isOpenStatus(order.status)) return false;
   if (selectedDayKey !== getDateKey(new Date())) return false;
@@ -882,7 +886,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                   </Link>
 
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    {isOpenStatus(order.status) ? (
+                    {canAdvisorModifyOrder(order.status) ? (
                       <Link
                         href={`/app/advisor/new?fromOrder=${order.id}`}
                         className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"

@@ -1686,7 +1686,7 @@ export default function AdvisorOrderComposer({
           setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
-          if (isEditingOrder && (order.status === 'cancelled' || order.status === 'delivered')) {
+          if (isEditingOrder && !['created', 'queued'].includes(String(order.status || ''))) {
             router.replace(`/app/advisor/orders/${order.id}`);
             return;
           }
