@@ -612,6 +612,11 @@ type Order = {
   source: 'advisor' | 'master' | 'walk_in';
   clientId: number | null;
   clientFundBalanceUsd: number;
+  clientCreatedAtISO?: string | null;
+  clientType?: string | null;
+  isImportedClient: boolean;
+  clientOrderCount: number;
+  isNewClient: boolean;
   attributedAdvisorUserId: string | null;
   advisorName: string;
   clientName: string;
@@ -12933,6 +12938,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <td className="min-w-[122px] px-2 py-2 leading-4">
                             <div>{cName.line1}</div>
                             <div className="text-[#B7B7C2]">{cName.line2}</div>
+                            {o.isNewClient ? (
+                              <div className="mt-1 inline-flex rounded-full bg-[#FEEF00] px-1.5 py-0.5 text-[9px] font-semibold leading-none text-[#0B0B0D]">
+                                CLIENTE NUEVO
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-2 py-2">
                             <span className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[11px]">
@@ -16565,9 +16575,19 @@ onClose={() => {
         <span>{fmtDeliveryTextES(selectedOrder.deliveryAtISO)}</span>
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
+        {selectedOrder.isNewClient ? <SmallBadge label="CLIENTE NUEVO" tone="brand" /> : null}
+        {!selectedOrder.isNewClient && selectedOrder.isImportedClient ? (
+          <SmallBadge label="CLIENTE ANTERIOR" tone="muted" />
+        ) : null}
         {processFlag(selectedOrder) === 'APROBAR' ? <SmallBadge label="APROBAR" tone="brand" /> : null}
         {processFlag(selectedOrder) === 'RE-APROBAR' ? <SmallBadge label="RE-APROBAR" tone="warn" /> : null}
         {selectedOrder.paymentVerify === 'pending' ? <SmallBadge label="PAGO: POR CONFIRMAR" tone="warn" /> : null}
+      </div>
+      <div className="mt-1 text-[10px] text-[#8A8A96]">
+        Cliente registrado:{' '}
+        {selectedOrder.clientCreatedAtISO ? fmtDateTimeES(selectedOrder.clientCreatedAtISO) : 'sin fecha'}
+        {' · '}
+        Ordenes validas: {selectedOrder.clientOrderCount || 0}
       </div>
     </div>
 

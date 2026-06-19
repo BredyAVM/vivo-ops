@@ -7,6 +7,9 @@ import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
 import MasterDashboardClient from './MasterDashboardClient';
 
+const CLIENT_IMPORT_CUTOFF_ISO = '2026-06-02T00:00:00-04:00';
+const CLIENT_IMPORT_CUTOFF_MS = Date.parse(CLIENT_IMPORT_CUTOFF_ISO);
+
 type RawOrderRow = {
   id: number;
   order_number: string;
@@ -40,7 +43,24 @@ type RawOrderRow = {
   external_partner_id: number | null;
   internal_driver_user_id: string | null;
   eta_minutes: number | string | null;
-client: { full_name: string | null; phone: string | null; fund_balance_usd: number | string | null }[] | { full_name: string | null; phone: string | null; fund_balance_usd: number | string | null } | null;
+client:
+  | {
+      id: number | string | null;
+      full_name: string | null;
+      phone: string | null;
+      created_at: string | null;
+      client_type: string | null;
+      fund_balance_usd: number | string | null;
+    }[]
+  | {
+      id: number | string | null;
+      full_name: string | null;
+      phone: string | null;
+      created_at: string | null;
+      client_type: string | null;
+      fund_balance_usd: number | string | null;
+    }
+  | null;
 advisor: { full_name: string | null }[] | { full_name: string | null } | null;
   creator: { full_name: string | null }[] | { full_name: string | null } | null;
 };
@@ -1259,8 +1279,11 @@ const orderSelect = `
       internal_driver_user_id,
       eta_minutes,
       client:clients!orders_client_id_fkey (
+        id,
         full_name,
         phone,
+        created_at,
+        client_type,
         fund_balance_usd
       ),
       advisor:profiles!orders_attributed_advisor_id_fkey (
@@ -1452,6 +1475,52 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
   const calculationOrderIdSet = new Set(calculationRawOrders.map((o) => Number(o.id)));
   const inboxOrderIdSet = new Set(inboxRawOrders.map((o) => Number(o.id)));
   const orderIds = rawOrders.map((o) => o.id);
+  const visibleClientIds = Array.from(
+    new Set(
+      rawOrders
+        .map((row) => Number(row.client_id ?? 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+  const { data: clientOrderHistoryData, error: clientOrderHistoryError } =
+    visibleClientIds.length > 0
+      ? await supabase
+          .from('orders')
+          .select('id, client_id, created_at, status')
+          .in('client_id', visibleClientIds)
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: true })
+          .limit(10000)
+      : { data: [], error: null };
+
+  if (clientOrderHistoryError) {
+    console.warn('client order history skipped', clientOrderHistoryError.message);
+  }
+
+  const clientOrderStatsByClientId = new Map<
+    number,
+    { firstOrderId: number | null; orderCount: number }
+  >();
+  if (!clientOrderHistoryError) {
+    for (const historyRow of (clientOrderHistoryData ?? []) as Array<{
+      id: number | string;
+      client_id: number | string | null;
+    }>) {
+      const clientId = Number(historyRow.client_id ?? 0);
+      const orderId = Number(historyRow.id ?? 0);
+      if (!Number.isFinite(clientId) || clientId <= 0 || !Number.isFinite(orderId) || orderId <= 0) {
+        continue;
+      }
+      const current = clientOrderStatsByClientId.get(clientId) ?? {
+        firstOrderId: null,
+        orderCount: 0,
+      };
+      clientOrderStatsByClientId.set(clientId, {
+        firstOrderId: current.firstOrderId ?? orderId,
+        orderCount: current.orderCount + 1,
+      });
+    }
+  }
   const financialStateOrderIds = Array.from(new Set([...orderIds, ...weekSummaryIds]));
   const { data: financialStateData, error: financialStateError } =
     financialStateOrderIds.length > 0
@@ -2643,6 +2712,23 @@ const clientName = repairDisplayText(
   row.extra_fields?.receiver?.name?.trim() ||
   'Cliente sin nombre'
 );
+const clientId = row.client_id == null ? null : Number(row.client_id);
+const clientType = String(clientRow?.client_type ?? '').trim();
+const clientCreatedAtMs = clientRow?.created_at ? Date.parse(clientRow.created_at) : Number.NaN;
+const isImportedClient =
+  Number.isFinite(clientCreatedAtMs) && clientCreatedAtMs < CLIENT_IMPORT_CUTOFF_MS;
+const clientOrderStats =
+  clientId != null && Number.isFinite(clientId) && clientId > 0
+    ? clientOrderStatsByClientId.get(clientId) ?? null
+    : null;
+const isNewClient =
+  row.status !== 'cancelled' &&
+  clientId != null &&
+  Number.isFinite(clientId) &&
+  clientId > 0 &&
+  Number.isFinite(clientCreatedAtMs) &&
+  clientCreatedAtMs >= CLIENT_IMPORT_CUTOFF_MS &&
+  clientOrderStats?.firstOrderId === Number(row.id);
 
     const deliveryAtISO = buildDeliveryISO(row.extra_fields, row.created_at);
 
@@ -2760,8 +2846,13 @@ return {
   readyAtISO: row.ready_at ?? null,
   deliveryAtISO,
   source: row.source,
-  clientId: row.client_id ?? null,
+  clientId,
   clientFundBalanceUsd: toNumber(clientRow?.fund_balance_usd, 0),
+      clientCreatedAtISO: clientRow?.created_at ?? null,
+      clientType,
+      isImportedClient,
+      clientOrderCount: clientOrderStats?.orderCount ?? 0,
+      isNewClient,
       attributedAdvisorUserId: row.attributed_advisor_id ?? null,
       advisorName,
       clientName,
