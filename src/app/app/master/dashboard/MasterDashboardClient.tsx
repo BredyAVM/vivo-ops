@@ -3761,6 +3761,7 @@ export default function MasterDashboardClient({
   initialMasterInboxItemStates = [],
   advisors = [],
   initialOrders,
+  inboxOrders = [],
   calculationOrders = [],
   calculationScope,
   orderScope,
@@ -3795,6 +3796,7 @@ export default function MasterDashboardClient({
   }>;
   advisors?: AdvisorOption[];
   initialOrders: Order[];
+  inboxOrders?: Order[];
   calculationOrders?: Order[];
   calculationScope?: {
     generated: boolean;
@@ -4471,6 +4473,12 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [initialOrders]);
 
   const orders = localOrders;
+  const dashboardOrders = useMemo(() => {
+    const byId = new Map<number, Order>();
+    for (const order of inboxOrders) byId.set(order.id, order);
+    for (const order of localOrders) byId.set(order.id, order);
+    return Array.from(byId.values());
+  }, [inboxOrders, localOrders]);
 
   const updateLocalOrder = useCallback((orderId: number, updater: (order: Order) => Partial<Order>) => {
     setLocalOrders((prev) =>
@@ -4493,7 +4501,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }
 }, [createOrderPaymentMethod]);
 
-  const selectedOrder = useMemo(() => orders.find((o) => o.id === selectedOrderId) ?? null, [orders, selectedOrderId]);
+  const selectedOrder = useMemo(
+    () => dashboardOrders.find((o) => o.id === selectedOrderId) ?? null,
+    [dashboardOrders, selectedOrderId]
+  );
 
   useEffect(() => {
     if (!detailOpen || selectedOrder?.clientId == null) return;
@@ -4872,7 +4883,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const masterInbox = useMemo(() => {
     const tasks: MasterInboxTask[] = [];
     const inboxCatalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
-    for (const o of orders) {
+    for (const o of dashboardOrders) {
       const delText = fmtDeliveryTextES(o.deliveryAtISO);
       const expiredQuoteReview = getExpiredQuotePriceReview(o, inboxCatalogItemById, currentTimeMs);
       const latestFundRequest = [...(o.events ?? [])]
@@ -4967,7 +4978,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         });
       }
     }
-    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(orders
+    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(dashboardOrders
       .flatMap((order) =>
         (order.events ?? [])
         .filter((event) => {
@@ -5011,7 +5022,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       activity,
       count: tasks.length,
     };
-  }, [catalogItems, orders, currentTimeMs, currentUser.id]);
+  }, [catalogItems, dashboardOrders, currentTimeMs, currentUser.id]);
 
   const masterInboxActiveIds = useMemo(
     () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
@@ -5484,7 +5495,7 @@ const openSearchOrderResult = (result: { id: number; operationalDate: string }) 
   setRemoteOrderSearchResults([]);
   setRemoteOrderSearchError(null);
 
-  if (orders.some((order) => order.id === result.id)) {
+  if (dashboardOrders.some((order) => order.id === result.id)) {
     openOrderPanel(result.id, 'detalle');
     return;
   }
@@ -5502,7 +5513,7 @@ useEffect(() => {
   const openOrderId = Number(openOrderValue);
   if (!Number.isFinite(openOrderId) || openOrderId <= 0) return;
 
-  const order = orders.find((item) => item.id === openOrderId);
+  const order = dashboardOrders.find((item) => item.id === openOrderId);
   if (!order) return;
 
   openOrderPanel(openOrderId, 'detalle');
@@ -5510,7 +5521,7 @@ useEffect(() => {
   const params = new URLSearchParams(searchParams.toString());
   params.delete('openOrder');
   router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
-}, [orders, router, searchParams]);
+}, [dashboardOrders, router, searchParams]);
 
 const openCreateOrderDrawer = () => {
   setOrderEditorMode('create');

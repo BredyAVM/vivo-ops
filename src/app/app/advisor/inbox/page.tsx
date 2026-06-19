@@ -96,30 +96,43 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const [{ data: ordersData }, { data: recipientsData }] = await Promise.all([
-    ctx.supabase
-      .from('orders')
-      .select(
-        'id, order_number, status, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
-      )
-      .eq('attributed_advisor_id', ctx.user.id)
-      .order('created_at', { ascending: false })
-      .limit(120),
-    ctx.supabase
-      .from('order_timeline_event_recipients')
-      .select(
-        'id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, order_number, event_type, title, message, payload, created_at)'
-      )
-      .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
-      .limit(200),
-  ]);
+  const { data: recipientsData } = await ctx.supabase
+    .from('order_timeline_event_recipients')
+    .select(
+      'id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, order_number, event_type, title, message, payload, created_at)'
+    )
+    .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
+    .order('id', { ascending: false })
+    .limit(200);
+
+  const rawRecipients = (recipientsData ?? []) as TimelineRecipientRow[];
+  const recipientOrderIds = Array.from(
+    new Set(
+      rawRecipients
+        .map((recipient) => {
+          const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
+          return Number(event?.order_id || 0);
+        })
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+
+  const { data: ordersData } = recipientOrderIds.length > 0
+    ? await ctx.supabase
+        .from('orders')
+        .select(
+          'id, order_number, status, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
+        )
+        .eq('attributed_advisor_id', ctx.user.id)
+        .in('id', recipientOrderIds)
+        .limit(200)
+    : { data: [] };
 
   const orders = ((ordersData ?? []) as OrderRow[]).map((order) => ({
     ...order,
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
   const orderById = new Map(orders.map((order) => [order.id, order]));
-  const rawRecipients = (recipientsData ?? []) as TimelineRecipientRow[];
   const latestActionState = buildLatestOrderActionState(rawRecipients);
 
   const inboxEvents: InboxEvent[] = coalesceInboxEvents(rawRecipients

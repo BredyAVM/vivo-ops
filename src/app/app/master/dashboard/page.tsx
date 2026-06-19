@@ -492,7 +492,8 @@ function roundMoney(value: unknown, fallback = 0) {
 
 const MASTER_DASHBOARD_ORDER_LIMIT = 500;
 const MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT = 900;
-const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 260;
+const MASTER_DASHBOARD_INBOX_ORDER_LIMIT = 180;
+const MASTER_DASHBOARD_TIMELINE_EVENT_LIMIT = 420;
 const MASTER_DASHBOARD_LEGACY_EVENT_LIMIT = 0;
 const MASTER_DASHBOARD_INBOX_STATE_LIMIT = 350;
 const MASTER_DASHBOARD_OPTIONAL_TIMEOUT_MS = 2500;
@@ -1377,15 +1378,79 @@ const calculationOrdersData = Array.from(calculationOrdersDataById.values())
 const calculationOrdersLimitExceeded =
   calculationOrdersData.length > MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT;
 
+const [inboxActionOrdersResult, inboxPendingPaymentReportsResult, inboxRecentEventsResult] = await Promise.all([
+  supabase
+    .from('orders')
+    .select(orderSelect)
+    .or('status.eq.created,queued_needs_reapproval.eq.true')
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT),
+  supabase
+    .from('payment_reports')
+    .select('order_id, created_at')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT),
+  supabase
+    .from('order_timeline_events')
+    .select('order_id, created_at')
+    .order('created_at', { ascending: false })
+    .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT),
+]);
+
+const inboxSeedOrderIds = Array.from(
+  new Set(
+    [
+      ...((inboxPendingPaymentReportsResult.data ?? []) as Array<{ order_id: number | string | null }>)
+        .map((row) => Number(row.order_id)),
+      ...((inboxRecentEventsResult.data ?? []) as Array<{ order_id: number | string | null }>)
+        .map((row) => Number(row.order_id)),
+    ].filter((id) => Number.isFinite(id) && id > 0)
+  )
+).slice(0, MASTER_DASHBOARD_INBOX_ORDER_LIMIT);
+
+const inboxSeedOrdersResult = inboxSeedOrderIds.length > 0
+  ? await supabase
+      .from('orders')
+      .select(orderSelect)
+      .in('id', inboxSeedOrderIds)
+      .limit(MASTER_DASHBOARD_INBOX_ORDER_LIMIT)
+  : { data: [] as RawOrderRow[], error: null };
+
+const inboxOrdersError =
+  inboxActionOrdersResult.error ??
+  inboxPendingPaymentReportsResult.error ??
+  inboxRecentEventsResult.error ??
+  inboxSeedOrdersResult.error;
+if (inboxOrdersError) {
+  console.warn('master dashboard inbox orders skipped', inboxOrdersError.message);
+}
+
+const inboxOrdersDataById = new Map<number, RawOrderRow>();
+if (!inboxOrdersError) {
+  for (const row of [
+    ...((inboxActionOrdersResult.data ?? []) as RawOrderRow[]),
+    ...((inboxSeedOrdersResult.data ?? []) as RawOrderRow[]),
+  ]) {
+    inboxOrdersDataById.set(Number(row.id), row);
+  }
+}
+
+const inboxOrdersData = Array.from(inboxOrdersDataById.values())
+  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  .slice(0, MASTER_DASHBOARD_INBOX_ORDER_LIMIT);
+
   const operationRawOrders = ordersData.slice(0, MASTER_DASHBOARD_ORDER_LIMIT) as RawOrderRow[];
   const calculationRawOrders = calculationOrdersData.slice(0, MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT) as RawOrderRow[];
+  const inboxRawOrders = inboxOrdersData as RawOrderRow[];
   const rawOrdersById = new Map<number, RawOrderRow>();
-  for (const row of [...operationRawOrders, ...calculationRawOrders]) {
+  for (const row of [...operationRawOrders, ...calculationRawOrders, ...inboxRawOrders]) {
     rawOrdersById.set(Number(row.id), row);
   }
   const rawOrders = Array.from(rawOrdersById.values());
   const operationOrderIdSet = new Set(operationRawOrders.map((o) => Number(o.id)));
   const calculationOrderIdSet = new Set(calculationRawOrders.map((o) => Number(o.id)));
+  const inboxOrderIdSet = new Set(inboxRawOrders.map((o) => Number(o.id)));
   const orderIds = rawOrders.map((o) => o.id);
   const financialStateOrderIds = Array.from(new Set([...orderIds, ...weekSummaryIds]));
   const { data: financialStateData, error: financialStateError } =
@@ -2858,6 +2923,7 @@ return {
 
   const initialOrders = allDashboardOrders.filter((order) => operationOrderIdSet.has(order.id));
   const calculationOrders = allDashboardOrders.filter((order) => calculationOrderIdSet.has(order.id));
+  const inboxOrders = allDashboardOrders.filter((order) => inboxOrderIdSet.has(order.id));
 
   return (
     <MasterDashboardClient
@@ -2876,6 +2942,7 @@ currentUser={{
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}
       initialOrders={initialOrders}
+      inboxOrders={inboxOrders}
       calculationOrders={calculationOrders}
       calculationScope={{
         generated: Boolean(calculationRangeRequested),
