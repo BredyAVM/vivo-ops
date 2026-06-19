@@ -17988,7 +17988,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
       <div>
         <div className="text-[11px] font-medium text-[#F5F5F7]">Devolver fondo al cliente</div>
         <div className="mt-1 text-[11px] text-[#8A8A96]">
-          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Si entregas mas, la diferencia queda como saldo pendiente del cliente.
+          Disponible para este cliente: {fmtUSD(selectedOrderClientFundAvailableUsd)}. Si entregas mas, la diferencia queda pendiente en esta orden.
         </div>
       </div>
       <button
@@ -18026,7 +18026,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
           </div>
           <div>
             <div className="text-[#8A8A96]">
-              {selectedClientFundDebtUsd > 0.005 ? 'Cliente debe' : 'Queda en fondo'}
+              {selectedClientFundDebtUsd > 0.005 ? 'Pendiente orden' : 'Queda en fondo'}
             </div>
             <div
               className={[
@@ -18043,7 +18043,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
 
         {selectedClientFundDebtUsd > 0.005 ? (
           <div className="rounded-md border border-orange-500/30 bg-[#1A1208] px-2 py-1.5 text-[11px] text-orange-200">
-            Se registrara una salida mayor al fondo disponible. El cliente quedara debiendo{' '}
+            Se registrara una salida mayor al fondo disponible. Esta orden quedara pendiente por{' '}
             {fmtUSD(selectedClientFundDebtUsd)}.
           </div>
         ) : null}
@@ -18333,7 +18333,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
                 </div>
                 <div>
                   <div className="text-[#8A8A96]">
-                    {selectedConfirmChangeDebtUsd > 0.005 ? 'Cliente debe' : 'A fondo'}
+                    {selectedConfirmChangeDebtUsd > 0.005 ? 'Pendiente orden' : 'A fondo'}
                   </div>
                   <div
                     className={[
@@ -18350,7 +18350,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
 
               {selectedConfirmChangeDebtUsd > 0.005 ? (
                 <div className="rounded-md border border-orange-500/30 bg-[#1A1208] px-2 py-1.5 text-[11px] text-orange-200">
-                  El cambio supera el excedente. La diferencia quedara como saldo pendiente del cliente:{' '}
+                  El cambio supera el excedente. La diferencia quedara como saldo pendiente de esta orden:{' '}
                   {fmtUSD(selectedConfirmChangeDebtUsd)}.
                 </div>
               ) : null}

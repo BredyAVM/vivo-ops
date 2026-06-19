@@ -1528,14 +1528,6 @@ export async function confirmPaymentReportAction(input: {
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
     let excessStoredInFundUsd = handling === 'store_fund' ? excessUsd : 0;
-    let overChangeDebtLines: Array<{
-      moneyAccountId: number;
-      currencyCode: string;
-      amount: number;
-      exchangeRate: number | null;
-      amountUsd: number;
-      notes: string | null;
-    }> = [];
 
     if (excessUsd > 0.005 && handling === 'change_given') {
       const inputChangeLines =
@@ -1597,31 +1589,10 @@ export async function confirmPaymentReportAction(input: {
 
       const totalChangeUsd = roundMoney(changeLines.reduce((sum, line) => sum + line.amountUsd, 0));
       excessStoredInFundUsd = roundMoney(Math.max(0, excessUsd - totalChangeUsd));
-      let remainingExcessUsd = excessUsd;
-      overChangeDebtLines = changeLines.flatMap((line) => {
-        const coveredByExcessUsd = Math.min(remainingExcessUsd, line.amountUsd);
-        remainingExcessUsd = roundMoney(Math.max(0, remainingExcessUsd - line.amountUsd));
-        const debtUsd = roundMoney(line.amountUsd - coveredByExcessUsd);
-        if (debtUsd <= 0.005) return [];
-
-        const debtAmount =
-          line.currencyCode === 'VES'
-            ? roundMoney(debtUsd * Number(line.exchangeRate || 0))
-            : debtUsd;
-
-        return [
-          {
-            ...line,
-            amount: debtAmount,
-            amountUsd: debtUsd,
-          },
-        ];
-      });
-      const overChangeDebtUsd = roundMoney(
-        overChangeDebtLines.reduce((sum, line) => sum + line.amountUsd, 0)
-      );
       const groupId =
-        changeLines.length > 1 || excessStoredInFundUsd > 0.005 || overChangeDebtUsd > 0.005
+        changeLines.length > 1 ||
+        excessStoredInFundUsd > 0.005 ||
+        totalChangeUsd > excessUsd + 0.005
           ? crypto.randomUUID()
           : null;
       const confirmedAt = new Date().toISOString();
@@ -1654,65 +1625,6 @@ export async function confirmPaymentReportAction(input: {
         })));
 
       if (changeMovementError) throw new Error(changeMovementError.message);
-    }
-
-    if (overChangeDebtLines.length > 0) {
-      const clientId = Number(input.clientId || currentOrder.client_id || 0);
-      if (!Number.isFinite(clientId) || clientId <= 0) {
-        throw new Error('La orden no tiene un cliente valido para registrar la deuda por cambio.');
-      }
-
-      const overChangeDebtUsd = roundMoney(
-        overChangeDebtLines.reduce((sum, line) => sum + line.amountUsd, 0)
-      );
-
-      const { data: currentClient, error: currentClientError } = await supabase
-        .from('clients')
-        .select('id, fund_balance_usd')
-        .eq('id', clientId)
-        .single();
-
-      if (currentClientError || !currentClient) {
-        throw new Error(currentClientError?.message || 'No se pudo cargar el fondo del cliente.');
-      }
-
-      const { error: updateClientFundError } = await supabase
-        .from('clients')
-        .update({
-          fund_balance_usd: roundMoney(
-            toSafeNumber(currentClient.fund_balance_usd, 0) - overChangeDebtUsd
-          ),
-        })
-        .eq('id', clientId);
-
-      if (updateClientFundError) {
-        throw new Error(updateClientFundError.message);
-      }
-
-      const { error: fundMovementError } = await supabase
-        .from('client_fund_movements')
-        .insert(
-          overChangeDebtLines.map((line) => ({
-            client_id: clientId,
-            movement_type: 'debit',
-            currency_code: line.currencyCode,
-            amount: line.amount,
-            amount_usd: line.amountUsd,
-            money_account_id: line.moneyAccountId,
-            order_id: orderId,
-            payment_report_id: input.reportId,
-            reason_code: 'change_given_from_fund',
-            notes:
-              line.notes ||
-              notes ||
-              'Cambio entregado por encima del excedente; queda como saldo pendiente del cliente.',
-            created_by_user_id: user.id,
-          }))
-        );
-
-      if (fundMovementError) {
-        throw new Error(fundMovementError.message);
-      }
     }
 
     if (false && excessUsd > 0.005 && handling === 'change_given') {
@@ -2124,11 +2036,15 @@ export async function deliverClientFundChangeAction(input: {
       (currencyCode === 'VES' ? nativeAmount / Number(exchangeRate) : nativeAmount).toFixed(2)
     );
     const currentBalanceUsd = Number(toSafeNumber(currentClient.fund_balance_usd, 0).toFixed(2));
+    const availableFundUsd = Math.max(0, currentBalanceUsd);
+    const fundCoveredUsd = roundMoney(Math.min(availableFundUsd, amountUsd));
+    const fundCoveredAmount =
+      currencyCode === 'VES' ? roundMoney(fundCoveredUsd * Number(exchangeRate || 0)) : fundCoveredUsd;
 
     const { error: updateClientError } = await supabase
       .from('clients')
       .update({
-        fund_balance_usd: Number((currentBalanceUsd - amountUsd).toFixed(2)),
+        fund_balance_usd: roundMoney(currentBalanceUsd - fundCoveredUsd),
       })
       .eq('id', clientId);
 
@@ -2137,24 +2053,26 @@ export async function deliverClientFundChangeAction(input: {
     }
 
     try {
-      const { error: fundMovementError } = await supabase
-        .from('client_fund_movements')
-        .insert({
-          client_id: clientId,
-          movement_type: 'debit',
-          currency_code: currencyCode,
-          amount: nativeAmount,
-          amount_usd: amountUsd,
-          money_account_id: moneyAccountId,
-          order_id: orderId,
-          payment_report_id: null,
-          reason_code: 'change_given_from_fund',
-          notes: String(input.notes || '').trim() || null,
-          created_by_user_id: user.id,
-        });
+      if (fundCoveredUsd > 0.005) {
+        const { error: fundMovementError } = await supabase
+          .from('client_fund_movements')
+          .insert({
+            client_id: clientId,
+            movement_type: 'debit',
+            currency_code: currencyCode,
+            amount: fundCoveredAmount,
+            amount_usd: fundCoveredUsd,
+            money_account_id: moneyAccountId,
+            order_id: orderId,
+            payment_report_id: null,
+            reason_code: 'change_given_from_fund',
+            notes: String(input.notes || '').trim() || null,
+            created_by_user_id: user.id,
+          });
 
-      if (fundMovementError) {
-        throw new Error(fundMovementError.message);
+        if (fundMovementError) {
+          throw new Error(fundMovementError.message);
+        }
       }
 
       const { error: moneyMovementError } = await supabase
@@ -2285,6 +2203,8 @@ export async function settleClientFundPayoutAction(input: {
 
     const currentBalanceUsd = roundMoney(currentClient.fund_balance_usd);
     const totalAmountUsd = roundMoney(cleanLines.reduce((sum, line) => sum + line.amountUsd, 0));
+    const availableFundUsd = Math.max(0, currentBalanceUsd);
+    const fundCoveredTotalUsd = roundMoney(Math.min(availableFundUsd, totalAmountUsd));
 
     const groupId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -2294,7 +2214,7 @@ export async function settleClientFundPayoutAction(input: {
     const { error: updateClientError } = await supabase
       .from('clients')
       .update({
-        fund_balance_usd: roundMoney(currentBalanceUsd - totalAmountUsd),
+        fund_balance_usd: roundMoney(currentBalanceUsd - fundCoveredTotalUsd),
       })
       .eq('id', clientId);
 
@@ -2334,25 +2254,39 @@ export async function settleClientFundPayoutAction(input: {
         .map((movement) => Number(movement.id || 0))
         .filter((id) => id > 0);
 
-      const fundRows = cleanLines.map((line) => ({
-        client_id: clientId,
-        movement_type: 'debit',
-        currency_code: line.currencyCode,
-        amount: line.amount,
-        amount_usd: line.amountUsd,
-        money_account_id: line.moneyAccountId,
-        order_id: orderId,
-        payment_report_id: null,
-        reason_code: 'client_fund_payout',
-        notes: line.notes,
-        created_by_user_id: user.id,
-      }));
+      let remainingFundUsd = fundCoveredTotalUsd;
+      const fundRows = cleanLines.flatMap((line) => {
+        const lineFundUsd = roundMoney(Math.min(remainingFundUsd, line.amountUsd));
+        remainingFundUsd = roundMoney(Math.max(0, remainingFundUsd - line.amountUsd));
+        if (lineFundUsd <= 0.005) return [];
 
-      const { error: fundMovementError } = await supabase
-        .from('client_fund_movements')
-        .insert(fundRows);
+        return [
+          {
+            client_id: clientId,
+            movement_type: 'debit',
+            currency_code: line.currencyCode,
+            amount:
+              line.currencyCode === 'VES'
+                ? roundMoney(lineFundUsd * Number(line.exchangeRate || 0))
+                : lineFundUsd,
+            amount_usd: lineFundUsd,
+            money_account_id: line.moneyAccountId,
+            order_id: orderId,
+            payment_report_id: null,
+            reason_code: 'client_fund_payout',
+            notes: line.notes,
+            created_by_user_id: user.id,
+          },
+        ];
+      });
 
-      if (fundMovementError) throw new Error(fundMovementError.message);
+      if (fundRows.length > 0) {
+        const { error: fundMovementError } = await supabase
+          .from('client_fund_movements')
+          .insert(fundRows);
+
+        if (fundMovementError) throw new Error(fundMovementError.message);
+      }
     } catch (error) {
       await supabase
         .from('clients')
