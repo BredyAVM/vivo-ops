@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { resolveHomePathForRoles } from '@/lib/app-modules';
+import { LAST_MODULE_STORAGE_KEY } from '@/app/app/ModulePreference';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function LoginForm() {
 
       const roles = Array.isArray(rolesData) ? (rolesData as string[]) : [];
       const preferredModule =
-        typeof window !== 'undefined' ? window.localStorage.getItem('vivo:last-module') : null;
+        typeof window !== 'undefined' ? window.localStorage.getItem(LAST_MODULE_STORAGE_KEY) : null;
       router.push(resolveHomePathForRoles(roles, preferredModule));
       router.refresh();
     } finally {

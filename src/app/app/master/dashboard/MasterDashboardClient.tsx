@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import { ModulePreference } from '../../ModulePreference';
 import {
   ORDER_STATUS_LABELS,
   formatOrderDisplayNumber as fmtShortOrderLabel,
@@ -61,6 +62,7 @@ import {
   resolveMasterInboxItemsAction,
   reopenMasterInboxItemsAction,
   createCatalogItemAction,
+  duplicateCatalogItemAction,
   createClientAction,
   createOrderClientQuickAction,
   getClientFundSnapshotAction,
@@ -4024,6 +4026,11 @@ export default function MasterDashboardClient({
   const [catalogEditMode, setCatalogEditMode] = useState(false);
   const [catalogSaving, setCatalogSaving] = useState(false);
   const [createCatalogOpen, setCreateCatalogOpen] = useState(false);
+  const [copyCatalogOpen, setCopyCatalogOpen] = useState(false);
+  const [copyCatalogSaving, setCopyCatalogSaving] = useState(false);
+  const [copySourceCatalogItemId, setCopySourceCatalogItemId] = useState('');
+  const [copyCatalogName, setCopyCatalogName] = useState('');
+  const [copyCatalogSku, setCopyCatalogSku] = useState('');
 const [quickCatalogOpen, setQuickCatalogOpen] = useState(false);
 const [quickCatalogSaving, setQuickCatalogSaving] = useState(false);
 const [quickCatalogRows, setQuickCatalogRows] = useState<QuickCatalogPriceRow[]>([]);
@@ -4252,6 +4259,7 @@ const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
 
   const permissions = useMemo(() => getMasterDashboardPermissions(roles), [roles]);
   const isAdmin = permissions.isAdmin;
+  const activeModuleKey = isAdmin ? 'admin' : 'master';
 
   useEffect(() => {
     setDeliveryPartners((current) =>
@@ -4529,6 +4537,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const selectedCatalogItem = useMemo(
     () => catalogItems.find((x) => x.id === selectedCatalogItemId) ?? null,
     [catalogItems, selectedCatalogItemId]
+  );
+  const copySourceCatalogItem = useMemo(
+    () => catalogItems.find((item) => item.id === Number(copySourceCatalogItemId || 0)) ?? null,
+    [catalogItems, copySourceCatalogItemId]
   );
 
   const selectedCatalogPriceImpact = useMemo(() => {
@@ -8445,6 +8457,70 @@ const resetCreateCatalogForm = () => {
   setNewInventoryLinks([]);
 };
 
+const openCopyCatalog = (sourceProductId?: number) => {
+  if (!permissions.canCreateCatalogItems) {
+    showToast('error', 'Solo admin puede copiar items de catalogo.');
+    return;
+  }
+
+  const source =
+    catalogItems.find((item) => item.id === sourceProductId) ??
+    selectedCatalogItem ??
+    filteredCatalogItems[0] ??
+    catalogItems[0] ??
+    null;
+
+  setCopySourceCatalogItemId(source ? String(source.id) : '');
+  setCopyCatalogName(source ? `${source.name} copia` : '');
+  setCopyCatalogSku(source?.sku ? `${source.sku}-COPY` : '');
+  setCopyCatalogOpen(true);
+};
+
+const handleCopySourceCatalogChange = (value: string) => {
+  setCopySourceCatalogItemId(value);
+  const source = catalogItems.find((item) => item.id === Number(value || 0));
+  if (!source) {
+    setCopyCatalogName('');
+    setCopyCatalogSku('');
+    return;
+  }
+
+  setCopyCatalogName(`${source.name} copia`);
+  setCopyCatalogSku(source.sku ? `${source.sku}-COPY` : '');
+};
+
+const handleDuplicateCatalogItem = async () => {
+  if (!permissions.canCreateCatalogItems) {
+    showToast('error', 'Solo admin puede copiar items de catalogo.');
+    return;
+  }
+
+  try {
+    setCopyCatalogSaving(true);
+
+    const result = await duplicateCatalogItemAction({
+      sourceProductId: Number(copySourceCatalogItemId || 0),
+      name: copyCatalogName,
+      sku: copyCatalogSku,
+    });
+
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+
+    showToast('success', `Item copiado (${result.sku}).`);
+    setCopyCatalogOpen(false);
+    setSelectedCatalogItemId(result.id);
+    setCatalogDetailOpen(true);
+    setCatalogEditMode(true);
+    router.refresh();
+  } catch (err) {
+    showToast('error', err instanceof Error ? err.message : 'No se pudo copiar el item.');
+  } finally {
+    setCopyCatalogSaving(false);
+  }
+};
+
 const resetInventoryMovementForm = () => {
   setSelectedInventoryProductId(null);
   setInventoryMovementType('inbound');
@@ -12136,6 +12212,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
+      <ModulePreference moduleKey={activeModuleKey} />
       <div className="sticky top-0 z-50 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
         <div className="mx-auto max-w-[1400px] px-5 py-2.5">
   <div className="flex flex-col gap-2.5">
@@ -13899,9 +13976,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
   <div className="flex flex-wrap gap-2">
     {permissions.canCreateCatalogItems ? (
-      <Btn onClick={() => setCreateCatalogOpen(true)}>
-        Nuevo ítem
-      </Btn>
+      <>
+        <Btn onClick={() => openCopyCatalog()}>
+          Copiar ítem
+        </Btn>
+        <Btn onClick={() => setCreateCatalogOpen(true)}>
+          Nuevo ítem
+        </Btn>
+      </>
     ) : null}
   </div>
 </div>
@@ -15775,6 +15857,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </>
             ) : (
               <>
+                <button
+                  className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                  onClick={() => openCopyCatalog(selectedCatalogItem.id)}
+                  type="button"
+                >
+                  Copiar
+                </button>
                 <button
                   className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
                   onClick={() => setCatalogEditMode(true)}
@@ -19123,6 +19212,91 @@ deliveryAssignMode === 'external' ? (
     </div>
   </div>
         </Drawer>
+
+<Drawer
+  open={copyCatalogOpen}
+  title="Copiar ítem de catálogo"
+  onClose={() => setCopyCatalogOpen(false)}
+  widthClass="w-[560px]"
+>
+  <div className="space-y-4">
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="space-y-3">
+        <FieldSelect
+          label="Producto base"
+          value={copySourceCatalogItemId}
+          onChange={handleCopySourceCatalogChange}
+          disabled={copyCatalogSaving}
+          options={[
+            { value: '', label: 'Selecciona un producto' },
+            ...catalogItems.map((item) => ({
+              value: String(item.id),
+              label: `${item.name}${item.sku ? ` · ${item.sku}` : ''}`,
+            })),
+          ]}
+          hint="La copia toma tipo, precio fuente, comisiones, inventario, componentes y vínculos internos."
+        />
+
+        <FieldInput
+          label="Nombre nuevo"
+          value={copyCatalogName}
+          onChange={setCopyCatalogName}
+          type="text"
+        />
+
+        <FieldInput
+          label="SKU nuevo"
+          value={copyCatalogSku}
+          onChange={(value) => setCopyCatalogSku(value.toUpperCase())}
+          type="text"
+          hint="Debe ser único. Si está ocupado, el sistema avisará antes de crear la copia."
+        />
+      </div>
+
+      {copySourceCatalogItem ? (
+        <div className="mt-4 rounded-2xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
+          <div className="font-semibold text-[#F5F5F7]">Se copiará desde:</div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[#B7B7C2]">
+            <InfoCell label="Tipo" value={copySourceCatalogItem.type} />
+            <InfoCell label="Moneda" value={copySourceCatalogItem.sourcePriceCurrency} />
+            <InfoCell
+              label="Precio fuente"
+              value={
+                copySourceCatalogItem.sourcePriceCurrency === 'VES'
+                  ? fmtBs(copySourceCatalogItem.sourcePriceAmount)
+                  : fmtUSD(copySourceCatalogItem.sourcePriceAmount)
+              }
+            />
+            <InfoCell
+              label="Inventario"
+              value={copySourceCatalogItem.inventoryEnabled ? copySourceCatalogItem.inventoryDeductionMode : 'No activo'}
+            />
+          </div>
+          <div className="mt-3 text-xs text-[#8A8A96]">
+            La copia nace con stock propio en cero cuando aplica. No modifica el producto original.
+          </div>
+        </div>
+      ) : null}
+    </div>
+
+    <div className="flex justify-end gap-2">
+      <button
+        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-2 text-sm"
+        onClick={() => setCopyCatalogOpen(false)}
+        disabled={copyCatalogSaving}
+      >
+        Cancelar
+      </button>
+      <button
+        className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+        onClick={handleDuplicateCatalogItem}
+        disabled={copyCatalogSaving || !copySourceCatalogItemId || !copyCatalogName.trim()}
+      >
+        {copyCatalogSaving ? 'Copiando...' : 'Crear copia'}
+      </button>
+    </div>
+  </div>
+</Drawer>
 
 <Drawer
   open={createCatalogOpen}

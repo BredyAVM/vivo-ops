@@ -7278,6 +7278,228 @@ export async function createCatalogItemAction(input: Parameters<typeof createCat
   }
 }
 
+export async function duplicateCatalogItemAction(input: {
+  sourceProductId: number;
+  sku?: string | null;
+  name: string;
+}) {
+  try {
+    const { supabase, roles } = await requireMasterOrAdmin();
+    requireAdminRole(roles);
+
+    const sourceProductId = toSafeNumber(input.sourceProductId, 0);
+    const name = String(input.name || '').trim();
+    const requestedSku = String(input.sku || '').trim().toUpperCase();
+
+    if (sourceProductId <= 0) {
+      throw new Error('Selecciona el producto que quieres copiar.');
+    }
+    if (!name) {
+      throw new Error('El nombre del nuevo producto es obligatorio.');
+    }
+
+    const { data: source, error: sourceError } = await supabase
+      .from('products')
+      .select(`
+        id,
+        sku,
+        name,
+        type,
+        source_price_amount,
+        source_price_currency,
+        base_price_usd,
+        base_price_bs,
+        units_per_service,
+        is_active,
+        is_detail_editable,
+        detail_units_limit,
+        is_inventory_item,
+        is_temporary,
+        is_combo_component_selectable,
+        commission_mode,
+        commission_value,
+        commission_notes,
+        internal_rider_pay_usd,
+        inventory_enabled,
+        inventory_kind,
+        inventory_deduction_mode,
+        inventory_unit_name,
+        packaging_name,
+        packaging_size,
+        low_stock_threshold,
+        inventory_group
+      `)
+      .eq('id', sourceProductId)
+      .single();
+
+    if (sourceError || !source) {
+      throw new Error(sourceError?.message || 'No se pudo cargar el producto base.');
+    }
+
+    async function ensureUniqueSku(baseSku: string) {
+      const normalized = baseSku.trim().toUpperCase();
+      if (!normalized) {
+        throw new Error('El SKU es obligatorio.');
+      }
+
+      const { data: existingSku, error: existingSkuError } = await supabase
+        .from('products')
+        .select('id')
+        .eq('sku', normalized)
+        .maybeSingle();
+
+      if (existingSkuError) throw new Error(existingSkuError.message);
+      if (!existingSku) return normalized;
+
+      if (requestedSku) {
+        throw new Error('Ya existe un producto con ese SKU.');
+      }
+
+      for (let index = 2; index <= 99; index += 1) {
+        const candidate = `${normalized}-${index}`;
+        const { data: candidateExists, error: candidateError } = await supabase
+          .from('products')
+          .select('id')
+          .eq('sku', candidate)
+          .maybeSingle();
+
+        if (candidateError) throw new Error(candidateError.message);
+        if (!candidateExists) return candidate;
+      }
+
+      throw new Error('No se pudo generar un SKU disponible para la copia.');
+    }
+
+    const sourceSku = String(source.sku || '').trim().toUpperCase();
+    const copySku = await ensureUniqueSku(requestedSku || `${sourceSku || 'ITEM'}-COPY`);
+
+    const { data: createdProduct, error: createError } = await supabase
+      .from('products')
+      .insert({
+        sku: copySku,
+        name,
+        type: source.type,
+        source_price_amount: toSafeNumber(source.source_price_amount, 0),
+        source_price_currency: source.source_price_currency === 'USD' ? 'USD' : 'VES',
+        base_price_usd: toSafeNumber(source.base_price_usd, 0),
+        base_price_bs: toSafeNumber(source.base_price_bs, 0),
+        units_per_service: toSafeNumber(source.units_per_service, 0),
+        is_active: !!source.is_active,
+        is_detail_editable: !!source.is_detail_editable,
+        detail_units_limit: toSafeNumber(source.detail_units_limit, 0),
+        is_inventory_item: !!source.is_inventory_item,
+        is_temporary: !!source.is_temporary,
+        is_combo_component_selectable: !!source.is_combo_component_selectable,
+        commission_mode: source.commission_mode || 'default',
+        commission_value: source.commission_value == null ? null : toSafeNumber(source.commission_value, 0),
+        commission_notes: source.commission_notes || null,
+        internal_rider_pay_usd:
+          source.internal_rider_pay_usd == null ? null : toSafeNumber(source.internal_rider_pay_usd, 0),
+        inventory_enabled: !!source.inventory_enabled,
+        inventory_kind: source.inventory_kind || 'finished_good',
+        inventory_deduction_mode: source.inventory_deduction_mode || 'self',
+        inventory_unit_name: String(source.inventory_unit_name || 'pieza').trim() || 'pieza',
+        packaging_name: source.packaging_name || null,
+        packaging_size: source.packaging_size == null ? null : toSafeNumber(source.packaging_size, 0),
+        current_stock_units: 0,
+        low_stock_threshold: source.low_stock_threshold == null ? null : toSafeNumber(source.low_stock_threshold, 0),
+        inventory_group: source.inventory_group || 'other',
+      })
+      .select('id')
+      .single();
+
+    if (createError || !createdProduct) {
+      throw new Error(createError?.message || 'No se pudo crear la copia del producto.');
+    }
+
+    const newProductId = Number(createdProduct.id);
+
+    const { data: sourceComponents, error: componentsError } = await supabase
+      .from('product_components')
+      .select('component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required, sort_order, notes')
+      .eq('parent_product_id', sourceProductId)
+      .order('sort_order', { ascending: true });
+
+    if (componentsError) {
+      throw new Error(componentsError.message);
+    }
+
+    if ((sourceComponents ?? []).length > 0) {
+      const { error: insertComponentsError } = await supabase.from('product_components').insert(
+        (sourceComponents ?? []).map((row) => ({
+          parent_product_id: newProductId,
+          component_product_id: Number(row.component_product_id),
+          component_mode: row.component_mode === 'selectable' ? 'selectable' : 'fixed',
+          quantity: toSafeNumber(row.quantity, 0),
+          counts_toward_detail_limit: !!row.counts_toward_detail_limit,
+          is_required: !!row.is_required,
+          sort_order: toSafeNumber(row.sort_order, 1),
+          notes: row.notes || null,
+        }))
+      );
+
+      if (insertComponentsError) {
+        throw new Error(insertComponentsError.message);
+      }
+    }
+
+    const { data: sourceInventoryLinks, error: inventoryLinksError } = await supabase
+      .from('product_inventory_links')
+      .select('inventory_item_id, deduction_mode, quantity_units, sort_order, notes, is_active')
+      .eq('product_id', sourceProductId)
+      .order('sort_order', { ascending: true });
+
+    if (inventoryLinksError) {
+      throw new Error(inventoryLinksError.message);
+    }
+
+    if (source.inventory_deduction_mode === 'self') {
+      const selfInventoryItemId = await syncInventoryItemFromCatalogProduct(supabase, {
+        nextName: name,
+        isActive: !!source.is_active,
+        inventoryEnabled: !!source.inventory_enabled,
+        isInventoryItem: !!source.is_inventory_item,
+        inventoryDeductionMode: 'self',
+        inventoryKind: source.inventory_kind || 'finished_good',
+        inventoryUnitName: String(source.inventory_unit_name || 'pieza'),
+        packagingName: source.packaging_name || null,
+        packagingSize: source.packaging_size == null ? null : toSafeNumber(source.packaging_size, 0),
+        currentStockUnits: 0,
+        lowStockThreshold: source.low_stock_threshold == null ? null : toSafeNumber(source.low_stock_threshold, 0),
+        inventoryGroup: source.inventory_group || 'other',
+      });
+
+      await replaceProductInventoryLinks(supabase, {
+        productId: newProductId,
+        inventoryDeductionMode: 'self',
+        selfInventoryItemId,
+        inventoryLinks: [],
+      });
+    } else if ((sourceInventoryLinks ?? []).length > 0) {
+      await replaceProductInventoryLinks(supabase, {
+        productId: newProductId,
+        inventoryDeductionMode: 'composition',
+        inventoryLinks: (sourceInventoryLinks ?? [])
+          .filter((row) => row.deduction_mode !== 'self_link' && row.is_active !== false)
+          .map((row, index) => ({
+            inventoryItemId: Number(row.inventory_item_id),
+            quantityUnits: toSafeNumber(row.quantity_units, 0),
+            notes: row.notes || null,
+            sortOrder: toSafeNumber(row.sort_order, index + 1),
+          })),
+      });
+    }
+
+    revalidatePath('/app/master/dashboard');
+    return { ok: true as const, id: newProductId, sku: copySku };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : 'No se pudo copiar el item de catalogo.',
+    };
+  }
+}
+
 export async function toggleCatalogItemActiveAction(input: {
   productId: number;
   nextIsActive: boolean;

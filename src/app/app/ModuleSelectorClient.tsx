@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import type { AppModuleDefinition } from '@/lib/app-modules';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { LAST_MODULE_STORAGE_KEY } from './ModulePreference';
 
 type ModuleSelectorClientProps = {
   modules: AppModuleDefinition[];
@@ -16,7 +17,7 @@ export default function ModuleSelectorClient(props: ModuleSelectorClientProps) {
   const supabase = createSupabaseBrowser();
 
   const handleOpenModule = (module: AppModuleDefinition) => {
-    window.localStorage.setItem('vivo:last-module', module.key);
+    window.localStorage.setItem(LAST_MODULE_STORAGE_KEY, module.key);
     router.push(module.href);
   };
 
@@ -35,7 +36,7 @@ export default function ModuleSelectorClient(props: ModuleSelectorClientProps) {
           <button
             type="button"
             onClick={async () => {
-              window.localStorage.removeItem('vivo:last-module');
+              window.localStorage.removeItem(LAST_MODULE_STORAGE_KEY);
               await supabase.auth.signOut();
               router.push('/login');
               router.refresh();

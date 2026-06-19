@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
 import AdvisorInboxBell from './AdvisorInboxBell';
 import AdvisorPendingLink from './AdvisorPendingLink';
+import { ModulePreference } from '../ModulePreference';
 
 type AdvisorShellProps = {
   children: ReactNode;
@@ -54,6 +55,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
 
   return (
     <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
+      <ModulePreference moduleKey="advisor" />
       <div className="advisor-safe-shell mx-auto flex min-h-screen max-w-screen-md flex-col">
         <header className="advisor-safe-header sticky top-0 z-20 border-b border-[#171B24] bg-[#090B10]/92 px-4 py-2 backdrop-blur">
           <div className="flex items-center justify-between gap-2.5">
