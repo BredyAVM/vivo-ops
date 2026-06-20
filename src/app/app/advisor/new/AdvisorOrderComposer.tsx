@@ -8,7 +8,13 @@ import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone
 import { normalizeRemoteSearchValue, normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
-import { buildWhatsAppOrderSummaryText, formatWhatsAppBs } from '@/lib/orders/whatsapp-summary';
+import {
+  buildWhatsAppOrderSummaryText,
+  cleanWhatsAppUnitsFromName,
+  formatWhatsAppBs,
+  formatWhatsAppQuantity,
+  getWhatsAppLineUnits,
+} from '@/lib/orders/whatsapp-summary';
 import { replaceAdvisorOrderItemsAction, updateAdvisorOrderHeaderAction } from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
@@ -351,26 +357,6 @@ function parseQuantityValue(value: string | number | null | undefined) {
   return Number.isFinite(amount) ? amount : Number.NaN;
 }
 
-function formatQuantityValue(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return '';
-
-  const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-
-function getDisplayPieces(qty: number, unitsPerService: number) {
-  const fullServices = Math.trunc(qty);
-  const fractional = qty - fullServices;
-
-  let pieces = fullServices * unitsPerService;
-
-  if (fractional >= 0.5) {
-    pieces += Math.floor(unitsPerService / 2);
-  }
-
-  return pieces;
-}
-
 function formatUsd(value: number) {
   return `$${value.toFixed(2)}`;
 }
@@ -385,6 +371,10 @@ function formatBsWhatsApp(value: number) {
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 const WHATSAPP_PRIMARY_BULLET = '\u2022';
+
+function formatQuantityValue(value: number) {
+  return formatWhatsAppQuantity(value);
+}
 
 function getPaymentMethodLabel(method: PaymentMethod) {
   return getSharedPaymentMethodLabel(method, { lowercase: true });
@@ -407,20 +397,23 @@ function formatDraftItemWhatsAppLine(item: DraftItem, fxRateNumber: number) {
       : Number(item.line_total_usd || 0) * fxRateNumber;
   const normalizedName = normalizeSnapshotText(item.product_name_snapshot) || 'Item';
   const isDelivery = isDeliveryCatalogItemName(normalizedName);
-  const unitsPerService = Math.max(0, Number(item.units_per_service || 0));
 
   if (isDelivery) {
-    return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
   }
 
-  if (unitsPerService > 0) {
-    const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    const units = getDisplayPieces(Number(item.qty || 0), unitsPerService);
+  const units = getWhatsAppLineUnits({
+    qty: item.qty,
+    name: normalizedName,
+    unitsPerService: item.units_per_service,
+  });
+  if (units !== null) {
+    const cleanName = cleanWhatsAppUnitsFromName(normalizedName);
     const servicePrefix = item.product_type === 'service' ? 'Serv. ' : '';
-    return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${servicePrefix}${cleanName} (${formatQuantityValue(units)} und): ${formatBsWhatsApp(lineBs)}`;
+    return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${formatBsWhatsApp(lineBs)}`;
   }
 
-  return `${WHATSAPP_PRIMARY_BULLET} ${formatQuantityValue(Number(item.qty || 0))} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
+  return `${WHATSAPP_PRIMARY_BULLET} ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${formatBsWhatsApp(lineBs)}`;
 }
 
 function toSafeNumber(value: unknown, fallback = 0) {

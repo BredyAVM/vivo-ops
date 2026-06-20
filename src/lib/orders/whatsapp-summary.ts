@@ -83,6 +83,62 @@ export function formatWhatsAppBs(value: number) {
   return `Bs ${output}`;
 }
 
+export function formatWhatsAppQuantity(value: number | string | null | undefined) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return '0';
+
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+export function extractWhatsAppUnitsPerServiceFromName(name: string | null | undefined) {
+  const normalized = clean(name);
+  const match = normalized.match(/\((\d+(?:[.,]\d+)?)\s*(?:und|unidad|unidades|pzas?|piezas?)\)/i);
+  if (!match) return 0;
+
+  const units = Number(match[1].replace(',', '.'));
+  return Number.isFinite(units) && units > 0 ? units : 0;
+}
+
+export function cleanWhatsAppUnitsFromName(name: string | null | undefined) {
+  return clean(name).replace(/\s*\(\d+(?:[.,]\d+)?\s*(?:und|unidad|unidades|pzas?|piezas?)\)\s*/i, ' ').trim();
+}
+
+export function getWhatsAppDisplayPieces(qty: number | string | null | undefined, unitsPerService: number | string | null | undefined) {
+  const quantity = Number(qty);
+  const units = Number(unitsPerService);
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(units) || units <= 0) return 0;
+
+  const fullServices = Math.trunc(quantity);
+  const fractional = quantity - fullServices;
+  let pieces = fullServices * units;
+
+  if (fractional >= 0.5) {
+    pieces += Math.floor(units / 2);
+  }
+
+  return pieces;
+}
+
+export function getWhatsAppLineUnits(input: {
+  qty: number | string | null | undefined;
+  name: string | null | undefined;
+  unitsPerService?: number | string | null;
+}) {
+  const explicitUnits = Number(input.unitsPerService || 0);
+  const unitsPerService =
+    Number.isFinite(explicitUnits) && explicitUnits > 0
+      ? explicitUnits
+      : extractWhatsAppUnitsPerServiceFromName(input.name);
+
+  if (unitsPerService <= 0) return null;
+
+  const units = getWhatsAppDisplayPieces(input.qty, unitsPerService);
+  return units > 0 ? units : null;
+}
+
 function pushField(parts: string[], label: string, value: string | null | undefined) {
   const normalized = clean(value);
   if (!normalized) return;

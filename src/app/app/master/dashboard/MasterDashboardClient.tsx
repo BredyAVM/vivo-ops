@@ -12,7 +12,12 @@ import {
   formatOrderDisplayNumber as fmtShortOrderLabel,
   getPaymentMethodLabel as getSharedPaymentMethodLabel,
 } from '@/lib/orders/order-labels';
-import { buildWhatsAppOrderSummaryText } from '@/lib/orders/whatsapp-summary';
+import {
+  buildWhatsAppOrderSummaryText,
+  cleanWhatsAppUnitsFromName,
+  formatWhatsAppQuantity,
+  getWhatsAppLineUnits,
+} from '@/lib/orders/whatsapp-summary';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -2347,19 +2352,11 @@ function orderMainLinesForPreview(lines: OrderLine[]) {
 }
 
 function calcUnits(line: OrderLine) {
-  if (line.unitsPerService > 0) {
-    const units = line.qty * line.unitsPerService;
-    return units > 0 ? Math.floor(units) : units;
-  }
-  const m = line.name.match(/\((\d+)\s*und\)/i);
-  if (m) {
-    const base = Number(m[1]);
-    if (!Number.isNaN(base) && base > 0) {
-      const units = line.qty * base;
-      return units > 0 ? Math.floor(units) : units;
-    }
-  }
-  return null;
+  return getWhatsAppLineUnits({
+    qty: line.qty,
+    name: line.name,
+    unitsPerService: line.unitsPerService,
+  });
 }
 
 type CommittedBucket = 'products' | 'sauces' | 'beverages';
@@ -2391,17 +2388,17 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   const bs = fmtBs(line.qty * line.priceBs);
   const isDelivery = !!line.isDelivery || line.name.toLowerCase().startsWith('delivery');
 
-  if (isDelivery) return `• ${line.qty} ${line.name}: ${bs}`;
+  if (isDelivery) return `• ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 
   if (units !== null) {
-    const cleanName = line.name.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
+    const cleanName = cleanWhatsAppUnitsFromName(line.name);
     if (line.productType === 'service') {
-      return `• ${line.qty} Serv. ${cleanName} (${units} und): ${bs}`;
+      return `• ${formatWhatsAppQuantity(line.qty)} Serv. ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
     }
-    return `• ${line.qty} ${cleanName} (${units} und): ${bs}`;
+    return `• ${formatWhatsAppQuantity(line.qty)} ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
   }
 
-  return `• ${line.qty} ${line.name}: ${bs}`;
+  return `• ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 }
 
 const EDITABLE_DETAIL_SELECTION_PREFIX = '@sel|';

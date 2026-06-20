@@ -10,7 +10,12 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
-import { buildWhatsAppOrderSummaryText } from '@/lib/orders/whatsapp-summary';
+import {
+  buildWhatsAppOrderSummaryText,
+  cleanWhatsAppUnitsFromName,
+  formatWhatsAppQuantity,
+  getWhatsAppLineUnits,
+} from '@/lib/orders/whatsapp-summary';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
 import { shouldRequireAdvisorAction } from '../../inbox/inbox-shared';
 import OrderDetailActions from './OrderDetailActions';
@@ -312,28 +317,6 @@ function getVisibleEditableDetailLines(value: string | null | undefined) {
     .filter((line) => line && !line.startsWith('@sel|'));
 }
 
-function formatQuantityLabel(value: number | string | null | undefined) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount <= 0) return '0';
-  const rounded = Math.round(amount * 100) / 100;
-  return Number.isInteger(rounded)
-    ? String(rounded)
-    : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-
-function getDisplayPieces(qty: number, unitsPerService: number) {
-  const fullServices = Math.trunc(qty);
-  const fractional = qty - fullServices;
-
-  let pieces = fullServices * unitsPerService;
-
-  if (fractional >= 0.5) {
-    pieces += Math.floor(unitsPerService / 2);
-  }
-
-  return pieces;
-}
-
 function getLineTotalBs(item: OrderItemRow, fxRate: number) {
   return getOrderLineTotalBs(item, fxRate);
 }
@@ -354,22 +337,25 @@ function lineTextWhatsAppStyle(item: OrderItemRow, fxRate: number) {
   const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
   const normalizedName = safeText(item.product_name_snapshot, 'Item');
   const isDelivery = normalizedName.toLowerCase().startsWith('delivery');
-  const unitsPerService = Math.max(0, Number(relatedProduct?.units_per_service || 0));
   const lineTotalBs = getLineTotalBs(item, fxRate);
   const priceLabel = isDelivery && lineTotalBs <= 0.005 ? 'Delivery obsequiado' : formatBs(lineTotalBs);
 
   if (isDelivery) {
-    return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${priceLabel}`;
+    return `- ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${priceLabel}`;
   }
 
-  if (unitsPerService > 0) {
-    const cleanName = normalizedName.replace(/\s*\(\d+\s*und\)\s*/i, ' ').trim();
-    const units = getDisplayPieces(Number(item.qty || 0), unitsPerService);
+  const units = getWhatsAppLineUnits({
+    qty: item.qty,
+    name: normalizedName,
+    unitsPerService: relatedProduct?.units_per_service,
+  });
+  if (units !== null) {
+    const cleanName = cleanWhatsAppUnitsFromName(normalizedName);
     const servicePrefix = relatedProduct?.type === 'service' ? 'Serv. ' : '';
-    return `- ${formatQuantityLabel(item.qty)} ${servicePrefix}${cleanName} (${formatQuantityLabel(units)} und): ${formatBs(lineTotalBs)}`;
+    return `- ${formatWhatsAppQuantity(item.qty)} ${servicePrefix}${cleanName} (${formatWhatsAppQuantity(units)} und): ${formatBs(lineTotalBs)}`;
   }
 
-  return `- ${formatQuantityLabel(item.qty)} ${normalizedName}: ${formatBs(lineTotalBs)}`;
+  return `- ${formatWhatsAppQuantity(item.qty)} ${normalizedName}: ${formatBs(lineTotalBs)}`;
 }
 
 function deliveryText(
