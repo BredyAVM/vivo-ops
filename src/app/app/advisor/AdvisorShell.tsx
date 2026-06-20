@@ -19,6 +19,7 @@ type AdvisorShellProps = {
 const navItems = [
   { href: '/app/advisor', label: 'Inicio' },
   { href: '/app/advisor/orders', label: 'Pedidos' },
+  { href: '/app/advisor/drafts', label: 'Borradores' },
   { href: '/app/advisor/payments', label: 'Pagos' },
   { href: '/app/advisor/settings', label: 'Configuracion' },
   { href: '/app', label: 'Cambiar modulo' },
@@ -31,6 +32,7 @@ function isActive(pathname: string, href: string) {
 function resolveBackHref(pathname: string) {
   if (pathname.startsWith('/app/advisor/new')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
+  if (pathname.startsWith('/app/advisor/drafts')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/settings')) return '/app/advisor';
   return null;
@@ -47,6 +49,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
   const showCreateButton =
     !isNewOrderRoute &&
     !isOrderDetailRoute &&
+    !pathname.startsWith('/app/advisor/drafts') &&
     !pathname.startsWith('/app/advisor/settings');
   const advisorName = useMemo(() => {
     const normalized = String(fullName || '').trim();

@@ -37,6 +37,22 @@ type AdvisorOrderHeaderInput = {
   };
 };
 
+type AdvisorOrderDraftStatus = 'draft' | 'quoted';
+
+type SaveAdvisorOrderDraftInput = {
+  draftId?: number | null;
+  status?: AdvisorOrderDraftStatus;
+  title?: string | null;
+  clientId?: number | null;
+  clientSnapshot?: Record<string, unknown> | null;
+  newClientSnapshot?: Record<string, unknown> | null;
+  payload: Record<string, unknown>;
+  quoteText?: string | null;
+  totalUsd?: number | null;
+  totalBs?: number | null;
+  fxRate?: number | null;
+};
+
 function createSupabaseServiceRoleServer() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -62,6 +78,130 @@ function assertAdvisorCanEditOrderStatus(status: unknown) {
   if (!['created', 'queued'].includes(String(status || ''))) {
     throw new Error('El asesor solo puede modificar una orden antes de entrar a cocina.');
   }
+}
+
+function sanitizePlainObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function normalizeDraftStatus(value: unknown): AdvisorOrderDraftStatus {
+  return value === 'quoted' ? 'quoted' : 'draft';
+}
+
+function normalizeDraftTitle(value: unknown) {
+  const title = String(value || '').trim();
+  return title ? title.slice(0, 140) : 'Borrador de pedido';
+}
+
+export async function saveAdvisorOrderDraftAction(input: SaveAdvisorOrderDraftInput) {
+  const ctx = await requireAuthContext();
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const draftId = Number(input.draftId || 0);
+  const status = normalizeDraftStatus(input.status);
+  const nowIso = new Date().toISOString();
+
+  if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
+    throw new Error('No se pudo guardar el borrador: faltan los datos del pedido.');
+  }
+
+  const draftPayload = {
+    advisor_user_id: ctx.user.id,
+    status,
+    title: normalizeDraftTitle(input.title),
+    client_id: Number(input.clientId || 0) > 0 ? Number(input.clientId) : null,
+    client_snapshot: sanitizePlainObject(input.clientSnapshot),
+    new_client_snapshot: sanitizePlainObject(input.newClientSnapshot),
+    payload: sanitizePlainObject(input.payload),
+    quote_text: input.quoteText == null ? null : String(input.quoteText),
+    total_usd: toFiniteNumber(input.totalUsd),
+    total_bs: toFiniteNumber(input.totalBs),
+    fx_rate: input.fxRate == null || !Number.isFinite(Number(input.fxRate)) ? null : Number(input.fxRate),
+    ...(status === 'quoted' ? { quoted_at: nowIso } : {}),
+  };
+
+  if (Number.isFinite(draftId) && draftId > 0) {
+    const { data: existing, error: existingError } = await adminSupabase
+      .from('advisor_order_drafts')
+      .select('id, advisor_user_id, status')
+      .eq('id', draftId)
+      .maybeSingle();
+
+    if (existingError || !existing) {
+      throw new Error(existingError?.message || 'No se pudo cargar el borrador.');
+    }
+
+    if (existing.advisor_user_id !== ctx.user.id) {
+      throw new Error('No puedes modificar este borrador.');
+    }
+
+    if (existing.status === 'converted' || existing.status === 'archived') {
+      throw new Error('Este borrador ya fue cerrado.');
+    }
+
+    const { data, error } = await adminSupabase
+      .from('advisor_order_drafts')
+      .update(draftPayload)
+      .eq('id', draftId)
+      .select('id, status')
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    revalidatePath('/app/advisor/drafts');
+    revalidatePath('/app/advisor/new');
+    return { id: Number(data.id), status: String(data.status) as AdvisorOrderDraftStatus };
+  }
+
+  const { data, error } = await adminSupabase
+    .from('advisor_order_drafts')
+    .insert(draftPayload)
+    .select('id, status')
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/advisor/drafts');
+  revalidatePath('/app/advisor/new');
+  return { id: Number(data.id), status: String(data.status) as AdvisorOrderDraftStatus };
+}
+
+export async function markAdvisorOrderDraftConvertedAction(input: { draftId: number; orderId: number }) {
+  const ctx = await requireAuthContext();
+  const draftId = Number(input.draftId);
+  const orderId = Number(input.orderId);
+
+  if (!Number.isFinite(draftId) || draftId <= 0 || !Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('No se pudo cerrar el borrador convertido.');
+  }
+
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const { data: existing, error: existingError } = await adminSupabase
+    .from('advisor_order_drafts')
+    .select('id, advisor_user_id, status')
+    .eq('id', draftId)
+    .maybeSingle();
+
+  if (existingError || !existing) {
+    throw new Error(existingError?.message || 'No se pudo cargar el borrador.');
+  }
+
+  if (existing.advisor_user_id !== ctx.user.id) {
+    throw new Error('No puedes cerrar este borrador.');
+  }
+
+  const { error } = await adminSupabase
+    .from('advisor_order_drafts')
+    .update({
+      status: 'converted',
+      converted_order_id: orderId,
+      converted_at: new Date().toISOString(),
+    })
+    .eq('id', draftId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/advisor/drafts');
 }
 
 export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderInput) {

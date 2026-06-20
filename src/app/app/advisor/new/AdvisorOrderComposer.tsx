@@ -1,6 +1,7 @@
 'use client';
 
 import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
@@ -15,7 +16,12 @@ import {
   formatWhatsAppQuantity,
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
-import { replaceAdvisorOrderItemsAction, updateAdvisorOrderHeaderAction } from './actions';
+import {
+  markAdvisorOrderDraftConvertedAction,
+  replaceAdvisorOrderItemsAction,
+  saveAdvisorOrderDraftAction,
+  updateAdvisorOrderHeaderAction,
+} from './actions';
 
 type ClientType = 'assigned' | 'own' | 'legacy';
 type FulfillmentType = 'pickup' | 'delivery';
@@ -246,6 +252,66 @@ type OrderEditSnapshot = {
     lineTotalUsd: number;
     detailLines: string[];
   }>;
+};
+
+type AdvisorOrderDraftStatus = 'draft' | 'quoted' | 'converted' | 'archived';
+
+type AdvisorOrderDraftPayload = {
+  version?: number;
+  clientId?: number | null;
+  fulfillment?: FulfillmentType;
+  deliveryDate?: string;
+  deliveryHour12?: string;
+  deliveryMinute?: string;
+  deliveryAmPm?: 'AM' | 'PM';
+  isAsap?: boolean;
+  receiverName?: string;
+  receiverPhone?: string;
+  deliveryAddress?: string;
+  deliveryGpsUrl?: string;
+  orderNote?: string;
+  paymentMethod?: PaymentMethod;
+  paymentCurrency?: CurrencyCode;
+  paymentRequiresChange?: boolean;
+  paymentChangeFor?: string;
+  paymentChangeCurrency?: CurrencyCode;
+  paymentNote?: string;
+  fxRate?: string;
+  discountEnabled?: boolean;
+  discountPct?: string;
+  invoiceTaxPct?: string;
+  hasDeliveryNote?: boolean;
+  hasInvoice?: boolean;
+  invoiceCompanyName?: string;
+  invoiceTaxId?: string;
+  invoiceAddress?: string;
+  invoicePhone?: string;
+  deliveryNoteName?: string;
+  deliveryNoteDocumentId?: string;
+  deliveryNoteAddress?: string;
+  deliveryNotePhone?: string;
+  newClient?: {
+    fullName?: string;
+    phone?: string;
+    type?: ClientType;
+  };
+  items?: DraftItem[];
+};
+
+type AdvisorOrderDraftInitial = {
+  id: number;
+  status: AdvisorOrderDraftStatus | string | null;
+  title: string | null;
+  client_id: number | string | null;
+  client_snapshot: Partial<ClientRow> | null;
+  new_client_snapshot: Record<string, unknown> | null;
+  payload: AdvisorOrderDraftPayload | null;
+  quote_text: string | null;
+  total_usd: number | string | null;
+  total_bs: number | string | null;
+  fx_rate: number | string | null;
+  quoted_at: string | null;
+  updated_at: string | null;
 };
 
 const STORAGE_KEYS = {
@@ -819,6 +885,50 @@ function buildDraftItemsSnapshot(items: DraftItem[]) {
   }));
 }
 
+function normalizeDraftItemsPayload(value: unknown): DraftItem[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Partial<DraftItem>;
+      const productId = Number(row.product_id || 0);
+      const qty = Number(row.qty || 0);
+      const sourceCurrency = row.source_price_currency === 'VES' ? 'VES' : 'USD';
+
+      if (!Number.isFinite(productId) || productId <= 0 || !Number.isFinite(qty) || qty <= 0) {
+        return null;
+      }
+
+      return {
+        localId: String(row.localId || `draft-${productId}-${index}-${Date.now()}`),
+        product_id: productId,
+        product_type: row.product_type ?? null,
+        sku_snapshot: row.sku_snapshot ?? null,
+        product_name_snapshot: String(row.product_name_snapshot || 'Item'),
+        units_per_service: Number(row.units_per_service || 0) || 0,
+        qty,
+        source_price_currency: sourceCurrency,
+        source_price_amount: Number(row.source_price_amount || 0) || 0,
+        unit_price_usd_snapshot: Number(row.unit_price_usd_snapshot || 0) || 0,
+        line_total_usd: Number(row.line_total_usd || 0) || 0,
+        editable_detail_lines: Array.isArray(row.editable_detail_lines)
+          ? row.editable_detail_lines.map((line) => String(line || '').trim()).filter(Boolean)
+          : [],
+      } satisfies DraftItem;
+    })
+    .filter((item): item is DraftItem => !!item);
+}
+
+function normalizeDraftStatus(value: unknown): AdvisorOrderDraftStatus | null {
+  if (value === 'draft' || value === 'quoted' || value === 'converted' || value === 'archived') return value;
+  return null;
+}
+
+function getDraftStatusLabel(status: AdvisorOrderDraftStatus | null) {
+  return status === 'quoted' ? 'Cotizado' : status === 'draft' ? 'Borrador' : '';
+}
+
 function exactClientMatch(client: ClientRow, query: string) {
   const normalizedQuery = normalizeSearchValue(query);
   const normalizedName = normalizeSearchValue(client.full_name);
@@ -1199,9 +1309,11 @@ function ConfigSheet(props: {
 export default function AdvisorOrderComposer({
   existingOrderId = null,
   templateOrderId = null,
+  initialDraft = null,
 }: {
   existingOrderId?: number | null;
   templateOrderId?: number | null;
+  initialDraft?: AdvisorOrderDraftInitial | null;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
@@ -1209,6 +1321,7 @@ export default function AdvisorOrderComposer({
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [searchingClient, setSearchingClient] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1279,10 +1392,17 @@ export default function AdvisorOrderComposer({
   const creatingClientRef = useRef(false);
   const copyingQuoteRef = useRef(false);
   const savingOrderRef = useRef(false);
+  const savingDraftRef = useRef(false);
   const [itemJustAdded, setItemJustAdded] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderNumber, setExistingOrderNumber] = useState('');
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
+  const [activeDraftId, setActiveDraftId] = useState<number | null>(
+    initialDraft?.id ? Number(initialDraft.id) : null
+  );
+  const [activeDraftStatus, setActiveDraftStatus] = useState<AdvisorOrderDraftStatus | null>(
+    normalizeDraftStatus(initialDraft?.status)
+  );
 
   const [configOpen, setConfigOpen] = useState(false);
   const [configEditingLocalId, setConfigEditingLocalId] = useState<string | null>(null);
@@ -1573,7 +1693,7 @@ export default function AdvisorOrderComposer({
         if (!isEditingOrder && cachedCatalog.activeRate > 0) {
           setFxRate(String(Number(cachedCatalog.activeRate.toFixed(2))));
         }
-        if (!sourceOrderId) {
+        if (!sourceOrderId && !initialDraft) {
           setLoading(false);
         }
       }
@@ -1891,13 +2011,15 @@ export default function AdvisorOrderComposer({
             );
           }
         }
+      } else if (initialDraft) {
+        applyInitialDraft(initialDraft);
       }
 
       setLoading(false);
     }
 
     void boot();
-  }, [isEditingOrder, rounded, router, sourceOrderId, supabase]);
+  }, [initialDraft, isEditingOrder, rounded, router, sourceOrderId, supabase]);
 
   useEffect(() => {
     if (
@@ -2023,6 +2145,230 @@ export default function AdvisorOrderComposer({
       totalBs: Number(finalTotalBs.toFixed(2)),
       items: buildDraftItemsSnapshot(draftItems),
     };
+  }
+
+  function applyInitialDraft(draft: AdvisorOrderDraftInitial) {
+    const payload = draft.payload || {};
+    const clientSnapshot = draft.client_snapshot || null;
+    const clientId = Number(clientSnapshot?.id || draft.client_id || 0);
+    const newClientSnapshot = draft.new_client_snapshot || {};
+    const payloadNewClient = payload.newClient || {};
+    const nextStatus = normalizeDraftStatus(draft.status) || 'draft';
+
+    setActiveDraftId(Number(draft.id));
+    setActiveDraftStatus(nextStatus);
+    setOriginalEditSnapshot(null);
+    setExistingOrderNumber('');
+    setExistingOrderStatus('');
+
+    if (clientId > 0 && clientSnapshot?.full_name) {
+      const client = {
+        id: clientId,
+        full_name: String(clientSnapshot.full_name || 'Cliente'),
+        phone: clientSnapshot.phone || null,
+        client_type: clientSnapshot.client_type || null,
+        fund_balance_usd: clientSnapshot.fund_balance_usd ?? null,
+        recent_addresses: clientSnapshot.recent_addresses,
+        billing_company_name: clientSnapshot.billing_company_name ?? null,
+        billing_tax_id: clientSnapshot.billing_tax_id ?? null,
+        billing_address: clientSnapshot.billing_address ?? null,
+        billing_phone: clientSnapshot.billing_phone ?? null,
+        delivery_note_name: clientSnapshot.delivery_note_name ?? null,
+        delivery_note_document_id: clientSnapshot.delivery_note_document_id ?? null,
+        delivery_note_address: clientSnapshot.delivery_note_address ?? null,
+        delivery_note_phone: clientSnapshot.delivery_note_phone ?? null,
+      } satisfies ClientRow;
+
+      setSelectedClient(client);
+      rememberClient(client);
+      setSearchTerm(client.phone || client.full_name);
+      setIsNewClientMode(false);
+    } else {
+      const fullName =
+        String(newClientSnapshot.fullName || newClientSnapshot.full_name || payloadNewClient.fullName || '').trim();
+      const phone = String(newClientSnapshot.phone || payloadNewClient.phone || '').trim();
+      const typeValue = String(newClientSnapshot.type || payloadNewClient.type || 'assigned');
+
+      setSelectedClient(null);
+      setNewClientName(fullName);
+      setNewClientPhone(phone);
+      setNewClientType(typeValue === 'own' || typeValue === 'legacy' ? typeValue : 'assigned');
+      setIsNewClientMode(Boolean(fullName || phone));
+      setSearchTerm(phone || fullName);
+    }
+
+    const normalizedItems = normalizeDraftItemsPayload(payload.items);
+    setClientResults([]);
+    setDraftItems(normalizedItems);
+    setFulfillment(payload.fulfillment === 'delivery' ? 'delivery' : 'pickup');
+    setDeliveryDate(String(payload.deliveryDate || ''));
+    setDeliveryHour12(String(payload.deliveryHour12 || ''));
+    setDeliveryMinute(String(payload.deliveryMinute || ''));
+    setDeliveryAmPm(payload.deliveryAmPm === 'PM' ? 'PM' : 'AM');
+    setIsAsap(Boolean(payload.isAsap));
+    setReceiverName(String(payload.receiverName || ''));
+    setReceiverPhone(String(payload.receiverPhone || ''));
+    setDeliveryAddress(String(payload.deliveryAddress || ''));
+    setDeliveryGpsUrl(String(payload.deliveryGpsUrl || ''));
+    setDeliveryAddressTouched(Boolean(payload.deliveryAddress || payload.deliveryGpsUrl));
+    rememberAddress(String(payload.deliveryAddress || ''), String(payload.deliveryGpsUrl || ''));
+    setOrderNote(String(payload.orderNote || ''));
+    setPaymentMethod((payload.paymentMethod as PaymentMethod) || 'pending');
+    setPaymentCurrency((payload.paymentCurrency as CurrencyCode) || 'USD');
+    setPaymentRequiresChange(Boolean(payload.paymentRequiresChange));
+    setPaymentChangeFor(String(payload.paymentChangeFor || ''));
+    setPaymentChangeCurrency((payload.paymentChangeCurrency as CurrencyCode) || 'USD');
+    setPaymentNote(String(payload.paymentNote || ''));
+    setFxRate(String(payload.fxRate || draft.fx_rate || ''));
+    setDiscountEnabled(Boolean(payload.discountEnabled));
+    setDiscountPct(String(payload.discountPct ?? '0'));
+    setInvoiceTaxPct(String(payload.invoiceTaxPct ?? '16'));
+    setHasDeliveryNote(Boolean(payload.hasDeliveryNote));
+    setHasInvoice(Boolean(payload.hasInvoice));
+    setDeliveryNotePanelOpen(Boolean(payload.hasDeliveryNote));
+    setInvoicePanelOpen(Boolean(payload.hasInvoice));
+    setInvoiceCompanyName(String(payload.invoiceCompanyName || ''));
+    setInvoiceTaxId(String(payload.invoiceTaxId || ''));
+    setInvoiceAddress(String(payload.invoiceAddress || ''));
+    setInvoicePhone(String(payload.invoicePhone || ''));
+    setDeliveryNoteName(String(payload.deliveryNoteName || ''));
+    setDeliveryNoteDocumentId(String(payload.deliveryNoteDocumentId || ''));
+    setDeliveryNoteAddress(String(payload.deliveryNoteAddress || ''));
+    setDeliveryNotePhone(String(payload.deliveryNotePhone || ''));
+    setInfo(nextStatus === 'quoted' ? 'Cotizacion cargada. Al crear el pedido se respetan estos precios y tasa.' : 'Borrador cargado.');
+  }
+
+  function buildClientSnapshot() {
+    if (!selectedClient) return null;
+
+    return {
+      id: selectedClient.id,
+      full_name: selectedClient.full_name,
+      phone: selectedClient.phone,
+      client_type: selectedClient.client_type,
+      fund_balance_usd: selectedClient.fund_balance_usd ?? null,
+      recent_addresses: selectedClient.recent_addresses ?? null,
+      billing_company_name: selectedClient.billing_company_name ?? null,
+      billing_tax_id: selectedClient.billing_tax_id ?? null,
+      billing_address: selectedClient.billing_address ?? null,
+      billing_phone: selectedClient.billing_phone ?? null,
+      delivery_note_name: selectedClient.delivery_note_name ?? null,
+      delivery_note_document_id: selectedClient.delivery_note_document_id ?? null,
+      delivery_note_address: selectedClient.delivery_note_address ?? null,
+      delivery_note_phone: selectedClient.delivery_note_phone ?? null,
+    };
+  }
+
+  function buildNewClientSnapshot() {
+    if (!isNewClientMode && !newClientName.trim() && !newClientPhone.trim()) return null;
+
+    return {
+      fullName: newClientName.trim(),
+      phone: normalizePhone(newClientPhone.trim()) || newClientPhone.trim(),
+      type: newClientType,
+    };
+  }
+
+  function buildAdvisorDraftTitle() {
+    const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente pendiente';
+    const itemLabel = `${draftItems.length} item${draftItems.length === 1 ? '' : 's'}`;
+    return `${clientName} · ${itemLabel}`;
+  }
+
+  function buildAdvisorDraftPayload() {
+    return {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      clientId: selectedClient?.id ?? null,
+      newClient: buildNewClientSnapshot(),
+      fulfillment,
+      deliveryDate,
+      deliveryHour12,
+      deliveryMinute,
+      deliveryAmPm,
+      isAsap,
+      receiverName,
+      receiverPhone,
+      deliveryAddress,
+      deliveryGpsUrl,
+      orderNote,
+      paymentMethod,
+      paymentCurrency,
+      paymentRequiresChange,
+      paymentChangeFor,
+      paymentChangeCurrency,
+      paymentNote,
+      fxRate,
+      discountEnabled,
+      discountPct,
+      invoiceTaxPct,
+      hasDeliveryNote,
+      hasInvoice,
+      invoiceCompanyName,
+      invoiceTaxId,
+      invoiceAddress,
+      invoicePhone,
+      deliveryNoteName,
+      deliveryNoteDocumentId,
+      deliveryNoteAddress,
+      deliveryNotePhone,
+      totals: {
+        subtotalUsd: Number(draftTotalUsd.toFixed(2)),
+        subtotalBs: Number(draftSubtotalBs.toFixed(2)),
+        totalUsd: Number(finalTotalUsd.toFixed(2)),
+        totalBs: Number(finalTotalBs.toFixed(2)),
+      },
+      items: draftItems,
+    };
+  }
+
+  function canSaveCurrentDraft() {
+    return (
+      draftItems.length > 0 ||
+      Boolean(selectedClient) ||
+      newClientName.trim().length > 0 ||
+      newClientPhone.trim().length > 0
+    );
+  }
+
+  async function saveCurrentDraft(status: AdvisorOrderDraftStatus = 'draft', quoteText?: string | null) {
+    if (savingDraftRef.current) return false;
+
+    clearMessages();
+    if (!canSaveCurrentDraft()) {
+      setError('Agrega un cliente o un item para guardar el borrador.');
+      return false;
+    }
+
+    savingDraftRef.current = true;
+    setSavingDraft(true);
+
+    try {
+      const result = await saveAdvisorOrderDraftAction({
+        draftId: activeDraftId,
+        status: status === 'quoted' ? 'quoted' : 'draft',
+        title: buildAdvisorDraftTitle(),
+        clientId: selectedClient?.id ?? null,
+        clientSnapshot: buildClientSnapshot(),
+        newClientSnapshot: buildNewClientSnapshot(),
+        payload: buildAdvisorDraftPayload(),
+        quoteText: quoteText ?? null,
+        totalUsd: Number(finalTotalUsd.toFixed(2)),
+        totalBs: Number(finalTotalBs.toFixed(2)),
+        fxRate: fxRateNumber > 0 ? fxRateNumber : null,
+      });
+
+      setActiveDraftId(result.id);
+      setActiveDraftStatus(normalizeDraftStatus(result.status) || status);
+      setInfo(status === 'quoted' ? 'Presupuesto copiado y cotizacion guardada.' : 'Borrador guardado.');
+      return true;
+    } catch (draftError) {
+      setError(draftError instanceof Error ? draftError.message : 'No se pudo guardar el borrador.');
+      return false;
+    } finally {
+      savingDraftRef.current = false;
+      setSavingDraft(false);
+    }
   }
 
   function applyClientProfile(client: ClientRow) {
@@ -2753,8 +3099,12 @@ export default function AdvisorOrderComposer({
     try {
       void buildQuoteSummary;
       void buildCleanQuoteSummary;
-      await navigator.clipboard.writeText(buildMasterStyleQuoteSummary());
-      setInfo('Resumen copiado para WhatsApp.');
+      const quoteText = buildMasterStyleQuoteSummary();
+      await navigator.clipboard.writeText(quoteText);
+      const saved = await saveCurrentDraft('quoted', quoteText);
+      if (!saved) {
+        setError('El resumen se copio, pero no se pudo guardar como cotizado.');
+      }
     } catch {
       setError('No se pudo copiar el resumen.');
     } finally {
@@ -3062,6 +3412,20 @@ export default function AdvisorOrderComposer({
         }
       }
 
+      if (!isEditingOrder && activeDraftId) {
+        try {
+          await markAdvisorOrderDraftConvertedAction({
+            draftId: activeDraftId,
+            orderId: targetOrderId,
+          });
+        } catch (draftError) {
+          console.warn(
+            'No se pudo marcar el borrador como convertido.',
+            draftError instanceof Error ? draftError.message : draftError
+          );
+        }
+      }
+
       router.push(`/app/advisor/orders/${targetOrderId}`);
     } catch (submitError) {
       const submitMessage = submitError instanceof Error ? submitError.message : '';
@@ -3099,6 +3463,26 @@ export default function AdvisorOrderComposer({
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-4 pb-32">
+        {!isEditingOrder ? (
+          <div className="flex items-center justify-between gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-4 py-3">
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">
+                {activeDraftId ? `${getDraftStatusLabel(activeDraftStatus)} #${activeDraftId}` : 'Nuevo pedido'}
+              </div>
+              <div className="mt-1 truncate text-sm font-medium text-[#F5F7FB]">
+                {activeDraftStatus === 'quoted'
+                  ? 'Precios y tasa guardados al copiar WhatsApp.'
+                  : 'Puedes guardarlo y retomarlo luego.'}
+              </div>
+            </div>
+            <Link
+              href="/app/advisor/drafts"
+              className="shrink-0 rounded-[14px] border border-[#2A3040] px-3 py-2 text-sm font-medium text-[#F5F7FB]"
+            >
+              Borradores
+            </Link>
+          </div>
+        ) : null}
         {error ? <div className="rounded-[18px] border border-[#5E2229] bg-[#261114] px-4 py-3 text-sm text-[#F0A6AE]">{error}</div> : null}
         {info ? <div className="rounded-[18px] border border-[#1C5036] bg-[#0F2119] px-4 py-3 text-sm text-[#7CE0A9]">{info}</div> : null}
 
@@ -3886,16 +4270,33 @@ export default function AdvisorOrderComposer({
               <div className="mt-1 text-[11px] text-[#6F7890]">{footerSummary}</div>
               <div className="text-[11px] text-[#8B93A7]">{createReadyHint}</div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex max-w-[58%] flex-wrap justify-end gap-2">
+              {!isEditingOrder ? (
+                <button
+                  type="button"
+                  onClick={() => void saveCurrentDraft('draft')}
+                  aria-busy={savingDraft}
+                  data-busy={savingDraft ? 'true' : undefined}
+                  disabled={savingDraft || copyingQuote || saving || !canSaveCurrentDraft()}
+                  className={[
+                    'h-11 rounded-[16px] border px-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                    savingDraft || copyingQuote || saving || !canSaveCurrentDraft()
+                      ? 'border-[#232632] text-[#6F7890]'
+                      : 'border-[#2A3040] text-[#F5F7FB]',
+                  ].join(' ')}
+                >
+                  {savingDraft ? 'Guardando...' : 'Guardar'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleCopyQuote()}
                 aria-busy={copyingQuote}
                 data-busy={copyingQuote ? 'true' : undefined}
-                disabled={copyingQuote || saving || draftItems.length === 0}
+                disabled={copyingQuote || savingDraft || saving || draftItems.length === 0}
                 className={[
                   'h-11 rounded-[16px] border px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
-                  copyingQuote || saving || draftItems.length === 0
+                  copyingQuote || savingDraft || saving || draftItems.length === 0
                     ? 'border-[#232632] text-[#6F7890]'
                     : 'border-[#232632] text-[#F5F7FB]',
                 ].join(' ')}
@@ -3906,10 +4307,10 @@ export default function AdvisorOrderComposer({
                 type="submit"
                 aria-busy={saving}
                 data-busy={saving ? 'true' : undefined}
-                disabled={saving || !baseCreateReady}
+                disabled={saving || savingDraft || !baseCreateReady}
                 className={[
                   'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
-                  saving || !baseCreateReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                  saving || savingDraft || !baseCreateReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
                 {saving ? 'Guardando...' : isEditingOrder ? 'Guardar cambios' : 'Crear pedido'}
