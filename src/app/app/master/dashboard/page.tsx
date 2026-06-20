@@ -2110,9 +2110,25 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
   const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] = [];
 
   const moneyAccountNameById = new Map<number, string>();
+  const moneyAccountById = new Map<number, (typeof moneyAccounts)[number]>();
   for (const a of moneyAccounts) {
     moneyAccountNameById.set(Number(a.id), a.name);
+    moneyAccountById.set(Number(a.id), a);
   }
+  const moneyAccountClosureKindById = new Map<number, string>();
+  for (const profile of moneyAccountClosureProfiles) {
+    moneyAccountClosureKindById.set(Number(profile.moneyAccountId), profile.closureKind);
+  }
+  const isRetentionMoneyAccount = (moneyAccountId: number) => {
+    const account = moneyAccountById.get(moneyAccountId);
+    const closureKind = moneyAccountClosureKindById.get(moneyAccountId);
+    const accountName = String(account?.name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    return closureKind === 'retention' || accountName.includes('retencion');
+  };
 
   const itemsByOrder = new Map<number, RawOrderItemRow[]>();
   for (const item of rawOrderItems) {
@@ -2193,7 +2209,13 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
               .filter(Boolean)
               .join('\n')
           : rp.notes ?? null,
-      isRetention: String(rp.notes || '').toLowerCase().includes('comprobante retencion'),
+      isRetention:
+        isRetentionMoneyAccount(Number(rp.reported_money_account_id)) ||
+        String(rp.notes || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .includes('comprobante retencion'),
     };
 
     const arr = paymentReportsByOrder.get(orderId) ?? [];

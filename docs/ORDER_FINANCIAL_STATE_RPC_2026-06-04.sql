@@ -155,11 +155,26 @@ fund_ledger_for_order as (
     cfm.order_id,
     round(sum(
       case
-        when cfm.movement_type = 'debit' then coalesce(cfm.amount_usd, 0)
-        when cfm.movement_type = 'credit' and coalesce(cfm.reason_code, '') ilike '%revers%' then -coalesce(cfm.amount_usd, 0)
+        when cfm.movement_type = 'debit'
+          and coalesce(cfm.reason_code, '') = 'order_fund_applied'
+          then coalesce(cfm.amount_usd, 0)
+        when cfm.movement_type = 'credit'
+          and coalesce(cfm.reason_code, '') = 'order_fund_restore'
+          then -coalesce(cfm.amount_usd, 0)
         else 0
       end
-    )::numeric, 2) as fund_used_usd_from_ledger
+    )::numeric, 2) as fund_used_usd_from_ledger,
+    round(sum(
+      case
+        when cfm.movement_type = 'credit'
+          and coalesce(cfm.reason_code, '') in ('payment_overage_stored', 'retention_overage_stored')
+          then coalesce(cfm.amount_usd, 0)
+        when cfm.movement_type = 'debit'
+          and coalesce(cfm.reason_code, '') = 'payment_void_fund_reversal'
+          then -coalesce(cfm.amount_usd, 0)
+        else 0
+      end
+    )::numeric, 2) as fund_stored_usd_from_ledger
   from public.client_fund_movements cfm
   where cfm.order_id = p_order_id
   group by cfm.order_id
@@ -180,6 +195,7 @@ calculated as (
     coalesce(crb.confirmed_report_paid_usd, 0) as confirmed_report_paid_usd,
     coalesce(crb.confirmed_report_paid_bs_snapshot, 0) as confirmed_report_paid_bs_snapshot,
     coalesce(fl.fund_used_usd_from_ledger, ed.stored_client_fund_used_usd, 0) as client_fund_used_usd,
+    coalesce(fl.fund_stored_usd_from_ledger, 0) as fund_stored_usd,
     coalesce(rt.pending_reports_usd, 0) as pending_reports_usd,
     coalesce(prb.pending_reports_bs_snapshot, 0) as pending_reports_bs_snapshot,
     coalesce(rt.rejected_reports_usd, 0) as rejected_reports_usd,
@@ -199,12 +215,14 @@ calculated as (
 balances as (
   select
     c.*,
-    greatest(0, round((c.total_usd - c.confirmed_money_usd - c.client_fund_used_usd)::numeric, 2)) as pending_usd,
-    greatest(0, round((c.confirmed_money_usd + c.client_fund_used_usd - c.total_usd)::numeric, 2)) as overpaid_usd,
+    greatest(0, round((c.confirmed_money_usd - c.fund_stored_usd + c.client_fund_used_usd)::numeric, 2)) as applied_paid_usd,
+    greatest(0, round((c.total_usd - (c.confirmed_money_usd - c.fund_stored_usd + c.client_fund_used_usd))::numeric, 2)) as pending_usd,
+    greatest(0, round(((c.confirmed_money_usd - c.fund_stored_usd + c.client_fund_used_usd) - c.total_usd)::numeric, 2)) as overpaid_usd,
     greatest(0, round((
       c.confirmed_report_paid_bs_snapshot
       + greatest(0, c.confirmed_money_usd - c.confirmed_report_paid_usd) * c.snapshot_rate_bs_per_usd
       + c.client_fund_used_usd * c.snapshot_rate_bs_per_usd
+      - c.fund_stored_usd * c.snapshot_rate_bs_per_usd
     )::numeric, 2)) as confirmed_paid_bs_snapshot
   from calculated c
 )
@@ -215,7 +233,7 @@ select
   b.total_usd,
   b.total_bs,
   b.snapshot_rate_bs_per_usd,
-  round((b.confirmed_money_usd + b.client_fund_used_usd)::numeric, 2) as confirmed_paid_usd,
+  b.applied_paid_usd as confirmed_paid_usd,
   b.confirmed_paid_bs_snapshot,
   b.pending_reports_usd,
   b.pending_reports_bs_snapshot,
@@ -252,7 +270,7 @@ select
     when b.overpaid_usd > 0.005 then 'overpaid'
     when b.pending_reports_count > 0 then 'pending_review'
     when b.pending_usd <= 0.005 then 'paid'
-    when (b.confirmed_money_usd + b.client_fund_used_usd) > 0.005 then 'partial'
+    when b.applied_paid_usd > 0.005 then 'partial'
     else 'unpaid'
   end as payment_status,
   b.delivery_reference_date,
