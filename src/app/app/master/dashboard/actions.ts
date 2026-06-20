@@ -1449,7 +1449,7 @@ export async function confirmPaymentReportAction(input: {
   const { supabase, user, roles } = await requireMasterOrAdmin();
   const { data: paymentReportForDate, error: paymentReportForDateError } = await supabase
     .from('payment_reports')
-    .select('operation_date')
+    .select('operation_date, reported_amount_usd_equivalent')
     .eq('id', input.reportId)
     .maybeSingle();
 
@@ -1525,9 +1525,14 @@ export async function confirmPaymentReportAction(input: {
       ? roundMoney(financialState.overpaid_usd)
       : roundMoney(Math.max(0, confirmedPaidUsd - currentTotalUsd));
     const isRetentionPayment = input.paymentKind === 'retention';
+    const reportUsdEquivalent = roundMoney(paymentReportForDate?.reported_amount_usd_equivalent);
+    const storeableExcessUsd =
+      reportUsdEquivalent > 0.005
+        ? roundMoney(Math.min(excessUsd, reportUsdEquivalent))
+        : excessUsd;
     const handling = input.overpaymentHandling ?? (excessUsd > 0.005 ? 'store_fund' : null);
     const notes = String(input.overpaymentNotes || '').trim() || null;
-    let excessStoredInFundUsd = handling === 'store_fund' ? excessUsd : 0;
+    let excessStoredInFundUsd = handling === 'store_fund' ? storeableExcessUsd : 0;
 
     if (excessUsd > 0.005 && handling === 'change_given') {
       const inputChangeLines =
