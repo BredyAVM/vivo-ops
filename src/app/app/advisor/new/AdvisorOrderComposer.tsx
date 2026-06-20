@@ -159,6 +159,9 @@ type ExistingOrderRow = {
       discount_enabled?: boolean | null;
       discount_pct?: number | string | null;
       fx_rate?: number | string | null;
+      recalculation_required?: boolean | null;
+      recalculation_fx_rate?: number | string | null;
+      recalculation_requested_at?: string | null;
       invoice_tax_pct?: number | string | null;
       invoice_tax_amount_usd?: number | string | null;
       invoice_tax_amount_bs?: number | string | null;
@@ -1397,6 +1400,7 @@ export default function AdvisorOrderComposer({
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderNumber, setExistingOrderNumber] = useState('');
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
+  const [advisorRecalculationMode, setAdvisorRecalculationMode] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState<number | null>(
     initialDraft?.id ? Number(initialDraft.id) : null
   );
@@ -1411,7 +1415,7 @@ export default function AdvisorOrderComposer({
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<ConfigSelection[]>([]);
   const isEditingOrder = Number.isFinite(existingOrderId) && Number(existingOrderId) > 0;
-  const fxRateLockedForAdvisorEdit = isEditingOrder;
+  const fxRateLockedForAdvisorEdit = isEditingOrder && !advisorRecalculationMode;
   const sourceOrderId =
     Number.isFinite(existingOrderId) && Number(existingOrderId) > 0
       ? Number(existingOrderId)
@@ -1790,6 +1794,7 @@ export default function AdvisorOrderComposer({
         setOriginalEditSnapshot(null);
         setExistingOrderNumber('');
         setExistingOrderStatus('');
+        setAdvisorRecalculationMode(false);
       }
 
       if (sourceOrderId) {
@@ -1808,10 +1813,19 @@ export default function AdvisorOrderComposer({
           const existingOrderItems = (existingItemsResult?.data ?? []) as ExistingOrderItemRow[];
           const activeProductById = new Map(nextProducts.map((product) => [product.id, product]));
           const skippedRepeatItems: ExistingOrderItemRow[] = [];
+          const pricing = order.extra_fields?.pricing;
+          const recalculationRequested =
+            isEditingOrder &&
+            String(order.status || '') === 'created' &&
+            Boolean(pricing?.recalculation_required);
+          const recalculationRate = toSafeNumber(pricing?.recalculation_fx_rate, activeRate);
+          const editFxRate = recalculationRequested
+            ? recalculationRate
+            : toSafeNumber(pricing?.fx_rate, activeRate);
           const orderItems = existingOrderItems.map((item) => {
             const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
 
-            if (isRepeatingOrder) {
+            if (isRepeatingOrder || recalculationRequested) {
               const currentProduct = activeProductById.get(Number(item.product_id));
               if (!currentProduct) {
                 skippedRepeatItems.push(item);
@@ -1821,7 +1835,7 @@ export default function AdvisorOrderComposer({
               return buildRepeatedDraftItemFromCatalog({
                 item,
                 product: currentProduct,
-                activeRate,
+                activeRate: editFxRate,
               });
             }
 
@@ -1848,7 +1862,6 @@ export default function AdvisorOrderComposer({
           }).filter((item): item is DraftItem => !!item);
           const schedule = order.extra_fields?.schedule;
           const paymentData = order.extra_fields?.payment;
-          const pricing = order.extra_fields?.pricing;
           const documents = order.extra_fields?.documents;
           const orderMoney = getOrderMoneySnapshot(order);
           const blankTime = { hour12: '', minute: '', ampm: rounded.ampm } as const;
@@ -1881,7 +1894,8 @@ export default function AdvisorOrderComposer({
           );
           setPaymentChangeCurrency(isRepeatingOrder ? 'USD' : (paymentData?.change_currency as CurrencyCode) || 'USD');
           setPaymentNote(isRepeatingOrder ? '' : paymentData?.notes || '');
-          setFxRate(activeRate > 0 ? String(Number(activeRate.toFixed(2))) : '');
+          setFxRate(editFxRate > 0 ? String(Number(editFxRate.toFixed(2))) : '');
+          setAdvisorRecalculationMode(recalculationRequested);
           setDiscountEnabled(isRepeatingOrder ? false : Boolean(pricing?.discount_enabled));
           setDiscountPct(
             isRepeatingOrder || pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
@@ -1946,13 +1960,7 @@ export default function AdvisorOrderComposer({
               ),
               paymentChangeCurrency: ((paymentData?.change_currency as CurrencyCode) || 'USD'),
               paymentNote: normalizeSnapshotText(paymentData?.notes),
-              fxRate: normalizeSnapshotText(
-                pricing?.fx_rate == null
-                  ? activeRate > 0
-                    ? String(Number(activeRate.toFixed(2)))
-                    : ''
-                  : String(pricing.fx_rate)
-              ),
+              fxRate: normalizeSnapshotText(editFxRate > 0 ? String(Number(editFxRate.toFixed(2))) : ''),
               discountEnabled: Boolean(pricing?.discount_enabled),
               discountPct: normalizeSnapshotText(
                 pricing?.discount_pct == null ? '0' : String(pricing.discount_pct)
@@ -1999,7 +2007,13 @@ export default function AdvisorOrderComposer({
                   .filter(Boolean),
               })),
             });
-            setInfo('Pedido listo para corregir.');
+            setInfo(
+              recalculationRequested
+                ? skippedRepeatItems.length > 0
+                  ? `Pedido listo para recalcular con tasa vigente. ${skippedRepeatItems.length} item${skippedRepeatItems.length === 1 ? '' : 's'} ya no esta${skippedRepeatItems.length === 1 ? '' : 'n'} activo${skippedRepeatItems.length === 1 ? '' : 's'} y debe revisarlo master/admin.`
+                  : 'Pedido listo para recalcular con precios y tasa vigentes.'
+                : 'Pedido listo para corregir.'
+            );
           } else {
             setOriginalEditSnapshot(null);
             setExistingOrderNumber('');
@@ -2160,6 +2174,7 @@ export default function AdvisorOrderComposer({
     setOriginalEditSnapshot(null);
     setExistingOrderNumber('');
     setExistingOrderStatus('');
+    setAdvisorRecalculationMode(false);
 
     if (clientId > 0 && clientSnapshot?.full_name) {
       const client = {
@@ -3858,7 +3873,15 @@ export default function AdvisorOrderComposer({
 
               <div className="grid gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label={fxRateLockedForAdvisorEdit ? 'Tasa snapshot (Bs/USD)' : 'Tasa del dia (Bs/USD)'}>
+                  <Field
+                    label={
+                      advisorRecalculationMode
+                        ? 'Tasa de recálculo (Bs/USD)'
+                        : fxRateLockedForAdvisorEdit
+                          ? 'Tasa snapshot (Bs/USD)'
+                          : 'Tasa del dia (Bs/USD)'
+                    }
+                  >
                     <input
                       value={fxRate}
                       onChange={(e) => setFxRate(e.target.value)}
@@ -3871,6 +3894,10 @@ export default function AdvisorOrderComposer({
                     {fxRateLockedForAdvisorEdit ? (
                       <div className="mt-1 text-[11px] text-[#8B93A7]">
                         La correccion de esta tasa la hace master/admin.
+                      </div>
+                    ) : advisorRecalculationMode ? (
+                      <div className="mt-1 text-[11px] text-[#8B93A7]">
+                        Esta orden fue devuelta para recalcular; al guardar queda esta tasa como nuevo snapshot.
                       </div>
                     ) : null}
                   </Field>

@@ -6135,6 +6135,7 @@ const handleReturn = async (o: Order) => {
     await returnToCreatedAction({
       orderId: o.id,
       reason: reviewActionNotes.trim(),
+      recalculatePricing: Boolean(selectedOrderExpiredQuoteReview && selectedOrder?.id === o.id),
     });
 
     showToast('success', 'Pedido devuelto a revisión.');

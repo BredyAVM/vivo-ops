@@ -24,6 +24,27 @@ async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
 }
 
+async function loadActiveExchangeRate(supabase: Awaited<ReturnType<typeof createSupabaseServer>>) {
+  const { data, error } = await supabase
+    .from('exchange_rates')
+    .select('rate_bs_per_usd')
+    .eq('is_active', true)
+    .order('effective_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rate = toSafeNumber(data?.rate_bs_per_usd, 0);
+  if (rate <= 0) {
+    throw new Error('No hay una tasa activa valida.');
+  }
+
+  return rate;
+}
+
 function createSupabaseServiceRoleServer() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -2459,6 +2480,7 @@ export async function sendToKitchenAction(input: {
 export async function returnToCreatedAction(input: {
   orderId: number;
   reason: string;
+  recalculatePricing?: boolean;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
 
@@ -2469,7 +2491,7 @@ export async function returnToCreatedAction(input: {
 
   const { data: currentOrder, error: currentOrderError } = await supabase
     .from('orders')
-    .select('id, status, notes')
+    .select('id, status, notes, extra_fields')
     .eq('id', input.orderId)
     .single();
 
@@ -2483,10 +2505,44 @@ export async function returnToCreatedAction(input: {
 
   const nextNotes = [
     currentOrder.notes?.trim() || '',
-    `DEVUELTA A CREATED: ${reason}`,
+    input.recalculatePricing
+      ? `DEVUELTA A RECALCULAR: ${reason}`
+      : `DEVUELTA A CREATED: ${reason}`,
   ]
     .filter(Boolean)
     .join(' | ');
+
+  const nowIso = new Date().toISOString();
+  const extraFields =
+    currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object' && !Array.isArray(currentOrder.extra_fields)
+      ? { ...(currentOrder.extra_fields as Record<string, unknown>) }
+      : {};
+  const previousPricing =
+    extraFields.pricing && typeof extraFields.pricing === 'object' && !Array.isArray(extraFields.pricing)
+      ? { ...(extraFields.pricing as Record<string, unknown>) }
+      : {};
+  const activeRate = input.recalculatePricing ? await loadActiveExchangeRate(supabase) : null;
+
+  if (input.recalculatePricing) {
+    extraFields.pricing = {
+      ...previousPricing,
+      recalculation_required: true,
+      recalculation_requested_at: nowIso,
+      recalculation_requested_by: user.id,
+      recalculation_reason: reason,
+      recalculation_fx_rate: activeRate,
+      previous_fx_rate:
+        toSafeNumber(previousPricing.fx_rate, 0) > 0
+          ? toSafeNumber(previousPricing.fx_rate, 0)
+          : null,
+    };
+    extraFields.ui = {
+      ...(extraFields.ui && typeof extraFields.ui === 'object' && !Array.isArray(extraFields.ui)
+        ? (extraFields.ui as Record<string, unknown>)
+        : {}),
+      recalculation_required: true,
+    };
+  }
 
   const { error: updateError } = await supabase
     .from('orders')
@@ -2508,7 +2564,8 @@ export async function returnToCreatedAction(input: {
       external_reference: null,
       review_notes: reason,
       notes: nextNotes,
-      last_modified_at: new Date().toISOString(),
+      extra_fields: extraFields,
+      last_modified_at: nowIso,
       last_modified_by: user.id,
     })
     .eq('id', input.orderId);
@@ -2530,6 +2587,8 @@ export async function returnToCreatedAction(input: {
     payload: {
       reason,
       previous_status: currentOrder.status,
+      recalculation_required: Boolean(input.recalculatePricing),
+      recalculation_fx_rate: activeRate,
     },
     recipients: [
       { targetRole: 'master' },
