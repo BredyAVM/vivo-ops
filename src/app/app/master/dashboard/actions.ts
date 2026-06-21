@@ -3332,18 +3332,101 @@ export async function kitchenTakeAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function updateKitchenEtaAction(input: {
+  orderId: number;
+  etaMinutes: number;
+}) {
+  const { supabase, user } = await requireKitchenOperator();
+  const etaMinutes = Math.round(Number(input.etaMinutes));
+
+  if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
+    throw new Error('Indica un tiempo de preparacion valido.');
+  }
+
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from('orders')
+    .select('id, status, eta_minutes')
+    .eq('id', input.orderId)
+    .maybeSingle();
+
+  if (currentOrderError || !currentOrder) {
+    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (currentOrder.status !== 'in_kitchen') {
+    throw new Error('Solo se puede actualizar el tiempo de una orden en preparacion.');
+  }
+
+  const previousEtaMinutes = toSafeNumber(currentOrder.eta_minutes, 0);
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({ eta_minutes: etaMinutes })
+    .eq('id', input.orderId)
+    .eq('status', 'in_kitchen');
+
+  if (updateError) throw new Error(updateError.message);
+
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  const delayed = previousEtaMinutes > 0 && etaMinutes > previousEtaMinutes;
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: delayed ? 'kitchen_delayed_prep' : 'kitchen_eta_updated',
+    eventGroup: 'kitchen',
+    title: delayed ? 'Cocina ajusto el tiempo de preparacion' : 'Cocina actualizo el tiempo estimado',
+    message: `Nuevo estimado: ${etaMinutes} min.`,
+    severity: delayed ? 'warning' : 'info',
+    actorUserId: user.id,
+    payload: {
+      prep_eta_minutes: etaMinutes,
+      previous_prep_eta_minutes: previousEtaMinutes || null,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
+}
+
 export async function markReadyAction(input: {
   orderId: number;
 }) {
-  const { supabase } = await requireKitchenOperator();
+  const { supabase, user } = await requireKitchenOperator();
 
   const { error } = await supabase.rpc('mark_ready', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+
+  const eventContext = await loadOrderEventContext(supabase, input.orderId);
+  const isPickup = eventContext?.fulfillment === 'pickup';
+  await appendOrderEvent(supabase, {
+    orderId: input.orderId,
+    context: eventContext,
+    eventType: isPickup ? 'pickup_ready' : 'order_ready',
+    eventGroup: 'kitchen',
+    title: isPickup ? 'Pedido listo para retiro' : 'Pedido preparado',
+    message: isPickup
+      ? 'Cocina marco el pedido como listo para retiro.'
+      : 'Cocina marco el pedido como preparado.',
+    severity: 'info',
+    actorUserId: user.id,
+    recipients: [
+      { targetRole: 'master' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
   revalidatePath('/app/kitchen');
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
 }
 
 export async function outForDeliveryAction(input: {

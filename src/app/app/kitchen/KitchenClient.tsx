@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ModulePreference } from '../ModulePreference';
-import { kitchenTakeAction, markReadyAction } from '../master/dashboard/actions';
+import { kitchenTakeAction, markReadyAction, updateKitchenEtaAction } from '../master/dashboard/actions';
 
 export type KitchenOrderItem = {
   id: number;
@@ -155,8 +155,9 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
                   ) : null}
 
                   {columnOrders.map((order) => {
-                    const actionKey = `${order.status}:${order.id}`;
-                    const busy = isPending && pendingKey === actionKey;
+                    const takeActionKey = `take:${order.id}`;
+                    const etaActionKey = `eta:${order.id}`;
+                    const readyActionKey = `ready:${order.id}`;
                     const etaValue = etaByOrder[order.id] ?? String(order.etaMinutes || 15);
 
                     return (
@@ -217,33 +218,61 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
                             />
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={isPending && pendingKey === takeActionKey}
                               onClick={() =>
-                                runAction(actionKey, async () => {
+                                runAction(takeActionKey, async () => {
                                   const etaMinutes = Math.max(1, Math.round(Number(etaValue) || 15));
                                   await kitchenTakeAction({ orderId: order.id, etaMinutes });
                                 })
                               }
                               className="flex-1 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-200 disabled:opacity-60"
                             >
-                              {busy ? 'Tomando...' : 'Tomar pedido'}
+                              {isPending && pendingKey === takeActionKey ? 'Tomando...' : 'Tomar pedido'}
                             </button>
                           </div>
                         ) : null}
 
                         {order.status === 'in_kitchen' ? (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() =>
-                              runAction(actionKey, async () => {
-                                await markReadyAction({ orderId: order.id });
-                              })
-                            }
-                            className="mt-3 w-full rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-black disabled:opacity-60"
-                          >
-                            {busy ? 'Marcando...' : 'Marcar lista'}
-                          </button>
+                          <div className="mt-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={etaValue}
+                                onChange={(event) =>
+                                  setEtaByOrder((current) => ({ ...current, [order.id]: event.target.value }))
+                                }
+                                className="w-24 rounded-xl border border-[#2A2A38] bg-[#101018] px-3 py-2 text-sm text-[#F5F5F7]"
+                                aria-label={`Nuevo tiempo estimado orden ${order.displayNumber}`}
+                              />
+                              <button
+                                type="button"
+                                disabled={isPending && pendingKey === etaActionKey}
+                                onClick={() =>
+                                  runAction(etaActionKey, async () => {
+                                    const etaMinutes = Math.max(1, Math.round(Number(etaValue) || 15));
+                                    await updateKitchenEtaAction({ orderId: order.id, etaMinutes });
+                                  })
+                                }
+                                className="flex-1 rounded-xl border border-[#2A2A38] bg-[#171720] px-3 py-2 text-sm font-semibold text-[#F5F5F7] disabled:opacity-60"
+                              >
+                                {isPending && pendingKey === etaActionKey ? 'Guardando...' : 'Actualizar tiempo'}
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isPending && pendingKey === readyActionKey}
+                              onClick={() =>
+                                runAction(readyActionKey, async () => {
+                                  await markReadyAction({ orderId: order.id });
+                                })
+                              }
+                              className="w-full rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-black disabled:opacity-60"
+                            >
+                              {isPending && pendingKey === readyActionKey ? 'Marcando...' : 'Marcar lista'}
+                            </button>
+                          </div>
                         ) : null}
                       </article>
                     );
