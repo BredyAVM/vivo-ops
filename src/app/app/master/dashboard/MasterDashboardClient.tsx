@@ -13,6 +13,20 @@ import {
   getPaymentMethodLabel as getSharedPaymentMethodLabel,
 } from '@/lib/orders/order-labels';
 import {
+  canCompleteOrder,
+  canCorrectDeliveredDeliveryAssignment as canCorrectDeliveredDeliveryAssignmentByDomain,
+  canKitchenTakeOrder,
+  canManageOrderDeliveryAssignment,
+  canMarkOrderReady,
+  canReturnOrderFromKitchenToQueue,
+  canReturnOrderToAdvisor,
+  canSendOrderToKitchen,
+  canStartOrderDelivery,
+  getMasterOrderProcessFlag,
+  isRecognizedBillingOrder as isRecognizedBillingOrderByDomain,
+  isScheduledClosingOrder as isScheduledClosingOrderByDomain,
+} from '@/lib/domain/order-domain';
+import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
   formatWhatsAppQuantity,
@@ -1215,6 +1229,12 @@ function fmtClientTypeLabel(value: string | null | undefined) {
   if (normalized === 'own' || normalized === 'propio') return 'Propio';
   if (normalized === 'assigned' || normalized === 'asignado') return 'Asignado';
   return repairDisplayText(String(value));
+}
+
+function getOrderClientPortfolioLabel(order: Pick<Order, 'clientType' | 'isImportedClient'>) {
+  const typeLabel = fmtClientTypeLabel(order.clientType);
+  if (typeLabel !== '—') return typeLabel;
+  return order.isImportedClient ? 'Antiguo' : null;
 }
 
 function truncateDisplayText(value: string, maxChars: number) {
@@ -2600,32 +2620,34 @@ function matchesTray(o: Order, tray: MasterTray) {
 }
 
 function canSendToKitchen(o: Order) {
-  return o.status === 'queued' && o.queuedNeedsReapproval === false;
+  return canSendOrderToKitchen({
+    status: o.status,
+    queuedNeedsReapproval: o.queuedNeedsReapproval,
+  });
 }
 
 function isScheduledClosingOrder(order: Order) {
-  return order.status !== 'cancelled' && order.totalUsd > 0.005;
+  return isScheduledClosingOrderByDomain(order);
 }
 
 function isRecognizedBillingOrder(order: Order) {
-  return !['created', 'cancelled'].includes(order.status) && order.totalUsd > 0.005;
+  return isRecognizedBillingOrderByDomain(order);
 }
 
 function canKitchenTake(o: Order) {
-  return o.status === 'confirmed';
+  return canKitchenTakeOrder(o);
 }
 
 function canMarkReady(o: Order) {
-  return o.status === 'in_kitchen';
+  return canMarkOrderReady(o);
 }
 
 function canOutForDelivery(o: Order) {
-  return o.fulfillment === 'delivery' && o.status === 'ready';
+  return canStartOrderDelivery(o);
 }
 
 function canMarkDelivered(o: Order) {
-  if (o.fulfillment === 'pickup') return o.status === 'ready';
-  return o.status === 'out_for_delivery';
+  return canCompleteOrder(o);
 }
 
 function kitchenTooltip(o: Order) {
@@ -2664,24 +2686,22 @@ function payIconTooltip(p: PaymentVerify) {
 }
 
 function processFlag(o: Order): 'APROBAR' | 'RE-APROBAR' | null {
-  if (o.status === 'created') return 'APROBAR';
-  if (o.status === 'queued' && o.queuedNeedsReapproval) return 'RE-APROBAR';
-  return null;
+  return getMasterOrderProcessFlag({
+    status: o.status,
+    queuedNeedsReapproval: o.queuedNeedsReapproval,
+  });
 }
 
 function canReturnToAdvisor(o: Order) {
-  return ['created', 'queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status);
+  return canReturnOrderToAdvisor(o);
 }
 
 function canReturnFromKitchenToQueue(o: Order) {
-  return ['confirmed', 'in_kitchen', 'ready'].includes(o.status);
+  return canReturnOrderFromKitchenToQueue(o);
 }
 
 function canManageDeliveryAssignment(o: Order) {
-  return (
-    o.fulfillment === 'delivery' &&
-    ['queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'].includes(o.status)
-  );
+  return canManageOrderDeliveryAssignment(o);
 }
 
 function isDeliveredDeliveryOrder(o: Order) {
@@ -2689,7 +2709,7 @@ function isDeliveredDeliveryOrder(o: Order) {
 }
 
 function canCorrectDeliveredDeliveryAssignment(o: Order, canEditClosedOrders: boolean) {
-  return canEditClosedOrders && isDeliveredDeliveryOrder(o);
+  return canCorrectDeliveredDeliveryAssignmentByDomain(o, canEditClosedOrders);
 }
 
 function getProcessSteps(o: Order) {
@@ -16574,8 +16594,8 @@ onClose={() => {
         <SmallBadge label={ORDER_STATUS_LABEL[selectedOrder.status]} tone="muted" />
         <SmallBadge label={selectedOrder.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} tone="muted" />
         {selectedOrder.isNewClient ? <SmallBadge label="CLIENTE NUEVO" tone="brand" /> : null}
-        {!selectedOrder.isNewClient && selectedOrder.isImportedClient ? (
-          <SmallBadge label="CLIENTE ANTERIOR" tone="muted" />
+        {getOrderClientPortfolioLabel(selectedOrder) ? (
+          <SmallBadge label={getOrderClientPortfolioLabel(selectedOrder)!.toUpperCase()} tone="muted" />
         ) : null}
         {processFlag(selectedOrder) === 'APROBAR' ? <SmallBadge label="APROBAR" tone="brand" /> : null}
         {processFlag(selectedOrder) === 'RE-APROBAR' ? <SmallBadge label="RE-APROBAR" tone="warn" /> : null}

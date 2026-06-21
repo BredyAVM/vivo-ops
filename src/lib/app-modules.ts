@@ -50,7 +50,7 @@ export const APP_MODULES: AppModuleDefinition[] = [
     shortLabel: 'Cocina',
     description: 'Cola de preparacion, tiempos y pedidos listos.',
     href: '/app/kitchen',
-    status: 'planned',
+    status: 'available',
     roles: ['kitchen'],
     recommendedDevice: 'Tablet o telefono',
   },

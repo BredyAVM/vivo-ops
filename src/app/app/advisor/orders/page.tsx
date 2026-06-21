@@ -10,6 +10,11 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import {
+  canAdvisorModifyOrder as canAdvisorModifyOrderByDomain,
+  isOpenOrderStatus,
+  needsOrderReapproval,
+} from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
@@ -216,11 +221,11 @@ function getAgendaTimeLabel(order: Pick<OrderRow, 'created_at' | 'extra_fields'>
 }
 
 function isOpenStatus(status: string) {
-  return !['delivered', 'cancelled'].includes(status);
+  return isOpenOrderStatus(status);
 }
 
 function canAdvisorModifyOrder(status: string) {
-  return ['created', 'queued'].includes(status);
+  return canAdvisorModifyOrderByDomain(status);
 }
 
 function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
@@ -339,7 +344,10 @@ function needsInitialApproval(order: OrderRow) {
 }
 
 function needsReapproval(order: OrderRow) {
-  return order.status === 'queued' && Boolean(order.queued_needs_reapproval);
+  return needsOrderReapproval({
+    status: order.status,
+    queuedNeedsReapproval: order.queued_needs_reapproval,
+  });
 }
 
 function operationalPhase(order: OrderRow): OperationalPhase {

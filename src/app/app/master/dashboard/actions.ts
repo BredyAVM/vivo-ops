@@ -4,7 +4,7 @@ import { revalidatePath, updateTag } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
-import { requireMasterOrAdminContext } from '@/lib/auth';
+import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
@@ -22,6 +22,17 @@ function revalidateMasterDashboardFinancialReferences() {
 
 async function requireMasterOrAdmin() {
   return requireMasterOrAdminContext();
+}
+
+async function requireKitchenOperator() {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('kitchen');
+
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de cocina, master o administrador.');
+  }
+
+  return ctx;
 }
 
 async function loadActiveExchangeRate(supabase: Awaited<ReturnType<typeof createSupabaseServer>>) {
@@ -3291,7 +3302,7 @@ export async function kitchenTakeAction(input: {
   orderId: number;
   etaMinutes: number;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireKitchenOperator();
 
   const { error } = await supabase.rpc('kitchen_take', {
     p_order_id: input.orderId,
@@ -3317,18 +3328,22 @@ export async function kitchenTakeAction(input: {
       { targetUserId: eventContext?.advisorUserId },
     ],
   });
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
 }
 
 export async function markReadyAction(input: {
   orderId: number;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase } = await requireKitchenOperator();
 
   const { error } = await supabase.rpc('mark_ready', {
     p_order_id: input.orderId,
   });
 
   if (error) throw new Error(error.message);
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
 }
 
 export async function outForDeliveryAction(input: {

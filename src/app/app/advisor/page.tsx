@@ -9,6 +9,7 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { isOpenOrderStatus, needsOrderReapproval } from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
@@ -209,7 +210,7 @@ function statusTone(status: string): 'neutral' | 'warning' | 'success' | 'danger
 }
 
 function isOpenStatus(status: string) {
-  return !['delivered', 'cancelled'].includes(status);
+  return isOpenOrderStatus(status);
 }
 
 function isOverdueOrder(order: OrderRow, selectedDayKey: string) {
@@ -340,7 +341,10 @@ function needsInitialApproval(order: OrderRow) {
 }
 
 function needsReapproval(order: OrderRow) {
-  return order.status === 'queued' && Boolean(order.queued_needs_reapproval);
+  return needsOrderReapproval({
+    status: order.status,
+    queuedNeedsReapproval: order.queued_needs_reapproval,
+  });
 }
 
 function priorityScore(order: OrderRow, paymentStateByOrderId: Map<number, PaymentState>, selectedDayKey: string) {
