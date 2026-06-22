@@ -32,6 +32,7 @@ import {
   formatWhatsAppQuantity,
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
+import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -2634,6 +2635,26 @@ function isRecognizedBillingOrder(order: Order) {
   return isRecognizedBillingOrderByDomain(order);
 }
 
+function getCommercialNetUsd(order: Order) {
+  return getOrderCommercialNetUsd({
+    total_usd: order.totalUsd,
+    extra_fields: {
+      pricing: {
+        fx_rate: order.editMeta.fxRate,
+        subtotal_usd: order.editMeta.subtotalUsd,
+        subtotal_bs: order.editMeta.subtotalBs,
+        discount_enabled: order.editMeta.discountEnabled,
+        discount_pct: order.editMeta.discountPct,
+        invoice_tax_pct: order.editMeta.invoiceTaxPct,
+        invoice_tax_amount_usd: order.editMeta.invoiceTaxAmountUsd,
+        invoice_tax_amount_bs: order.editMeta.invoiceTaxAmountBs,
+        subtotal_after_discount_usd: order.editMeta.subtotalAfterDiscountUsd,
+        subtotal_after_discount_bs: order.editMeta.subtotalAfterDiscountBs,
+      },
+    },
+  });
+}
+
 function canKitchenTake(o: Order) {
   return canKitchenTakeOrder(o);
 }
@@ -4753,7 +4774,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const scheduledOrders = dayOrders.filter(isScheduledClosingOrder);
     const billingOrders = dayOrders.filter(isRecognizedBillingOrder);
     const cierres = scheduledOrders.length;
-    const fact = billingOrders.reduce((s, o) => s + o.totalUsd, 0);
+    const fact = billingOrders.reduce((s, o) => s + getCommercialNetUsd(o), 0);
     const abonadoConfirmado = billingOrders.reduce((s, o) => s + o.confirmedPaidUsd, 0);
     const pendiente = billingOrders.reduce((s, o) => s + o.balanceUsd, 0);
     return { cierres, fact, abonadoConfirmado, pendiente };
@@ -4765,7 +4786,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const scheduledOrders = weekOrders.filter(isScheduledClosingOrder);
     const billingOrders = weekOrders.filter(isRecognizedBillingOrder);
     const cierres = scheduledOrders.length;
-    const fact = billingOrders.reduce((s, o) => s + o.totalUsd, 0);
+    const fact = billingOrders.reduce((s, o) => s + getCommercialNetUsd(o), 0);
     const abonadoConfirmado = billingOrders.reduce((s, o) => s + o.confirmedPaidUsd, 0);
     const pendiente = billingOrders.reduce((s, o) => s + o.balanceUsd, 0);
     return { cierres, fact, abonadoConfirmado, pendiente };
@@ -11556,7 +11577,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       return true;
     });
 
-    const facturacion = filteredDeliveredOrders.reduce((sum, order) => sum + order.totalUsd, 0);
+    const facturacion = filteredDeliveredOrders.reduce((sum, order) => sum + getCommercialNetUsd(order), 0);
     const cierres = filteredDeliveredOrders.length;
     const cierrePromedio = cierres > 0 ? facturacion / cierres : 0;
 
@@ -12510,13 +12531,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             <Card title="Estado">
               <div className="hidden">
               <StatRow label="Cierres" value={dayStats.cierres} />
-              <StatRow label="Facturación" value={fmtUSD(dayStats.fact)} />
+              <StatRow label="Facturación neta" value={fmtUSD(dayStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(dayStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(dayStats.pendiente)} highlight />
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-[#8A8A96]">Semana</div>
                 <StatRow label="Cierres" value={weekStats.cierres} />
-                <StatRow label="Facturacion" value={fmtUSD(weekStats.fact)} />
+                <StatRow label="Facturación neta" value={fmtUSD(weekStats.fact)} />
                 <StatRow label="Abonado" value={fmtUSD(weekStats.abonadoConfirmado)} />
                 <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
               </div>
@@ -12530,7 +12551,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <div className="text-center font-semibold text-[#F5F5F7]">{dayStats.cierres}</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{weekStats.cierres}</div>
 
-                <div className="text-[#B7B7C2]">Fact.</div>
+                <div className="text-[#B7B7C2]">Fact. neta</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(dayStats.fact)}</div>
                 <div className="text-center font-semibold text-[#F5F5F7]">{fmtUSD(weekStats.fact)}</div>
 
@@ -12546,7 +12567,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
             <Card title="Semana" className="hidden">
               <StatRow label="Cierres" value={weekStats.cierres} />
-              <StatRow label="Facturación" value={fmtUSD(weekStats.fact)} />
+              <StatRow label="Facturación neta" value={fmtUSD(weekStats.fact)} />
               <StatRow label="Abonado (conf.)" value={fmtUSD(weekStats.abonadoConfirmado)} />
               <StatRow label="Pendiente" value={fmtUSD(weekStats.pendiente)} highlight />
             </Card>
@@ -13076,7 +13097,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <Card title="Resumen General" className="p-3">
-                  <StatRow label="Facturación" value={fmtUSD(advisorCalculatedData.facturacion)} />
+                  <StatRow label="Facturación neta" value={fmtUSD(advisorCalculatedData.facturacion)} />
                   <StatRow label="Cierres" value={advisorCalculatedData.cierres} />
                   <StatRow label="Cierre promedio" value={fmtUSD(advisorCalculatedData.cierrePromedio)} />
                   <StatRow label="Comisión estimada" value={fmtUSD(advisorCalculatedData.commissionTotalUsd)} />
@@ -13135,7 +13156,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                   <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Facturación neta</div>
                     <div className="text-sm font-semibold text-emerald-400">{fmtUSD(advisorCalculatedData.facturacion)}</div>
                   </div>
                   <div className="max-h-[360px] overflow-auto">

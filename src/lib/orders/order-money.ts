@@ -113,6 +113,14 @@ export function getOrderMoneySnapshot(order: OrderMoneySource): OrderMoneySnapsh
   };
 }
 
+/**
+ * Amount used for commercial reporting and commissions.
+ * It includes discounts already granted to the client, but never invoice tax.
+ */
+export function getOrderCommercialNetUsd(order: OrderMoneySource) {
+  return getOrderMoneySnapshot(order).subtotalAfterDiscountUsd;
+}
+
 export function getOrderLineTotalUsd(item: OrderLineMoneySource) {
   const qty = toOrderMoneyNumber(item.qty, 0);
   return roundOrderMoney(

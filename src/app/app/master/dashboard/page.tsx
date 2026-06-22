@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { getOrderCommercialNetUsd, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
 import MasterDashboardClient from './MasterDashboardClient';
@@ -1559,7 +1559,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
     }
 
     if (!['created', 'cancelled'].includes(row.status) && totalUsd > 0.005) {
-      summary.fact += totalUsd;
+      summary.fact += getOrderCommercialNetUsd(row);
       summary.abonadoConfirmado += confirmedPaidUsd;
       summary.pendiente += pendingUsd;
     }
