@@ -204,6 +204,83 @@ export async function markAdvisorOrderDraftConvertedAction(input: { draftId: num
   revalidatePath('/app/advisor/drafts');
 }
 
+export async function ensureAdvisorOrderCreatedEventAction(input: { orderId: number }) {
+  const ctx = await requireAuthContext();
+  const orderId = Number(input.orderId);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const { data: order, error: orderError } = await adminSupabase
+    .from('orders')
+    .select('id, order_number, created_at, created_by_user_id, attributed_advisor_id, source, fulfillment, extra_fields')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (order.attributed_advisor_id !== ctx.user.id || order.source !== 'advisor') {
+    throw new Error('No puedes registrar el evento inicial de esta orden.');
+  }
+
+  const { data: existingEvent, error: existingEventError } = await adminSupabase
+    .from('order_timeline_events')
+    .select('id')
+    .eq('order_id', orderId)
+    .eq('event_type', 'order_created')
+    .maybeSingle();
+
+  if (existingEventError) throw new Error(existingEventError.message);
+  if (existingEvent) return;
+
+  const schedule = sanitizePlainObject(sanitizePlainObject(order.extra_fields).schedule);
+  const { data: event, error: eventError } = await adminSupabase
+    .from('order_timeline_events')
+    .insert({
+      order_id: orderId,
+      order_number: order.order_number,
+      event_type: 'order_created',
+      event_group: 'approval',
+      title: 'Orden creada',
+      message: 'La orden fue creada y quedo pendiente de aprobacion.',
+      severity: 'warning',
+      actor_user_id: order.created_by_user_id || ctx.user.id,
+      payload: {
+        order_number: order.order_number,
+        fulfillment: order.fulfillment,
+        source: 'advisor',
+        urgent: Boolean(schedule.asap),
+        delivery_time: `${String(schedule.date || '').trim()} ${String(schedule.time_24 || '').trim()}`.trim() || null,
+      },
+      created_at: order.created_at,
+    })
+    .select('id')
+    .single();
+
+  if (eventError || !event) {
+    throw new Error(eventError?.message || 'No se pudo registrar el evento de creación.');
+  }
+
+  const recipientRows = [
+    { event_id: event.id, target_role: 'master', target_user_id: null, requires_action: true },
+    { event_id: event.id, target_role: null, target_user_id: ctx.user.id, requires_action: false },
+  ];
+  const { error: recipientsError } = await adminSupabase
+    .from('order_timeline_event_recipients')
+    .insert(recipientRows);
+
+  if (recipientsError) throw new Error(recipientsError.message);
+
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/dashboard');
+}
+
 export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderInput) {
   const ctx = await requireAuthContext();
   const orderId = Number(input.orderId);

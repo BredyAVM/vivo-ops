@@ -17,6 +17,7 @@ import {
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import {
+  ensureAdvisorOrderCreatedEventAction,
   markAdvisorOrderDraftConvertedAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
@@ -3393,6 +3394,15 @@ export default function AdvisorOrderComposer({
       } else {
         const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
         if (itemsError) throw new Error(itemsError.message);
+
+        try {
+          await ensureAdvisorOrderCreatedEventAction({ orderId: targetOrderId });
+        } catch (timelineError) {
+          console.warn(
+            'No se pudo registrar el evento de creación.',
+            timelineError instanceof Error ? timelineError.message : timelineError
+          );
+        }
       }
 
       if (isEditingOrder && nextEditSnapshot && originalEditSnapshot) {

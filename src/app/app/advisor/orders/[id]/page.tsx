@@ -720,7 +720,6 @@ function eventTone(eventType: string): TimelineEvent['tone'] {
 function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
   const details: string[] = [];
   const reason = safeText(payload.reason ?? payload.review_notes ?? payload.notes ?? payload.note, '');
-  const orderCreatedAt = safeText(payload.order_created_at ?? payload.orderCreatedAt, '');
   const etaMinutes = payload.eta_minutes ?? payload.etaMinutes;
   const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
 
@@ -731,10 +730,6 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
 
   if (isCorrectionEvent && reason) {
     details.push(`Motivo: ${reason}`);
-  }
-
-  if (orderCreatedAt) {
-    details.push(`Pedido creado: ${formatEventTime(orderCreatedAt)}`);
   }
 
   if (eventType === 'client_fund_application_requested') {

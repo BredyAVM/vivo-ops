@@ -224,7 +224,6 @@ export function eventTone(eventType: string): InboxEvent['tone'] {
 export function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
   const details: string[] = [];
   const reason = safeText(payload.reason ?? payload.review_notes ?? payload.notes ?? payload.note, '');
-  const orderCreatedAt = safeText(payload.order_created_at ?? payload.orderCreatedAt, '');
   const etaMinutes = payload.eta_minutes ?? payload.etaMinutes;
   const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
 
@@ -235,10 +234,6 @@ export function buildDetailLines(eventType: string, payload: Record<string, unkn
 
   if (isCorrectionEvent && reason) {
     details.push(`Motivo: ${reason}`);
-  }
-
-  if (orderCreatedAt) {
-    details.push(`Pedido creado: ${formatEventTime(orderCreatedAt)}`);
   }
 
   if (

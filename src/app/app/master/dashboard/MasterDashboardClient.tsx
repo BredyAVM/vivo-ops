@@ -1509,14 +1509,6 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
     lines.push(`Orden: ${orderIdToShow}`);
   }
 
-  const orderCreatedAt =
-    typeof payload.order_created_at === 'string' && payload.order_created_at.trim()
-      ? payload.order_created_at
-      : order.createdAtISO;
-  if (orderCreatedAt) {
-    lines.push(`Pedido creado: ${fmtDateTimeES(orderCreatedAt)}`);
-  }
-
   const etaMinutes = Number(payload.eta_minutes ?? payload.delivery_eta_minutes ?? NaN);
   if (Number.isFinite(etaMinutes) && etaMinutes > 0) {
     lines.push(`ETA: ${fmtUnitsValue(etaMinutes)} min`);
