@@ -733,7 +733,7 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
     details.push(`Motivo: ${reason}`);
   }
 
-  if (isCorrectionEvent && orderCreatedAt) {
+  if (orderCreatedAt) {
     details.push(`Pedido creado: ${formatEventTime(orderCreatedAt)}`);
   }
 
