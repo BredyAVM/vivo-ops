@@ -4,9 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
-import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { appendOrderNotification } from '@/lib/orders/notification-center';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
-import { sendPushToRoleDevices } from '@/lib/push';
 
 type NotificationRole = 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter' | 'driver';
 
@@ -199,33 +198,6 @@ async function loadOrderEventContext(
   };
 }
 
-function dedupeEventRecipients(recipients: OrderEventRecipientInput[]) {
-  const seen = new Set<string>();
-  const out: Array<{
-    target_role: NotificationRole | null;
-    target_user_id: string | null;
-    requires_action: boolean;
-  }> = [];
-
-  for (const recipient of recipients) {
-    const targetRole = recipient.targetRole ?? null;
-    const targetUserId = recipient.targetUserId ?? null;
-    if (!targetRole && !targetUserId) continue;
-
-    const key = `${targetRole ?? ''}|${targetUserId ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    out.push({
-      target_role: targetRole,
-      target_user_id: targetUserId,
-      requires_action: !!recipient.requiresAction,
-    });
-  }
-
-  return out;
-}
-
 async function appendOrderEvent(
   supabase: Awaited<ReturnType<typeof requireAuthContext>>['supabase'],
   input: {
@@ -241,74 +213,7 @@ async function appendOrderEvent(
     recipients?: OrderEventRecipientInput[];
   },
 ) {
-  const context = input.context ?? (await loadOrderEventContext(supabase, input.orderId));
-
-  const { data: insertedEvent, error: insertEventError } = await supabase
-    .from('order_timeline_events')
-    .insert({
-      order_id: input.orderId,
-      order_number: context?.orderNumber ?? null,
-      event_type: input.eventType,
-      event_group: input.eventGroup,
-      title: input.title,
-      message: input.message ?? null,
-      severity: input.severity ?? 'info',
-      actor_user_id: input.actorUserId ?? null,
-      payload: input.payload ?? {},
-    })
-    .select('id')
-    .single();
-
-  if (insertEventError || !insertedEvent) {
-    throw new Error(insertEventError?.message || 'No se pudo registrar el evento.');
-  }
-
-  const recipientRows = dedupeEventRecipients(input.recipients ?? []).map((recipient) => ({
-    event_id: insertedEvent.id,
-    target_role: recipient.target_role,
-    target_user_id: recipient.target_user_id,
-    requires_action: recipient.requires_action,
-  }));
-
-  if (recipientRows.length === 0) return;
-
-  const { error: recipientsError } = await supabase
-    .from('order_timeline_event_recipients')
-    .insert(recipientRows);
-
-  if (recipientsError) {
-    throw new Error(recipientsError.message);
-  }
-
-  const rolePushTargets = new Set<string>();
-  for (const recipient of input.recipients ?? []) {
-    if (!recipient.requiresAction) continue;
-    if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
-    if (recipient.targetRole === 'master') {
-      rolePushTargets.add('master');
-      rolePushTargets.add('admin');
-    }
-  }
-
-  if (rolePushTargets.size > 0) {
-    try {
-      const orderLabel = formatOrderDisplayLabel(input.orderId);
-      await sendPushToRoleDevices({
-        roles: Array.from(rolePushTargets),
-        title: `${orderLabel}: ${input.title}`,
-        body: input.message || 'Requiere revision en el dashboard.',
-        url: '/app/master/dashboard',
-        tag: `master-order-${input.orderId}-${input.eventType}`,
-        tone: input.severity === 'critical' ? 'critical' : input.severity === 'warning' ? 'warning' : 'info',
-        requireInteraction: input.eventType === 'payment_reported' || input.severity === 'critical',
-      });
-    } catch (pushError) {
-      console.warn(
-        'advisor appendOrderEvent role push skipped',
-        pushError instanceof Error ? pushError.message : 'unknown push error',
-      );
-    }
-  }
+  await appendOrderNotification(supabase, input);
 }
 
 export async function createAdvisorPaymentReportAction(input: {

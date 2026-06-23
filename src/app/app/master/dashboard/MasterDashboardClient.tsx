@@ -61,6 +61,7 @@ import {
   loadDeliveryPartnerRatesAction,
   loadInventoryMovementsAction,
   loadMoneyActivityAction,
+  loadMasterOrderTimelineAction,
   saveInventoryRecipeAction,
   updateInventoryItemAction,
   toggleInventoryItemActiveAction,
@@ -4185,6 +4186,9 @@ const [editIsActive, setEditIsActive] = useState(true);
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedOrderTimeline, setSelectedOrderTimeline] = useState<Order['events'] | null>(null);
+  const [selectedOrderTimelineLoading, setSelectedOrderTimelineLoading] = useState(false);
+  const [selectedOrderTimelineError, setSelectedOrderTimelineError] = useState<string | null>(null);
 
   const selectOperationalDay = useCallback(
     (next: Date) => {
@@ -4554,6 +4558,32 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     () => dashboardOrders.find((o) => o.id === selectedOrderId) ?? null,
     [dashboardOrders, selectedOrderId]
   );
+
+  useEffect(() => {
+    if (!detailOpen || detailTab !== 'eventos' || selectedOrderId == null) return;
+
+    let cancelled = false;
+    setSelectedOrderTimelineLoading(true);
+    setSelectedOrderTimelineError(null);
+
+    loadMasterOrderTimelineAction({ orderId: selectedOrderId })
+      .then((events) => {
+        if (!cancelled) setSelectedOrderTimeline(events);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSelectedOrderTimelineError(
+          error instanceof Error ? error.message : 'No se pudo cargar el historial del Centro de Notificaciones.',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedOrderTimelineLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailOpen, detailTab, selectedOrderId]);
 
   useEffect(() => {
     if (!detailOpen || selectedOrder?.clientId == null) return;
@@ -5529,6 +5559,8 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
 
 const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
   setSelectedOrderId(orderId);
+  setSelectedOrderTimeline(null);
+  setSelectedOrderTimelineError(null);
   setDetailTab(tab ?? 'detalle');
   resetDeliveryAssignBox();
   resetPaymentReportBox();
@@ -17361,7 +17393,7 @@ onClose={() => {
 {detailTab === 'eventos' ? (
   <div className="space-y-3">
     {(() => {
-      const orderEvents = selectedOrder.events ?? [];
+      const orderEvents = selectedOrderTimeline ?? selectedOrder.events ?? [];
       return (
     <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
       <div className="flex items-center justify-between gap-2">
@@ -17371,9 +17403,17 @@ onClose={() => {
           tone={orderEvents.length > 0 ? 'brand' : 'muted'}
         />
       </div>
-      {orderEvents.length === 0 ? (
+      {selectedOrderTimelineLoading ? (
         <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-          Sin historial registrado.
+          Cargando historial desde el Centro de Notificaciones…
+        </div>
+      ) : selectedOrderTimelineError ? (
+        <div className="mt-3 rounded-lg border border-[#7A3D20] bg-[#17100C] px-3 py-3 text-sm text-[#F5B17A]">
+          {selectedOrderTimelineError}
+        </div>
+      ) : orderEvents.length === 0 ? (
+        <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+          Sin eventos registrados en el Centro de Notificaciones.
         </div>
       ) : (
         <div className="mt-3 space-y-2">

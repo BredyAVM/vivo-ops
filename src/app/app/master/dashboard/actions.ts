@@ -5,12 +5,13 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
-import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
+import { sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { appendOrderNotification } from '@/lib/orders/notification-center';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
@@ -631,6 +632,110 @@ export async function reopenMasterInboxItemsAction(input: { itemIds: string[] })
   revalidatePath('/app/master/dashboard');
 }
 
+export async function loadMasterOrderTimelineAction(input: { orderId: number }) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const orderId = Number(input.orderId);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const { data: eventsData, error: eventsError } = await supabase
+    .from('order_timeline_events')
+    .select('id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: false });
+
+  if (eventsError) throw new Error(eventsError.message);
+
+  const events = (eventsData ?? []) as Array<{
+    id: number | string;
+    event_type: string | null;
+    event_group: string | null;
+    title: string | null;
+    message: string | null;
+    severity: string | null;
+    actor_user_id: string | null;
+    payload: unknown;
+    created_at: string | null;
+  }>;
+  const eventIds = events
+    .map((event) => Number(event.id))
+    .filter((eventId) => Number.isFinite(eventId) && eventId > 0);
+  const actorIds = Array.from(
+    new Set(events.map((event) => String(event.actor_user_id || '').trim()).filter(Boolean)),
+  );
+
+  const [{ data: recipientsData, error: recipientsError }, { data: actorsData, error: actorsError }] = await Promise.all([
+    eventIds.length > 0
+      ? supabase
+          .from('order_timeline_event_recipients')
+          .select('event_id, target_role, target_user_id, requires_action, read_at')
+          .in('event_id', eventIds)
+      : Promise.resolve({ data: [], error: null }),
+    actorIds.length > 0
+      ? supabase.from('profiles').select('id, full_name').in('id', actorIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (recipientsError) throw new Error(recipientsError.message);
+  if (actorsError) throw new Error(actorsError.message);
+
+  const recipientsByEventId = new Map<string, Array<{
+    target_role: string | null;
+    target_user_id: string | null;
+    requires_action: boolean | null;
+    read_at: string | null;
+  }>>();
+  for (const recipient of (recipientsData ?? []) as Array<{
+    event_id: number | string;
+    target_role: string | null;
+    target_user_id: string | null;
+    requires_action: boolean | null;
+    read_at: string | null;
+  }>) {
+    const key = String(recipient.event_id);
+    const bucket = recipientsByEventId.get(key) ?? [];
+    bucket.push(recipient);
+    recipientsByEventId.set(key, bucket);
+  }
+
+  const actorNameById = new Map<string, string>();
+  for (const actor of (actorsData ?? []) as Array<{ id: string; full_name: string | null }>) {
+    actorNameById.set(String(actor.id), String(actor.full_name || 'Usuario').trim() || 'Usuario');
+  }
+
+  return events.map((event) => {
+    const recipients = recipientsByEventId.get(String(event.id)) ?? [];
+    const masterRecipient = recipients.find((recipient) => {
+      if (recipient.target_user_id && recipient.target_user_id === user.id) return true;
+      const targetRole = String(recipient.target_role || '');
+      return targetRole === 'master' || targetRole === 'admin';
+    });
+    const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+      ? (event.payload as Record<string, unknown>)
+      : {};
+    const severity: OrderEventSeverity = event.severity === 'critical' || event.severity === 'warning'
+      ? event.severity
+      : 'info';
+
+    return {
+      id: `timeline-${String(event.id)}`,
+      eventType: String(event.event_type || ''),
+      eventGroup: String(event.event_group || ''),
+      title: String(event.title || 'Evento'),
+      message: event.message == null ? null : String(event.message),
+      severity,
+      actorUserId: event.actor_user_id ?? null,
+      actorName: actorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
+      payload,
+      createdAt: String(event.created_at || ''),
+      recipientRequiresAction: Boolean(masterRecipient?.requires_action),
+      recipientReadAt: masterRecipient?.read_at ?? null,
+    };
+  });
+}
+
 async function loadOrderEventContext(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
   orderId: number,
@@ -660,60 +765,6 @@ async function loadOrderEventContext(
   };
 }
 
-function dedupeEventRecipients(recipients: OrderEventRecipientInput[]) {
-  const seen = new Set<string>();
-  const out: Array<{
-    target_role: NotificationRole | null;
-    target_user_id: string | null;
-    requires_action: boolean;
-  }> = [];
-
-  for (const recipient of recipients) {
-    const targetRole = recipient.targetRole ?? null;
-    const targetUserId = recipient.targetUserId ?? null;
-
-    if (!targetRole && !targetUserId) continue;
-
-    const key = `${targetRole ?? ''}|${targetUserId ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    out.push({
-      target_role: targetRole,
-      target_user_id: targetUserId,
-      requires_action: !!recipient.requiresAction,
-    });
-  }
-
-  return out;
-}
-
-function getAdvisorPushTargets(params: {
-  contextAdvisorUserId?: string | null;
-  recipients?: OrderEventRecipientInput[];
-}) {
-  const ids = new Set<string>();
-
-  const contextAdvisorUserId = String(params.contextAdvisorUserId || '').trim();
-  if (contextAdvisorUserId) ids.add(contextAdvisorUserId);
-
-  for (const recipient of params.recipients ?? []) {
-    const targetUserId = String(recipient.targetUserId || '').trim();
-    const targetRole = String(recipient.targetRole || '').trim();
-
-    if (targetUserId) {
-      ids.add(targetUserId);
-      continue;
-    }
-
-    if (targetRole === 'advisor' && contextAdvisorUserId) {
-      ids.add(contextAdvisorUserId);
-    }
-  }
-
-  return Array.from(ids);
-}
-
 async function appendOrderEvent(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
   input: {
@@ -730,118 +781,10 @@ async function appendOrderEvent(
   },
 ) {
   try {
-    const context = input.context ?? (await loadOrderEventContext(supabase, input.orderId));
-
-    const { data: insertedEvent, error: insertEventError } = await supabase
-      .from('order_timeline_events')
-      .insert({
-        order_id: input.orderId,
-        order_number: context?.orderNumber ?? null,
-        event_type: input.eventType,
-        event_group: input.eventGroup,
-        title: input.title,
-        message: input.message ?? null,
-        severity: input.severity ?? 'info',
-        actor_user_id: input.actorUserId ?? null,
-        payload: input.payload ?? {},
-      })
-      .select('id')
-      .single();
-
-    if (insertEventError || !insertedEvent) {
-      console.warn('appendOrderEvent skipped', insertEventError?.message ?? 'unknown insert error');
-      return;
-    }
-
-    const recipientRows = dedupeEventRecipients(input.recipients ?? []).map((recipient) => ({
-      event_id: insertedEvent.id,
-      target_role: recipient.target_role,
-      target_user_id: recipient.target_user_id,
-      requires_action: recipient.requires_action,
-    }));
-
-    if (recipientRows.length === 0) return;
-
-    const { error: recipientsError } = await supabase
-      .from('order_timeline_event_recipients')
-      .insert(recipientRows);
-
-    if (recipientsError) {
-      console.warn('appendOrderEvent recipients skipped', recipientsError.message);
-    }
-
-    const advisorPushTargets = getAdvisorPushTargets({
-      contextAdvisorUserId: context?.advisorUserId,
-      recipients: input.recipients,
-    });
-
-    if (advisorPushTargets.length > 0) {
-      const advisorPushRequiresAction = (input.recipients ?? []).some((recipient) => {
-        const targetsAdvisor =
-          recipient.targetRole === 'advisor' ||
-          Boolean(recipient.targetUserId && recipient.targetUserId === context?.advisorUserId);
-
-        return targetsAdvisor && Boolean(recipient.requiresAction);
-      });
-      const advisorPushTag = advisorPushRequiresAction
-        ? `advisor-order-${input.orderId}-${input.eventType}`
-        : `advisor-order-${input.orderId}-status`;
-
-      for (const advisorUserId of advisorPushTargets) {
-        try {
-          await sendPushToAdvisorDevices({
-            advisorUserId,
-            orderId: input.orderId,
-            eventType: input.eventType,
-            title: input.title,
-            body: input.message,
-            orderNumber: context?.orderNumber,
-            clientName: context?.clientName,
-            payload: input.payload,
-            tag: advisorPushTag,
-          });
-        } catch (pushError) {
-          console.warn(
-            'appendOrderEvent push skipped',
-            pushError instanceof Error ? pushError.message : 'unknown push error',
-          );
-        }
-      }
-    }
-
-    const rolePushTargets = new Set<string>();
-    for (const recipient of input.recipients ?? []) {
-      if (!recipient.requiresAction) continue;
-      if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
-      if (recipient.targetRole === 'master') {
-        rolePushTargets.add('master');
-        rolePushTargets.add('admin');
-      }
-    }
-
-    if (rolePushTargets.size > 0) {
-      try {
-        const orderLabel = formatOrderDisplayLabel(input.orderId);
-        const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
-        await sendPushToRoleDevices({
-          roles: Array.from(rolePushTargets),
-          title: `${orderLabel}: ${input.title}`,
-          body: `${clientLabel}${input.message || 'Requiere revision en el dashboard.'}`,
-          url: '/app/master/dashboard',
-          tag: `master-order-${input.orderId}-${input.eventType}`,
-          tone: input.severity === 'critical' ? 'critical' : input.severity === 'warning' ? 'warning' : 'info',
-          requireInteraction: input.severity === 'critical',
-        });
-      } catch (pushError) {
-        console.warn(
-          'appendOrderEvent role push skipped',
-          pushError instanceof Error ? pushError.message : 'unknown push error',
-        );
-      }
-    }
+    await appendOrderNotification(supabase, input);
   } catch (error) {
     console.warn(
-      'appendOrderEvent failed',
+      'notification center event skipped',
       error instanceof Error ? error.message : 'unknown order event error',
     );
   }
