@@ -1498,6 +1498,7 @@ function buildHumanChangeSummaryFromSections(sections: string[]) {
 function getOrderEventDetailLines(order: Order, event: Order['events'][number]) {
   const payload = event.payload ?? {};
   const lines: string[] = [];
+  const isOrderReviewEvent = event.eventType === 'order_returned_to_review' || event.eventType === 'order_changes_rejected';
 
   const explicitOrderId = Number(payload.order_id ?? Number.NaN);
   const orderIdToShow = Number.isFinite(explicitOrderId) && explicitOrderId > 0 ? explicitOrderId : order.id;
@@ -1568,12 +1569,24 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
     lines.push(...buildHumanChangeSummaryFromSections(changedSections));
   }
 
-  const reviewNotes =
-    typeof payload.review_notes === 'string' && payload.review_notes.trim()
-      ? repairDisplayText(payload.review_notes)
+  const reviewReason =
+    typeof payload.reason === 'string' && payload.reason.trim()
+      ? repairDisplayText(payload.reason)
+      : typeof payload.review_notes === 'string' && payload.review_notes.trim()
+        ? repairDisplayText(payload.review_notes)
       : null;
-  if (reviewNotes) {
-    lines.push(`Revisión: ${reviewNotes}`);
+  if (reviewReason) {
+    lines.push(`${isOrderReviewEvent ? 'Motivo' : 'Revisión'}: ${reviewReason}`);
+  }
+
+  if (isOrderReviewEvent) {
+    const orderCreatedAt =
+      typeof payload.order_created_at === 'string' && payload.order_created_at.trim()
+        ? payload.order_created_at
+        : order.createdAtISO;
+    if (orderCreatedAt) {
+      lines.push(`Pedido creado: ${fmtDateTimeES(orderCreatedAt)}`);
+    }
   }
 
   if (event.eventType === 'client_fund_application_requested') {
