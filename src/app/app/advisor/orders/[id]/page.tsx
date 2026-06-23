@@ -634,6 +634,9 @@ function normalizeEventType(event: RawTimelineEvent) {
     ready: 'order_ready',
     driver_assigned_internal: 'driver_assigned',
     driver_assigned_external: 'driver_assigned',
+    assign_driver_task_closed: 'driver_assigned',
+    clear_delivery_assignment: 'driver_unassigned',
+    returned_to_queue: 'order_returned_to_review',
     delivered: 'order_delivered',
   };
 
@@ -855,7 +858,8 @@ export default async function AdvisorOrderDetailPage({
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
   const rawTimeline = dedupeEvents((timelineResult.data ?? []) as RawTimelineEvent[]);
 
-  const timeline: TimelineEvent[] = rawTimeline
+  const timeline: TimelineEvent[] = [
+    ...rawTimeline
     .map((event) => {
       const eventType = normalizeEventType(event);
       const payload =
@@ -880,7 +884,18 @@ export default async function AdvisorOrderDetailPage({
         requiresAction: shouldRequireAdvisorAction(eventType, ACTION_EVENT_TYPES.has(eventType), order.status),
       } satisfies TimelineEvent;
     })
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    ,
+    {
+      id: `order-created-${orderId}`,
+      eventType: 'order_created',
+      title: 'Orden creada',
+      message: 'La orden fue creada y quedó pendiente de aprobación.',
+      createdAt: order.created_at,
+      tone: 'neutral',
+      detailLines: [`Orden: ${orderId}`],
+      requiresAction: false,
+    } satisfies TimelineEvent,
+  ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);
   const { data: financialStateData, error: financialStateError } = await (ctx.supabase as any).rpc(

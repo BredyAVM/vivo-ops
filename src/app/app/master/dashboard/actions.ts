@@ -638,11 +638,19 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
     throw new Error('Orden inválida.');
   }
 
-  const { data: eventsData, error: eventsError } = await supabase
-    .from('order_events')
-    .select('id, event, performed_by, meta, created_at')
-    .eq('order_id', orderId)
-    .order('created_at', { ascending: false });
+  const [eventsResult, orderResult] = await Promise.all([
+    supabase
+      .from('order_events')
+      .select('id, event, performed_by, meta, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('orders')
+      .select('created_at, created_by_user_id')
+      .eq('id', orderId)
+      .maybeSingle(),
+  ]);
+  const { data: eventsData, error: eventsError } = eventsResult;
 
   if (eventsError) throw new Error(eventsError.message);
 
@@ -653,9 +661,12 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
     meta: unknown;
     created_at: string | null;
   }>;
-  const actorIds = Array.from(
-    new Set(events.map((event) => String(event.performed_by || '').trim()).filter(Boolean)),
-  );
+  if (orderResult.error) throw new Error(orderResult.error.message);
+
+  const actorIds = Array.from(new Set([
+    ...events.map((event) => String(event.performed_by || '').trim()),
+    String(orderResult.data?.created_by_user_id || '').trim(),
+  ].filter(Boolean)));
   const { data: actorsData, error: actorsError } = actorIds.length > 0
     ? await supabase.from('profiles').select('id, full_name').in('id', actorIds)
     : { data: [], error: null };
@@ -675,18 +686,23 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
     sent_to_kitchen: { eventType: 'order_sent_to_kitchen', eventGroup: 'kitchen', title: 'Enviada a cocina', message: 'La orden fue enviada a cocina.', severity: 'info' },
     kitchen_started: { eventType: 'kitchen_taken', eventGroup: 'kitchen', title: 'Cocina tomó la orden', message: 'Cocina inició la preparación.', severity: 'info' },
     ready: { eventType: 'order_ready', eventGroup: 'kitchen', title: 'Orden preparada', message: 'La orden quedó preparada.', severity: 'info' },
+    driver_assigned_internal: { eventType: 'driver_assigned', eventGroup: 'delivery', title: 'Motorizado interno asignado', message: 'Se asignó un motorizado interno a la orden.', severity: 'info' },
+    driver_assigned_external: { eventType: 'driver_assigned', eventGroup: 'delivery', title: 'Partner externo asignado', message: 'Se asignó un partner externo a la orden.', severity: 'info' },
+    assign_driver_task_closed: { eventType: 'driver_assigned', eventGroup: 'delivery', title: 'Asignación de motorizado completada', message: 'La asignación de motorizado fue completada.', severity: 'info' },
+    clear_delivery_assignment: { eventType: 'driver_unassigned', eventGroup: 'delivery', title: 'Asignación de delivery removida', message: 'La orden quedó sin asignación de delivery.', severity: 'warning' },
+    returned_to_queue: { eventType: 'order_returned_to_review', eventGroup: 'approval', title: 'Orden devuelta a cola', message: 'La orden regresó a cola de revisión.', severity: 'warning' },
     out_for_delivery: { eventType: 'out_for_delivery', eventGroup: 'delivery', title: 'Orden en camino', message: 'La orden salió en camino.', severity: 'info' },
     delivered: { eventType: 'order_delivered', eventGroup: 'delivery', title: 'Orden entregada', message: 'La orden fue entregada.', severity: 'info' },
     payment_rejected: { eventType: 'payment_rejected', eventGroup: 'payment', title: 'Pago rechazado: corrección requerida', message: 'El pago fue rechazado y requiere corrección.', severity: 'critical' },
   };
 
-  return events.map((event) => {
+  const normalizedEvents = events.map((event) => {
     const rawType = String(event.event || '').trim();
     const presentation = presentationByEvent[rawType] ?? {
       eventType: rawType || 'event',
       eventGroup: 'operation',
-      title: rawType ? rawType.replace(/_/g, ' ') : 'Evento de orden',
-      message: null,
+      title: 'Evento operativo',
+      message: rawType ? 'Se registró un movimiento operativo en la orden.' : 'Se registró un evento en la orden.',
       severity: 'info' as OrderEventSeverity,
     };
     const payload = event.meta && typeof event.meta === 'object' && !Array.isArray(event.meta)
@@ -704,6 +720,26 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
       recipientReadAt: null,
     };
   });
+
+  const createdAt = String(orderResult.data?.created_at || '');
+  if (createdAt) {
+    normalizedEvents.push({
+      id: `order-created-${orderId}`,
+      eventType: 'order_created',
+      eventGroup: 'approval',
+      title: 'Orden creada',
+      message: 'La orden fue creada y quedó pendiente de aprobación.',
+      severity: 'info',
+      actorUserId: orderResult.data?.created_by_user_id ?? null,
+      actorName: actorNameById.get(String(orderResult.data?.created_by_user_id || '')) || 'Sistema',
+      payload: { order_id: orderId },
+      createdAt,
+      recipientRequiresAction: false,
+      recipientReadAt: null,
+    });
+  }
+
+  return normalizedEvents.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
 async function loadOrderEventContext(
