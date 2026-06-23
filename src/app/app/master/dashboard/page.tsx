@@ -1241,11 +1241,15 @@ if (weekSummaryError) {
 
 const weekSummaryRowsById = new Map<number, RawOrderSummaryRow>();
 if (!weekSummaryError) {
-  for (const row of [
-    ...((weekScheduledSummaryResult.data ?? []) as RawOrderSummaryRow[]),
-    ...((weekCreatedSummaryResult.data ?? []) as RawOrderSummaryRow[]),
-  ]) {
+  for (const row of (weekScheduledSummaryResult.data ?? []) as RawOrderSummaryRow[]) {
     weekSummaryRowsById.set(Number(row.id), row);
+  }
+
+  // Creation date is only a fallback for legacy orders with no scheduled operation date.
+  for (const row of (weekCreatedSummaryResult.data ?? []) as RawOrderSummaryRow[]) {
+    if (!isDateKey(row.extra_fields?.schedule?.date)) {
+      weekSummaryRowsById.set(Number(row.id), row);
+    }
   }
 }
 
@@ -1313,11 +1317,14 @@ const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
 const ordersError = scheduledOrdersResult.error ?? createdOrdersResult.error;
 const ordersDataById = new Map<number, RawOrderRow>();
 
-for (const row of [
-  ...((scheduledOrdersResult.data ?? []) as RawOrderRow[]),
-  ...((createdOrdersResult.data ?? []) as RawOrderRow[]),
-]) {
+for (const row of (scheduledOrdersResult.data ?? []) as RawOrderRow[]) {
   ordersDataById.set(Number(row.id), row);
+}
+
+for (const row of (createdOrdersResult.data ?? []) as RawOrderRow[]) {
+  if (!isDateKey(row.extra_fields?.schedule?.date)) {
+    ordersDataById.set(Number(row.id), row);
+  }
 }
 
 const ordersData = Array.from(ordersDataById.values())
@@ -1388,11 +1395,14 @@ if (calculationOrdersError) {
 
 const calculationOrdersDataById = new Map<number, RawOrderRow>();
 if (!calculationOrdersError) {
-  for (const row of [
-    ...((calculationScheduledOrdersResult.data ?? []) as RawOrderRow[]),
-    ...((calculationCreatedOrdersResult.data ?? []) as RawOrderRow[]),
-  ]) {
+  for (const row of (calculationScheduledOrdersResult.data ?? []) as RawOrderRow[]) {
     calculationOrdersDataById.set(Number(row.id), row);
+  }
+
+  for (const row of (calculationCreatedOrdersResult.data ?? []) as RawOrderRow[]) {
+    if (!isDateKey(row.extra_fields?.schedule?.date)) {
+      calculationOrdersDataById.set(Number(row.id), row);
+    }
   }
 }
 
