@@ -724,16 +724,16 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
   const etaMinutes = payload.eta_minutes ?? payload.etaMinutes;
   const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
 
-  const isOrderReviewEvent = eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected';
+  const isCorrectionEvent =
+    eventType === 'order_returned_to_review' ||
+    eventType === 'order_changes_rejected' ||
+    eventType === 'payment_rejected';
 
-  if (
-    (isOrderReviewEvent || eventType === 'payment_rejected') &&
-    reason
-  ) {
+  if (isCorrectionEvent && reason) {
     details.push(`Motivo: ${reason}`);
   }
 
-  if (isOrderReviewEvent && orderCreatedAt) {
+  if (isCorrectionEvent && orderCreatedAt) {
     details.push(`Pedido creado: ${formatEventTime(orderCreatedAt)}`);
   }
 

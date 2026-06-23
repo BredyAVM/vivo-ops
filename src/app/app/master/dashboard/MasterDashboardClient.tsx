@@ -1498,7 +1498,10 @@ function buildHumanChangeSummaryFromSections(sections: string[]) {
 function getOrderEventDetailLines(order: Order, event: Order['events'][number]) {
   const payload = event.payload ?? {};
   const lines: string[] = [];
-  const isOrderReviewEvent = event.eventType === 'order_returned_to_review' || event.eventType === 'order_changes_rejected';
+  const isCorrectionEvent =
+    event.eventType === 'order_returned_to_review' ||
+    event.eventType === 'order_changes_rejected' ||
+    event.eventType === 'payment_rejected';
 
   const explicitOrderId = Number(payload.order_id ?? Number.NaN);
   const orderIdToShow = Number.isFinite(explicitOrderId) && explicitOrderId > 0 ? explicitOrderId : order.id;
@@ -1576,10 +1579,10 @@ function getOrderEventDetailLines(order: Order, event: Order['events'][number]) 
         ? repairDisplayText(payload.review_notes)
       : null;
   if (reviewReason) {
-    lines.push(`${isOrderReviewEvent ? 'Motivo' : 'Revisión'}: ${reviewReason}`);
+    lines.push(`${isCorrectionEvent ? 'Motivo' : 'Revisión'}: ${reviewReason}`);
   }
 
-  if (isOrderReviewEvent) {
+  if (isCorrectionEvent) {
     const orderCreatedAt =
       typeof payload.order_created_at === 'string' && payload.order_created_at.trim()
         ? payload.order_created_at
