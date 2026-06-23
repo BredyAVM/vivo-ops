@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import AdvisorShell from './AdvisorShell';
 import AdvisorPwaRegistrar from './AdvisorPwaRegistrar';
-import { countCoalescedNotificationsByKind } from './inbox/inbox-shared';
+import { countUnreadOrderNotificationsByKind, type RawOrderNotification } from './inbox/inbox-shared';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -47,35 +47,16 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
     .eq('id', ctx.user.id)
     .maybeSingle();
 
-  const { data: recipientsData } = await ctx.supabase
-    .from('order_timeline_event_recipients')
-    .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
-    .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
-    .order('id', { ascending: false })
+  const { data: notificationsData } = await ctx.supabase
+    .from('notifications')
+    .select('id, order_id, type, status, meta, created_at, read_at')
+    .eq('recipient_user_id', ctx.user.id)
+    .not('order_id', 'is', null)
+    .order('created_at', { ascending: false })
     .limit(500);
-
-  const reviewOrderIds = Array.from(
-    new Set(
-      (recipientsData ?? [])
-        .map((recipient) => {
-          const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-          const eventType = String(event?.event_type || '');
-          return eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected'
-            ? Number(event?.order_id || 0)
-            : 0;
-        })
-        .filter((orderId) => Number.isFinite(orderId) && orderId > 0)
-    )
+  const notificationCounts = countUnreadOrderNotificationsByKind(
+    (notificationsData ?? []) as RawOrderNotification[]
   );
-  const { data: closedOrdersData } = reviewOrderIds.length
-    ? await ctx.supabase
-        .from('orders')
-        .select('id')
-        .in('id', reviewOrderIds)
-        .in('status', ['delivered', 'cancelled'])
-    : { data: [] };
-  const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
-  const notificationCounts = countCoalescedNotificationsByKind(recipientsData ?? [], closedOrderIds);
 
   return (
     <AdvisorShell

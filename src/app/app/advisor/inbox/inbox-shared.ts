@@ -33,6 +33,16 @@ export type InboxEvent = {
   tone: 'neutral' | 'warning' | 'success' | 'danger';
 };
 
+export type RawOrderNotification = {
+  id: number | string;
+  order_id: number | string | null;
+  type: string | null;
+  status: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string | null;
+  read_at: string | null;
+};
+
 type InboxRecipientCountEvent = {
   id: number | string | null;
   order_id: number | string | null;
@@ -115,6 +125,43 @@ export function normalizeFilter(value: string | undefined): InboxFilter {
 export function safeText(value: unknown, fallback = 'Sin dato') {
   const text = String(value ?? '').trim();
   return text || fallback;
+}
+
+export function getOrderNotificationEventType(notification: RawOrderNotification) {
+  const meta = notification.meta && typeof notification.meta === 'object' && !Array.isArray(notification.meta)
+    ? notification.meta
+    : {};
+  const kind = safeText(meta.kind, '');
+  if (kind) return kind;
+
+  const flow = safeText(meta.flow, '');
+  if (flow === 'reapproval') return 'order_returned_to_review';
+  if (flow === 'pickup') return 'pickup_ready';
+
+  const type = safeText(notification.type, '');
+  if (type === 'advisor_kitchen_started') return 'kitchen_taken';
+  if (type === 'advisor_ready' || type === 'driver_ready_pickup') return 'pickup_ready';
+  return type;
+}
+
+export function countUnreadOrderNotificationsByKind(notifications: RawOrderNotification[]) {
+  let actions = 0;
+  let updates = 0;
+
+  for (const notification of notifications) {
+    if (notification.read_at || notification.status === 'read') continue;
+    if (ACTION_EVENT_TYPES.has(getOrderNotificationEventType(notification))) {
+      actions += 1;
+    } else {
+      updates += 1;
+    }
+  }
+
+  return {
+    actions,
+    updates,
+    total: actions + updates,
+  };
 }
 
 export function formatEventTime(value: string) {

@@ -5,13 +5,12 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
-import { sendPushToRoleDevices } from '@/lib/push';
+import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
-import { appendOrderNotification } from '@/lib/orders/notification-center';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
@@ -632,17 +631,16 @@ export async function reopenMasterInboxItemsAction(input: { itemIds: string[] })
   revalidatePath('/app/master/dashboard');
 }
 
-export async function loadMasterOrderTimelineAction(input: { orderId: number }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+export async function loadMasterOrderEventsAction(input: { orderId: number }) {
+  const { supabase } = await requireMasterOrAdmin();
   const orderId = Number(input.orderId);
-
   if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden invalida.');
+    throw new Error('Orden inválida.');
   }
 
   const { data: eventsData, error: eventsError } = await supabase
-    .from('order_timeline_events')
-    .select('id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
+    .from('order_events')
+    .select('id, event, performed_by, meta, created_at')
     .eq('order_id', orderId)
     .order('created_at', { ascending: false });
 
@@ -650,88 +648,60 @@ export async function loadMasterOrderTimelineAction(input: { orderId: number }) 
 
   const events = (eventsData ?? []) as Array<{
     id: number | string;
-    event_type: string | null;
-    event_group: string | null;
-    title: string | null;
-    message: string | null;
-    severity: string | null;
-    actor_user_id: string | null;
-    payload: unknown;
+    event: string | null;
+    performed_by: string | null;
+    meta: unknown;
     created_at: string | null;
   }>;
-  const eventIds = events
-    .map((event) => Number(event.id))
-    .filter((eventId) => Number.isFinite(eventId) && eventId > 0);
   const actorIds = Array.from(
-    new Set(events.map((event) => String(event.actor_user_id || '').trim()).filter(Boolean)),
+    new Set(events.map((event) => String(event.performed_by || '').trim()).filter(Boolean)),
   );
-
-  const [{ data: recipientsData, error: recipientsError }, { data: actorsData, error: actorsError }] = await Promise.all([
-    eventIds.length > 0
-      ? supabase
-          .from('order_timeline_event_recipients')
-          .select('event_id, target_role, target_user_id, requires_action, read_at')
-          .in('event_id', eventIds)
-      : Promise.resolve({ data: [], error: null }),
-    actorIds.length > 0
-      ? supabase.from('profiles').select('id, full_name').in('id', actorIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (recipientsError) throw new Error(recipientsError.message);
+  const { data: actorsData, error: actorsError } = actorIds.length > 0
+    ? await supabase.from('profiles').select('id, full_name').in('id', actorIds)
+    : { data: [], error: null };
   if (actorsError) throw new Error(actorsError.message);
-
-  const recipientsByEventId = new Map<string, Array<{
-    target_role: string | null;
-    target_user_id: string | null;
-    requires_action: boolean | null;
-    read_at: string | null;
-  }>>();
-  for (const recipient of (recipientsData ?? []) as Array<{
-    event_id: number | string;
-    target_role: string | null;
-    target_user_id: string | null;
-    requires_action: boolean | null;
-    read_at: string | null;
-  }>) {
-    const key = String(recipient.event_id);
-    const bucket = recipientsByEventId.get(key) ?? [];
-    bucket.push(recipient);
-    recipientsByEventId.set(key, bucket);
-  }
 
   const actorNameById = new Map<string, string>();
   for (const actor of (actorsData ?? []) as Array<{ id: string; full_name: string | null }>) {
     actorNameById.set(String(actor.id), String(actor.full_name || 'Usuario').trim() || 'Usuario');
   }
 
+  const presentationByEvent: Record<string, { eventType: string; eventGroup: string; title: string; message: string | null; severity: OrderEventSeverity }> = {
+    approved: { eventType: 'order_approved', eventGroup: 'approval', title: 'Orden aprobada', message: 'La orden fue aprobada.', severity: 'info' },
+    modified: { eventType: 'order_modified', eventGroup: 'modification', title: 'Orden modificada', message: null, severity: 'warning' },
+    returned: { eventType: 'order_returned_to_review', eventGroup: 'approval', title: 'Pedido devuelto para ajuste', message: null, severity: 'warning' },
+    reapproved: { eventType: 'order_reapproved', eventGroup: 'approval', title: 'Orden re-aprobada', message: 'La orden fue re-aprobada.', severity: 'info' },
+    queued_reapproved: { eventType: 'order_reapproved', eventGroup: 'approval', title: 'Orden re-aprobada', message: 'La orden fue re-aprobada.', severity: 'info' },
+    sent_to_kitchen: { eventType: 'order_sent_to_kitchen', eventGroup: 'kitchen', title: 'Enviada a cocina', message: 'La orden fue enviada a cocina.', severity: 'info' },
+    kitchen_started: { eventType: 'kitchen_taken', eventGroup: 'kitchen', title: 'Cocina tomó la orden', message: 'Cocina inició la preparación.', severity: 'info' },
+    ready: { eventType: 'order_ready', eventGroup: 'kitchen', title: 'Orden preparada', message: 'La orden quedó preparada.', severity: 'info' },
+    out_for_delivery: { eventType: 'out_for_delivery', eventGroup: 'delivery', title: 'Orden en camino', message: 'La orden salió en camino.', severity: 'info' },
+    delivered: { eventType: 'order_delivered', eventGroup: 'delivery', title: 'Orden entregada', message: 'La orden fue entregada.', severity: 'info' },
+    payment_rejected: { eventType: 'payment_rejected', eventGroup: 'payment', title: 'Pago rechazado: corrección requerida', message: 'El pago fue rechazado y requiere corrección.', severity: 'critical' },
+  };
+
   return events.map((event) => {
-    const recipients = recipientsByEventId.get(String(event.id)) ?? [];
-    const masterRecipient = recipients.find((recipient) => {
-      if (recipient.target_user_id && recipient.target_user_id === user.id) return true;
-      const targetRole = String(recipient.target_role || '');
-      return targetRole === 'master' || targetRole === 'admin';
-    });
-    const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
-      ? (event.payload as Record<string, unknown>)
+    const rawType = String(event.event || '').trim();
+    const presentation = presentationByEvent[rawType] ?? {
+      eventType: rawType || 'event',
+      eventGroup: 'operation',
+      title: rawType ? rawType.replace(/_/g, ' ') : 'Evento de orden',
+      message: null,
+      severity: 'info' as OrderEventSeverity,
+    };
+    const payload = event.meta && typeof event.meta === 'object' && !Array.isArray(event.meta)
+      ? (event.meta as Record<string, unknown>)
       : {};
-    const severity: OrderEventSeverity = event.severity === 'critical' || event.severity === 'warning'
-      ? event.severity
-      : 'info';
 
     return {
-      id: `timeline-${String(event.id)}`,
-      eventType: String(event.event_type || ''),
-      eventGroup: String(event.event_group || ''),
-      title: String(event.title || 'Evento'),
-      message: event.message == null ? null : String(event.message),
-      severity,
-      actorUserId: event.actor_user_id ?? null,
-      actorName: actorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
+      id: `order-event-${String(event.id)}`,
+      ...presentation,
+      actorUserId: event.performed_by ?? null,
+      actorName: actorNameById.get(String(event.performed_by || '')) || 'Sistema',
       payload,
       createdAt: String(event.created_at || ''),
-      recipientRequiresAction: Boolean(masterRecipient?.requires_action),
-      recipientReadAt: masterRecipient?.read_at ?? null,
+      recipientRequiresAction: presentation.eventType === 'payment_rejected' || presentation.eventType === 'order_returned_to_review',
+      recipientReadAt: null,
     };
   });
 }
@@ -765,6 +735,60 @@ async function loadOrderEventContext(
   };
 }
 
+function dedupeEventRecipients(recipients: OrderEventRecipientInput[]) {
+  const seen = new Set<string>();
+  const out: Array<{
+    target_role: NotificationRole | null;
+    target_user_id: string | null;
+    requires_action: boolean;
+  }> = [];
+
+  for (const recipient of recipients) {
+    const targetRole = recipient.targetRole ?? null;
+    const targetUserId = recipient.targetUserId ?? null;
+
+    if (!targetRole && !targetUserId) continue;
+
+    const key = `${targetRole ?? ''}|${targetUserId ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      target_role: targetRole,
+      target_user_id: targetUserId,
+      requires_action: !!recipient.requiresAction,
+    });
+  }
+
+  return out;
+}
+
+function getAdvisorPushTargets(params: {
+  contextAdvisorUserId?: string | null;
+  recipients?: OrderEventRecipientInput[];
+}) {
+  const ids = new Set<string>();
+
+  const contextAdvisorUserId = String(params.contextAdvisorUserId || '').trim();
+  if (contextAdvisorUserId) ids.add(contextAdvisorUserId);
+
+  for (const recipient of params.recipients ?? []) {
+    const targetUserId = String(recipient.targetUserId || '').trim();
+    const targetRole = String(recipient.targetRole || '').trim();
+
+    if (targetUserId) {
+      ids.add(targetUserId);
+      continue;
+    }
+
+    if (targetRole === 'advisor' && contextAdvisorUserId) {
+      ids.add(contextAdvisorUserId);
+    }
+  }
+
+  return Array.from(ids);
+}
+
 async function appendOrderEvent(
   supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
   input: {
@@ -781,10 +805,118 @@ async function appendOrderEvent(
   },
 ) {
   try {
-    await appendOrderNotification(supabase, input);
+    const context = input.context ?? (await loadOrderEventContext(supabase, input.orderId));
+
+    const { data: insertedEvent, error: insertEventError } = await supabase
+      .from('order_timeline_events')
+      .insert({
+        order_id: input.orderId,
+        order_number: context?.orderNumber ?? null,
+        event_type: input.eventType,
+        event_group: input.eventGroup,
+        title: input.title,
+        message: input.message ?? null,
+        severity: input.severity ?? 'info',
+        actor_user_id: input.actorUserId ?? null,
+        payload: input.payload ?? {},
+      })
+      .select('id')
+      .single();
+
+    if (insertEventError || !insertedEvent) {
+      console.warn('appendOrderEvent skipped', insertEventError?.message ?? 'unknown insert error');
+      return;
+    }
+
+    const recipientRows = dedupeEventRecipients(input.recipients ?? []).map((recipient) => ({
+      event_id: insertedEvent.id,
+      target_role: recipient.target_role,
+      target_user_id: recipient.target_user_id,
+      requires_action: recipient.requires_action,
+    }));
+
+    if (recipientRows.length === 0) return;
+
+    const { error: recipientsError } = await supabase
+      .from('order_timeline_event_recipients')
+      .insert(recipientRows);
+
+    if (recipientsError) {
+      console.warn('appendOrderEvent recipients skipped', recipientsError.message);
+    }
+
+    const advisorPushTargets = getAdvisorPushTargets({
+      contextAdvisorUserId: context?.advisorUserId,
+      recipients: input.recipients,
+    });
+
+    if (advisorPushTargets.length > 0) {
+      const advisorPushRequiresAction = (input.recipients ?? []).some((recipient) => {
+        const targetsAdvisor =
+          recipient.targetRole === 'advisor' ||
+          Boolean(recipient.targetUserId && recipient.targetUserId === context?.advisorUserId);
+
+        return targetsAdvisor && Boolean(recipient.requiresAction);
+      });
+      const advisorPushTag = advisorPushRequiresAction
+        ? `advisor-order-${input.orderId}-${input.eventType}`
+        : `advisor-order-${input.orderId}-status`;
+
+      for (const advisorUserId of advisorPushTargets) {
+        try {
+          await sendPushToAdvisorDevices({
+            advisorUserId,
+            orderId: input.orderId,
+            eventType: input.eventType,
+            title: input.title,
+            body: input.message,
+            orderNumber: context?.orderNumber,
+            clientName: context?.clientName,
+            payload: input.payload,
+            tag: advisorPushTag,
+          });
+        } catch (pushError) {
+          console.warn(
+            'appendOrderEvent push skipped',
+            pushError instanceof Error ? pushError.message : 'unknown push error',
+          );
+        }
+      }
+    }
+
+    const rolePushTargets = new Set<string>();
+    for (const recipient of input.recipients ?? []) {
+      if (!recipient.requiresAction) continue;
+      if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
+      if (recipient.targetRole === 'master') {
+        rolePushTargets.add('master');
+        rolePushTargets.add('admin');
+      }
+    }
+
+    if (rolePushTargets.size > 0) {
+      try {
+        const orderLabel = formatOrderDisplayLabel(input.orderId);
+        const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
+        await sendPushToRoleDevices({
+          roles: Array.from(rolePushTargets),
+          title: `${orderLabel}: ${input.title}`,
+          body: `${clientLabel}${input.message || 'Requiere revision en el dashboard.'}`,
+          url: '/app/master/dashboard',
+          tag: `master-order-${input.orderId}-${input.eventType}`,
+          tone: input.severity === 'critical' ? 'critical' : input.severity === 'warning' ? 'warning' : 'info',
+          requireInteraction: input.severity === 'critical',
+        });
+      } catch (pushError) {
+        console.warn(
+          'appendOrderEvent role push skipped',
+          pushError instanceof Error ? pushError.message : 'unknown push error',
+        );
+      }
+    }
   } catch (error) {
     console.warn(
-      'notification center event skipped',
+      'appendOrderEvent failed',
       error instanceof Error ? error.message : 'unknown order event error',
     );
   }
@@ -2305,7 +2437,7 @@ export async function rejectPaymentReportAction(input: {
   reportId: number;
   reviewNotes: string;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase } = await requireMasterOrAdmin();
   const reviewNotes = String(input.reviewNotes || '').trim();
 
   if (!reviewNotes) {
@@ -2327,46 +2459,12 @@ export async function rejectPaymentReportAction(input: {
     throw new Error('El reporte no tiene una orden válida.');
   }
 
-  const eventContext = await loadOrderEventContext(supabase, orderId);
-
   const { error } = await supabase.rpc('reject_payment_report', {
     p_report_id: input.reportId,
     p_review_notes: reviewNotes,
   });
 
   if (error) throw new Error(error.message);
-
-  const { data: existingEvent, error: existingEventError } = await supabase
-    .from('order_timeline_events')
-    .select('id')
-    .eq('order_id', orderId)
-    .eq('event_type', 'payment_rejected')
-    .contains('payload', { payment_report_id: Number(currentReport.id) })
-    .maybeSingle();
-
-  if (existingEventError) throw new Error(existingEventError.message);
-
-  if (!existingEvent) {
-    await appendOrderEvent(supabase, {
-      orderId,
-      context: eventContext,
-      eventType: 'payment_rejected',
-      eventGroup: 'payment',
-      title: 'Pago rechazado: corrección requerida',
-      message: 'El pago fue rechazado y requiere corrección.',
-      severity: 'critical',
-      actorUserId: user.id,
-      payload: {
-        payment_report_id: Number(currentReport.id),
-        reason: reviewNotes,
-        review_notes: reviewNotes,
-      },
-      recipients: [
-        { targetRole: 'master' },
-        { targetUserId: eventContext?.advisorUserId, requiresAction: true },
-      ],
-    });
-  }
 
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/advisor');

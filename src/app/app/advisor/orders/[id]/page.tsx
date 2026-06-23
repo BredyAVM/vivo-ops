@@ -161,12 +161,12 @@ type RawOrderFinancialStateRow = {
 type RawTimelineEvent = {
   id: number | string | null;
   order_id: number | string | null;
-  event_type: string | null;
-  event_group: string | null;
-  title: string | null;
-  message: string | null;
-  severity: 'info' | 'warning' | 'critical' | null;
-  payload: Record<string, unknown> | null;
+  event_type?: string | null;
+  event_group?: string | null;
+  title?: string | null;
+  message?: string | null;
+  severity?: 'info' | 'warning' | 'critical' | null;
+  payload?: Record<string, unknown> | null;
   created_at: string | null;
   event?: string | null;
   meta?: Record<string, unknown> | null;
@@ -622,7 +622,22 @@ function formatCaracasDateOnly(value: string | null | undefined) {
 }
 
 function normalizeEventType(event: RawTimelineEvent) {
-  return safeText(event.event_type ?? event.event, '');
+  const rawType = safeText(event.event_type ?? event.event, '');
+  const legacyTypeMap: Record<string, string> = {
+    approved: 'order_approved',
+    modified: 'order_modified',
+    returned: 'order_returned_to_review',
+    reapproved: 'order_reapproved',
+    queued_reapproved: 'order_reapproved',
+    sent_to_kitchen: 'order_sent_to_kitchen',
+    kitchen_started: 'kitchen_taken',
+    ready: 'order_ready',
+    driver_assigned_internal: 'driver_assigned',
+    driver_assigned_external: 'driver_assigned',
+    delivered: 'order_delivered',
+  };
+
+  return legacyTypeMap[rawType] ?? rawType;
 }
 
 function buildEventDedupKey(event: RawTimelineEvent) {
@@ -822,8 +837,8 @@ export default async function AdvisorOrderDetailPage({
         .eq('order_id', orderId)
         .order('created_at', { ascending: false }),
       ctx.supabase
-        .from('order_timeline_events')
-        .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
+        .from('order_events')
+        .select('id, order_id, event, performed_by, meta, created_at')
         .eq('order_id', orderId)
         .order('created_at', { ascending: false })
         .limit(80),

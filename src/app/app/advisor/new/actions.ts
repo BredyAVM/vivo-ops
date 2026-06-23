@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
-import { appendOrderNotification } from '@/lib/orders/notification-center';
 
 type ReplaceAdvisorOrderItemInput = {
   productId: number;
@@ -239,110 +238,41 @@ export async function ensureAdvisorOrderCreatedEventAction(input: { orderId: num
   if (existingEvent) return;
 
   const schedule = sanitizePlainObject(sanitizePlainObject(order.extra_fields).schedule);
-  await appendOrderNotification(adminSupabase, {
-    orderId,
-    eventType: 'order_created',
-    eventGroup: 'approval',
-    title: 'Orden creada',
-    message: 'La orden fue creada y quedo pendiente de aprobacion.',
-    severity: 'warning',
-    actorUserId: order.created_by_user_id || ctx.user.id,
-    createdAt: order.created_at,
-    context: {
-      orderId,
-      orderNumber: order.order_number,
-      createdAt: order.created_at,
-      advisorUserId: order.attributed_advisor_id,
-      fulfillment: order.fulfillment === 'delivery' ? 'delivery' : 'pickup',
-    },
-    payload: {
+  const { data: event, error: eventError } = await adminSupabase
+    .from('order_timeline_events')
+    .insert({
+      order_id: orderId,
       order_number: order.order_number,
+      event_type: 'order_created',
+      event_group: 'approval',
+      title: 'Orden creada',
+      message: 'La orden fue creada y quedo pendiente de aprobacion.',
+      severity: 'warning',
+      actor_user_id: order.created_by_user_id || ctx.user.id,
+      payload: {
       fulfillment: order.fulfillment,
       source: 'advisor',
       urgent: Boolean(schedule.asap),
       delivery_time: `${String(schedule.date || '').trim()} ${String(schedule.time_24 || '').trim()}`.trim() || null,
-    },
-    recipients: [
-      { targetRole: 'master', requiresAction: true },
-      { targetUserId: ctx.user.id, requiresAction: false },
-    ],
-  });
+      },
+      created_at: order.created_at,
+    })
+    .select('id')
+    .single();
 
-  revalidatePath(`/app/advisor/orders/${orderId}`);
-  revalidatePath('/app/advisor/orders');
-  revalidatePath('/app/advisor/inbox');
-  revalidatePath('/app/master/dashboard');
-}
-
-export async function recordAdvisorOrderModifiedEventAction(input: {
-  orderId: number;
-  changedSections: string[];
-  changeSummary: string[];
-}) {
-  const ctx = await requireAuthContext();
-  const orderId = Number(input.orderId);
-  if (!Number.isFinite(orderId) || orderId <= 0) {
-    throw new Error('Orden invalida.');
+  if (eventError || !event) {
+    throw new Error(eventError?.message || 'No se pudo registrar el evento de creación.');
   }
 
-  const changeSummary = Array.from(
-    new Set(
-      (Array.isArray(input.changeSummary) ? input.changeSummary : [])
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-        .slice(0, 16),
-    ),
-  );
-  const changedSections = Array.from(
-    new Set(
-      (Array.isArray(input.changedSections) ? input.changedSections : [])
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-        .slice(0, 16),
-    ),
-  );
-  if (changeSummary.length === 0) return;
+  const recipientRows = [
+    { event_id: event.id, target_role: 'master', target_user_id: null, requires_action: true },
+    { event_id: event.id, target_role: null, target_user_id: ctx.user.id, requires_action: false },
+  ];
+  const { error: recipientsError } = await adminSupabase
+    .from('order_timeline_event_recipients')
+    .insert(recipientRows);
 
-  const adminSupabase = createSupabaseServiceRoleServer();
-  const { data: order, error: orderError } = await adminSupabase
-    .from('orders')
-    .select('id, order_number, attributed_advisor_id, source, status')
-    .eq('id', orderId)
-    .maybeSingle();
-
-  if (orderError || !order) {
-    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
-  }
-  if (order.attributed_advisor_id !== ctx.user.id || order.source !== 'advisor') {
-    throw new Error('No puedes registrar cambios de esta orden.');
-  }
-
-  const requiresReapproval = order.status === 'queued';
-  await appendOrderNotification(adminSupabase, {
-    orderId,
-    eventType: 'order_modified',
-    eventGroup: 'modification',
-    title: requiresReapproval ? 'Orden modificada para re-aprobacion' : 'Orden modificada',
-    message: changeSummary.join(' '),
-    severity: requiresReapproval ? 'warning' : 'info',
-    actorUserId: ctx.user.id,
-    context: {
-      orderId,
-      orderNumber: order.order_number,
-      advisorUserId: order.attributed_advisor_id,
-      status: order.status,
-    },
-    payload: {
-      changed_sections: changedSections,
-      change_summary: changeSummary,
-      source: 'advisor_mobile',
-    },
-    recipients: [
-      { targetRole: 'master', requiresAction: requiresReapproval },
-      { targetRole: 'admin', requiresAction: requiresReapproval },
-      { targetUserId: ctx.user.id, requiresAction: false },
-    ],
-  });
+  if (recipientsError) throw new Error(recipientsError.message);
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');

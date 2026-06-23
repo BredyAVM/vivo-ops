@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import AdvisorPendingLink from './AdvisorPendingLink';
-import { countCoalescedNotificationsByKind } from './inbox/inbox-shared';
+import { countUnreadOrderNotificationsByKind, type RawOrderNotification } from './inbox/inbox-shared';
 
 function ActionIcon() {
   return (
@@ -69,31 +69,13 @@ export default function AdvisorInboxBell({
 
     async function refreshUnreadCount() {
       const { data } = await supabase
-        .from('order_timeline_event_recipients')
-        .select('id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, event_type, created_at)')
-        .or(`target_user_id.eq.${userId},target_role.eq.advisor`)
-        .order('id', { ascending: false })
+        .from('notifications')
+        .select('id, order_id, type, status, meta, created_at, read_at')
+        .eq('recipient_user_id', userId)
+        .not('order_id', 'is', null)
+        .order('created_at', { ascending: false })
         .limit(220);
-
-      const reviewOrderIds = Array.from(
-        new Set(
-          (data ?? [])
-            .map((recipient) => {
-              const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-              const eventType = String(event?.event_type || '');
-              return eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected'
-                ? Number(event?.order_id || 0)
-                : 0;
-            })
-            .filter((orderId) => Number.isFinite(orderId) && orderId > 0)
-        )
-      );
-      const { data: closedOrdersData } = reviewOrderIds.length
-        ? await supabase.from('orders').select('id').in('id', reviewOrderIds).in('status', ['delivered', 'cancelled'])
-        : { data: [] };
-      const closedOrderIds = new Set((closedOrdersData ?? []).map((order) => Number(order.id)));
-
-      const nextCounts = countCoalescedNotificationsByKind(data ?? [], closedOrderIds);
+      const nextCounts = countUnreadOrderNotificationsByKind((data ?? []) as RawOrderNotification[]);
       setCounts({ actions: nextCounts.actions, updates: nextCounts.updates });
     }
 
@@ -108,14 +90,14 @@ export default function AdvisorInboxBell({
       }, 1800);
     }
 
-    window.addEventListener('advisor:timeline-recipient', scheduleCountRefresh);
+    window.addEventListener('advisor:notification', scheduleCountRefresh);
 
     return () => {
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
-      window.removeEventListener('advisor:timeline-recipient', scheduleCountRefresh);
+      window.removeEventListener('advisor:notification', scheduleCountRefresh);
     };
   }, [userId]);
 

@@ -76,14 +76,14 @@ export default function AdvisorInboxClient({
       }, 220);
     };
 
-    window.addEventListener('advisor:timeline-recipient', refreshInbox);
+    window.addEventListener('advisor:notification', refreshInbox);
 
     return () => {
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
-      window.removeEventListener('advisor:timeline-recipient', refreshInbox);
+      window.removeEventListener('advisor:notification', refreshInbox);
     };
   }, [router]);
 
@@ -102,27 +102,28 @@ export default function AdvisorInboxClient({
     return savingIds.includes(recipientId);
   }
 
-  async function setRecipientReadState(recipientId: number, read: boolean) {
-    setSavingIds((current) => [...current, recipientId]);
+  async function markNotificationRead(notificationId: number) {
+    const currentEvent = events.find((event) => event.recipientId === notificationId);
+    if (!currentEvent || currentEvent.readAt) return;
 
-    const nextReadAt = read ? new Date().toISOString() : null;
+    setSavingIds((current) => [...current, notificationId]);
+
+    const nextReadAt = new Date().toISOString();
     const previousEvents = events;
     setEvents((current) =>
       current.map((event) =>
-        event.recipientId === recipientId ? { ...event, readAt: nextReadAt } : event
+        event.recipientId === notificationId ? { ...event, readAt: nextReadAt } : event
       )
     );
 
     const { error } = await supabaseRef.current
-      .from('order_timeline_event_recipients')
-      .update({ read_at: nextReadAt })
-      .eq('id', recipientId);
+      .rpc('mark_notification_read', { p_notification_id: notificationId });
 
     if (error) {
       setEvents(previousEvents);
     }
 
-    setSavingIds((current) => current.filter((id) => id !== recipientId));
+    setSavingIds((current) => current.filter((id) => id !== notificationId));
   }
 
   async function markAllVisibleAsRead() {
@@ -140,10 +141,12 @@ export default function AdvisorInboxClient({
       )
     );
 
-    const { error } = await supabaseRef.current
-      .from('order_timeline_event_recipients')
-      .update({ read_at: nextReadAt })
-      .in('id', recipientIds);
+    const results = await Promise.all(
+      recipientIds.map((notificationId) =>
+        supabaseRef.current.rpc('mark_notification_read', { p_notification_id: notificationId })
+      )
+    );
+    const error = results.find((result) => result.error)?.error ?? null;
 
     if (error) {
       setEvents(previousEvents);
@@ -267,7 +270,7 @@ export default function AdvisorInboxClient({
                           href={actionHref(event)}
                           onClick={() => {
                             if (!isRead && !isSaving(event.recipientId)) {
-                              void setRecipientReadState(event.recipientId, true);
+                              void markNotificationRead(event.recipientId);
                             }
                           }}
                           className={[
@@ -331,24 +334,24 @@ export default function AdvisorInboxClient({
                         <div className="mt-3 grid grid-cols-[minmax(64px,1fr)_auto_auto] items-center gap-2 text-xs text-[#8B93A7]">
                           <span className="min-w-0 leading-5">{formatEventTime(event.createdAt)}</span>
                           <div className="justify-self-end">
-                            <button
-                              type="button"
-                              onClick={() => void setRecipientReadState(event.recipientId, isRead ? false : true)}
-                              disabled={isSaving(event.recipientId)}
-                              className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2 text-[10px] font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
-                            >
-                              {isSaving(event.recipientId)
-                                ? 'Guardando...'
-                                : isRead
-                                  ? 'No leida'
-                                  : 'Visto'}
-                            </button>
+                            {!isRead ? (
+                              <button
+                                type="button"
+                                onClick={() => void markNotificationRead(event.recipientId)}
+                                disabled={isSaving(event.recipientId)}
+                                className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2 text-[10px] font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
+                              >
+                                {isSaving(event.recipientId) ? 'Guardando...' : 'Visto'}
+                              </button>
+                            ) : (
+                              <span className="inline-flex h-8 items-center px-2 text-[10px] text-[#6F7890]">Leída</span>
+                            )}
                           </div>
                           <AdvisorPendingLink
                             href={actionHref(event)}
                             onClick={() => {
                               if (!isRead && !isSaving(event.recipientId)) {
-                                void setRecipientReadState(event.recipientId, true);
+                                void markNotificationRead(event.recipientId);
                               }
                             }}
                             className={[

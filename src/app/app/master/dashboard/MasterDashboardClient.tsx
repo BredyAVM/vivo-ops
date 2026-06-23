@@ -61,7 +61,7 @@ import {
   loadDeliveryPartnerRatesAction,
   loadInventoryMovementsAction,
   loadMoneyActivityAction,
-  loadMasterOrderTimelineAction,
+  loadMasterOrderEventsAction,
   saveInventoryRecipeAction,
   updateInventoryItemAction,
   toggleInventoryItemActiveAction,
@@ -762,6 +762,18 @@ type MasterInboxEvent = {
   createdAtISO: string;
   detailLines: string[];
   isUrgent: boolean;
+};
+
+type MasterOrderNotification = {
+  id: number;
+  orderId: number;
+  type: string;
+  status: string;
+  title: string;
+  body: string | null;
+  meta: Record<string, unknown>;
+  createdAt: string;
+  readAt: string | null;
 };
 
 type MasterInboxFilter = 'actions' | 'updates' | 'payments' | 'changes' | 'all';
@@ -3809,6 +3821,7 @@ export default function MasterDashboardClient({
   dashboardUsers = [],
   dashboardUserRoles = [],
   initialMasterInboxItemStates = [],
+  initialMasterNotifications = [],
   advisors = [],
   initialOrders,
   inboxOrders = [],
@@ -3844,6 +3857,7 @@ export default function MasterDashboardClient({
     orderId: number | null;
     status: MasterInboxItemStatus;
   }>;
+  initialMasterNotifications?: MasterOrderNotification[];
   advisors?: AdvisorOption[];
   initialOrders: Order[];
   inboxOrders?: Order[];
@@ -4186,9 +4200,9 @@ const [editIsActive, setEditIsActive] = useState(true);
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [selectedOrderTimeline, setSelectedOrderTimeline] = useState<Order['events'] | null>(null);
-  const [selectedOrderTimelineLoading, setSelectedOrderTimelineLoading] = useState(false);
-  const [selectedOrderTimelineError, setSelectedOrderTimelineError] = useState<string | null>(null);
+  const [selectedOrderEvents, setSelectedOrderEvents] = useState<Order['events'] | null>(null);
+  const [selectedOrderEventsLoading, setSelectedOrderEventsLoading] = useState(false);
+  const [selectedOrderEventsError, setSelectedOrderEventsError] = useState<string | null>(null);
 
   const selectOperationalDay = useCallback(
     (next: Date) => {
@@ -4563,21 +4577,21 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     if (!detailOpen || detailTab !== 'eventos' || selectedOrderId == null) return;
 
     let cancelled = false;
-    setSelectedOrderTimelineLoading(true);
-    setSelectedOrderTimelineError(null);
+    setSelectedOrderEventsLoading(true);
+    setSelectedOrderEventsError(null);
 
-    loadMasterOrderTimelineAction({ orderId: selectedOrderId })
+    loadMasterOrderEventsAction({ orderId: selectedOrderId })
       .then((events) => {
-        if (!cancelled) setSelectedOrderTimeline(events);
+        if (!cancelled) setSelectedOrderEvents(events);
       })
       .catch((error) => {
         if (cancelled) return;
-        setSelectedOrderTimelineError(
-          error instanceof Error ? error.message : 'No se pudo cargar el historial del Centro de Notificaciones.',
+        setSelectedOrderEventsError(
+          error instanceof Error ? error.message : 'No se pudo cargar el historial de eventos.',
         );
       })
       .finally(() => {
-        if (!cancelled) setSelectedOrderTimelineLoading(false);
+        if (!cancelled) setSelectedOrderEventsLoading(false);
       });
 
     return () => {
@@ -5057,32 +5071,37 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         });
       }
     }
-    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(dashboardOrders
-      .flatMap((order) =>
-        (order.events ?? [])
-        .filter((event) => {
-          if (event.recipientRequiresAction) return false;
-          const isOwnInformationalEvent = event.actorUserId === currentUser.id && event.severity === 'info';
-          return !isOwnInformationalEvent;
-        })
-        .map((event) => {
-          const display = getOrderEventDisplay(order, event);
-          return {
-            id: `evt-${event.id}`,
-            orderId: order.id,
-            label: `${order.id} · ${repairDisplayText(order.clientName)}`,
-            deliveryText: `Entrega: ${fmtDeliveryTextES(order.deliveryAtISO)}`,
-            advisorName: order.advisorName,
-            title: repairDisplayText(display.title),
-            message: display.message ? repairDisplayText(display.message) : null,
-            severity: event.severity,
-            openTab: 'eventos' as OrderDetailTab,
-            createdAtISO: event.createdAt,
-            detailLines: getOrderEventDetailLines(order, event),
-            isUrgent: isOrderUrgentForInbox(order, event.severity),
-          };
-        })
-      )
+    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(initialMasterNotifications
+      .map((notification) => {
+        const order = dashboardOrders.find((candidate) => candidate.id === notification.orderId);
+        if (!order) return null;
+
+        const kind = String(notification.meta.kind || '').trim();
+        const reason = String(notification.meta.reason ?? notification.meta.review_notes ?? '').trim();
+        const severity: MasterInboxEvent['severity'] =
+          kind === 'payment_rejected'
+            ? 'critical'
+            : notification.title.toLowerCase().includes('devuelto') || notification.title.toLowerCase().includes('requiere')
+              ? 'warning'
+              : 'info';
+        const detailLines = reason ? [`Motivo: ${repairDisplayText(reason)}`] : [];
+
+        return {
+          id: `notification-${notification.id}`,
+          orderId: order.id,
+          label: `${order.id} · ${repairDisplayText(order.clientName)}`,
+          deliveryText: `Entrega: ${fmtDeliveryTextES(order.deliveryAtISO)}`,
+          advisorName: order.advisorName,
+          title: repairDisplayText(notification.title),
+          message: notification.body ? repairDisplayText(notification.body) : null,
+          severity,
+          openTab: 'eventos' as OrderDetailTab,
+          createdAtISO: notification.createdAt,
+          detailLines,
+          isUrgent: !notification.readAt && isOrderUrgentForInbox(order, severity),
+        };
+      })
+      .filter((event): event is MasterInboxEvent => event != null)
       .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime())
     ).slice(0, 20);
 
@@ -5101,7 +5120,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       activity,
       count: tasks.length,
     };
-  }, [catalogItems, dashboardOrders, currentTimeMs, currentUser.id]);
+  }, [catalogItems, dashboardOrders, currentTimeMs, initialMasterNotifications]);
 
   const masterInboxActiveIds = useMemo(
     () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
@@ -5559,8 +5578,8 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
 
 const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
   setSelectedOrderId(orderId);
-  setSelectedOrderTimeline(null);
-  setSelectedOrderTimelineError(null);
+  setSelectedOrderEvents(null);
+  setSelectedOrderEventsError(null);
   setDetailTab(tab ?? 'detalle');
   resetDeliveryAssignBox();
   resetPaymentReportBox();
@@ -17393,7 +17412,7 @@ onClose={() => {
 {detailTab === 'eventos' ? (
   <div className="space-y-3">
     {(() => {
-      const orderEvents = selectedOrderTimeline ?? selectedOrder.events ?? [];
+      const orderEvents = selectedOrderEvents ?? selectedOrder.events ?? [];
       return (
     <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
       <div className="flex items-center justify-between gap-2">
@@ -17403,17 +17422,17 @@ onClose={() => {
           tone={orderEvents.length > 0 ? 'brand' : 'muted'}
         />
       </div>
-      {selectedOrderTimelineLoading ? (
+      {selectedOrderEventsLoading ? (
         <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-          Cargando historial desde el Centro de Notificaciones…
+          Cargando historial de eventos…
         </div>
-      ) : selectedOrderTimelineError ? (
+      ) : selectedOrderEventsError ? (
         <div className="mt-3 rounded-lg border border-[#7A3D20] bg-[#17100C] px-3 py-3 text-sm text-[#F5B17A]">
-          {selectedOrderTimelineError}
+          {selectedOrderEventsError}
         </div>
       ) : orderEvents.length === 0 ? (
         <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-          Sin eventos registrados en el Centro de Notificaciones.
+          Sin historial registrado.
         </div>
       ) : (
         <div className="mt-3 space-y-2">

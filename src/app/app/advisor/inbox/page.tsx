@@ -5,13 +5,13 @@ import { PageIntro } from '../advisor-ui';
 import AdvisorInboxClient from './AdvisorInboxClient';
 import {
   type InboxEvent,
-  INCLUDED_EVENT_TYPES,
-  buildLatestOrderActionState,
+  ACTION_EVENT_TYPES,
   buildDetailLines,
   coalesceInboxEvents,
   eventTitle,
   eventTone,
   getFilterForEvent,
+  getOrderNotificationEventType,
   normalizeFilter,
   safeText,
   shouldRequireAdvisorAction,
@@ -40,32 +40,16 @@ type OrderRow = {
     | null;
 };
 
-type TimelineRecipientRow = {
+type NotificationRow = {
   id: number;
-  requires_action: boolean;
+  order_id: number | null;
+  type: string;
+  status: string;
+  title: string;
+  body: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string;
   read_at: string | null;
-  event:
-    | {
-        id: number | string | null;
-        order_id: number | string | null;
-        order_number: string | null;
-        event_type: string | null;
-        title: string | null;
-        message: string | null;
-        payload: Record<string, unknown> | null;
-        created_at: string | null;
-      }[]
-    | {
-        id: number | string | null;
-        order_id: number | string | null;
-        order_number: string | null;
-        event_type: string | null;
-        title: string | null;
-        message: string | null;
-        payload: Record<string, unknown> | null;
-        created_at: string | null;
-      }
-    | null;
 };
 
 function getClientName(order: OrderRow) {
@@ -96,35 +80,31 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const { data: recipientsData } = await ctx.supabase
-    .from('order_timeline_event_recipients')
-    .select(
-      'id, requires_action, read_at, event:order_timeline_events!inner(id, order_id, order_number, event_type, title, message, payload, created_at)'
-    )
-    .or(`target_user_id.eq.${ctx.user.id},target_role.eq.advisor`)
-    .order('id', { ascending: false })
+  const { data: notificationsData } = await ctx.supabase
+    .from('notifications')
+    .select('id, order_id, type, status, title, body, meta, created_at, read_at')
+    .eq('recipient_user_id', ctx.user.id)
+    .not('order_id', 'is', null)
+    .order('created_at', { ascending: false })
     .limit(200);
 
-  const rawRecipients = (recipientsData ?? []) as TimelineRecipientRow[];
-  const recipientOrderIds = Array.from(
+  const notifications = (notificationsData ?? []) as NotificationRow[];
+  const notificationOrderIds = Array.from(
     new Set(
-      rawRecipients
-        .map((recipient) => {
-          const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-          return Number(event?.order_id || 0);
-        })
+      notifications
+        .map((notification) => Number(notification.order_id || 0))
         .filter((id) => Number.isFinite(id) && id > 0)
     )
   );
 
-  const { data: ordersData } = recipientOrderIds.length > 0
+  const { data: ordersData } = notificationOrderIds.length > 0
     ? await ctx.supabase
         .from('orders')
         .select(
           'id, order_number, status, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)'
         )
         .eq('attributed_advisor_id', ctx.user.id)
-        .in('id', recipientOrderIds)
+        .in('id', notificationOrderIds)
         .limit(200)
     : { data: [] };
 
@@ -133,23 +113,17 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
     client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
   }));
   const orderById = new Map(orders.map((order) => [order.id, order]));
-  const latestActionState = buildLatestOrderActionState(rawRecipients);
 
-  const inboxEvents: InboxEvent[] = coalesceInboxEvents(rawRecipients
-    .map((recipient) => {
-      const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-      if (!event) return null;
-
-      const eventType = safeText(event.event_type, '');
-      if (!INCLUDED_EVENT_TYPES.has(eventType)) return null;
-
-      const orderId = Number(event.order_id || 0);
+  const inboxEvents: InboxEvent[] = coalesceInboxEvents(notifications
+    .map((notification) => {
+      const eventType = getOrderNotificationEventType(notification);
+      const orderId = Number(notification.order_id || 0);
       const order = orderById.get(orderId);
       if (!order) return null;
 
       const payload =
-        event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
-          ? (event.payload as Record<string, unknown>)
+        notification.meta && typeof notification.meta === 'object' && !Array.isArray(notification.meta)
+          ? (notification.meta as Record<string, unknown>)
           : {};
       const detailLines = buildDetailLines(eventType, {
         ...payload,
@@ -157,26 +131,25 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       });
       const requiresAction = shouldRequireAdvisorAction(
         eventType,
-        recipient.requires_action,
+        ACTION_EVENT_TYPES.has(eventType),
         order.status,
-        orderId,
-        latestActionState
+        orderId
       );
 
       return {
-        id: `recipient-${recipient.id}`,
-        recipientId: Number(recipient.id),
+        id: `notification-${notification.id}`,
+        recipientId: Number(notification.id),
         orderId,
         orderNumber: `Orden ${formatOrderDisplayNumber(orderId)}`,
         clientName: getClientName(order),
         deliveryLabel: getDeliveryLabel(order),
-        title: eventTitle(eventType, String(event.title || '')),
-        message: shortMessage(eventType, event.message, detailLines),
+        title: eventTitle(eventType, notification.title),
+        message: shortMessage(eventType, notification.body, detailLines),
         eventType,
-        createdAt: String(event.created_at || order.created_at),
+        createdAt: String(notification.created_at || order.created_at),
         detailLines,
         requiresAction,
-        readAt: recipient.read_at,
+        readAt: notification.read_at ?? (notification.status === 'read' ? notification.created_at : null),
         tone: eventTone(eventType),
       } satisfies InboxEvent;
     })

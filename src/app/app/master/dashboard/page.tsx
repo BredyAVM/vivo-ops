@@ -500,6 +500,18 @@ type RawTimelineEventRecipientRow = {
   read_at: string | null;
 };
 
+type RawNotificationRow = {
+  id: number | string;
+  order_id: number | string | null;
+  type: string | null;
+  status: string | null;
+  title: string | null;
+  body: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string | null;
+  read_at: string | null;
+};
+
 function toNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -1071,6 +1083,38 @@ const initialMasterInboxItemStates = ((masterInboxStatesData ?? []) as RawMaster
     orderId: row.order_id == null ? null : Number(row.order_id),
     status: row.status === 'resolved' ? 'resolved' as const : 'reviewed' as const,
   }));
+
+const { data: masterNotificationsData, error: masterNotificationsError } = await withDashboardOptionalTimeout(
+  'notifications',
+  supabase
+    .from('notifications')
+    .select('id, order_id, type, status, title, body, meta, created_at, read_at')
+    .eq('recipient_user_id', user.id)
+    .not('order_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(200),
+  optionalSupabaseResponse([] as RawNotificationRow[])
+);
+
+if (masterNotificationsError) {
+  console.warn('notifications unavailable for master inbox', masterNotificationsError.message);
+}
+
+const initialMasterNotifications = ((masterNotificationsData ?? []) as RawNotificationRow[])
+  .map((notification) => ({
+    id: Number(notification.id),
+    orderId: Number(notification.order_id),
+    type: String(notification.type || ''),
+    status: String(notification.status || 'unread'),
+    title: String(notification.title || 'Notificación'),
+    body: notification.body == null ? null : String(notification.body),
+    meta: notification.meta && typeof notification.meta === 'object' && !Array.isArray(notification.meta)
+      ? notification.meta
+      : {},
+    createdAt: String(notification.created_at || ''),
+    readAt: notification.read_at == null ? null : String(notification.read_at),
+  }))
+  .filter((notification) => Number.isFinite(notification.id) && notification.id > 0 && Number.isFinite(notification.orderId) && notification.orderId > 0);
 
 const { data: deliveryPartnersData, error: deliveryPartnersError } = await withDashboardOptionalTimeout(
   'delivery_partners',
@@ -3061,6 +3105,7 @@ currentUser={{
       dashboardUsers={dashboardUsers}
       dashboardUserRoles={dashboardUserRoles}
       initialMasterInboxItemStates={initialMasterInboxItemStates}
+      initialMasterNotifications={initialMasterNotifications}
       advisors={advisorOptions}
       drivers={driverOptions}
       deliveryPartners={deliveryPartnerOptions}

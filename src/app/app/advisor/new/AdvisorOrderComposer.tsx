@@ -19,7 +19,6 @@ import {
 import {
   ensureAdvisorOrderCreatedEventAction,
   markAdvisorOrderDraftConvertedAction,
-  recordAdvisorOrderModifiedEventAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
   updateAdvisorOrderHeaderAction,
@@ -1400,6 +1399,7 @@ export default function AdvisorOrderComposer({
   const savingDraftRef = useRef(false);
   const [itemJustAdded, setItemJustAdded] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
+  const [existingOrderNumber, setExistingOrderNumber] = useState('');
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
   const [advisorRecalculationMode, setAdvisorRecalculationMode] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState<number | null>(
@@ -1793,6 +1793,7 @@ export default function AdvisorOrderComposer({
 
       if (!isEditingOrder) {
         setOriginalEditSnapshot(null);
+        setExistingOrderNumber('');
         setExistingOrderStatus('');
         setAdvisorRecalculationMode(false);
       }
@@ -1937,6 +1938,7 @@ export default function AdvisorOrderComposer({
           setDeliveryNotePhone(
             documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone || ''
           );
+          setExistingOrderNumber(String(order.order_number || ''));
           setExistingOrderStatus(String(order.status || ''));
 
           if (isEditingOrder) {
@@ -2015,6 +2017,7 @@ export default function AdvisorOrderComposer({
             );
           } else {
             setOriginalEditSnapshot(null);
+            setExistingOrderNumber('');
             setExistingOrderStatus('');
             setInfo(
               skippedRepeatItems.length > 0
@@ -2170,6 +2173,7 @@ export default function AdvisorOrderComposer({
     setActiveDraftId(Number(draft.id));
     setActiveDraftStatus(nextStatus);
     setOriginalEditSnapshot(null);
+    setExistingOrderNumber('');
     setExistingOrderStatus('');
     setAdvisorRecalculationMode(false);
 
@@ -3411,17 +3415,24 @@ export default function AdvisorOrderComposer({
         });
 
         if (changeMeta.summary.length > 0) {
-          try {
-            await recordAdvisorOrderModifiedEventAction({
-              orderId: targetOrderId,
-              changedSections: changeMeta.sections,
-              changeSummary: changeMeta.summary,
-            });
-          } catch (timelineError) {
-            console.warn(
-              'No se pudo registrar el evento de modificacion.',
-              timelineError instanceof Error ? timelineError.message : timelineError,
-            );
+          const { error: timelineError } = await supabase.from('order_timeline_events').insert({
+            order_id: targetOrderId,
+            order_number: existingOrderNumber || null,
+            event_type: 'order_modified',
+            event_group: 'modification',
+            title: existingOrderStatus === 'queued' ? 'Orden modificada para re-aprobacion' : 'Orden modificada',
+            message: changeMeta.summary.join(' '),
+            severity: existingOrderStatus === 'queued' ? 'warning' : 'info',
+            actor_user_id: authUserId || null,
+            payload: {
+              changed_sections: changeMeta.sections,
+              change_summary: changeMeta.summary,
+              source: 'advisor_mobile',
+            },
+          });
+
+          if (timelineError) {
+            console.warn('No se pudo registrar el evento de modificacion.', timelineError.message);
           }
         }
       }
