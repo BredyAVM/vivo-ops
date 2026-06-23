@@ -151,7 +151,10 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
           ? (event.payload as Record<string, unknown>)
           : {};
-      const detailLines = buildDetailLines(eventType, payload);
+      const detailLines = buildDetailLines(eventType, {
+        ...payload,
+        order_created_at: payload.order_created_at ?? order.created_at,
+      });
       const requiresAction = shouldRequireAdvisorAction(
         eventType,
         recipient.requires_action,

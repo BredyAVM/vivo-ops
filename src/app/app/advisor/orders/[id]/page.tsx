@@ -194,6 +194,14 @@ function safeText(value: unknown, fallback = 'Sin dato') {
   return text || fallback;
 }
 
+function formatEventTime(value: string) {
+  return new Date(value).toLocaleString('es-VE', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: 'America/Caracas',
+  });
+}
+
 function normalizePhoneForWhatsApp(value: string | null | undefined) {
   const normalized = String(value || '').replace(/[^\d+]/g, '').trim();
   if (!normalized) return '';
@@ -712,16 +720,21 @@ function eventTone(eventType: string): TimelineEvent['tone'] {
 function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
   const details: string[] = [];
   const reason = safeText(payload.reason ?? payload.review_notes ?? payload.notes ?? payload.note, '');
+  const orderCreatedAt = safeText(payload.order_created_at ?? payload.orderCreatedAt, '');
   const etaMinutes = payload.eta_minutes ?? payload.etaMinutes;
   const driver = safeText(payload.driver_name ?? payload.driverName ?? payload.partner_name ?? payload.partnerName, '');
 
+  const isOrderReviewEvent = eventType === 'order_returned_to_review' || eventType === 'order_changes_rejected';
+
   if (
-    (eventType === 'order_returned_to_review' ||
-      eventType === 'order_changes_rejected' ||
-      eventType === 'payment_rejected') &&
+    (isOrderReviewEvent || eventType === 'payment_rejected') &&
     reason
   ) {
     details.push(`Motivo: ${reason}`);
+  }
+
+  if (isOrderReviewEvent && orderCreatedAt) {
+    details.push(`Pedido creado: ${formatEventTime(orderCreatedAt)}`);
   }
 
   if (eventType === 'client_fund_application_requested') {
@@ -841,7 +854,10 @@ export default async function AdvisorOrderDetailPage({
           : event.meta && typeof event.meta === 'object' && !Array.isArray(event.meta)
             ? (event.meta as Record<string, unknown>)
             : {};
-      const detailLines = buildDetailLines(eventType, payload);
+      const detailLines = buildDetailLines(eventType, {
+        ...payload,
+        order_created_at: payload.order_created_at ?? order.created_at,
+      });
 
       return {
         id: `${eventType}-${String(event.id ?? '')}`,

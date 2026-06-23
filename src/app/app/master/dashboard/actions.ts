@@ -378,6 +378,7 @@ async function notifyAdminMoneyApproval(input: {
 type OrderEventContext = {
   orderId: number;
   orderNumber: string | null;
+  createdAt: string | null;
   advisorUserId: string | null;
   internalDriverUserId: string | null;
   fulfillment: 'pickup' | 'delivery' | null;
@@ -636,7 +637,7 @@ async function loadOrderEventContext(
 ): Promise<OrderEventContext | null> {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, attributed_advisor_id, internal_driver_user_id, fulfillment, status, client:clients!orders_client_id_fkey(full_name)')
+    .select('id, order_number, created_at, attributed_advisor_id, internal_driver_user_id, fulfillment, status, client:clients!orders_client_id_fkey(full_name)')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -649,6 +650,7 @@ async function loadOrderEventContext(
   return {
     orderId: Number(data.id),
     orderNumber: data.order_number == null ? null : String(data.order_number),
+    createdAt: data.created_at == null ? null : String(data.created_at),
     advisorUserId: data.attributed_advisor_id ?? null,
     internalDriverUserId: data.internal_driver_user_id ?? null,
     fulfillment:
@@ -2591,12 +2593,13 @@ export async function returnToCreatedAction(input: {
     context: eventContext,
     eventType: 'order_returned_to_review',
     eventGroup: 'approval',
-    title: 'Orden devuelta a revisión',
-    message: reason,
+    title: 'Pedido devuelto: corrección requerida',
+    message: 'El pedido fue devuelto y requiere corrección.',
     severity: 'warning',
     actorUserId: user.id,
     payload: {
       reason,
+      order_created_at: eventContext?.createdAt ?? null,
       previous_status: currentOrder.status,
       recalculation_required: Boolean(input.recalculatePricing),
       recalculation_fx_rate: activeRate,

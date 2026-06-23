@@ -83,8 +83,8 @@ function buildAdvisorPushCopy(input: {
       body: `${clientName}. La orden ya puede avanzar.`,
     },
     order_returned_to_review: {
-      title: `${orderLabel} devuelta`,
-      body: reason ? `${clientName}. Motivo: ${reason}` : `${clientName}. Revisa la orden.`,
+      title: `${orderLabel} requiere corrección`,
+      body: reason ? `${clientName}. Motivo de devolución: ${reason}` : `${clientName}. Revisa la orden.`,
     },
     order_reapproved: {
       title: `${orderLabel} re-aprobada`,
