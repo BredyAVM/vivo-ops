@@ -2363,20 +2363,72 @@ export async function rejectPaymentReportAction(input: {
   reviewNotes: string;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
+  const reviewNotes = String(input.reviewNotes || '').trim();
+
+  if (!reviewNotes) {
+    throw new Error('Debes indicar un motivo de rechazo.');
+  }
 
   const { data: currentReport } = await supabase
     .from('payment_reports')
-    .select('order_id')
+    .select('id, order_id')
     .eq('id', input.reportId)
     .maybeSingle();
 
+  if (!currentReport) {
+    throw new Error('No se encontró el reporte de pago.');
+  }
+
+  const orderId = Number(currentReport.order_id);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('El reporte no tiene una orden válida.');
+  }
+
+  const eventContext = await loadOrderEventContext(supabase, orderId);
+
   const { error } = await supabase.rpc('reject_payment_report', {
     p_report_id: input.reportId,
-    p_review_notes: input.reviewNotes,
+    p_review_notes: reviewNotes,
   });
 
   if (error) throw new Error(error.message);
+
+  const { data: existingEvent, error: existingEventError } = await supabase
+    .from('order_timeline_events')
+    .select('id')
+    .eq('order_id', orderId)
+    .eq('event_type', 'payment_rejected')
+    .contains('payload', { payment_report_id: Number(currentReport.id) })
+    .maybeSingle();
+
+  if (existingEventError) throw new Error(existingEventError.message);
+
+  if (!existingEvent) {
+    await appendOrderEvent(supabase, {
+      orderId,
+      context: eventContext,
+      eventType: 'payment_rejected',
+      eventGroup: 'payment',
+      title: 'Pago rechazado: corrección requerida',
+      message: 'El pago fue rechazado y requiere corrección.',
+      severity: 'critical',
+      actorUserId: user.id,
+      payload: {
+        payment_report_id: Number(currentReport.id),
+        reason: reviewNotes,
+        review_notes: reviewNotes,
+      },
+      recipients: [
+        { targetRole: 'master' },
+        { targetUserId: eventContext?.advisorUserId, requiresAction: true },
+      ],
+    });
+  }
+
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
 }
 
 export async function approveOrderAction(input: {
