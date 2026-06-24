@@ -4200,6 +4200,9 @@ const [editIsActive, setEditIsActive] = useState(true);
 
   const [tray, setTray] = useState<MasterTray>('all');
   const [search, setSearch] = useState('');
+  const [submittedOrderSearch, setSubmittedOrderSearch] = useState('');
+  const [isOrderSearchSubmitted, setIsOrderSearchSubmitted] = useState(false);
+  const [orderSearchSubmissionVersion, setOrderSearchSubmissionVersion] = useState(0);
   const [remoteOrderSearchResults, setRemoteOrderSearchResults] = useState<MasterOrderSearchResult[]>([]);
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
@@ -4705,7 +4708,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   );
 
   const localOrderSearchResults = useMemo(() => {
-    const q = normalizeLooseText(search);
+    const q = normalizeLooseText(submittedOrderSearch);
     if (!q) return [];
 
     const numericQuery = Number(q);
@@ -4749,7 +4752,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         operationalDate: toDateInputValue(new Date(o.order.deliveryAtISO)),
         source: 'local' as const,
       }));
-  }, [orders, search]);
+  }, [orders, submittedOrderSearch]);
 
   const mergedOrderSearchResults = useMemo(() => {
     const localIds = new Set(localOrderSearchResults.map((result) => result.id));
@@ -4766,10 +4769,12 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     return [...localOrderSearchResults, ...remote].slice(0, 12);
   }, [localOrderSearchResults, remoteOrderSearchResults]);
 
-  const shouldSearchOrders = search.trim().length >= 2 || /^\d+$/.test(search.trim());
+  const shouldSearchOrders =
+    isOrderSearchSubmitted &&
+    (submittedOrderSearch.trim().length >= 2 || /^\d+$/.test(submittedOrderSearch.trim()));
 
   useEffect(() => {
-    const query = search.trim();
+    const query = submittedOrderSearch.trim();
 
     if (!shouldSearchOrders) {
       setRemoteOrderSearchResults([]);
@@ -4803,7 +4808,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [search, shouldSearchOrders]);
+  }, [submittedOrderSearch, orderSearchSubmissionVersion, shouldSearchOrders]);
 
   const dayOrders = useMemo(() => {
     if (!selectedDay) return [];
@@ -5596,6 +5601,8 @@ const openOrderPanel = (orderId: number, tab?: typeof detailTab) => {
 
 const openSearchOrderResult = (result: { id: number; operationalDate: string }) => {
   setSearch('');
+  setSubmittedOrderSearch('');
+  setIsOrderSearchSubmitted(false);
   setRemoteOrderSearchResults([]);
   setRemoteOrderSearchError(null);
 
@@ -12938,13 +12945,39 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 Este día superó {orderScope.limit} órdenes. Se muestran las más recientes; conviene abrir una búsqueda paginada.
               </div>
             ) : null}
-            <div className="relative w-full md:max-w-md">
+            <form
+              className="relative w-full md:max-w-md"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const query = search.trim();
+                setSubmittedOrderSearch(query);
+                setIsOrderSearchSubmitted(true);
+                setOrderSearchSubmissionVersion((version) => version + 1);
+                setRemoteOrderSearchResults([]);
+                setRemoteOrderSearchError(null);
+              }}
+            >
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar orden o cliente"
-                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setIsOrderSearchSubmitted(false);
+                }}
+                placeholder="Buscar orden o cliente y presiona Enter"
+                aria-label="Buscar orden o cliente"
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] py-1.5 pl-3.5 pr-24 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
               />
+              <button
+                type="submit"
+                className="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-1.5 rounded-lg border border-[#3A3A4A] bg-[#121218] px-2.5 py-1 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/50 hover:text-[#FEEF00]"
+                title="Buscar"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                  <circle cx="11" cy="11" r="6" />
+                  <path d="m16 16 4 4" />
+                </svg>
+                Buscar
+              </button>
               {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError) ? (
                 <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
                   {mergedOrderSearchResults.map((r) => (
@@ -12976,7 +13009,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   ) : null}
                 </div>
               ) : null}
-            </div>
+            </form>
 
             <div className="flex flex-wrap gap-2">
               <button
