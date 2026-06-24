@@ -7067,130 +7067,33 @@ function getOrderOperationalDate(order: { created_at?: unknown; extra_fields?: u
 export async function searchMasterOrdersAction(input: { query: string; limit?: number }) {
   const { supabase } = await requireMasterOrAdmin();
   const query = normalizeRemoteSearchValue(input.query);
-  const numericQuery = Number(query);
-  const exactOrderId = Number.isFinite(numericQuery) && numericQuery > 0 ? Math.trunc(numericQuery) : null;
 
-  if (query.length < 2 && exactOrderId == null) {
+  if (query.length < 2) {
     return [];
   }
 
   const limit = Math.max(1, Math.min(20, Math.floor(Number(input.limit ?? 10) || 10)));
-  const pattern = `%${query}%`;
-  const phonePatterns = getPhoneSearchTerms(query)
-    .map((term) => term.replace(/[,%]/g, ' '))
-    .filter(Boolean)
-    .slice(0, 4);
-
-  const { data: accentSafeClients, error: accentSafeClientsError } = await supabase.rpc('search_clients_unaccent', {
+  const { data, error } = await supabase.rpc('search_master_orders', {
     p_query: query,
-    p_limit: 25,
+    p_limit: limit,
   });
 
-  const matchedClients =
-    !accentSafeClientsError && Array.isArray(accentSafeClients)
-      ? accentSafeClients
-      : (await supabase
-          .from('clients')
-          .select('id')
-          .or(
-            [
-              `full_name.ilike.${pattern}`,
-              `phone.ilike.${pattern}`,
-              ...phonePatterns.map((term) => `phone.ilike.%${term}%`),
-            ].join(','),
-          )
-          .limit(25)).data;
+  if (error) throw new Error(error.message);
 
-  const matchedClientIds = Array.from(
-    new Set((matchedClients ?? []).map((client) => Number(client.id)).filter((id) => Number.isFinite(id) && id > 0)),
-  );
-
-  const orderSelect = `
-    id,
-    order_number,
-    status,
-    fulfillment,
-    total_usd,
-    total_bs_snapshot,
-    created_at,
-    delivery_address,
-    extra_fields,
-    client:clients!orders_client_id_fkey (
-      full_name,
-      phone
-    ),
-    advisor:profiles!orders_attributed_advisor_id_fkey (
-      full_name
-    )
-  `;
-
-  const orderQueries = [
-    supabase
-      .from('orders')
-      .select(orderSelect)
-      .ilike('order_number', pattern)
-      .order('created_at', { ascending: false })
-      .limit(limit),
-    supabase
-      .from('orders')
-      .select(orderSelect)
-      .ilike('delivery_address', pattern)
-      .order('created_at', { ascending: false })
-      .limit(limit),
-    exactOrderId
-      ? supabase
-          .from('orders')
-          .select(orderSelect)
-          .eq('id', exactOrderId)
-          .limit(1)
-      : Promise.resolve({ data: [], error: null }),
-    matchedClientIds.length > 0
-      ? supabase
-          .from('orders')
-          .select(orderSelect)
-          .in('client_id', matchedClientIds)
-          .order('created_at', { ascending: false })
-          .limit(limit)
-      : Promise.resolve({ data: [], error: null }),
-  ];
-
-  const results = await Promise.all(orderQueries);
-  const firstError = results.find((result) => result.error)?.error;
-  if (firstError) throw new Error(firstError.message);
-
-  const byId = new Map<number, any>();
-  for (const result of results) {
-    for (const row of result.data ?? []) {
-      const id = Number(row.id);
-      if (Number.isFinite(id) && id > 0) byId.set(id, row);
-    }
-  }
-
-  return Array.from(byId.values())
-    .sort((a, b) => {
-      if (exactOrderId && Number(a.id) === exactOrderId) return -1;
-      if (exactOrderId && Number(b.id) === exactOrderId) return 1;
-      return new Date(String(b.created_at || '')).getTime() - new Date(String(a.created_at || '')).getTime();
-    })
-    .slice(0, limit)
-    .map((order) => {
-      const client = Array.isArray(order.client) ? order.client[0] ?? null : order.client;
-      const advisor = Array.isArray(order.advisor) ? order.advisor[0] ?? null : order.advisor;
-
-      return {
-        id: Number(order.id),
-        orderNumber: String(order.order_number || order.id),
-        status: String(order.status || ''),
-        fulfillment: String(order.fulfillment || ''),
-        clientName: String(client?.full_name || 'Sin cliente'),
-        clientPhone: client?.phone ? String(client.phone) : null,
-        advisorName: String(advisor?.full_name || ''),
-        totalUsd: getEffectiveOrderTotalUsd(order),
-        totalBs: getEffectiveOrderTotalBs(order),
-        createdAt: String(order.created_at || ''),
-        operationalDate: getOrderOperationalDate(order),
-      };
-    });
+  return (data ?? []).map((order: Record<string, unknown>) => ({
+    id: Number(order.id),
+    orderNumber: String(order.order_number || order.id),
+    matchPriority: Number(order.match_priority ?? Number.MAX_SAFE_INTEGER),
+    status: String(order.status || ''),
+    fulfillment: String(order.fulfillment || ''),
+    clientName: String(order.client_name || 'Sin cliente'),
+    clientPhone: order.client_phone ? String(order.client_phone) : null,
+    advisorName: String(order.advisor_name || ''),
+    totalUsd: getEffectiveOrderTotalUsd(order),
+    totalBs: getEffectiveOrderTotalBs(order),
+    createdAt: String(order.created_at || ''),
+    operationalDate: getOrderOperationalDate(order),
+  }));
 }
 
 export async function loadClientStatsAction() {

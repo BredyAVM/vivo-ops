@@ -701,6 +701,7 @@ type OperationStatsSummary = {
 type MasterOrderSearchResult = {
   id: number;
   orderNumber: string;
+  matchPriority: number;
   status: string;
   fulfillment: string;
   clientName: string;
@@ -4711,20 +4712,18 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const q = normalizeLooseText(submittedOrderSearch);
     if (!q) return [];
 
-    const numericQuery = Number(q);
+    const numericQuery = /^\d+$/.test(q) ? Number(q) : Number.NaN;
 
     return orders
       .map((o) => {
         const idText = String(o.id);
         const orderNumberText = normalizeLooseText(String(o.orderNumber || ''));
         const clientText = normalizeLooseText(o.clientName);
-        const advisorText = normalizeLooseText(o.advisorName);
         const addressText = normalizeLooseText(String(o.address || ''));
         const matches =
-          idText.includes(q) ||
+          idText.startsWith(q) ||
           orderNumberText.includes(q) ||
           clientText.includes(q) ||
-          advisorText.includes(q) ||
           addressText.includes(q);
 
         if (!matches) return null;
@@ -4734,11 +4733,19 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
             ? 0
             : orderNumberText === q
               ? 1
-              : orderNumberText.includes(q)
+              : idText.startsWith(q)
                 ? 2
-                : clientText.startsWith(q)
+                : orderNumberText.startsWith(q)
                   ? 3
-                  : 4;
+                  : clientText === q
+                    ? 4
+                    : clientText.startsWith(q)
+                      ? 5
+                      : orderNumberText.includes(q)
+                        ? 6
+                        : clientText.includes(q)
+                          ? 7
+                          : 8;
 
         return { order: o, rank };
       })
@@ -4747,6 +4754,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .slice(0, 10)
       .map((o) => ({
         id: o.order.id,
+        matchPriority: o.rank,
         label: `${fmtShortOrderLabel(o.order.id)} · ${o.order.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
         operationalDate: toDateInputValue(new Date(o.order.deliveryAtISO)),
@@ -4760,13 +4768,16 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .filter((result) => !localIds.has(result.id))
       .map((result) => ({
         id: result.id,
+        matchPriority: result.matchPriority,
         label: `${fmtShortOrderLabel(result.id)} · ${result.clientName}`,
         sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} · ${result.operationalDate} · ${fmtUSD(result.totalUsd)}`,
         operationalDate: result.operationalDate,
         source: 'remote' as const,
       }));
 
-    return [...localOrderSearchResults, ...remote].slice(0, 12);
+    return [...localOrderSearchResults, ...remote]
+      .sort((a, b) => a.matchPriority - b.matchPriority || b.id - a.id)
+      .slice(0, 12);
   }, [localOrderSearchResults, remoteOrderSearchResults]);
 
   const shouldSearchOrders =
