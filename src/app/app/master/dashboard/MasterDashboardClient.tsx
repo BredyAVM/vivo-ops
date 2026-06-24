@@ -33,6 +33,7 @@ import {
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
+import { groupOrderItemsByPriority, sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import {
   approveOrderAction,
   applyClientFundPaymentAction,
@@ -9720,7 +9721,7 @@ const handleCreateOrder = async () => {
       deliveryNoteAddress: createOrderDeliveryNoteAddress,
       deliveryNotePhone: createOrderDeliveryNotePhone,
 
-items: createOrderDraftItems.map((item) => ({
+items: createOrderDraftItemsByPriority.map((item) => ({
   productId: item.productId,
   skuSnapshot: item.skuSnapshot,
   productNameSnapshot: item.productNameSnapshot,
@@ -9825,7 +9826,7 @@ const handleUpdateOrder = async () => {
       deliveryNoteAddress: createOrderDeliveryNoteAddress,
       deliveryNotePhone: createOrderDeliveryNotePhone,
 
-items: createOrderDraftItems.map((item) => ({
+items: createOrderDraftItemsByPriority.map((item) => ({
   productId: item.productId,
   skuSnapshot: item.skuSnapshot,
   productNameSnapshot: item.productNameSnapshot,
@@ -10048,7 +10049,27 @@ const createOrderFilteredProducts = catalogItems
 
 const createOrderFxRateNumber = Math.max(0, Number(createOrderFxRate || 0));
 
-const createOrderLineSnapshots = createOrderDraftItems.map((item) =>
+const createOrderPriorityInput = (item: DraftItem) => {
+  const catalogItem = catalogItemById.get(item.productId);
+
+  return {
+    productType: catalogItem?.type,
+    productName: item.productNameSnapshot,
+    internalRiderPayUsd: catalogItem?.internalRiderPayUsd,
+  };
+};
+
+const createOrderDraftItemsByPriority = sortOrderItemsByPriority(
+  createOrderDraftItems,
+  createOrderPriorityInput
+);
+
+const createOrderDraftItemGroups = groupOrderItemsByPriority(
+  createOrderDraftItems,
+  createOrderPriorityInput
+);
+
+const createOrderLineSnapshots = createOrderDraftItemsByPriority.map((item) =>
   calculateOrderLineSnapshot({
     sourceCurrency: item.sourcePriceCurrency,
     sourceAmount: item.sourcePriceAmount,
@@ -23640,13 +23661,20 @@ deliveryAssignMode === 'external' ? (
             Sin ítems cargados.
           </div>
         ) : (
-          <div className="mt-4 space-y-2">
-            {createOrderDraftItems.map((item, idx) => (
+          <div className="mt-4 space-y-4">
+            {createOrderDraftItemGroups.map((group) => (
+              <div key={group.key} className="space-y-2">
+                <div className="px-1 text-xs font-semibold uppercase tracking-wide text-[#8A8A96]">
+                  {group.label}
+                </div>
+                {group.items.map((item) => (
               <div
                 key={item.localId}
                 className="grid grid-cols-1 gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-2.5 md:grid-cols-[28px_1fr_78px_96px_96px_auto]"
               >
-                <div className="text-[12px] text-[#8A8A96]">{idx + 1}</div>
+                <div className="text-[12px] text-[#8A8A96]">
+                  {createOrderDraftItemsByPriority.findIndex((draftItem) => draftItem.localId === item.localId) + 1}
+                </div>
 
 <div>
   <div className="text-[13px] font-medium text-[#F5F5F7]">{repairDisplayText(item.productNameSnapshot)}</div>
@@ -23763,6 +23791,8 @@ deliveryAssignMode === 'external' ? (
     Ajuste admin: {item.adminPriceOverrideReason}
   </div>
 ) : null}
+              </div>
+                ))}
               </div>
             ))}
 

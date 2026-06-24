@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { getOrderCommercialNetUsd, getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
 import MasterDashboardClient from './MasterDashboardClient';
@@ -2808,7 +2809,15 @@ const isNewClient =
 
     const deliveryAtISO = buildDeliveryISO(row.extra_fields, row.created_at);
 
-    const rowItems = itemsByOrder.get(row.id) ?? [];
+    const rowItems = sortOrderItemsByPriority(itemsByOrder.get(row.id) ?? [], (item) => {
+      const catalogItem = catalogItemById.get(Number(item.product_id));
+
+      return {
+        productType: catalogItem?.type,
+        productName: item.product_name_snapshot,
+        internalRiderPayUsd: catalogItem?.internalRiderPayUsd,
+      };
+    });
     const paymentReports = paymentReportsByOrder.get(row.id) ?? [];
     const orderEvents = orderEventsByOrder.get(row.id) ?? [];
     const adminAdjustments = (adjustmentsByOrder.get(row.id) ?? []).map((adjustment) => ({
