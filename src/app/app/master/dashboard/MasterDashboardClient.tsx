@@ -1349,6 +1349,8 @@ function toDateInputValue(d: Date) {
 
 const CALENDAR_WEEKDAY_LABELS = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'] as const;
 const MASTER_OPERATIONAL_TASK_LEAD_MINUTES = 60;
+const DELIVERY_PUNCTUALITY_GRACE_MINUTES = 5;
+const DELIVERY_PUNCTUALITY_GRACE_MS = DELIVERY_PUNCTUALITY_GRACE_MINUTES * 60 * 1000;
 
 function fmtCalendarMonthES(d: Date) {
   const month = d.toLocaleDateString('es-VE', {
@@ -2939,7 +2941,8 @@ function getOrderFocusTab(order: Order, nowMs: number): OrderDetailTab {
 
 function getDeliveryTimingSummary(order: Order, nowMs: number) {
   const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
-  const isLate = deliveryDueMs != null ? nowMs >= deliveryDueMs : false;
+  const isLate =
+    deliveryDueMs != null ? nowMs > deliveryDueMs + DELIVERY_PUNCTUALITY_GRACE_MS : false;
 
   if (order.status === 'in_kitchen') {
     const etaMinutes = Number(order.editMeta.deliveryEtaMinutes || 0);
@@ -2979,13 +2982,13 @@ function getDeliveryCompletionSummary(order: Order) {
     order.fulfillment === 'pickup' &&
     readyMs != null &&
     deliveryDueMs != null &&
-    readyMs <= deliveryDueMs;
+    readyMs <= deliveryDueMs + DELIVERY_PUNCTUALITY_GRACE_MS;
 
   const deliveryOnTime =
     order.fulfillment === 'delivery' &&
     completedMs != null &&
     deliveryDueMs != null &&
-    completedMs <= deliveryDueMs;
+    completedMs <= deliveryDueMs + DELIVERY_PUNCTUALITY_GRACE_MS;
 
   return {
     readyLabel: order.fulfillment === 'pickup' ? 'Lista a las' : 'Lista a las',
