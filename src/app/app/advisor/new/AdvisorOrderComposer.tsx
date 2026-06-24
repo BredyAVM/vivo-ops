@@ -1853,7 +1853,9 @@ export default function AdvisorOrderComposer({
             isEditingOrder &&
             String(order.status || '') === 'created' &&
             Boolean(pricing?.recalculation_required);
-          const recalculationRate = toSafeNumber(pricing?.recalculation_fx_rate, activeRate);
+          const recalculationRate = activeRate > 0
+            ? activeRate
+            : toSafeNumber(pricing?.recalculation_fx_rate, 0);
           const editFxRate = recalculationRequested
             ? recalculationRate
             : toSafeNumber(pricing?.fx_rate, activeRate);
@@ -3301,6 +3303,34 @@ export default function AdvisorOrderComposer({
     if (!isEditingOrder && !isAsap && isPastAdvisorSchedule(deliveryDate.trim(), deliveryTime24)) {
       setError('No puedes crear una orden con fecha y hora anteriores al momento actual.');
       return;
+    }
+
+    if (advisorRecalculationMode) {
+      const { data: activeRateData, error: activeRateError } = await supabase
+        .from('exchange_rates')
+        .select('rate_bs_per_usd')
+        .eq('is_active', true)
+        .order('effective_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeRateError) {
+        setError(activeRateError.message);
+        return;
+      }
+
+      const latestRate = toSafeNumber(activeRateData?.rate_bs_per_usd, 0);
+      if (latestRate <= 0) {
+        setError('No hay una tasa activa para recalcular esta orden.');
+        return;
+      }
+
+      const normalizedLatestRate = Number(latestRate.toFixed(2));
+      if (Math.abs(normalizedLatestRate - fxRateNumber) > 0.000001) {
+        setFxRate(String(normalizedLatestRate));
+        setInfo('La tasa activa cambió. Se actualizaron los totales; revísalos y vuelve a guardar.');
+        return;
+      }
     }
 
     if (fxRateLockedForAdvisorEdit && originalEditSnapshot?.fxRate && fxRate !== originalEditSnapshot.fxRate) {
