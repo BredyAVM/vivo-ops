@@ -161,6 +161,7 @@ type RawOrderFinancialStateRow = {
 type RawTimelineEvent = {
   id: number | string | null;
   order_id: number | string | null;
+  source?: 'legacy' | 'timeline';
   event_type?: string | null;
   event_group?: string | null;
   title?: string | null;
@@ -643,33 +644,43 @@ function normalizeEventType(event: RawTimelineEvent) {
   return legacyTypeMap[rawType] ?? rawType;
 }
 
-function buildEventDedupKey(event: RawTimelineEvent) {
-  return [
-    Number(event.order_id || 0),
-    normalizeEventType(event),
-    safeText(event.created_at, ''),
-    safeText(event.title, ''),
-    safeText(event.message, ''),
-  ].join('|');
-}
-
 function dedupeEvents(events: RawTimelineEvent[]) {
-  const seen = new Set<string>();
+  const eventTime = (event: RawTimelineEvent) => {
+    const time = new Date(String(event.created_at || '')).getTime();
+    return Number.isFinite(time) ? time : 0;
+  };
+  const sourcePriority = (event: RawTimelineEvent) => event.source === 'timeline' ? 2 : 1;
+  const dedupeKey = (event: RawTimelineEvent) => {
+    const rawType = safeText(event.event_type ?? event.event, '');
+    return event.source === 'legacy' && rawType === 'assign_driver_task_closed'
+      ? rawType
+      : normalizeEventType(event);
+  };
+  const deduplicated: RawTimelineEvent[] = [];
 
-  return events.filter((event) => {
-    const eventType = normalizeEventType(event);
-    if (!eventType) return false;
+  for (const event of events
+    .filter((event) => dedupeKey(event) && event.created_at)
+    .sort((a, b) => eventTime(b) - eventTime(a) || sourcePriority(b) - sourcePriority(a))) {
+    const eventType = dedupeKey(event);
+    const duplicateIndex = deduplicated.findIndex((saved) =>
+      dedupeKey(saved) === eventType
+      && sourcePriority(saved) !== sourcePriority(event)
+      && Math.abs(eventTime(saved) - eventTime(event)) <= 2_000,
+    );
 
-    const dedupKey = buildEventDedupKey(event);
-    if (seen.has(dedupKey)) return false;
+    if (duplicateIndex === -1) {
+      deduplicated.push(event);
+    } else if (sourcePriority(event) > sourcePriority(deduplicated[duplicateIndex])) {
+      deduplicated[duplicateIndex] = event;
+    }
+  }
 
-    seen.add(dedupKey);
-    return true;
-  });
+  return deduplicated;
 }
 
 function eventTitle(eventType: string, fallbackTitle: string) {
   const titles: Record<string, string> = {
+    order_created: 'Orden creada',
     order_modified: 'Orden modificada',
     order_approved: 'Orden aprobada',
     order_returned_to_review: 'Orden devuelta',
@@ -824,7 +835,7 @@ export default async function AdvisorOrderDetailPage({
   const [
     itemsResult,
     paymentsResult,
-    timelineResult,
+    historyResults,
     exchangeRateResult,
   ] = await Promise.all([
       ctx.supabase
@@ -839,12 +850,18 @@ export default async function AdvisorOrderDetailPage({
         )
         .eq('order_id', orderId)
         .order('created_at', { ascending: false }),
-      ctx.supabase
-        .from('order_events')
-        .select('id, order_id, event, performed_by, meta, created_at')
-        .eq('order_id', orderId)
-        .order('created_at', { ascending: false })
-        .limit(80),
+      Promise.all([
+        ctx.supabase
+          .from('order_events')
+          .select('id, order_id, event, performed_by, meta, created_at')
+          .eq('order_id', orderId)
+          .order('created_at', { ascending: false }),
+        ctx.supabase
+          .from('order_timeline_events')
+          .select('id, order_id, event_type, event_group, title, message, severity, payload, created_at')
+          .eq('order_id', orderId)
+          .order('created_at', { ascending: false }),
+      ]),
       ctx.supabase
         .from('exchange_rates')
         .select('rate_bs_per_usd')
@@ -856,7 +873,11 @@ export default async function AdvisorOrderDetailPage({
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
-  const rawTimeline = dedupeEvents((timelineResult.data ?? []) as RawTimelineEvent[]);
+  const [legacyEventsResult, timelineEventsResult] = historyResults;
+  const rawTimeline = dedupeEvents([
+    ...((legacyEventsResult.data ?? []) as RawTimelineEvent[]).map((event) => ({ ...event, source: 'legacy' as const })),
+    ...((timelineEventsResult.data ?? []) as RawTimelineEvent[]).map((event) => ({ ...event, source: 'timeline' as const })),
+  ]);
 
   const timeline: TimelineEvent[] = [
     ...rawTimeline
@@ -874,7 +895,7 @@ export default async function AdvisorOrderDetailPage({
       });
 
       return {
-        id: `${eventType}-${String(event.id ?? '')}`,
+        id: `${event.source ?? 'event'}-${eventType}-${String(event.id ?? '')}`,
         eventType,
         title: eventTitle(eventType, String(event.title || '')),
         message: safeText(event.message, detailLines[0] || fallbackTimelineMessage(eventType)),
@@ -883,18 +904,19 @@ export default async function AdvisorOrderDetailPage({
         detailLines,
         requiresAction: shouldRequireAdvisorAction(eventType, ACTION_EVENT_TYPES.has(eventType), order.status),
       } satisfies TimelineEvent;
-    })
-    ,
-    {
-      id: `order-created-${orderId}`,
-      eventType: 'order_created',
-      title: 'Orden creada',
-      message: 'La orden fue creada y quedó pendiente de aprobación.',
-      createdAt: order.created_at,
-      tone: 'neutral',
-      detailLines: [`Orden: ${orderId}`],
-      requiresAction: false,
-    } satisfies TimelineEvent,
+    }),
+    ...(rawTimeline.some((event) => normalizeEventType(event) === 'order_created')
+      ? []
+      : [{
+          id: `order-created-${orderId}`,
+          eventType: 'order_created',
+          title: 'Orden creada',
+          message: 'La orden fue creada y quedó pendiente de aprobación.',
+          createdAt: order.created_at,
+          tone: 'neutral',
+          detailLines: [`Orden: ${orderId}`],
+          requiresAction: false,
+        } satisfies TimelineEvent]),
   ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
   const activeBsRate = toSafeNumber(exchangeRateResult.data?.rate_bs_per_usd, 0);

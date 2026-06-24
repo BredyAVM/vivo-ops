@@ -638,10 +638,15 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
     throw new Error('Orden inválida.');
   }
 
-  const [eventsResult, orderResult] = await Promise.all([
+  const [legacyEventsResult, timelineEventsResult, orderResult] = await Promise.all([
     supabase
       .from('order_events')
       .select('id, event, performed_by, meta, created_at')
+      .eq('order_id', orderId)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('order_timeline_events')
+      .select('id, event_type, event_group, title, message, severity, actor_user_id, payload, created_at')
       .eq('order_id', orderId)
       .order('created_at', { ascending: false }),
     supabase
@@ -650,21 +655,35 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
       .eq('id', orderId)
       .maybeSingle(),
   ]);
-  const { data: eventsData, error: eventsError } = eventsResult;
+  const { data: legacyEventsData, error: legacyEventsError } = legacyEventsResult;
+  const { data: timelineEventsData, error: timelineEventsError } = timelineEventsResult;
 
-  if (eventsError) throw new Error(eventsError.message);
+  if (legacyEventsError) throw new Error(legacyEventsError.message);
+  if (timelineEventsError) throw new Error(timelineEventsError.message);
 
-  const events = (eventsData ?? []) as Array<{
+  const legacyEvents = (legacyEventsData ?? []) as Array<{
     id: number | string;
     event: string | null;
     performed_by: string | null;
     meta: unknown;
     created_at: string | null;
   }>;
+  const timelineEvents = (timelineEventsData ?? []) as Array<{
+    id: number | string;
+    event_type: string | null;
+    event_group: string | null;
+    title: string | null;
+    message: string | null;
+    severity: OrderEventSeverity | null;
+    actor_user_id: string | null;
+    payload: unknown;
+    created_at: string | null;
+  }>;
   if (orderResult.error) throw new Error(orderResult.error.message);
 
   const actorIds = Array.from(new Set([
-    ...events.map((event) => String(event.performed_by || '').trim()),
+    ...legacyEvents.map((event) => String(event.performed_by || '').trim()),
+    ...timelineEvents.map((event) => String(event.actor_user_id || '').trim()),
     String(orderResult.data?.created_by_user_id || '').trim(),
   ].filter(Boolean)));
   const { data: actorsData, error: actorsError } = actorIds.length > 0
@@ -696,7 +715,24 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
     payment_rejected: { eventType: 'payment_rejected', eventGroup: 'payment', title: 'Pago rechazado: corrección requerida', message: 'El pago fue rechazado y requiere corrección.', severity: 'critical' },
   };
 
-  const normalizedEvents = events.map((event) => {
+  type OrderHistoryEvent = {
+    id: string;
+    eventType: string;
+    dedupeKey: string;
+    eventGroup: string;
+    title: string;
+    message: string | null;
+    severity: OrderEventSeverity;
+    actorUserId: string | null;
+    actorName: string;
+    payload: Record<string, unknown>;
+    createdAt: string;
+    recipientRequiresAction: boolean;
+    recipientReadAt: null;
+    sourcePriority: number;
+  };
+
+  const normalizedEvents: OrderHistoryEvent[] = legacyEvents.map((event) => {
     const rawType = String(event.event || '').trim();
     const presentation = presentationByEvent[rawType] ?? {
       eventType: rawType || 'event',
@@ -712,20 +748,49 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
     return {
       id: `order-event-${String(event.id)}`,
       ...presentation,
+      dedupeKey: rawType === 'assign_driver_task_closed' ? rawType : presentation.eventType,
       actorUserId: event.performed_by ?? null,
       actorName: actorNameById.get(String(event.performed_by || '')) || 'Sistema',
       payload,
       createdAt: String(event.created_at || ''),
       recipientRequiresAction: presentation.eventType === 'payment_rejected' || presentation.eventType === 'order_returned_to_review',
       recipientReadAt: null,
+      sourcePriority: 1,
     };
   });
+
+  for (const event of timelineEvents) {
+    const eventType = String(event.event_type || '').trim();
+    if (!eventType) continue;
+
+    const payload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+      ? (event.payload as Record<string, unknown>)
+      : {};
+
+    normalizedEvents.push({
+      id: `timeline-event-${String(event.id)}`,
+      eventType,
+      dedupeKey: eventType,
+      eventGroup: String(event.event_group || 'operation'),
+      title: String(event.title || 'Evento operativo'),
+      message: event.message == null ? null : String(event.message),
+      severity: event.severity === 'warning' || event.severity === 'critical' ? event.severity : 'info',
+      actorUserId: event.actor_user_id ?? null,
+      actorName: actorNameById.get(String(event.actor_user_id || '')) || 'Sistema',
+      payload,
+      createdAt: String(event.created_at || ''),
+      recipientRequiresAction: eventType === 'payment_rejected' || eventType === 'order_returned_to_review',
+      recipientReadAt: null,
+      sourcePriority: 2,
+    });
+  }
 
   const createdAt = String(orderResult.data?.created_at || '');
   if (createdAt) {
     normalizedEvents.push({
       id: `order-created-${orderId}`,
       eventType: 'order_created',
+      dedupeKey: 'order_created',
       eventGroup: 'approval',
       title: 'Orden creada',
       message: 'La orden fue creada y quedó pendiente de aprobación.',
@@ -736,10 +801,35 @@ export async function loadMasterOrderEventsAction(input: { orderId: number }) {
       createdAt,
       recipientRequiresAction: false,
       recipientReadAt: null,
+      sourcePriority: 0,
     });
   }
 
-  return normalizedEvents.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const eventTime = (value: string) => {
+    const time = new Date(value).getTime();
+    return Number.isFinite(time) ? time : 0;
+  };
+  const deduplicated: OrderHistoryEvent[] = [];
+
+  for (const event of normalizedEvents
+    .filter((event) => event.eventType && event.createdAt)
+    .sort((a, b) => eventTime(b.createdAt) - eventTime(a.createdAt) || b.sourcePriority - a.sourcePriority)) {
+    const duplicateIndex = deduplicated.findIndex((saved) =>
+      saved.dedupeKey === event.dedupeKey
+      && saved.sourcePriority !== event.sourcePriority
+      && Math.abs(eventTime(saved.createdAt) - eventTime(event.createdAt)) <= 2_000,
+    );
+
+    if (duplicateIndex === -1) {
+      deduplicated.push(event);
+    } else if (event.sourcePriority > deduplicated[duplicateIndex].sourcePriority) {
+      deduplicated[duplicateIndex] = event;
+    }
+  }
+
+  return deduplicated
+    .sort((a, b) => eventTime(b.createdAt) - eventTime(a.createdAt))
+    .map(({ sourcePriority: _sourcePriority, dedupeKey: _dedupeKey, ...event }) => event);
 }
 
 async function loadOrderEventContext(
