@@ -356,6 +356,26 @@ function getTodayInputValue() {
   return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
 }
 
+function getCaracasCurrentMinuteKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
+
+  return `${value('year')}-${value('month')}-${value('day')}T${value('hour')}:${value('minute')}`;
+}
+
+function isPastAdvisorSchedule(date: string, time24: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time24)) return false;
+  return `${date}T${time24}` < getCaracasCurrentMinuteKey();
+}
+
 function getRoundedTime() {
   const date = new Date();
   date.setSeconds(0, 0);
@@ -1554,6 +1574,18 @@ export default function AdvisorOrderComposer({
     (deliveryDate.trim().length > 0 &&
       deliveryHour12.trim().length > 0 &&
       deliveryMinute.trim().length > 0);
+  const advisorScheduleIsPast = useMemo(() => {
+    if (isEditingOrder || isAsap || !scheduleReady) return false;
+
+    try {
+      return isPastAdvisorSchedule(
+        deliveryDate.trim(),
+        from12hTo24h(deliveryHour12.trim(), deliveryMinute.trim(), deliveryAmPm),
+      );
+    } catch {
+      return false;
+    }
+  }, [deliveryAmPm, deliveryDate, deliveryHour12, deliveryMinute, isAsap, isEditingOrder, scheduleReady]);
 
   const baseCreateReady =
     draftItems.length > 0 &&
@@ -1561,13 +1593,15 @@ export default function AdvisorOrderComposer({
     (fulfillment === 'pickup' || deliveryAddress.trim().length > 0) &&
     (fulfillment !== 'delivery' || hasDeliveryItem) &&
     fxRateNumber > 0;
-  const createReady = baseCreateReady && scheduleReady;
+  const createReady = baseCreateReady && scheduleReady && !advisorScheduleIsPast;
   const createReadyHint = !draftItems.length
     ? 'Agrega al menos un item.'
     : !selectedClient && !(isNewClientMode && newClientName.trim() && newClientPhone.trim())
       ? 'Selecciona o crea el cliente.'
       : !scheduleReady
         ? 'Falta colocar fecha y hora.'
+        : advisorScheduleIsPast
+          ? 'La fecha y hora no pueden ser anteriores al momento actual.'
         : fulfillment === 'delivery' && !deliveryAddress.trim().length
           ? 'Falta la direccion de entrega.'
           : fulfillment === 'delivery' && !hasDeliveryItem
@@ -3252,14 +3286,20 @@ export default function AdvisorOrderComposer({
       return;
     }
 
+    let deliveryTime24 = '';
     try {
-      from12hTo24h(
+      deliveryTime24 = from12hTo24h(
         deliveryHour12.trim() || (isAsap ? rounded.hour12 : ''),
         deliveryMinute.trim() || (isAsap ? rounded.minute : ''),
         isAsap && !deliveryHour12.trim() ? rounded.ampm : deliveryAmPm,
       );
     } catch (timeError) {
       setError(timeError instanceof Error ? timeError.message : 'Hora invalida.');
+      return;
+    }
+
+    if (!isEditingOrder && !isAsap && isPastAdvisorSchedule(deliveryDate.trim(), deliveryTime24)) {
+      setError('No puedes crear una orden con fecha y hora anteriores al momento actual.');
       return;
     }
 
@@ -4018,6 +4058,8 @@ export default function AdvisorOrderComposer({
               <input
                 type="date"
                 value={deliveryDate}
+                min={isEditingOrder ? undefined : getCaracasCurrentMinuteKey().slice(0, 10)}
+                aria-invalid={advisorScheduleIsPast}
                 onChange={(e) => {
                   setDeliveryDate(e.target.value);
                   setIsAsap(false);
@@ -4036,6 +4078,11 @@ export default function AdvisorOrderComposer({
                 <option value="PM">PM</option>
               </select>
             </div>
+            {advisorScheduleIsPast ? (
+              <p className="mt-2 text-xs text-[#FF7A45]" role="alert">
+                La fecha y hora no pueden ser anteriores al momento actual.
+              </p>
+            ) : null}
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
@@ -4344,10 +4391,10 @@ export default function AdvisorOrderComposer({
                 type="submit"
                 aria-busy={saving}
                 data-busy={saving ? 'true' : undefined}
-                disabled={saving || savingDraft || !baseCreateReady}
+                disabled={saving || savingDraft || !createReady}
                 className={[
                   'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
-                  saving || savingDraft || !baseCreateReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
+                  saving || savingDraft || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
                 {saving ? 'Guardando...' : isEditingOrder ? 'Guardar cambios' : 'Crear pedido'}
