@@ -10071,7 +10071,7 @@ const createOrderFilteredProducts = catalogItems
 const createOrderFxRateNumber = Math.max(0, Number(createOrderFxRate || 0));
 
 const createOrderPriorityInput = (item: DraftItem) => {
-  const catalogItem = catalogItemById.get(item.productId);
+  const catalogItem = catalogItems.find((catalogItem) => catalogItem.id === item.productId);
 
   return {
     productType: catalogItem?.type,
