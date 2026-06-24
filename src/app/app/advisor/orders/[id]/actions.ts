@@ -796,19 +796,11 @@ export async function cancelAdvisorOrderAction(formData: FormData) {
     throw new Error('Esta orden ya tiene dinero involucrado. Pide a master/admin que la cancele.');
   }
 
-  const nextNotes = [
-    String(order.notes || '').trim(),
-    `CANCELADA POR ASESOR: ${reason}`,
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
   const { error: updateError } = await ctx.supabase
     .from('orders')
     .update({
       status: 'cancelled',
       review_notes: reason,
-      notes: nextNotes,
       queued_needs_reapproval: false,
       queued_last_modified_at: null,
       queued_last_modified_by: null,

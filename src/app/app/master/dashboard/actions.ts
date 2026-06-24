@@ -2735,15 +2735,6 @@ export async function returnToCreatedAction(input: {
     throw new Error('Solo se puede devolver al asesor una orden activa.');
   }
 
-  const nextNotes = [
-    currentOrder.notes?.trim() || '',
-    input.recalculatePricing
-      ? `DEVUELTA A RECALCULAR: ${reason}`
-      : `DEVUELTA A CREATED: ${reason}`,
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
   const nowIso = new Date().toISOString();
   const extraFields =
     currentOrder.extra_fields && typeof currentOrder.extra_fields === 'object' && !Array.isArray(currentOrder.extra_fields)
@@ -2795,7 +2786,6 @@ export async function returnToCreatedAction(input: {
       external_driver_phone: null,
       external_reference: null,
       review_notes: reason,
-      notes: nextNotes,
       extra_fields: extraFields,
       last_modified_at: nowIso,
       last_modified_by: user.id,
@@ -3094,26 +3084,11 @@ export async function cancelOrderAction(input: {
     }
   }
 
-  const nextNotes = [
-    currentOrder.notes?.trim() || '',
-    `CANCELADA: ${reason}`,
-    hasClientFundsToRestore ? `FONDO RESTAURADO: $${previousFundUsedUsd.toFixed(2)}` : '',
-    hasConfirmedMoneyToSettle && paidHandling === 'store_fund'
-      ? `PAGO A FONDO: $${confirmedPaidUsd.toFixed(2)}`
-      : '',
-    hasConfirmedMoneyToSettle && paidHandling === 'refund'
-      ? `PAGO DEVUELTO: $${confirmedPaidUsd.toFixed(2)}`
-      : '',
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
   const { error: updateError } = await supabase
     .from('orders')
     .update({
       status: 'cancelled',
       review_notes: reason,
-      notes: nextNotes,
       queued_needs_reapproval: false,
       queued_last_modified_at: null,
       queued_last_modified_by: null,
@@ -3876,18 +3851,10 @@ export async function returnFromKitchenToQueueAction(input: {
     throw new Error('Solo se puede devolver a cola una orden que está en cocina/preparación/lista.');
   }
 
-  const nextNotes = [
-    currentOrder.notes?.trim() || '',
-    `REGRESADA A COLA DESDE COCINA: ${reason}`,
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
   const { error: updateError } = await supabase
     .from('orders')
     .update({
       status: 'queued',
-      notes: nextNotes,
       review_notes: reason,
       sent_to_kitchen_at: null,
       sent_to_kitchen_by: null,
