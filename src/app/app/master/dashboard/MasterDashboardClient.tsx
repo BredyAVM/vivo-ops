@@ -5689,8 +5689,8 @@ const loadOrderIntoCreateForm = (order: Order) => {
 
   setCreateOrderSelectedClientId(order.clientId ?? null);
   setCreateOrderSelectedClientName(order.clientName || '');
-  setCreateOrderSelectedClientPhone('');
-  setCreateOrderSelectedClientType(null);
+  setCreateOrderSelectedClientPhone(order.clientPhone || '');
+  setCreateOrderSelectedClientType(order.clientType || null);
 
   setCreateOrderNewClientMode(false);
   setCreateOrderNewClientName('');
@@ -10522,17 +10522,27 @@ const selectedCreateOrderClientAddresses = useMemo(
   [selectedCreateOrderClient]
 );
 
-  const createOrderExistingAppliedFundUsd =
+  const editingSelectedClientId =
     orderEditorMode === 'edit' &&
-    selectedOrder &&
-    selectedCreateOrderClient &&
-    selectedOrder.clientId === selectedCreateOrderClient.id
-      ? Number(selectedOrder.editMeta?.clientFundUsedUsd ?? 0)
+    selectedOrder?.clientId != null &&
+    selectedOrder.clientId === createOrderSelectedClientId
+      ? selectedOrder.clientId
+      : null;
+
+  const createOrderExistingAppliedFundUsd =
+    editingSelectedClientId != null
+      ? Number(selectedOrder?.editMeta?.clientFundUsedUsd ?? 0)
       : 0;
+
+  const createOrderSelectedClientFundBalanceUsd =
+    selectedCreateOrderClient?.fundBalanceUsd ??
+    (editingSelectedClientId != null
+      ? clientFundSnapshots[editingSelectedClientId]?.fundBalanceUsd ?? selectedOrder?.clientFundBalanceUsd ?? 0
+      : 0);
 
   const createOrderClientFundAvailableUsd = Math.max(
     0,
-    Number(selectedCreateOrderClient?.fundBalanceUsd ?? 0) + createOrderExistingAppliedFundUsd
+    Number(createOrderSelectedClientFundBalanceUsd) + createOrderExistingAppliedFundUsd
   );
 
   const createOrderClientFundRequestedUsd = Number(
