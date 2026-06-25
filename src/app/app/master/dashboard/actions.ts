@@ -8170,27 +8170,65 @@ export async function voidFinancialMovementAction(input: {
     );
 
     if (movementIds.length > 0 && paymentReportIds.length > 0) {
+      const { data: reportRows, error: reportRowsError } = await supabase
+        .from('payment_reports')
+        .select('id, order_id')
+        .in('id', paymentReportIds);
+
+      if (reportRowsError) throw new Error(reportRowsError.message);
+
+      const orderIdByPaymentReportId = new Map<number, number>();
+      for (const report of reportRows ?? []) {
+        const reportId = Number(report.id || 0);
+        const orderId = Number(report.order_id || 0);
+        if (reportId > 0 && orderId > 0) orderIdByPaymentReportId.set(reportId, orderId);
+      }
+
       const { data: fundCredits, error: fundCreditsError } = await supabase
         .from('client_fund_movements')
-        .select('client_id, amount_usd')
+        .select('client_id, order_id, payment_report_id, amount_usd')
         .in('payment_report_id', paymentReportIds)
         .eq('movement_type', 'credit');
 
       if (fundCreditsError) throw new Error(fundCreditsError.message);
 
-      const fundCreditByClient = new Map<number, number>();
+      const fundCreditGroups = new Map<
+        string,
+        {
+          clientId: number;
+          orderId: number | null;
+          paymentReportId: number | null;
+          amountUsd: number;
+        }
+      >();
+
       for (const credit of fundCredits ?? []) {
         const clientId = Number(credit.client_id || 0);
+        const paymentReportId = Number(credit.payment_report_id || 0);
+        const creditOrderId = Number(credit.order_id || 0);
+        const orderId =
+          creditOrderId > 0
+            ? creditOrderId
+            : orderIdByPaymentReportId.get(paymentReportId) ?? 0;
         const amountUsd = roundMoney(credit.amount_usd);
         if (!Number.isFinite(clientId) || clientId <= 0 || amountUsd <= 0) continue;
-        fundCreditByClient.set(clientId, roundMoney((fundCreditByClient.get(clientId) ?? 0) + amountUsd));
+
+        const key = `${clientId}:${orderId || 0}:${paymentReportId || 0}`;
+        const current = fundCreditGroups.get(key) ?? {
+          clientId,
+          orderId: orderId > 0 ? orderId : null,
+          paymentReportId: paymentReportId > 0 ? paymentReportId : null,
+          amountUsd: 0,
+        };
+        current.amountUsd = roundMoney(current.amountUsd + amountUsd);
+        fundCreditGroups.set(key, current);
       }
 
-      for (const [clientId, amountUsd] of fundCreditByClient) {
+      for (const creditGroup of fundCreditGroups.values()) {
         const { data: currentClient, error: currentClientError } = await supabase
           .from('clients')
           .select('id, fund_balance_usd')
-          .eq('id', clientId)
+          .eq('id', creditGroup.clientId)
           .single();
 
         if (currentClientError || !currentClient) {
@@ -8198,7 +8236,7 @@ export async function voidFinancialMovementAction(input: {
         }
 
         const currentFundUsd = roundMoney(currentClient.fund_balance_usd);
-        if (currentFundUsd + 0.0001 < amountUsd) {
+        if (currentFundUsd + 0.0001 < creditGroup.amountUsd) {
           return {
             ok: false as const,
             message:
@@ -8208,22 +8246,22 @@ export async function voidFinancialMovementAction(input: {
 
         const { error: updateFundError } = await supabase
           .from('clients')
-          .update({ fund_balance_usd: roundMoney(currentFundUsd - amountUsd) })
-          .eq('id', clientId);
+          .update({ fund_balance_usd: roundMoney(currentFundUsd - creditGroup.amountUsd) })
+          .eq('id', creditGroup.clientId);
 
         if (updateFundError) throw new Error(updateFundError.message);
 
         const { error: fundMovementError } = await supabase
           .from('client_fund_movements')
           .insert({
-            client_id: clientId,
+            client_id: creditGroup.clientId,
             movement_type: 'debit',
             currency_code: 'USD',
-            amount: amountUsd,
-            amount_usd: amountUsd,
+            amount: creditGroup.amountUsd,
+            amount_usd: creditGroup.amountUsd,
             money_account_id: null,
-            order_id: null,
-            payment_report_id: paymentReportIds[0] ?? null,
+            order_id: creditGroup.orderId,
+            payment_report_id: creditGroup.paymentReportId,
             reason_code: 'payment_void_fund_reversal',
             notes: `Reverso por anulacion financiera: ${reason}`,
             created_by_user_id: user.id,
