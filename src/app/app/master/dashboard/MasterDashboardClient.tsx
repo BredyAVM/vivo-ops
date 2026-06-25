@@ -1112,14 +1112,18 @@ const APP_USER_ROLE_LABEL: Record<AppUserRole, string> = {
 const fmtUSD = (n: number) => `$${n.toFixed(2)}`;
 
 const fmtBs = (n: number) => {
-  const s = Math.round(n).toString();
+  if (!Number.isFinite(n)) return 'Bs —';
+
+  const sign = n < 0 ? '-' : '';
+  const fixed = Math.abs(n).toFixed(2);
+  const [intPart, decPart] = fixed.split('.');
   let out = '';
-  for (let i = 0; i < s.length; i++) {
-    const idxFromEnd = s.length - i;
-    out += s[i];
+  for (let i = 0; i < intPart.length; i++) {
+    const idxFromEnd = intPart.length - i;
+    out += intPart[i];
     if (idxFromEnd > 1 && idxFromEnd % 3 === 1) out += '.';
   }
-  return `Bs ${out}`;
+  return `Bs ${sign}${out},${decPart}`;
 };
 
 const fmtRateBs = (n: number) => {
