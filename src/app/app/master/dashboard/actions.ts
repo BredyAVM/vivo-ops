@@ -7,6 +7,7 @@ import { createSupabaseServer } from '@/lib/supabase/server';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { sendPushToAdvisorDevices, sendPushToRoleDevices } from '@/lib/push';
 import { getPaymentReportRequirements } from '@/lib/payments/payment-report-rules';
+import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
@@ -1524,9 +1525,19 @@ export async function createPaymentReportAction(input: {
   ].filter((part): part is string => Boolean(part));
   const reportNotes = notesParts.length > 0 ? notesParts.join('\n') : null;
   const reportPayerName = paymentMethod === 'retention' ? null : requirements.requiresBank ? bankName : payerName || null;
+  const reportedCurrency = String(input.reportedCurrency || '').trim().toUpperCase();
+
+  await assertNoActivePaymentDuplicate(supabase, {
+    moneyAccountId: input.reportedMoneyAccountId,
+    operationDate,
+    currencyCode: reportedCurrency,
+    amount: input.reportedAmount,
+    referenceCode,
+  });
+
   let snapshotEquivalentUsd: number | null = null;
 
-  if (String(input.reportedCurrency || '').trim().toUpperCase() === 'VES') {
+  if (reportedCurrency === 'VES') {
     const financialState = await loadOrderFinancialState(supabase, {
       orderId: input.orderId,
       operationDate: normalizeDateOnly(operationDate),
@@ -1544,7 +1555,6 @@ export async function createPaymentReportAction(input: {
       : input.reportedExchangeRateVesPerUsd;
 
   if (paymentMethod === 'retention') {
-    const reportedCurrency = String(input.reportedCurrency || '').trim().toUpperCase();
     const reportedAmount = roundMoney(input.reportedAmount);
     const exchangeRate = toSafeNumber(effectiveReportedExchangeRate, 0);
     const reportedAmountUsdEquivalent =

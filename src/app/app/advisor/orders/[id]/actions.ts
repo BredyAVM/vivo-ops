@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { isAdvisorRole, isMasterOrAdminRole, requireAuthContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { assertNoActivePaymentDuplicate } from '@/lib/payments/payment-duplicates';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { sendPushToRoleDevices } from '@/lib/push';
 
@@ -470,6 +471,14 @@ export async function createAdvisorPaymentReportAction(input: {
     snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005
       ? Number((reportedAmount / snapshotEquivalentUsd).toFixed(6))
       : reportedExchangeRate;
+
+  await assertNoActivePaymentDuplicate(ctx.supabase, {
+    moneyAccountId: reportedMoneyAccountId,
+    operationDate,
+    currencyCode: reportedCurrency,
+    amount: reportedAmount,
+    referenceCode,
+  });
 
   const { data: createdReportId, error } = await ctx.supabase.rpc('create_payment_report', {
     p_order_id: orderId,
