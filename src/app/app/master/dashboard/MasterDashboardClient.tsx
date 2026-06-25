@@ -11739,7 +11739,7 @@ const selectedCreateOrderClientAddresses = useMemo(
         todayPendingMovements.reduce((sum, movement) => sum + Math.abs(movement.amount), 0).toFixed(2)
       ),
       todayPendingCount: todayPendingMovements.length,
-      expectedBalanceNative: Number((accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0).toFixed(2)),
+      expectedBalanceNative: Number(selectedAccountStatementData.currentBalanceNative.toFixed(2)),
       latestRealBalanceNative: latestClosure ? latestClosure.countedAmount : null,
       latestDifferenceNative: latestClosure ? latestClosure.differenceAmount : null,
       latestClosureDate: latestClosure?.closureDate ?? null,
@@ -11747,11 +11747,11 @@ const selectedCreateOrderClientAddresses = useMemo(
       openReconciliationAmountNative: Number(openReconciliationAmountNative.toFixed(2)),
     };
   }, [
-    accountStatsById,
     moneyMovements,
     selectedAccount,
     selectedAccountClosures,
     selectedAccountOpenReconciliationItems,
+    selectedAccountStatementData.currentBalanceNative,
   ]);
 
   const selectedAccountReviewAlerts = useMemo(() => {
@@ -21198,7 +21198,7 @@ deliveryAssignMode === 'external' ? (
                   </div>
                 </div>
                 <div className="rounded-xl border border-[#FEEF00]/30 bg-[#1D1A00] px-3 py-2 text-right">
-                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#B7B7C2]">Saldo actual esperado</div>
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#B7B7C2]">Esperado desde línea base</div>
                   <div className="mt-1 text-xl font-semibold text-[#FEEF00]">
                     {fmtMoneyByCurrency(selectedAccountBankSummary.expectedBalanceNative, selectedAccount.currencyCode)}
                   </div>
