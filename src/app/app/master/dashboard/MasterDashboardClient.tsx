@@ -376,6 +376,17 @@ type AccountMovementGroup = {
   netUsd: number;
 };
 
+type AccountStatementRow = {
+  group: AccountMovementGroup;
+  movement: MoneyMovementItem;
+  concept: string;
+  reference: string;
+  inflowNative: number;
+  outflowNative: number;
+  netNative: number;
+  runningBalanceNative: number;
+};
+
 function buildAccountMovementGroups(
   movementsInput: MoneyMovementItem[],
   selectedAccountId: number | null,
@@ -11518,6 +11529,133 @@ const selectedCreateOrderClientAddresses = useMemo(
     [getMovementClientLabel],
   );
 
+  const selectedAccountStatementData = useMemo(() => {
+    if (!selectedAccountId || !selectedAccount) {
+      return {
+        openingBalanceNative: 0,
+        inflowNative: 0,
+        outflowNative: 0,
+        pendingNative: 0,
+        currentBalanceNative: 0,
+        rows: [] as AccountStatementRow[],
+        startLabel: '—',
+      };
+    }
+
+    const baselineDate = selectedAccountBaseline?.baselineDate ?? null;
+    const baselineAmount = selectedAccountBaseline?.countedAmount ?? 0;
+    const startDate = accountDateFrom || baselineDate || '';
+    const isAfterBaseline = (movement: MoneyMovementItem) => !baselineDate || movement.movementDate > baselineDate;
+    const isBeforePeriod = (movement: MoneyMovementItem) =>
+      accountDateFrom ? movement.movementDate < accountDateFrom : false;
+    const isInsidePeriod = (movement: MoneyMovementItem) => {
+      if (baselineDate && movement.movementDate <= baselineDate) return false;
+      if (accountDateFrom && movement.movementDate < accountDateFrom) return false;
+      if (accountDateTo && movement.movementDate > accountDateTo) return false;
+      return true;
+    };
+
+    const openingDelta = moneyMovements.reduce((sum, movement) => {
+      if (movement.moneyAccountId !== selectedAccountId) return sum;
+      if (movement.status !== 'confirmed') return sum;
+      if (!isAfterBaseline(movement)) return sum;
+      if (!isBeforePeriod(movement)) return sum;
+      return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
+    }, 0);
+
+    let runningBalance = Number((baselineAmount + openingDelta).toFixed(2));
+    let inflowNative = 0;
+    let outflowNative = 0;
+    let pendingNative = 0;
+
+    const periodGroups = buildAccountMovementGroups(
+      moneyMovements.filter(
+        (movement) => movement.moneyAccountId === selectedAccountId && isInsidePeriod(movement)
+      ),
+      selectedAccountId,
+      accountMovementFilter
+    ).sort((a, b) => {
+      const byDate = String(a.primaryMovement.movementDate).localeCompare(String(b.primaryMovement.movementDate));
+      if (byDate !== 0) return byDate;
+      return String(a.primaryMovement.createdAt).localeCompare(String(b.primaryMovement.createdAt));
+    });
+
+    const rows: AccountStatementRow[] = periodGroups.map((group) => {
+      const movement = group.primaryMovement;
+      const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
+      const clientLabel = getMovementGroupClientLabel(group);
+      const counterpartMovement =
+        group.movements.find((item) => item.moneyAccountId !== selectedAccountId) ?? null;
+      const counterpartAccount = counterpartMovement
+        ? moneyAccounts.find((account) => account.id === counterpartMovement.moneyAccountId) ?? null
+        : null;
+      const confirmed = movement.status === 'confirmed';
+      const netNative = confirmed ? group.netNative : 0;
+      const inflow = confirmed && netNative > 0 ? netNative : 0;
+      const outflow = confirmed && netNative < 0 ? Math.abs(netNative) : 0;
+
+      if (confirmed) {
+        runningBalance = Number((runningBalance + netNative).toFixed(2));
+        inflowNative += inflow;
+        outflowNative += outflow;
+      } else if (movement.status === 'pending') {
+        pendingNative += Math.abs(group.netNative);
+      }
+
+      const movementLabel = MOVEMENT_TYPE_LABEL[movement.movementType];
+      let concept = movement.description || movementLabel;
+
+      if (group.isTransfer && counterpartAccount) {
+        concept = group.netNative >= 0
+          ? `Traspaso desde ${counterpartAccount.name}`
+          : `Traspaso hacia ${counterpartAccount.name}`;
+      } else if (movement.movementType === 'order_payment') {
+        const orderLabel = movement.orderId ? `Orden #${movement.orderId}` : 'Pago de orden';
+        concept = [orderLabel, clientLabel || linkedOrder?.clientName || null]
+          .filter(Boolean)
+          .join(' · ');
+      } else if (movement.movementType === 'fee_charge') {
+        concept = movement.description || 'Comisión bancaria';
+      }
+
+      return {
+        group,
+        movement,
+        concept,
+        reference: movement.referenceCode || (movement.paymentReportId ? `Reporte ${movement.paymentReportId}` : String(movement.id)),
+        inflowNative: inflow,
+        outflowNative: outflow,
+        netNative,
+        runningBalanceNative: runningBalance,
+      };
+    });
+
+    return {
+      openingBalanceNative: Number((baselineAmount + openingDelta).toFixed(2)),
+      inflowNative: Number(inflowNative.toFixed(2)),
+      outflowNative: Number(outflowNative.toFixed(2)),
+      pendingNative: Number(pendingNative.toFixed(2)),
+      currentBalanceNative: runningBalance,
+      rows,
+      startLabel: accountDateFrom
+        ? accountDateFrom
+        : baselineDate
+          ? `desde ${baselineDate}`
+          : startDate || 'sin línea base',
+    };
+  }, [
+    accountDateFrom,
+    accountDateTo,
+    accountMovementFilter,
+    getMovementGroupClientLabel,
+    moneyAccounts,
+    moneyMovements,
+    orderLookupById,
+    selectedAccount,
+    selectedAccountBaseline,
+    selectedAccountId,
+  ]);
+
   const calculationBaseOrders = useMemo(
     () => (calculationScope?.generated ? calculationOrders : []),
     [calculationOrders, calculationScope?.generated],
@@ -20581,18 +20719,18 @@ deliveryAssignMode === 'external' ? (
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="text-right">
-                    <div className="text-xs text-[#8A8A96]">Acumulado</div>
+                    <div className="text-xs text-[#8A8A96]">Saldo sistema</div>
                     <div className="text-lg font-semibold text-[#F5F5F7]">
                       {fmtMoneyByCurrency(
-                        accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
+                        selectedAccountStatementData.currentBalanceNative,
                         selectedAccount.currencyCode
                       )}
                     </div>
                     <div className="mt-1 text-xs text-[#8A8A96]">
                       {selectedAccount.currencyCode === 'VES'
-                        ? fmtUSD(accountStatsById.get(selectedAccount.id)?.balanceUsdRef ?? 0)
+                        ? fmtUSD(selectedAccountStatementData.currentBalanceNative / (activeExchangeRate?.rateBsPerUsd ?? 1))
                         : fmtBs(
-                            (accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0) *
+                            selectedAccountStatementData.currentBalanceNative *
                               (activeExchangeRate?.rateBsPerUsd ?? 0)
                           )}
                     </div>
@@ -20779,46 +20917,55 @@ deliveryAssignMode === 'external' ? (
 
             {accountDetailTab === 'operation' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-              <div className="text-sm font-semibold text-[#F5F5F7]">Resumen del período</div>
-              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Estado de cuenta</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Lectura operativa {selectedAccountStatementData.startLabel}. Solo los movimientos confirmados afectan el saldo.
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-right">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-[#8A8A96]">Saldo esperado</div>
+                  <div className="mt-1 text-xl font-semibold text-[#F5F5F7]">
+                    {fmtMoneyByCurrency(selectedAccountStatementData.currentBalanceNative, selectedAccount.currencyCode)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
                 <InfoCell
-                  label="Ingresos"
+                  label="Saldo inicial"
                   value={fmtMoneyByCurrency(
-                    accountStatsById.get(selectedAccount.id)?.periodInflowNative ?? 0,
+                    selectedAccountStatementData.openingBalanceNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Egresos"
+                  label="Entradas"
                   value={fmtMoneyByCurrency(
-                    accountStatsById.get(selectedAccount.id)?.periodOutflowNative ?? 0,
+                    selectedAccountStatementData.inflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Comisiones"
+                  label="Salidas"
                   value={fmtMoneyByCurrency(
-                    accountStatsById.get(selectedAccount.id)?.periodFeeNative ?? 0,
+                    selectedAccountStatementData.outflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Traspasos entrada"
+                  label="Neto período"
                   value={fmtMoneyByCurrency(
-                    accountStatsById.get(selectedAccount.id)?.periodTransferInNative ?? 0,
+                    selectedAccountStatementData.inflowNative - selectedAccountStatementData.outflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Traspasos salida"
+                  label="Pendiente/aprobación"
                   value={fmtMoneyByCurrency(
-                    accountStatsById.get(selectedAccount.id)?.periodTransferOutNative ?? 0,
+                    selectedAccountStatementData.pendingNative,
                     selectedAccount.currencyCode
                   )}
-                />
-                <InfoCell
-                  label="Pendiente aprobación"
-                  value={fmtUSD(accountStatsById.get(selectedAccount.id)?.pendingOutflowUsdRef ?? 0)}
                 />
               </div>
             </div>
@@ -21099,9 +21246,9 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos filtrados</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos del estado de cuenta</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    {selectedAccountFilteredMovementGroups.length} de {selectedAccountMovementGroups.length} huellas visibles.
+                    {selectedAccountStatementData.rows.length} movimiento(s) visibles. Entrada/salida muestran solo impacto confirmado.
                   </div>
                 </div>
                 <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
@@ -21148,77 +21295,61 @@ deliveryAssignMode === 'external' ? (
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
                 <InfoCell
-                  label="Total general"
-                  value={`${selectedAccountFilteredMovementSummary.netNative >= 0 ? '' : '-'}${fmtMoneyByCurrency(
-                    Math.abs(selectedAccountFilteredMovementSummary.netNative),
-                    selectedAccount.currencyCode
-                  )}`}
-                />
-                <InfoCell
-                  label="Ingresos"
+                  label="Saldo inicial"
                   value={fmtMoneyByCurrency(
-                    selectedAccountFilteredMovementSummary.inflowNative,
+                    selectedAccountStatementData.openingBalanceNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Egresos"
+                  label="Entradas visibles"
                   value={fmtMoneyByCurrency(
-                    selectedAccountFilteredMovementSummary.outflowNative,
+                    selectedAccountStatementData.inflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Comisiones"
+                  label="Salidas visibles"
                   value={fmtMoneyByCurrency(
-                    selectedAccountFilteredMovementSummary.feeNative,
+                    selectedAccountStatementData.outflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
-                <InfoCell label="Ref. USD" value={fmtUSD(selectedAccountFilteredMovementSummary.netUsd)} />
+                <InfoCell
+                  label="Saldo final"
+                  value={fmtMoneyByCurrency(
+                    selectedAccountStatementData.currentBalanceNative,
+                    selectedAccount.currencyCode
+                  )}
+                />
+                <InfoCell
+                  label="Pendiente"
+                  value={fmtMoneyByCurrency(
+                    selectedAccountStatementData.pendingNative,
+                    selectedAccount.currencyCode
+                  )}
+                />
               </div>
               <div className="mt-3 overflow-x-auto">
-                {selectedAccountFilteredMovementGroups.length === 0 ? (
+                {selectedAccountStatementData.rows.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
                   <table className="w-full text-[12px]">
                     <thead className="border-b border-[#242433] text-[#B7B7C2]">
                       <tr>
                         <th className="px-2 py-2 text-left font-medium">Fecha operación</th>
-                        <th className="px-2 py-2 text-left font-medium">Tipo</th>
-                        <th className="px-2 py-2 text-left font-medium">Monto</th>
-                        <th className="px-2 py-2 text-left font-medium">Comisión</th>
-                        <th className="px-2 py-2 text-left font-medium">Total</th>
+                        <th className="px-2 py-2 text-left font-medium">Concepto / razón</th>
+                        <th className="px-2 py-2 text-left font-medium">Referencia</th>
+                        <th className="px-2 py-2 text-right font-medium">Entrada</th>
+                        <th className="px-2 py-2 text-right font-medium">Salida</th>
+                        <th className="px-2 py-2 text-right font-medium">Saldo</th>
                         <th className="px-2 py-2 text-left font-medium">Estado</th>
-                        <th className="px-2 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-2 py-2 text-left font-medium">N° Orden</th>
-                        <th className="px-2 py-2 text-left font-medium">Nombre/Titular</th>
-                        <th className="px-2 py-2 text-left font-medium">N° Control</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedAccountFilteredMovementGroups.map((group, idx) => {
-                        const movement = group.primaryMovement;
-                        const linkedOrder = movement.orderId ? orderLookupById.get(movement.orderId) ?? null : null;
-                        const clientLabel = getMovementGroupClientLabel(group);
+                      {selectedAccountStatementData.rows.map((row, idx) => {
+                        const { group, movement } = row;
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                        const primaryAmount = fmtMoneyByCurrency(group.amountNative, selectedAccount.currencyCode);
-                        const feeAmount = group.feeNative > 0 ? fmtMoneyByCurrency(group.feeNative, selectedAccount.currencyCode) : '—';
-                        const totalAmount = fmtMoneyByCurrency(Math.abs(group.netNative), selectedAccount.currencyCode);
-                        const secondaryAmount =
-                          selectedAccount.currencyCode === 'VES'
-                            ? fmtUSD(group.amountUsd)
-                            : fmtBs(group.amountNative * (activeExchangeRate?.rateBsPerUsd ?? 0));
-                        const groupLabel = group.isTransfer
-                          ? 'Traspaso'
-                          : movement.direction === 'inflow'
-                            ? 'Ingreso'
-                            : 'Retiro';
-                        const counterpartMovement =
-                          group.movements.find((item) => item.moneyAccountId !== selectedAccount.id) ?? null;
-                        const counterpartAccount = counterpartMovement
-                          ? moneyAccounts.find((account) => account.id === counterpartMovement.moneyAccountId) ?? null
-                          : null;
 
                         return (
                           <tr
@@ -21231,29 +21362,43 @@ deliveryAssignMode === 'external' ? (
                           >
                             <td className="px-2 py-2">{movement.movementDate}</td>
                             <td className="px-2 py-2">
-                              {groupLabel}
+                              <div className="font-medium text-[#F5F5F7]">{row.concept}</div>
                               <div className="mt-1 text-[11px] text-[#8A8A96]">
                                 {MOVEMENT_TYPE_LABEL[movement.movementType]}
-                                {group.isTransfer && counterpartAccount ? ` · ${counterpartAccount.name}` : ''}
+                                {movement.counterpartyName ? ` · ${movement.counterpartyName}` : ''}
                               </div>
                             </td>
                             <td className="px-2 py-2">
-                              <div className={group.netNative >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                                {group.netNative >= 0 ? '' : '-'}
-                                {primaryAmount}
-                              </div>
-                              <div className="mt-1 text-[11px] text-[#8A8A96]">{secondaryAmount}</div>
+                              <div>{row.reference}</div>
+                              {movement.orderId ? (
+                                <div className="mt-1 text-[11px] text-[#8A8A96]">Orden #{movement.orderId}</div>
+                              ) : null}
                             </td>
-                            <td className="px-2 py-2">
-                              <div className={group.feeNative > 0 ? 'text-red-300' : 'text-[#8A8A96]'}>
-                                {group.feeNative > 0 ? `-${feeAmount}` : '—'}
-                              </div>
+                            <td className="px-2 py-2 text-right">
+                              {row.inflowNative > 0 ? (
+                                <span className="font-semibold text-emerald-300">
+                                  {fmtMoneyByCurrency(row.inflowNative, selectedAccount.currencyCode)}
+                                </span>
+                              ) : (
+                                <span className="text-[#8A8A96]">—</span>
+                              )}
                             </td>
-                            <td className="px-2 py-2">
-                              <div className={group.netNative >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                                {group.netNative >= 0 ? '' : '-'}
-                                {totalAmount}
+                            <td className="px-2 py-2 text-right">
+                              {row.outflowNative > 0 ? (
+                                <span className="font-semibold text-red-300">
+                                  {fmtMoneyByCurrency(row.outflowNative, selectedAccount.currencyCode)}
+                                </span>
+                              ) : (
+                                <span className="text-[#8A8A96]">—</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              <div className="font-semibold text-[#F5F5F7]">
+                                {fmtMoneyByCurrency(row.runningBalanceNative, selectedAccount.currencyCode)}
                               </div>
+                              {movement.status !== 'confirmed' ? (
+                                <div className="mt-1 text-[11px] text-[#8A8A96]">No afecta saldo</div>
+                              ) : null}
                             </td>
                             <td className="px-2 py-2">
                               <span
@@ -21268,14 +21413,6 @@ deliveryAssignMode === 'external' ? (
                               >
                                 {MONEY_MOVEMENT_STATUS_LABEL[movement.status]}
                               </span>
-                            </td>
-                            <td className="px-2 py-2">{clientLabel || '—'}</td>
-                            <td className="px-2 py-2">{movement.orderId ?? '—'}</td>
-                            <td className="px-2 py-2">
-                              {movement.counterpartyName || clientLabel || linkedOrder?.clientName || selectedAccount.ownerName || '—'}
-                            </td>
-                            <td className="px-2 py-2">
-                              {movement.referenceCode || movement.paymentReportId || movement.id}
                             </td>
                           </tr>
                         );
