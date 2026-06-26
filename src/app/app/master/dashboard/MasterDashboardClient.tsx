@@ -36,6 +36,7 @@ import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
 import { groupOrderItemsByPriority, sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import {
   approveOrderAction,
+  applyStaffPayrollPaymentAction,
   applyClientFundPaymentAction,
   assignExternalPartnerAction,
   assignInternalDriverAction,
@@ -4322,6 +4323,11 @@ const [paymentReportBankName, setPaymentReportBankName] = useState('');
 const [paymentReportPayerName, setPaymentReportPayerName] = useState('');
 const [paymentReportNotes, setPaymentReportNotes] = useState('');
 const [paymentReportMethodOverride, setPaymentReportMethodOverride] = useState<string | null>(null);
+const [staffPayrollBoxOpen, setStaffPayrollBoxOpen] = useState(false);
+const [staffPayrollMoneyAccountId, setStaffPayrollMoneyAccountId] = useState('');
+const [staffPayrollOperationDate, setStaffPayrollOperationDate] = useState('');
+const [staffPayrollNotes, setStaffPayrollNotes] = useState('');
+const [staffPayrollSaving, setStaffPayrollSaving] = useState(false);
 const [paymentApplyFundAmountUsd, setPaymentApplyFundAmountUsd] = useState('');
 const [paymentApplyFundNotes, setPaymentApplyFundNotes] = useState('');
 const [paymentGiveChangeBoxOpen, setPaymentGiveChangeBoxOpen] = useState(false);
@@ -6041,6 +6047,11 @@ const resetPaymentReportBox = () => {
   setPaymentReportPayerName('');
   setPaymentReportNotes('');
   setPaymentReportMethodOverride(null);
+  setStaffPayrollBoxOpen(false);
+  setStaffPayrollMoneyAccountId('');
+  setStaffPayrollOperationDate('');
+  setStaffPayrollNotes('');
+  setStaffPayrollSaving(false);
   setPaymentApplyFundAmountUsd('');
   setPaymentApplyFundNotes('');
   setPaymentGiveChangeBoxOpen(false);
@@ -6445,6 +6456,68 @@ const handleApplyClientFundPayment = async (o: Order) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aplicando el fondo.';
     showToast('error', message);
+  }
+};
+
+const openStaffPayrollBox = (o: Order) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const preferredAccount =
+    staffPayrollAccountOptions.find((account) =>
+      normalizeLooseText(account.name).includes('cxc') ||
+      normalizeLooseText(account.name).includes('personal') ||
+      normalizeLooseText(account.name).includes('nomina')
+    ) ?? staffPayrollAccountOptions[0] ?? null;
+
+  setPaymentReportBoxOpen(false);
+  setPaymentConfirmBoxOpen(false);
+  setPaymentGiveChangeBoxOpen(false);
+  setStaffPayrollBoxOpen(true);
+  setStaffPayrollMoneyAccountId(preferredAccount ? String(preferredAccount.id) : '');
+  setStaffPayrollOperationDate(today);
+  setStaffPayrollNotes(`Descuento de personal · orden ${o.id}`);
+};
+
+const handleApplyStaffPayrollPayment = async (o: Order) => {
+  try {
+    if (o.balanceUsd <= 0.005) {
+      showToast('error', 'Esta orden ya no tiene saldo pendiente.');
+      return;
+    }
+
+    const account = staffPayrollAccountOptions.find(
+      (item) => item.id === Number(staffPayrollMoneyAccountId || 0)
+    );
+
+    if (!account) {
+      showToast('error', 'Debes seleccionar la cuenta interna de personal.');
+      return;
+    }
+
+    if (!staffPayrollOperationDate.trim()) {
+      showToast('error', 'Debes indicar la fecha de aplicación.');
+      return;
+    }
+
+    setStaffPayrollSaving(true);
+
+    await applyStaffPayrollPaymentAction({
+      orderId: o.id,
+      moneyAccountId: account.id,
+      operationDate: staffPayrollOperationDate.trim(),
+      notes: staffPayrollNotes.trim() || null,
+    });
+
+    showToast('success', 'Pago por nómina aplicado.');
+    setStaffPayrollBoxOpen(false);
+    setStaffPayrollMoneyAccountId('');
+    setStaffPayrollOperationDate('');
+    setStaffPayrollNotes('');
+    router.refresh();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error aplicando el pago por nómina.';
+    showToast('error', message);
+  } finally {
+    setStaffPayrollSaving(false);
   }
 };
 
@@ -10316,6 +10389,34 @@ const paymentReportAccountOptions = useMemo(() => {
   return activeAccounts.filter((account) => allowedAccountIds.has(account.id));
 }, [currentRoleSet, moneyAccountPaymentRules, moneyAccounts, paymentReportMethodOverride, selectedOrder?.editMeta?.paymentMethod]);
 
+const staffPayrollAccountOptions = useMemo(() => {
+  const activeAccounts = moneyAccounts.filter((account) => account.isActive);
+  const preferredAccounts = activeAccounts.filter((account) => {
+    const text = normalizeLooseText(
+      [
+        account.name,
+        account.accountKind,
+        account.institutionName,
+        account.ownerName,
+        account.notes,
+      ].filter(Boolean).join(' ')
+    );
+
+    return (
+      account.accountKind === 'fund' ||
+      account.accountKind === 'other' ||
+      text.includes('cxc') ||
+      text.includes('cuenta por cobrar') ||
+      text.includes('personal') ||
+      text.includes('nomina') ||
+      text.includes('empleado') ||
+      text.includes('trabajador')
+    );
+  });
+
+  return preferredAccounts.length > 0 ? preferredAccounts : activeAccounts;
+}, [moneyAccounts]);
+
 const getAccountRuleBadges = useCallback(
   (accountId: number) => {
     const rules = accountRulesByAccountId.get(accountId) ?? [];
@@ -10391,6 +10492,8 @@ const getAccountRoleRows = useCallback(
 
 const selectedPaymentReportAccount =
   paymentReportAccountOptions.find((a) => a.id === Number(paymentReportMoneyAccountId)) ?? null;
+const selectedStaffPayrollAccount =
+  staffPayrollAccountOptions.find((a) => a.id === Number(staffPayrollMoneyAccountId)) ?? null;
 
 const paymentReportMethod = paymentReportMethodOverride || selectedOrder?.editMeta?.paymentMethod || '';
 const paymentReportRequirements = getPaymentReportRequirements(paymentReportMethod);
@@ -18279,6 +18382,16 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
+{detailTab === 'pagos' && selectedOrder.balanceUsd > 0.01 ? (
+  <button
+    className="rounded-md border border-sky-500/40 bg-[#0B1218] px-2 py-1 text-[10px] text-sky-300 disabled:cursor-wait disabled:opacity-60"
+    onClick={() => openStaffPayrollBox(selectedOrder)}
+    disabled={staffPayrollSaving}
+  >
+    Pagar por nómina
+  </button>
+) : null}
+
 {detailTab === 'pagos' ? (
   <button
     className="rounded-md border border-[#3A2F12] bg-[#151208] px-2 py-1 text-[10px] text-[#FEEF00]"
@@ -18302,6 +18415,93 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   >
     Reportar retención
   </button>
+) : null}
+
+{detailTab === 'pagos' && staffPayrollBoxOpen ? (
+  <div className="rounded-lg border border-sky-500/30 bg-[#0B1016] p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-semibold text-[#F5F5F7]">Pagar por nómina / personal</div>
+        <div className="mt-1 text-[11px] text-[#8A8A96]">
+          Usa una cuenta interna tipo CxC Personal. El sistema salda la orden y registra una salida espejo para que esa cuenta quede en cero.
+        </div>
+      </div>
+      <SmallBadge label={fmtUSD(selectedOrder.balanceUsd)} tone="brand" />
+    </div>
+
+    <div className="mt-3 grid grid-cols-1 gap-2">
+      <select
+        value={staffPayrollMoneyAccountId}
+        onChange={(e) => setStaffPayrollMoneyAccountId(e.target.value)}
+        className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+      >
+        <option value="">— cuenta interna —</option>
+        {staffPayrollAccountOptions.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.name} ({account.currencyCode})
+          </option>
+        ))}
+      </select>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <div className="mb-1 text-[10px] text-[#8A8A96]">Fecha de aplicación</div>
+          <input
+            value={staffPayrollOperationDate}
+            onChange={(e) => setStaffPayrollOperationDate(e.target.value)}
+            type="date"
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7]"
+          />
+        </div>
+
+        <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
+          <div className="text-[10px] text-[#8A8A96]">Monto que se aplicará</div>
+          <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">
+            {selectedStaffPayrollAccount?.currencyCode === 'VES'
+              ? fmtBs(getOrderPaymentBalanceBs(selectedOrder, staffPayrollOperationDate))
+              : fmtUSD(selectedOrder.balanceUsd)}
+          </div>
+        </div>
+      </div>
+
+      <textarea
+        value={staffPayrollNotes}
+        onChange={(e) => setStaffPayrollNotes(e.target.value)}
+        placeholder="Nota interna para nómina (opcional)"
+        rows={2}
+        className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+      />
+
+      {selectedStaffPayrollAccount && !normalizeLooseText(selectedStaffPayrollAccount.name).includes('personal') && !normalizeLooseText(selectedStaffPayrollAccount.name).includes('cxc') ? (
+        <div className="rounded-md border border-[#3A2F12] bg-[#151208] px-2 py-1.5 text-[11px] text-[#F7DA66]">
+          Revisa que esta sea una cuenta interna de personal. No debería ser una cuenta bancaria real.
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-1.5">
+        <button
+          className="rounded-md border border-sky-500 bg-sky-500 px-2 py-1 text-[10px] font-semibold text-[#081017] disabled:cursor-wait disabled:opacity-60"
+          onClick={() => handleApplyStaffPayrollPayment(selectedOrder)}
+          disabled={staffPayrollSaving || !staffPayrollMoneyAccountId || staffPayrollAccountOptions.length === 0}
+        >
+          {staffPayrollSaving ? 'Aplicando...' : 'Aplicar pago por nómina'}
+        </button>
+
+        <button
+          className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
+          onClick={() => {
+            setStaffPayrollBoxOpen(false);
+            setStaffPayrollMoneyAccountId('');
+            setStaffPayrollOperationDate('');
+            setStaffPayrollNotes('');
+          }}
+          disabled={staffPayrollSaving}
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
 ) : null}
 
 {detailTab === 'pagos' && paymentReportBoxOpen ? (

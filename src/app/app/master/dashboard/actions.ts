@@ -2117,6 +2117,256 @@ export async function confirmPaymentReportAction(input: {
   revalidatePath('/app/master/dashboard');
 }
 
+export async function applyStaffPayrollPaymentAction(input: {
+  orderId: number;
+  moneyAccountId: number;
+  operationDate?: string | null;
+  notes?: string | null;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+
+  const orderId = Number(input.orderId || 0);
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const operationDate =
+    normalizeDateOnly(input.operationDate) || getCaracasDateString(new Date());
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Debes seleccionar la cuenta interna de personal.');
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, name, currency_code, is_active')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta interna.');
+  }
+
+  if (!account.is_active) {
+    throw new Error('La cuenta interna seleccionada esta inactiva.');
+  }
+
+  const currencyCode = String(account.currency_code || '').trim().toUpperCase();
+  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+    throw new Error('La moneda de la cuenta interna no es valida.');
+  }
+
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      client_id,
+      status,
+      total_usd,
+      total_bs_snapshot,
+      extra_fields,
+      client:clients!orders_client_id_fkey(full_name)
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  const activeRate = currencyCode === 'VES' ? await loadActiveExchangeRate(supabase) : null;
+  const financialState = await loadOrderFinancialState(supabase, {
+    orderId,
+    operationDate,
+    activeBsRate: activeRate,
+  });
+
+  let pendingUsd = financialState ? roundMoney(financialState.pending_usd) : 0;
+
+  if (!financialState) {
+    const { data: orderMovements, error: orderMovementsError } = await supabase
+      .from('money_movements')
+      .select('direction, amount_usd_equivalent')
+      .eq('order_id', orderId)
+      .eq('status', 'confirmed');
+
+    if (orderMovementsError) throw new Error(orderMovementsError.message);
+
+    const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
+      const signedAmount =
+        toSafeNumber((row as { amount_usd_equivalent?: unknown }).amount_usd_equivalent, 0) *
+        (((row as { direction?: string | null }).direction ?? 'inflow') === 'outflow' ? -1 : 1);
+      return sum + signedAmount;
+    }, 0));
+
+    pendingUsd = roundMoney(Math.max(0, getEffectiveOrderTotalUsd(order) - confirmedPaidUsd));
+  }
+
+  if (pendingUsd <= 0.005) {
+    throw new Error('Esta orden ya no tiene saldo pendiente.');
+  }
+
+  const statePendingBs = financialState ? roundMoney(financialState.pending_bs) : 0;
+  const exchangeRate =
+    currencyCode === 'VES'
+      ? Number(
+          (
+            statePendingBs > 0.005 && pendingUsd > 0.005
+              ? statePendingBs / pendingUsd
+              : activeRate || 0
+          ).toFixed(6)
+        )
+      : null;
+
+  if (currencyCode === 'VES' && (!exchangeRate || exchangeRate <= 0)) {
+    throw new Error('No se pudo determinar una tasa valida para aplicar el pago por nomina.');
+  }
+
+  const nativeAmount =
+    currencyCode === 'VES'
+      ? Number((statePendingBs > 0.005 ? statePendingBs : pendingUsd * Number(exchangeRate || 0)).toFixed(2))
+      : pendingUsd;
+
+  if (!Number.isFinite(nativeAmount) || nativeAmount <= 0) {
+    throw new Error('No se pudo determinar el monto a pagar por nomina.');
+  }
+
+  const clientRow = Array.isArray((order as any).client)
+    ? ((order as any).client[0] ?? null)
+    : ((order as any).client ?? null);
+  const clientName = String(clientRow?.full_name || '').trim() || 'Personal';
+  const orderLabel = String((order as any).order_number || `Orden ${orderId}`);
+  const referenceCode = `NOM-${orderId}-${Date.now().toString(36).toUpperCase()}`;
+  const reportNotes = [
+    'Pago interno por descuento de personal.',
+    `Cuenta puente: ${account.name}.`,
+    notes,
+  ].filter(Boolean).join('\n');
+
+  const { data: reportRow, error: reportError } = await supabase
+    .from('payment_reports')
+    .insert({
+      order_id: orderId,
+      status: 'pending',
+      created_by_user_id: user.id,
+      reported_currency_code: currencyCode,
+      reported_amount: nativeAmount,
+      reported_exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+      reported_amount_usd_equivalent: pendingUsd,
+      reported_money_account_id: moneyAccountId,
+      reference_code: referenceCode,
+      payer_name: clientName,
+      notes: reportNotes,
+      operation_date: operationDate,
+    })
+    .select('id')
+    .single();
+
+  if (reportError || !reportRow) {
+    throw new Error(reportError?.message || 'No se pudo crear el pago interno.');
+  }
+
+  const reportId = Number(reportRow.id);
+  if (!Number.isFinite(reportId) || reportId <= 0) {
+    throw new Error('No se pudo identificar el pago interno creado.');
+  }
+
+  await confirmPaymentReportAction({
+    reportId,
+    orderId,
+    clientId: (order as any).client_id == null ? null : Number((order as any).client_id),
+    confirmedMoneyAccountId: moneyAccountId,
+    confirmedCurrency: currencyCode,
+    confirmedAmount: nativeAmount,
+    movementDate: operationDate,
+    confirmedExchangeRateVesPerUsd: currencyCode === 'VES' ? exchangeRate : null,
+    reviewNotes: notes || 'Pago aplicado por descuento de personal.',
+    referenceCode,
+    counterpartyName: clientName,
+    description: `Pago por nomina - ${orderLabel}`,
+    overpaymentHandling: null,
+    overpaymentNotes: null,
+  });
+
+  const movementGroupId = `staff-payroll-${orderId}-${reportId}`;
+  const { error: movementGroupError } = await supabase
+    .from('money_movements')
+    .update({ movement_group_id: movementGroupId })
+    .eq('payment_report_id', reportId)
+    .eq('direction', 'inflow');
+
+  if (movementGroupError) {
+    throw new Error(movementGroupError.message);
+  }
+
+  const { error: offsetError } = await supabase
+    .from('money_movements')
+    .insert({
+      movement_date: operationDate,
+      created_by_user_id: user.id,
+      confirmed_at: new Date().toISOString(),
+      confirmed_by_user_id: user.id,
+      status: 'confirmed',
+      approval_required: false,
+      approval_required_reason: null,
+      direction: 'outflow',
+      movement_type: 'adjustment',
+      money_account_id: moneyAccountId,
+      currency_code: currencyCode,
+      amount: nativeAmount,
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+      amount_usd_equivalent: pendingUsd,
+      reference_code: referenceCode,
+      counterparty_name: clientName,
+      description: `Compensacion nomina - ${orderLabel}`,
+      notes: [
+        'Salida espejo para que la cuenta interna de personal quede en cero.',
+        `Pago interno reporte #${reportId}.`,
+        notes,
+      ].filter(Boolean).join('\n'),
+      order_id: null,
+      payment_report_id: null,
+      movement_group_id: movementGroupId,
+    });
+
+  if (offsetError) {
+    throw new Error(offsetError.message);
+  }
+
+  const eventContext = await loadOrderEventContext(supabase, orderId);
+  await appendOrderEvent(supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'staff_payroll_payment',
+    eventGroup: 'payment',
+    title: 'Pago por nomina aplicado',
+    message: 'La orden fue saldada con descuento de personal y compensada en la cuenta interna.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      report_id: reportId,
+      money_account_id: moneyAccountId,
+      money_account_name: account.name,
+      currency: currencyCode,
+      amount: nativeAmount,
+      amount_usd: pendingUsd,
+      movement_date: operationDate,
+      reference_code: referenceCode,
+      movement_group_id: movementGroupId,
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetRole: 'admin' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
+  revalidateMasterDashboardFinancialReferences();
+}
+
 export async function applyClientFundPaymentAction(input: {
   orderId: number;
   amountUsd: number;
