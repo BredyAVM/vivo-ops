@@ -6498,7 +6498,9 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
       return;
     }
 
-    if (!staffPayrollOperationDate.trim()) {
+    const appliedOperationDate = staffPayrollOperationDate.trim();
+
+    if (!appliedOperationDate) {
       showToast('error', 'Debes indicar la fecha de aplicación.');
       return;
     }
@@ -6508,7 +6510,7 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
     await applyStaffPayrollPaymentAction({
       orderId: o.id,
       moneyAccountId: account.id,
-      operationDate: staffPayrollOperationDate.trim(),
+      operationDate: appliedOperationDate,
       notes: staffPayrollNotes.trim() || null,
     });
 
@@ -6517,6 +6519,11 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
     setStaffPayrollMoneyAccountId('');
     setStaffPayrollOperationDate('');
     setStaffPayrollNotes('');
+    await loadMoneyActivity(true, {
+      scope: 'range',
+      dateFrom: accountDetailDateFrom || appliedOperationDate,
+      dateTo: accountDetailDateTo || appliedOperationDate,
+    });
     router.refresh();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aplicando el pago por nómina.';
