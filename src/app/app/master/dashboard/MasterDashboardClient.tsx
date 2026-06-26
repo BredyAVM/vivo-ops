@@ -21228,88 +21228,52 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Vista rápida de cuenta</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Resumen financiero</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Lectura tipo banco para hoy {selectedAccountBankSummary.today}. Los pendientes no afectan saldo hasta aprobarse.
+                    Calculado desde la línea base activa. No es saldo bancario real hasta registrar un cierre.
                   </div>
                 </div>
                 <div className="rounded-xl border border-[#FEEF00]/30 bg-[#1D1A00] px-3 py-2 text-right">
-                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#B7B7C2]">Esperado desde línea base</div>
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#B7B7C2]">Saldo esperado</div>
                   <div className="mt-1 text-xl font-semibold text-[#FEEF00]">
                     {fmtMoneyByCurrency(selectedAccountBankSummary.expectedBalanceNative, selectedAccount.currencyCode)}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
+              <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <InfoCell
-                  label="Saldo inicial"
+                  label="Entradas período"
                   value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.openingBalanceNative,
+                    selectedAccountStatementData.inflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Entradas de hoy"
+                  label="Salidas período"
                   value={fmtMoneyByCurrency(
-                    selectedAccountBankSummary.todayInflowNative,
+                    selectedAccountStatementData.outflowNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Salidas de hoy"
+                  label="Pendiente/aprobación"
                   value={fmtMoneyByCurrency(
-                    selectedAccountBankSummary.todayOutflowNative,
+                    selectedAccountStatementData.pendingNative,
                     selectedAccount.currencyCode
                   )}
                 />
                 <InfoCell
-                  label="Pendiente hoy"
-                  value={`${selectedAccountBankSummary.todayPendingCount} · ${fmtMoneyByCurrency(
-                    selectedAccountBankSummary.todayPendingNative,
-                    selectedAccount.currencyCode
-                  )}`}
-                />
-                <InfoCell
-                  label="Pendiente por identificar"
+                  label="Por identificar"
                   value={`${selectedAccountBankSummary.openReconciliationCount} · ${fmtMoneyByCurrency(
                     Math.abs(selectedAccountBankSummary.openReconciliationAmountNative),
                     selectedAccount.currencyCode
                   )}`}
                 />
-                <InfoCell
-                  label="Último saldo real"
-                  value={
-                    selectedAccountBankSummary.latestRealBalanceNative == null
-                      ? 'Sin cierre'
-                      : `${fmtMoneyByCurrency(
-                          selectedAccountBankSummary.latestRealBalanceNative,
-                          selectedAccount.currencyCode
-                        )} · ${selectedAccountBankSummary.latestClosureDate ?? 's/f'}`
-                  }
-                />
               </div>
-
-              {selectedAccountBankSummary.latestDifferenceNative != null ? (
-                <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
-                  <span className="text-[#8A8A96]">Diferencia del último cierre: </span>
-                  <span
-                    className={
-                      Math.abs(selectedAccountBankSummary.latestDifferenceNative) <= 0.01
-                        ? 'font-semibold text-emerald-300'
-                        : 'font-semibold text-[#FEEF00]'
-                    }
-                  >
-                    {selectedAccountBankSummary.latestDifferenceNative > 0 ? '+' : ''}
-                    {fmtMoneyByCurrency(
-                      selectedAccountBankSummary.latestDifferenceNative,
-                      selectedAccount.currencyCode
-                    )}
-                  </span>
-                </div>
-              ) : null}
             </div>
 
+            {selectedAccountReviewAlerts.length > 0 ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -21321,12 +21285,7 @@ deliveryAssignMode === 'external' ? (
                 <div className="text-xs text-[#8A8A96]">{selectedAccountReviewAlerts.length} alerta(s)</div>
               </div>
               <div className="mt-3 space-y-2">
-                {selectedAccountReviewAlerts.length === 0 ? (
-                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-                    Sin alertas visibles para esta cuenta.
-                  </div>
-                ) : (
-                  selectedAccountReviewAlerts.map((alert) => (
+                {selectedAccountReviewAlerts.map((alert) => (
                     <div
                       key={alert.key}
                       className={[
@@ -21341,63 +21300,7 @@ deliveryAssignMode === 'external' ? (
                       <div className="font-semibold text-[#F5F5F7]">{alert.title}</div>
                       <div className="mt-1 text-xs opacity-90">{alert.detail}</div>
                     </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {accountDetailTab === 'operation' ? (
-            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Estado de cuenta</div>
-                  <div className="mt-1 text-xs text-[#8A8A96]">
-                    Lectura operativa {selectedAccountStatementData.startLabel}. Solo los movimientos confirmados afectan el saldo.
-                  </div>
-                </div>
-                <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-right">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-[#8A8A96]">Saldo esperado</div>
-                  <div className="mt-1 text-xl font-semibold text-[#F5F5F7]">
-                    {fmtMoneyByCurrency(selectedAccountStatementData.currentBalanceNative, selectedAccount.currencyCode)}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
-                <InfoCell
-                  label="Saldo inicial"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.openingBalanceNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Entradas"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.inflowNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Salidas"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.outflowNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Neto período"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.inflowNative - selectedAccountStatementData.outflowNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Pendiente/aprobación"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.pendingNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
+                  ))}
               </div>
             </div>
             ) : null}
@@ -21677,9 +21580,9 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos del estado de cuenta</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    {selectedAccountStatementData.rows.length} movimiento(s) visibles. Entrada/salida muestran solo impacto confirmado.
+                    {selectedAccountStatementData.rows.length} movimiento(s) visibles. Los pendientes se muestran, pero no afectan el saldo.
                   </div>
                 </div>
                 <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
@@ -21722,43 +21625,6 @@ deliveryAssignMode === 'external' ? (
                   label="Rechazados/anulados"
                   checked={accountAuditExceptionOnly}
                   onChange={setAccountAuditExceptionOnly}
-                />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-5">
-                <InfoCell
-                  label="Saldo inicial"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.openingBalanceNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Entradas visibles"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.inflowNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Salidas visibles"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.outflowNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Saldo final"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.currentBalanceNative,
-                    selectedAccount.currencyCode
-                  )}
-                />
-                <InfoCell
-                  label="Pendiente"
-                  value={fmtMoneyByCurrency(
-                    selectedAccountStatementData.pendingNative,
-                    selectedAccount.currencyCode
-                  )}
                 />
               </div>
               <div className="mt-3 overflow-x-auto">
