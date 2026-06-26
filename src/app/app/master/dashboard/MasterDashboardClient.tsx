@@ -4061,6 +4061,8 @@ export default function MasterDashboardClient({
   const [accountQuickFilter, setAccountQuickFilter] = useState<AccountQuickFilter>('all');
   const [accountDateFrom, setAccountDateFrom] = useState('');
   const [accountDateTo, setAccountDateTo] = useState('');
+  const [accountDetailDateFrom, setAccountDetailDateFrom] = useState('');
+  const [accountDetailDateTo, setAccountDetailDateTo] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [accountDetailOpen, setAccountDetailOpen] = useState(false);
   const [accountMoreOpenId, setAccountMoreOpenId] = useState<number | null>(null);
@@ -4088,6 +4090,7 @@ export default function MasterDashboardClient({
     MoneyAccountReconciliationItem[]
   >([]);
   const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
+  const [moneyActivityLoadedScope, setMoneyActivityLoadedScope] = useState('');
   const [moneyActivityLoading, setMoneyActivityLoading] = useState(false);
   const [moneyActivityError, setMoneyActivityError] = useState<string | null>(null);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovementItem[]>(initialInventoryMovements);
@@ -4248,6 +4251,11 @@ const [editIsActive, setEditIsActive] = useState(true);
     const intervalId = window.setInterval(tick, 60 * 1000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    setAccountDetailDateFrom('');
+    setAccountDetailDateTo('');
+  }, [selectedAccountId]);
 
   const createOrderProductSearchRef = useRef<HTMLInputElement | null>(null);
   const createOrderQtyRef = useRef<HTMLInputElement | null>(null);
@@ -7491,42 +7499,52 @@ const handleSaveQuickCatalog = async () => {
     });
   };
 
+  const defaultMoneyActivityDate = selectedDay
+    ? toDateInputValue(selectedDay)
+    : orderScope?.focusDate || getCaracasTodayString();
+
   const loadMoneyActivity = useCallback(
-    async (force = false) => {
+    async (force = false, options?: { scope?: 'day' | 'range'; dateFrom?: string; dateTo?: string }) => {
       if (moneyActivityLoading) return;
-      if (moneyActivityLoaded && !force) return;
+      const useDateRange = options?.scope === 'range';
+      const requestedDateFrom = useDateRange ? options?.dateFrom || '' : defaultMoneyActivityDate;
+      const requestedDateTo = useDateRange ? options?.dateTo || '' : defaultMoneyActivityDate;
+      const scopeKey = `${useDateRange ? 'range' : 'day'}:${requestedDateFrom || 'open'}:${requestedDateTo || 'open'}`;
+      if (moneyActivityLoaded && moneyActivityLoadedScope === scopeKey && !force) return;
 
       try {
         setMoneyActivityLoading(true);
         setMoneyActivityError(null);
         const result = await loadMoneyActivityAction({
-          movementLimit: 350,
+          movementLimit: useDateRange ? 1200 : 350,
           closureLimit: 120,
           reconciliationLimit: 120,
+          movementDateFrom: requestedDateFrom || undefined,
+          movementDateTo: requestedDateTo || undefined,
         });
-        const movementById = new Map<number, MoneyMovementItem>();
+        const loadedMovements = result.movements as MoneyMovementItem[];
 
-        if (!force) {
-          for (const movement of initialMoneyMovements) {
+        setMoneyMovements((currentMovements) => {
+          const movementById = new Map<number, MoneyMovementItem>();
+          for (const movement of currentMovements) {
             movementById.set(movement.id, movement);
           }
-        }
 
-        for (const movement of result.movements as MoneyMovementItem[]) {
-          movementById.set(movement.id, movement);
-        }
+          for (const movement of loadedMovements) {
+            movementById.set(movement.id, movement);
+          }
 
-        setMoneyMovements(
-          Array.from(movementById.values()).sort((a, b) => {
+          return Array.from(movementById.values()).sort((a, b) => {
             const dateCompare = String(b.movementDate).localeCompare(String(a.movementDate));
             if (dateCompare !== 0) return dateCompare;
             return String(b.createdAt).localeCompare(String(a.createdAt));
-          })
-        );
+          });
+        });
         setMoneyAccountClosures(result.closures as MoneyAccountClosureItem[]);
         setMoneyAccountBaselines(result.baselines as MoneyAccountBaselineItem[]);
         setMoneyAccountReconciliationItems(result.reconciliationItems as MoneyAccountReconciliationItem[]);
         setMoneyActivityLoaded(true);
+        setMoneyActivityLoadedScope(scopeKey);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'No se pudo cargar la actividad financiera.';
         setMoneyActivityError(message);
@@ -7535,7 +7553,7 @@ const handleSaveQuickCatalog = async () => {
         setMoneyActivityLoading(false);
       }
     },
-    [initialMoneyMovements, moneyActivityLoaded, moneyActivityLoading]
+    [defaultMoneyActivityDate, moneyActivityLoaded, moneyActivityLoadedScope, moneyActivityLoading]
   );
 
   const loadInventoryMovements = useCallback(
@@ -10685,12 +10703,15 @@ const selectedCreateOrderClientAddresses = useMemo(
   );
 
   const filteredMoneyMovements = useMemo(() => {
+    const effectiveDateFrom = accountDateFrom || (!accountDateTo ? defaultMoneyActivityDate : '');
+    const effectiveDateTo = accountDateTo || (!accountDateFrom ? defaultMoneyActivityDate : '');
+
     return moneyMovements.filter((movement) => {
-      if (accountDateFrom && movement.movementDate < accountDateFrom) return false;
-      if (accountDateTo && movement.movementDate > accountDateTo) return false;
+      if (effectiveDateFrom && movement.movementDate < effectiveDateFrom) return false;
+      if (effectiveDateTo && movement.movementDate > effectiveDateTo) return false;
       return true;
     });
-  }, [accountDateFrom, accountDateTo, moneyMovements]);
+  }, [accountDateFrom, accountDateTo, defaultMoneyActivityDate, moneyMovements]);
 
   const filteredAccounts = useMemo(() => {
     const query = normalizeLooseText(accountSearch);
@@ -11617,14 +11638,16 @@ const selectedCreateOrderClientAddresses = useMemo(
 
     const baselineDate = selectedAccountBaseline?.baselineDate ?? null;
     const baselineAmount = selectedAccountBaseline?.countedAmount ?? 0;
-    const startDate = accountDateFrom || baselineDate || '';
+    const effectiveDateFrom = accountDetailDateFrom || (!accountDetailDateTo ? defaultMoneyActivityDate : '');
+    const effectiveDateTo = accountDetailDateTo || (!accountDetailDateFrom ? defaultMoneyActivityDate : '');
+    const startDate = effectiveDateFrom || baselineDate || '';
     const isAfterBaseline = (movement: MoneyMovementItem) => !baselineDate || movement.movementDate > baselineDate;
     const isBeforePeriod = (movement: MoneyMovementItem) =>
-      accountDateFrom ? movement.movementDate < accountDateFrom : false;
+      effectiveDateFrom ? movement.movementDate < effectiveDateFrom : false;
     const isInsidePeriod = (movement: MoneyMovementItem) => {
       if (baselineDate && movement.movementDate <= baselineDate) return false;
-      if (accountDateFrom && movement.movementDate < accountDateFrom) return false;
-      if (accountDateTo && movement.movementDate > accountDateTo) return false;
+      if (effectiveDateFrom && movement.movementDate < effectiveDateFrom) return false;
+      if (effectiveDateTo && movement.movementDate > effectiveDateTo) return false;
       return true;
     };
 
@@ -11710,15 +11733,16 @@ const selectedCreateOrderClientAddresses = useMemo(
       pendingNative: Number(pendingNative.toFixed(2)),
       currentBalanceNative: runningBalance,
       rows,
-      startLabel: accountDateFrom
-        ? accountDateFrom
+      startLabel: effectiveDateFrom
+        ? effectiveDateFrom
         : baselineDate
           ? `desde ${baselineDate}`
           : startDate || 'sin línea base',
     };
   }, [
-    accountDateFrom,
-    accountDateTo,
+    accountDetailDateFrom,
+    accountDetailDateTo,
+    defaultMoneyActivityDate,
     getMovementGroupClientLabel,
     moneyAccounts,
     moneyMovements,
@@ -11761,6 +11785,8 @@ const selectedCreateOrderClientAddresses = useMemo(
   ]);
 
   const accountStatementFiltersActive =
+    Boolean(accountDetailDateFrom) ||
+    Boolean(accountDetailDateTo) ||
     accountMovementFilter !== 'all' ||
     Boolean(accountAuditStatusFilter) ||
     Boolean(accountAuditUserFilter) ||
@@ -14909,6 +14935,61 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
     </div>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setAccountQuickFilter(filter)}
+                className={[
+                  'whitespace-nowrap rounded-full border px-3 py-1.5 text-xs',
+                  accountQuickFilter === filter
+                    ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                ].join(' ')}
+              >
+                {ACCOUNT_QUICK_FILTER_LABEL[filter]}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_120px]">
+            <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
+            <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
+            <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
+            <button
+              type="button"
+              className="self-end rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() =>
+                loadMoneyActivity(true, {
+                  scope: 'range',
+                  dateFrom: accountDateFrom || undefined,
+                  dateTo: accountDateTo || undefined,
+                })
+              }
+              disabled={moneyActivityLoading || (!accountDateFrom && !accountDateTo)}
+            >
+              {moneyActivityLoading ? 'Buscando...' : 'Buscar'}
+            </button>
+          </div>
+          <div className="mt-2 text-[11px] text-[#8A8A96]">
+            Sin rango específico, se muestran los movimientos del día operativo {defaultMoneyActivityDate}.
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {permissions.canCreateMoneyMovements ? <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn> : null}
+          {permissions.canCreateMoneyTransfers ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
+          <Btn onClick={() => setFinancePendingOpen(true)}>
+            Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
+          </Btn>
+          {permissions.canCreateMoneyAccounts ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
+        </div>
+      </div>
+    </div>
+
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos financieros</div>
@@ -15079,44 +15160,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             </tbody>
           </table>
         )}
-      </div>
-    </div>
-
-    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setAccountQuickFilter(filter)}
-                className={[
-                  'whitespace-nowrap rounded-full border px-3 py-1.5 text-xs',
-                  accountQuickFilter === filter
-                    ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
-                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
-                ].join(' ')}
-              >
-                {ACCOUNT_QUICK_FILTER_LABEL[filter]}
-              </button>
-            ))}
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
-            <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
-            <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
-            <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {permissions.canCreateMoneyMovements ? <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn> : null}
-          {permissions.canCreateMoneyTransfers ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
-          <Btn onClick={() => setFinancePendingOpen(true)}>
-            Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
-          </Btn>
-          {permissions.canCreateMoneyAccounts ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
-        </div>
       </div>
     </div>
 
@@ -20934,7 +20977,8 @@ deliveryAssignMode === 'external' ? (
                 <div>
                   <div className="text-lg font-semibold text-[#F5F5F7]">{selectedAccount.name}</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Fecha: {accountDateTo || accountDateFrom || new Date().toISOString().slice(0, 10)}
+                    Período: {accountDetailDateFrom || defaultMoneyActivityDate}
+                    {accountDetailDateTo ? ` al ${accountDetailDateTo}` : ''}
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -21446,7 +21490,28 @@ deliveryAssignMode === 'external' ? (
                   ))}
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[160px_minmax(0,1fr)_140px_140px_120px]">
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[180px_180px_120px_minmax(0,1fr)]">
+                <FieldInput label="Desde" value={accountDetailDateFrom} onChange={setAccountDetailDateFrom} type="date" />
+                <FieldInput label="Hasta" value={accountDetailDateTo} onChange={setAccountDetailDateTo} type="date" />
+                <button
+                  type="button"
+                  className="self-end rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() =>
+                    loadMoneyActivity(true, {
+                      scope: 'range',
+                      dateFrom: accountDetailDateFrom || undefined,
+                      dateTo: accountDetailDateTo || undefined,
+                    })
+                  }
+                  disabled={moneyActivityLoading || (!accountDetailDateFrom && !accountDetailDateTo)}
+                >
+                  {moneyActivityLoading ? 'Buscando...' : 'Buscar'}
+                </button>
+                <div className="self-end pb-2 text-xs text-[#8A8A96]">
+                  Sin rango, muestra el día operativo {defaultMoneyActivityDate}.
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[160px_minmax(0,1fr)_140px_140px_120px]">
                 <FieldSelect
                   label="Estado"
                   value={accountAuditStatusFilter}
@@ -21488,6 +21553,8 @@ deliveryAssignMode === 'external' ? (
                     type="button"
                     className="self-end rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#B7B7C2]"
                     onClick={() => {
+                      setAccountDetailDateFrom('');
+                      setAccountDetailDateTo('');
                       setAccountMovementFilter('all');
                       setAccountAuditStatusFilter('');
                       setAccountAuditUserFilter('');

@@ -4516,51 +4516,74 @@ export async function loadMoneyActivityAction(input?: {
   movementLimit?: number;
   closureLimit?: number;
   reconciliationLimit?: number;
+  movementDateFrom?: string;
+  movementDateTo?: string;
 }) {
   const { supabase } = await requireMasterOrAdmin();
-  const movementLimit = Math.max(50, Math.min(800, Math.floor(Number(input?.movementLimit ?? 350) || 350)));
+  const movementDateFrom =
+    typeof input?.movementDateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.movementDateFrom.trim())
+      ? input.movementDateFrom.trim()
+      : '';
+  const movementDateTo =
+    typeof input?.movementDateTo === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.movementDateTo.trim())
+      ? input.movementDateTo.trim()
+      : '';
+  const hasMovementDateRange = Boolean(movementDateFrom || movementDateTo);
+  const movementLimit = Math.max(
+    50,
+    Math.min(hasMovementDateRange ? 2500 : 800, Math.floor(Number(input?.movementLimit ?? (hasMovementDateRange ? 1200 : 350)) || 350))
+  );
   const closureLimit = Math.max(25, Math.min(300, Math.floor(Number(input?.closureLimit ?? 120) || 120)));
   const reconciliationLimit = Math.max(
     25,
     Math.min(300, Math.floor(Number(input?.reconciliationLimit ?? 120) || 120))
   );
 
+  let movementsQuery = supabase
+    .from('money_movements')
+    .select(`
+      id,
+      movement_date,
+      created_at,
+      created_by_user_id,
+      confirmed_at,
+      confirmed_by_user_id,
+      status,
+      approval_required,
+      approval_required_reason,
+      reviewed_at,
+      reviewed_by_user_id,
+      rejected_at,
+      rejected_by_user_id,
+      rejection_reason,
+      voided_at,
+      voided_by_user_id,
+      void_reason,
+      direction,
+      movement_type,
+      money_account_id,
+      currency_code,
+      amount,
+      exchange_rate_ves_per_usd,
+      amount_usd_equivalent,
+      reference_code,
+      counterparty_name,
+      description,
+      notes,
+      order_id,
+      payment_report_id,
+      movement_group_id
+    `);
+
+  if (movementDateFrom) {
+    movementsQuery = movementsQuery.gte('movement_date', movementDateFrom);
+  }
+  if (movementDateTo) {
+    movementsQuery = movementsQuery.lte('movement_date', movementDateTo);
+  }
+
   const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult] = await Promise.all([
-    supabase
-      .from('money_movements')
-      .select(`
-        id,
-        movement_date,
-        created_at,
-        created_by_user_id,
-        confirmed_at,
-        confirmed_by_user_id,
-        status,
-        approval_required,
-        approval_required_reason,
-        reviewed_at,
-        reviewed_by_user_id,
-        rejected_at,
-        rejected_by_user_id,
-        rejection_reason,
-        voided_at,
-        voided_by_user_id,
-        void_reason,
-        direction,
-        movement_type,
-        money_account_id,
-        currency_code,
-        amount,
-        exchange_rate_ves_per_usd,
-        amount_usd_equivalent,
-        reference_code,
-        counterparty_name,
-        description,
-        notes,
-        order_id,
-        payment_report_id,
-        movement_group_id
-      `)
+    movementsQuery
       .order('movement_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(movementLimit),
