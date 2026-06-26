@@ -2292,7 +2292,7 @@ export async function applyStaffPayrollPaymentAction(input: {
     overpaymentNotes: null,
   });
 
-  const movementGroupId = `staff-payroll-${orderId}-${reportId}`;
+  const movementGroupId = crypto.randomUUID();
   const { error: movementGroupError } = await supabase
     .from('money_movements')
     .update({ movement_group_id: movementGroupId })
@@ -2300,7 +2300,7 @@ export async function applyStaffPayrollPaymentAction(input: {
     .eq('direction', 'inflow');
 
   if (movementGroupError) {
-    throw new Error(movementGroupError.message);
+    console.warn('staff payroll payment group update skipped', movementGroupError.message);
   }
 
   const { error: offsetError } = await supabase
@@ -2357,6 +2357,7 @@ export async function applyStaffPayrollPaymentAction(input: {
       movement_date: operationDate,
       reference_code: referenceCode,
       movement_group_id: movementGroupId,
+      payroll_offset_for_order_id: orderId,
     },
     recipients: [
       { targetRole: 'master' },
