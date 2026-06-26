@@ -18395,7 +18395,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
-{detailTab === 'pagos' && isAdmin && selectedOrder.balanceUsd > 0.01 ? (
+{detailTab === 'pagos' && (permissions.isMaster || permissions.isAdmin) && selectedOrder.balanceUsd > 0.01 ? (
   <button
     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
     onClick={() => {
@@ -18425,7 +18425,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
-{detailTab === 'pagos' && selectedOrder.balanceUsd > 0.01 ? (
+{detailTab === 'pagos' && isAdmin && selectedOrder.balanceUsd > 0.01 ? (
   <button
     className="rounded-md border border-sky-500/40 bg-[#0B1218] px-2 py-1 text-[10px] text-sky-300 disabled:cursor-wait disabled:opacity-60"
     onClick={() => openStaffPayrollBox(selectedOrder)}
@@ -18460,7 +18460,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
-{detailTab === 'pagos' && staffPayrollBoxOpen ? (
+{detailTab === 'pagos' && isAdmin && staffPayrollBoxOpen ? (
   <div className="rounded-lg border border-sky-500/30 bg-[#0B1016] p-3">
     <div className="flex items-start justify-between gap-3">
       <div>
