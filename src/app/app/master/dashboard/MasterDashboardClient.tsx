@@ -387,6 +387,22 @@ type AccountStatementRow = {
   runningBalanceNative: number;
 };
 
+function accountMovementGroupMatchesFilter(group: AccountMovementGroup, accountMovementFilter: AccountMovementFilter) {
+  if (accountMovementFilter === 'all') return true;
+  if (accountMovementFilter === 'inflows') return group.selectedMovements.some((movement) => movement.direction === 'inflow');
+  if (accountMovementFilter === 'outflows') return group.selectedMovements.some((movement) => movement.direction === 'outflow');
+  if (accountMovementFilter === 'fees') return group.feeMovements.length > 0;
+  if (accountMovementFilter === 'order_payments') return group.selectedMovements.some((movement) => movement.movementType === 'order_payment');
+  if (accountMovementFilter === 'changes') return group.selectedMovements.some((movement) => movement.movementType === 'change_given');
+  if (accountMovementFilter === 'adjustments') {
+    return group.selectedMovements.some((movement) =>
+      movement.movementType === 'adjustment' || movement.movementType === 'cash_count_adjustment'
+    );
+  }
+  if (accountMovementFilter === 'transfers') return group.isTransfer;
+  return true;
+}
+
 function buildAccountMovementGroups(
   movementsInput: MoneyMovementItem[],
   selectedAccountId: number | null,
@@ -443,21 +459,7 @@ function buildAccountMovementGroups(
   }
 
   return out
-    .filter((group) => {
-      if (accountMovementFilter === 'all') return true;
-      if (accountMovementFilter === 'inflows') return group.selectedMovements.some((movement) => movement.direction === 'inflow');
-      if (accountMovementFilter === 'outflows') return group.selectedMovements.some((movement) => movement.direction === 'outflow');
-      if (accountMovementFilter === 'fees') return group.feeMovements.length > 0;
-      if (accountMovementFilter === 'order_payments') return group.selectedMovements.some((movement) => movement.movementType === 'order_payment');
-      if (accountMovementFilter === 'changes') return group.selectedMovements.some((movement) => movement.movementType === 'change_given');
-      if (accountMovementFilter === 'adjustments') {
-        return group.selectedMovements.some((movement) =>
-          movement.movementType === 'adjustment' || movement.movementType === 'cash_count_adjustment'
-        );
-      }
-      if (accountMovementFilter === 'transfers') return group.isTransfer;
-      return true;
-    })
+    .filter((group) => accountMovementGroupMatchesFilter(group, accountMovementFilter))
     .sort((a, b) => {
       const byDate = String(b.primaryMovement.movementDate).localeCompare(String(a.primaryMovement.movementDate));
       if (byDate !== 0) return byDate;
@@ -11644,7 +11646,7 @@ const selectedCreateOrderClientAddresses = useMemo(
         (movement) => movement.moneyAccountId === selectedAccountId && isInsidePeriod(movement)
       ),
       selectedAccountId,
-      accountMovementFilter
+      'all'
     ).sort((a, b) => {
       const byDate = String(a.primaryMovement.movementDate).localeCompare(String(b.primaryMovement.movementDate));
       if (byDate !== 0) return byDate;
@@ -11717,15 +11719,53 @@ const selectedCreateOrderClientAddresses = useMemo(
   }, [
     accountDateFrom,
     accountDateTo,
-    accountMovementFilter,
     getMovementGroupClientLabel,
     moneyAccounts,
     moneyMovements,
     orderLookupById,
     selectedAccount,
     selectedAccountBaseline,
-    selectedAccountId,
+      selectedAccountId,
   ]);
+
+  const selectedAccountVisibleStatementRows = useMemo(() => {
+    return selectedAccountStatementData.rows.filter((row) => {
+      const { group } = row;
+      if (!accountMovementGroupMatchesFilter(group, accountMovementFilter)) {
+        return false;
+      }
+      if (accountAuditStatusFilter && !group.movements.some((movement) => movement.status === accountAuditStatusFilter)) {
+        return false;
+      }
+      if (accountAuditUserFilter && !group.movements.some((movement) => movementTouchesUser(movement, accountAuditUserFilter))) {
+        return false;
+      }
+      if (accountAuditApprovalOnly && !group.movements.some((movement) => movement.approvalRequired)) {
+        return false;
+      }
+      if (
+        accountAuditExceptionOnly &&
+        !group.movements.some((movement) => movement.status === 'rejected' || movement.status === 'voided')
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    accountAuditApprovalOnly,
+    accountAuditExceptionOnly,
+    accountAuditStatusFilter,
+    accountAuditUserFilter,
+    accountMovementFilter,
+    selectedAccountStatementData.rows,
+  ]);
+
+  const accountStatementFiltersActive =
+    accountMovementFilter !== 'all' ||
+    Boolean(accountAuditStatusFilter) ||
+    Boolean(accountAuditUserFilter) ||
+    accountAuditApprovalOnly ||
+    accountAuditExceptionOnly;
 
   const selectedAccountBankSummary = useMemo(() => {
     const today = getCaracasTodayString();
@@ -15213,7 +15253,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   {activeBaseline ? (
                     <div>
                       <div className="text-emerald-300">{activeBaseline.baselineDate}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">Base activa</div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">Saldo inicial</div>
                     </div>
                   ) : (
                     <span className="text-[#FEEF00]">Pendiente</span>
@@ -21054,7 +21094,7 @@ deliveryAssignMode === 'external' ? (
                 value={selectedAccount.institutionName || selectedAccount.ownerName || '—'}
               />
               <InfoCell
-                label="Base de cálculo"
+                label="Saldo inicial"
                 value={
                   selectedAccountBaseline
                     ? `${selectedAccountBaseline.baselineDate} · ${fmtMoneyByCurrency(
@@ -21385,7 +21425,7 @@ deliveryAssignMode === 'external' ? (
                 <div>
                   <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    {selectedAccountStatementData.rows.length} movimiento(s) visibles. Los pendientes se muestran, pero no afectan el saldo.
+                    {selectedAccountVisibleStatementRows.length} de {selectedAccountStatementData.rows.length} movimiento(s) del período. Los pendientes no afectan el saldo.
                   </div>
                 </div>
                 <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
@@ -21406,7 +21446,7 @@ deliveryAssignMode === 'external' ? (
                   ))}
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[160px_minmax(0,1fr)_180px_180px]">
+              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[160px_minmax(0,1fr)_140px_140px_120px]">
                 <FieldSelect
                   label="Estado"
                   value={accountAuditStatusFilter}
@@ -21443,9 +21483,24 @@ deliveryAssignMode === 'external' ? (
                 >
                   Con problema
                 </button>
+                {accountStatementFiltersActive ? (
+                  <button
+                    type="button"
+                    className="self-end rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#B7B7C2]"
+                    onClick={() => {
+                      setAccountMovementFilter('all');
+                      setAccountAuditStatusFilter('');
+                      setAccountAuditUserFilter('');
+                      setAccountAuditApprovalOnly(false);
+                      setAccountAuditExceptionOnly(false);
+                    }}
+                  >
+                    Limpiar
+                  </button>
+                ) : null}
               </div>
               <div className="mt-3 overflow-x-auto">
-                {selectedAccountStatementData.rows.length === 0 ? (
+                {selectedAccountVisibleStatementRows.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
                   <table className="w-full text-[12px]">
@@ -21461,7 +21516,7 @@ deliveryAssignMode === 'external' ? (
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedAccountStatementData.rows.map((row, idx) => {
+                      {selectedAccountVisibleStatementRows.map((row, idx) => {
                         const { group, movement } = row;
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
 
