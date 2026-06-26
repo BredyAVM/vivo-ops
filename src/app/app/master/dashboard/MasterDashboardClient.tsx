@@ -7318,6 +7318,27 @@ const handleSaveQuickCatalog = async () => {
     setTransferOpen(true);
   };
 
+  const getExpectedAccountBalanceNative = useCallback(
+    (accountId: number) => {
+      const activeBaseline =
+        moneyAccountBaselines.find(
+          (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
+        ) ?? null;
+      const baselineAmount = activeBaseline?.countedAmount ?? 0;
+      const baselineDate = activeBaseline?.baselineDate ?? null;
+
+      const movementDelta = moneyMovements.reduce((sum, movement) => {
+        if (movement.moneyAccountId !== accountId) return sum;
+        if (movement.status !== 'confirmed') return sum;
+        if (baselineDate && movement.movementDate <= baselineDate) return sum;
+        return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
+      }, 0);
+
+      return Number((baselineAmount + movementDelta).toFixed(2));
+    },
+    [moneyAccountBaselines, moneyMovements]
+  );
+
   const openAccountClosureDrawer = (account: MoneyAccountOption) => {
     if (!permissions.canRegisterAccountClosures) {
       showToast('error', 'No tienes permiso para registrar cierres.');
@@ -7329,7 +7350,7 @@ const handleSaveQuickCatalog = async () => {
     resetClosureForm();
     const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === account.id) ?? null;
     setClosureTargetAccountId(profile?.defaultTargetMoneyAccountId ? String(profile.defaultTargetMoneyAccountId) : '');
-    setClosureCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
+    setClosureCountedAmount(String(getExpectedAccountBalanceNative(account.id)));
     setAccountDetailOpen(false);
     setClosureOpen(true);
   };
@@ -10845,20 +10866,27 @@ const selectedCreateOrderClientAddresses = useMemo(
       USD: { activeCount: 0, balanceNative: 0, inflowNative: 0, outflowNative: 0, balanceUsdRef: 0 },
       VES: { activeCount: 0, balanceNative: 0, inflowNative: 0, outflowNative: 0, balanceUsdRef: 0 },
     };
+    const rate = activeExchangeRate?.rateBsPerUsd ?? 0;
 
     for (const account of filteredAccounts) {
       const stats = accountStatsById.get(account.id);
       if (!stats) continue;
+      const expectedBalanceNative = getExpectedAccountBalanceNative(account.id);
 
       if (account.isActive) base[account.currencyCode].activeCount += 1;
-      base[account.currencyCode].balanceNative += stats.balanceNative;
+      base[account.currencyCode].balanceNative += expectedBalanceNative;
       base[account.currencyCode].inflowNative += stats.periodInflowNative;
       base[account.currencyCode].outflowNative += stats.periodOutflowNative;
-      base[account.currencyCode].balanceUsdRef += stats.balanceUsdRef;
+      base[account.currencyCode].balanceUsdRef +=
+        account.currencyCode === 'VES'
+          ? rate > 0
+            ? expectedBalanceNative / rate
+            : 0
+          : expectedBalanceNative;
     }
 
     return base;
-  }, [accountStatsById, filteredAccounts]);
+  }, [accountStatsById, activeExchangeRate?.rateBsPerUsd, filteredAccounts, getExpectedAccountBalanceNative]);
 
   const moneyAccountById = useMemo(() => {
     return new Map(moneyAccounts.map((account) => [account.id, account]));
@@ -15232,6 +15260,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const activeBaseline =
               moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === account.id && baseline.status === 'active') ??
               null;
+            const expectedBalanceNative = getExpectedAccountBalanceNative(account.id);
+            const expectedBalanceUsdRef =
+              account.currencyCode === 'VES'
+                ? (activeExchangeRate?.rateBsPerUsd ?? 0) > 0
+                  ? expectedBalanceNative / (activeExchangeRate?.rateBsPerUsd ?? 1)
+                  : 0
+                : expectedBalanceNative;
             const pendingUsd = moneyMovements
               .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
               .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
@@ -15285,13 +15320,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </td>
                 <td className="px-3 py-3">
                   <div className="font-semibold text-[#F5F5F7]">
-                    {fmtMoneyByCurrency(stats.balanceNative, account.currencyCode)}
+                    {fmtMoneyByCurrency(expectedBalanceNative, account.currencyCode)}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
                     {account.currencyCode === 'VES'
-                      ? fmtUSD(stats.balanceUsdRef)
-                      : fmtBs(stats.balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
+                      ? fmtUSD(expectedBalanceUsdRef)
+                      : fmtBs(expectedBalanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                   </div>
+                  <div className="mt-1 text-[10px] text-[#6F7890]">Desde línea base</div>
                 </td>
                 <td className="px-3 py-3">
                   <div className="text-emerald-300">
