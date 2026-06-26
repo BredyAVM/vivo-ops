@@ -1006,11 +1006,13 @@ const ACCOUNT_MOVEMENT_FILTER_LABEL: Record<AccountMovementFilter, string> = {
 };
 
 const ACCOUNT_DETAIL_TAB_LABEL: Record<AccountDetailTab, string> = {
-  operation: 'Operación',
-  closures: 'Cierres',
-  rules: 'Reglas',
+  operation: 'Movimientos',
+  closures: 'Historial',
+  rules: 'Configuración',
   audit: 'Auditoría',
 };
+
+const VISIBLE_ACCOUNT_DETAIL_TABS: AccountDetailTab[] = ['operation', 'closures', 'rules'];
 
 const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   all: 'Todas',
@@ -11782,136 +11784,6 @@ const selectedCreateOrderClientAddresses = useMemo(
     selectedAccountStatementData.currentBalanceNative,
   ]);
 
-  const selectedAccountReviewAlerts = useMemo(() => {
-    if (!selectedAccount) return [];
-
-    const alerts: Array<{
-      key: string;
-      tone: 'warning' | 'critical' | 'info';
-      title: string;
-      detail: string;
-    }> = [];
-    const expectedBalance = selectedAccountBankSummary.expectedBalanceNative;
-
-    if (selectedAccountClosureProfile?.baselineRequired && !selectedAccountBaseline) {
-      alerts.push({
-        key: 'missing-baseline',
-        tone: 'warning',
-        title: 'Cuenta sin línea base',
-        detail: 'No hay un punto de partida activo para calcular cierres confiables.',
-      });
-    }
-
-    if (expectedBalance < -0.01) {
-      alerts.push({
-        key: 'negative-balance',
-        tone: 'critical',
-        title: 'Saldo esperado negativo',
-        detail: 'Revisa egresos, reversos o movimientos duplicados en esta cuenta.',
-      });
-    }
-
-    if (
-      selectedAccountClosureProfile?.closureKind === 'pos' &&
-      Math.abs(expectedBalance) > 0.01
-    ) {
-      alerts.push({
-        key: 'pos-not-zero',
-        tone: 'warning',
-        title: 'Punto con saldo pendiente',
-        detail: 'Los puntos suelen cerrar en cero después de pasar el dinero al banco.',
-      });
-    }
-
-    if (selectedAccountBankSummary.todayPendingCount > 0) {
-      alerts.push({
-        key: 'today-pending',
-        tone: 'info',
-        title: 'Movimientos pendientes hoy',
-        detail: `${selectedAccountBankSummary.todayPendingCount} movimiento(s) aún no afectan el saldo esperado.`,
-      });
-    }
-
-    if (selectedAccountOpenReconciliationItems.length > 0) {
-      alerts.push({
-        key: 'open-reconciliation',
-        tone: 'warning',
-        title: 'Pendientes de conciliación abiertos',
-        detail: `${selectedAccountOpenReconciliationItems.length} diferencia(s) siguen sin resolverse.`,
-      });
-    }
-
-    const activeMovements = moneyMovements.filter(
-      (movement) =>
-        movement.moneyAccountId === selectedAccount.id &&
-        movement.status !== 'voided' &&
-        movement.status !== 'rejected'
-    );
-    const duplicateKeys = new Map<string, MoneyMovementItem[]>();
-    for (const movement of activeMovements) {
-      const reference = String(movement.referenceCode || '').trim().toLowerCase();
-      if (!reference) continue;
-      const key = [
-        movement.moneyAccountId,
-        movement.movementDate,
-        movement.currencyCode,
-        movement.amount.toFixed(2),
-        reference,
-      ].join('|');
-      const rows = duplicateKeys.get(key) ?? [];
-      rows.push(movement);
-      duplicateKeys.set(key, rows);
-    }
-    const duplicateGroup = Array.from(duplicateKeys.values()).find((rows) => rows.length > 1);
-    if (duplicateGroup) {
-      alerts.push({
-        key: 'duplicate-reference',
-        tone: 'critical',
-        title: 'Posible referencia duplicada',
-        detail: `Hay ${duplicateGroup.length} movimientos activos con misma fecha, monto y referencia.`,
-      });
-    }
-
-    const missingReferenceCount = activeMovements.filter(
-      (movement) =>
-        !String(movement.referenceCode || '').trim() &&
-        ['order_payment', 'other_income', 'withdrawal', 'expense_payment', 'fee_charge'].includes(movement.movementType)
-    ).length;
-    if (missingReferenceCount > 0) {
-      alerts.push({
-        key: 'missing-reference',
-        tone: 'info',
-        title: 'Movimientos sin referencia',
-        detail: `${missingReferenceCount} movimiento(s) no tienen referencia registrada.`,
-      });
-    }
-
-    const brokenTransferGroup = allMoneyMovementGroups.find(
-      (group) =>
-        group.movements.some((movement) => movement.moneyAccountId === selectedAccount.id) &&
-        group.movements.some((movement) => movement.movementGroupId) &&
-        ((group.transferIn && !group.transferOut) || (!group.transferIn && group.transferOut))
-    );
-    if (brokenTransferGroup) {
-      alerts.push({
-        key: 'broken-transfer',
-        tone: 'critical',
-        title: 'Traspaso incompleto',
-        detail: 'Hay una salida o entrada de traspaso sin su contraparte.',
-      });
-    }
-
-    return alerts;
-  }, [
-    allMoneyMovementGroups,
-    moneyMovements,
-    selectedAccount,
-    selectedAccountBankSummary,
-    selectedAccountBaseline,
-    selectedAccountClosureProfile,
-    selectedAccountOpenReconciliationItems,
-  ]);
-
   const calculationBaseOrders = useMemo(
     () => (calculationScope?.generated ? calculationOrders : []),
     [calculationOrders, calculationScope?.generated],
@@ -15341,9 +15213,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   {activeBaseline ? (
                     <div>
                       <div className="text-emerald-300">{activeBaseline.baselineDate}</div>
-                      <div className={activeBaseline.differenceAmount === 0 ? 'mt-1 text-[11px] text-emerald-300' : 'mt-1 text-[11px] text-[#FEEF00]'}>
-                        Dif. inicial {fmtMoneyByCurrency(activeBaseline.differenceAmount, account.currencyCode)}
-                      </div>
+                      <div className="mt-1 text-[11px] text-[#8A8A96]">Base activa</div>
                     </div>
                   ) : (
                     <span className="text-[#FEEF00]">Pendiente</span>
@@ -21029,7 +20899,7 @@ deliveryAssignMode === 'external' ? (
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="text-right">
-                    <div className="text-xs text-[#8A8A96]">Saldo sistema</div>
+                    <div className="text-xs text-[#8A8A96]">Saldo esperado</div>
                     <div className="text-lg font-semibold text-[#F5F5F7]">
                       {fmtMoneyByCurrency(
                         selectedAccountStatementData.currentBalanceNative,
@@ -21077,7 +20947,7 @@ deliveryAssignMode === 'external' ? (
                           openAccountClosureDrawer(selectedAccount);
                         }}
                       >
-                        Cierre
+                        Cerrar día
                       </button>
                     ) : (
                       <button
@@ -21116,18 +20986,16 @@ deliveryAssignMode === 'external' ? (
                           >
                             Exportar
                           </button>
-                          {permissions.canManageMoneyAccountRules ? (
-                            <button
-                              type="button"
-                              className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
-                              onClick={() => {
-                                setAccountDetailMoreOpen(false);
-                                openAccountRulesEditor(selectedAccount);
-                              }}
-                            >
-                              Reglas
-                            </button>
-                          ) : null}
+                          <button
+                            type="button"
+                            className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
+                            onClick={() => {
+                              setAccountDetailMoreOpen(false);
+                              setAccountDetailTab('audit');
+                            }}
+                          >
+                            Auditoría
+                          </button>
                           {permissions.canManageMoneyAccounts ? (
                             <>
                               <button
@@ -21161,7 +21029,7 @@ deliveryAssignMode === 'external' ? (
             </div>
 
             <div className="flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#242433] bg-[#121218] p-2">
-              {(Object.keys(ACCOUNT_DETAIL_TAB_LABEL) as AccountDetailTab[]).map((tab) => (
+              {VISIBLE_ACCOUNT_DETAIL_TABS.map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -21178,31 +21046,15 @@ deliveryAssignMode === 'external' ? (
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
               <InfoCell
-                label="Perfil cierre"
-                value={
-                  selectedAccountClosureProfile
-                    ? MONEY_ACCOUNT_CLOSURE_KIND_LABEL[selectedAccountClosureProfile.closureKind]
-                    : 'Sin perfil'
-                }
+                label="Banco / institución"
+                value={selectedAccount.institutionName || selectedAccount.ownerName || '—'}
               />
               <InfoCell
-                label="Regla cierre"
-                value={
-                  selectedAccountClosureProfile?.requiresZeroDifference
-                    ? 'Diferencia cero'
-                    : selectedAccountClosureProfile?.allowsClassifiedDifference
-                      ? 'Diferencia clasificada'
-                      : 'Por definir'
-                }
-              />
-              <InfoCell label="Institución" value={selectedAccount.institutionName || '—'} />
-              <InfoCell label="Titular" value={selectedAccount.ownerName || '—'} />
-              <InfoCell
-                label="Línea base"
+                label="Base de cálculo"
                 value={
                   selectedAccountBaseline
                     ? `${selectedAccountBaseline.baselineDate} · ${fmtMoneyByCurrency(
@@ -21212,31 +21064,14 @@ deliveryAssignMode === 'external' ? (
                     : 'Pendiente'
                 }
               />
-              <InfoCell
-                label="Dif. inicial"
-                value={
-                  selectedAccountBaseline
-                    ? `${selectedAccountBaseline.differenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
-                        selectedAccountBaseline.differenceAmount,
-                        selectedAccount.currencyCode
-                      )}`
-                    : '—'
-                }
-              />
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Resumen financiero</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Actividad del período</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Calculado desde la línea base activa. No es saldo bancario real hasta registrar un cierre.
-                  </div>
-                </div>
-                <div className="rounded-xl border border-[#FEEF00]/30 bg-[#1D1A00] px-3 py-2 text-right">
-                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#B7B7C2]">Saldo esperado</div>
-                  <div className="mt-1 text-xl font-semibold text-[#FEEF00]">
-                    {fmtMoneyByCurrency(selectedAccountBankSummary.expectedBalanceNative, selectedAccount.currencyCode)}
+                    Lo que entró, salió o quedó pendiente dentro del filtro actual.
                   </div>
                 </div>
               </div>
@@ -21257,7 +21092,7 @@ deliveryAssignMode === 'external' ? (
                   )}
                 />
                 <InfoCell
-                  label="Pendiente/aprobación"
+                  label="Pendiente"
                   value={fmtMoneyByCurrency(
                     selectedAccountStatementData.pendingNative,
                     selectedAccount.currencyCode
@@ -21272,38 +21107,6 @@ deliveryAssignMode === 'external' ? (
                 />
               </div>
             </div>
-
-            {selectedAccountReviewAlerts.length > 0 ? (
-            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Alertas de revisión</div>
-                  <div className="mt-1 text-xs text-[#8A8A96]">
-                    Señales automáticas con la información financiera cargada en pantalla.
-                  </div>
-                </div>
-                <div className="text-xs text-[#8A8A96]">{selectedAccountReviewAlerts.length} alerta(s)</div>
-              </div>
-              <div className="mt-3 space-y-2">
-                {selectedAccountReviewAlerts.map((alert) => (
-                    <div
-                      key={alert.key}
-                      className={[
-                        'rounded-xl border p-3 text-sm',
-                        alert.tone === 'critical'
-                          ? 'border-red-500/30 bg-red-500/10 text-red-100'
-                          : alert.tone === 'warning'
-                            ? 'border-[#FEEF00]/30 bg-[#1D1A00] text-[#FFF7A8]'
-                            : 'border-[#2A2A38] bg-[#0B0B0D] text-[#B7B7C2]',
-                      ].join(' ')}
-                    >
-                      <div className="font-semibold text-[#F5F5F7]">{alert.title}</div>
-                      <div className="mt-1 text-xs opacity-90">{alert.detail}</div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-            ) : null}
 
             {accountDetailTab === 'audit' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
@@ -21345,7 +21148,7 @@ deliveryAssignMode === 'external' ? (
                   label="Neto conf."
                   value={fmtMoneyByCurrency(selectedAccountReportSummary.confirmedNetNative, selectedAccount.currencyCode)}
                 />
-                <InfoCell label="Requiere aprobación" value={String(selectedAccountReportSummary.approvalRequiredGroups)} />
+                <InfoCell label="Por aprobar" value={String(selectedAccountReportSummary.approvalRequiredGroups)} />
                 <InfoCell label="Traspasos" value={String(selectedAccountReportSummary.transferGroups)} />
                 <InfoCell label="Pendiente ref." value={fmtUSD(selectedAccountReportSummary.pendingUsd)} />
                 <InfoCell
@@ -21616,16 +21419,30 @@ deliveryAssignMode === 'external' ? (
                   onChange={setAccountAuditUserFilter}
                   options={[{ value: '', label: 'Todos' }, ...accountAuditUserOptions]}
                 />
-                <FieldCheckbox
-                  label="Requiere aprobación"
-                  checked={accountAuditApprovalOnly}
-                  onChange={setAccountAuditApprovalOnly}
-                />
-                <FieldCheckbox
-                  label="Rechazados/anulados"
-                  checked={accountAuditExceptionOnly}
-                  onChange={setAccountAuditExceptionOnly}
-                />
+                <button
+                  type="button"
+                  className={[
+                    'self-end rounded-xl border px-3 py-2 text-sm font-semibold',
+                    accountAuditApprovalOnly
+                      ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                  ].join(' ')}
+                  onClick={() => setAccountAuditApprovalOnly((current) => !current)}
+                >
+                  Por aprobar
+                </button>
+                <button
+                  type="button"
+                  className={[
+                    'self-end rounded-xl border px-3 py-2 text-sm font-semibold',
+                    accountAuditExceptionOnly
+                      ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                  ].join(' ')}
+                  onClick={() => setAccountAuditExceptionOnly((current) => !current)}
+                >
+                  Con problema
+                </button>
               </div>
               <div className="mt-3 overflow-x-auto">
                 {selectedAccountStatementData.rows.length === 0 ? (
