@@ -6479,6 +6479,11 @@ const openStaffPayrollBox = (o: Order) => {
 
 const handleApplyStaffPayrollPayment = async (o: Order) => {
   try {
+    if (!isAdmin) {
+      showToast('error', 'Solo ADMIN puede aplicar pagos por nómina.');
+      return;
+    }
+
     if (o.balanceUsd <= 0.005) {
       showToast('error', 'Esta orden ya no tiene saldo pendiente.');
       return;
@@ -18352,7 +18357,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
   </button>
 ) : null}
 
-{detailTab === 'pagos' && selectedOrder.balanceUsd > 0.01 ? (
+{detailTab === 'pagos' && isAdmin && selectedOrder.balanceUsd > 0.01 ? (
   <button
     className="rounded-md border border-[#2A2A38] bg-[#0D0D11] px-2 py-1 text-[10px] text-[#F5F5F7]"
     onClick={() => {

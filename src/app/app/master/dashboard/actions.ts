@@ -2123,7 +2123,8 @@ export async function applyStaffPayrollPaymentAction(input: {
   operationDate?: string | null;
   notes?: string | null;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
 
   const orderId = Number(input.orderId || 0);
   const moneyAccountId = Number(input.moneyAccountId || 0);
