@@ -4770,8 +4770,11 @@ export async function loadMoneyActivityAction(input?: {
   reconciliationLimit?: number;
   movementDateFrom?: string;
   movementDateTo?: string;
+  moneyAccountId?: number;
 }) {
   const { supabase } = await requireMasterOrAdmin();
+  const moneyAccountId = Number(input?.moneyAccountId ?? 0);
+  const hasMoneyAccountFilter = Number.isFinite(moneyAccountId) && moneyAccountId > 0;
   const movementDateFrom =
     typeof input?.movementDateFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.movementDateFrom.trim())
       ? input.movementDateFrom.trim()
@@ -4783,7 +4786,10 @@ export async function loadMoneyActivityAction(input?: {
   const hasMovementDateRange = Boolean(movementDateFrom || movementDateTo);
   const movementLimit = Math.max(
     50,
-    Math.min(hasMovementDateRange ? 2500 : 800, Math.floor(Number(input?.movementLimit ?? (hasMovementDateRange ? 1200 : 350)) || 350))
+    Math.min(
+      hasMovementDateRange || hasMoneyAccountFilter ? 2500 : 800,
+      Math.floor(Number(input?.movementLimit ?? (hasMovementDateRange || hasMoneyAccountFilter ? 1200 : 350)) || 350)
+    )
   );
   const closureLimit = Math.max(25, Math.min(300, Math.floor(Number(input?.closureLimit ?? 120) || 120)));
   const reconciliationLimit = Math.max(
@@ -4832,6 +4838,9 @@ export async function loadMoneyActivityAction(input?: {
   }
   if (movementDateTo) {
     movementsQuery = movementsQuery.lte('movement_date', movementDateTo);
+  }
+  if (hasMoneyAccountFilter) {
+    movementsQuery = movementsQuery.eq('money_account_id', moneyAccountId);
   }
 
   const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult] = await Promise.all([

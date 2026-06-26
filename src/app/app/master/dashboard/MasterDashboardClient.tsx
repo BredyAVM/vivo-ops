@@ -6520,9 +6520,8 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
     setStaffPayrollOperationDate('');
     setStaffPayrollNotes('');
     await loadMoneyActivity(true, {
-      scope: 'range',
-      dateFrom: accountDetailDateFrom || appliedOperationDate,
-      dateTo: accountDetailDateTo || appliedOperationDate,
+      scope: 'account',
+      accountId: account.id,
     });
     router.refresh();
   } catch (err) {
@@ -7589,23 +7588,33 @@ const handleSaveQuickCatalog = async () => {
     : orderScope?.focusDate || getCaracasTodayString();
 
   const loadMoneyActivity = useCallback(
-    async (force = false, options?: { scope?: 'day' | 'range'; dateFrom?: string; dateTo?: string }) => {
-      if (moneyActivityLoading) return;
+    async (
+      force = false,
+      options?: { scope?: 'day' | 'range' | 'account'; dateFrom?: string; dateTo?: string; accountId?: number }
+    ) => {
+      if (moneyActivityLoading && !force) return;
       const useDateRange = options?.scope === 'range';
-      const requestedDateFrom = useDateRange ? options?.dateFrom || '' : defaultMoneyActivityDate;
-      const requestedDateTo = useDateRange ? options?.dateTo || '' : defaultMoneyActivityDate;
-      const scopeKey = `${useDateRange ? 'range' : 'day'}:${requestedDateFrom || 'open'}:${requestedDateTo || 'open'}`;
+      const useAccountScope = options?.scope === 'account';
+      const requestedAccountId =
+        Number.isFinite(Number(options?.accountId ?? 0)) && Number(options?.accountId ?? 0) > 0
+          ? Number(options?.accountId)
+          : undefined;
+      const requestedDateFrom = useDateRange || useAccountScope ? options?.dateFrom || '' : defaultMoneyActivityDate;
+      const requestedDateTo = useDateRange || useAccountScope ? options?.dateTo || '' : defaultMoneyActivityDate;
+      const scopeLabel = useAccountScope ? 'account' : useDateRange ? 'range' : 'day';
+      const scopeKey = `${scopeLabel}:${requestedAccountId ?? 'all'}:${requestedDateFrom || 'open'}:${requestedDateTo || 'open'}`;
       if (moneyActivityLoaded && moneyActivityLoadedScope === scopeKey && !force) return;
 
       try {
         setMoneyActivityLoading(true);
         setMoneyActivityError(null);
         const result = await loadMoneyActivityAction({
-          movementLimit: useDateRange ? 1200 : 350,
+          movementLimit: requestedAccountId ? 1800 : useDateRange ? 1200 : 350,
           closureLimit: 120,
           reconciliationLimit: 120,
           movementDateFrom: requestedDateFrom || undefined,
           movementDateTo: requestedDateTo || undefined,
+          moneyAccountId: requestedAccountId,
         });
         const loadedMovements = result.movements as MoneyMovementItem[];
 
@@ -7639,6 +7648,21 @@ const handleSaveQuickCatalog = async () => {
       }
     },
     [defaultMoneyActivityDate, moneyActivityLoaded, moneyActivityLoadedScope, moneyActivityLoading]
+  );
+
+  const openAccountDetailDrawer = useCallback(
+    (accountId: number, tab: AccountDetailTab = 'operation') => {
+      setAccountMoreOpenId(null);
+      setAccountDetailTab(tab);
+      setSelectedAccountId(accountId);
+      setAccountDetailOpen(true);
+
+      void loadMoneyActivity(true, {
+        scope: 'account',
+        accountId,
+      });
+    },
+    [loadMoneyActivity]
   );
 
   const loadInventoryMovements = useCallback(
@@ -11800,17 +11824,30 @@ const selectedCreateOrderClientAddresses = useMemo(
       const counterpartAccount = counterpartMovement
         ? moneyAccounts.find((account) => account.id === counterpartMovement.moneyAccountId) ?? null
         : null;
-      const confirmed = movement.status === 'confirmed';
-      const netNative = confirmed ? group.netNative : 0;
-      const inflow = confirmed && netNative > 0 ? netNative : 0;
-      const outflow = confirmed && netNative < 0 ? Math.abs(netNative) : 0;
+      const confirmedMovements = group.selectedMovements.filter((item) => item.status === 'confirmed');
+      const pendingMovements = group.selectedMovements.filter((item) => item.status === 'pending');
+      const inflow = Number(
+        confirmedMovements
+          .filter((item) => item.direction === 'inflow')
+          .reduce((sum, item) => sum + item.amount, 0)
+          .toFixed(2)
+      );
+      const outflow = Number(
+        confirmedMovements
+          .filter((item) => item.direction === 'outflow')
+          .reduce((sum, item) => sum + item.amount, 0)
+          .toFixed(2)
+      );
+      const netNative = Number((inflow - outflow).toFixed(2));
 
-      if (confirmed) {
+      if (confirmedMovements.length > 0) {
         runningBalance = Number((runningBalance + netNative).toFixed(2));
         inflowNative += inflow;
         outflowNative += outflow;
-      } else if (movement.status === 'pending') {
-        pendingNative += Math.abs(group.netNative);
+      }
+
+      if (pendingMovements.length > 0) {
+        pendingNative += pendingMovements.reduce((sum, item) => sum + Math.abs(item.amount), 0);
       }
 
       const movementLabel = MOVEMENT_TYPE_LABEL[movement.movementType];
@@ -15355,10 +15392,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 key={account.id}
                 className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
                 onClick={() => {
-                  setAccountMoreOpenId(null);
-                  setAccountDetailTab('operation');
-                  setSelectedAccountId(account.id);
-                  setAccountDetailOpen(true);
+                  openAccountDetailDrawer(account.id);
                 }}
               >
                 <td className="px-3 py-3">
@@ -15441,10 +15475,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px] text-[#B7B7C2]"
                       onClick={(event) => {
                         event.stopPropagation();
-                        setAccountMoreOpenId(null);
-                        setAccountDetailTab('operation');
-                        setSelectedAccountId(account.id);
-                        setAccountDetailOpen(true);
+                        openAccountDetailDrawer(account.id);
                       }}
                     >
                       Abrir
@@ -21713,6 +21744,7 @@ deliveryAssignMode === 'external' ? (
                       scope: 'range',
                       dateFrom: accountDetailDateFrom || undefined,
                       dateTo: accountDetailDateTo || undefined,
+                      accountId: selectedAccountId ?? undefined,
                     })
                   }
                   disabled={moneyActivityLoading || (!accountDetailDateFrom && !accountDetailDateTo)}
