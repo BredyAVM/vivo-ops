@@ -20,6 +20,7 @@ type ReplaceAdvisorOrderItemInput = {
 
 type AdvisorOrderHeaderInput = {
   orderId: number;
+  expectedLastModifiedAt?: string | null;
   payload: {
     client_id: number;
     attributed_advisor_id: string;
@@ -299,7 +300,7 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id, status')
+    .select('id, attributed_advisor_id, status, last_modified_at')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -313,13 +314,31 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   assertAdvisorCanEditOrderStatus(order.status);
 
+  const expectedLastModifiedAt =
+    typeof input.expectedLastModifiedAt === 'string' && input.expectedLastModifiedAt.trim()
+      ? input.expectedLastModifiedAt.trim()
+      : null;
+  const currentLastModifiedAt =
+    typeof order.last_modified_at === 'string' && order.last_modified_at.trim()
+      ? order.last_modified_at.trim()
+      : null;
+
+  if (expectedLastModifiedAt !== currentLastModifiedAt) {
+    throw new Error(
+      'La orden fue modificada por otra persona mientras la estabas editando. Actualiza la orden y vuelve a revisar los cambios antes de guardar.'
+    );
+  }
+
   const adminSupabase = createSupabaseServiceRoleServer();
+  const nowIso = new Date().toISOString();
   const { error: updateError } = await adminSupabase
     .from('orders')
     .update({
       ...payload,
       delivery_address: payload.fulfillment === 'delivery' ? payload.delivery_address : null,
       extra_fields: payload.extra_fields,
+      last_modified_at: nowIso,
+      last_modified_by: ctx.user.id,
     })
     .eq('id', orderId)
     .eq('attributed_advisor_id', ctx.user.id);
@@ -331,6 +350,8 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
   revalidatePath('/app/master/dashboard');
+
+  return { ok: true, lastModifiedAt: nowIso };
 }
 
 export async function replaceAdvisorOrderItemsAction(input: {

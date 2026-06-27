@@ -9966,6 +9966,7 @@ export async function createOrderAction(input: {
 
 export async function updateOrderAction(input: {
   orderId: number;
+  expectedLastModifiedAt?: string | null;
 
   source: 'advisor' | 'master' | 'walk_in';
   attributedAdvisorUserId: string | null;
@@ -10071,12 +10072,27 @@ export async function updateOrderAction(input: {
 
   const { data: currentOrder, error: currentOrderError } = await supabase
     .from('orders')
-    .select('id, status, client_id, attributed_advisor_id, source, fulfillment, delivery_address, receiver_name, receiver_phone, notes, total_usd, total_bs_snapshot, extra_fields')
+    .select('id, status, client_id, attributed_advisor_id, source, fulfillment, delivery_address, receiver_name, receiver_phone, notes, total_usd, total_bs_snapshot, extra_fields, last_modified_at')
     .eq('id', orderId)
     .single();
 
   if (currentOrderError || !currentOrder) {
     throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  const expectedLastModifiedAt =
+    typeof input.expectedLastModifiedAt === 'string' && input.expectedLastModifiedAt.trim()
+      ? input.expectedLastModifiedAt.trim()
+      : null;
+  const currentLastModifiedAt =
+    typeof currentOrder.last_modified_at === 'string' && currentOrder.last_modified_at.trim()
+      ? currentOrder.last_modified_at.trim()
+      : null;
+
+  if (expectedLastModifiedAt !== currentLastModifiedAt) {
+    throw new Error(
+      'La orden fue modificada por otra persona mientras la estabas editando. Actualiza la orden y vuelve a revisar los cambios antes de guardar.'
+    );
   }
 
   const isAdvancedOrderEdit = !['created', 'queued'].includes(currentOrder.status);

@@ -34,6 +34,8 @@ type RawOrderRow = {
   total_bs_snapshot: number | string | null;
   notes: string | null;
   created_at: string;
+  last_modified_at: string | null;
+  last_modified_by: string | null;
   sent_to_kitchen_at: string | null;
   kitchen_started_at: string | null;
   ready_at: string | null;
@@ -1317,6 +1319,8 @@ const orderSelect = `
       total_bs_snapshot,
       notes,
       created_at,
+      last_modified_at,
+      last_modified_by,
       sent_to_kitchen_at,
       kitchen_started_at,
       ready_at,
@@ -2926,6 +2930,8 @@ return {
   id: row.id,
   orderNumber: row.order_number,
   createdAtISO: row.created_at,
+  lastModifiedAtISO: row.last_modified_at ?? null,
+  lastModifiedByUserId: row.last_modified_by ?? null,
   sentToKitchenAtISO: row.sent_to_kitchen_at ?? null,
   kitchenStartedAtISO: row.kitchen_started_at ?? null,
   readyAtISO: row.ready_at ?? null,

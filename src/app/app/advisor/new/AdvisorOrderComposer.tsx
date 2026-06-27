@@ -134,6 +134,8 @@ type ExistingOrderRow = {
   order_number?: string | null;
   total_usd?: number | string | null;
   status: string | null;
+  last_modified_at?: string | null;
+  last_modified_by?: string | null;
   fulfillment: FulfillmentType;
   delivery_address: string | null;
   receiver_name: string | null;
@@ -1421,6 +1423,7 @@ export default function AdvisorOrderComposer({
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
   const [existingOrderNumber, setExistingOrderNumber] = useState('');
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
+  const [existingOrderLastModifiedAt, setExistingOrderLastModifiedAt] = useState<string | null>(null);
   const [advisorRecalculationMode, setAdvisorRecalculationMode] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState<number | null>(
     initialDraft?.id ? Number(initialDraft.id) : null
@@ -1766,7 +1769,7 @@ export default function AdvisorOrderComposer({
             supabase
               .from('orders')
               .select(
-                'id, order_number, total_usd, status, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
+                'id, order_number, total_usd, status, last_modified_at, last_modified_by, fulfillment, delivery_address, receiver_name, receiver_phone, notes, extra_fields, client:clients!orders_client_id_fkey(id, full_name, phone, client_type, fund_balance_usd, recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone)'
               )
               .eq('id', Number(sourceOrderId))
               .eq('attributed_advisor_id', user.id)
@@ -1829,6 +1832,7 @@ export default function AdvisorOrderComposer({
         setOriginalEditSnapshot(null);
         setExistingOrderNumber('');
         setExistingOrderStatus('');
+        setExistingOrderLastModifiedAt(null);
         setAdvisorRecalculationMode(false);
       }
 
@@ -1839,6 +1843,7 @@ export default function AdvisorOrderComposer({
           setError(isEditingOrder ? 'No se pudo cargar la orden para corregir.' : 'No se pudo cargar la orden base.');
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
+          setExistingOrderLastModifiedAt(order.last_modified_at ?? null);
           if (isEditingOrder && !['created', 'queued'].includes(String(order.status || ''))) {
             router.replace(`/app/advisor/orders/${order.id}`);
             return;
@@ -3401,10 +3406,12 @@ export default function AdvisorOrderComposer({
       let targetOrderId = Number(existingOrderId || 0);
 
       if (isEditingOrder) {
-        await updateAdvisorOrderHeaderAction({
+        const updateResult = await updateAdvisorOrderHeaderAction({
           orderId: Number(existingOrderId),
+          expectedLastModifiedAt: existingOrderLastModifiedAt,
           payload,
         });
+        setExistingOrderLastModifiedAt(updateResult.lastModifiedAt ?? existingOrderLastModifiedAt);
       } else {
         const orderNumber = await generateOrderNumber();
         const { data: order, error: orderError } = await supabase

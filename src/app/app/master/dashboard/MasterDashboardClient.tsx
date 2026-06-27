@@ -641,6 +641,8 @@ type Order = {
   id: number;
   orderNumber: string;
   createdAtISO: string;
+  lastModifiedAtISO?: string | null;
+  lastModifiedByUserId?: string | null;
   sentToKitchenAtISO?: string | null;
   kitchenStartedAtISO?: string | null;
   readyAtISO?: string | null;
@@ -9999,6 +10001,7 @@ const handleUpdateOrder = async () => {
 
     await updateOrderAction({
       orderId: editingOrderId,
+      expectedLastModifiedAt: selectedOrder?.lastModifiedAtISO ?? null,
       source: createOrderSource,
       attributedAdvisorUserId: createOrderSource === 'advisor' ? createOrderAdvisorUserId : null,
       fulfillment: createOrderFulfillment,
