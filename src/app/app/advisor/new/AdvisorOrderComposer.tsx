@@ -3411,6 +3411,9 @@ export default function AdvisorOrderComposer({
           expectedLastModifiedAt: existingOrderLastModifiedAt,
           payload,
         });
+        if (!updateResult.ok) {
+          throw new Error(updateResult.message);
+        }
         setExistingOrderLastModifiedAt(updateResult.lastModifiedAt ?? existingOrderLastModifiedAt);
       } else {
         const orderNumber = await generateOrderNumber();

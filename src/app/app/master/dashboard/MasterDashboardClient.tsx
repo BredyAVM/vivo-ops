@@ -9999,7 +9999,7 @@ const handleUpdateOrder = async () => {
       return;
     }
 
-    await updateOrderAction({
+    const result = await updateOrderAction({
       orderId: editingOrderId,
       expectedLastModifiedAt: selectedOrder?.lastModifiedAtISO ?? null,
       source: createOrderSource,
@@ -10070,6 +10070,11 @@ items: createOrderDraftItemsByPriority.map((item) => ({
 })),
       adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
     });
+
+    if (result && 'ok' in result && !result.ok) {
+      showToast('error', result.message);
+      return;
+    }
 
     showToast('success', `Orden actualizada #${editingOrderId}.`);
     setCreateOrderOpen(false);

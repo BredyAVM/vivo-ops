@@ -15,6 +15,8 @@ import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
+const STALE_ORDER_EDIT_MESSAGE =
+  'No se guardaron los cambios porque otra persona actualizó esta orden después de que la abriste. Para evitar pisar su trabajo, actualiza la orden, revisa lo nuevo y vuelve a guardar si todavía aplica.';
 
 function revalidateMasterDashboardFinancialReferences() {
   updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
@@ -10090,9 +10092,7 @@ export async function updateOrderAction(input: {
       : null;
 
   if (expectedLastModifiedAt !== currentLastModifiedAt) {
-    throw new Error(
-      'La orden fue modificada por otra persona mientras la estabas editando. Actualiza la orden y vuelve a revisar los cambios antes de guardar.'
-    );
+    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
   }
 
   const isAdvancedOrderEdit = !['created', 'queued'].includes(currentOrder.status);
@@ -10443,13 +10443,23 @@ export async function updateOrderAction(input: {
     });
   }
 
-  const { error: updateOrderError } = await supabase
+  let updateOrderQuery = supabase
     .from('orders')
     .update(orderUpdatePayload)
     .eq('id', orderId);
+  updateOrderQuery =
+    expectedLastModifiedAt === null
+      ? updateOrderQuery.is('last_modified_at', null)
+      : updateOrderQuery.eq('last_modified_at', expectedLastModifiedAt);
+
+  const { data: updatedOrderRows, error: updateOrderError } = await updateOrderQuery.select('id');
 
   if (updateOrderError) {
     throw new Error(updateOrderError.message);
+  }
+
+  if (!updatedOrderRows || updatedOrderRows.length === 0) {
+    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
   }
 
   const { data: previousOrderItems, error: previousOrderItemsError } = await supabase
@@ -10787,7 +10797,7 @@ export async function updateOrderAction(input: {
 
   revalidatePath('/app/master/dashboard');
 
-  return { id: orderId };
+  return { ok: true as const, id: orderId };
 }
 
 export async function logoutAction() {

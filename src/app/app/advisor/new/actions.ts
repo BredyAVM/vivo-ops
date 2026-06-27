@@ -4,6 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 
+const STALE_ORDER_EDIT_MESSAGE =
+  'No se guardaron los cambios porque otra persona actualizó esta orden después de que la abriste. Para evitar pisar su trabajo, actualiza la orden, revisa lo nuevo y vuelve a guardar si todavía aplica.';
+
 type ReplaceAdvisorOrderItemInput = {
   productId: number;
   qty: number;
@@ -324,14 +327,12 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
       : null;
 
   if (expectedLastModifiedAt !== currentLastModifiedAt) {
-    throw new Error(
-      'La orden fue modificada por otra persona mientras la estabas editando. Actualiza la orden y vuelve a revisar los cambios antes de guardar.'
-    );
+    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
   }
 
   const adminSupabase = createSupabaseServiceRoleServer();
   const nowIso = new Date().toISOString();
-  const { error: updateError } = await adminSupabase
+  let updateOrderQuery = adminSupabase
     .from('orders')
     .update({
       ...payload,
@@ -342,16 +343,26 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
     })
     .eq('id', orderId)
     .eq('attributed_advisor_id', ctx.user.id);
+  updateOrderQuery =
+    expectedLastModifiedAt === null
+      ? updateOrderQuery.is('last_modified_at', null)
+      : updateOrderQuery.eq('last_modified_at', expectedLastModifiedAt);
+
+  const { data: updatedOrderRows, error: updateError } = await updateOrderQuery.select('id');
 
   if (updateError) {
     throw new Error(updateError.message);
+  }
+
+  if (!updatedOrderRows || updatedOrderRows.length === 0) {
+    return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
   }
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
   revalidatePath('/app/master/dashboard');
 
-  return { ok: true, lastModifiedAt: nowIso };
+  return { ok: true as const, lastModifiedAt: nowIso };
 }
 
 export async function replaceAdvisorOrderItemsAction(input: {
