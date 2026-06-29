@@ -7672,7 +7672,6 @@ const handleSaveQuickCatalog = async () => {
       const requestedDateTo = useDateRange || useAccountScope ? options?.dateTo || '' : defaultMoneyActivityDate;
       const scopeLabel = useAccountScope ? 'account' : useDateRange ? 'range' : 'day';
       const scopeKey = `${scopeLabel}:${requestedAccountId ?? 'all'}:${requestedDateFrom || 'open'}:${requestedDateTo || 'open'}`;
-      if (moneyActivityLoaded && moneyActivityLoadedScope === scopeKey && !force) return;
 
       try {
         setMoneyActivityLoading(true);
@@ -7689,7 +7688,15 @@ const handleSaveQuickCatalog = async () => {
 
         setMoneyMovements((currentMovements) => {
           const movementById = new Map<number, MoneyMovementItem>();
+          const inRequestedScope = (movement: MoneyMovementItem) => {
+            if (requestedAccountId && movement.moneyAccountId !== requestedAccountId) return false;
+            if (requestedDateFrom && String(movement.movementDate) < requestedDateFrom) return false;
+            if (requestedDateTo && String(movement.movementDate) > requestedDateTo) return false;
+            return true;
+          };
+
           for (const movement of currentMovements) {
+            if (inRequestedScope(movement)) continue;
             movementById.set(movement.id, movement);
           }
 
