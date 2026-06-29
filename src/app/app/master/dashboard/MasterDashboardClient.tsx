@@ -4148,6 +4148,7 @@ export default function MasterDashboardClient({
   const [accountFormOwnerName, setAccountFormOwnerName] = useState('');
   const [accountFormNotes, setAccountFormNotes] = useState('');
   const [accountFormIsActive, setAccountFormIsActive] = useState(true);
+  const [accountFormClosureTargetAccountId, setAccountFormClosureTargetAccountId] = useState('');
   const [moneyMovements, setMoneyMovements] = useState<MoneyMovementItem[]>(initialMoneyMovements);
   const [moneyAccountClosures, setMoneyAccountClosures] = useState<MoneyAccountClosureItem[]>(
     initialMoneyAccountClosures
@@ -7397,6 +7398,7 @@ const handleSaveQuickCatalog = async () => {
     setAccountFormOwnerName('');
     setAccountFormNotes('');
     setAccountFormIsActive(true);
+    setAccountFormClosureTargetAccountId('');
   };
 
   const resetMoneyMovementForm = () => {
@@ -7553,6 +7555,10 @@ const handleSaveQuickCatalog = async () => {
     setAccountFormOwnerName(account.ownerName);
     setAccountFormNotes(account.notes);
     setAccountFormIsActive(account.isActive);
+    const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === account.id) ?? null;
+    setAccountFormClosureTargetAccountId(
+      profile?.defaultTargetMoneyAccountId ? String(profile.defaultTargetMoneyAccountId) : ''
+    );
     setAccountEditOpen(true);
   };
 
@@ -7810,6 +7816,10 @@ const handleSaveQuickCatalog = async () => {
         ownerName: accountFormOwnerName,
         notes: accountFormNotes,
         isActive: accountFormIsActive,
+        closureDefaultTargetMoneyAccountId:
+          accountFormKind === 'pos' && accountFormClosureTargetAccountId
+            ? Number(accountFormClosureTargetAccountId)
+            : null,
       });
       showToast('success', 'Cuenta creada.');
       setAccountCreateOpen(false);
@@ -7836,6 +7846,10 @@ const handleSaveQuickCatalog = async () => {
         ownerName: accountFormOwnerName,
         notes: accountFormNotes,
         isActive: accountFormIsActive,
+        closureDefaultTargetMoneyAccountId:
+          accountFormKind === 'pos' && accountFormClosureTargetAccountId
+            ? Number(accountFormClosureTargetAccountId)
+            : null,
       });
       showToast('success', 'Cuenta actualizada.');
       setAccountEditOpen(false);
@@ -10826,6 +10840,22 @@ const selectedOrderChangeMovements = useMemo(() => {
   const selectedAccountClosureTargetAccount = selectedAccountClosureProfile?.defaultTargetMoneyAccountId
     ? moneyAccounts.find((account) => account.id === selectedAccountClosureProfile.defaultTargetMoneyAccountId) ?? null
     : null;
+
+  const accountClosureTargetOptions = useMemo(() => {
+    const selectedAccountIdForForm = accountEditOpen && selectedAccount ? selectedAccount.id : null;
+    return moneyAccounts
+      .filter((account) => {
+        if (!account.isActive) return false;
+        if (account.accountKind !== 'bank') return false;
+        if (account.currencyCode !== accountFormCurrencyCode) return false;
+        if (selectedAccountIdForForm && account.id === selectedAccountIdForForm) return false;
+        return true;
+      })
+      .map((account) => ({
+        value: String(account.id),
+        label: `${account.name} · ${account.currencyCode}`,
+      }));
+  }, [accountEditOpen, accountFormCurrencyCode, moneyAccounts, selectedAccount]);
 
   const selectedAccountBaseline = selectedAccount
     ? moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === selectedAccount.id && baseline.status === 'active') ?? null
@@ -22242,6 +22272,26 @@ deliveryAssignMode === 'external' ? (
         ) : (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Configuración de cierre</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Define si esta cuenta cierra normal o consolida saldo hacia otra cuenta.
+                  </div>
+                </div>
+                {permissions.canManageMoneyAccounts ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] hover:border-[#FEEF00] hover:text-[#FEEF00]"
+                    onClick={() => {
+                      setAccountRulesOpen(false);
+                      openEditAccount(selectedAccount);
+                    }}
+                  >
+                    Editar cierre
+                  </button>
+                ) : null}
+              </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <InfoCell label="Cuenta" value={selectedAccount.name} />
                 <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
@@ -22487,7 +22537,10 @@ deliveryAssignMode === 'external' ? (
             <FieldSelect
               label="Moneda"
               value={accountFormCurrencyCode}
-              onChange={(value) => setAccountFormCurrencyCode(value as 'USD' | 'VES')}
+              onChange={(value) => {
+                setAccountFormCurrencyCode(value as 'USD' | 'VES');
+                setAccountFormClosureTargetAccountId('');
+              }}
               options={[
                 { value: 'VES', label: 'VES' },
                 { value: 'USD', label: 'USD' },
@@ -22496,7 +22549,10 @@ deliveryAssignMode === 'external' ? (
             <FieldSelect
               label="Tipo"
               value={accountFormKind}
-              onChange={(value) => setAccountFormKind(value as MoneyAccountOption['accountKind'])}
+              onChange={(value) => {
+                setAccountFormKind(value as MoneyAccountOption['accountKind']);
+                if (value !== 'pos') setAccountFormClosureTargetAccountId('');
+              }}
               options={[
                 { value: 'bank', label: 'Banco' },
                 { value: 'cash', label: 'Caja' },
@@ -22509,6 +22565,27 @@ deliveryAssignMode === 'external' ? (
             <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
+
+          {accountFormKind === 'pos' ? (
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Cierre del punto</div>
+              <div className="mt-1 text-xs text-[#8A8A96]">
+                Al cerrar un punto, el saldo contado puede consolidarse como traspaso hacia una cuenta banco.
+              </div>
+              <div className="mt-3">
+                <FieldSelect
+                  label="Cuenta destino predeterminada"
+                  value={accountFormClosureTargetAccountId}
+                  onChange={setAccountFormClosureTargetAccountId}
+                  options={[
+                    { value: '', label: 'Seleccionar al cerrar' },
+                    ...accountClosureTargetOptions,
+                  ]}
+                  hint="Debe ser una cuenta banco activa con la misma moneda del punto."
+                />
+              </div>
+            </div>
+          ) : null}
 
           <div>
             <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>
@@ -22560,7 +22637,10 @@ deliveryAssignMode === 'external' ? (
             <FieldSelect
               label="Moneda"
               value={accountFormCurrencyCode}
-              onChange={(value) => setAccountFormCurrencyCode(value as 'USD' | 'VES')}
+              onChange={(value) => {
+                setAccountFormCurrencyCode(value as 'USD' | 'VES');
+                setAccountFormClosureTargetAccountId('');
+              }}
               options={[
                 { value: 'VES', label: 'VES' },
                 { value: 'USD', label: 'USD' },
@@ -22569,7 +22649,10 @@ deliveryAssignMode === 'external' ? (
             <FieldSelect
               label="Tipo"
               value={accountFormKind}
-              onChange={(value) => setAccountFormKind(value as MoneyAccountOption['accountKind'])}
+              onChange={(value) => {
+                setAccountFormKind(value as MoneyAccountOption['accountKind']);
+                if (value !== 'pos') setAccountFormClosureTargetAccountId('');
+              }}
               options={[
                 { value: 'bank', label: 'Banco' },
                 { value: 'cash', label: 'Caja' },
@@ -22582,6 +22665,27 @@ deliveryAssignMode === 'external' ? (
             <FieldInput label="Institución" value={accountFormInstitutionName} onChange={setAccountFormInstitutionName} />
             <FieldInput label="Titular" value={accountFormOwnerName} onChange={setAccountFormOwnerName} />
           </div>
+
+          {accountFormKind === 'pos' ? (
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Cierre del punto</div>
+              <div className="mt-1 text-xs text-[#8A8A96]">
+                Al cerrar un punto, el saldo contado puede consolidarse como traspaso hacia una cuenta banco.
+              </div>
+              <div className="mt-3">
+                <FieldSelect
+                  label="Cuenta destino predeterminada"
+                  value={accountFormClosureTargetAccountId}
+                  onChange={setAccountFormClosureTargetAccountId}
+                  options={[
+                    { value: '', label: 'Seleccionar al cerrar' },
+                    ...accountClosureTargetOptions,
+                  ]}
+                  hint="Debe ser una cuenta banco activa con la misma moneda del punto."
+                />
+              </div>
+            </div>
+          ) : null}
 
           <div>
             <label className="mb-1 block text-xs text-[#8A8A96]">Notas</label>

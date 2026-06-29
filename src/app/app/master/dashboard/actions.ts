@@ -112,6 +112,151 @@ function roundMoney(value: unknown) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+function getDefaultMoneyAccountClosureProfile(input: {
+  accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+  currencyCode: 'USD' | 'VES';
+}) {
+  if (input.accountKind === 'pos') {
+    return {
+      closureKind: 'pos',
+      requiresZeroDifference: true,
+      allowsClassifiedDifference: false,
+      generatesTransferOnClose: true,
+      baselineRequired: true,
+    };
+  }
+
+  if (input.accountKind === 'cash') {
+    return {
+      closureKind: 'cash',
+      requiresZeroDifference: true,
+      allowsClassifiedDifference: false,
+      generatesTransferOnClose: false,
+      baselineRequired: true,
+    };
+  }
+
+  if (input.accountKind === 'bank') {
+    return {
+      closureKind: 'bank',
+      requiresZeroDifference: false,
+      allowsClassifiedDifference: true,
+      generatesTransferOnClose: false,
+      baselineRequired: true,
+    };
+  }
+
+  if (input.accountKind === 'fund') {
+    return {
+      closureKind: 'fund',
+      requiresZeroDifference: false,
+      allowsClassifiedDifference: true,
+      generatesTransferOnClose: false,
+      baselineRequired: true,
+    };
+  }
+
+  if (input.accountKind === 'wallet' && input.currencyCode === 'USD') {
+    return {
+      closureKind: 'wallet_usd',
+      requiresZeroDifference: false,
+      allowsClassifiedDifference: true,
+      generatesTransferOnClose: false,
+      baselineRequired: true,
+    };
+  }
+
+  return {
+    closureKind: 'other',
+    requiresZeroDifference: false,
+    allowsClassifiedDifference: true,
+    generatesTransferOnClose: false,
+    baselineRequired: true,
+  };
+}
+
+async function ensureMoneyAccountClosureProfile(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  input: {
+    accountId: number;
+    accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
+    currencyCode: 'USD' | 'VES';
+    defaultTargetMoneyAccountId: number | null;
+  }
+) {
+  let targetMoneyAccountId =
+    Number.isFinite(Number(input.defaultTargetMoneyAccountId || 0)) && Number(input.defaultTargetMoneyAccountId || 0) > 0
+      ? Number(input.defaultTargetMoneyAccountId)
+      : null;
+
+  if (targetMoneyAccountId !== null) {
+    if (targetMoneyAccountId === input.accountId) {
+      throw new Error('La cuenta destino del cierre debe ser distinta al punto.');
+    }
+
+    const { data: targetAccount, error: targetAccountError } = await supabase
+      .from('money_accounts')
+      .select('id, currency_code, account_kind, is_active')
+      .eq('id', targetMoneyAccountId)
+      .single();
+
+    if (targetAccountError || !targetAccount) {
+      throw new Error(targetAccountError?.message || 'No se pudo cargar la cuenta destino del cierre.');
+    }
+
+    if (!targetAccount.is_active) {
+      throw new Error('La cuenta destino del cierre debe estar activa.');
+    }
+
+    if (targetAccount.account_kind !== 'bank') {
+      throw new Error('La cuenta destino del cierre debe ser una cuenta banco.');
+    }
+
+    if (String(targetAccount.currency_code || '').toUpperCase() !== input.currencyCode) {
+      throw new Error('La cuenta destino del cierre debe tener la misma moneda.');
+    }
+  }
+
+  const { data: existingProfile, error: existingProfileError } = await supabase
+    .from('money_account_closure_profiles')
+    .select('money_account_id')
+    .eq('money_account_id', input.accountId)
+    .maybeSingle();
+
+  if (existingProfileError) throw new Error(existingProfileError.message);
+
+  if (existingProfile) {
+    const { error } = await supabase
+      .from('money_account_closure_profiles')
+      .update({ default_target_money_account_id: targetMoneyAccountId })
+      .eq('money_account_id', input.accountId);
+
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const defaultProfile = getDefaultMoneyAccountClosureProfile({
+    accountKind: input.accountKind,
+    currencyCode: input.currencyCode,
+  });
+
+  if (!defaultProfile.generatesTransferOnClose) {
+    targetMoneyAccountId = null;
+  }
+
+  const { error } = await supabase.from('money_account_closure_profiles').insert({
+    money_account_id: input.accountId,
+    closure_kind: defaultProfile.closureKind,
+    requires_zero_difference: defaultProfile.requiresZeroDifference,
+    allows_classified_difference: defaultProfile.allowsClassifiedDifference,
+    generates_transfer_on_close: defaultProfile.generatesTransferOnClose,
+    default_target_money_account_id: targetMoneyAccountId,
+    baseline_required: defaultProfile.baselineRequired,
+  });
+
+  if (error) throw new Error(error.message);
+}
+
 function buildClientPhoneOrFilters(phone: string) {
   return [
     `phone.eq.${phone}`,
@@ -4603,6 +4748,7 @@ export async function createMoneyAccountAction(input: {
   ownerName: string;
   notes: string;
   isActive: boolean;
+  closureDefaultTargetMoneyAccountId?: number | null;
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
@@ -4610,7 +4756,7 @@ export async function createMoneyAccountAction(input: {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('El nombre de la cuenta es obligatorio.');
 
-  const { error } = await supabase.from('money_accounts').insert({
+  const { data: insertedAccount, error } = await supabase.from('money_accounts').insert({
     name,
     currency_code: input.currencyCode,
     account_kind: input.accountKind,
@@ -4619,9 +4765,20 @@ export async function createMoneyAccountAction(input: {
     notes: input.notes.trim() || null,
     is_active: input.isActive,
     created_by_user_id: user.id,
-  });
+  }).select('id').single();
 
   if (error) throw new Error(error.message);
+
+  const insertedAccountId = Number(insertedAccount?.id || 0);
+  if (insertedAccountId > 0) {
+    await ensureMoneyAccountClosureProfile(supabase, {
+      accountId: insertedAccountId,
+      accountKind: input.accountKind,
+      currencyCode: input.currencyCode,
+      defaultTargetMoneyAccountId: input.closureDefaultTargetMoneyAccountId ?? null,
+    });
+  }
+
   revalidateMasterDashboardFinancialReferences();
 }
 
@@ -4634,6 +4791,7 @@ export async function updateMoneyAccountAction(input: {
   ownerName: string;
   notes: string;
   isActive: boolean;
+  closureDefaultTargetMoneyAccountId?: number | null;
 }) {
   const { supabase, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
@@ -4660,6 +4818,14 @@ export async function updateMoneyAccountAction(input: {
     .eq('id', accountId);
 
   if (error) throw new Error(error.message);
+
+  await ensureMoneyAccountClosureProfile(supabase, {
+    accountId,
+    accountKind: input.accountKind,
+    currencyCode: input.currencyCode,
+    defaultTargetMoneyAccountId: input.closureDefaultTargetMoneyAccountId ?? null,
+  });
+
   revalidateMasterDashboardFinancialReferences();
 }
 
