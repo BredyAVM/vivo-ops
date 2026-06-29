@@ -3589,7 +3589,7 @@ export default function AdvisorOrderComposer({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-4 pb-[calc(12rem+env(safe-area-inset-bottom))] sm:pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
+      <form onSubmit={handleSubmit} className="space-y-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
         {!isEditingOrder ? (
           <div className="flex items-center justify-between gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-4 py-3">
             <div className="min-w-0">
@@ -4407,16 +4407,19 @@ export default function AdvisorOrderComposer({
           </Field>
         </Section>
 
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#1A1D26] bg-[#090B10] px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_36px_rgba(0,0,0,0.45)]">
-          <div className="mx-auto flex max-w-screen-md flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
-              <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</div>
-              <div className="text-xs text-[#8B93A7]">{fxRateNumber > 0 ? formatBs(finalTotalBs) : 'Falta tasa del dia'}</div>
-              <div className="mt-1 text-[11px] text-[#6F7890]">{footerSummary}</div>
-              <div className="text-[11px] text-[#8B93A7]">{createReadyHint}</div>
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#1A1D26] bg-[#090B10] px-3 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_24px_rgba(0,0,0,0.38)]">
+          <div className="mx-auto flex max-w-screen-md items-center justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-[#8B93A7]">Total</span>
+                <span className="text-base font-semibold leading-none text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</span>
+              </div>
+              <div className="mt-1 truncate text-[11px] leading-tight text-[#8B93A7]">
+                {fxRateNumber > 0 ? formatBs(finalTotalBs) : 'Falta tasa'} · {footerSummary}
+              </div>
+              <div className="truncate text-[10px] leading-tight text-[#6F7890]">{createReadyHint}</div>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:max-w-[58%] sm:flex-wrap sm:justify-end">
+            <div className="grid shrink-0 grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
               {!isEditingOrder ? (
                 <button
                   type="button"
@@ -4425,7 +4428,7 @@ export default function AdvisorOrderComposer({
                   data-busy={savingDraft ? 'true' : undefined}
                   disabled={savingDraft || copyingQuote || saving || !canSaveCurrentDraft()}
                   className={[
-                    'h-11 rounded-[16px] border px-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                    'h-9 rounded-[12px] border px-2.5 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
                     savingDraft || copyingQuote || saving || !canSaveCurrentDraft()
                       ? 'border-[#232632] text-[#6F7890]'
                       : 'border-[#2A3040] text-[#F5F7FB]',
@@ -4441,13 +4444,13 @@ export default function AdvisorOrderComposer({
                 data-busy={copyingQuote ? 'true' : undefined}
                 disabled={copyingQuote || savingDraft || saving || draftItems.length === 0}
                 className={[
-                  'h-11 rounded-[16px] border px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  'h-9 rounded-[12px] border px-2.5 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
                   copyingQuote || savingDraft || saving || draftItems.length === 0
                     ? 'border-[#232632] text-[#6F7890]'
                     : 'border-[#232632] text-[#F5F7FB]',
                 ].join(' ')}
               >
-                {copyingQuote ? 'Copiando...' : 'Presupuesto WS'}
+                {copyingQuote ? 'Copiando...' : 'Presup. WS'}
               </button>
               <button
                 type="submit"
@@ -4455,11 +4458,11 @@ export default function AdvisorOrderComposer({
                 data-busy={saving ? 'true' : undefined}
                 disabled={saving || savingDraft || !createReady}
                 className={[
-                  'col-span-2 h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed sm:col-span-1',
+                  'col-span-2 h-9 rounded-[12px] px-3 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed sm:col-span-1',
                   saving || savingDraft || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
-                {saving ? 'Guardando...' : isEditingOrder ? 'Guardar cambios' : 'Crear pedido'}
+                {saving ? 'Guardando...' : isEditingOrder ? 'Guardar' : 'Crear'}
               </button>
             </div>
           </div>
