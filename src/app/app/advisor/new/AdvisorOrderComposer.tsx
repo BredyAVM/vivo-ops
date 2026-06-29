@@ -1208,9 +1208,10 @@ function ConfigSheet(props: {
 
   return (
     <div className="advisor-fade-in fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
-      <div className="advisor-slide-up absolute inset-x-0 bottom-0 rounded-t-[28px] border border-[#232632] bg-[#0C1017] px-4 pb-6 pt-4">
-        <div className="mx-auto max-w-screen-md space-y-4">
-          <div className="flex items-start justify-between gap-3">
+      <div className="advisor-slide-up absolute inset-x-0 bottom-0 max-h-[92dvh] rounded-t-[28px] border border-[#232632] bg-[#0C1017] shadow-[0_-24px_48px_rgba(0,0,0,0.5)]">
+        <div className="mx-auto flex max-h-[92dvh] max-w-screen-md flex-col">
+          <div className="shrink-0 px-4 pt-4">
+            <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8B93A7]">
                 Configurar producto
@@ -1229,105 +1230,119 @@ function ConfigSheet(props: {
             >
               Cerrar
             </button>
-          </div>
-
-          {props.totalLimit > 0 ? (
-            <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-[#AAB2C5]">Piezas por completar</span>
-                <span className={remaining === 0 ? 'font-semibold text-emerald-400' : 'font-semibold text-[#F7DA66]'}>
-                  {remaining > 0 ? `${remaining} pendientes` : 'Completo'}
-                </span>
-              </div>
             </div>
-          ) : null}
-
-          <Field label="Para">
-            <input
-              value={props.alias}
-              onChange={(e) => props.setAlias(e.target.value)}
-              className={inputClass()}
-              placeholder="Nombre o referencia"
-            />
-          </Field>
-
-          <div className="space-y-2">
-            {props.options.length === 0 ? (
-              <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
-                Este producto no tiene opciones configuradas.
-              </div>
-            ) : (
-              props.options.map((option) => {
-                const currentQty =
-                  props.selections.find((item) => item.componentProductId === option.id)?.qty || 0;
-                const isOptionalFixed = option.componentMode === 'fixed' && !option.isRequired;
-
-                return (
-                  <div
-                    key={option.id}
-                    className="grid grid-cols-[1fr_136px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
-                      <div className="mt-1 text-xs text-[#8B93A7]">
-                        {isOptionalFixed ? 'Opcional' : option.sku || 'Sin codigo'}
-                      </div>
-                    </div>
-                    {isOptionalFixed ? (
-                      <button
-                        type="button"
-                        onClick={() => props.onChangeQty(option, currentQty > 0 ? 0 : option.componentQuantity || 1)}
-                        className={[
-                          'h-11 rounded-[14px] border px-3 text-sm font-semibold',
-                          currentQty > 0
-                            ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
-                            : 'border-[#232632] bg-[#12151d] text-[#F5F7FB]',
-                        ].join(' ')}
-                      >
-                        {currentQty > 0 ? 'Incluida' : 'Incluir'}
-                      </button>
-                    ) : (
-                      <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
-                        <button
-                          type="button"
-                          onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
-                          className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
-                        >
-                          -
-                        </button>
-                        <input
-                          value={String(currentQty)}
-                          onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
-                          onFocus={(e) => e.currentTarget.select()}
-                          className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
-                          inputMode="numeric"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => props.onChangeQty(option, currentQty + 1)}
-                          className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
-                        >
-                          +
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
           </div>
 
-          <button
-            type="button"
-            onClick={props.onConfirm}
-            disabled={!canConfirm}
-            className={[
-              'h-11 w-full rounded-[16px] text-sm font-semibold',
-              canConfirm ? 'bg-[#F0D000] text-[#17191E]' : 'bg-[#232632] text-[#6F7890]',
-            ].join(' ')}
-          >
-            {props.isEditing ? 'Guardar composicion' : 'Confirmar composicion'}
-          </button>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+            {props.totalLimit > 0 ? (
+              <div className="rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-[#AAB2C5]">Piezas por completar</span>
+                  <span className={remaining === 0 ? 'font-semibold text-emerald-400' : 'font-semibold text-[#F7DA66]'}>
+                    {remaining > 0 ? `${remaining} pendientes` : 'Completo'}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            <Field label="Para">
+              <input
+                value={props.alias}
+                onChange={(e) => props.setAlias(e.target.value)}
+                className={inputClass()}
+                placeholder="Nombre o referencia"
+              />
+            </Field>
+
+            <div className="space-y-2">
+              {props.options.length === 0 ? (
+                <div className="rounded-[18px] border border-dashed border-[#2A3040] bg-[#0F131B] px-4 py-4 text-sm text-[#AAB2C5]">
+                  Este producto no tiene opciones configuradas.
+                </div>
+              ) : (
+                props.options.map((option) => {
+                  const currentQty =
+                    props.selections.find((item) => item.componentProductId === option.id)?.qty || 0;
+                  const isOptionalFixed = option.componentMode === 'fixed' && !option.isRequired;
+
+                  return (
+                    <div
+                      key={option.id}
+                      className="grid grid-cols-[1fr_136px] items-center gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">
+                          {isOptionalFixed ? 'Opcional' : option.sku || 'Sin codigo'}
+                        </div>
+                      </div>
+                      {isOptionalFixed ? (
+                        <button
+                          type="button"
+                          onClick={() => props.onChangeQty(option, currentQty > 0 ? 0 : option.componentQuantity || 1)}
+                          className={[
+                            'h-11 rounded-[14px] border px-3 text-sm font-semibold',
+                            currentQty > 0
+                              ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
+                              : 'border-[#232632] bg-[#12151d] text-[#F5F7FB]',
+                          ].join(' ')}
+                        >
+                          {currentQty > 0 ? 'Incluida' : 'Incluir'}
+                        </button>
+                      ) : (
+                        <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
+                          <button
+                            type="button"
+                            onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
+                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                          >
+                            -
+                          </button>
+                          <input
+                            value={String(currentQty)}
+                            onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
+                            inputMode="numeric"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => props.onChangeQty(option, currentQty + 1)}
+                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                          >
+                            +
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-[#1A1D26] bg-[#0C1017] px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={props.onClose}
+                className="h-11 rounded-[16px] border border-[#232632] text-sm font-semibold text-[#F5F7FB]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={props.onConfirm}
+                disabled={!canConfirm}
+                className={[
+                  'h-11 rounded-[16px] text-sm font-semibold disabled:cursor-not-allowed',
+                  canConfirm ? 'bg-[#F0D000] text-[#17191E]' : 'bg-[#232632] text-[#6F7890]',
+                ].join(' ')}
+              >
+                {props.isEditing ? 'Guardar' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
