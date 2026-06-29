@@ -8170,13 +8170,6 @@ const handleSaveQuickCatalog = async () => {
       return;
     }
 
-    const requiresClosureTransfer = Boolean(selectedAccountClosureProfile?.generatesTransferOnClose) && countedAmount > 0;
-    const targetMoneyAccountId = Number(closureTargetAccountId || 0);
-    if (requiresClosureTransfer && (!Number.isFinite(targetMoneyAccountId) || targetMoneyAccountId <= 0)) {
-      showToast('error', 'Selecciona la cuenta destino para consolidar el punto.');
-      return;
-    }
-
     try {
       setClosureSaving(true);
       await createMoneyAccountClosureAction({
@@ -8184,7 +8177,7 @@ const handleSaveQuickCatalog = async () => {
         closureDate,
         countedAmount,
         exchangeRateVesPerUsd: exchangeRate,
-        targetMoneyAccountId: requiresClosureTransfer ? targetMoneyAccountId : null,
+        targetMoneyAccountId: null,
         reason: closureReason,
         notes: closureNotes,
       });
@@ -8235,6 +8228,61 @@ const handleSaveQuickCatalog = async () => {
     } finally {
       setClosureRejectingId(null);
     }
+  };
+
+  const openMoneyTransferFromClosure = (closure: MoneyAccountClosureItem) => {
+    if (!selectedAccount) return;
+
+    if (!permissions.canCreateMoneyTransfers) {
+      showToast('error', 'Solo admin puede registrar traspasos.');
+      return;
+    }
+
+    if (closure.status === 'rejected') {
+      showToast('error', 'No se puede traspasar un cierre anulado.');
+      return;
+    }
+
+    if (closure.countedAmount <= 0.005) {
+      showToast('error', 'Este cierre no tiene monto para traspasar.');
+      return;
+    }
+
+    const defaultTargetId = selectedAccountClosureProfile?.defaultTargetMoneyAccountId ?? null;
+    const defaultTargetAccount = defaultTargetId
+      ? moneyAccounts.find((account) => account.id === defaultTargetId) ?? null
+      : null;
+
+    if (!defaultTargetAccount) {
+      showToast('error', 'Configura la cuenta destino del punto antes de registrar el traspaso.');
+      return;
+    }
+
+    resetMoneyTransferForm();
+    const amount = closure.countedAmount.toFixed(2);
+    const exchangeRate = closure.exchangeRateVesPerUsd
+      ? String(closure.exchangeRateVesPerUsd)
+      : String(activeExchangeRate?.rateBsPerUsd ?? '');
+
+    setTransferSourceAccountId(String(selectedAccount.id));
+    setTransferTargetAccountId(String(defaultTargetAccount.id));
+    setTransferSourceAmount(amount);
+    setTransferTargetAmount(amount);
+    setTransferFeeAmount('');
+    setTransferDate(getCaracasTodayString());
+    setTransferSourceExchangeRate(exchangeRate);
+    setTransferTargetExchangeRate(exchangeRate);
+    setTransferReferenceCode(`closure-${closure.id}`);
+    setTransferCounterpartyName(defaultTargetAccount.name);
+    setTransferDescription(`Consolidación cierre ${selectedAccount.name} ${closure.closureDate}`);
+    setTransferNotes(
+      `Cierre #${closure.id}\nFecha del cierre: ${closure.closureDate}\nMonto contado: ${fmtMoneyByCurrency(
+        closure.countedAmount,
+        closure.currencyCode
+      )}`
+    );
+    setAccountDetailOpen(false);
+    setTransferOpen(true);
   };
 
   const handleResolveReconciliationItem = async () => {
@@ -15602,7 +15650,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             : 'border-[#564511] bg-[#151208] text-[#F7DA66]',
                         ].join(' ')}
                       >
-                        Consolida a: {closureTargetAccount?.name || 'sin destino'}
+                        Destino sugerido: {closureTargetAccount?.name || 'sin destino'}
                       </span>
                     ) : null}
                   </div>
@@ -21193,25 +21241,9 @@ deliveryAssignMode === 'external' ? (
                   onChange={setClosureCountedAmount}
                 />
                 {selectedAccountClosureProfile?.generatesTransferOnClose && closureCountedNumber > 0 ? (
-                  <FieldSelect
-                    label="Cuenta destino"
-                    value={closureTargetAccountId}
-                    onChange={setClosureTargetAccountId}
-                    options={[
-                      { value: '', label: 'Seleccionar cuenta' },
-                      ...moneyAccounts
-                        .filter(
-                          (account) =>
-                            account.isActive &&
-                            account.id !== selectedAccount.id &&
-                            account.currencyCode === selectedAccount.currencyCode &&
-                            account.accountKind === 'bank'
-                        )
-                        .map((account) => ({
-                          value: String(account.id),
-                          label: `${account.name} · ${account.currencyCode}`,
-                        })),
-                    ]}
+                  <InfoCell
+                    label="Después del cierre"
+                    value="Registrar traspaso desde la tarjeta del cierre"
                   />
                 ) : null}
                 {selectedAccount.currencyCode === 'VES' ? (
@@ -21278,8 +21310,8 @@ deliveryAssignMode === 'external' ? (
               </div>
               {selectedAccountClosureProfile?.generatesTransferOnClose ? (
                 <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
-                  Este cierre consolida el monto contado hacia la cuenta destino y registra el traspaso
-                  financiero del punto al banco.
+                  Este cierre fija el monto contado. Luego registra el traspaso desde la tarjeta del cierre
+                  cuando el dinero llegue al banco.
                 </div>
               ) : null}
               <div className="mt-3">
@@ -21574,10 +21606,10 @@ deliveryAssignMode === 'external' ? (
                 }
               />
               <InfoCell
-                label="Consolida al cerrar"
+                label="Traspaso de cierre"
                 value={
                   selectedAccountClosureProfile?.generatesTransferOnClose
-                    ? 'Sí, crea traspaso automático'
+                    ? 'Posterior, vinculado al cierre'
                     : 'No'
                 }
               />
@@ -21816,7 +21848,19 @@ deliveryAssignMode === 'external' ? (
                 {selectedAccountClosures.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">Sin cierres registrados para esta cuenta.</div>
                 ) : (
-                  selectedAccountClosures.slice(0, 5).map((closure) => (
+                  selectedAccountClosures.slice(0, 5).map((closure) => {
+                    const closureTransferExists = moneyMovements.some(
+                      (movement) =>
+                        movement.referenceCode === `closure-${closure.id}` &&
+                        movement.status !== 'voided'
+                    );
+                    const canTransferClosure =
+                      permissions.canCreateMoneyTransfers &&
+                      selectedAccountClosureProfile?.generatesTransferOnClose &&
+                      closure.status !== 'rejected' &&
+                      closure.countedAmount > 0.005;
+
+                    return (
                     <div key={closure.id} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -21843,6 +21887,28 @@ deliveryAssignMode === 'external' ? (
                       {closure.reason || closure.notes ? (
                         <div className="mt-2 text-xs text-[#8A8A96]">{closure.reason || closure.notes}</div>
                       ) : null}
+                      {selectedAccountClosureProfile?.generatesTransferOnClose && closure.status !== 'rejected' ? (
+                        <div className="mt-3 rounded-lg border border-[#242433] bg-[#121218] px-3 py-2 text-xs text-[#B7B7C2]">
+                          {closure.countedAmount <= 0.005 ? (
+                            <span>Este cierre quedó en cero; no requiere traspaso.</span>
+                          ) : closureTransferExists ? (
+                            <span className="text-emerald-300">Traspaso vinculado: closure-{closure.id}</span>
+                          ) : (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span>Pendiente registrar traspaso: closure-{closure.id}</span>
+                              {canTransferClosure ? (
+                                <button
+                                  type="button"
+                                  className="rounded-lg border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-1.5 text-xs font-semibold text-[#FEEF00]"
+                                  onClick={() => openMoneyTransferFromClosure(closure)}
+                                >
+                                  Traspasar cierre
+                                </button>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
                       {permissions.canManageMoneyAccounts && closure.status !== 'rejected' ? (
                         <div className="mt-3 flex justify-end">
                           <button
@@ -21856,7 +21922,8 @@ deliveryAssignMode === 'external' ? (
                         </div>
                       ) : null}
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -22333,7 +22400,7 @@ deliveryAssignMode === 'external' ? (
                 <div>
                   <div className="text-sm font-semibold text-[#F5F5F7]">Configuración de cierre</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Define si esta cuenta cierra normal o consolida saldo hacia otra cuenta.
+                    Define si esta cuenta cierra normal o requiere traspaso posterior hacia otra cuenta.
                   </div>
                 </div>
                 {permissions.canManageMoneyAccounts ? (
@@ -22362,10 +22429,10 @@ deliveryAssignMode === 'external' ? (
                   }
                 />
                 <InfoCell
-                  label="Traspaso al cerrar"
+                  label="Traspaso de cierre"
                   value={
                     selectedAccountClosureProfile?.generatesTransferOnClose
-                      ? 'Automático'
+                      ? 'Posterior'
                       : 'No aplica'
                   }
                 />
@@ -22382,7 +22449,7 @@ deliveryAssignMode === 'external' ? (
               </div>
               {selectedAccount.accountKind === 'pos' && selectedAccountClosureProfile?.generatesTransferOnClose && !selectedAccountClosureTargetAccount ? (
                 <div className="mt-3 rounded-xl border border-[#564511] bg-[#151208] px-3 py-2 text-xs text-[#F7DA66]">
-                  Este punto consolida al cerrar, pero no tiene cuenta destino predeterminada. Al registrar el cierre tendrás que seleccionar la cuenta banco destino.
+                  Este punto requiere traspaso posterior al cierre, pero no tiene cuenta destino predeterminada.
                 </div>
               ) : null}
             </div>
@@ -22627,7 +22694,7 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Cierre del punto</div>
               <div className="mt-1 text-xs text-[#8A8A96]">
-                Al cerrar un punto, el saldo contado puede consolidarse como traspaso hacia una cuenta banco.
+                Después de cerrar un punto, registra el traspaso cuando el dinero llegue al banco.
               </div>
               <div className="mt-3">
                 <FieldSelect
@@ -22727,7 +22794,7 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="text-sm font-semibold text-[#F5F5F7]">Cierre del punto</div>
               <div className="mt-1 text-xs text-[#8A8A96]">
-                Al cerrar un punto, el saldo contado puede consolidarse como traspaso hacia una cuenta banco.
+                Después de cerrar un punto, registra el traspaso cuando el dinero llegue al banco.
               </div>
               <div className="mt-3">
                 <FieldSelect
