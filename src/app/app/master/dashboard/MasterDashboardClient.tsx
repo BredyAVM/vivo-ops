@@ -29,7 +29,9 @@ import {
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
+  formatWhatsAppDateVE,
   formatWhatsAppQuantity,
+  formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import { getOrderCommercialNetUsd } from '@/lib/orders/order-money';
@@ -2602,6 +2604,8 @@ function buildWhatsAppOrderSummary(order: Order) {
     },
     fulfillment: order.fulfillment,
     deliveryText: fmtDeliveryTextES(order.deliveryAtISO),
+    deliveryDateText: formatWhatsAppDateVE(order.deliveryAtISO),
+    deliveryTimeText: formatWhatsAppTimeAmPm(order.deliveryAtISO),
     address: order.address,
     gpsUrl: order.editMeta.deliveryGpsUrl,
     paymentMethodLabel: getSharedPaymentMethodLabel(order.editMeta.paymentMethod),

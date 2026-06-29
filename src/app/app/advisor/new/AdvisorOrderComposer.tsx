@@ -13,7 +13,9 @@ import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
   formatWhatsAppBs,
+  formatWhatsAppDateVE,
   formatWhatsAppQuantity,
+  formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import {
@@ -3113,6 +3115,11 @@ export default function AdvisorOrderComposer({
       },
       fulfillment,
       deliveryText: isAsap ? 'Lo antes posible' : `${deliveryDayLabel} - ${deliveryHourLabel}`,
+      deliveryDateText: isAsap ? 'Lo antes posible' : formatWhatsAppDateVE(deliveryDate),
+      deliveryTimeText:
+        isAsap || !deliveryHour12.trim() || !deliveryMinute.trim()
+          ? null
+          : formatWhatsAppTimeAmPm(`${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`),
       address: deliveryAddress,
       gpsUrl: deliveryGpsUrl,
       paymentMethodLabel: getPaymentMethodLabel(paymentMethod),

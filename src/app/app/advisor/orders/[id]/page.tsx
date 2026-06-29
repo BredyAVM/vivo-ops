@@ -13,7 +13,9 @@ import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-m
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
+  formatWhatsAppDateVE,
   formatWhatsAppQuantity,
+  formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../../advisor-ui';
@@ -302,6 +304,13 @@ function getPaymentSummary(
   };
 }
 
+function getWhatsAppPaymentStatusLabel(confirmedPaidUsd: number, pendingPaidUsd: number, balanceUsd: number) {
+  if (balanceUsd <= 0.005) return confirmedPaidUsd > 0.005 ? 'Confirmado' : 'Pagado';
+  if (pendingPaidUsd > 0.005) return 'Por validar';
+  if (confirmedPaidUsd > 0.005) return 'Saldo pendiente';
+  return 'Pendiente';
+}
+
 function operationalPhase(order: Pick<OrderRow, 'status'>): OperationalPhase {
   return getOperationalPhase(order.status);
 }
@@ -533,6 +542,7 @@ function buildCleanWhatsAppOrderSummary({
   order,
   items,
   advisorLabel,
+  paymentStatus,
 }: {
   order: OrderRow & {
     client: {
@@ -544,6 +554,7 @@ function buildCleanWhatsAppOrderSummary({
   };
   items: OrderItemRow[];
   advisorLabel: string;
+  paymentStatus: string;
 }) {
   const fxRate = getOrderFxRate(order);
   const pricing = getOrderMoneySnapshot(order);
@@ -584,12 +595,18 @@ function buildCleanWhatsAppOrderSummary({
     },
     fulfillment: order.fulfillment,
     deliveryText: deliveryFullText || deliveryText(order.extra_fields?.schedule),
+    deliveryDateText: order.extra_fields?.schedule?.asap
+      ? 'Lo antes posible'
+      : formatWhatsAppDateVE(order.extra_fields?.schedule?.date),
+    deliveryTimeText: order.extra_fields?.schedule?.asap
+      ? null
+      : formatWhatsAppTimeAmPm(order.extra_fields?.schedule?.time_12),
     address: order.delivery_address,
     gpsUrl: order.extra_fields?.delivery?.gps_url,
     paymentMethodLabel: paymentMethodCopyLabel(payment?.method),
     paymentChangeText,
     paymentNote: payment?.notes,
-    paymentStatus: 'Pendiente',
+    paymentStatus,
     invoice: {
       enabled: Boolean(documents?.has_invoice),
       companyName: invoiceSnapshot?.company_name,
@@ -1050,6 +1067,11 @@ export default async function AdvisorOrderDetailPage({
     toSafeNumber(pendingPaidUsd, 0),
     toSafeNumber(balanceUsd, 0),
   );
+  const whatsappPaymentStatus = getWhatsAppPaymentStatusLabel(
+    toSafeNumber(confirmedPaidUsd, 0),
+    toSafeNumber(pendingPaidUsd, 0),
+    toSafeNumber(balanceUsd, 0),
+  );
   const hasPendingFundRequest = timeline.some((event) => event.eventType === 'client_fund_application_requested');
   const detailFxRate = getOrderFxRate(order);
   const phaseIndex = operationalPhaseIndex(order);
@@ -1063,6 +1085,7 @@ export default async function AdvisorOrderDetailPage({
     order,
     items,
     advisorLabel,
+    paymentStatus: whatsappPaymentStatus,
   });
 
   return (

@@ -44,6 +44,8 @@ export type WhatsAppOrderSummaryInput = {
   price: WhatsAppSummaryPrice;
   fulfillment: 'pickup' | 'delivery';
   deliveryText: string;
+  deliveryDateText?: string | null;
+  deliveryTimeText?: string | null;
   address?: string | null;
   gpsUrl?: string | null;
   paymentMethodLabel?: string | null;
@@ -91,6 +93,57 @@ export function formatWhatsAppQuantity(value: number | string | null | undefined
   return Number.isInteger(rounded)
     ? String(rounded)
     : rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+export function formatWhatsAppDateVE(value: string | null | undefined) {
+  const normalized = clean(value);
+  if (!normalized) return '';
+
+  const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return normalized;
+
+  return new Intl.DateTimeFormat('es-VE', {
+    timeZone: 'America/Caracas',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+}
+
+export function formatWhatsAppTimeAmPm(value: string | null | undefined) {
+  const normalized = clean(value);
+  if (!normalized) return '';
+
+  const explicit = normalized.match(/^(\d{1,2}):(\d{2})\s*([ap])(?:\.?\s*m\.?|m)?\.?$/i);
+  if (explicit) {
+    const hour = Math.max(1, Math.min(12, Number(explicit[1])));
+    return `${hour}:${explicit[2]} ${explicit[3].toUpperCase()}M`;
+  }
+
+  const time24 = normalized.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (time24) {
+    const hour24 = Math.max(0, Math.min(23, Number(time24[1])));
+    const amPm = hour24 >= 12 ? 'PM' : 'AM';
+    const hour12 = hour24 % 12 || 12;
+    return `${hour12}:${time24[2]} ${amPm}`;
+  }
+
+  const date = new Date(normalized);
+  if (!Number.isNaN(date.getTime()) && normalized.includes('T')) {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Caracas',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+      .format(date)
+      .replace(/\s/g, ' ');
+  }
+
+  return normalized;
 }
 
 export function extractWhatsAppUnitsPerServiceFromName(name: string | null | undefined) {
@@ -177,9 +230,31 @@ function buildDeliveryNoteText(note: WhatsAppSummaryDeliveryNote | null | undefi
   return values.length > 0 ? values.join(' | ') : 'Solicitada';
 }
 
+function buildDeliveryScheduleText(input: WhatsAppOrderSummaryInput) {
+  const deliveryDate = clean(input.deliveryDateText);
+  const deliveryTime = clean(input.deliveryTimeText);
+  if (deliveryDate || deliveryTime) {
+    return {
+      date: deliveryDate || 'Sin fecha',
+      time: deliveryTime || 'Sin hora',
+    };
+  }
+
+  const fallback = clean(input.deliveryText);
+  if (!fallback) return { date: 'Sin fecha', time: 'Sin hora' };
+
+  const [datePart, ...timeParts] = fallback.split(/\s+-\s+/);
+  const timePart = timeParts.join(' - ').trim();
+  return {
+    date: datePart.trim() || fallback,
+    time: timePart || 'Sin hora',
+  };
+}
+
 export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) {
   const parts: string[] = [];
   const price = input.price;
+  const deliverySchedule = buildDeliveryScheduleText(input);
   const showSubtotal =
     Number(price.discountAmountBs || 0) > 0 ||
     Number(price.discountAmountUsd || 0) > 0 ||
@@ -229,7 +304,8 @@ export function buildWhatsAppOrderSummaryText(input: WhatsAppOrderSummaryInput) 
 
   parts.push('');
   parts.push(`*Entrega:* ${input.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}`);
-  parts.push(`*Dia de entrega:* ${clean(input.deliveryText) || 'Sin fecha'}`);
+  parts.push(`*Fecha de entrega:* ${deliverySchedule.date}`);
+  parts.push(`*Hora de entrega:* ${deliverySchedule.time}`);
 
   if (input.fulfillment === 'delivery') {
     pushField(parts, 'Direccion', input.address);
