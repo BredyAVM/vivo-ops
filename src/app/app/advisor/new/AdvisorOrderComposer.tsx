@@ -1878,9 +1878,11 @@ export default function AdvisorOrderComposer({
           const recalculationRate = activeRate > 0
             ? activeRate
             : toSafeNumber(pricing?.recalculation_fx_rate, 0);
-          const editFxRate = recalculationRequested
-            ? recalculationRate
-            : toSafeNumber(pricing?.fx_rate, activeRate);
+          const editFxRate = isRepeatingOrder
+            ? activeRate
+            : recalculationRequested
+              ? recalculationRate
+              : toSafeNumber(pricing?.fx_rate, activeRate);
           const orderItems = existingOrderItems.map((item) => {
             const relatedProduct = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
 
