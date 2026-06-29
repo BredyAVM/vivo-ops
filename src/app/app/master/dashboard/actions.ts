@@ -8867,6 +8867,19 @@ export async function createMoneyAccountClosureAction(input: {
     throw new Error('Debes indicar una tasa vÃ¡lida para cerrar una cuenta en Bs.');
   }
 
+  const { data: existingActiveClosures, error: existingActiveClosureError } = await supabase
+    .from('money_account_closures')
+    .select('id')
+    .eq('money_account_id', moneyAccountId)
+    .eq('closure_date', closureDate)
+    .in('status', ['recorded', 'approved'])
+    .limit(1);
+
+  if (existingActiveClosureError) throw new Error(existingActiveClosureError.message);
+  if ((existingActiveClosures ?? []).length > 0) {
+    throw new Error('Ya existe un cierre activo para esta cuenta y fecha. Anula el cierre anterior antes de registrar otro.');
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from('money_account_closure_profiles')
     .select(
@@ -9069,8 +9082,89 @@ export async function createMoneyAccountClosureAction(input: {
       },
     ]);
 
-    if (transferError) throw new Error(transferError.message);
+    if (transferError) {
+      await supabase
+        .from('money_account_closures')
+        .update({
+          status: 'rejected',
+          reviewed_by_user_id: user.id,
+          reviewed_at: now,
+          notes: [notes, `Cierre rechazado automaticamente: no se pudo crear el traspaso (${transferError.message})`]
+            .filter(Boolean)
+            .join('\n'),
+        })
+        .eq('id', closureId);
+
+      throw new Error(`No se pudo completar el cierre porque fallo el traspaso automatico: ${transferError.message}`);
+    }
   }
+
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function rejectMoneyAccountClosureAction(input: {
+  closureId: number;
+  reason: string;
+}) {
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const closureId = Number(input.closureId || 0);
+  const reason = String(input.reason || '').trim();
+
+  if (!Number.isFinite(closureId) || closureId <= 0) {
+    throw new Error('Cierre invalido.');
+  }
+
+  if (reason.length < 6) {
+    throw new Error('Indica un motivo claro para anular el cierre.');
+  }
+
+  const { data: closure, error: closureError } = await supabase
+    .from('money_account_closures')
+    .select('id, status, notes')
+    .eq('id', closureId)
+    .single();
+
+  if (closureError || !closure) {
+    throw new Error(closureError?.message || 'No se pudo cargar el cierre.');
+  }
+
+  if (closure.status === 'rejected') {
+    throw new Error('Este cierre ya esta anulado.');
+  }
+
+  const now = new Date().toISOString();
+  const previousNotes = String(closure.notes || '').trim();
+  const nextNotes = [previousNotes, `Anulado: ${reason}`].filter(Boolean).join('\n') || null;
+  const transferReference = `closure-${closureId}`;
+
+  const { error: movementError } = await supabase
+    .from('money_movements')
+    .update({
+      status: 'voided',
+      reviewed_by_user_id: user.id,
+      reviewed_at: now,
+      voided_by_user_id: user.id,
+      voided_at: now,
+      void_reason: `Cierre anulado: ${reason}`,
+    })
+    .eq('reference_code', transferReference)
+    .neq('status', 'voided');
+
+  if (movementError) throw new Error(movementError.message);
+
+  const { error: updateError } = await supabase
+    .from('money_account_closures')
+    .update({
+      status: 'rejected',
+      reviewed_by_user_id: user.id,
+      reviewed_at: now,
+      notes: nextNotes,
+    })
+    .eq('id', closureId);
+
+  if (updateError) throw new Error(updateError.message);
 
   revalidatePath('/app/master/dashboard');
 }

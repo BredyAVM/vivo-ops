@@ -49,6 +49,7 @@ import {
   settleClientFundPayoutAction,
   createInventoryProductionAction,
   rejectPaymentReportAction,
+  rejectMoneyAccountClosureAction,
   reapproveQueuedOrderAction,
   returnToCreatedAction,
   sendToKitchenAction,
@@ -4448,6 +4449,7 @@ const orderActionBusyRef = useRef(false);
   const [closureTargetAccountId, setClosureTargetAccountId] = useState('');
   const [closureReason, setClosureReason] = useState('');
   const [closureNotes, setClosureNotes] = useState('');
+  const [closureRejectingId, setClosureRejectingId] = useState<number | null>(null);
   const [reconciliationResolveItemId, setReconciliationResolveItemId] = useState<number | null>(null);
   const [reconciliationResolveNotes, setReconciliationResolveNotes] = useState('');
   const [reconciliationResolveSaving, setReconciliationResolveSaving] = useState(false);
@@ -8194,6 +8196,44 @@ const handleSaveQuickCatalog = async () => {
       showToast('error', err instanceof Error ? err.message : 'No se pudo registrar el cierre.');
     } finally {
       setClosureSaving(false);
+    }
+  };
+
+  const handleRejectMoneyAccountClosure = async (closure: MoneyAccountClosureItem) => {
+    if (!permissions.canManageMoneyAccounts) {
+      showToast('error', 'Solo admin puede anular cierres.');
+      return;
+    }
+
+    const reason = window.prompt(
+      `Motivo para anular el cierre del ${closure.closureDate} por ${fmtMoneyByCurrency(
+        closure.countedAmount,
+        closure.currencyCode
+      )}`
+    );
+
+    if (reason === null) return;
+    if (reason.trim().length < 6) {
+      showToast('error', 'Indica un motivo claro para anular el cierre.');
+      return;
+    }
+
+    try {
+      setClosureRejectingId(closure.id);
+      await rejectMoneyAccountClosureAction({
+        closureId: closure.id,
+        reason,
+      });
+      showToast('success', 'Cierre anulado.');
+      await loadMoneyActivity(true, {
+        scope: 'account',
+        accountId: closure.moneyAccountId,
+      });
+      router.refresh();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'No se pudo anular el cierre.');
+    } finally {
+      setClosureRejectingId(null);
     }
   };
 
@@ -21785,9 +21825,14 @@ deliveryAssignMode === 'external' ? (
                             Por {getDashboardUserLabel(closure.createdByUserId)} · {fmtDateTimeES(closure.createdAt)}
                           </div>
                         </div>
-                        <div className={closure.differenceAmount === 0 ? 'text-emerald-300' : 'text-[#FEEF00]'}>
-                          {closure.differenceAmount > 0 ? '+' : ''}
-                          {fmtMoneyByCurrency(closure.differenceAmount, closure.currencyCode)}
+                        <div className="text-right">
+                          <div className={closure.differenceAmount === 0 ? 'text-emerald-300' : 'text-[#FEEF00]'}>
+                            {closure.differenceAmount > 0 ? '+' : ''}
+                            {fmtMoneyByCurrency(closure.differenceAmount, closure.currencyCode)}
+                          </div>
+                          <div className="mt-1 text-[11px] text-[#8A8A96]">
+                            {MONEY_ACCOUNT_CLOSURE_STATUS_LABEL[closure.status]}
+                          </div>
                         </div>
                       </div>
                       <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[#B7B7C2] md:grid-cols-3">
@@ -21797,6 +21842,18 @@ deliveryAssignMode === 'external' ? (
                       </div>
                       {closure.reason || closure.notes ? (
                         <div className="mt-2 text-xs text-[#8A8A96]">{closure.reason || closure.notes}</div>
+                      ) : null}
+                      {permissions.canManageMoneyAccounts && closure.status !== 'rejected' ? (
+                        <div className="mt-3 flex justify-end">
+                          <button
+                            type="button"
+                            className="rounded-lg border border-red-500/40 bg-[#260F13] px-3 py-1.5 text-xs font-semibold text-red-200 disabled:opacity-60"
+                            onClick={() => handleRejectMoneyAccountClosure(closure)}
+                            disabled={closureRejectingId === closure.id}
+                          >
+                            {closureRejectingId === closure.id ? 'Anulando...' : 'Anular cierre'}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   ))
