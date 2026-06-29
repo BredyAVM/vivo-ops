@@ -8,6 +8,9 @@ import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
 import MasterDashboardClient from './MasterDashboardClient';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const CLIENT_IMPORT_CUTOFF_ISO = '2026-06-02T00:00:00-04:00';
 const CLIENT_IMPORT_CUTOFF_MS = Date.parse(CLIENT_IMPORT_CUTOFF_ISO);
 
@@ -75,6 +78,7 @@ type MasterDashboardSearchParams = Promise<{
   calcSource?: string;
   calcAdvisor?: string;
   calcBasePct?: string;
+  calcRun?: string;
 }>;
 
 type RawOrderSummaryRow = {

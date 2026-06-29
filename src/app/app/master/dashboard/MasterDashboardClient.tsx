@@ -5910,7 +5910,10 @@ const generateCalculationsReport = useCallback(() => {
   if (advisorCalcBasePct.trim()) params.set('calcBasePct', advisorCalcBasePct.trim());
   else params.delete('calcBasePct');
 
+  params.set('calcRun', String(Date.now()));
+
   router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
+  router.refresh();
 }, [
   advisorCalcAdvisorId,
   advisorCalcBasePct,
