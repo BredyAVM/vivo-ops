@@ -10823,6 +10823,10 @@ const selectedOrderChangeMovements = useMemo(() => {
     ? moneyAccountClosureProfileByAccountId.get(selectedAccount.id) ?? null
     : null;
 
+  const selectedAccountClosureTargetAccount = selectedAccountClosureProfile?.defaultTargetMoneyAccountId
+    ? moneyAccounts.find((account) => account.id === selectedAccountClosureProfile.defaultTargetMoneyAccountId) ?? null
+    : null;
+
   const selectedAccountBaseline = selectedAccount
     ? moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === selectedAccount.id && baseline.status === 'active') ?? null
     : null;
@@ -15450,6 +15454,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const hasCounter = rules.some((rule) => rule.role === 'counter' && rule.canViewAccount);
             const hasReview = rules.some((rule) => rule.reviewRequired);
             const latestClosure = moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
+            const closureProfile = moneyAccountClosureProfileByAccountId.get(account.id) ?? null;
+            const closureTargetAccount = closureProfile?.defaultTargetMoneyAccountId
+              ? moneyAccounts.find((target) => target.id === closureProfile.defaultTargetMoneyAccountId) ?? null
+              : null;
             const activeBaseline =
               moneyAccountBaselines.find((baseline) => baseline.moneyAccountId === account.id && baseline.status === 'active') ??
               null;
@@ -15506,6 +15514,27 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         {tag}
                       </span>
                     ))}
+                    {closureProfile ? (
+                      <span className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]">
+                        Cierre: {MONEY_ACCOUNT_CLOSURE_KIND_LABEL[closureProfile.closureKind]}
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
+                        Sin perfil de cierre
+                      </span>
+                    )}
+                    {closureProfile?.generatesTransferOnClose ? (
+                      <span
+                        className={[
+                          'rounded-full border px-1.5 py-0.5 text-[10px]',
+                          closureTargetAccount
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                            : 'border-[#564511] bg-[#151208] text-[#F7DA66]',
+                        ].join(' ')}
+                      >
+                        Consolida a: {closureTargetAccount?.name || 'sin destino'}
+                      </span>
+                    ) : null}
                   </div>
                 </td>
                 <td className="px-3 py-3">
@@ -21467,6 +21496,32 @@ deliveryAssignMode === 'external' ? (
                 value={selectedAccount.institutionName || selectedAccount.ownerName || '—'}
               />
               <InfoCell
+                label="Perfil de cierre"
+                value={
+                  selectedAccountClosureProfile
+                    ? MONEY_ACCOUNT_CLOSURE_KIND_LABEL[selectedAccountClosureProfile.closureKind]
+                    : 'Sin perfil'
+                }
+              />
+              <InfoCell
+                label="Consolida al cerrar"
+                value={
+                  selectedAccountClosureProfile?.generatesTransferOnClose
+                    ? 'Sí, crea traspaso automático'
+                    : 'No'
+                }
+              />
+              <InfoCell
+                label="Cuenta destino"
+                value={
+                  selectedAccountClosureProfile?.generatesTransferOnClose
+                    ? selectedAccountClosureTargetAccount
+                      ? `${selectedAccountClosureTargetAccount.name} · ${selectedAccountClosureTargetAccount.currencyCode}`
+                      : 'Sin destino configurado'
+                    : 'No aplica'
+                }
+              />
+              <InfoCell
                 label="Saldo inicial"
                 value={
                   selectedAccountBaseline
@@ -22191,7 +22246,38 @@ deliveryAssignMode === 'external' ? (
                 <InfoCell label="Cuenta" value={selectedAccount.name} />
                 <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
                 <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
+                <InfoCell
+                  label="Perfil de cierre"
+                  value={
+                    selectedAccountClosureProfile
+                      ? MONEY_ACCOUNT_CLOSURE_KIND_LABEL[selectedAccountClosureProfile.closureKind]
+                      : 'Sin perfil'
+                  }
+                />
+                <InfoCell
+                  label="Traspaso al cerrar"
+                  value={
+                    selectedAccountClosureProfile?.generatesTransferOnClose
+                      ? 'Automático'
+                      : 'No aplica'
+                  }
+                />
+                <InfoCell
+                  label="Cuenta destino"
+                  value={
+                    selectedAccountClosureProfile?.generatesTransferOnClose
+                      ? selectedAccountClosureTargetAccount
+                        ? `${selectedAccountClosureTargetAccount.name} · ${selectedAccountClosureTargetAccount.currencyCode}`
+                        : 'Sin destino configurado'
+                      : 'No aplica'
+                  }
+                />
               </div>
+              {selectedAccount.accountKind === 'pos' && selectedAccountClosureProfile?.generatesTransferOnClose && !selectedAccountClosureTargetAccount ? (
+                <div className="mt-3 rounded-xl border border-[#564511] bg-[#151208] px-3 py-2 text-xs text-[#F7DA66]">
+                  Este punto consolida al cerrar, pero no tiene cuenta destino predeterminada. Al registrar el cierre tendrás que seleccionar la cuenta banco destino.
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
