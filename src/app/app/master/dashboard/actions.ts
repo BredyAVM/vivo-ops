@@ -8828,7 +8828,9 @@ export async function createMoneyAccountClosureAction(input: {
   reason: string;
   notes: string;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  try {
+  const { user } = await requireMasterOrAdmin();
+  const supabase = createSupabaseServiceRoleServer();
 
   const moneyAccountId = Number(input.moneyAccountId || 0);
   const closureDate = String(input.closureDate || '').trim();
@@ -8989,6 +8991,13 @@ export async function createMoneyAccountClosureAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
+  return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : 'No se pudo registrar el cierre.',
+    };
+  }
 }
 
 export async function rejectMoneyAccountClosureAction(input: {

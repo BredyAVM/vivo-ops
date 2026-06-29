@@ -8172,7 +8172,7 @@ const handleSaveQuickCatalog = async () => {
 
     try {
       setClosureSaving(true);
-      await createMoneyAccountClosureAction({
+      const result = await createMoneyAccountClosureAction({
         moneyAccountId: selectedAccount.id,
         closureDate,
         countedAmount,
@@ -8181,6 +8181,10 @@ const handleSaveQuickCatalog = async () => {
         reason: closureReason,
         notes: closureNotes,
       });
+      if (!result.ok) {
+        showToast('error', result.message);
+        return;
+      }
       showToast('success', 'Cierre registrado.');
       setClosureOpen(false);
       resetClosureForm();
