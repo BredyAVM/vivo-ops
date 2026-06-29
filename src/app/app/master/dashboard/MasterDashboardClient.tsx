@@ -3490,6 +3490,65 @@ function StatRow({
   );
 }
 
+function GeneratedReportStatus({
+  generated,
+  dateFrom,
+  dateTo,
+  generatedAt,
+  limit,
+  limitExceeded,
+  emptyText,
+  onRefresh,
+}: {
+  generated: boolean;
+  dateFrom: string | null | undefined;
+  dateTo: string | null | undefined;
+  generatedAt: string | null | undefined;
+  limit: number | null | undefined;
+  limitExceeded: boolean | null | undefined;
+  emptyText: string;
+  onRefresh: () => void;
+}) {
+  if (!generated) {
+    return (
+      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={[
+        'flex flex-col gap-2 rounded-xl border px-3 py-2 text-xs md:flex-row md:items-center md:justify-between',
+        limitExceeded ? 'border-orange-500/40 bg-orange-500/10 text-orange-200' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100',
+      ].join(' ')}
+    >
+      <div className="space-y-0.5">
+        <div className="font-semibold">
+          {limitExceeded ? 'Reporte incompleto' : 'Consulta generada'}
+        </div>
+        <div className={limitExceeded ? 'text-orange-100/80' : 'text-emerald-100/80'}>
+          {dateFrom || '—'} a {dateTo || '—'} · Generado {fmtDateTimeES(generatedAt ?? null)}
+          {limitExceeded && limit ? ` · Límite ${limit} órdenes` : ''}
+        </div>
+      </div>
+      <button
+        className={[
+          'rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
+          limitExceeded
+            ? 'border-orange-300/40 text-orange-100 hover:bg-orange-300/10'
+            : 'border-emerald-300/40 text-emerald-100 hover:bg-emerald-300/10',
+        ].join(' ')}
+        onClick={onRefresh}
+        type="button"
+      >
+        Actualizar
+      </button>
+    </div>
+  );
+}
+
 function Btn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button onClick={onClick} className="rounded-2xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm">
@@ -3933,6 +3992,7 @@ export default function MasterDashboardClient({
     source: CalculationsSource;
     advisorId: string | null;
     basePct: string | null;
+    generatedAt: string | null;
     limit: number;
     limitExceeded: boolean;
   };
@@ -13712,15 +13772,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </button>
                   </div>
 
-                  {!calculationScope?.generated ? (
-                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
-                      Selecciona un periodo y genera el reporte. No se cargan órdenes de cálculos hasta pedirlo.
-                    </div>
-                  ) : calculationScope.limitExceeded ? (
-                    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
-                      El periodo superó {calculationScope.limit} órdenes. Reduce el rango para evitar resultados incompletos.
-                    </div>
-                  ) : null}
+                  <GeneratedReportStatus
+                    generated={Boolean(calculationScope?.generated)}
+                    dateFrom={calculationScope?.dateFrom}
+                    dateTo={calculationScope?.dateTo}
+                    generatedAt={calculationScope?.generatedAt}
+                    limit={calculationScope?.limit}
+                    limitExceeded={calculationScope?.limitExceeded}
+                    emptyText="Selecciona un periodo y genera el reporte. No se cargan órdenes de cálculos hasta pedirlo."
+                    onRefresh={generateCalculationsReport}
+                  />
 
                 </div>
               </div>
@@ -13975,15 +14036,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       Generar
                     </button>
                   </div>
-                  {!calculationScope?.generated ? (
-                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
-                      Genera un periodo para calcular comisiones.
-                    </div>
-                  ) : calculationScope.limitExceeded ? (
-                    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
-                      El periodo superó {calculationScope.limit} órdenes. Reduce el rango para evitar resultados incompletos.
-                    </div>
-                  ) : null}
+                  <GeneratedReportStatus
+                    generated={Boolean(calculationScope?.generated)}
+                    dateFrom={calculationScope?.dateFrom}
+                    dateTo={calculationScope?.dateTo}
+                    generatedAt={calculationScope?.generatedAt}
+                    limit={calculationScope?.limit}
+                    limitExceeded={calculationScope?.limitExceeded}
+                    emptyText="Genera un periodo para calcular comisiones."
+                    onRefresh={generateCalculationsReport}
+                  />
                 </div>
               </div>
 
@@ -14125,15 +14187,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </button>
                   </div>
 
-                  {!calculationScope?.generated ? (
-                    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
-                      Genera un periodo para calcular deliveries.
-                    </div>
-                  ) : calculationScope.limitExceeded ? (
-                    <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-200">
-                      El periodo superó {calculationScope.limit} órdenes. Reduce el rango para evitar resultados incompletos.
-                    </div>
-                  ) : null}
+                  <GeneratedReportStatus
+                    generated={Boolean(calculationScope?.generated)}
+                    dateFrom={calculationScope?.dateFrom}
+                    dateTo={calculationScope?.dateTo}
+                    generatedAt={calculationScope?.generatedAt}
+                    limit={calculationScope?.limit}
+                    limitExceeded={calculationScope?.limitExceeded}
+                    emptyText="Genera un periodo para calcular deliveries."
+                    onRefresh={generateCalculationsReport}
+                  />
 
                   <div className="flex gap-2 overflow-x-auto">
                     <Chip active={deliveriesTab === 'overview'} onClick={() => setDeliveriesTab('overview')}>

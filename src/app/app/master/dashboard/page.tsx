@@ -894,6 +894,13 @@ export default async function MasterDashboardPage({
       : '';
   const calcAdvisorId = String(params.calcAdvisor || '').trim();
   const calcBasePct = String(params.calcBasePct || '').trim();
+  const calcRunRaw = String(params.calcRun || '').trim();
+  const calcRunMs = /^\d{10,}$/.test(calcRunRaw) ? Number(calcRunRaw) : Number.NaN;
+  const calcRunDate = Number.isFinite(calcRunMs) ? new Date(calcRunMs) : null;
+  const calcGeneratedAt =
+    calculationRangeRequested && calcRunDate && !Number.isNaN(calcRunDate.getTime())
+      ? calcRunDate.toISOString()
+      : null;
   const calculationRange =
     calcFromKey && calcToKey
       ? {
@@ -3138,6 +3145,7 @@ currentUser={{
         source: calcSource,
         advisorId: calcAdvisorId || null,
         basePct: calcBasePct || null,
+        generatedAt: calcGeneratedAt,
         limit: MASTER_DASHBOARD_CALCULATION_ORDER_LIMIT,
         limitExceeded: calculationOrdersLimitExceeded,
       }}
