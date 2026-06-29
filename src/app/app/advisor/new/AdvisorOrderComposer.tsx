@@ -3574,7 +3574,7 @@ export default function AdvisorOrderComposer({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-4 pb-32">
+      <form onSubmit={handleSubmit} className="space-y-4 pb-[calc(12rem+env(safe-area-inset-bottom))] sm:pb-[calc(8.5rem+env(safe-area-inset-bottom))]">
         {!isEditingOrder ? (
           <div className="flex items-center justify-between gap-3 rounded-[18px] border border-[#232632] bg-[#0F131B] px-4 py-3">
             <div className="min-w-0">
@@ -4392,16 +4392,16 @@ export default function AdvisorOrderComposer({
           </Field>
         </Section>
 
-        <div className="fixed inset-x-0 bottom-[68px] z-20 border-t border-[#1A1D26] bg-[#090B10]/96 px-4 py-3 backdrop-blur">
-          <div className="mx-auto flex max-w-screen-md items-center justify-between gap-3">
-            <div>
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#1A1D26] bg-[#090B10] px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_36px_rgba(0,0,0,0.45)]">
+          <div className="mx-auto flex max-w-screen-md flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <div className="text-[11px] uppercase tracking-[0.22em] text-[#8B93A7]">Total</div>
               <div className="text-lg font-semibold text-[#F5F7FB]">{formatUsd(finalTotalUsd)}</div>
               <div className="text-xs text-[#8B93A7]">{fxRateNumber > 0 ? formatBs(finalTotalBs) : 'Falta tasa del dia'}</div>
               <div className="mt-1 text-[11px] text-[#6F7890]">{footerSummary}</div>
               <div className="text-[11px] text-[#8B93A7]">{createReadyHint}</div>
             </div>
-            <div className="flex max-w-[58%] flex-wrap justify-end gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:max-w-[58%] sm:flex-wrap sm:justify-end">
               {!isEditingOrder ? (
                 <button
                   type="button"
@@ -4440,7 +4440,7 @@ export default function AdvisorOrderComposer({
                 data-busy={saving ? 'true' : undefined}
                 disabled={saving || savingDraft || !createReady}
                 className={[
-                  'h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+                  'col-span-2 h-11 rounded-[16px] px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed sm:col-span-1',
                   saving || savingDraft || !createReady ? 'bg-[#232632] text-[#6F7890]' : 'bg-[#F0D000] text-[#17191E]',
                 ].join(' ')}
               >
