@@ -7672,6 +7672,7 @@ const handleSaveQuickCatalog = async () => {
       const requestedDateTo = useDateRange || useAccountScope ? options?.dateTo || '' : defaultMoneyActivityDate;
       const scopeLabel = useAccountScope ? 'account' : useDateRange ? 'range' : 'day';
       const scopeKey = `${scopeLabel}:${requestedAccountId ?? 'all'}:${requestedDateFrom || 'open'}:${requestedDateTo || 'open'}`;
+      if (moneyActivityLoaded && moneyActivityLoadedScope === scopeKey && !force) return;
 
       try {
         setMoneyActivityLoading(true);
