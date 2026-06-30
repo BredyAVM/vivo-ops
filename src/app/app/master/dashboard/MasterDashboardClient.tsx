@@ -27,6 +27,16 @@ import {
   isScheduledClosingOrder as isScheduledClosingOrderByDomain,
 } from '@/lib/domain/order-domain';
 import {
+  FINANCE_WORKSTREAM_ORDER,
+  FINANCE_WORKSTREAM_HINTS,
+  FINANCE_WORKSTREAM_LABELS,
+  type FinanceAccountWorkstream,
+  getFinanceAccountWorkstream,
+  getFinanceClosureVocabulary,
+  MONEY_ACCOUNT_CLOSURE_LABELS,
+  MONEY_ACCOUNT_KIND_LABELS,
+} from '@/lib/domain/finance-domain';
+import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
   formatWhatsAppDateVE,
@@ -973,24 +983,8 @@ type ExchangeRateInfo = {
   effectiveAt: string;
 };
 
-const MONEY_ACCOUNT_KIND_LABEL: Record<MoneyAccountOption['accountKind'], string> = {
-  bank: 'Banco',
-  cash: 'Caja',
-  fund: 'Fondo',
-  other: 'Otro',
-  pos: 'Punto',
-  wallet: 'Wallet',
-};
-
-const MONEY_ACCOUNT_CLOSURE_KIND_LABEL: Record<MoneyAccountClosureProfile['closureKind'], string> = {
-  bank: 'Banco',
-  cash: 'Caja',
-  pos: 'Punto',
-  wallet_usd: 'Wallet USD',
-  retention: 'Retenciones',
-  fund: 'Fondo',
-  other: 'Otro',
-};
+const MONEY_ACCOUNT_KIND_LABEL = MONEY_ACCOUNT_KIND_LABELS;
+const MONEY_ACCOUNT_CLOSURE_KIND_LABEL = MONEY_ACCOUNT_CLOSURE_LABELS;
 
 const MOVEMENT_TYPE_LABEL: Record<MoneyMovementItem['movementType'], string> = {
   adjustment: 'Ajuste',
@@ -10952,6 +10946,13 @@ const selectedOrderChangeMovements = useMemo(() => {
     ? moneyAccountClosureProfileByAccountId.get(selectedAccount.id) ?? null
     : null;
 
+  const selectedAccountFinanceVocabulary = selectedAccount
+    ? getFinanceClosureVocabulary({
+        accountKind: selectedAccount.accountKind,
+        closureKind: selectedAccountClosureProfile?.closureKind ?? null,
+      })
+    : null;
+
   const selectedAccountClosureTargetAccount = selectedAccountClosureProfile?.defaultTargetMoneyAccountId
     ? moneyAccounts.find((account) => account.id === selectedAccountClosureProfile.defaultTargetMoneyAccountId) ?? null
     : null;
@@ -11116,6 +11117,28 @@ const selectedCreateOrderClientAddresses = useMemo(
         .some((value) => normalizeLooseText(String(value)).includes(query));
     });
   }, [accountQuickFilter, accountRulesByAccountId, accountSearch, moneyAccounts, moneyMovements]);
+
+  const accountSections = useMemo(() => {
+    const accountsByWorkstream = new Map<FinanceAccountWorkstream, MoneyAccountOption[]>();
+
+    for (const account of filteredAccounts) {
+      const profile = moneyAccountClosureProfileByAccountId.get(account.id) ?? null;
+      const workstream = getFinanceAccountWorkstream({
+        accountKind: account.accountKind,
+        closureKind: profile?.closureKind ?? null,
+      });
+      const list = accountsByWorkstream.get(workstream) ?? [];
+      list.push(account);
+      accountsByWorkstream.set(workstream, list);
+    }
+
+    return FINANCE_WORKSTREAM_ORDER.map((workstream) => ({
+      workstream,
+      label: FINANCE_WORKSTREAM_LABELS[workstream],
+      hint: FINANCE_WORKSTREAM_HINTS[workstream],
+      accounts: accountsByWorkstream.get(workstream) ?? [],
+    })).filter((section) => section.accounts.length > 0);
+  }, [filteredAccounts, moneyAccountClosureProfileByAccountId]);
 
   const filteredClients = useMemo(() => {
     const query = normalizeLooseText(clientSearch);
@@ -15588,6 +15611,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             {filteredAccounts.length} visibles con los filtros actuales.
           </div>
         </div>
+        <button
+          type="button"
+          className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() =>
+            loadMoneyActivity(true, {
+              scope: accountDateFrom || accountDateTo ? 'range' : 'day',
+              dateFrom: accountDateFrom || undefined,
+              dateTo: accountDateTo || undefined,
+            })
+          }
+          disabled={moneyActivityLoading}
+        >
+          {moneyActivityLoading ? 'Actualizando...' : 'Actualizar cuentas'}
+        </button>
       </div>
 
       {filteredAccounts.length === 0 ? (
@@ -15610,7 +15647,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </tr>
               </thead>
               <tbody>
-          {filteredAccounts.map((account, index) => {
+          {accountSections.map((section) => (
+            <React.Fragment key={section.workstream}>
+              <tr className="border-b border-[#242433] bg-[#0B0B0D]">
+                <td colSpan={7} className="px-3 py-3">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">
+                      {section.label}
+                    </span>
+                    <span className="text-[11px] text-[#8A8A96]">{section.hint}</span>
+                    <span className="rounded-full border border-[#242433] px-2 py-0.5 text-[10px] text-[#B7B7C2]">
+                      {section.accounts.length} cuenta(s)
+                    </span>
+                  </div>
+                </td>
+              </tr>
+          {section.accounts.map((account, index) => {
             const stats = accountStatsById.get(account.id) ?? {
               balanceNative: 0,
               periodInflowNative: 0,
@@ -15637,6 +15689,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     new Date(a.closureAt || a.createdAt).getTime()
                 )[0] ?? null;
             const closureProfile = moneyAccountClosureProfileByAccountId.get(account.id) ?? null;
+            const financeVocabulary = getFinanceClosureVocabulary({
+              accountKind: account.accountKind,
+              closureKind: closureProfile?.closureKind ?? null,
+            });
             const closureTargetAccount = closureProfile?.defaultTargetMoneyAccountId
               ? moneyAccounts.find((target) => target.id === closureProfile.defaultTargetMoneyAccountId) ?? null
               : null;
@@ -15698,7 +15754,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     ))}
                     {closureProfile ? (
                       <span className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]">
-                        Cierre: {MONEY_ACCOUNT_CLOSURE_KIND_LABEL[closureProfile.closureKind]}
+                        Flujo: {financeVocabulary.operationTitle}
                       </span>
                     ) : (
                       <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
@@ -15787,7 +15843,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           openAccountClosureDrawer(account);
                         }}
                       >
-                        Cierre
+                        {financeVocabulary.primaryActionLabel}
                       </button>
                     ) : (
                       <button
@@ -15864,6 +15920,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </tr>
             );
           })}
+            </React.Fragment>
+          ))}
               </tbody>
             </table>
           </div>
@@ -21274,7 +21332,11 @@ deliveryAssignMode === 'external' ? (
 
       <Drawer
         open={closureOpen}
-        title={selectedAccount ? `Cierre: ${selectedAccount.name}` : 'Cierre de cuenta'}
+        title={
+          selectedAccount
+            ? `${selectedAccountFinanceVocabulary?.operationTitle ?? 'Cierre de cuenta'}: ${selectedAccount.name}`
+            : 'Cierre de cuenta'
+        }
         onClose={() => {
           setClosureOpen(false);
           resetClosureForm();
@@ -21288,11 +21350,11 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <InfoCell
-                  label="Esperado"
+                  label={selectedAccountFinanceVocabulary?.expectedLabel ?? 'Esperado'}
                   value={fmtMoneyByCurrency(selectedAccountExpectedAmount, selectedAccount.currencyCode)}
                 />
                 <InfoCell
-                  label="Diferencia"
+                  label={selectedAccountFinanceVocabulary?.differenceLabel ?? 'Diferencia'}
                   value={`${closureDifferenceAmount > 0 ? '+' : ''}${fmtMoneyByCurrency(
                     closureDifferenceAmount,
                     selectedAccount.currencyCode
@@ -21301,14 +21363,17 @@ deliveryAssignMode === 'external' ? (
                 <FieldInput label="Fecha" value={closureDate} onChange={setClosureDate} type="date" />
                 <FieldInput label="Hora" value={closureTime} onChange={setClosureTime} type="time" />
                 <FieldInput
-                  label="Monto contado"
+                  label={selectedAccountFinanceVocabulary?.countedLabel ?? 'Monto contado'}
                   value={closureCountedAmount}
                   onChange={setClosureCountedAmount}
                 />
                 {selectedAccountClosureProfile?.generatesTransferOnClose && closureCountedNumber > 0 ? (
                   <InfoCell
-                    label="Después del cierre"
-                    value="Registrar traspaso desde la tarjeta del cierre"
+                    label={`Después del ${selectedAccountFinanceVocabulary?.operationName ?? 'cierre'}`}
+                    value={
+                      selectedAccountFinanceVocabulary?.transferMessage ??
+                      'Registrar traspaso desde la tarjeta del cierre'
+                    }
                   />
                 ) : null}
                 {selectedAccount.currencyCode === 'VES' ? (
@@ -21335,7 +21400,8 @@ deliveryAssignMode === 'external' ? (
                     </div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
                       {Math.abs(closureDifferenceAmount) <= 0.01
-                        ? 'Si el saldo real coincide con el esperado, puedes dejarlo como cierre diario.'
+                        ? selectedAccountFinanceVocabulary?.zeroDifferenceMessage ??
+                          'Si el saldo real coincide con el esperado, puedes dejarlo como cierre diario.'
                         : closureDifferenceAmount > 0
                           ? 'Hay más saldo real que el esperado. Suele ser ingreso no reportado o diferencia por revisar.'
                           : 'Hay menos saldo real que el esperado. Suele ser gasto, comisión o egreso no cargado.'}
@@ -21375,8 +21441,8 @@ deliveryAssignMode === 'external' ? (
               </div>
               {selectedAccountClosureProfile?.generatesTransferOnClose ? (
                 <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
-                  Este cierre fija el monto contado. Luego registra el traspaso desde la tarjeta del cierre
-                  cuando el dinero llegue al banco.
+                  Este {selectedAccountFinanceVocabulary?.operationName ?? 'cierre'} fija el monto contado.
+                  {` ${selectedAccountFinanceVocabulary?.transferMessage ?? 'Luego registra el traspaso desde la tarjeta del cierre cuando el dinero llegue al banco.'}`}
                 </div>
               ) : null}
               <div className="mt-3">
@@ -21406,7 +21472,9 @@ deliveryAssignMode === 'external' ? (
                 onClick={handleCreateMoneyAccountClosure}
                 disabled={closureSaving}
               >
-                {closureSaving ? 'Guardando...' : 'Guardar cierre'}
+                {closureSaving
+                  ? 'Guardando...'
+                  : `Guardar ${selectedAccountFinanceVocabulary?.operationName ?? 'cierre'}`}
               </button>
             </div>
           </div>
@@ -21508,7 +21576,9 @@ deliveryAssignMode === 'external' ? (
                 </div>
                 <div className="flex items-start gap-3">
                   <div className="text-right">
-                    <div className="text-xs text-[#8A8A96]">Saldo esperado</div>
+                    <div className="text-xs text-[#8A8A96]">
+                      {selectedAccountFinanceVocabulary?.expectedLabel ?? 'Saldo esperado'}
+                    </div>
                     <div className="text-lg font-semibold text-[#F5F5F7]">
                       {fmtMoneyByCurrency(
                         selectedAccountStatementData.currentBalanceNative,
@@ -21525,6 +21595,21 @@ deliveryAssignMode === 'external' ? (
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#B7B7C2] disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() =>
+                        loadMoneyActivity(true, {
+                          scope: 'account',
+                          accountId: selectedAccount.id,
+                          dateFrom: accountDetailDateFrom || undefined,
+                          dateTo: accountDetailDateTo || undefined,
+                        })
+                      }
+                      disabled={moneyActivityLoading}
+                    >
+                      {moneyActivityLoading ? 'Actualizando...' : 'Actualizar'}
+                    </button>
                     <button
                       type="button"
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
@@ -21556,7 +21641,7 @@ deliveryAssignMode === 'external' ? (
                           openAccountClosureDrawer(selectedAccount);
                         }}
                       >
-                        Cerrar día
+                        {selectedAccountFinanceVocabulary?.primaryActionLabel ?? 'Cerrar'}
                       </button>
                     ) : (
                       <button
@@ -21832,9 +21917,11 @@ deliveryAssignMode === 'external' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Cierres y conciliación</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">
+                    {selectedAccountFinanceVocabulary?.historyTitle ?? 'Cierres'}
+                  </div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Últimos conteos registrados contra el saldo esperado.
+                    Últimas fotos financieras registradas contra el saldo del sistema.
                   </div>
                 </div>
                 <button
@@ -21842,7 +21929,7 @@ deliveryAssignMode === 'external' ? (
                   className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
                   onClick={() => openAccountClosureDrawer(selectedAccount)}
                 >
-                  {selectedAccountClosureProfile?.allowsClassifiedDifference ? 'Conciliar cuenta' : 'Registrar cierre'}
+                  {selectedAccountFinanceVocabulary?.primaryActionLabel ?? 'Registrar cierre'}
                 </button>
               </div>
               <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
