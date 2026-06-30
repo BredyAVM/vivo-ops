@@ -371,6 +371,7 @@ type AccountMovementFilter =
 
 type AccountDetailTab = 'operation' | 'closures' | 'rules' | 'audit';
 type AccountQuickFilter = 'all' | 'active' | FinanceAccountWorkstream | 'review' | 'pending';
+type FinanceWorkspaceView = 'accounts' | 'movements';
 type GlobalAuditFocusFilter = 'all' | 'pending' | 'exceptions' | 'transfers' | 'fees' | 'approvals';
 type MoneyMovementOutflowPurpose = 'change' | 'expense';
 
@@ -1016,6 +1017,11 @@ const ACCOUNT_DETAIL_TAB_LABEL: Record<AccountDetailTab, string> = {
 };
 
 const VISIBLE_ACCOUNT_DETAIL_TABS: AccountDetailTab[] = ['operation', 'closures', 'audit', 'rules'];
+
+const FINANCE_WORKSPACE_VIEW_LABEL: Record<FinanceWorkspaceView, string> = {
+  accounts: 'Cuentas',
+  movements: 'Movimientos',
+};
 
 const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   all: 'Todas',
@@ -4149,6 +4155,7 @@ export default function MasterDashboardClient({
   const [deliveryPartnerRateKmTo, setDeliveryPartnerRateKmTo] = useState('');
   const [deliveryPartnerRatePriceUsd, setDeliveryPartnerRatePriceUsd] = useState('');
   const [deliveryPartnerRateIsActive, setDeliveryPartnerRateIsActive] = useState(true);
+  const [financeWorkspaceView, setFinanceWorkspaceView] = useState<FinanceWorkspaceView>('accounts');
   const [accountSearch, setAccountSearch] = useState('');
   const [accountQuickFilter, setAccountQuickFilter] = useState<AccountQuickFilter>('all');
   const [accountDateFrom, setAccountDateFrom] = useState('');
@@ -15459,6 +15466,32 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       </div>
     </div>
 
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-2">
+      <div className="flex flex-wrap gap-1">
+        {(Object.keys(FINANCE_WORKSPACE_VIEW_LABEL) as FinanceWorkspaceView[]).map((view) => (
+          <button
+            key={view}
+            type="button"
+            onClick={() => setFinanceWorkspaceView(view)}
+            className={[
+              'rounded-xl border px-4 py-2 text-sm font-semibold',
+              financeWorkspaceView === view
+                ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:text-[#F5F5F7]',
+            ].join(' ')}
+          >
+            {FINANCE_WORKSPACE_VIEW_LABEL[view]}
+          </button>
+        ))}
+      </div>
+      <div className="px-2 text-[11px] text-[#8A8A96]">
+        {financeWorkspaceView === 'accounts'
+          ? `${filteredAccounts.length} cuenta(s) visibles`
+          : `${globalAuditFilteredGroups.length} movimiento(s) filtrados`}
+      </div>
+    </div>
+
+    {financeWorkspaceView === 'movements' ? (
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -15635,7 +15668,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         )}
       </div>
     </div>
+    ) : null}
 
+    {financeWorkspaceView === 'accounts' ? (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -15927,6 +15962,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         </div>
       )}
     </div>
+    ) : null}
   </div>
 ) : null}
 
