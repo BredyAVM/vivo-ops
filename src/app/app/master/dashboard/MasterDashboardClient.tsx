@@ -275,6 +275,7 @@ type MoneyAccountClosureItem = {
   id: number;
   moneyAccountId: number;
   closureDate: string;
+  closureAt: string | null;
   expectedAmount: number;
   countedAmount: number;
   differenceAmount: number;
@@ -1193,6 +1194,21 @@ function getCaracasTodayString() {
   }).format(new Date());
 }
 
+function getCaracasCurrentTimeString() {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Caracas',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date());
+}
+
+function buildCaracasClosureAt(date: string, time: string) {
+  const normalizedTime = /^\d{2}:\d{2}$/.test(time) ? time : '23:59';
+  const parsed = new Date(`${date}T${normalizedTime}:00-04:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function normalizeClientTags(tags: unknown[]) {
   return Array.from(
     new Set(
@@ -1401,6 +1417,10 @@ function fmtDateTimeES(iso: string | null) {
   const yy = String(year).slice(-2);
 
   return `${day}/${month}/${yy} - ${hour}:${minute} ${ampm}`;
+}
+
+function fmtClosureMoment(closure: Pick<MoneyAccountClosureItem, 'closureDate' | 'closureAt'>) {
+  return closure.closureAt ? fmtDateTimeES(closure.closureAt) : closure.closureDate;
 }
 
 function toDateInputValue(d: Date) {
@@ -4436,7 +4456,7 @@ const orderActionBusyRef = useRef(false);
   const [financePendingOpen, setFinancePendingOpen] = useState(false);
   const [baselineOpen, setBaselineOpen] = useState(false);
   const [baselineSaving, setBaselineSaving] = useState(false);
-  const [baselineDate, setBaselineDate] = useState(new Date().toISOString().slice(0, 10));
+  const [baselineDate, setBaselineDate] = useState(getCaracasTodayString());
   const [baselineCountedAmount, setBaselineCountedAmount] = useState('');
   const [baselineExchangeRate, setBaselineExchangeRate] = useState('');
   const [baselineReason, setBaselineReason] = useState('');
@@ -4444,7 +4464,8 @@ const orderActionBusyRef = useRef(false);
   const [closureOpen, setClosureOpen] = useState(false);
   const [closureSaving, setClosureSaving] = useState(false);
   const [closureCountedAmount, setClosureCountedAmount] = useState('');
-  const [closureDate, setClosureDate] = useState(new Date().toISOString().slice(0, 10));
+  const [closureDate, setClosureDate] = useState(getCaracasTodayString());
+  const [closureTime, setClosureTime] = useState(getCaracasCurrentTimeString());
   const [closureExchangeRate, setClosureExchangeRate] = useState('');
   const [closureTargetAccountId, setClosureTargetAccountId] = useState('');
   const [closureReason, setClosureReason] = useState('');
@@ -4460,7 +4481,7 @@ const orderActionBusyRef = useRef(false);
   const [transferSourceAmount, setTransferSourceAmount] = useState('');
   const [transferTargetAmount, setTransferTargetAmount] = useState('');
   const [transferFeeAmount, setTransferFeeAmount] = useState('');
-  const [transferDate, setTransferDate] = useState(new Date().toISOString().slice(0, 10));
+  const [transferDate, setTransferDate] = useState(getCaracasTodayString());
   const [transferSourceExchangeRate, setTransferSourceExchangeRate] = useState('');
   const [transferTargetExchangeRate, setTransferTargetExchangeRate] = useState('');
   const [transferReferenceCode, setTransferReferenceCode] = useState('');
@@ -7410,7 +7431,7 @@ const handleSaveQuickCatalog = async () => {
     setMovementAmount('');
     setMovementFeeAmount('');
     setMovementExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
-    setMovementDate(new Date().toISOString().slice(0, 10));
+    setMovementDate(getCaracasTodayString());
     setMovementReferenceCode('');
     setMovementCounterpartyName('');
     setMovementDescription('');
@@ -7423,7 +7444,7 @@ const handleSaveQuickCatalog = async () => {
     setTransferSourceAmount('');
     setTransferTargetAmount('');
     setTransferFeeAmount('');
-    setTransferDate(new Date().toISOString().slice(0, 10));
+    setTransferDate(getCaracasTodayString());
     setTransferSourceExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
     setTransferTargetExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
     setTransferReferenceCode('');
@@ -7433,7 +7454,8 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const resetClosureForm = () => {
-    setClosureDate(new Date().toISOString().slice(0, 10));
+    setClosureDate(getCaracasTodayString());
+    setClosureTime(getCaracasCurrentTimeString());
     setClosureCountedAmount('');
     setClosureExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
     setClosureTargetAccountId('');
@@ -7442,7 +7464,7 @@ const handleSaveQuickCatalog = async () => {
   };
 
   const resetBaselineForm = () => {
-    setBaselineDate(new Date().toISOString().slice(0, 10));
+    setBaselineDate(getCaracasTodayString());
     setBaselineCountedAmount('');
     setBaselineExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
     setBaselineReason('');
@@ -8175,6 +8197,7 @@ const handleSaveQuickCatalog = async () => {
       const result = await createMoneyAccountClosureAction({
         moneyAccountId: selectedAccount.id,
         closureDate,
+        closureTime,
         countedAmount,
         exchangeRateVesPerUsd: exchangeRate,
         targetMoneyAccountId: null,
@@ -8203,7 +8226,7 @@ const handleSaveQuickCatalog = async () => {
     }
 
     const reason = window.prompt(
-      `Motivo para anular el cierre del ${closure.closureDate} por ${fmtMoneyByCurrency(
+      `Motivo para anular el cierre del ${fmtClosureMoment(closure)} por ${fmtMoneyByCurrency(
         closure.countedAmount,
         closure.currencyCode
       )}`
@@ -8278,9 +8301,9 @@ const handleSaveQuickCatalog = async () => {
     setTransferTargetExchangeRate(exchangeRate);
     setTransferReferenceCode(`closure-${closure.id}`);
     setTransferCounterpartyName(defaultTargetAccount.name);
-    setTransferDescription(`Consolidación cierre ${selectedAccount.name} ${closure.closureDate}`);
+    setTransferDescription(`Consolidación cierre ${selectedAccount.name} ${fmtClosureMoment(closure)}`);
     setTransferNotes(
-      `Cierre #${closure.id}\nFecha del cierre: ${closure.closureDate}\nMonto contado: ${fmtMoneyByCurrency(
+      `Cierre #${closure.id}\nMomento del cierre: ${fmtClosureMoment(closure)}\nMonto contado: ${fmtMoneyByCurrency(
         closure.countedAmount,
         closure.currencyCode
       )}`
@@ -8436,7 +8459,7 @@ const handleSaveQuickCatalog = async () => {
     const closureRows = selectedAccountClosures.map((closure) => [
       'cierre',
       closure.closureDate,
-      closure.createdAt,
+      closure.closureAt || closure.createdAt,
       'Cierre',
       MONEY_ACCOUNT_CLOSURE_STATUS_LABEL[closure.status],
       selectedAccount.name,
@@ -11298,7 +11321,13 @@ const selectedCreateOrderClientAddresses = useMemo(
 
   const selectedAccountClosures = useMemo(() => {
     if (!selectedAccountId) return [];
-    return moneyAccountClosures.filter((closure) => closure.moneyAccountId === selectedAccountId);
+    return moneyAccountClosures
+      .filter((closure) => closure.moneyAccountId === selectedAccountId)
+      .sort(
+        (a, b) =>
+          new Date(b.closureAt || b.createdAt).getTime() -
+          new Date(a.closureAt || a.createdAt).getTime()
+      );
   }, [moneyAccountClosures, selectedAccountId]);
 
   const selectedAccountReconciliationItems = useMemo(() => {
@@ -11591,20 +11620,44 @@ const selectedCreateOrderClientAddresses = useMemo(
   const selectedAccountExpectedAmount = useMemo(() => {
     if (!selectedAccount) return 0;
 
-    const cutoffDate = closureDate || new Date().toISOString().slice(0, 10);
+    const cutoffDate = closureDate || getCaracasTodayString();
+    const cutoffAt = buildCaracasClosureAt(cutoffDate, closureTime);
+    const cutoffAtMs = cutoffAt?.getTime() ?? null;
     const baselineAmount = selectedAccountBaseline ? selectedAccountBaseline.countedAmount : 0;
     const baselineDate = selectedAccountBaseline?.baselineDate ?? null;
+    const baselineAtMs = selectedAccountBaseline?.baselineAt
+      ? new Date(selectedAccountBaseline.baselineAt).getTime()
+      : null;
 
     const movementDelta = moneyMovements.reduce((sum, movement) => {
       if (movement.moneyAccountId !== selectedAccount.id) return sum;
       if (movement.status !== 'confirmed') return sum;
       if (movement.movementDate > cutoffDate) return sum;
-      if (baselineDate && movement.movementDate <= baselineDate) return sum;
+      const movementRecordedAt = movement.confirmedAt || movement.createdAt;
+      const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
+      if (
+        movement.movementDate === cutoffDate &&
+        cutoffAtMs != null &&
+        movementRecordedAtMs != null &&
+        movementRecordedAtMs > cutoffAtMs
+      ) {
+        return sum;
+      }
+      if (baselineDate && movement.movementDate < baselineDate) return sum;
+      if (
+        baselineDate &&
+        movement.movementDate === baselineDate &&
+        baselineAtMs != null &&
+        movementRecordedAtMs != null &&
+        movementRecordedAtMs <= baselineAtMs
+      ) {
+        return sum;
+      }
       return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
     }, 0);
 
     return Number((baselineAmount + movementDelta).toFixed(2));
-  }, [closureDate, moneyMovements, selectedAccount, selectedAccountBaseline]);
+  }, [closureDate, closureTime, moneyMovements, selectedAccount, selectedAccountBaseline]);
 
   const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
   const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
@@ -12199,7 +12252,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       expectedBalanceNative: Number(selectedAccountStatementData.currentBalanceNative.toFixed(2)),
       latestRealBalanceNative: latestClosure ? latestClosure.countedAmount : null,
       latestDifferenceNative: latestClosure ? latestClosure.differenceAmount : null,
-      latestClosureDate: latestClosure?.closureDate ?? null,
+      latestClosureDate: latestClosure ? fmtClosureMoment(latestClosure) : null,
       openReconciliationCount: selectedAccountOpenReconciliationItems.length,
       openReconciliationAmountNative: Number(openReconciliationAmountNative.toFixed(2)),
     };
@@ -15575,7 +15628,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const hasKitchen = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
             const hasCounter = rules.some((rule) => rule.role === 'counter' && rule.canViewAccount);
             const hasReview = rules.some((rule) => rule.reviewRequired);
-            const latestClosure = moneyAccountClosures.find((closure) => closure.moneyAccountId === account.id) ?? null;
+            const latestClosure =
+              moneyAccountClosures
+                .filter((closure) => closure.moneyAccountId === account.id)
+                .sort(
+                  (a, b) =>
+                    new Date(b.closureAt || b.createdAt).getTime() -
+                    new Date(a.closureAt || a.createdAt).getTime()
+                )[0] ?? null;
             const closureProfile = moneyAccountClosureProfileByAccountId.get(account.id) ?? null;
             const closureTargetAccount = closureProfile?.defaultTargetMoneyAccountId
               ? moneyAccounts.find((target) => target.id === closureProfile.defaultTargetMoneyAccountId) ?? null
@@ -15691,7 +15751,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <td className="px-3 py-3">
                   {latestClosure ? (
                     <div>
-                      <div className="text-[#F5F5F7]">{latestClosure.closureDate}</div>
+                      <div className="text-[#F5F5F7]">{fmtClosureMoment(latestClosure)}</div>
                       <div className={latestClosure.differenceAmount === 0 ? 'mt-1 text-[11px] text-emerald-300' : 'mt-1 text-[11px] text-[#FEEF00]'}>
                         Dif. {fmtMoneyByCurrency(latestClosure.differenceAmount, latestClosure.currencyCode)}
                       </div>
@@ -21239,6 +21299,7 @@ deliveryAssignMode === 'external' ? (
                   )}`}
                 />
                 <FieldInput label="Fecha" value={closureDate} onChange={setClosureDate} type="date" />
+                <FieldInput label="Hora" value={closureTime} onChange={setClosureTime} type="time" />
                 <FieldInput
                   label="Monto contado"
                   value={closureCountedAmount}
@@ -21729,7 +21790,7 @@ deliveryAssignMode === 'external' ? (
                   label="Último cierre"
                   value={
                     selectedAccountReportSummary.latestClosure
-                      ? `${selectedAccountReportSummary.latestClosure.closureDate} · ${fmtMoneyByCurrency(
+                      ? `${fmtClosureMoment(selectedAccountReportSummary.latestClosure)} · ${fmtMoneyByCurrency(
                           selectedAccountReportSummary.latestClosure.differenceAmount,
                           selectedAccountReportSummary.latestClosure.currencyCode
                         )}`
@@ -21868,7 +21929,7 @@ deliveryAssignMode === 'external' ? (
                     <div key={closure.id} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium text-[#F5F5F7]">{closure.closureDate}</div>
+                          <div className="font-medium text-[#F5F5F7]">{fmtClosureMoment(closure)}</div>
                           <div className="mt-1 text-xs text-[#8A8A96]">
                             Por {getDashboardUserLabel(closure.createdByUserId)} · {fmtDateTimeES(closure.createdAt)}
                           </div>

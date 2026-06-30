@@ -112,6 +112,31 @@ function roundMoney(value: unknown) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+function buildCaracasTimestamp(isoDate: string, timeValue: string | null | undefined) {
+  const date = String(isoDate || '').trim();
+  const rawTime = String(timeValue || '').trim();
+  const time = /^\d{2}:\d{2}$/.test(rawTime) ? rawTime : '23:59';
+  const parsed = new Date(`${date}T${time}:00-04:00`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('La fecha y hora del cierre no son validas.');
+  }
+
+  return parsed.toISOString();
+}
+
+function getMovementRecordedAtMs(movement: {
+  movement_date?: string | null;
+  confirmed_at?: string | null;
+  created_at?: string | null;
+}) {
+  const timestamp = movement.confirmed_at || movement.created_at;
+  if (!timestamp) return null;
+
+  const parsedTimestamp = new Date(timestamp);
+  return Number.isNaN(parsedTimestamp.getTime()) ? null : parsedTimestamp.getTime();
+}
+
 function getDefaultMoneyAccountClosureProfile(input: {
   accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
   currencyCode: 'USD' | 'VES';
@@ -5025,6 +5050,7 @@ export async function loadMoneyActivityAction(input?: {
         id,
         money_account_id,
         closure_date,
+        closure_at,
         expected_amount,
         counted_amount,
         difference_amount,
@@ -5041,7 +5067,7 @@ export async function loadMoneyActivityAction(input?: {
         reviewed_by_user_id,
         reviewed_at
       `)
-      .order('closure_date', { ascending: false })
+      .order('closure_at', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(closureLimit),
     supabase
@@ -5184,6 +5210,7 @@ export async function loadMoneyActivityAction(input?: {
     id: Number(row.id),
     moneyAccountId: Number(row.money_account_id),
     closureDate: row.closure_date,
+    closureAt: row.closure_at ?? null,
     expectedAmount: toSafeNumber(row.expected_amount, 0),
     countedAmount: toSafeNumber(row.counted_amount, 0),
     differenceAmount: toSafeNumber(row.difference_amount, 0),
@@ -8822,6 +8849,7 @@ export async function voidFinancialMovementAction(input: {
 export async function createMoneyAccountClosureAction(input: {
   moneyAccountId: number;
   closureDate: string;
+  closureTime?: string | null;
   countedAmount: number;
   exchangeRateVesPerUsd: number | null;
   targetMoneyAccountId?: number | null;
@@ -8829,14 +8857,16 @@ export async function createMoneyAccountClosureAction(input: {
   notes: string;
 }) {
   try {
-  const { user } = await requireMasterOrAdmin();
-  const supabase = createSupabaseServiceRoleServer();
+    const { user } = await requireMasterOrAdmin();
+    const supabase = createSupabaseServiceRoleServer();
 
-  const moneyAccountId = Number(input.moneyAccountId || 0);
-  const closureDate = String(input.closureDate || '').trim();
-  const countedAmount = Number(input.countedAmount || 0);
-  const reason = String(input.reason || '').trim() || null;
-  const notes = String(input.notes || '').trim() || null;
+    const moneyAccountId = Number(input.moneyAccountId || 0);
+    const closureDate = String(input.closureDate || '').trim();
+    const closureAt = buildCaracasTimestamp(closureDate, input.closureTime);
+    const closureAtMs = new Date(closureAt).getTime();
+    const countedAmount = Number(input.countedAmount || 0);
+    const reason = String(input.reason || '').trim() || null;
+    const notes = String(input.notes || '').trim() || null;
 
   if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
     throw new Error('Cuenta invÃ¡lida.');
@@ -8871,17 +8901,17 @@ export async function createMoneyAccountClosureAction(input: {
     throw new Error('Debes indicar una tasa vÃ¡lida para cerrar una cuenta en Bs.');
   }
 
-  const { data: existingActiveClosures, error: existingActiveClosureError } = await supabase
+    const { data: existingActiveClosures, error: existingActiveClosureError } = await supabase
     .from('money_account_closures')
     .select('id')
     .eq('money_account_id', moneyAccountId)
-    .eq('closure_date', closureDate)
+    .eq('closure_at', closureAt)
     .in('status', ['recorded', 'approved'])
     .limit(1);
 
   if (existingActiveClosureError) throw new Error(existingActiveClosureError.message);
   if ((existingActiveClosures ?? []).length > 0) {
-    throw new Error('Ya existe un cierre activo para esta cuenta y fecha. Anula el cierre anterior antes de registrar otro.');
+    throw new Error('Ya existe un cierre activo para esta cuenta en esa fecha y hora. Ajusta la hora o anula el cierre anterior.');
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -8896,7 +8926,7 @@ export async function createMoneyAccountClosureAction(input: {
 
   const { data: activeBaseline, error: baselineError } = await supabase
     .from('money_account_closure_baselines')
-    .select('baseline_date, counted_amount, counted_amount_usd')
+    .select('baseline_date, baseline_at, counted_amount, counted_amount_usd')
     .eq('money_account_id', moneyAccountId)
     .eq('status', 'active')
     .maybeSingle();
@@ -8905,13 +8935,13 @@ export async function createMoneyAccountClosureAction(input: {
 
   let movementsQuery = supabase
     .from('money_movements')
-    .select('direction, amount, amount_usd_equivalent')
+    .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
     .eq('money_account_id', moneyAccountId)
     .eq('status', 'confirmed')
     .lte('movement_date', closureDate);
 
   if (activeBaseline?.baseline_date) {
-    movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
+    movementsQuery = movementsQuery.gte('movement_date', activeBaseline.baseline_date);
   }
 
   const { data: movements, error: movementsError } = await movementsQuery;
@@ -8921,7 +8951,26 @@ export async function createMoneyAccountClosureAction(input: {
   let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
   let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
 
+  const baselineDate = activeBaseline?.baseline_date ? String(activeBaseline.baseline_date) : null;
+  const baselineAtMs = activeBaseline?.baseline_at ? new Date(activeBaseline.baseline_at).getTime() : null;
+
   for (const movement of movements ?? []) {
+    const movementDate = String(movement.movement_date || '');
+    const movementRecordedAtMs = getMovementRecordedAtMs(movement);
+
+    if (movementDate > closureDate) continue;
+    if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
+    if (baselineDate && movementDate < baselineDate) continue;
+    if (
+      baselineDate &&
+      movementDate === baselineDate &&
+      baselineAtMs != null &&
+      movementRecordedAtMs != null &&
+      movementRecordedAtMs <= baselineAtMs
+    ) {
+      continue;
+    }
+
     const signed = movement.direction === 'inflow' ? 1 : -1;
     expectedAmount += signed * toSafeNumber(movement.amount, 0);
     expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
@@ -8944,6 +8993,7 @@ export async function createMoneyAccountClosureAction(input: {
   const { data: insertedClosure, error } = await supabase.from('money_account_closures').insert({
     money_account_id: moneyAccountId,
     closure_date: closureDate,
+    closure_at: closureAt,
     expected_amount: expectedAmount,
     counted_amount: countedAmountRounded,
     difference_amount: differenceAmount,
