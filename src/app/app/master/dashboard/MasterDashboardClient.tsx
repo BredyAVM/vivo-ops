@@ -4164,6 +4164,7 @@ export default function MasterDashboardClient({
   const [accountDetailTab, setAccountDetailTab] = useState<AccountDetailTab>('operation');
   const [accountDetailMoreOpen, setAccountDetailMoreOpen] = useState(false);
   const [accountRulesOpen, setAccountRulesOpen] = useState(false);
+  const [accountRulesMatrixOpen, setAccountRulesMatrixOpen] = useState(false);
   const [accountRulesSaving, setAccountRulesSaving] = useState(false);
   const [accountRuleDrafts, setAccountRuleDrafts] = useState<AccountRuleDraft[]>([]);
   const [accountFormName, setAccountFormName] = useState('');
@@ -7769,6 +7770,8 @@ const handleSaveQuickCatalog = async () => {
   const openAccountDetailDrawer = useCallback(
     (accountId: number, tab: AccountDetailTab = 'operation') => {
       setAccountMoreOpenId(null);
+      setAccountDetailMoreOpen(false);
+      setAccountRulesMatrixOpen(false);
       setAccountDetailTab(tab);
       setSelectedAccountId(accountId);
       setAccountDetailOpen(true);
@@ -22095,6 +22098,24 @@ deliveryAssignMode === 'external' ? (
                   <span className="text-sm text-[#B7B7C2]">Sin reglas activas.</span>
                 )}
               </div>
+              <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Detalle por rol</div>
+                    <div className="mt-1 text-xs text-[#8A8A96]">
+                      {getAccountRoleRows(selectedAccount.id).filter((row) => row.hasAnyRule).length} rol(es) con permisos activos.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
+                    onClick={() => setAccountRulesMatrixOpen((current) => !current)}
+                  >
+                    {accountRulesMatrixOpen ? 'Ocultar matriz' : 'Ver matriz'}
+                  </button>
+                </div>
+              </div>
+              {accountRulesMatrixOpen ? (
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-[12px]">
                   <thead className="border-b border-[#242433] text-[#B7B7C2]">
@@ -22131,6 +22152,7 @@ deliveryAssignMode === 'external' ? (
                   </tbody>
                 </table>
               </div>
+              ) : null}
             </div>
             ) : null}
 
