@@ -21609,51 +21609,6 @@ deliveryAssignMode === 'external' ? (
                     >
                       {moneyActivityLoading ? 'Actualizando...' : 'Actualizar'}
                     </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                      onClick={() => {
-                        setAccountDetailMoreOpen(false);
-                        openMoneyMovementDrawer(selectedAccount.id);
-                      }}
-                    >
-                      Movimiento
-                    </button>
-                    {permissions.canCreateMoneyTransfers ? (
-                      <button
-                        type="button"
-                        className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm"
-                        onClick={() => {
-                          setAccountDetailMoreOpen(false);
-                          openMoneyTransferDrawer(selectedAccount.id);
-                        }}
-                      >
-                        Traspaso
-                      </button>
-                    ) : null}
-                    {selectedAccountBaseline ? (
-                      <button
-                        type="button"
-                        className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00]"
-                        onClick={() => {
-                          setAccountDetailMoreOpen(false);
-                          openAccountClosureDrawer(selectedAccount);
-                        }}
-                      >
-                        {selectedAccountFinanceVocabulary?.primaryActionLabel ?? 'Cerrar'}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="rounded-xl border border-[#FEEF00]/50 bg-[#161409] px-3 py-2 text-sm text-[#FEEF00]"
-                        onClick={() => {
-                          setAccountDetailMoreOpen(false);
-                          openAccountBaselineDrawer(selectedAccount);
-                        }}
-                      >
-                        Línea base
-                      </button>
-                    )}
                     <div className="min-w-[124px]">
                       <button
                         type="button"
@@ -21789,6 +21744,26 @@ deliveryAssignMode === 'external' ? (
                     Lo que entró, salió o quedó pendiente dentro del filtro actual.
                   </div>
                 </div>
+                <div className="flex flex-wrap gap-2">
+                  {permissions.canCreateMoneyMovements ? (
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
+                      onClick={() => openMoneyMovementDrawer(selectedAccount.id)}
+                    >
+                      Registrar movimiento
+                    </button>
+                  ) : null}
+                  {permissions.canCreateMoneyTransfers ? (
+                    <button
+                      type="button"
+                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
+                      onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
+                    >
+                      Traspaso
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -21920,13 +21895,23 @@ deliveryAssignMode === 'external' ? (
                     Últimas fotos financieras registradas contra el saldo del sistema.
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
-                  onClick={() => openAccountClosureDrawer(selectedAccount)}
-                >
-                  {selectedAccountFinanceVocabulary?.primaryActionLabel ?? 'Registrar cierre'}
-                </button>
+                {selectedAccountBaseline ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                    onClick={() => openAccountClosureDrawer(selectedAccount)}
+                  >
+                    {selectedAccountFinanceVocabulary?.primaryActionLabel ?? 'Registrar cierre'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#FEEF00]/50 bg-[#161409] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                    onClick={() => openAccountBaselineDrawer(selectedAccount)}
+                  >
+                    Crear línea base
+                  </button>
+                )}
               </div>
               <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
