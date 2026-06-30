@@ -91,6 +91,7 @@ import {
   approveMoneyMovementGroupAction,
   rejectMoneyMovementGroupAction,
   createMoneyAccountClosureAction,
+  previewMoneyAccountClosureAction,
   resolveMoneyAccountReconciliationItemAction,
   updateExchangeRateAction,
   updateDashboardUserAction,
@@ -4528,6 +4529,11 @@ const orderActionBusyRef = useRef(false);
   const [closureReason, setClosureReason] = useState('');
   const [closureNotes, setClosureNotes] = useState('');
   const [closureRejectingId, setClosureRejectingId] = useState<number | null>(null);
+  const [closureExpectedPreview, setClosureExpectedPreview] = useState<{
+    key: string;
+    amount: number;
+  } | null>(null);
+  const [closureExpectedRefreshing, setClosureExpectedRefreshing] = useState(false);
   const [reconciliationResolveItemId, setReconciliationResolveItemId] = useState<number | null>(null);
   const [reconciliationResolveNotes, setReconciliationResolveNotes] = useState('');
   const [reconciliationResolveMode, setReconciliationResolveMode] =
@@ -7522,6 +7528,7 @@ const handleSaveQuickCatalog = async () => {
     setClosureTargetAccountId('');
     setClosureReason('');
     setClosureNotes('');
+    setClosureExpectedPreview(null);
   };
 
   const resetBaselineForm = () => {
@@ -7641,6 +7648,37 @@ const handleSaveQuickCatalog = async () => {
     [moneyAccountBaselines, moneyMovements]
   );
 
+  const getClosurePreviewKey = (accountId: number, date: string, time: string) =>
+    `${accountId}:${date}:${time}`;
+
+  const refreshClosureExpectedPreview = useCallback(
+    async (accountId: number, date: string, time: string, syncCountedAmount = false) => {
+      if (!Number.isFinite(accountId) || accountId <= 0 || !date) return;
+
+      try {
+        setClosureExpectedRefreshing(true);
+        const preview = await previewMoneyAccountClosureAction({
+          moneyAccountId: accountId,
+          closureDate: date,
+          closureTime: time,
+        });
+        const key = getClosurePreviewKey(accountId, date, time);
+        setClosureExpectedPreview({
+          key,
+          amount: Number(preview.expectedAmount || 0),
+        });
+        if (syncCountedAmount) {
+          setClosureCountedAmount(String(Number(preview.expectedAmount || 0)));
+        }
+      } catch (err) {
+        showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el saldo sistema.');
+      } finally {
+        setClosureExpectedRefreshing(false);
+      }
+    },
+    []
+  );
+
   const openAccountClosureDrawer = (account: MoneyAccountOption) => {
     if (!permissions.canRegisterAccountClosures) {
       showToast('error', 'No tienes permiso para registrar cierres.');
@@ -7655,11 +7693,13 @@ const handleSaveQuickCatalog = async () => {
     resetClosureForm();
     setClosureDate(nextClosureDate);
     setClosureTime(nextClosureTime);
+    setClosureExpectedPreview(null);
     const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === account.id) ?? null;
     setClosureTargetAccountId(profile?.defaultTargetMoneyAccountId ? String(profile.defaultTargetMoneyAccountId) : '');
     setClosureCountedAmount(String(getExpectedAccountBalanceNativeAt(account.id, nextClosureDate, nextClosureTime)));
     setAccountDetailOpen(false);
     setClosureOpen(true);
+    void refreshClosureExpectedPreview(account.id, nextClosureDate, nextClosureTime, true);
   };
 
   const openAccountBaselineDrawer = (account: MoneyAccountOption) => {
@@ -11830,8 +11870,13 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!selectedAccount) return 0;
 
     const cutoffDate = closureDate || getCaracasTodayString();
+    const previewKey = getClosurePreviewKey(selectedAccount.id, cutoffDate, closureTime);
+    if (closureExpectedPreview?.key === previewKey) {
+      return closureExpectedPreview.amount;
+    }
+
     return getExpectedAccountBalanceNativeAt(selectedAccount.id, cutoffDate, closureTime);
-  }, [closureDate, closureTime, getExpectedAccountBalanceNativeAt, selectedAccount]);
+  }, [closureDate, closureExpectedPreview, closureTime, getExpectedAccountBalanceNativeAt, selectedAccount]);
 
   const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
   const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
@@ -21526,6 +21571,24 @@ deliveryAssignMode === 'external' ? (
                 />
                 <FieldInput label="Fecha" value={closureDate} onChange={setClosureDate} type="date" />
                 <FieldInput label="Hora" value={closureTime} onChange={setClosureTime} type="time" />
+                <div className="md:col-span-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2] disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => {
+                      if (!selectedAccount) return;
+                      void refreshClosureExpectedPreview(
+                        selectedAccount.id,
+                        closureDate || getCaracasTodayString(),
+                        closureTime,
+                        true
+                      );
+                    }}
+                    disabled={closureExpectedRefreshing}
+                  >
+                    {closureExpectedRefreshing ? 'Actualizando saldo...' : 'Actualizar saldo sistema'}
+                  </button>
+                </div>
                 <FieldInput
                   label={selectedAccountFinanceVocabulary?.countedLabel ?? 'Monto contado'}
                   value={closureCountedAmount}

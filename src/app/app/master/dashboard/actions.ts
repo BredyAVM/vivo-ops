@@ -9050,6 +9050,102 @@ export async function createMoneyAccountClosureAction(input: {
   }
 }
 
+export async function previewMoneyAccountClosureAction(input: {
+  moneyAccountId: number;
+  closureDate: string;
+  closureTime?: string | null;
+}) {
+  const { user } = await requireMasterOrAdmin();
+  const supabase = createSupabaseServiceRoleServer();
+
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const closureDate = String(input.closureDate || '').trim();
+  const closureAt = buildCaracasTimestamp(closureDate, input.closureTime);
+  const closureAtMs = new Date(closureAt).getTime();
+
+  if (!user.id) {
+    throw new Error('Sesion invalida.');
+  }
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Cuenta invalida.');
+  }
+
+  if (!closureDate) {
+    throw new Error('Debes indicar la fecha del cierre.');
+  }
+
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, currency_code')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
+  }
+
+  const { data: activeBaseline, error: baselineError } = await supabase
+    .from('money_account_closure_baselines')
+    .select('baseline_date, baseline_at, counted_amount, counted_amount_usd')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (baselineError) throw new Error(baselineError.message);
+
+  let movementsQuery = supabase
+    .from('money_movements')
+    .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
+    .eq('money_account_id', moneyAccountId)
+    .eq('status', 'confirmed')
+    .lte('movement_date', closureDate);
+
+  if (activeBaseline?.baseline_date) {
+    movementsQuery = movementsQuery.gte('movement_date', activeBaseline.baseline_date);
+  }
+
+  const { data: movements, error: movementsError } = await movementsQuery;
+
+  if (movementsError) throw new Error(movementsError.message);
+
+  let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
+  let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
+  const baselineDate = activeBaseline?.baseline_date ? String(activeBaseline.baseline_date) : null;
+  const baselineAtMs = activeBaseline?.baseline_at ? new Date(activeBaseline.baseline_at).getTime() : null;
+
+  for (const movement of movements ?? []) {
+    const movementDate = String(movement.movement_date || '');
+    const movementRecordedAtMs = getMovementRecordedAtMs(movement);
+
+    if (movementDate > closureDate) continue;
+    if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
+    if (baselineDate && movementDate < baselineDate) continue;
+    if (
+      baselineDate &&
+      movementDate === baselineDate &&
+      baselineAtMs != null &&
+      movementRecordedAtMs != null &&
+      movementRecordedAtMs <= baselineAtMs
+    ) {
+      continue;
+    }
+
+    const signed = movement.direction === 'inflow' ? 1 : -1;
+    expectedAmount += signed * toSafeNumber(movement.amount, 0);
+    expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
+  }
+
+  return {
+    moneyAccountId,
+    closureDate,
+    closureAt,
+    expectedAmount: Number(expectedAmount.toFixed(2)),
+    expectedAmountUsd: Number(expectedAmountUsd.toFixed(2)),
+    currencyCode: String(account.currency_code || '').toUpperCase(),
+  };
+}
+
 export async function rejectMoneyAccountClosureAction(input: {
   closureId: number;
   reason: string;
