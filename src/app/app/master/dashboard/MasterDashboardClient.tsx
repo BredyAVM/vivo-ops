@@ -15634,14 +15634,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-[12px]">
+            <table className="w-full min-w-[760px] text-[12px]">
               <thead className="border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
                 <tr>
                   <th className="px-3 py-3 text-left font-medium">Cuenta</th>
-                  <th className="px-3 py-3 text-left font-medium">Saldo</th>
-                  <th className="px-3 py-3 text-left font-medium">Período</th>
-                  <th className="px-3 py-3 text-left font-medium">Línea base</th>
-                  <th className="px-3 py-3 text-left font-medium">Último cierre</th>
+                  <th className="px-3 py-3 text-left font-medium">Saldo sistema</th>
+                  <th className="px-3 py-3 text-left font-medium">Última foto</th>
                   <th className="px-3 py-3 text-left font-medium">Pendiente</th>
                   <th className="px-3 py-3 text-left font-medium">Acción</th>
                 </tr>
@@ -15650,7 +15648,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           {accountSections.map((section) => (
             <React.Fragment key={section.workstream}>
               <tr className="border-b border-[#242433] bg-[#0B0B0D]">
-                <td colSpan={7} className="px-3 py-3">
+                <td colSpan={5} className="px-3 py-3">
                   <div className="flex flex-wrap items-baseline gap-2">
                     <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">
                       {section.label}
@@ -15663,22 +15661,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </td>
               </tr>
           {section.accounts.map((account, index) => {
-            const stats = accountStatsById.get(account.id) ?? {
-              balanceNative: 0,
-              periodInflowNative: 0,
-              periodOutflowNative: 0,
-              balanceUsdRef: 0,
-              periodInflowUsdRef: 0,
-              periodOutflowUsdRef: 0,
-              periodFeeNative: 0,
-              periodTransferInNative: 0,
-              periodTransferOutNative: 0,
-              pendingOutflowUsdRef: 0,
-            };
             const rules = accountRulesByAccountId.get(account.id) ?? [];
-            const hasAdvisor = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
-            const hasKitchen = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
-            const hasCounter = rules.some((rule) => rule.role === 'counter' && rule.canViewAccount);
             const hasReview = rules.some((rule) => rule.reviewRequired);
             const latestClosure =
               moneyAccountClosures
@@ -15710,15 +15693,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               .filter((movement) => movement.moneyAccountId === account.id && movement.status === 'pending')
               .reduce((sum, movement) => sum + movement.amountUsdEquivalent, 0);
             const zebra = index % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-            const accountTags = [
-              hasAdvisor ? 'Asesor' : null,
-              hasKitchen ? 'Cocina' : null,
-              hasCounter ? 'Mostrador' : null,
-              hasReview ? 'Revisión' : null,
-            ].filter(
-              (tag): tag is string => Boolean(tag)
-            );
-
             return (
               <tr
                 key={account.id}
@@ -15744,23 +15718,30 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     >
                       {account.isActive ? 'Activa' : 'Inactiva'}
                     </span>
-                    {accountTags.map((tag) => (
+                    <span className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]">
+                      {financeVocabulary.operationTitle}
+                    </span>
+                    {activeBaseline ? (
                       <span
-                        key={`${account.id}-${tag}`}
-                        className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]"
+                        className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300"
                       >
-                        {tag}
-                      </span>
-                    ))}
-                    {closureProfile ? (
-                      <span className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]">
-                        Flujo: {financeVocabulary.operationTitle}
+                        Base {activeBaseline.baselineDate}
                       </span>
                     ) : (
                       <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
-                        Sin perfil de cierre
+                        Línea base pendiente
                       </span>
                     )}
+                    {hasReview ? (
+                      <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
+                        Revisión
+                      </span>
+                    ) : null}
+                    {!closureProfile ? (
+                      <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
+                        Sin perfil de cierre
+                      </span>
+                    ) : null}
                     {closureProfile?.generatesTransferOnClose ? (
                       <span
                         className={[
@@ -15770,7 +15751,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             : 'border-[#564511] bg-[#151208] text-[#F7DA66]',
                         ].join(' ')}
                       >
-                        Destino sugerido: {closureTargetAccount?.name || 'sin destino'}
+                        {closureTargetAccount ? `Destino ${closureTargetAccount.name}` : 'Destino pendiente'}
                       </span>
                     ) : null}
                   </div>
@@ -15785,24 +15766,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       : fmtBs(expectedBalanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                   </div>
                   <div className="mt-1 text-[10px] text-[#6F7890]">Desde línea base</div>
-                </td>
-                <td className="px-3 py-3">
-                  <div className="text-emerald-300">
-                    +{fmtMoneyByCurrency(stats.periodInflowNative, account.currencyCode)}
-                  </div>
-                  <div className="mt-1 text-red-300">
-                    -{fmtMoneyByCurrency(stats.periodOutflowNative, account.currencyCode)}
-                  </div>
-                </td>
-                <td className="px-3 py-3">
-                  {activeBaseline ? (
-                    <div>
-                      <div className="text-emerald-300">{activeBaseline.baselineDate}</div>
-                      <div className="mt-1 text-[11px] text-[#8A8A96]">Saldo inicial</div>
-                    </div>
-                  ) : (
-                    <span className="text-[#FEEF00]">Pendiente</span>
-                  )}
                 </td>
                 <td className="px-3 py-3">
                   {latestClosure ? (
@@ -21740,6 +21703,7 @@ deliveryAssignMode === 'external' ? (
               ))}
             </div>
 
+            {accountDetailTab === 'rules' ? (
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <InfoCell label="Moneda" value={selectedAccount.currencyCode} />
               <InfoCell label="Tipo" value={MONEY_ACCOUNT_KIND_LABEL[selectedAccount.accountKind]} />
@@ -21785,7 +21749,9 @@ deliveryAssignMode === 'external' ? (
                 }
               />
             </div>
+            ) : null}
 
+            {accountDetailTab === 'operation' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -21827,6 +21793,7 @@ deliveryAssignMode === 'external' ? (
                 />
               </div>
             </div>
+            ) : null}
 
             {accountDetailTab === 'audit' ? (
             <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
