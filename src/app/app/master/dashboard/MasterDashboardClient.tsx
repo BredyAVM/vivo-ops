@@ -1010,12 +1010,12 @@ const ACCOUNT_MOVEMENT_FILTER_LABEL: Record<AccountMovementFilter, string> = {
 
 const ACCOUNT_DETAIL_TAB_LABEL: Record<AccountDetailTab, string> = {
   operation: 'Movimientos',
-  closures: 'Historial',
+  closures: 'Cierres',
   rules: 'Configuración',
   audit: 'Auditoría',
 };
 
-const VISIBLE_ACCOUNT_DETAIL_TABS: AccountDetailTab[] = ['operation', 'closures', 'rules'];
+const VISIBLE_ACCOUNT_DETAIL_TABS: AccountDetailTab[] = ['operation', 'closures', 'audit', 'rules'];
 
 const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   all: 'Todas',
@@ -10957,6 +10957,11 @@ const selectedOrderChangeMovements = useMemo(() => {
         closureKind: selectedAccountClosureProfile?.closureKind ?? null,
       })
     : null;
+
+  const selectedAccountDetailTabLabels: Record<AccountDetailTab, string> = {
+    ...ACCOUNT_DETAIL_TAB_LABEL,
+    closures: selectedAccountFinanceVocabulary?.historyTitle ?? ACCOUNT_DETAIL_TAB_LABEL.closures,
+  };
 
   const selectedAccountClosureTargetAccount = selectedAccountClosureProfile?.defaultTargetMoneyAccountId
     ? moneyAccounts.find((account) => account.id === selectedAccountClosureProfile.defaultTargetMoneyAccountId) ?? null
@@ -21643,7 +21648,7 @@ deliveryAssignMode === 'external' ? (
                         ].join(' ')}
                         onClick={() => setAccountDetailMoreOpen((current) => !current)}
                       >
-                        Más
+                        Opciones
                       </button>
                       {accountDetailMoreOpen ? (
                         <div className="mt-1 overflow-hidden rounded-xl border border-[#242433] bg-[#0B0B0D] p-1 text-sm shadow-2xl">
@@ -21656,16 +21661,6 @@ deliveryAssignMode === 'external' ? (
                             }}
                           >
                             Exportar
-                          </button>
-                          <button
-                            type="button"
-                            className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
-                            onClick={() => {
-                              setAccountDetailMoreOpen(false);
-                              setAccountDetailTab('audit');
-                            }}
-                          >
-                            Auditoría
                           </button>
                           {permissions.canManageMoneyAccounts ? (
                             <>
@@ -21710,9 +21705,12 @@ deliveryAssignMode === 'external' ? (
                       ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
                       : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:text-[#F5F5F7]',
                   ].join(' ')}
-                  onClick={() => setAccountDetailTab(tab)}
+                  onClick={() => {
+                    setAccountDetailMoreOpen(false);
+                    setAccountDetailTab(tab);
+                  }}
                 >
-                  {ACCOUNT_DETAIL_TAB_LABEL[tab]}
+                  {selectedAccountDetailTabLabels[tab]}
                 </button>
               ))}
             </div>
