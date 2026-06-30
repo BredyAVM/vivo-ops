@@ -359,6 +359,8 @@ type MoneyAccountReconciliationItem = {
   voidReason: string | null;
 };
 
+type ReconciliationResolutionMode = 'note_only' | 'expense' | 'income' | 'fee' | 'adjustment';
+
 type AccountMovementFilter =
   | 'all'
   | 'inflows'
@@ -1105,6 +1107,38 @@ const RECONCILIATION_DIRECTION_LABEL: Record<MoneyAccountReconciliationItem['dir
   surplus: 'Sobrante',
   shortage: 'Faltante',
 };
+
+const RECONCILIATION_RESOLUTION_OPTIONS: Array<{
+  value: ReconciliationResolutionMode;
+  label: string;
+  hint: string;
+}> = [
+  {
+    value: 'note_only',
+    label: 'Solo explicar',
+    hint: 'Cierra el pendiente sin afectar saldos del sistema.',
+  },
+  {
+    value: 'expense',
+    label: 'Registrar egreso',
+    hint: 'Crea una salida confirmada en la cuenta.',
+  },
+  {
+    value: 'income',
+    label: 'Registrar ingreso',
+    hint: 'Crea una entrada confirmada en la cuenta.',
+  },
+  {
+    value: 'fee',
+    label: 'Registrar comision',
+    hint: 'Crea una comision bancaria confirmada.',
+  },
+  {
+    value: 'adjustment',
+    label: 'Registrar ajuste',
+    hint: 'Ajusta el saldo segun la direccion del pendiente.',
+  },
+];
 
 const CLOSURE_DIFFERENCE_REASON_OPTIONS = [
   {
@@ -4496,6 +4530,10 @@ const orderActionBusyRef = useRef(false);
   const [closureRejectingId, setClosureRejectingId] = useState<number | null>(null);
   const [reconciliationResolveItemId, setReconciliationResolveItemId] = useState<number | null>(null);
   const [reconciliationResolveNotes, setReconciliationResolveNotes] = useState('');
+  const [reconciliationResolveMode, setReconciliationResolveMode] =
+    useState<ReconciliationResolutionMode>('note_only');
+  const [reconciliationResolveAmount, setReconciliationResolveAmount] = useState('');
+  const [reconciliationResolveExchangeRate, setReconciliationResolveExchangeRate] = useState('');
   const [reconciliationResolveSaving, setReconciliationResolveSaving] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferSaving, setTransferSaving] = useState(false);
@@ -8349,15 +8387,61 @@ const handleSaveQuickCatalog = async () => {
       return;
     }
 
+    const movementAmount =
+      reconciliationResolveMode === 'note_only'
+        ? null
+        : Number(String(reconciliationResolveAmount || '').replace(',', '.'));
+    const exchangeRate =
+      reconciliationResolveMode !== 'note_only' &&
+      selectedReconciliationResolveItem.currencyCode === 'VES'
+        ? Number(String(reconciliationResolveExchangeRate || '').replace(',', '.'))
+        : null;
+
+    if (
+      reconciliationResolveMode !== 'note_only' &&
+      (!Number.isFinite(movementAmount) || Number(movementAmount) <= 0)
+    ) {
+      showToast('error', 'Indica el monto que se va a mover.');
+      return;
+    }
+
+    if (
+      reconciliationResolveMode !== 'note_only' &&
+      Number(movementAmount) > selectedReconciliationResolveItem.amount + 0.01
+    ) {
+      showToast('error', 'El monto no puede superar el pendiente.');
+      return;
+    }
+
+    if (
+      reconciliationResolveMode !== 'note_only' &&
+      selectedReconciliationResolveItem.currencyCode === 'VES' &&
+      (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)
+    ) {
+      showToast('error', 'Indica una tasa válida para registrar el movimiento.');
+      return;
+    }
+
     try {
       setReconciliationResolveSaving(true);
       await resolveMoneyAccountReconciliationItemAction({
         itemId: selectedReconciliationResolveItem.id,
         resolutionNotes: reconciliationResolveNotes,
+        resolutionMode: reconciliationResolveMode,
+        movementAmount,
+        exchangeRateVesPerUsd: exchangeRate,
       });
-      showToast('success', 'Pendiente resuelto.');
+      showToast(
+        'success',
+        reconciliationResolveMode === 'note_only'
+          ? 'Pendiente resuelto.'
+          : 'Pendiente resuelto y movimiento registrado.'
+      );
       setReconciliationResolveItemId(null);
       setReconciliationResolveNotes('');
+      setReconciliationResolveMode('note_only');
+      setReconciliationResolveAmount('');
+      setReconciliationResolveExchangeRate('');
       await loadMoneyActivity(true);
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'No se pudo resolver el pendiente.');
@@ -21543,6 +21627,9 @@ deliveryAssignMode === 'external' ? (
           if (reconciliationResolveSaving) return;
           setReconciliationResolveItemId(null);
           setReconciliationResolveNotes('');
+          setReconciliationResolveMode('note_only');
+          setReconciliationResolveAmount('');
+          setReconciliationResolveExchangeRate('');
         }}
         widthClass="w-[520px]"
       >
@@ -21572,6 +21659,78 @@ deliveryAssignMode === 'external' ? (
               <div className="mt-3 text-sm text-[#B7B7C2]">
                 {selectedReconciliationResolveItem.description}
               </div>
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-[#8A8A96]">Forma de resolver</span>
+                  <select
+                    value={reconciliationResolveMode}
+                    onChange={(e) => {
+                      setReconciliationResolveMode(e.target.value as ReconciliationResolutionMode);
+                      if (e.target.value !== 'note_only' && !reconciliationResolveAmount) {
+                        setReconciliationResolveAmount(String(selectedReconciliationResolveItem.amount));
+                      }
+                      if (
+                        e.target.value !== 'note_only' &&
+                        selectedReconciliationResolveItem.currencyCode === 'VES' &&
+                        !reconciliationResolveExchangeRate
+                      ) {
+                        setReconciliationResolveExchangeRate(String(activeExchangeRate?.rateBsPerUsd ?? ''));
+                      }
+                    }}
+                    className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                  >
+                    {RECONCILIATION_RESOLUTION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-[#8A8A96]">
+                    {
+                      RECONCILIATION_RESOLUTION_OPTIONS.find(
+                        (option) => option.value === reconciliationResolveMode
+                      )?.hint
+                    }
+                  </span>
+                </label>
+
+                {reconciliationResolveMode !== 'note_only' && (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-[#8A8A96]">
+                        Monto a mover ({selectedReconciliationResolveItem.currencyCode})
+                      </span>
+                      <input
+                        value={reconciliationResolveAmount}
+                        onChange={(e) => setReconciliationResolveAmount(e.target.value)}
+                        inputMode="decimal"
+                        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                        placeholder={String(selectedReconciliationResolveItem.amount)}
+                      />
+                      <span className="mt-1 block text-xs text-[#8A8A96]">
+                        Puede ser parcial. Maximo:{' '}
+                        {fmtMoneyByCurrency(
+                          selectedReconciliationResolveItem.amount,
+                          selectedReconciliationResolveItem.currencyCode
+                        )}
+                      </span>
+                    </label>
+
+                    {selectedReconciliationResolveItem.currencyCode === 'VES' && (
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-[#8A8A96]">Tasa Bs/USD</span>
+                        <input
+                          value={reconciliationResolveExchangeRate}
+                          onChange={(e) => setReconciliationResolveExchangeRate(e.target.value)}
+                          inputMode="decimal"
+                          className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+                          placeholder={activeExchangeRate ? String(activeExchangeRate.rateBsPerUsd) : 'Tasa'}
+                        />
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="mt-3">
                 <label className="mb-1 block text-xs text-[#8A8A96]">Nota de resolución</label>
                 <textarea
@@ -21590,6 +21749,9 @@ deliveryAssignMode === 'external' ? (
                 onClick={() => {
                   setReconciliationResolveItemId(null);
                   setReconciliationResolveNotes('');
+                  setReconciliationResolveMode('note_only');
+                  setReconciliationResolveAmount('');
+                  setReconciliationResolveExchangeRate('');
                 }}
                 disabled={reconciliationResolveSaving}
               >
@@ -21600,7 +21762,11 @@ deliveryAssignMode === 'external' ? (
                 onClick={handleResolveReconciliationItem}
                 disabled={reconciliationResolveSaving}
               >
-                {reconciliationResolveSaving ? 'Guardando...' : 'Marcar resuelto'}
+                {reconciliationResolveSaving
+                  ? 'Guardando...'
+                  : reconciliationResolveMode === 'note_only'
+                    ? 'Marcar resuelto'
+                    : 'Resolver y registrar'}
               </button>
             </div>
           </div>
@@ -22092,6 +22258,11 @@ deliveryAssignMode === 'external' ? (
                           onClick={() => {
                             setReconciliationResolveItemId(item.id);
                             setReconciliationResolveNotes('');
+                            setReconciliationResolveMode('note_only');
+                            setReconciliationResolveAmount(String(item.amount));
+                            setReconciliationResolveExchangeRate(
+                              item.currencyCode === 'VES' ? String(activeExchangeRate?.rateBsPerUsd ?? '') : ''
+                            );
                           }}
                         >
                           Resolver

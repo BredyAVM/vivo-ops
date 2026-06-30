@@ -9233,10 +9233,15 @@ export async function createMoneyAccountBaselineAction(input: {
 export async function resolveMoneyAccountReconciliationItemAction(input: {
   itemId: number;
   resolutionNotes: string;
+  resolutionMode?: 'note_only' | 'expense' | 'income' | 'fee' | 'adjustment';
+  movementAmount?: number | null;
+  exchangeRateVesPerUsd?: number | null;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requireMasterOrAdmin();
   const itemId = Number(input.itemId || 0);
   const resolutionNotes = String(input.resolutionNotes || '').trim();
+  const resolutionMode = input.resolutionMode ?? 'note_only';
+  const movementAmount = Number(input.movementAmount || 0);
 
   if (!Number.isFinite(itemId) || itemId <= 0) {
     throw new Error('Pendiente de conciliaciÃ³n invÃ¡lido.');
@@ -9246,13 +9251,152 @@ export async function resolveMoneyAccountReconciliationItemAction(input: {
     throw new Error('Debes indicar una nota de resoluciÃ³n.');
   }
 
+  if (!['note_only', 'expense', 'income', 'fee', 'adjustment'].includes(resolutionMode)) {
+    throw new Error('Modo de resolucion invalido.');
+  }
+
+  const { data: item, error: itemError } = await supabase
+    .from('money_account_reconciliation_items')
+    .select(`
+      id,
+      money_account_id,
+      direction,
+      currency_code,
+      amount,
+      amount_usd_equivalent,
+      operation_date,
+      reference_code,
+      counterparty_name,
+      description,
+      status
+    `)
+    .eq('id', itemId)
+    .single();
+
+  if (itemError || !item) {
+    throw new Error(itemError?.message || 'No se pudo cargar el pendiente de conciliacion.');
+  }
+
+  if (item.status !== 'open') {
+    throw new Error('Este pendiente ya no esta abierto.');
+  }
+
+  let movementSummary: string | null = null;
+
+  if (resolutionMode !== 'note_only') {
+    requireAdminRole(roles);
+
+    if (!Number.isFinite(movementAmount) || movementAmount <= 0) {
+      throw new Error('Debes indicar un monto de movimiento mayor a 0.');
+    }
+
+    const itemAmount = toSafeNumber(item.amount, 0);
+    if (movementAmount > itemAmount + 0.01) {
+      throw new Error('El monto del movimiento no puede superar el pendiente.');
+    }
+
+    const currencyCode = String(item.currency_code || '').toUpperCase();
+    if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+      throw new Error('La moneda del pendiente no es valida.');
+    }
+
+    const exchangeRate =
+      currencyCode === 'VES'
+        ? Number(input.exchangeRateVesPerUsd || 0)
+        : null;
+
+    if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
+      throw new Error('Debes indicar una tasa valida para registrar el movimiento.');
+    }
+
+    const movementDirection =
+      resolutionMode === 'income'
+        ? 'inflow'
+        : resolutionMode === 'expense' || resolutionMode === 'fee'
+          ? 'outflow'
+          : item.direction === 'surplus'
+            ? 'inflow'
+            : 'outflow';
+
+    const movementType =
+      resolutionMode === 'income'
+        ? 'other_income'
+        : resolutionMode === 'fee'
+          ? 'fee_charge'
+          : resolutionMode === 'adjustment'
+            ? 'adjustment'
+            : 'expense_payment';
+
+    const amountUsdEquivalent =
+      currencyCode === 'USD'
+        ? Number(movementAmount.toFixed(2))
+        : Number((movementAmount / (exchangeRate ?? 1)).toFixed(2));
+
+    const referenceCode = `reconciliation-${itemId}`;
+
+    const { data: existingMovement, error: existingMovementError } = await supabase
+      .from('money_movements')
+      .select('id')
+      .eq('money_account_id', Number(item.money_account_id))
+      .eq('reference_code', referenceCode)
+      .neq('status', 'voided')
+      .limit(1);
+
+    if (existingMovementError) throw new Error(existingMovementError.message);
+    if ((existingMovement ?? []).length > 0) {
+      throw new Error('Ya existe un movimiento activo con esa referencia de conciliacion.');
+    }
+
+    const movementLabel =
+      resolutionMode === 'income'
+        ? 'Ingreso por conciliacion'
+        : resolutionMode === 'fee'
+          ? 'Comision por conciliacion'
+          : resolutionMode === 'adjustment'
+            ? 'Ajuste por conciliacion'
+            : 'Egreso por conciliacion';
+
+    const { error: movementError } = await supabase.from('money_movements').insert({
+      movement_date: item.operation_date || getCaracasDateString(new Date()),
+      created_by_user_id: user.id,
+      confirmed_at: new Date().toISOString(),
+      confirmed_by_user_id: user.id,
+      status: 'confirmed',
+      approval_required: false,
+      approval_required_reason: null,
+      direction: movementDirection,
+      movement_type: movementType,
+      money_account_id: Number(item.money_account_id),
+      currency_code: currencyCode,
+      amount: Number(movementAmount.toFixed(2)),
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+      amount_usd_equivalent: amountUsdEquivalent,
+      reference_code: referenceCode,
+      counterparty_name: item.counterparty_name ?? null,
+      description: `${movementLabel} #${itemId}`,
+      notes: [
+        resolutionNotes,
+        item.reference_code ? `Referencia original: ${item.reference_code}` : null,
+        item.description ? `Pendiente: ${item.description}` : null,
+        `Pendiente de conciliacion #${itemId}.`,
+      ].filter(Boolean).join('\n'),
+      order_id: null,
+      payment_report_id: null,
+      movement_group_id: crypto.randomUUID(),
+    });
+
+    if (movementError) throw new Error(movementError.message);
+
+    movementSummary = `${movementLabel}: ${Number(movementAmount.toFixed(2))} ${currencyCode}.`;
+  }
+
   const { error } = await supabase
     .from('money_account_reconciliation_items')
     .update({
       status: 'resolved',
       resolved_by_user_id: user.id,
       resolved_at: new Date().toISOString(),
-      resolution_notes: resolutionNotes,
+      resolution_notes: [resolutionNotes, movementSummary].filter(Boolean).join('\n'),
     })
     .eq('id', itemId)
     .eq('status', 'open');
