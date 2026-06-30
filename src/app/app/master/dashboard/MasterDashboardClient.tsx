@@ -15380,35 +15380,49 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
           {settingsTab === 'accounts' ? (
   <div className="space-y-5">
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Resumen general</div>
+          <div className="mt-1 text-[11px] text-[#8A8A96]">Saldos y actividad del período seleccionado.</div>
+        </div>
+        <div className="text-[11px] text-[#6F6F7A]">Actualizado: {moneyActivityLastLoadedLabel}</div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
       {(['USD', 'VES'] as const).map((currency) => (
-        <div key={currency} className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-          <div className="text-sm font-semibold text-[#F5F5F7]">Resumen {currency}</div>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <InfoCell label="Cuentas activas" value={String(accountSummary[currency].activeCount)} />
-            <InfoCell
-              label={`Balance actual (${currency})`}
-              value={fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
-            />
-            <InfoCell
-              label={`Ingresos período (${currency})`}
-              value={fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
-            />
-            <InfoCell
-              label={`Egresos período (${currency})`}
-              value={fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
-            />
-            <InfoCell
-              label={currency === 'VES' ? 'Referencia $' : 'Referencia Bs'}
-              value={
-                currency === 'VES'
+        <div key={currency} className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#B7B7C2]">{currency}</div>
+            <div className="text-[11px] text-[#8A8A96]">{accountSummary[currency].activeCount} cuenta(s)</div>
+          </div>
+          <div className="mt-2 text-xl font-semibold text-[#F5F5F7]">
+            {fmtMoneyByCurrency(accountSummary[currency].balanceNative, currency)}
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+            <div>
+              <div className="text-[#8A8A96]">Ingresos</div>
+              <div className="mt-1 font-semibold text-emerald-300">
+                {fmtMoneyByCurrency(accountSummary[currency].inflowNative, currency)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[#8A8A96]">Egresos</div>
+              <div className="mt-1 font-semibold text-red-300">
+                {fmtMoneyByCurrency(accountSummary[currency].outflowNative, currency)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[#8A8A96]">{currency === 'VES' ? 'Ref. $' : 'Ref. Bs'}</div>
+              <div className="mt-1 font-semibold text-[#F5F5F7]">
+                {currency === 'VES'
                   ? fmtUSD(accountSummary[currency].balanceUsdRef)
-                  : fmtBs(accountSummary[currency].balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))
-              }
-            />
+                  : fmtBs(accountSummary[currency].balanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
+              </div>
+            </div>
           </div>
         </div>
       ))}
+      </div>
     </div>
 
     <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
