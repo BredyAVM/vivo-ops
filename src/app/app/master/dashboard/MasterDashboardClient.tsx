@@ -1023,6 +1023,16 @@ const FINANCE_WORKSPACE_VIEW_LABEL: Record<FinanceWorkspaceView, string> = {
   movements: 'Movimientos',
 };
 
+const FINANCE_WORKSTREAM_ACTION_HINT: Record<FinanceAccountWorkstream, string> = {
+  bank: 'Compara el saldo real del banco con el saldo del sistema y deja registrada la diferencia si existe.',
+  pos: 'Registra el cierre del punto; cuando el dinero caiga en banco, haz el traspaso vinculado desde el cierre.',
+  cash: 'Cuenta el efectivo físico y registra el arqueo para dejar fija la caja en ese momento.',
+  wallet: 'Compara el saldo real de la wallet con el sistema, incluyendo comisiones o diferencias de conversión.',
+  retention: 'Revisa retenciones recibidas, aplicadas y pendientes contra el saldo que muestra el sistema.',
+  fund: 'Revisa el saldo interno y deja una foto financiera para continuar desde ese punto.',
+  other: 'Revisa el saldo de esta cuenta y registra una foto financiera cuando sea necesario.',
+};
+
 const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   all: 'Todas',
   active: 'Activas',
@@ -21734,6 +21744,71 @@ deliveryAssignMode === 'external' ? (
                   {selectedAccountDetailTabLabels[tab]}
                 </button>
               ))}
+            </div>
+
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="max-w-[520px]">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">
+                    {selectedAccountFinanceVocabulary?.operationTitle ?? 'Trabajo de cuenta'}
+                  </div>
+                  <div className="mt-1 text-xs leading-relaxed text-[#8A8A96]">
+                    {selectedAccountFinanceVocabulary
+                      ? FINANCE_WORKSTREAM_ACTION_HINT[selectedAccountFinanceVocabulary.workstream]
+                      : 'Revisa la actividad y registra la foto financiera cuando sea necesario.'}
+                  </div>
+                </div>
+                {selectedAccountBaseline ? (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                    onClick={() => openAccountClosureDrawer(selectedAccount)}
+                  >
+                    {selectedAccountFinanceVocabulary?.primaryActionLabel ?? 'Registrar cierre'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="rounded-xl border border-[#FEEF00]/50 bg-[#161409] px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                    onClick={() => openAccountBaselineDrawer(selectedAccount)}
+                  >
+                    Crear línea base
+                  </button>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                  <div className="text-[#8A8A96]">Saldo sistema</div>
+                  <div className="mt-1 font-semibold text-[#F5F5F7]">
+                    {fmtMoneyByCurrency(
+                      selectedAccountStatementData.currentBalanceNative,
+                      selectedAccount.currencyCode
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                  <div className="text-[#8A8A96]">Última foto</div>
+                  <div className="mt-1 font-semibold text-[#F5F5F7]">
+                    {selectedAccountReportSummary.latestClosure
+                      ? fmtClosureMoment(selectedAccountReportSummary.latestClosure)
+                      : 'Sin cierre'}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                  <div className="text-[#8A8A96]">Pendiente</div>
+                  <div
+                    className={[
+                      'mt-1 font-semibold',
+                      selectedAccountStatementData.pendingNative > 0 ? 'text-[#FEEF00]' : 'text-[#F5F5F7]',
+                    ].join(' ')}
+                  >
+                    {fmtMoneyByCurrency(
+                      selectedAccountStatementData.pendingNative,
+                      selectedAccount.currencyCode
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {accountDetailTab === 'rules' ? (
