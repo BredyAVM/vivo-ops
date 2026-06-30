@@ -12381,6 +12381,11 @@ const selectedCreateOrderClientAddresses = useMemo(
     accountAuditApprovalOnly ||
     accountAuditExceptionOnly;
 
+  const selectedAccountSystemBalanceNative = useMemo(() => {
+    if (!selectedAccount) return 0;
+    return getExpectedAccountBalanceNative(selectedAccount.id);
+  }, [getExpectedAccountBalanceNative, selectedAccount]);
+
   const selectedAccountBankSummary = useMemo(() => {
     const today = getCaracasTodayString();
     const empty = {
@@ -12423,7 +12428,7 @@ const selectedCreateOrderClientAddresses = useMemo(
         todayPendingMovements.reduce((sum, movement) => sum + Math.abs(movement.amount), 0).toFixed(2)
       ),
       todayPendingCount: todayPendingMovements.length,
-      expectedBalanceNative: Number(selectedAccountStatementData.currentBalanceNative.toFixed(2)),
+      expectedBalanceNative: Number(selectedAccountSystemBalanceNative.toFixed(2)),
       latestRealBalanceNative: latestClosure ? latestClosure.countedAmount : null,
       latestDifferenceNative: latestClosure ? latestClosure.differenceAmount : null,
       latestClosureDate: latestClosure ? fmtClosureMoment(latestClosure) : null,
@@ -12435,7 +12440,7 @@ const selectedCreateOrderClientAddresses = useMemo(
     selectedAccount,
     selectedAccountClosures,
     selectedAccountOpenReconciliationItems,
-    selectedAccountStatementData.currentBalanceNative,
+    selectedAccountSystemBalanceNative,
   ]);
 
   const calculationBaseOrders = useMemo(
@@ -21825,15 +21830,15 @@ deliveryAssignMode === 'external' ? (
                     </div>
                     <div className="text-lg font-semibold text-[#F5F5F7]">
                       {fmtMoneyByCurrency(
-                        selectedAccountStatementData.currentBalanceNative,
+                        selectedAccountSystemBalanceNative,
                         selectedAccount.currencyCode
                       )}
                     </div>
                     <div className="mt-1 text-xs text-[#8A8A96]">
                       {selectedAccount.currencyCode === 'VES'
-                        ? fmtUSD(selectedAccountStatementData.currentBalanceNative / (activeExchangeRate?.rateBsPerUsd ?? 1))
+                        ? fmtUSD(selectedAccountSystemBalanceNative / (activeExchangeRate?.rateBsPerUsd ?? 1))
                         : fmtBs(
-                            selectedAccountStatementData.currentBalanceNative *
+                            selectedAccountSystemBalanceNative *
                               (activeExchangeRate?.rateBsPerUsd ?? 0)
                           )}
                     </div>
@@ -21967,7 +21972,7 @@ deliveryAssignMode === 'external' ? (
                   <div className="text-[#8A8A96]">Saldo sistema</div>
                   <div className="mt-1 font-semibold text-[#F5F5F7]">
                     {fmtMoneyByCurrency(
-                      selectedAccountStatementData.currentBalanceNative,
+                      selectedAccountSystemBalanceNative,
                       selectedAccount.currencyCode
                     )}
                   </div>
