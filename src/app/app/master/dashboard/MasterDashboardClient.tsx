@@ -370,7 +370,7 @@ type AccountMovementFilter =
   | 'transfers';
 
 type AccountDetailTab = 'operation' | 'closures' | 'rules' | 'audit';
-type AccountQuickFilter = 'all' | 'active' | 'kitchen' | 'counter' | 'advisor' | 'review' | 'pending';
+type AccountQuickFilter = 'all' | 'active' | FinanceAccountWorkstream | 'review' | 'pending';
 type GlobalAuditFocusFilter = 'all' | 'pending' | 'exceptions' | 'transfers' | 'fees' | 'approvals';
 type MoneyMovementOutflowPurpose = 'change' | 'expense';
 
@@ -1020,12 +1020,22 @@ const VISIBLE_ACCOUNT_DETAIL_TABS: AccountDetailTab[] = ['operation', 'closures'
 const ACCOUNT_QUICK_FILTER_LABEL: Record<AccountQuickFilter, string> = {
   all: 'Todas',
   active: 'Activas',
-  kitchen: 'Cocina',
-  counter: 'Mostrador',
-  advisor: 'Asesor',
+  bank: 'Bancos',
+  pos: 'Puntos',
+  cash: 'Cajas',
+  wallet: 'Wallets',
+  retention: 'Retenciones',
+  fund: 'Fondos',
+  other: 'Otras',
   review: 'Revisión',
   pending: 'Pendiente',
 };
+
+const ACCOUNT_WORKSTREAM_FILTERS = new Set<FinanceAccountWorkstream>(FINANCE_WORKSTREAM_ORDER);
+
+function isAccountWorkstreamFilter(filter: AccountQuickFilter): filter is FinanceAccountWorkstream {
+  return ACCOUNT_WORKSTREAM_FILTERS.has(filter as FinanceAccountWorkstream);
+}
 
 const MASTER_OUTFLOW_AUTO_APPROVAL_MAX_USD = 10;
 
@@ -11100,18 +11110,18 @@ const selectedCreateOrderClientAddresses = useMemo(
 
     return moneyAccounts.filter((account) => {
       const rules = accountRulesByAccountId.get(account.id) ?? [];
-      const hasKitchenRule = rules.some((rule) => rule.role === 'kitchen' && rule.canViewAccount);
-      const hasCounterRule = rules.some((rule) => rule.role === 'counter' && rule.canViewAccount);
-      const hasAdvisorRule = rules.some((rule) => rule.role === 'advisor' && rule.canViewAccount);
+      const closureProfile = moneyAccountClosureProfileByAccountId.get(account.id) ?? null;
+      const accountWorkstream = getFinanceAccountWorkstream({
+        accountKind: account.accountKind,
+        closureKind: closureProfile?.closureKind ?? null,
+      });
       const hasReviewRule = rules.some((rule) => rule.reviewRequired);
       const hasPendingMovement = moneyMovements.some(
         (movement) => movement.moneyAccountId === account.id && movement.status === 'pending'
       );
 
       if (accountQuickFilter === 'active' && !account.isActive) return false;
-      if (accountQuickFilter === 'kitchen' && !hasKitchenRule) return false;
-      if (accountQuickFilter === 'counter' && !hasCounterRule) return false;
-      if (accountQuickFilter === 'advisor' && !hasAdvisorRule) return false;
+      if (isAccountWorkstreamFilter(accountQuickFilter) && accountWorkstream !== accountQuickFilter) return false;
       if (accountQuickFilter === 'review' && !hasReviewRule) return false;
       if (accountQuickFilter === 'pending' && !hasPendingMovement) return false;
       if (!query) return true;
@@ -11126,7 +11136,14 @@ const selectedCreateOrderClientAddresses = useMemo(
         .filter(Boolean)
         .some((value) => normalizeLooseText(String(value)).includes(query));
     });
-  }, [accountQuickFilter, accountRulesByAccountId, accountSearch, moneyAccounts, moneyMovements]);
+  }, [
+    accountQuickFilter,
+    accountRulesByAccountId,
+    accountSearch,
+    moneyAccountClosureProfileByAccountId,
+    moneyAccounts,
+    moneyMovements,
+  ]);
 
   const accountSections = useMemo(() => {
     const accountsByWorkstream = new Map<FinanceAccountWorkstream, MoneyAccountOption[]>();
