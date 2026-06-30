@@ -15454,25 +15454,39 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-1">
-              {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  onClick={() => setAccountQuickFilter(filter)}
-                  className={[
-                    'whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px]',
-                    accountQuickFilter === filter
-                      ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
-                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
-                  ].join(' ')}
-                >
-                  {ACCOUNT_QUICK_FILTER_LABEL[filter]}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_160px_160px_110px]">
-              <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
+            {financeWorkspaceView === 'accounts' ? (
+              <div className="flex flex-wrap items-center gap-1">
+                {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setAccountQuickFilter(filter)}
+                    className={[
+                      'whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px]',
+                      accountQuickFilter === filter
+                        ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                        : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                    ].join(' ')}
+                  >
+                    {ACCOUNT_QUICK_FILTER_LABEL[filter]}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[11px] text-[#8A8A96]">
+                Usa el rango para traer movimientos frescos. Estado, cuenta y vista se filtran dentro de la tabla.
+              </div>
+            )}
+            <div
+              className={
+                financeWorkspaceView === 'accounts'
+                  ? 'grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_160px_160px_110px]'
+                  : 'grid grid-cols-1 gap-2 md:grid-cols-[160px_160px_110px_minmax(0,1fr)]'
+              }
+            >
+              {financeWorkspaceView === 'accounts' ? (
+                <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
+              ) : null}
               <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
               <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
               <button
@@ -15489,6 +15503,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               >
                 {moneyActivityLoading ? 'Buscando...' : 'Buscar'}
               </button>
+              {financeWorkspaceView === 'movements' ? (
+                <div className="self-end pb-2 text-[11px] text-[#8A8A96]">
+                  Sin rango, día operativo {defaultMoneyActivityDate}.
+                </div>
+              ) : null}
             </div>
           </div>
 
