@@ -15425,83 +15425,82 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       </div>
     </div>
 
-    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
+    <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-1">
+            {(Object.keys(FINANCE_WORKSPACE_VIEW_LABEL) as FinanceWorkspaceView[]).map((view) => (
               <button
-                key={filter}
+                key={view}
                 type="button"
-                onClick={() => setAccountQuickFilter(filter)}
+                onClick={() => setFinanceWorkspaceView(view)}
                 className={[
-                  'whitespace-nowrap rounded-full border px-3 py-1.5 text-xs',
-                  accountQuickFilter === filter
+                  'rounded-xl border px-4 py-2 text-sm font-semibold',
+                  financeWorkspaceView === view
                     ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
-                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                    : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:text-[#F5F5F7]',
                 ].join(' ')}
               >
-                {ACCOUNT_QUICK_FILTER_LABEL[filter]}
+                {FINANCE_WORKSPACE_VIEW_LABEL[view]}
               </button>
             ))}
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_120px]">
-            <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
-            <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
-            <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
-            <button
-              type="button"
-              className="self-end rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() =>
-                loadMoneyActivity(true, {
-                  scope: 'range',
-                  dateFrom: accountDateFrom || undefined,
-                  dateTo: accountDateTo || undefined,
-                })
-              }
-              disabled={moneyActivityLoading || (!accountDateFrom && !accountDateTo)}
-            >
-              {moneyActivityLoading ? 'Buscando...' : 'Buscar'}
-            </button>
-          </div>
-          <div className="mt-2 text-[11px] text-[#8A8A96]">
-            Sin rango específico, se muestran los movimientos del día operativo {defaultMoneyActivityDate}.
+          <div className="text-[11px] text-[#8A8A96]">
+            {financeWorkspaceView === 'accounts'
+              ? `${filteredAccounts.length} cuenta(s) visibles`
+              : `${globalAuditFilteredGroups.length} movimiento(s) filtrados`}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {permissions.canCreateMoneyMovements ? <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn> : null}
-          {permissions.canCreateMoneyTransfers ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
-          <Btn onClick={() => setFinancePendingOpen(true)}>
-            Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
-          </Btn>
-          {permissions.canCreateMoneyAccounts ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
-        </div>
-      </div>
-    </div>
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-1">
+              {(Object.keys(ACCOUNT_QUICK_FILTER_LABEL) as AccountQuickFilter[]).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setAccountQuickFilter(filter)}
+                  className={[
+                    'whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px]',
+                    accountQuickFilter === filter
+                      ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
+                      : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]',
+                  ].join(' ')}
+                >
+                  {ACCOUNT_QUICK_FILTER_LABEL[filter]}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_160px_160px_110px]">
+              <FieldInput label="Buscar cuenta" value={accountSearch} onChange={setAccountSearch} />
+              <FieldInput label="Desde" value={accountDateFrom} onChange={setAccountDateFrom} type="date" />
+              <FieldInput label="Hasta" value={accountDateTo} onChange={setAccountDateTo} type="date" />
+              <button
+                type="button"
+                className="self-end rounded-xl border border-[#FEEF00]/40 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() =>
+                  loadMoneyActivity(true, {
+                    scope: 'range',
+                    dateFrom: accountDateFrom || undefined,
+                    dateTo: accountDateTo || undefined,
+                  })
+                }
+                disabled={moneyActivityLoading || (!accountDateFrom && !accountDateTo)}
+              >
+                {moneyActivityLoading ? 'Buscando...' : 'Buscar'}
+              </button>
+            </div>
+          </div>
 
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#242433] bg-[#121218] p-2">
-      <div className="flex flex-wrap gap-1">
-        {(Object.keys(FINANCE_WORKSPACE_VIEW_LABEL) as FinanceWorkspaceView[]).map((view) => (
-          <button
-            key={view}
-            type="button"
-            onClick={() => setFinanceWorkspaceView(view)}
-            className={[
-              'rounded-xl border px-4 py-2 text-sm font-semibold',
-              financeWorkspaceView === view
-                ? 'border-[#FEEF00] bg-[#1D1A00] text-[#FEEF00]'
-                : 'border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:text-[#F5F5F7]',
-            ].join(' ')}
-          >
-            {FINANCE_WORKSPACE_VIEW_LABEL[view]}
-          </button>
-        ))}
-      </div>
-      <div className="px-2 text-[11px] text-[#8A8A96]">
-        {financeWorkspaceView === 'accounts'
-          ? `${filteredAccounts.length} cuenta(s) visibles`
-          : `${globalAuditFilteredGroups.length} movimiento(s) filtrados`}
+          <div className="flex flex-wrap gap-2">
+            {permissions.canCreateMoneyMovements ? <Btn onClick={() => openMoneyMovementDrawer()}>Movimiento</Btn> : null}
+            {permissions.canCreateMoneyTransfers ? <Btn onClick={() => openMoneyTransferDrawer()}>Traspaso</Btn> : null}
+            <Btn onClick={() => setFinancePendingOpen(true)}>
+              Pendientes ({financialPendingMovementGroups.length + pendingPaymentOrders.length})
+            </Btn>
+            {permissions.canCreateMoneyAccounts ? <Btn onClick={openCreateAccount}>Nueva cuenta</Btn> : null}
+          </div>
+        </div>
       </div>
     </div>
 
