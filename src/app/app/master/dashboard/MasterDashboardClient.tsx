@@ -15737,21 +15737,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-[12px]">
+            <table className="w-full min-w-[720px] text-[12px]">
               <thead className="border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
                 <tr>
-                  <th className="px-3 py-3 text-left font-medium">Cuenta</th>
-                  <th className="px-3 py-3 text-left font-medium">Saldo sistema</th>
-                  <th className="px-3 py-3 text-left font-medium">Última foto</th>
-                  <th className="px-3 py-3 text-left font-medium">Pendiente</th>
-                  <th className="px-3 py-3 text-left font-medium">Acción</th>
+                  <th className="px-3 py-2.5 text-left font-medium">Cuenta</th>
+                  <th className="px-3 py-2.5 text-left font-medium">Saldo sistema</th>
+                  <th className="px-3 py-2.5 text-left font-medium">Última foto</th>
+                  <th className="px-3 py-2.5 text-left font-medium">Pendiente</th>
+                  <th className="px-3 py-2.5 text-left font-medium">Acción</th>
                 </tr>
               </thead>
               <tbody>
           {accountSections.map((section) => (
             <React.Fragment key={section.workstream}>
               <tr className="border-b border-[#242433] bg-[#0B0B0D]">
-                <td colSpan={5} className="px-3 py-3">
+                <td colSpan={5} className="px-3 py-2.5">
                   <div className="flex flex-wrap items-baseline gap-2">
                     <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">
                       {section.label}
@@ -15804,62 +15804,38 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   openAccountDetailDrawer(account.id);
                 }}
               >
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   <div className="font-semibold text-[#F5F5F7]">{account.name}</div>
-                  <div className="mt-1 text-[11px] text-[#8A8A96]">
-                      {MONEY_ACCOUNT_KIND_LABEL[account.accountKind]} · {account.currencyCode}
-                      {account.institutionName ? ` · ${account.institutionName}` : ''}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[#8A8A96]">
                     <span
                       className={[
-                        'rounded-full border px-1.5 py-0.5 text-[10px]',
-                        account.isActive
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                          : 'border-[#2A2A38] bg-[#0B0B0D] text-[#8A8A96]',
+                        'inline-flex h-2 w-2 rounded-full',
+                        account.isActive ? 'bg-emerald-400' : 'bg-[#6F6F7A]',
                       ].join(' ')}
-                    >
-                      {account.isActive ? 'Activa' : 'Inactiva'}
+                    />
+                    <span>
+                      {MONEY_ACCOUNT_KIND_LABEL[account.accountKind]} · {account.currencyCode}
+                      {account.institutionName ? ` · ${account.institutionName}` : ''}
                     </span>
-                    <span className="rounded-full border border-[#2A2A38] bg-[#0B0B0D] px-1.5 py-0.5 text-[10px] text-[#B7B7C2]">
-                      {financeVocabulary.operationTitle}
-                    </span>
-                    {activeBaseline ? (
-                      <span
-                        className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300"
-                      >
-                        Base {activeBaseline.baselineDate}
-                      </span>
-                    ) : (
-                      <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
-                        Línea base pendiente
-                      </span>
-                    )}
-                    {hasReview ? (
-                      <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
-                        Revisión
-                      </span>
-                    ) : null}
-                    {!closureProfile ? (
-                      <span className="rounded-full border border-[#564511] bg-[#151208] px-1.5 py-0.5 text-[10px] text-[#F7DA66]">
-                        Sin perfil de cierre
-                      </span>
-                    ) : null}
-                    {closureProfile?.generatesTransferOnClose ? (
-                      <span
-                        className={[
-                          'rounded-full border px-1.5 py-0.5 text-[10px]',
-                          closureTargetAccount
-                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                            : 'border-[#564511] bg-[#151208] text-[#F7DA66]',
-                        ].join(' ')}
-                      >
-                        {closureTargetAccount ? `Destino ${closureTargetAccount.name}` : 'Destino pendiente'}
-                      </span>
-                    ) : null}
                   </div>
+                  <div className="mt-1 text-[11px] text-[#B7B7C2]">
+                      {financeVocabulary.operationTitle}
+                  </div>
+                  {(!activeBaseline ||
+                    hasReview ||
+                    !closureProfile ||
+                    (closureProfile?.generatesTransferOnClose && !closureTargetAccount)) ? (
+                    <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-[#F7DA66]">
+                      {!activeBaseline ? <span>Línea base pendiente</span> : null}
+                      {hasReview ? <span>Revisión</span> : null}
+                      {!closureProfile ? <span>Sin perfil</span> : null}
+                      {closureProfile?.generatesTransferOnClose && !closureTargetAccount ? (
+                        <span>Destino pendiente</span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   <div className="font-semibold text-[#F5F5F7]">
                     {fmtMoneyByCurrency(expectedBalanceNative, account.currencyCode)}
                   </div>
@@ -15868,9 +15844,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       ? fmtUSD(expectedBalanceUsdRef)
                       : fmtBs(expectedBalanceNative * (activeExchangeRate?.rateBsPerUsd ?? 0))}
                   </div>
-                  <div className="mt-1 text-[10px] text-[#6F7890]">Desde línea base</div>
+                  <div className="mt-1 text-[10px] text-[#6F7890]">
+                    {activeBaseline ? `Base ${activeBaseline.baselineDate}` : 'Sin línea base'}
+                  </div>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   {latestClosure ? (
                     <div>
                       <div className="text-[#F5F5F7]">{fmtClosureMoment(latestClosure)}</div>
@@ -15882,12 +15860,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     <span className="text-[#8A8A96]">Sin cierre</span>
                   )}
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   <div className={pendingUsd > 0 ? 'font-semibold text-[#FEEF00]' : 'text-[#B7B7C2]'}>
                     {fmtUSD(pendingUsd)}
                   </div>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   <div className="flex flex-wrap items-start gap-1.5">
                     <button
                       type="button"
