@@ -7591,18 +7591,73 @@ const handleSaveQuickCatalog = async () => {
     [moneyAccountBaselines, moneyMovements]
   );
 
+  const getExpectedAccountBalanceNativeAt = useCallback(
+    (accountId: number, cutoffDate: string, cutoffTime: string) => {
+      const activeBaseline =
+        moneyAccountBaselines.find(
+          (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
+        ) ?? null;
+      const baselineAmount = activeBaseline?.countedAmount ?? 0;
+      const baselineDate = activeBaseline?.baselineDate ?? null;
+      const baselineAtMs = activeBaseline?.baselineAt
+        ? new Date(activeBaseline.baselineAt).getTime()
+        : null;
+      const cutoffAt = buildCaracasClosureAt(cutoffDate, cutoffTime);
+      const cutoffAtMs = cutoffAt?.getTime() ?? null;
+
+      const movementDelta = moneyMovements.reduce((sum, movement) => {
+        if (movement.moneyAccountId !== accountId) return sum;
+        if (movement.status !== 'confirmed') return sum;
+        if (movement.movementDate > cutoffDate) return sum;
+
+        const movementRecordedAt = movement.confirmedAt || movement.createdAt;
+        const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
+
+        if (
+          movement.movementDate === cutoffDate &&
+          cutoffAtMs != null &&
+          movementRecordedAtMs != null &&
+          movementRecordedAtMs > cutoffAtMs
+        ) {
+          return sum;
+        }
+
+        if (baselineDate && movement.movementDate < baselineDate) return sum;
+        if (
+          baselineDate &&
+          movement.movementDate === baselineDate &&
+          baselineAtMs != null &&
+          movementRecordedAtMs != null &&
+          movementRecordedAtMs <= baselineAtMs
+        ) {
+          return sum;
+        }
+
+        return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
+      }, 0);
+
+      return Number((baselineAmount + movementDelta).toFixed(2));
+    },
+    [moneyAccountBaselines, moneyMovements]
+  );
+
   const openAccountClosureDrawer = (account: MoneyAccountOption) => {
     if (!permissions.canRegisterAccountClosures) {
       showToast('error', 'No tienes permiso para registrar cierres.');
       return;
     }
 
+    const nextClosureDate = getCaracasTodayString();
+    const nextClosureTime = getCaracasCurrentTimeString();
+
     setSelectedAccountId(account.id);
     setAccountDetailTab('closures');
     resetClosureForm();
+    setClosureDate(nextClosureDate);
+    setClosureTime(nextClosureTime);
     const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === account.id) ?? null;
     setClosureTargetAccountId(profile?.defaultTargetMoneyAccountId ? String(profile.defaultTargetMoneyAccountId) : '');
-    setClosureCountedAmount(String(getExpectedAccountBalanceNative(account.id)));
+    setClosureCountedAmount(String(getExpectedAccountBalanceNativeAt(account.id, nextClosureDate, nextClosureTime)));
     setAccountDetailOpen(false);
     setClosureOpen(true);
   };
@@ -11775,43 +11830,8 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!selectedAccount) return 0;
 
     const cutoffDate = closureDate || getCaracasTodayString();
-    const cutoffAt = buildCaracasClosureAt(cutoffDate, closureTime);
-    const cutoffAtMs = cutoffAt?.getTime() ?? null;
-    const baselineAmount = selectedAccountBaseline ? selectedAccountBaseline.countedAmount : 0;
-    const baselineDate = selectedAccountBaseline?.baselineDate ?? null;
-    const baselineAtMs = selectedAccountBaseline?.baselineAt
-      ? new Date(selectedAccountBaseline.baselineAt).getTime()
-      : null;
-
-    const movementDelta = moneyMovements.reduce((sum, movement) => {
-      if (movement.moneyAccountId !== selectedAccount.id) return sum;
-      if (movement.status !== 'confirmed') return sum;
-      if (movement.movementDate > cutoffDate) return sum;
-      const movementRecordedAt = movement.confirmedAt || movement.createdAt;
-      const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
-      if (
-        movement.movementDate === cutoffDate &&
-        cutoffAtMs != null &&
-        movementRecordedAtMs != null &&
-        movementRecordedAtMs > cutoffAtMs
-      ) {
-        return sum;
-      }
-      if (baselineDate && movement.movementDate < baselineDate) return sum;
-      if (
-        baselineDate &&
-        movement.movementDate === baselineDate &&
-        baselineAtMs != null &&
-        movementRecordedAtMs != null &&
-        movementRecordedAtMs <= baselineAtMs
-      ) {
-        return sum;
-      }
-      return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
-    }, 0);
-
-    return Number((baselineAmount + movementDelta).toFixed(2));
-  }, [closureDate, closureTime, moneyMovements, selectedAccount, selectedAccountBaseline]);
+    return getExpectedAccountBalanceNativeAt(selectedAccount.id, cutoffDate, closureTime);
+  }, [closureDate, closureTime, getExpectedAccountBalanceNativeAt, selectedAccount]);
 
   const closureCountedNumber = Number(String(closureCountedAmount || '0').replace(',', '.')) || 0;
   const closureDifferenceAmount = Number((closureCountedNumber - selectedAccountExpectedAmount).toFixed(2));
