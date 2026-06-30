@@ -4174,6 +4174,7 @@ export default function MasterDashboardClient({
   >([]);
   const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
   const [moneyActivityLoadedScope, setMoneyActivityLoadedScope] = useState('');
+  const [moneyActivityLastLoadedAt, setMoneyActivityLastLoadedAt] = useState<string | null>(null);
   const [moneyActivityLoading, setMoneyActivityLoading] = useState(false);
   const [moneyActivityError, setMoneyActivityError] = useState<string | null>(null);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovementItem[]>(initialInventoryMovements);
@@ -7679,6 +7680,9 @@ const handleSaveQuickCatalog = async () => {
   const defaultMoneyActivityDate = selectedDay
     ? toDateInputValue(selectedDay)
     : orderScope?.focusDate || getCaracasTodayString();
+  const moneyActivityLastLoadedLabel = moneyActivityLastLoadedAt
+    ? fmtDateTimeES(moneyActivityLastLoadedAt)
+    : 'Sin actualizar';
 
   const loadMoneyActivity = useCallback(
     async (
@@ -7740,6 +7744,7 @@ const handleSaveQuickCatalog = async () => {
         setMoneyAccountReconciliationItems(result.reconciliationItems as MoneyAccountReconciliationItem[]);
         setMoneyActivityLoaded(true);
         setMoneyActivityLoadedScope(scopeKey);
+        setMoneyActivityLastLoadedAt(new Date().toISOString());
       } catch (err) {
         const message = err instanceof Error ? err.message : 'No se pudo cargar la actividad financiera.';
         setMoneyActivityError(message);
@@ -15438,6 +15443,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               ? 'Cargando movimientos...'
               : `${globalAuditSummary.totalGroups} movimientos · ${globalAuditSummary.accountsTouched} cuenta(s)`}
           </div>
+          <div className="mt-1 text-[11px] text-[#6F6F7A]">
+            Actualizado: {moneyActivityLastLoadedLabel}
+          </div>
         </div>
         <div className="flex flex-wrap items-start justify-end gap-2">
           <div className="grid grid-cols-2 gap-2 text-right md:grid-cols-4">
@@ -15609,6 +15617,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <div className="text-sm font-semibold text-[#F5F5F7]">Cuentas</div>
           <div className="mt-1 text-xs text-[#8A8A96]">
             {filteredAccounts.length} visibles con los filtros actuales.
+          </div>
+          <div className="mt-1 text-[11px] text-[#6F6F7A]">
+            Actualizado: {moneyActivityLastLoadedLabel}
           </div>
         </div>
         <button
@@ -21535,6 +21546,9 @@ deliveryAssignMode === 'external' ? (
                   <div className="mt-1 text-xs text-[#8A8A96]">
                     Período: {accountDetailDateFrom || defaultMoneyActivityDate}
                     {accountDetailDateTo ? ` al ${accountDetailDateTo}` : ''}
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#6F6F7A]">
+                    Actualizado: {moneyActivityLastLoadedLabel}
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
