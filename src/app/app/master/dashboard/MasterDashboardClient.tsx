@@ -7817,8 +7817,8 @@ const handleSaveQuickCatalog = async () => {
         Number.isFinite(Number(options?.accountId ?? 0)) && Number(options?.accountId ?? 0) > 0
           ? Number(options?.accountId)
           : undefined;
-      const requestedDateFrom = useDateRange || useAccountScope ? options?.dateFrom || '' : defaultMoneyActivityDate;
-      const requestedDateTo = useDateRange || useAccountScope ? options?.dateTo || '' : defaultMoneyActivityDate;
+      const requestedDateFrom = useDateRange ? options?.dateFrom || '' : useAccountScope ? '' : defaultMoneyActivityDate;
+      const requestedDateTo = useDateRange ? options?.dateTo || '' : useAccountScope ? '' : defaultMoneyActivityDate;
       const scopeLabel = useAccountScope ? 'account' : useDateRange ? 'range' : 'day';
       const scopeKey = `${scopeLabel}:${requestedAccountId ?? 'all'}:${requestedDateFrom || 'open'}:${requestedDateTo || 'open'}`;
       if (moneyActivityLoaded && moneyActivityLoadedScope === scopeKey && !force) return;
@@ -7827,7 +7827,7 @@ const handleSaveQuickCatalog = async () => {
         setMoneyActivityLoading(true);
         setMoneyActivityError(null);
         const result = await loadMoneyActivityAction({
-          movementLimit: requestedAccountId ? 1800 : useDateRange ? 1200 : 350,
+          movementLimit: requestedAccountId ? 2500 : useDateRange ? 1200 : 350,
           closureLimit: 120,
           reconciliationLimit: 120,
           movementDateFrom: requestedDateFrom || undefined,
