@@ -583,6 +583,22 @@ type AdvisorCommissionPeriod = {
   createdAt: string;
 };
 
+type AdvisorCommissionSnapshotOrder = {
+  orderId?: number;
+  orderNumber?: string | null;
+  clientName?: string | null;
+  deliveryDate?: string | null;
+  totalUsd?: number;
+  confirmedPaidUsd?: number;
+  pendingUsd?: number;
+  regularBaseUsd?: number;
+  specialItemBaseUsd?: number;
+  specialOrderBaseUsd?: number;
+  commissionUsd?: number;
+  commissionMode?: string | null;
+  paymentStatus?: string | null;
+};
+
 type AdvisorCommissionClosure = {
   id: number;
   periodId: number;
@@ -602,21 +618,40 @@ type AdvisorCommissionClosure = {
   manualDeductionsUsd: number;
   payableUsd: number;
   snapshot: {
-    orders?: Array<{
+    orders?: AdvisorCommissionSnapshotOrder[];
+    pending_orders?: AdvisorCommissionSnapshotOrder[];
+    new_clients?: Array<{
+      clientId?: number | string | null;
+      clientName?: string | null;
+      clientType?: string | null;
+      orderId?: number;
+      orderNumber?: string | null;
+      createdAt?: string | null;
+    }>;
+    products?: Array<{
       orderId?: number;
       orderNumber?: string | null;
       clientName?: string | null;
-      deliveryDate?: string | null;
-      totalUsd?: number;
-      confirmedPaidUsd?: number;
-      pendingUsd?: number;
+      productName?: string | null;
+      productType?: string | null;
+      qty?: number;
+      lineBaseUsd?: number;
+      commissionMode?: string | null;
+      commissionValue?: number | string | null;
+    }>;
+    gifts?: Array<{
+      orderId?: number;
+      orderNumber?: string | null;
+      clientName?: string | null;
+      productName?: string | null;
+      qty?: number;
+      deductionUsd?: number;
+    }>;
+    totals?: {
       regularBaseUsd?: number;
       specialItemBaseUsd?: number;
       specialOrderBaseUsd?: number;
-      commissionUsd?: number;
-      commissionMode?: string | null;
-      paymentStatus?: string | null;
-    }>;
+    };
   };
   generatedAt: string | null;
   closedAt: string | null;
@@ -14771,9 +14806,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Calculo de comisiones</div>
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Consulta auxiliar de comisiones</div>
                     <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Base comisionable: total despues del descuento y antes del IVA.
+                      Simulación bajo demanda. No crea ni modifica cierres de período.
                     </div>
                   </div>
 
@@ -14818,9 +14853,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div>
-                      <div className="text-sm font-semibold text-[#F5F5F7]">Cierres de periodo por asesor</div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Cierre oficial de período por asesor</div>
                       <div className="mt-1 text-sm text-[#B7B7C2]">
-                        Crea la quincena y genera preliminares congelables para revisión.
+                        Crea la quincena, genera la foto preliminar completa, revisa y luego cierra/paga.
                       </div>
                     </div>
                     {advisorCommissionSetupMissing ? (
@@ -14916,6 +14951,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                           <th className="px-3 py-2 text-right font-medium">Cierres</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                           <th className="px-3 py-2 text-right font-medium">Pendiente</th>
+                          <th className="px-3 py-2 text-right font-medium">Pagos</th>
+                          <th className="px-3 py-2 text-right font-medium">Clientes nuevos</th>
                           <th className="px-3 py-2 text-right font-medium">Comision</th>
                           <th className="px-3 py-2 text-right font-medium">A pagar</th>
                           <th className="px-3 py-2 text-right font-medium">Detalle</th>
@@ -14924,7 +14961,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       <tbody>
                         {selectedAdvisorCommissionClosures.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={9}>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={11}>
                               Sin preliminares generados para este periodo.
                             </td>
                           </tr>
@@ -14934,6 +14971,26 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const snapshotOrders = Array.isArray(closure.snapshot?.orders)
                               ? closure.snapshot.orders
                               : [];
+                            const pendingSnapshotOrders = Array.isArray(closure.snapshot?.pending_orders)
+                              ? closure.snapshot.pending_orders
+                              : snapshotOrders.filter((order) => Number(order.pendingUsd || 0) > 0.005);
+                            const newClientRows = Array.isArray(closure.snapshot?.new_clients)
+                              ? closure.snapshot.new_clients
+                              : [];
+                            const productRows = Array.isArray(closure.snapshot?.products)
+                              ? closure.snapshot.products
+                              : [];
+                            const giftRows = Array.isArray(closure.snapshot?.gifts)
+                              ? closure.snapshot.gifts
+                              : [];
+                            const normalOrders = snapshotOrders.filter((order) => order.commissionMode === 'default');
+                            const itemSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'mixed_items');
+                            const orderSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'fixed_order');
+                            const comboRows = productRows.filter((product) => {
+                              const type = String(product.productType || '').toLowerCase();
+                              const name = String(product.productName || '').toLowerCase();
+                              return type === 'combo' || type === 'promo' || name.includes('combo') || name.includes('promo');
+                            });
                             const closureStatusLabel =
                               closure.status === 'preliminary'
                                 ? 'Preliminar'
@@ -14955,6 +15012,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                   <td className="px-3 py-2 text-right">{fmtUSD(closure.billedUsd)}</td>
                                   <td className="px-3 py-2 text-right text-orange-300">
                                     {fmtUSD(closure.pendingCollectionUsd)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <span className="text-emerald-300">{closure.punctualPaidCount}</span>
+                                    <span className="text-[#8A8A96]"> / </span>
+                                    <span className="text-orange-300">{closure.pendingPaymentCount}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {closure.newOwnClientsCount + closure.newAssignedClientsCount}
                                   </td>
                                   <td className="px-3 py-2 text-right">{fmtUSD(closure.grossCommissionUsd)}</td>
                                   <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
@@ -14996,13 +15061,148 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                 </tr>
                                 {isExpanded ? (
                                   <tr className="border-b border-[#242433] bg-[#0B0B0D]">
-                                    <td className="px-3 py-3" colSpan={9}>
+                                    <td className="px-3 py-3" colSpan={11}>
+                                      <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018] px-3 py-2">
+                                          <div className="text-[10px] uppercase tracking-[0.08em] text-[#8A8A96]">Facturación</div>
+                                          <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{fmtUSD(closure.billedUsd)}</div>
+                                          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">{closure.deliveredOrdersCount} cierre(s)</div>
+                                        </div>
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018] px-3 py-2">
+                                          <div className="text-[10px] uppercase tracking-[0.08em] text-[#8A8A96]">Estado pagos</div>
+                                          <div className="mt-1 flex items-baseline gap-2">
+                                            <span className="text-sm font-semibold text-emerald-300">{closure.punctualPaidCount}</span>
+                                            <span className="text-[11px] text-[#B7B7C2]">puntual(es)</span>
+                                          </div>
+                                          <div className="text-[11px] text-orange-300">{closure.pendingPaymentCount} pendiente(s)</div>
+                                        </div>
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018] px-3 py-2">
+                                          <div className="text-[10px] uppercase tracking-[0.08em] text-[#8A8A96]">Clientes nuevos</div>
+                                          <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                                            {closure.newOwnClientsCount + closure.newAssignedClientsCount}
+                                          </div>
+                                          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">
+                                            {closure.newOwnClientsCount} propios · {closure.newAssignedClientsCount} asignados
+                                          </div>
+                                        </div>
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018] px-3 py-2">
+                                          <div className="text-[10px] uppercase tracking-[0.08em] text-[#8A8A96]">Reglas</div>
+                                          <div className="mt-1 text-[11px] text-[#B7B7C2]">Normal: {normalOrders.length}</div>
+                                          <div className="text-[11px] text-[#B7B7C2]">Item especial: {itemSpecialOrders.length}</div>
+                                          <div className="text-[11px] text-[#B7B7C2]">Orden fija: {orderSpecialOrders.length}</div>
+                                        </div>
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018] px-3 py-2">
+                                          <div className="text-[10px] uppercase tracking-[0.08em] text-[#8A8A96]">Deducibles</div>
+                                          <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+                                            {fmtUSD(closure.giftDeductionsUsd + closure.manualDeductionsUsd)}
+                                          </div>
+                                          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">A pagar {fmtUSD(closure.payableUsd)}</div>
+                                        </div>
+                                      </div>
+
+                                      <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018]">
+                                          <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
+                                            <div className="text-xs font-semibold text-[#F5F5F7]">Clientes nuevos</div>
+                                            <div className="text-[11px] text-[#B7B7C2]">{newClientRows.length} cliente(s)</div>
+                                          </div>
+                                          <div className="max-h-[180px] overflow-auto">
+                                            <table className="w-full text-[11px]">
+                                              <thead className="sticky top-0 bg-[#0B0B0D] text-[#B7B7C2]">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left font-medium">Tipo</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {newClientRows.length === 0 ? (
+                                                  <tr>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={3}>
+                                                      Sin clientes nuevos en este periodo.
+                                                    </td>
+                                                  </tr>
+                                                ) : (
+                                                  newClientRows.map((client, clientIdx) => {
+                                                    const clientType = String(client.clientType || '').toLowerCase();
+                                                    const clientTypeLabel =
+                                                      clientType === 'own'
+                                                        ? 'Propio'
+                                                        : clientType === 'assigned'
+                                                          ? 'Asignado'
+                                                          : clientType || 'Otro';
+                                                    const orderId = Number(client.orderId || 0);
+                                                    return (
+                                                      <tr
+                                                        key={`${closure.id}-client-${client.clientId || clientIdx}`}
+                                                        className={`${clientIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                      >
+                                                        <td className="px-3 py-2">{clientTypeLabel}</td>
+                                                        <td className="px-3 py-2">{client.clientName || 'Cliente'}</td>
+                                                        <td className="px-3 py-2">
+                                                          {client.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : '—')}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018]">
+                                          <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
+                                            <div className="text-xs font-semibold text-[#F5F5F7]">Pendientes por cobrar</div>
+                                            <div className="text-[11px] font-semibold text-orange-300">{fmtUSD(closure.pendingCollectionUsd)}</div>
+                                          </div>
+                                          <div className="max-h-[180px] overflow-auto">
+                                            <table className="w-full text-[11px]">
+                                              <thead className="sticky top-0 bg-[#0B0B0D] text-[#B7B7C2]">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Pendiente</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {pendingSnapshotOrders.length === 0 ? (
+                                                  <tr>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={3}>
+                                                      Sin pendientes por cobrar.
+                                                    </td>
+                                                  </tr>
+                                                ) : (
+                                                  pendingSnapshotOrders.map((order, pendingIdx) => {
+                                                    const orderId = Number(order.orderId || 0);
+                                                    return (
+                                                      <tr
+                                                        key={`${closure.id}-pending-${orderId || pendingIdx}`}
+                                                        className={`${pendingIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                      >
+                                                        <td className="px-3 py-2">
+                                                          {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                        </td>
+                                                        <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
+                                                        <td className="px-3 py-2 text-right text-orange-300">
+                                                          {fmtUSD(Number(order.pendingUsd || 0))}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      </div>
+
                                       <div className="mb-2 flex items-center justify-between gap-3">
                                         <div className="text-xs font-semibold text-[#F5F5F7]">
-                                          Ordenes que forman esta comisión
+                                          Facturación y comisión por orden
                                         </div>
                                         <div className="text-[11px] text-[#B7B7C2]">
-                                          {snapshotOrders.length} orden(es)
+                                          Ordenadas por fecha · {snapshotOrders.length} orden(es)
                                         </div>
                                       </div>
                                       <div className="max-h-[260px] overflow-auto rounded-xl border border-[#242433]">
@@ -15069,6 +15269,161 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           </tbody>
                                         </table>
                                       </div>
+
+                                      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
+                                        {[
+                                          { title: 'Órdenes normales', rows: normalOrders, tone: 'text-[#B7B7C2]' },
+                                          { title: 'Con ítems especiales', rows: itemSpecialOrders, tone: 'text-[#FEEF00]' },
+                                          { title: 'Con orden fija', rows: orderSpecialOrders, tone: 'text-orange-300' },
+                                        ].map((group) => (
+                                          <div key={group.title} className="rounded-xl border border-[#242433] bg-[#101018]">
+                                            <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
+                                              <div className="text-xs font-semibold text-[#F5F5F7]">{group.title}</div>
+                                              <div className={`text-[11px] font-semibold ${group.tone}`}>{group.rows.length}</div>
+                                            </div>
+                                            <div className="max-h-[170px] overflow-auto">
+                                              <table className="w-full text-[11px]">
+                                                <thead className="sticky top-0 bg-[#0B0B0D] text-[#B7B7C2]">
+                                                  <tr>
+                                                    <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                                    <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                                    <th className="px-3 py-2 text-right font-medium">Base</th>
+                                                    <th className="px-3 py-2 text-right font-medium">Comisión</th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {group.rows.length === 0 ? (
+                                                    <tr>
+                                                      <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={4}>
+                                                        Sin órdenes.
+                                                      </td>
+                                                    </tr>
+                                                  ) : (
+                                                    group.rows.map((order, groupIdx) => {
+                                                      const orderId = Number(order.orderId || 0);
+                                                      const baseUsd =
+                                                        Number(order.regularBaseUsd || 0) +
+                                                        Number(order.specialItemBaseUsd || 0) +
+                                                        Number(order.specialOrderBaseUsd || 0);
+                                                      return (
+                                                        <tr
+                                                          key={`${closure.id}-${group.title}-${orderId || groupIdx}`}
+                                                          className={`${groupIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                        >
+                                                          <td className="px-3 py-2">
+                                                            {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                          </td>
+                                                          <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
+                                                          <td className="px-3 py-2 text-right">{fmtUSD(baseUsd)}</td>
+                                                          <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
+                                                            {fmtUSD(Number(order.commissionUsd || 0))}
+                                                          </td>
+                                                        </tr>
+                                                      );
+                                                    })
+                                                  )}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+
+                                      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018]">
+                                          <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
+                                            <div className="text-xs font-semibold text-[#F5F5F7]">Combos / promos</div>
+                                            <div className="text-[11px] text-[#B7B7C2]">{comboRows.length} línea(s)</div>
+                                          </div>
+                                          <div className="max-h-[190px] overflow-auto">
+                                            <table className="w-full text-[11px]">
+                                              <thead className="sticky top-0 bg-[#0B0B0D] text-[#B7B7C2]">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left font-medium">Producto</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Cant.</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Total</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {comboRows.length === 0 ? (
+                                                  <tr>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={5}>
+                                                      Sin combos o promos en este periodo.
+                                                    </td>
+                                                  </tr>
+                                                ) : (
+                                                  comboRows.map((product, productIdx) => {
+                                                    const orderId = Number(product.orderId || 0);
+                                                    return (
+                                                      <tr
+                                                        key={`${closure.id}-combo-${orderId || productIdx}-${product.productName}`}
+                                                        className={`${productIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                      >
+                                                        <td className="px-3 py-2">{product.productName || 'Producto'}</td>
+                                                        <td className="px-3 py-2">{product.clientName || 'Cliente'}</td>
+                                                        <td className="px-3 py-2">
+                                                          {product.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">{Number(product.qty || 0)}</td>
+                                                        <td className="px-3 py-2 text-right">{fmtUSD(Number(product.lineBaseUsd || 0))}</td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018]">
+                                          <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
+                                            <div className="text-xs font-semibold text-[#F5F5F7]">Obsequios / deducibles</div>
+                                            <div className="text-[11px] text-[#B7B7C2]">{giftRows.length} línea(s)</div>
+                                          </div>
+                                          <div className="max-h-[190px] overflow-auto">
+                                            <table className="w-full text-[11px]">
+                                              <thead className="sticky top-0 bg-[#0B0B0D] text-[#B7B7C2]">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left font-medium">Producto</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Cant.</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Deducible</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {giftRows.length === 0 ? (
+                                                  <tr>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={5}>
+                                                      Sin obsequios registrados en este periodo.
+                                                    </td>
+                                                  </tr>
+                                                ) : (
+                                                  giftRows.map((gift, giftIdx) => {
+                                                    const orderId = Number(gift.orderId || 0);
+                                                    return (
+                                                      <tr
+                                                        key={`${closure.id}-gift-${orderId || giftIdx}-${gift.productName}`}
+                                                        className={`${giftIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                      >
+                                                        <td className="px-3 py-2">{gift.productName || 'Producto'}</td>
+                                                        <td className="px-3 py-2">{gift.clientName || 'Cliente'}</td>
+                                                        <td className="px-3 py-2">
+                                                          {gift.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">{Number(gift.qty || 0)}</td>
+                                                        <td className="px-3 py-2 text-right">{fmtUSD(Number(gift.deductionUsd || 0))}</td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      </div>
                                     </td>
                                   </tr>
                                 ) : null}
@@ -15113,7 +15468,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
               <div className="rounded-2xl border border-[#242433] bg-[#121218]">
                 <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Detalle de comisiones</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Detalle auxiliar de la consulta generada</div>
                   <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(commissionCalculatedData.commissionTotalUsd)}</div>
                 </div>
                 <div className="grid grid-cols-1 gap-2 border-b border-[#242433] bg-[#0F0F14] px-4 py-3 text-[11px] text-[#B7B7C2] md:grid-cols-3">

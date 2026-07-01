@@ -11567,7 +11567,9 @@ function buildAdvisorCommissionSnapshots(params: {
         closure.products.push({
           orderId,
           orderNumber: order.order_number,
+          clientName: getAdvisorCommissionClient(order)?.full_name || 'Cliente',
           productName,
+          productType,
           qty: toSafeNumber(item.qty, 0),
           lineBaseUsd: roundMoney(lineBaseUsd),
           commissionMode: String(product?.commission_mode || 'default'),
@@ -11595,7 +11597,7 @@ function buildAdvisorCommissionSnapshots(params: {
     closure.totals.grossCommissionUsd += orderCommissionUsd;
     closure.totals.pendingCollectionUsd += isPending ? pendingUsd : 0;
     closure.totals.pendingPaymentCount += isPending ? 1 : 0;
-    closure.totals.punctualPaidCount += !isPending && ['paid', 'overpaid', 'closed'].includes(paymentStatus) ? 1 : 0;
+    closure.totals.punctualPaidCount += !isPending ? 1 : 0;
 
     const client = getAdvisorCommissionClient(order);
     const clientCreatedDate = dateOnlyFromIso(client?.created_at);
@@ -11639,6 +11641,29 @@ function buildAdvisorCommissionSnapshots(params: {
 
   return Array.from(closuresByAdvisor.values()).map((closure) => {
     const totals = closure.totals;
+    const byDateThenOrder = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const dateA = String(a.deliveryDate ?? a.createdAt ?? '');
+      const dateB = String(b.deliveryDate ?? b.createdAt ?? '');
+      const dateCompare = dateA.localeCompare(dateB);
+      if (dateCompare !== 0) return dateCompare;
+      return Number(a.orderId || 0) - Number(b.orderId || 0);
+    };
+    const byProductThenOrder = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const productCompare = String(a.productName || '').localeCompare(String(b.productName || ''));
+      if (productCompare !== 0) return productCompare;
+      return Number(a.orderId || 0) - Number(b.orderId || 0);
+    };
+
+    closure.orders.sort(byDateThenOrder);
+    closure.pendingOrders.sort(byDateThenOrder);
+    closure.newClients.sort((a, b) => {
+      const typeCompare = String(a.clientType || '').localeCompare(String(b.clientType || ''));
+      if (typeCompare !== 0) return typeCompare;
+      return String(a.clientName || '').localeCompare(String(b.clientName || ''));
+    });
+    closure.products.sort(byProductThenOrder);
+    closure.gifts.sort(byProductThenOrder);
+
     totals.billedUsd = roundMoney(totals.billedUsd);
     totals.regularBaseUsd = roundMoney(totals.regularBaseUsd);
     totals.specialItemBaseUsd = roundMoney(totals.specialItemBaseUsd);
