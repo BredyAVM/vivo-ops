@@ -1122,22 +1122,22 @@ const RECONCILIATION_RESOLUTION_OPTIONS: Array<{
   {
     value: 'expense',
     label: 'Registrar egreso',
-    hint: 'Crea una salida confirmada en la cuenta.',
+    hint: 'Crea una salida confirmada. Si es parcial, queda pendiente el resto.',
   },
   {
     value: 'income',
     label: 'Registrar ingreso',
-    hint: 'Crea una entrada confirmada en la cuenta.',
+    hint: 'Crea una entrada confirmada. Si es parcial, queda pendiente el resto.',
   },
   {
     value: 'fee',
     label: 'Registrar comision',
-    hint: 'Crea una comision bancaria confirmada.',
+    hint: 'Crea una comision bancaria confirmada. Si es parcial, queda pendiente el resto.',
   },
   {
     value: 'adjustment',
     label: 'Registrar ajuste',
-    hint: 'Ajusta el saldo segun la direccion del pendiente.',
+    hint: 'Ajusta el saldo segun la direccion del pendiente. Si es parcial, queda pendiente el resto.',
   },
 ];
 
@@ -8605,11 +8605,17 @@ const handleSaveQuickCatalog = async () => {
         movementAmount,
         exchangeRateVesPerUsd: exchangeRate,
       });
+      const leavesResidual =
+        reconciliationResolveMode !== 'note_only' &&
+        movementAmount != null &&
+        Number(movementAmount) < selectedReconciliationResolveItem.amount - 0.01;
       showToast(
         'success',
         reconciliationResolveMode === 'note_only'
           ? 'Pendiente resuelto.'
-          : 'Pendiente resuelto y movimiento registrado.'
+          : leavesResidual
+            ? 'Movimiento registrado. Queda pendiente el saldo restante.'
+            : 'Pendiente resuelto y movimiento registrado.'
       );
       setReconciliationResolveItemId(null);
       setReconciliationResolveNotes('');
@@ -21862,6 +21868,11 @@ deliveryAssignMode === 'external' ? (
                       )?.hint
                     }
                   </span>
+                  {reconciliationResolveMode !== 'note_only' ? (
+                    <span className="mt-1 block text-xs text-[#6F6F7A]">
+                      Para cerrar todo, usa el monto completo. Para resolver por partes, coloca solo el monto identificado.
+                    </span>
+                  ) : null}
                 </label>
 
                 {reconciliationResolveMode !== 'note_only' && (

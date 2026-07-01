@@ -9412,6 +9412,7 @@ export async function resolveMoneyAccountReconciliationItemAction(input: {
     .select(`
       id,
       money_account_id,
+      item_type,
       direction,
       currency_code,
       amount,
@@ -9483,6 +9484,9 @@ export async function resolveMoneyAccountReconciliationItemAction(input: {
       currencyCode === 'USD'
         ? Number(movementAmount.toFixed(2))
         : Number((movementAmount / (exchangeRate ?? 1)).toFixed(2));
+    const itemUsdEquivalent = toSafeNumber(item.amount_usd_equivalent, 0);
+    const remainingAmount = Number(Math.max(0, itemAmount - movementAmount).toFixed(2));
+    const remainingUsdEquivalent = Number(Math.max(0, itemUsdEquivalent - amountUsdEquivalent).toFixed(2));
 
     const referenceCode = `reconciliation-${itemId}`;
 
@@ -9540,6 +9544,29 @@ export async function resolveMoneyAccountReconciliationItemAction(input: {
     if (movementError) throw new Error(movementError.message);
 
     movementSummary = `${movementLabel}: ${Number(movementAmount.toFixed(2))} ${currencyCode}.`;
+
+    if (remainingAmount > 0.01) {
+      const { error: residualError } = await supabase.from('money_account_reconciliation_items').insert({
+        money_account_id: Number(item.money_account_id),
+        source_kind: 'reconciliation_residual',
+        source_id: itemId,
+        item_type: item.item_type ?? 'other_pending',
+        direction: item.direction,
+        currency_code: currencyCode,
+        amount: remainingAmount,
+        amount_usd_equivalent: remainingUsdEquivalent,
+        operation_date: item.operation_date ?? null,
+        reference_code: item.reference_code ?? null,
+        counterparty_name: item.counterparty_name ?? null,
+        description: `Saldo restante de conciliacion #${itemId}: ${item.description}`,
+        status: 'open',
+        created_by_user_id: user.id,
+      });
+
+      if (residualError) throw new Error(residualError.message);
+
+      movementSummary = `${movementSummary}\nSaldo restante pendiente: ${remainingAmount} ${currencyCode}.`;
+    }
   }
 
   const { error } = await supabase
