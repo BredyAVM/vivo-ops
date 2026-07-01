@@ -11500,6 +11500,27 @@ const selectedCreateOrderClientAddresses = useMemo(
   }, [loadMoneyActivity, settingsTab, viewMode]);
 
   useEffect(() => {
+    if (!closureOpen || !selectedAccount) return;
+
+    const nextClosureDate = closureDate || getCaracasTodayString();
+    const previewKey = getClosurePreviewKey(selectedAccount.id, nextClosureDate, closureTime);
+    if (closureExpectedPreview?.key === previewKey) return;
+
+    const timeout = window.setTimeout(() => {
+      void refreshClosureExpectedPreview(selectedAccount.id, nextClosureDate, closureTime, false);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    closureDate,
+    closureExpectedPreview?.key,
+    closureOpen,
+    closureTime,
+    refreshClosureExpectedPreview,
+    selectedAccount,
+  ]);
+
+  useEffect(() => {
     if (viewMode !== 'settings' || settingsTab !== 'inventory') return;
     void loadInventoryMovements();
   }, [loadInventoryMovements, settingsTab, viewMode]);
@@ -21968,21 +21989,6 @@ deliveryAssignMode === 'external' ? (
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-2">
-                    <button
-                      type="button"
-                      className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#B7B7C2] disabled:cursor-not-allowed disabled:opacity-60"
-                      onClick={() =>
-                        loadMoneyActivity(true, {
-                          scope: 'account',
-                          accountId: selectedAccount.id,
-                          dateFrom: accountDetailDateFrom || undefined,
-                          dateTo: accountDetailDateTo || undefined,
-                        })
-                      }
-                      disabled={moneyActivityLoading}
-                    >
-                      {moneyActivityLoading ? 'Actualizando...' : 'Actualizar'}
-                    </button>
                     <div className="min-w-[124px]">
                       <button
                         type="button"
@@ -21998,6 +22004,22 @@ deliveryAssignMode === 'external' ? (
                       </button>
                       {accountDetailMoreOpen ? (
                         <div className="mt-1 overflow-hidden rounded-xl border border-[#242433] bg-[#0B0B0D] p-1 text-sm shadow-2xl">
+                          <button
+                            type="button"
+                            className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={() => {
+                              setAccountDetailMoreOpen(false);
+                              void loadMoneyActivity(true, {
+                                scope: 'account',
+                                accountId: selectedAccount.id,
+                                dateFrom: accountDetailDateFrom || undefined,
+                                dateTo: accountDetailDateTo || undefined,
+                              });
+                            }}
+                            disabled={moneyActivityLoading}
+                          >
+                            Refrescar datos
+                          </button>
                           <button
                             type="button"
                             className="block w-full rounded-lg px-3 py-2 text-left text-[#B7B7C2] hover:bg-[#151522] hover:text-[#F5F5F7]"
