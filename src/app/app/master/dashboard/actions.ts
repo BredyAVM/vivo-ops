@@ -11942,6 +11942,70 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   };
 }
 
+export async function updateAdvisorCommissionClosureStatusAction(input: {
+  closureId: number;
+  nextStatus: 'closed' | 'paid';
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const closureId = Number(input.closureId || 0);
+  const nextStatus = input.nextStatus;
+
+  if (!Number.isFinite(closureId) || closureId <= 0) {
+    throw new Error('Selecciona un cierre valido.');
+  }
+
+  if (nextStatus !== 'closed' && nextStatus !== 'paid') {
+    throw new Error('Estado de cierre invalido.');
+  }
+
+  const { data: currentClosure, error: currentClosureError } = await supabase
+    .from('advisor_commission_closures')
+    .select('id, status')
+    .eq('id', closureId)
+    .single();
+
+  if (currentClosureError || !currentClosure) {
+    throw new Error(currentClosureError?.message || 'No se pudo cargar el cierre.');
+  }
+
+  const currentStatus = String(currentClosure.status || '');
+  if (nextStatus === 'closed' && currentStatus !== 'preliminary') {
+    throw new Error('Solo un preliminar puede pasar a cierre.');
+  }
+
+  if (nextStatus === 'paid' && currentStatus !== 'closed') {
+    throw new Error('Solo un cierre confirmado puede marcarse como pagado.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const payload =
+    nextStatus === 'closed'
+      ? {
+          status: 'closed',
+          closed_at: nowIso,
+          closed_by_user_id: user.id,
+          updated_at: nowIso,
+        }
+      : {
+          status: 'paid',
+          paid_at: nowIso,
+          paid_by_user_id: user.id,
+          updated_at: nowIso,
+        };
+
+  const { error: updateError } = await supabase
+    .from('advisor_commission_closures')
+    .update(payload)
+    .eq('id', closureId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+  return { ok: true as const };
+}
+
 export async function logoutAction() {
   const supabase = await createSupabaseServer();
 

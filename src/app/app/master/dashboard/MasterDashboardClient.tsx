@@ -103,6 +103,7 @@ import {
   createAdvisorCommissionPeriodAction,
   duplicateCatalogItemAction,
   generateAdvisorCommissionClosuresAction,
+  updateAdvisorCommissionClosureStatusAction,
   createClientAction,
   createOrderClientQuickAction,
   getClientFundSnapshotAction,
@@ -6251,6 +6252,22 @@ const generateAdvisorCommissionClosures = useCallback(async () => {
   router,
   selectedAdvisorCommissionPeriodId,
 ]);
+
+const updateAdvisorCommissionClosureStatus = useCallback(async (
+  closureId: number,
+  nextStatus: 'closed' | 'paid'
+) => {
+  try {
+    setAdvisorCommissionBusy(true);
+    await updateAdvisorCommissionClosureStatusAction({ closureId, nextStatus });
+    showToast('success', nextStatus === 'closed' ? 'Cierre confirmado.' : 'Cierre marcado como pagado.');
+    router.refresh();
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudo actualizar el cierre.');
+  } finally {
+    setAdvisorCommissionBusy(false);
+  }
+}, [router]);
 
 const openEditDashboardUser = (userItem: DashboardUser) => {
   const userRoles = new Set(dashboardRolesByUserId.get(userItem.id) ?? []);
@@ -14917,6 +14934,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const snapshotOrders = Array.isArray(closure.snapshot?.orders)
                               ? closure.snapshot.orders
                               : [];
+                            const closureStatusLabel =
+                              closure.status === 'preliminary'
+                                ? 'Preliminar'
+                                : closure.status === 'closed'
+                                  ? 'Cerrado'
+                                  : closure.status === 'paid'
+                                    ? 'Pagado'
+                                    : closure.status;
 
                             return (
                               <React.Fragment key={closure.id}>
@@ -14924,7 +14949,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                   className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                                 >
                                   <td className="px-3 py-2">{advisorNameById.get(closure.advisorUserId) || 'Asesor'}</td>
-                                  <td className="px-3 py-2 capitalize">{closure.status}</td>
+                                  <td className="px-3 py-2">{closureStatusLabel}</td>
                                   <td className="px-3 py-2 text-right">{closure.baseCommissionPct.toFixed(2)}%</td>
                                   <td className="px-3 py-2 text-right">{closure.deliveredOrdersCount}</td>
                                   <td className="px-3 py-2 text-right">{fmtUSD(closure.billedUsd)}</td>
@@ -14935,16 +14960,38 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                   <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
                                     {fmtUSD(closure.payableUsd)}
                                   </td>
-                                  <td className="px-3 py-2 text-right">
-                                    <button
-                                      className="rounded-full border border-[#2F3142] px-2.5 py-1 text-[11px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
-                                      onClick={() =>
-                                        setExpandedAdvisorCommissionClosureId(isExpanded ? null : closure.id)
-                                      }
-                                      type="button"
-                                    >
-                                      {isExpanded ? 'Ocultar' : 'Ver órdenes'}
-                                    </button>
+                                  <td className="px-3 py-2">
+                                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                      <button
+                                        className="rounded-full border border-[#2F3142] px-2.5 py-1 text-[11px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+                                        onClick={() =>
+                                          setExpandedAdvisorCommissionClosureId(isExpanded ? null : closure.id)
+                                        }
+                                        type="button"
+                                      >
+                                        {isExpanded ? 'Ocultar' : 'Ver órdenes'}
+                                      </button>
+                                      {closure.status === 'preliminary' ? (
+                                        <button
+                                          className="rounded-full border border-emerald-500/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 transition hover:border-emerald-400 disabled:cursor-wait disabled:opacity-50"
+                                          disabled={advisorCommissionBusy}
+                                          onClick={() => updateAdvisorCommissionClosureStatus(closure.id, 'closed')}
+                                          type="button"
+                                        >
+                                          Cerrar
+                                        </button>
+                                      ) : null}
+                                      {closure.status === 'closed' ? (
+                                        <button
+                                          className="rounded-full border border-[#FEEF00]/50 px-2.5 py-1 text-[11px] font-semibold text-[#FEEF00] transition hover:border-[#FFF45C] disabled:cursor-wait disabled:opacity-50"
+                                          disabled={advisorCommissionBusy}
+                                          onClick={() => updateAdvisorCommissionClosureStatus(closure.id, 'paid')}
+                                          type="button"
+                                        >
+                                          Pagado
+                                        </button>
+                                      ) : null}
+                                    </div>
                                   </td>
                                 </tr>
                                 {isExpanded ? (
