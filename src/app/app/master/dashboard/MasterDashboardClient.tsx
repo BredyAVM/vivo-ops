@@ -7606,9 +7606,6 @@ const handleSaveQuickCatalog = async () => {
         ) ?? null;
       const baselineAmount = activeBaseline?.countedAmount ?? 0;
       const baselineDate = activeBaseline?.baselineDate ?? null;
-      const baselineAtMs = activeBaseline?.baselineAt
-        ? new Date(activeBaseline.baselineAt).getTime()
-        : null;
       const cutoffAt = buildCaracasClosureAt(cutoffDate, cutoffTime);
       const cutoffAtMs = cutoffAt?.getTime() ?? null;
 
@@ -7629,16 +7626,7 @@ const handleSaveQuickCatalog = async () => {
           return sum;
         }
 
-        if (baselineDate && movement.movementDate < baselineDate) return sum;
-        if (
-          baselineDate &&
-          movement.movementDate === baselineDate &&
-          baselineAtMs != null &&
-          movementRecordedAtMs != null &&
-          movementRecordedAtMs <= baselineAtMs
-        ) {
-          return sum;
-        }
+        if (baselineDate && movement.movementDate <= baselineDate) return sum;
 
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);

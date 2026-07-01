@@ -8941,7 +8941,7 @@ export async function createMoneyAccountClosureAction(input: {
     .lte('movement_date', closureDate);
 
   if (activeBaseline?.baseline_date) {
-    movementsQuery = movementsQuery.gte('movement_date', activeBaseline.baseline_date);
+    movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
   }
 
   const { data: movements, error: movementsError } = await movementsQuery;
@@ -8951,25 +8951,12 @@ export async function createMoneyAccountClosureAction(input: {
   let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
   let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
 
-  const baselineDate = activeBaseline?.baseline_date ? String(activeBaseline.baseline_date) : null;
-  const baselineAtMs = activeBaseline?.baseline_at ? new Date(activeBaseline.baseline_at).getTime() : null;
-
   for (const movement of movements ?? []) {
     const movementDate = String(movement.movement_date || '');
     const movementRecordedAtMs = getMovementRecordedAtMs(movement);
 
     if (movementDate > closureDate) continue;
     if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
-    if (baselineDate && movementDate < baselineDate) continue;
-    if (
-      baselineDate &&
-      movementDate === baselineDate &&
-      baselineAtMs != null &&
-      movementRecordedAtMs != null &&
-      movementRecordedAtMs <= baselineAtMs
-    ) {
-      continue;
-    }
 
     const signed = movement.direction === 'inflow' ? 1 : -1;
     expectedAmount += signed * toSafeNumber(movement.amount, 0);
@@ -9102,7 +9089,7 @@ export async function previewMoneyAccountClosureAction(input: {
     .lte('movement_date', closureDate);
 
   if (activeBaseline?.baseline_date) {
-    movementsQuery = movementsQuery.gte('movement_date', activeBaseline.baseline_date);
+    movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
   }
 
   const { data: movements, error: movementsError } = await movementsQuery;
@@ -9111,8 +9098,6 @@ export async function previewMoneyAccountClosureAction(input: {
 
   let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
   let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
-  const baselineDate = activeBaseline?.baseline_date ? String(activeBaseline.baseline_date) : null;
-  const baselineAtMs = activeBaseline?.baseline_at ? new Date(activeBaseline.baseline_at).getTime() : null;
 
   for (const movement of movements ?? []) {
     const movementDate = String(movement.movement_date || '');
@@ -9120,16 +9105,6 @@ export async function previewMoneyAccountClosureAction(input: {
 
     if (movementDate > closureDate) continue;
     if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
-    if (baselineDate && movementDate < baselineDate) continue;
-    if (
-      baselineDate &&
-      movementDate === baselineDate &&
-      baselineAtMs != null &&
-      movementRecordedAtMs != null &&
-      movementRecordedAtMs <= baselineAtMs
-    ) {
-      continue;
-    }
 
     const signed = movement.direction === 'inflow' ? 1 : -1;
     expectedAmount += signed * toSafeNumber(movement.amount, 0);
