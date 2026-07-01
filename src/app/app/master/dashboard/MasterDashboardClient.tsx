@@ -1564,6 +1564,12 @@ function fmtDateTimeES(iso: string | null) {
   return `${day}/${month}/${yy} - ${hour}:${minute} ${ampm}`;
 }
 
+function fmtDateInputES(dateText: string | null | undefined) {
+  const match = String(dateText || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateText || '—';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 function fmtClosureMoment(closure: Pick<MoneyAccountClosureItem, 'closureDate' | 'closureAt'>) {
   return closure.closureAt ? fmtDateTimeES(closure.closureAt) : closure.closureDate;
 }
@@ -8242,6 +8248,7 @@ const handleSaveQuickCatalog = async () => {
       setAccountDetailTab(tab);
       setAccountDetailDateFrom(defaultDate);
       setAccountDetailDateTo(defaultDate);
+      setAccountAuditStatusFilter('confirmed');
       setSelectedAccountId(accountId);
       setAccountDetailOpen(true);
 
@@ -12771,8 +12778,8 @@ const selectedCreateOrderClientAddresses = useMemo(
 
   const accountStatementFiltersActive =
     accountDetailUsesCustomDateRange ||
+    accountAuditStatusFilter !== 'confirmed' ||
     accountMovementFilter !== 'all' ||
-    Boolean(accountAuditStatusFilter) ||
     Boolean(accountAuditUserFilter) ||
     accountAuditApprovalOnly ||
     accountAuditExceptionOnly;
@@ -22836,7 +22843,7 @@ deliveryAssignMode === 'external' ? (
           setAccountDetailOpen(false);
           setAccountDetailMoreOpen(false);
         }}
-        widthClass="w-[760px]"
+        widthClass="w-[920px] max-w-[calc(100vw-24px)]"
       >
         {!selectedAccount ? (
           <div className="text-sm text-[#B7B7C2]">Sin cuenta seleccionada.</div>
@@ -23599,7 +23606,7 @@ deliveryAssignMode === 'external' ? (
                       setAccountDetailDateFrom(defaultMoneyActivityDate);
                       setAccountDetailDateTo(defaultMoneyActivityDate);
                       setAccountMovementFilter('all');
-                      setAccountAuditStatusFilter('');
+                      setAccountAuditStatusFilter('confirmed');
                       setAccountAuditUserFilter('');
                       setAccountAuditApprovalOnly(false);
                       setAccountAuditExceptionOnly(false);
@@ -23609,19 +23616,18 @@ deliveryAssignMode === 'external' ? (
                   </button>
                 ) : null}
               </div>
-              <div className="mt-3 overflow-x-auto">
+              <div className="mt-3 overflow-hidden rounded-xl border border-[#242433]">
                 {selectedAccountVisibleStatementRows.length === 0 ? (
-                  <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
+                  <div className="p-3 text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
-                  <table className="min-w-[980px] w-full table-fixed text-[11px]">
+                  <table className="w-full table-fixed text-[11px]">
                     <colgroup>
-                      <col className="w-[92px]" />
-                      <col className="w-[36%]" />
-                      <col className="w-[150px]" />
-                      <col className="w-[118px]" />
-                      <col className="w-[118px]" />
-                      <col className="w-[126px]" />
-                      <col className="w-[112px]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[34%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[14%]" />
                     </colgroup>
                     <thead className="border-b border-[#242433] text-[#B7B7C2]">
                       <tr>
@@ -23631,7 +23637,6 @@ deliveryAssignMode === 'external' ? (
                         <th className="px-2 py-1.5 text-right font-medium">Entrada</th>
                         <th className="px-2 py-1.5 text-right font-medium">Salida</th>
                         <th className="px-2 py-1.5 text-right font-medium">Saldo</th>
-                        <th className="px-2 py-1.5 text-left font-medium">Estado</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -23652,7 +23657,7 @@ deliveryAssignMode === 'external' ? (
                               setMovementDetailOpen(true);
                             }}
                           >
-                            <td className="px-2 py-1.5 whitespace-nowrap text-[#D7D7E0]">{movement.movementDate}</td>
+                            <td className="px-2 py-1.5 text-[#D7D7E0]">{fmtDateInputES(movement.movementDate)}</td>
                             <td className="px-2 py-1.5">
                               <div className="truncate font-medium text-[#F5F5F7]" title={row.concept}>
                                 {row.concept}
@@ -23671,45 +23676,31 @@ deliveryAssignMode === 'external' ? (
                                 <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]">Orden #{movement.orderId}</div>
                               ) : null}
                             </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                            <td className="px-2 py-1.5 text-right">
                               {row.inflowNative > 0 ? (
-                                <span className="font-semibold text-emerald-300">
+                                <span className="block truncate font-semibold text-emerald-300">
                                   {fmtMoneyByCurrency(row.inflowNative, selectedAccount.currencyCode)}
                                 </span>
                               ) : (
                                 <span className="text-[#8A8A96]">—</span>
                               )}
                             </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                            <td className="px-2 py-1.5 text-right">
                               {row.outflowNative > 0 ? (
-                                <span className="font-semibold text-red-300">
+                                <span className="block truncate font-semibold text-red-300">
                                   {fmtMoneyByCurrency(row.outflowNative, selectedAccount.currencyCode)}
                                 </span>
                               ) : (
                                 <span className="text-[#8A8A96]">—</span>
                               )}
                             </td>
-                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                              <div className="font-semibold text-[#F5F5F7]">
+                            <td className="px-2 py-1.5 text-right">
+                              <div className="truncate font-semibold text-[#F5F5F7]">
                                 {fmtMoneyByCurrency(row.runningBalanceNative, selectedAccount.currencyCode)}
                               </div>
                               {movement.status !== 'confirmed' ? (
                                 <div className="mt-0.5 text-[10px] text-[#8A8A96]">No afecta saldo</div>
                               ) : null}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <span
-                                className={[
-                                  'inline-flex max-w-full rounded-full border px-1.5 py-0.5 text-[10px]',
-                                  movement.status === 'confirmed'
-                                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                                    : movement.status === 'pending'
-                                      ? 'border-[#FEEF00]/30 bg-[#1D1A00] text-[#FEEF00]'
-                                      : 'border-red-500/30 bg-red-500/10 text-red-300',
-                                ].join(' ')}
-                              >
-                                {MONEY_MOVEMENT_STATUS_LABEL[movement.status]}
-                              </span>
                             </td>
                           </tr>
                         );
