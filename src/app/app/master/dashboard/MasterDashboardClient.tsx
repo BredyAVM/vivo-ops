@@ -4533,7 +4533,6 @@ const orderActionBusyRef = useRef(false);
     key: string;
     amount: number;
   } | null>(null);
-  const [closureExpectedRefreshing, setClosureExpectedRefreshing] = useState(false);
   const [reconciliationResolveItemId, setReconciliationResolveItemId] = useState<number | null>(null);
   const [reconciliationResolveNotes, setReconciliationResolveNotes] = useState('');
   const [reconciliationResolveMode, setReconciliationResolveMode] =
@@ -7579,35 +7578,84 @@ const handleSaveQuickCatalog = async () => {
 
   const getExpectedAccountBalanceNative = useCallback(
     (accountId: number) => {
+      const latestClosure =
+        moneyAccountClosures
+          .filter(
+            (closure) =>
+              closure.moneyAccountId === accountId &&
+              closure.status !== 'rejected' &&
+              Boolean(closure.closureAt)
+          )
+          .sort(
+            (a, b) =>
+              new Date(b.closureAt || b.createdAt).getTime() -
+              new Date(a.closureAt || a.createdAt).getTime()
+          )[0] ?? null;
       const activeBaseline =
-        moneyAccountBaselines.find(
-          (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
-        ) ?? null;
-      const baselineAmount = activeBaseline?.countedAmount ?? 0;
-      const baselineDate = activeBaseline?.baselineDate ?? null;
+        latestClosure == null
+          ? moneyAccountBaselines.find(
+              (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
+            ) ?? null
+          : null;
+      const anchorAmount = latestClosure?.countedAmount ?? activeBaseline?.countedAmount ?? 0;
+      const anchorDate = latestClosure?.closureDate ?? activeBaseline?.baselineDate ?? null;
+      const anchorAtMs = latestClosure?.closureAt ? new Date(latestClosure.closureAt).getTime() : null;
 
       const movementDelta = moneyMovements.reduce((sum, movement) => {
         if (movement.moneyAccountId !== accountId) return sum;
         if (movement.status !== 'confirmed') return sum;
-        if (baselineDate && movement.movementDate <= baselineDate) return sum;
+
+        if (latestClosure && anchorDate) {
+          if (movement.movementDate < anchorDate) return sum;
+          const movementRecordedAt = movement.confirmedAt || movement.createdAt;
+          const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
+          if (
+            movement.movementDate === anchorDate &&
+            anchorAtMs != null &&
+            movementRecordedAtMs != null &&
+            movementRecordedAtMs <= anchorAtMs
+          ) {
+            return sum;
+          }
+        } else if (anchorDate && movement.movementDate <= anchorDate) {
+          return sum;
+        }
+
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);
 
-      return Number((baselineAmount + movementDelta).toFixed(2));
+      return Number((anchorAmount + movementDelta).toFixed(2));
     },
-    [moneyAccountBaselines, moneyMovements]
+    [moneyAccountBaselines, moneyAccountClosures, moneyMovements]
   );
 
   const getExpectedAccountBalanceNativeAt = useCallback(
     (accountId: number, cutoffDate: string, cutoffTime: string) => {
-      const activeBaseline =
-        moneyAccountBaselines.find(
-          (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
-        ) ?? null;
-      const baselineAmount = activeBaseline?.countedAmount ?? 0;
-      const baselineDate = activeBaseline?.baselineDate ?? null;
       const cutoffAt = buildCaracasClosureAt(cutoffDate, cutoffTime);
       const cutoffAtMs = cutoffAt?.getTime() ?? null;
+      const latestClosure =
+        moneyAccountClosures
+          .filter((closure) => {
+            if (closure.moneyAccountId !== accountId || closure.status === 'rejected' || !closure.closureAt) {
+              return false;
+            }
+            if (cutoffAtMs == null) return true;
+            return new Date(closure.closureAt).getTime() < cutoffAtMs;
+          })
+          .sort(
+            (a, b) =>
+              new Date(b.closureAt || b.createdAt).getTime() -
+              new Date(a.closureAt || a.createdAt).getTime()
+          )[0] ?? null;
+      const activeBaseline =
+        latestClosure == null
+          ? moneyAccountBaselines.find(
+              (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
+            ) ?? null
+          : null;
+      const anchorAmount = latestClosure?.countedAmount ?? activeBaseline?.countedAmount ?? 0;
+      const anchorDate = latestClosure?.closureDate ?? activeBaseline?.baselineDate ?? null;
+      const anchorAtMs = latestClosure?.closureAt ? new Date(latestClosure.closureAt).getTime() : null;
 
       const movementDelta = moneyMovements.reduce((sum, movement) => {
         if (movement.moneyAccountId !== accountId) return sum;
@@ -7626,14 +7674,26 @@ const handleSaveQuickCatalog = async () => {
           return sum;
         }
 
-        if (baselineDate && movement.movementDate <= baselineDate) return sum;
+        if (latestClosure && anchorDate) {
+          if (movement.movementDate < anchorDate) return sum;
+          if (
+            movement.movementDate === anchorDate &&
+            anchorAtMs != null &&
+            movementRecordedAtMs != null &&
+            movementRecordedAtMs <= anchorAtMs
+          ) {
+            return sum;
+          }
+        } else if (anchorDate && movement.movementDate <= anchorDate) {
+          return sum;
+        }
 
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);
 
-      return Number((baselineAmount + movementDelta).toFixed(2));
+      return Number((anchorAmount + movementDelta).toFixed(2));
     },
-    [moneyAccountBaselines, moneyMovements]
+    [moneyAccountBaselines, moneyAccountClosures, moneyMovements]
   );
 
   const getClosurePreviewKey = (accountId: number, date: string, time: string) =>
@@ -7644,7 +7704,6 @@ const handleSaveQuickCatalog = async () => {
       if (!Number.isFinite(accountId) || accountId <= 0 || !date) return;
 
       try {
-        setClosureExpectedRefreshing(true);
         const preview = await previewMoneyAccountClosureAction({
           moneyAccountId: accountId,
           closureDate: date,
@@ -7660,8 +7719,6 @@ const handleSaveQuickCatalog = async () => {
         }
       } catch (err) {
         showToast('error', err instanceof Error ? err.message : 'No se pudo actualizar el saldo sistema.');
-      } finally {
-        setClosureExpectedRefreshing(false);
       }
     },
     []
@@ -7888,8 +7945,42 @@ const handleSaveQuickCatalog = async () => {
             return String(b.createdAt).localeCompare(String(a.createdAt));
           });
         });
-        setMoneyAccountClosures(result.closures as MoneyAccountClosureItem[]);
-        setMoneyAccountBaselines(result.baselines as MoneyAccountBaselineItem[]);
+        setMoneyAccountClosures((currentClosures) => {
+          const loadedClosures = result.closures as MoneyAccountClosureItem[];
+          const closureById = new Map<number, MoneyAccountClosureItem>();
+
+          for (const closure of currentClosures) {
+            if (requestedAccountId && closure.moneyAccountId === requestedAccountId) continue;
+            closureById.set(closure.id, closure);
+          }
+
+          for (const closure of loadedClosures) {
+            closureById.set(closure.id, closure);
+          }
+
+          return Array.from(closureById.values()).sort((a, b) => {
+            const aTime = new Date(a.closureAt || a.createdAt).getTime();
+            const bTime = new Date(b.closureAt || b.createdAt).getTime();
+            return bTime - aTime;
+          });
+        });
+        setMoneyAccountBaselines((currentBaselines) => {
+          const loadedBaselines = result.baselines as MoneyAccountBaselineItem[];
+          const baselineById = new Map<number, MoneyAccountBaselineItem>();
+
+          for (const baseline of currentBaselines) {
+            if (requestedAccountId && baseline.moneyAccountId === requestedAccountId) continue;
+            baselineById.set(baseline.id, baseline);
+          }
+
+          for (const baseline of loadedBaselines) {
+            baselineById.set(baseline.id, baseline);
+          }
+
+          return Array.from(baselineById.values()).sort((a, b) => {
+            return new Date(b.baselineAt).getTime() - new Date(a.baselineAt).getTime();
+          });
+        });
         setMoneyAccountReconciliationItems(result.reconciliationItems as MoneyAccountReconciliationItem[]);
         setMoneyActivityLoaded(true);
         setMoneyActivityLoadedScope(scopeKey);
@@ -21559,24 +21650,6 @@ deliveryAssignMode === 'external' ? (
                 />
                 <FieldInput label="Fecha" value={closureDate} onChange={setClosureDate} type="date" />
                 <FieldInput label="Hora" value={closureTime} onChange={setClosureTime} type="time" />
-                <div className="md:col-span-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2] disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => {
-                      if (!selectedAccount) return;
-                      void refreshClosureExpectedPreview(
-                        selectedAccount.id,
-                        closureDate || getCaracasTodayString(),
-                        closureTime,
-                        true
-                      );
-                    }}
-                    disabled={closureExpectedRefreshing}
-                  >
-                    {closureExpectedRefreshing ? 'Actualizando saldo...' : 'Actualizar saldo sistema'}
-                  </button>
-                </div>
                 <FieldInput
                   label={selectedAccountFinanceVocabulary?.countedLabel ?? 'Monto contado'}
                   value={closureCountedAmount}

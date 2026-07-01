@@ -5039,14 +5039,9 @@ export async function loadMoneyActivityAction(input?: {
     movementsQuery = movementsQuery.eq('money_account_id', moneyAccountId);
   }
 
-  const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult] = await Promise.all([
-    movementsQuery
-      .order('movement_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(movementLimit),
-    supabase
-      .from('money_account_closures')
-      .select(`
+  let closuresQuery = supabase
+    .from('money_account_closures')
+    .select(`
         id,
         money_account_id,
         closure_date,
@@ -5066,13 +5061,11 @@ export async function loadMoneyActivityAction(input?: {
         created_at,
         reviewed_by_user_id,
         reviewed_at
-      `)
-      .order('closure_at', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(closureLimit),
-    supabase
-      .from('money_account_closure_baselines')
-      .select(`
+      `);
+
+  let baselinesQuery = supabase
+    .from('money_account_closure_baselines')
+    .select(`
         id,
         money_account_id,
         baseline_date,
@@ -5094,11 +5087,11 @@ export async function loadMoneyActivityAction(input?: {
         voided_at,
         void_reason
       `)
-      .eq('status', 'active')
-      .order('baseline_at', { ascending: false }),
-    supabase
-      .from('money_account_reconciliation_items')
-      .select(`
+    .eq('status', 'active');
+
+  let reconciliationItemsQuery = supabase
+    .from('money_account_reconciliation_items')
+    .select(`
         id,
         money_account_id,
         source_kind,
@@ -5121,9 +5114,25 @@ export async function loadMoneyActivityAction(input?: {
         voided_by_user_id,
         voided_at,
         void_reason
-      `)
+      `);
+
+  if (hasMoneyAccountFilter) {
+    closuresQuery = closuresQuery.eq('money_account_id', moneyAccountId);
+    baselinesQuery = baselinesQuery.eq('money_account_id', moneyAccountId);
+    reconciliationItemsQuery = reconciliationItemsQuery.eq('money_account_id', moneyAccountId);
+  }
+
+  const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult] = await Promise.all([
+    movementsQuery
+      .order('movement_date', { ascending: false })
       .order('created_at', { ascending: false })
-      .limit(reconciliationLimit),
+      .limit(movementLimit),
+    closuresQuery
+      .order('closure_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(closureLimit),
+    baselinesQuery.order('baseline_at', { ascending: false }),
+    reconciliationItemsQuery.order('created_at', { ascending: false }).limit(reconciliationLimit),
   ]);
 
   if (movementsResult.error) throw new Error(movementsResult.error.message);
@@ -8933,6 +8942,19 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (baselineError) throw new Error(baselineError.message);
 
+  const { data: previousClosure, error: previousClosureError } = await supabase
+    .from('money_account_closures')
+    .select('closure_date, closure_at, counted_amount, counted_amount_usd')
+    .eq('money_account_id', moneyAccountId)
+    .in('status', ['recorded', 'approved'])
+    .lt('closure_at', closureAt)
+    .order('closure_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (previousClosureError) throw new Error(previousClosureError.message);
+
   let movementsQuery = supabase
     .from('money_movements')
     .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
@@ -8940,7 +8962,9 @@ export async function createMoneyAccountClosureAction(input: {
     .eq('status', 'confirmed')
     .lte('movement_date', closureDate);
 
-  if (activeBaseline?.baseline_date) {
+  if (previousClosure?.closure_date) {
+    movementsQuery = movementsQuery.gte('movement_date', previousClosure.closure_date);
+  } else if (activeBaseline?.baseline_date) {
     movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
   }
 
@@ -8948,8 +8972,18 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (movementsError) throw new Error(movementsError.message);
 
-  let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
-  let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
+  let expectedAmount = previousClosure
+    ? toSafeNumber(previousClosure.counted_amount, 0)
+    : activeBaseline
+      ? toSafeNumber(activeBaseline.counted_amount, 0)
+      : 0;
+  let expectedAmountUsd = previousClosure
+    ? toSafeNumber(previousClosure.counted_amount_usd, 0)
+    : activeBaseline
+      ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
+      : 0;
+  const previousClosureDate = previousClosure?.closure_date ? String(previousClosure.closure_date) : null;
+  const previousClosureAtMs = previousClosure?.closure_at ? new Date(previousClosure.closure_at).getTime() : null;
 
   for (const movement of movements ?? []) {
     const movementDate = String(movement.movement_date || '');
@@ -8957,6 +8991,17 @@ export async function createMoneyAccountClosureAction(input: {
 
     if (movementDate > closureDate) continue;
     if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
+    if (previousClosureDate) {
+      if (movementDate < previousClosureDate) continue;
+      if (
+        movementDate === previousClosureDate &&
+        previousClosureAtMs != null &&
+        movementRecordedAtMs != null &&
+        movementRecordedAtMs <= previousClosureAtMs
+      ) {
+        continue;
+      }
+    }
 
     const signed = movement.direction === 'inflow' ? 1 : -1;
     expectedAmount += signed * toSafeNumber(movement.amount, 0);
@@ -9081,6 +9126,19 @@ export async function previewMoneyAccountClosureAction(input: {
 
   if (baselineError) throw new Error(baselineError.message);
 
+  const { data: previousClosure, error: previousClosureError } = await supabase
+    .from('money_account_closures')
+    .select('closure_date, closure_at, counted_amount, counted_amount_usd')
+    .eq('money_account_id', moneyAccountId)
+    .in('status', ['recorded', 'approved'])
+    .lt('closure_at', closureAt)
+    .order('closure_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (previousClosureError) throw new Error(previousClosureError.message);
+
   let movementsQuery = supabase
     .from('money_movements')
     .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
@@ -9088,7 +9146,9 @@ export async function previewMoneyAccountClosureAction(input: {
     .eq('status', 'confirmed')
     .lte('movement_date', closureDate);
 
-  if (activeBaseline?.baseline_date) {
+  if (previousClosure?.closure_date) {
+    movementsQuery = movementsQuery.gte('movement_date', previousClosure.closure_date);
+  } else if (activeBaseline?.baseline_date) {
     movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
   }
 
@@ -9096,8 +9156,18 @@ export async function previewMoneyAccountClosureAction(input: {
 
   if (movementsError) throw new Error(movementsError.message);
 
-  let expectedAmount = activeBaseline ? toSafeNumber(activeBaseline.counted_amount, 0) : 0;
-  let expectedAmountUsd = activeBaseline ? toSafeNumber(activeBaseline.counted_amount_usd, 0) : 0;
+  let expectedAmount = previousClosure
+    ? toSafeNumber(previousClosure.counted_amount, 0)
+    : activeBaseline
+      ? toSafeNumber(activeBaseline.counted_amount, 0)
+      : 0;
+  let expectedAmountUsd = previousClosure
+    ? toSafeNumber(previousClosure.counted_amount_usd, 0)
+    : activeBaseline
+      ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
+      : 0;
+  const previousClosureDate = previousClosure?.closure_date ? String(previousClosure.closure_date) : null;
+  const previousClosureAtMs = previousClosure?.closure_at ? new Date(previousClosure.closure_at).getTime() : null;
 
   for (const movement of movements ?? []) {
     const movementDate = String(movement.movement_date || '');
@@ -9105,6 +9175,17 @@ export async function previewMoneyAccountClosureAction(input: {
 
     if (movementDate > closureDate) continue;
     if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
+    if (previousClosureDate) {
+      if (movementDate < previousClosureDate) continue;
+      if (
+        movementDate === previousClosureDate &&
+        previousClosureAtMs != null &&
+        movementRecordedAtMs != null &&
+        movementRecordedAtMs <= previousClosureAtMs
+      ) {
+        continue;
+      }
+    }
 
     const signed = movement.direction === 'inflow' ? 1 : -1;
     expectedAmount += signed * toSafeNumber(movement.amount, 0);
