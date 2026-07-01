@@ -11515,6 +11515,7 @@ function buildAdvisorCommissionSnapshots(params: {
     const confirmedPaidUsd = roundMoney(financialState?.confirmed_paid_usd ?? 0);
     const deliveryDate = financialState?.delivery_reference_date || getAdvisorCommissionDeliveryDate(order);
     const discountFactor = getAdvisorCommissionDiscountFactor(order, items);
+    const commissionableSubtotalUsd = getOrderCommercialNetUsd(order);
 
     let regularBaseUsd = 0;
     let specialItemBaseUsd = 0;
@@ -11526,16 +11527,16 @@ function buildAdvisorCommissionSnapshots(params: {
       .find((product) => String(product?.commission_mode || '') === 'fixed_order');
 
     if (fixedOrderProduct) {
-      fixedOrderBaseUsd = getOrderCommercialNetUsd(order);
+      fixedOrderBaseUsd = commissionableSubtotalUsd;
       fixedOrderPct = Math.max(0, toSafeNumber(fixedOrderProduct.commission_value, 0));
     } else {
       for (const item of items) {
         const product = getAdvisorCommissionProduct(item);
-        const lineBaseUsd = roundMoney(getOrderLineTotalUsd(item) * discountFactor);
+        const lineBaseUsd = Math.max(0, getOrderLineTotalUsd(item) * discountFactor);
         if (String(product?.commission_mode || '') === 'fixed_item') {
           const pct = Math.max(0, toSafeNumber(product?.commission_value, 0));
           specialItemBaseUsd += lineBaseUsd;
-          specialItemCommissionUsd += roundMoney(lineBaseUsd * (pct / 100));
+          specialItemCommissionUsd += lineBaseUsd * (pct / 100);
         } else {
           regularBaseUsd += lineBaseUsd;
         }
@@ -11558,22 +11559,26 @@ function buildAdvisorCommissionSnapshots(params: {
           orderNumber: order.order_number,
           productName,
           qty: toSafeNumber(item.qty, 0),
-          lineBaseUsd,
+          lineBaseUsd: roundMoney(lineBaseUsd),
           commissionMode: String(product?.commission_mode || 'default'),
           commissionValue: product?.commission_value ?? null,
         });
       }
+
+      if (items.length === 0) {
+        regularBaseUsd = commissionableSubtotalUsd;
+      }
     }
 
-    const regularCommissionUsd = roundMoney(regularBaseUsd * (baseCommissionPct / 100));
+    const regularCommissionUsd = regularBaseUsd * (baseCommissionPct / 100);
     const fixedOrderCommissionUsd =
-      fixedOrderPct == null ? 0 : roundMoney(fixedOrderBaseUsd * (fixedOrderPct / 100));
+      fixedOrderPct == null ? 0 : fixedOrderBaseUsd * (fixedOrderPct / 100);
     const orderCommissionUsd = roundMoney(regularCommissionUsd + specialItemCommissionUsd + fixedOrderCommissionUsd);
     const paymentStatus = String(financialState?.payment_status || '').toLowerCase();
     const isPending = pendingUsd > 0.005;
 
     closure.totals.deliveredOrdersCount += 1;
-    closure.totals.billedUsd += totalUsd;
+    closure.totals.billedUsd += commissionableSubtotalUsd;
     closure.totals.regularBaseUsd += regularBaseUsd;
     closure.totals.specialItemBaseUsd += specialItemBaseUsd;
     closure.totals.specialOrderBaseUsd += fixedOrderBaseUsd;
@@ -11807,11 +11812,14 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     )
   `;
 
-  const [scheduledOrdersResult, completedOrdersResult] = await Promise.all([
+  const periodStartIso = `${period.date_from}T00:00:00-04:00`;
+  const periodEndIso = `${endExclusiveDate}T00:00:00-04:00`;
+  const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
     supabase
       .from('orders')
       .select(orderSelect)
       .eq('status', 'delivered')
+      .eq('source', 'advisor')
       .in('attributed_advisor_id', advisorIds)
       .gte('extra_fields->schedule->>date', period.date_from)
       .lt('extra_fields->schedule->>date', endExclusiveDate)
@@ -11820,13 +11828,14 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       .from('orders')
       .select(orderSelect)
       .eq('status', 'delivered')
+      .eq('source', 'advisor')
       .in('attributed_advisor_id', advisorIds)
-      .gte('extra_fields->delivery->>completed_at', `${period.date_from}T00:00:00-04:00`)
-      .lt('extra_fields->delivery->>completed_at', `${endExclusiveDate}T00:00:00-04:00`)
+      .gte('created_at', periodStartIso)
+      .lt('created_at', periodEndIso)
       .limit(5000),
   ]);
 
-  const ordersError = scheduledOrdersResult.error ?? completedOrdersResult.error;
+  const ordersError = scheduledOrdersResult.error ?? createdOrdersResult.error;
   if (ordersError) {
     throw new Error(ordersError.message);
   }
@@ -11834,7 +11843,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   const ordersById = new Map<number, AdvisorCommissionOrderRow>();
   for (const order of [
     ...((scheduledOrdersResult.data ?? []) as AdvisorCommissionOrderRow[]),
-    ...((completedOrdersResult.data ?? []) as AdvisorCommissionOrderRow[]),
+    ...((createdOrdersResult.data ?? []) as AdvisorCommissionOrderRow[]),
   ]) {
     const deliveryDate = getAdvisorCommissionDeliveryDate(order);
     if (!deliveryDate || deliveryDate < period.date_from || deliveryDate > period.date_to) continue;
