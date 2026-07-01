@@ -23521,7 +23521,7 @@ deliveryAssignMode === 'external' ? (
                     {selectedAccountVisibleStatementRows.length} de {selectedAccountStatementData.rows.length} movimiento(s) del período. Los pendientes no afectan el saldo.
                   </div>
                 </div>
-                <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
+                <div className="flex max-w-full flex-wrap gap-1 pb-1">
                   {(Object.keys(ACCOUNT_MOVEMENT_FILTER_LABEL) as AccountMovementFilter[]).map((filter) => (
                     <button
                       key={filter}
@@ -23620,93 +23620,82 @@ deliveryAssignMode === 'external' ? (
                 {selectedAccountVisibleStatementRows.length === 0 ? (
                   <div className="p-3 text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
-                  <table className="w-full table-fixed text-[11px]">
-                    <colgroup>
-                      <col className="w-[12%]" />
-                      <col className="w-[34%]" />
-                      <col className="w-[14%]" />
-                      <col className="w-[13%]" />
-                      <col className="w-[13%]" />
-                      <col className="w-[14%]" />
-                    </colgroup>
-                    <thead className="border-b border-[#242433] text-[#B7B7C2]">
-                      <tr>
-                        <th className="px-2 py-1.5 text-left font-medium">Fecha</th>
-                        <th className="px-2 py-1.5 text-left font-medium">Movimiento</th>
-                        <th className="px-2 py-1.5 text-left font-medium">Ref.</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Entrada</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Salida</th>
-                        <th className="px-2 py-1.5 text-right font-medium">Saldo</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedAccountVisibleStatementRows.map((row, idx) => {
-                        const { group, movement } = row;
-                        const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
-                        const movementMeta = [
-                          MOVEMENT_TYPE_LABEL[movement.movementType],
-                          movement.counterpartyName || null,
-                        ].filter(Boolean);
+                  <div className="text-[11px]">
+                    <div className="grid grid-cols-[74px_minmax(0,1.6fr)_86px_minmax(74px,0.8fr)_minmax(74px,0.8fr)_minmax(82px,0.85fr)] gap-2 border-b border-[#242433] px-2 py-1.5 text-[#B7B7C2]">
+                      <div>Fecha</div>
+                      <div>Movimiento</div>
+                      <div>Ref.</div>
+                      <div className="text-right">Entrada</div>
+                      <div className="text-right">Salida</div>
+                      <div className="text-right">Saldo</div>
+                    </div>
+                    {selectedAccountVisibleStatementRows.map((row, idx) => {
+                      const { group, movement } = row;
+                      const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                      const movementMeta = [
+                        MOVEMENT_TYPE_LABEL[movement.movementType],
+                        movement.counterpartyName || null,
+                      ].filter(Boolean);
 
-                        return (
-                          <tr
-                            key={group.key}
-                            className={`${zebra} cursor-pointer border-b border-[#242433] align-middle hover:bg-[#1A1A28]`}
-                            onClick={() => {
-                              setSelectedMovementGroupKey(group.key);
-                              setMovementDetailOpen(true);
-                            }}
-                          >
-                            <td className="px-2 py-1.5 text-[#D7D7E0]">{fmtDateInputES(movement.movementDate)}</td>
-                            <td className="px-2 py-1.5">
-                              <div className="truncate font-medium text-[#F5F5F7]" title={row.concept}>
-                                {row.concept}
+                      return (
+                        <button
+                          key={group.key}
+                          type="button"
+                          className={`${zebra} grid w-full grid-cols-[74px_minmax(0,1.6fr)_86px_minmax(74px,0.8fr)_minmax(74px,0.8fr)_minmax(82px,0.85fr)] gap-2 border-b border-[#242433] px-2 py-1.5 text-left hover:bg-[#1A1A28]`}
+                          onClick={() => {
+                            setSelectedMovementGroupKey(group.key);
+                            setMovementDetailOpen(true);
+                          }}
+                        >
+                          <div className="self-center text-[#D7D7E0]">{fmtDateInputES(movement.movementDate)}</div>
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-[#F5F5F7]" title={row.concept}>
+                              {row.concept}
+                            </div>
+                            {movementMeta.length > 0 ? (
+                              <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]" title={movementMeta.join(' · ')}>
+                                {movementMeta.join(' · ')}
                               </div>
-                              {movementMeta.length > 0 ? (
-                                <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]" title={movementMeta.join(' · ')}>
-                                  {movementMeta.join(' · ')}
-                                </div>
-                              ) : null}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <div className="truncate text-[#D7D7E0]" title={row.reference}>
-                                {row.reference}
-                              </div>
-                              {movement.orderId ? (
-                                <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]">Orden #{movement.orderId}</div>
-                              ) : null}
-                            </td>
-                            <td className="px-2 py-1.5 text-right">
-                              {row.inflowNative > 0 ? (
-                                <span className="block truncate font-semibold text-emerald-300">
-                                  {fmtMoneyByCurrency(row.inflowNative, selectedAccount.currencyCode)}
-                                </span>
-                              ) : (
-                                <span className="text-[#8A8A96]">—</span>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5 text-right">
-                              {row.outflowNative > 0 ? (
-                                <span className="block truncate font-semibold text-red-300">
-                                  {fmtMoneyByCurrency(row.outflowNative, selectedAccount.currencyCode)}
-                                </span>
-                              ) : (
-                                <span className="text-[#8A8A96]">—</span>
-                              )}
-                            </td>
-                            <td className="px-2 py-1.5 text-right">
-                              <div className="truncate font-semibold text-[#F5F5F7]">
-                                {fmtMoneyByCurrency(row.runningBalanceNative, selectedAccount.currencyCode)}
-                              </div>
-                              {movement.status !== 'confirmed' ? (
-                                <div className="mt-0.5 text-[10px] text-[#8A8A96]">No afecta saldo</div>
-                              ) : null}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            ) : null}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-[#D7D7E0]" title={row.reference}>
+                              {row.reference}
+                            </div>
+                            {movement.orderId ? (
+                              <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]">#{movement.orderId}</div>
+                            ) : null}
+                          </div>
+                          <div className="min-w-0 self-center text-right">
+                            {row.inflowNative > 0 ? (
+                              <span className="block truncate font-semibold text-emerald-300">
+                                {fmtMoneyByCurrency(row.inflowNative, selectedAccount.currencyCode)}
+                              </span>
+                            ) : (
+                              <span className="text-[#8A8A96]">—</span>
+                            )}
+                          </div>
+                          <div className="min-w-0 self-center text-right">
+                            {row.outflowNative > 0 ? (
+                              <span className="block truncate font-semibold text-red-300">
+                                {fmtMoneyByCurrency(row.outflowNative, selectedAccount.currencyCode)}
+                              </span>
+                            ) : (
+                              <span className="text-[#8A8A96]">—</span>
+                            )}
+                          </div>
+                          <div className="min-w-0 self-center text-right">
+                            <div className="truncate font-semibold text-[#F5F5F7]">
+                              {fmtMoneyByCurrency(row.runningBalanceNative, selectedAccount.currencyCode)}
+                            </div>
+                            {movement.status !== 'confirmed' ? (
+                              <div className="mt-0.5 text-[10px] text-[#8A8A96]">No afecta saldo</div>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>
