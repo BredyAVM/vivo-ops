@@ -9,7 +9,7 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
-import { isOpenOrderStatus, needsOrderReapproval } from '@/lib/domain/order-domain';
+import { isOpenOrderStatus, needsInitialOrderApproval, needsOrderReapproval } from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
@@ -45,6 +45,9 @@ type OrderRow = {
       fx_rate?: number | string | null;
       total_usd?: number | string | null;
       total_bs?: number | string | null;
+    } | null;
+    review?: {
+      returned_to_advisor?: boolean | null;
     } | null;
   } | null;
   client:
@@ -331,13 +334,20 @@ function latestReviewEvent(order: OrderRow, reviewEventByOrderId: Map<number, Ti
 
 function needsAdvisorReview(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
   if (!isOpenStatus(order.status)) return false;
+  if (order.extra_fields?.review?.returned_to_advisor) return true;
   return ['order_returned_to_review', 'order_changes_rejected'].includes(
     String(latestReviewEvent(order, reviewEventByOrderId) || '')
   );
 }
 
-function needsInitialApproval(order: OrderRow) {
-  return order.status === 'created';
+function needsInitialApproval(order: OrderRow, reviewEventByOrderId?: Map<number, TimelineEventRow>) {
+  return needsInitialOrderApproval({
+    status: order.status,
+    queuedNeedsReapproval: order.queued_needs_reapproval,
+    returnedToAdvisor: reviewEventByOrderId
+      ? needsAdvisorReview(order, reviewEventByOrderId)
+      : Boolean(order.extra_fields?.review?.returned_to_advisor),
+  });
 }
 
 function needsReapproval(order: OrderRow) {
@@ -655,14 +665,14 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
   );
   const deliveredOrders = agendaOrders.filter((order) => order.status === 'delivered');
   const returnedOrders = agendaOrders.filter((order) => needsAdvisorReview(order, reviewEventByOrderId));
-  const pendingApprovalOrders = agendaOrders.filter((order) => needsInitialApproval(order));
+  const pendingApprovalOrders = agendaOrders.filter((order) => needsInitialApproval(order, reviewEventByOrderId));
   const pendingReapprovalOrders = agendaOrders.filter((order) => needsReapproval(order));
   const attentionOrders = [...agendaOrders]
     .filter((order) => isOpenStatus(order.status))
     .filter(
       (order) =>
         needsAdvisorReview(order, reviewEventByOrderId) ||
-        needsInitialApproval(order) ||
+        needsInitialApproval(order, reviewEventByOrderId) ||
         needsReapproval(order) ||
         attentionLabels(order, paymentStateByOrderId, selectedDayKey).length > 0
     )
@@ -735,7 +745,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                         <StatusBadge label="Devuelta" tone="danger" />
                       ) : null}
                       {needsReapproval(order) ? <StatusBadge label="Re-aprobacion" tone="warning" /> : null}
-                      {needsInitialApproval(order) ? <StatusBadge label="Por aprobar" tone="neutral" /> : null}
+                      {needsInitialApproval(order, reviewEventByOrderId) ? <StatusBadge label="Por aprobar" tone="neutral" /> : null}
                     </div>
                   </Link>
                 ))}
@@ -861,7 +871,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                 ? { label: 'Devuelta', tone: 'danger' as const }
                 : needsReapproval(order)
                   ? { label: 'Re-aprobación', tone: 'warning' as const }
-                  : needsInitialApproval(order)
+                  : needsInitialApproval(order, reviewEventByOrderId)
                     ? { label: 'Por aprobar', tone: 'neutral' as const }
                     : null;
 
@@ -923,7 +933,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                 ? { label: 'Devuelta', tone: 'danger' as const }
                 : needsReapproval(order)
                   ? { label: 'Re-aprobación', tone: 'warning' as const }
-                  : needsInitialApproval(order)
+                  : needsInitialApproval(order, reviewEventByOrderId)
                     ? { label: 'Por aprobar', tone: 'neutral' as const }
                     : null;
               const labels = attentionLabels(order, paymentStateByOrderId, selectedDayKey).filter(

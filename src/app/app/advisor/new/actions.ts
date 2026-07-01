@@ -303,7 +303,7 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id, status, last_modified_at')
+    .select('id, attributed_advisor_id, status, last_modified_at, extra_fields')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -332,12 +332,28 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   const adminSupabase = createSupabaseServiceRoleServer();
   const nowIso = new Date().toISOString();
+  const nextExtraFields =
+    payload.extra_fields && typeof payload.extra_fields === 'object' && !Array.isArray(payload.extra_fields)
+      ? { ...(payload.extra_fields as Record<string, unknown>) }
+      : {};
+  const currentReview =
+    nextExtraFields.review && typeof nextExtraFields.review === 'object' && !Array.isArray(nextExtraFields.review)
+      ? { ...(nextExtraFields.review as Record<string, unknown>) }
+      : {};
+  if (currentReview.returned_to_advisor) {
+    nextExtraFields.review = {
+      ...currentReview,
+      returned_to_advisor: false,
+      returned_to_advisor_corrected_at: nowIso,
+      returned_to_advisor_corrected_by: ctx.user.id,
+    };
+  }
   let updateOrderQuery = adminSupabase
     .from('orders')
     .update({
       ...payload,
       delivery_address: payload.fulfillment === 'delivery' ? payload.delivery_address : null,
-      extra_fields: payload.extra_fields,
+      extra_fields: nextExtraFields,
       last_modified_at: nowIso,
       last_modified_by: ctx.user.id,
     })
@@ -382,7 +398,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id, status')
+    .select('id, attributed_advisor_id, status, extra_fields')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -415,6 +431,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
   }));
 
   const adminSupabase = createSupabaseServiceRoleServer();
+  const nowIso = new Date().toISOString();
 
   const { data: existingItems, error: existingItemsError } = await adminSupabase
     .from('order_items')
@@ -445,6 +462,39 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
     if (deleteItemsError) {
       throw new Error(deleteItemsError.message);
+    }
+  }
+
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? { ...(order.extra_fields as Record<string, unknown>) }
+      : {};
+  const review =
+    extraFields.review && typeof extraFields.review === 'object' && !Array.isArray(extraFields.review)
+      ? { ...(extraFields.review as Record<string, unknown>) }
+      : {};
+
+  if (review.returned_to_advisor) {
+    const { error: clearReturnError } = await adminSupabase
+      .from('orders')
+      .update({
+        extra_fields: {
+          ...extraFields,
+          review: {
+            ...review,
+            returned_to_advisor: false,
+            returned_to_advisor_corrected_at: nowIso,
+            returned_to_advisor_corrected_by: ctx.user.id,
+          },
+        },
+        last_modified_at: nowIso,
+        last_modified_by: ctx.user.id,
+      })
+      .eq('id', orderId)
+      .eq('attributed_advisor_id', ctx.user.id);
+
+    if (clearReturnError) {
+      throw new Error(clearReturnError.message);
     }
   }
 

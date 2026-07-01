@@ -3204,6 +3204,16 @@ export async function returnToCreatedAction(input: {
     };
   }
 
+  extraFields.review = {
+    ...(extraFields.review && typeof extraFields.review === 'object' && !Array.isArray(extraFields.review)
+      ? (extraFields.review as Record<string, unknown>)
+      : {}),
+    returned_to_advisor: true,
+    returned_to_advisor_at: nowIso,
+    returned_to_advisor_by: user.id,
+    returned_to_advisor_reason: reason,
+  };
+
   const { error: updateError } = await supabase
     .from('orders')
     .update({

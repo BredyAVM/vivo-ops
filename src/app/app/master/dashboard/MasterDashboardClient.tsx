@@ -25,6 +25,7 @@ import {
   getMasterOrderProcessFlag,
   isRecognizedBillingOrder as isRecognizedBillingOrderByDomain,
   isScheduledClosingOrder as isScheduledClosingOrderByDomain,
+  needsInitialOrderApproval,
 } from '@/lib/domain/order-domain';
 import {
   FINANCE_WORKSTREAM_ORDER,
@@ -733,6 +734,7 @@ type Order = {
   address?: string;
   status: OrderStatus;
   queuedNeedsReapproval: boolean;
+  returnedToAdvisor: boolean;
   totalUsd: number;
   balanceUsd: number;
   totalBs: number;
@@ -2825,7 +2827,7 @@ function withinWeek(dISO: string, day: Date) {
 
 function matchesTray(o: Order, tray: MasterTray) {
   if (tray === 'all') return true;
-  if (tray === 'pending_created') return o.status === 'created';
+  if (tray === 'pending_created') return o.status === 'created' && !o.returnedToAdvisor;
   if (tray === 'reapproval') return o.status === 'queued' && o.queuedNeedsReapproval;
   if (tray === 'queued') return o.status === 'queued';
   if (tray === 'kitchen') return ['confirmed', 'in_kitchen', 'ready'].includes(o.status);
@@ -2886,6 +2888,7 @@ function canMarkDelivered(o: Order) {
 }
 
 function kitchenTooltip(o: Order) {
+  if (o.status === 'created' && o.returnedToAdvisor) return 'Devuelta al asesor';
   if (o.status === 'created') return 'Pendiente de aprobación';
   if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Requiere re-aprobación';
   if (o.status === 'queued') return 'Listo para enviar a cocina';
@@ -2924,6 +2927,7 @@ function processFlag(o: Order): 'APROBAR' | 'RE-APROBAR' | null {
   return getMasterOrderProcessFlag({
     status: o.status,
     queuedNeedsReapproval: o.queuedNeedsReapproval,
+    returnedToAdvisor: o.returnedToAdvisor,
   });
 }
 
@@ -3050,6 +3054,7 @@ function getCurrentProcessAlertLevel(order: Order, currentKey: string, nowMs: nu
 
 function getCurrentProcessAlertReason(order: Order, currentKey: string, nowMs: number) {
   if (order.status === 'cancelled' || order.status === 'delivered') return null;
+  if (order.status === 'created' && order.returnedToAdvisor) return null;
 
   const deliveryDueMs = parseIsoMs(order.deliveryAtISO);
   const minutesUntilDelivery =
@@ -3260,6 +3265,7 @@ function getNextPrimaryActionLabel(o: Order) {
   if (canMarkDelivered(o)) return o.fulfillment === 'pickup' ? 'Marcar retirado' : 'Marcar entregado';
   if (o.status === 'cancelled') return 'Orden cancelada';
   if (o.status === 'delivered') return 'Ciclo completado';
+  if (o.status === 'created' && o.returnedToAdvisor) return 'Devuelta al asesor';
   if (o.status === 'created') return 'Pendiente de aprobación';
   if (o.status === 'queued' && o.queuedNeedsReapproval) return 'Pendiente de re-aprobación';
   return 'Sin acción principal';
@@ -5154,7 +5160,9 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
   const approvalsStats = useMemo(() => {
     const list = weekOrders;
-    const porAprobar = list.filter((o) => o.status === 'created').length;
+    const porAprobar = list.filter((o) =>
+      needsInitialOrderApproval({ status: o.status, queuedNeedsReapproval: o.queuedNeedsReapproval, returnedToAdvisor: o.returnedToAdvisor })
+    ).length;
     const reaprobar = list.filter((o) => o.status === 'queued' && o.queuedNeedsReapproval).length;
     const listasCocina = list.filter((o) => o.status === 'queued' && !o.queuedNeedsReapproval).length;
     return { porAprobar, reaprobar, listasCocina };
@@ -5237,7 +5245,15 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       new Date(a.deliveryAtISO).getTime() - new Date(b.deliveryAtISO).getTime();
 
     return {
-      approve: dayOrders.filter((order) => order.status === 'created').sort(byDeliveryTime),
+      approve: dayOrders
+        .filter((order) =>
+          needsInitialOrderApproval({
+            status: order.status,
+            queuedNeedsReapproval: order.queuedNeedsReapproval,
+            returnedToAdvisor: order.returnedToAdvisor,
+          })
+        )
+        .sort(byDeliveryTime),
       reapprove: dayOrders
         .filter((order) => order.status === 'queued' && order.queuedNeedsReapproval)
         .sort(byDeliveryTime),
@@ -5315,7 +5331,14 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         });
       }
 
-      if (o.status === 'created' && !expiredQuoteReview) {
+      if (
+        needsInitialOrderApproval({
+          status: o.status,
+          queuedNeedsReapproval: o.queuedNeedsReapproval,
+          returnedToAdvisor: o.returnedToAdvisor,
+        }) &&
+        !expiredQuoteReview
+      ) {
         tasks.push({
           id: `n-ap-${o.id}`,
           type: 'APROBAR',
@@ -6590,7 +6613,13 @@ const handleAssignExternal = async (o: Order) => {
 
 const handleApprove = async (o: Order) => {
   try {
-    if (o.status === 'created') {
+    if (
+      needsInitialOrderApproval({
+        status: o.status,
+        queuedNeedsReapproval: o.queuedNeedsReapproval,
+        returnedToAdvisor: o.returnedToAdvisor,
+      })
+    ) {
       const result = await approveOrderAction({ orderId: o.id });
       if (result && !result.ok) {
         showToast('error', result.message || 'Error aprobando la orden.');
@@ -6644,6 +6673,11 @@ const handleReturn = async (o: Order) => {
     });
 
     showToast('success', 'Pedido devuelto a revisión.');
+    updateLocalOrder(o.id, () => ({
+      status: 'created',
+      queuedNeedsReapproval: false,
+      returnedToAdvisor: true,
+    }));
     resetReviewActionBox();
     router.refresh();
   } catch (err) {

@@ -13,6 +13,7 @@ import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import {
   canAdvisorModifyOrder as canAdvisorModifyOrderByDomain,
   isOpenOrderStatus,
+  needsInitialOrderApproval,
   needsOrderReapproval,
 } from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
@@ -53,6 +54,9 @@ type OrderRow = {
       fx_rate?: number | string | null;
       total_usd?: number | string | null;
       total_bs?: number | string | null;
+    } | null;
+    review?: {
+      returned_to_advisor?: boolean | null;
     } | null;
   } | null;
   client: { full_name: string | null; phone: string | null } | null;
@@ -334,13 +338,20 @@ function latestReviewEvent(order: OrderRow, reviewEventByOrderId: Map<number, Ti
 
 function needsAdvisorReview(order: OrderRow, reviewEventByOrderId: Map<number, TimelineEventRow>) {
   if (!isOpenStatus(order.status)) return false;
+  if (order.extra_fields?.review?.returned_to_advisor) return true;
   return ['order_returned_to_review', 'order_changes_rejected'].includes(
     String(latestReviewEvent(order, reviewEventByOrderId) || '')
   );
 }
 
-function needsInitialApproval(order: OrderRow) {
-  return order.status === 'created';
+function needsInitialApproval(order: OrderRow, reviewEventByOrderId?: Map<number, TimelineEventRow>) {
+  return needsInitialOrderApproval({
+    status: order.status,
+    queuedNeedsReapproval: order.queued_needs_reapproval,
+    returnedToAdvisor: reviewEventByOrderId
+      ? needsAdvisorReview(order, reviewEventByOrderId)
+      : Boolean(order.extra_fields?.review?.returned_to_advisor),
+  });
 }
 
 function needsReapproval(order: OrderRow) {
@@ -673,7 +684,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
     if (bucket === 'overdue') return overdue;
     if (bucket === 'open') return isOpenStatus(order.status);
     if (bucket === 'returned') return needsAdvisorReview(order, reviewEventByOrderId);
-    if (bucket === 'approval') return needsInitialApproval(order);
+    if (bucket === 'approval') return needsInitialApproval(order, reviewEventByOrderId);
     if (bucket === 'reapproval') return needsReapproval(order);
     if (bucket === 'unpaid') return unpaid;
     if (bucket === 'delivered') return order.status === 'delivered';
@@ -813,7 +824,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                 ? { label: 'Devuelta', tone: 'danger' as const }
                 : needsReapproval(order)
                   ? { label: 'Re-aprobación', tone: 'warning' as const }
-                  : needsInitialApproval(order)
+                  : needsInitialApproval(order, reviewEventByOrderId)
                     ? { label: 'Por aprobar', tone: 'neutral' as const }
                     : null;
               const labels = attentionLabels(order, paymentStateByOrderId, selectedDayKey).filter(

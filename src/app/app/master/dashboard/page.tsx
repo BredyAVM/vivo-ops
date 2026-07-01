@@ -2958,6 +2958,7 @@ const isNewClient =
   Number.isFinite(clientCreatedAtMs) &&
   clientCreatedAtMs >= CLIENT_IMPORT_CUTOFF_MS &&
   clientOrderStats?.firstOrderId === Number(row.id);
+const returnedToAdvisor = Boolean(row.extra_fields?.review?.returned_to_advisor);
 
     const deliveryAtISO = buildDeliveryISO(row.extra_fields, row.created_at);
 
@@ -3100,6 +3101,7 @@ return {
       address: row.delivery_address ?? undefined,
       status: row.status,
       queuedNeedsReapproval: row.queued_needs_reapproval ?? false,
+      returnedToAdvisor,
       totalUsd,
       balanceUsd,
       totalBs,

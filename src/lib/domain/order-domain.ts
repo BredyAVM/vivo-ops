@@ -117,6 +117,7 @@ type OrderStatusInput = {
 
 type OrderProcessInput = OrderStatusInput & {
   queuedNeedsReapproval?: boolean | null;
+  returnedToAdvisor?: boolean | null;
 };
 
 type FulfillmentOrderInput = OrderStatusInput & {
@@ -157,8 +158,8 @@ export function canAdvisorModifyOrder(orderOrStatus: OrderStatusInput | string |
   return hasStatus(status, ADVISOR_EDITABLE_STATUSES);
 }
 
-export function needsInitialOrderApproval(order: OrderStatusInput) {
-  return statusKey(order.status) === 'created';
+export function needsInitialOrderApproval(order: OrderProcessInput) {
+  return statusKey(order.status) === 'created' && !order.returnedToAdvisor;
 }
 
 export function needsOrderReapproval(order: OrderProcessInput) {
