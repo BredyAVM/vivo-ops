@@ -8235,19 +8235,24 @@ const handleSaveQuickCatalog = async () => {
 
   const openAccountDetailDrawer = useCallback(
     (accountId: number, tab: AccountDetailTab = 'operation') => {
+      const defaultDate = defaultMoneyActivityDate;
       setAccountMoreOpenId(null);
       setAccountDetailMoreOpen(false);
       setAccountRulesMatrixOpen(false);
       setAccountDetailTab(tab);
+      setAccountDetailDateFrom(defaultDate);
+      setAccountDetailDateTo(defaultDate);
       setSelectedAccountId(accountId);
       setAccountDetailOpen(true);
 
       void loadMoneyActivity(true, {
-        scope: 'account',
+        scope: 'range',
+        dateFrom: defaultDate,
+        dateTo: defaultDate,
         accountId,
       });
     },
-    [loadMoneyActivity]
+    [defaultMoneyActivityDate, loadMoneyActivity]
   );
 
   const loadInventoryMovements = useCallback(
@@ -12760,9 +12765,12 @@ const selectedCreateOrderClientAddresses = useMemo(
     selectedAccountStatementData.rows,
   ]);
 
+  const accountDetailUsesCustomDateRange =
+    (accountDetailDateFrom || defaultMoneyActivityDate) !== defaultMoneyActivityDate ||
+    (accountDetailDateTo || defaultMoneyActivityDate) !== defaultMoneyActivityDate;
+
   const accountStatementFiltersActive =
-    Boolean(accountDetailDateFrom) ||
-    Boolean(accountDetailDateTo) ||
+    accountDetailUsesCustomDateRange ||
     accountMovementFilter !== 'all' ||
     Boolean(accountAuditStatusFilter) ||
     Boolean(accountAuditUserFilter) ||
@@ -23543,7 +23551,7 @@ deliveryAssignMode === 'external' ? (
                   {moneyActivityLoading ? 'Buscando...' : 'Buscar'}
                 </button>
                 <div className="self-end pb-2 text-xs text-[#8A8A96]">
-                  Sin rango, muestra el día operativo {defaultMoneyActivityDate}.
+                  Por defecto muestra el día operativo {defaultMoneyActivityDate}.
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[160px_minmax(0,1fr)_140px_140px_120px]">
@@ -23588,8 +23596,8 @@ deliveryAssignMode === 'external' ? (
                     type="button"
                     className="self-end rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#B7B7C2]"
                     onClick={() => {
-                      setAccountDetailDateFrom('');
-                      setAccountDetailDateTo('');
+                      setAccountDetailDateFrom(defaultMoneyActivityDate);
+                      setAccountDetailDateTo(defaultMoneyActivityDate);
                       setAccountMovementFilter('all');
                       setAccountAuditStatusFilter('');
                       setAccountAuditUserFilter('');
@@ -23605,47 +23613,65 @@ deliveryAssignMode === 'external' ? (
                 {selectedAccountVisibleStatementRows.length === 0 ? (
                   <div className="text-sm text-[#B7B7C2]">No hay movimientos para ese filtro.</div>
                 ) : (
-                  <table className="w-full text-[12px]">
+                  <table className="min-w-[980px] w-full table-fixed text-[11px]">
+                    <colgroup>
+                      <col className="w-[92px]" />
+                      <col className="w-[36%]" />
+                      <col className="w-[150px]" />
+                      <col className="w-[118px]" />
+                      <col className="w-[118px]" />
+                      <col className="w-[126px]" />
+                      <col className="w-[112px]" />
+                    </colgroup>
                     <thead className="border-b border-[#242433] text-[#B7B7C2]">
                       <tr>
-                        <th className="px-2 py-2 text-left font-medium">Fecha operación</th>
-                        <th className="px-2 py-2 text-left font-medium">Concepto / razón</th>
-                        <th className="px-2 py-2 text-left font-medium">Referencia</th>
-                        <th className="px-2 py-2 text-right font-medium">Entrada</th>
-                        <th className="px-2 py-2 text-right font-medium">Salida</th>
-                        <th className="px-2 py-2 text-right font-medium">Saldo</th>
-                        <th className="px-2 py-2 text-left font-medium">Estado</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Fecha</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Movimiento</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Ref.</th>
+                        <th className="px-2 py-1.5 text-right font-medium">Entrada</th>
+                        <th className="px-2 py-1.5 text-right font-medium">Salida</th>
+                        <th className="px-2 py-1.5 text-right font-medium">Saldo</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Estado</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedAccountVisibleStatementRows.map((row, idx) => {
                         const { group, movement } = row;
                         const zebra = idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]';
+                        const movementMeta = [
+                          MOVEMENT_TYPE_LABEL[movement.movementType],
+                          movement.counterpartyName || null,
+                        ].filter(Boolean);
 
                         return (
                           <tr
                             key={group.key}
-                            className={`${zebra} cursor-pointer border-b border-[#242433] align-top hover:bg-[#1A1A28]`}
+                            className={`${zebra} cursor-pointer border-b border-[#242433] align-middle hover:bg-[#1A1A28]`}
                             onClick={() => {
                               setSelectedMovementGroupKey(group.key);
                               setMovementDetailOpen(true);
                             }}
                           >
-                            <td className="px-2 py-2">{movement.movementDate}</td>
-                            <td className="px-2 py-2">
-                              <div className="font-medium text-[#F5F5F7]">{row.concept}</div>
-                              <div className="mt-1 text-[11px] text-[#8A8A96]">
-                                {MOVEMENT_TYPE_LABEL[movement.movementType]}
-                                {movement.counterpartyName ? ` · ${movement.counterpartyName}` : ''}
+                            <td className="px-2 py-1.5 whitespace-nowrap text-[#D7D7E0]">{movement.movementDate}</td>
+                            <td className="px-2 py-1.5">
+                              <div className="truncate font-medium text-[#F5F5F7]" title={row.concept}>
+                                {row.concept}
                               </div>
-                            </td>
-                            <td className="px-2 py-2">
-                              <div>{row.reference}</div>
-                              {movement.orderId ? (
-                                <div className="mt-1 text-[11px] text-[#8A8A96]">Orden #{movement.orderId}</div>
+                              {movementMeta.length > 0 ? (
+                                <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]" title={movementMeta.join(' · ')}>
+                                  {movementMeta.join(' · ')}
+                                </div>
                               ) : null}
                             </td>
-                            <td className="px-2 py-2 text-right">
+                            <td className="px-2 py-1.5">
+                              <div className="truncate text-[#D7D7E0]" title={row.reference}>
+                                {row.reference}
+                              </div>
+                              {movement.orderId ? (
+                                <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]">Orden #{movement.orderId}</div>
+                              ) : null}
+                            </td>
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
                               {row.inflowNative > 0 ? (
                                 <span className="font-semibold text-emerald-300">
                                   {fmtMoneyByCurrency(row.inflowNative, selectedAccount.currencyCode)}
@@ -23654,7 +23680,7 @@ deliveryAssignMode === 'external' ? (
                                 <span className="text-[#8A8A96]">—</span>
                               )}
                             </td>
-                            <td className="px-2 py-2 text-right">
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
                               {row.outflowNative > 0 ? (
                                 <span className="font-semibold text-red-300">
                                   {fmtMoneyByCurrency(row.outflowNative, selectedAccount.currencyCode)}
@@ -23663,18 +23689,18 @@ deliveryAssignMode === 'external' ? (
                                 <span className="text-[#8A8A96]">—</span>
                               )}
                             </td>
-                            <td className="px-2 py-2 text-right">
+                            <td className="px-2 py-1.5 text-right whitespace-nowrap">
                               <div className="font-semibold text-[#F5F5F7]">
                                 {fmtMoneyByCurrency(row.runningBalanceNative, selectedAccount.currencyCode)}
                               </div>
                               {movement.status !== 'confirmed' ? (
-                                <div className="mt-1 text-[11px] text-[#8A8A96]">No afecta saldo</div>
+                                <div className="mt-0.5 text-[10px] text-[#8A8A96]">No afecta saldo</div>
                               ) : null}
                             </td>
-                            <td className="px-2 py-2">
+                            <td className="px-2 py-1.5">
                               <span
                                 className={[
-                                  'rounded-full border px-2 py-0.5 text-[11px]',
+                                  'inline-flex max-w-full rounded-full border px-1.5 py-0.5 text-[10px]',
                                   movement.status === 'confirmed'
                                     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
                                     : movement.status === 'pending'
