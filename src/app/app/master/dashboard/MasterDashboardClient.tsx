@@ -599,6 +599,23 @@ type AdvisorCommissionClosure = {
   giftDeductionsUsd: number;
   manualDeductionsUsd: number;
   payableUsd: number;
+  snapshot: {
+    orders?: Array<{
+      orderId?: number;
+      orderNumber?: string | null;
+      clientName?: string | null;
+      deliveryDate?: string | null;
+      totalUsd?: number;
+      confirmedPaidUsd?: number;
+      pendingUsd?: number;
+      regularBaseUsd?: number;
+      specialItemBaseUsd?: number;
+      specialOrderBaseUsd?: number;
+      commissionUsd?: number;
+      commissionMode?: string | null;
+      paymentStatus?: string | null;
+    }>;
+  };
   generatedAt: string | null;
   closedAt: string | null;
   paidAt: string | null;
@@ -4221,6 +4238,7 @@ export default function MasterDashboardClient({
     advisorCommissionPeriods[0]?.id ? String(advisorCommissionPeriods[0].id) : ''
   );
   const [advisorCommissionBusy, setAdvisorCommissionBusy] = useState(false);
+  const [expandedAdvisorCommissionClosureId, setExpandedAdvisorCommissionClosureId] = useState<number | null>(null);
   const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
   const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
   const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerOption[]>(initialDeliveryPartners);
@@ -6088,6 +6106,10 @@ useEffect(() => {
   if (!advisorCommissionPeriods[0]?.id) return;
   setSelectedAdvisorCommissionPeriodId(String(advisorCommissionPeriods[0].id));
 }, [advisorCommissionPeriods, selectedAdvisorCommissionPeriodId]);
+
+useEffect(() => {
+  setExpandedAdvisorCommissionClosureId(null);
+}, [selectedAdvisorCommissionPeriodId]);
 
 const generateCalculationsReport = useCallback(() => {
   if (!advisorCalcDateFrom || !advisorCalcDateTo) {
@@ -14777,7 +14799,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_160px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_120px_180px]">
                     <FieldSelect
                       label="Periodo"
                       value={selectedAdvisorCommissionPeriodId}
@@ -14802,13 +14824,20 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         })),
                       ]}
                     />
+                    <FieldInput
+                      label="% a generar"
+                      value={advisorCalcBasePct}
+                      onChange={setAdvisorCalcBasePct}
+                      type="text"
+                      hint="Cambia y vuelve a generar."
+                    />
                     <button
                       className="self-end rounded-xl border border-[#2F3142] bg-[#0B0B0D] px-3.5 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={advisorCommissionBusy || advisorCommissionSetupMissing || !selectedAdvisorCommissionPeriodId}
                       onClick={generateAdvisorCommissionClosures}
                       type="button"
                     >
-                      {advisorCommissionBusy ? 'Generando' : 'Generar preliminares'}
+                      {advisorCommissionBusy ? 'Generando' : 'Regenerar preliminares'}
                     </button>
                   </div>
 
@@ -14832,39 +14861,139 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <tr>
                           <th className="px-3 py-2 text-left font-medium">Asesor</th>
                           <th className="px-3 py-2 text-left font-medium">Estado</th>
+                          <th className="px-3 py-2 text-right font-medium">% base</th>
                           <th className="px-3 py-2 text-right font-medium">Cierres</th>
                           <th className="px-3 py-2 text-right font-medium">Facturado</th>
                           <th className="px-3 py-2 text-right font-medium">Pendiente</th>
                           <th className="px-3 py-2 text-right font-medium">Comision</th>
                           <th className="px-3 py-2 text-right font-medium">A pagar</th>
+                          <th className="px-3 py-2 text-right font-medium">Detalle</th>
                         </tr>
                       </thead>
                       <tbody>
                         {selectedAdvisorCommissionClosures.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={9}>
                               Sin preliminares generados para este periodo.
                             </td>
                           </tr>
                         ) : (
-                          selectedAdvisorCommissionClosures.map((closure, idx) => (
-                            <tr
-                              key={closure.id}
-                              className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
-                            >
-                              <td className="px-3 py-2">{advisorNameById.get(closure.advisorUserId) || 'Asesor'}</td>
-                              <td className="px-3 py-2 capitalize">{closure.status}</td>
-                              <td className="px-3 py-2 text-right">{closure.deliveredOrdersCount}</td>
-                              <td className="px-3 py-2 text-right">{fmtUSD(closure.billedUsd)}</td>
-                              <td className="px-3 py-2 text-right text-orange-300">
-                                {fmtUSD(closure.pendingCollectionUsd)}
-                              </td>
-                              <td className="px-3 py-2 text-right">{fmtUSD(closure.grossCommissionUsd)}</td>
-                              <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
-                                {fmtUSD(closure.payableUsd)}
-                              </td>
-                            </tr>
-                          ))
+                          selectedAdvisorCommissionClosures.map((closure, idx) => {
+                            const isExpanded = expandedAdvisorCommissionClosureId === closure.id;
+                            const snapshotOrders = Array.isArray(closure.snapshot?.orders)
+                              ? closure.snapshot.orders
+                              : [];
+
+                            return (
+                              <React.Fragment key={closure.id}>
+                                <tr
+                                  className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                >
+                                  <td className="px-3 py-2">{advisorNameById.get(closure.advisorUserId) || 'Asesor'}</td>
+                                  <td className="px-3 py-2 capitalize">{closure.status}</td>
+                                  <td className="px-3 py-2 text-right">{closure.baseCommissionPct.toFixed(2)}%</td>
+                                  <td className="px-3 py-2 text-right">{closure.deliveredOrdersCount}</td>
+                                  <td className="px-3 py-2 text-right">{fmtUSD(closure.billedUsd)}</td>
+                                  <td className="px-3 py-2 text-right text-orange-300">
+                                    {fmtUSD(closure.pendingCollectionUsd)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">{fmtUSD(closure.grossCommissionUsd)}</td>
+                                  <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
+                                    {fmtUSD(closure.payableUsd)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    <button
+                                      className="rounded-full border border-[#2F3142] px-2.5 py-1 text-[11px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+                                      onClick={() =>
+                                        setExpandedAdvisorCommissionClosureId(isExpanded ? null : closure.id)
+                                      }
+                                      type="button"
+                                    >
+                                      {isExpanded ? 'Ocultar' : 'Ver órdenes'}
+                                    </button>
+                                  </td>
+                                </tr>
+                                {isExpanded ? (
+                                  <tr className="border-b border-[#242433] bg-[#0B0B0D]">
+                                    <td className="px-3 py-3" colSpan={9}>
+                                      <div className="mb-2 flex items-center justify-between gap-3">
+                                        <div className="text-xs font-semibold text-[#F5F5F7]">
+                                          Ordenes que forman esta comisión
+                                        </div>
+                                        <div className="text-[11px] text-[#B7B7C2]">
+                                          {snapshotOrders.length} orden(es)
+                                        </div>
+                                      </div>
+                                      <div className="max-h-[260px] overflow-auto rounded-xl border border-[#242433]">
+                                        <table className="w-full text-[11px]">
+                                          <thead className="sticky top-0 bg-[#101018] text-[#B7B7C2]">
+                                            <tr>
+                                              <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                              <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                              <th className="px-3 py-2 text-left font-medium">Fecha</th>
+                                              <th className="px-3 py-2 text-right font-medium">Total</th>
+                                              <th className="px-3 py-2 text-right font-medium">Pendiente</th>
+                                              <th className="px-3 py-2 text-right font-medium">Base normal</th>
+                                              <th className="px-3 py-2 text-right font-medium">Base especial</th>
+                                              <th className="px-3 py-2 text-right font-medium">Comisión</th>
+                                              <th className="px-3 py-2 text-left font-medium">Regla</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {snapshotOrders.length === 0 ? (
+                                              <tr>
+                                                <td className="px-3 py-5 text-center text-[#B7B7C2]" colSpan={9}>
+                                                  Este preliminar no tiene detalle guardado.
+                                                </td>
+                                              </tr>
+                                            ) : (
+                                              snapshotOrders.map((order, orderIdx) => {
+                                                const orderId = Number(order.orderId || 0);
+                                                const specialBase =
+                                                  Number(order.specialItemBaseUsd || 0) +
+                                                  Number(order.specialOrderBaseUsd || 0);
+                                                const mode =
+                                                  order.commissionMode === 'fixed_order'
+                                                    ? 'Orden fija'
+                                                    : order.commissionMode === 'mixed_items'
+                                                      ? 'Items especiales'
+                                                      : 'Base';
+
+                                                return (
+                                                  <tr
+                                                    key={`${closure.id}-${orderId || orderIdx}`}
+                                                    className={`${orderIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                  >
+                                                    <td className="px-3 py-2">
+                                                      {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                    </td>
+                                                    <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
+                                                    <td className="px-3 py-2">{order.deliveryDate || '—'}</td>
+                                                    <td className="px-3 py-2 text-right">{fmtUSD(Number(order.totalUsd || 0))}</td>
+                                                    <td className="px-3 py-2 text-right text-orange-300">
+                                                      {fmtUSD(Number(order.pendingUsd || 0))}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right">
+                                                      {fmtUSD(Number(order.regularBaseUsd || 0))}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right">{fmtUSD(specialBase)}</td>
+                                                    <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
+                                                      {fmtUSD(Number(order.commissionUsd || 0))}
+                                                    </td>
+                                                    <td className="px-3 py-2">{mode}</td>
+                                                  </tr>
+                                                );
+                                              })
+                                            )}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </React.Fragment>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>

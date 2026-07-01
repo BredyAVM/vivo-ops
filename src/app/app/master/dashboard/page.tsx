@@ -314,6 +314,7 @@ type AdvisorCommissionClosureRow = {
   gift_deductions_usd: number | string;
   manual_deductions_usd: number | string;
   payable_usd: number | string;
+  snapshot: any;
   generated_at: string | null;
   closed_at: string | null;
   paid_at: string | null;
@@ -1314,6 +1315,7 @@ const [advisorCommissionPeriodsResult, advisorCommissionClosuresResult] = await 
         gift_deductions_usd,
         manual_deductions_usd,
         payable_usd,
+        snapshot,
         generated_at,
         closed_at,
         paid_at
@@ -1378,6 +1380,7 @@ const advisorCommissionClosures = advisorCommissionSetupMissing
       giftDeductionsUsd: roundMoney(row.gift_deductions_usd),
       manualDeductionsUsd: roundMoney(row.manual_deductions_usd),
       payableUsd: roundMoney(row.payable_usd),
+      snapshot: row.snapshot && typeof row.snapshot === 'object' ? row.snapshot : {},
       generatedAt: row.generated_at,
       closedAt: row.closed_at,
       paidAt: row.paid_at,
