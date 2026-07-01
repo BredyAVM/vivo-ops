@@ -12,6 +12,7 @@ import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { getOrderCommercialNetUsd, getOrderLineTotalUsd, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
@@ -11330,6 +11331,596 @@ export async function updateOrderAction(input: {
   revalidatePath('/app/master/dashboard');
 
   return { ok: true as const, id: orderId };
+}
+
+type AdvisorCommissionOrderItemRow = {
+  id: number | string;
+  product_id: number | string | null;
+  qty: number | string | null;
+  unit_price_usd_snapshot: number | string | null;
+  line_total_usd: number | string | null;
+  product_name_snapshot: string | null;
+  sku_snapshot: string | null;
+  notes: string | null;
+  product:
+    | {
+        id: number | string;
+        name: string | null;
+        type: string | null;
+        commission_mode: string | null;
+        commission_value: number | string | null;
+      }
+    | {
+        id: number | string;
+        name: string | null;
+        type: string | null;
+        commission_mode: string | null;
+        commission_value: number | string | null;
+      }[]
+    | null;
+};
+
+type AdvisorCommissionOrderRow = {
+  id: number | string;
+  order_number: string | null;
+  client_id: number | string | null;
+  attributed_advisor_id: string | null;
+  source: string | null;
+  status: string | null;
+  total_usd: number | string | null;
+  total_bs_snapshot: number | string | null;
+  created_at: string | null;
+  extra_fields: any;
+  client:
+    | {
+        id: number | string | null;
+        full_name: string | null;
+        phone: string | null;
+        created_at: string | null;
+        client_type: string | null;
+      }
+    | {
+        id: number | string | null;
+        full_name: string | null;
+        phone: string | null;
+        created_at: string | null;
+        client_type: string | null;
+      }[]
+    | null;
+  items: AdvisorCommissionOrderItemRow[] | null;
+};
+
+type AdvisorCommissionFinancialStateRow = {
+  order_id: number | string;
+  total_usd: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  pending_usd: number | string | null;
+  overpaid_usd: number | string | null;
+  payment_status: string | null;
+  delivery_reference_date: string | null;
+};
+
+const ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF = '2026-06-02';
+
+function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
+  return Array.isArray(order.client) ? order.client[0] ?? null : order.client ?? null;
+}
+
+function getAdvisorCommissionProduct(item: AdvisorCommissionOrderItemRow) {
+  return Array.isArray(item.product) ? item.product[0] ?? null : item.product ?? null;
+}
+
+function getAdvisorCommissionDeliveryDate(order: AdvisorCommissionOrderRow) {
+  const stateDate = getOrderDeliveryReferenceDate(order);
+  if (stateDate) return stateDate;
+
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as Record<string, any>)
+      : {};
+
+  const scheduledDate = normalizeDateOnly(extraFields.schedule?.date);
+  if (scheduledDate) return scheduledDate;
+
+  return dateOnlyFromIso(order.created_at);
+}
+
+function getAdvisorCommissionDiscountFactor(order: AdvisorCommissionOrderRow, items: AdvisorCommissionOrderItemRow[]) {
+  const rawItemsTotal = items.reduce((sum, item) => sum + getOrderLineTotalUsd(item), 0);
+  if (rawItemsTotal <= 0.005) return 1;
+
+  const commercialNetUsd = getOrderCommercialNetUsd(order);
+  if (commercialNetUsd <= 0.005) return 1;
+
+  return Math.max(0, Math.min(1, commercialNetUsd / rawItemsTotal));
+}
+
+function buildAdvisorCommissionSnapshots(params: {
+  orders: AdvisorCommissionOrderRow[];
+  financialStates: Map<number, AdvisorCommissionFinancialStateRow>;
+  advisorIds: string[];
+  advisorNamesById: Map<string, string>;
+  period: { id: number; name: string; date_from: string; date_to: string };
+  baseCommissionPct: number;
+}) {
+  const { orders, financialStates, advisorIds, advisorNamesById, period, baseCommissionPct } = params;
+
+  const closuresByAdvisor = new Map<string, {
+    advisorUserId: string;
+    advisorName: string;
+    orders: Array<Record<string, unknown>>;
+    pendingOrders: Array<Record<string, unknown>>;
+    newClients: Array<Record<string, unknown>>;
+    products: Array<Record<string, unknown>>;
+    gifts: Array<Record<string, unknown>>;
+    totals: {
+      deliveredOrdersCount: number;
+      billedUsd: number;
+      regularBaseUsd: number;
+      specialItemBaseUsd: number;
+      specialOrderBaseUsd: number;
+      grossCommissionUsd: number;
+      pendingCollectionUsd: number;
+      punctualPaidCount: number;
+      latePaidCount: number;
+      pendingPaymentCount: number;
+      newOwnClientsCount: number;
+      newAssignedClientsCount: number;
+      giftDeductionsUsd: number;
+      manualDeductionsUsd: number;
+      payableUsd: number;
+    };
+  }>();
+
+  for (const advisorId of advisorIds) {
+    closuresByAdvisor.set(advisorId, {
+      advisorUserId: advisorId,
+      advisorName: advisorNamesById.get(advisorId) || 'Asesor',
+      orders: [],
+      pendingOrders: [],
+      newClients: [],
+      products: [],
+      gifts: [],
+      totals: {
+        deliveredOrdersCount: 0,
+        billedUsd: 0,
+        regularBaseUsd: 0,
+        specialItemBaseUsd: 0,
+        specialOrderBaseUsd: 0,
+        grossCommissionUsd: 0,
+        pendingCollectionUsd: 0,
+        punctualPaidCount: 0,
+        latePaidCount: 0,
+        pendingPaymentCount: 0,
+        newOwnClientsCount: 0,
+        newAssignedClientsCount: 0,
+        giftDeductionsUsd: 0,
+        manualDeductionsUsd: 0,
+        payableUsd: 0,
+      },
+    });
+  }
+
+  for (const order of orders) {
+    const advisorId = String(order.attributed_advisor_id || '');
+    const closure = closuresByAdvisor.get(advisorId);
+    if (!closure) continue;
+
+    const orderId = Number(order.id);
+    const items = Array.isArray(order.items) ? order.items : [];
+    const financialState = financialStates.get(orderId);
+    const moneySnapshot = getOrderMoneySnapshot(order);
+    const totalUsd = roundMoney(financialState?.total_usd ?? moneySnapshot.totalUsd);
+    const pendingUsd = roundMoney(financialState?.pending_usd ?? Math.max(0, totalUsd));
+    const confirmedPaidUsd = roundMoney(financialState?.confirmed_paid_usd ?? 0);
+    const deliveryDate = financialState?.delivery_reference_date || getAdvisorCommissionDeliveryDate(order);
+    const discountFactor = getAdvisorCommissionDiscountFactor(order, items);
+
+    let regularBaseUsd = 0;
+    let specialItemBaseUsd = 0;
+    let specialItemCommissionUsd = 0;
+    let fixedOrderBaseUsd = 0;
+    let fixedOrderPct: number | null = null;
+    const fixedOrderProduct = items
+      .map(getAdvisorCommissionProduct)
+      .find((product) => String(product?.commission_mode || '') === 'fixed_order');
+
+    if (fixedOrderProduct) {
+      fixedOrderBaseUsd = getOrderCommercialNetUsd(order);
+      fixedOrderPct = Math.max(0, toSafeNumber(fixedOrderProduct.commission_value, 0));
+    } else {
+      for (const item of items) {
+        const product = getAdvisorCommissionProduct(item);
+        const lineBaseUsd = roundMoney(getOrderLineTotalUsd(item) * discountFactor);
+        if (String(product?.commission_mode || '') === 'fixed_item') {
+          const pct = Math.max(0, toSafeNumber(product?.commission_value, 0));
+          specialItemBaseUsd += lineBaseUsd;
+          specialItemCommissionUsd += roundMoney(lineBaseUsd * (pct / 100));
+        } else {
+          regularBaseUsd += lineBaseUsd;
+        }
+
+        const productType = String(product?.type || '').toLowerCase();
+        const productName = item.product_name_snapshot || product?.name || 'Producto';
+        if (productType === 'gambit' || productName.toLowerCase().includes('obsequio')) {
+          closure.gifts.push({
+            orderId,
+            orderNumber: order.order_number,
+            productName,
+            qty: toSafeNumber(item.qty, 0),
+            clientName: getAdvisorCommissionClient(order)?.full_name || 'Cliente',
+            deductionUsd: 0,
+          });
+        }
+
+        closure.products.push({
+          orderId,
+          orderNumber: order.order_number,
+          productName,
+          qty: toSafeNumber(item.qty, 0),
+          lineBaseUsd,
+          commissionMode: String(product?.commission_mode || 'default'),
+          commissionValue: product?.commission_value ?? null,
+        });
+      }
+    }
+
+    const regularCommissionUsd = roundMoney(regularBaseUsd * (baseCommissionPct / 100));
+    const fixedOrderCommissionUsd =
+      fixedOrderPct == null ? 0 : roundMoney(fixedOrderBaseUsd * (fixedOrderPct / 100));
+    const orderCommissionUsd = roundMoney(regularCommissionUsd + specialItemCommissionUsd + fixedOrderCommissionUsd);
+    const paymentStatus = String(financialState?.payment_status || '').toLowerCase();
+    const isPending = pendingUsd > 0.005;
+
+    closure.totals.deliveredOrdersCount += 1;
+    closure.totals.billedUsd += totalUsd;
+    closure.totals.regularBaseUsd += regularBaseUsd;
+    closure.totals.specialItemBaseUsd += specialItemBaseUsd;
+    closure.totals.specialOrderBaseUsd += fixedOrderBaseUsd;
+    closure.totals.grossCommissionUsd += orderCommissionUsd;
+    closure.totals.pendingCollectionUsd += isPending ? pendingUsd : 0;
+    closure.totals.pendingPaymentCount += isPending ? 1 : 0;
+    closure.totals.punctualPaidCount += !isPending && ['paid', 'overpaid', 'closed'].includes(paymentStatus) ? 1 : 0;
+
+    const client = getAdvisorCommissionClient(order);
+    const clientCreatedDate = dateOnlyFromIso(client?.created_at);
+    if (clientCreatedDate && clientCreatedDate >= period.date_from && clientCreatedDate <= period.date_to) {
+      const clientType = String(client?.client_type || '').toLowerCase();
+      const isLegacyImport = clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF;
+      if (!isLegacyImport) {
+        if (clientType === 'own') closure.totals.newOwnClientsCount += 1;
+        if (clientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
+        closure.newClients.push({
+          clientId: client?.id,
+          clientName: client?.full_name || 'Cliente',
+          clientType,
+          orderId,
+          orderNumber: order.order_number,
+          createdAt: client?.created_at,
+        });
+      }
+    }
+
+    const orderSnapshot = {
+      orderId,
+      orderNumber: order.order_number,
+      clientId: client?.id ?? null,
+      clientName: client?.full_name || 'Cliente',
+      deliveryDate,
+      totalUsd,
+      confirmedPaidUsd,
+      pendingUsd,
+      regularBaseUsd: roundMoney(regularBaseUsd),
+      specialItemBaseUsd: roundMoney(specialItemBaseUsd),
+      specialOrderBaseUsd: roundMoney(fixedOrderBaseUsd),
+      commissionUsd: orderCommissionUsd,
+      commissionMode: fixedOrderPct == null ? (specialItemBaseUsd > 0 ? 'mixed_items' : 'default') : 'fixed_order',
+      paymentStatus: financialState?.payment_status ?? null,
+    };
+
+    closure.orders.push(orderSnapshot);
+    if (isPending) closure.pendingOrders.push(orderSnapshot);
+  }
+
+  return Array.from(closuresByAdvisor.values()).map((closure) => {
+    const totals = closure.totals;
+    totals.billedUsd = roundMoney(totals.billedUsd);
+    totals.regularBaseUsd = roundMoney(totals.regularBaseUsd);
+    totals.specialItemBaseUsd = roundMoney(totals.specialItemBaseUsd);
+    totals.specialOrderBaseUsd = roundMoney(totals.specialOrderBaseUsd);
+    totals.grossCommissionUsd = roundMoney(totals.grossCommissionUsd);
+    totals.pendingCollectionUsd = roundMoney(totals.pendingCollectionUsd);
+    totals.giftDeductionsUsd = roundMoney(totals.giftDeductionsUsd);
+    totals.manualDeductionsUsd = roundMoney(totals.manualDeductionsUsd);
+    totals.payableUsd = roundMoney(
+      totals.grossCommissionUsd - totals.giftDeductionsUsd - totals.manualDeductionsUsd
+    );
+
+    return {
+      period_id: period.id,
+      advisor_user_id: closure.advisorUserId,
+      status: 'preliminary',
+      base_commission_pct: baseCommissionPct,
+      delivered_orders_count: totals.deliveredOrdersCount,
+      billed_usd: totals.billedUsd,
+      regular_base_usd: totals.regularBaseUsd,
+      special_item_base_usd: totals.specialItemBaseUsd,
+      special_order_base_usd: totals.specialOrderBaseUsd,
+      gross_commission_usd: totals.grossCommissionUsd,
+      pending_collection_usd: totals.pendingCollectionUsd,
+      punctual_paid_count: totals.punctualPaidCount,
+      late_paid_count: totals.latePaidCount,
+      pending_payment_count: totals.pendingPaymentCount,
+      new_own_clients_count: totals.newOwnClientsCount,
+      new_assigned_clients_count: totals.newAssignedClientsCount,
+      gift_deductions_usd: totals.giftDeductionsUsd,
+      manual_deductions_usd: totals.manualDeductionsUsd,
+      payable_usd: totals.payableUsd,
+      snapshot: {
+        version: 1,
+        generated_at: new Date().toISOString(),
+        period,
+        advisor: {
+          id: closure.advisorUserId,
+          name: closure.advisorName,
+        },
+        base_commission_pct: baseCommissionPct,
+        totals,
+        orders: closure.orders,
+        pending_orders: closure.pendingOrders,
+        new_clients: closure.newClients,
+        products: closure.products,
+        gifts: closure.gifts,
+        deductions: [],
+      },
+    };
+  });
+}
+
+export async function createAdvisorCommissionPeriodAction(input: {
+  name?: string;
+  dateFrom: string;
+  dateTo: string;
+  notes?: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const dateFrom = normalizeDateOnly(input.dateFrom);
+  const dateTo = normalizeDateOnly(input.dateTo);
+
+  if (!dateFrom || !dateTo) {
+    throw new Error('Indica desde y hasta para crear el periodo.');
+  }
+
+  if (dateFrom > dateTo) {
+    throw new Error('La fecha desde no puede ser mayor a la fecha hasta.');
+  }
+
+  const name = String(input.name || '').trim() || `Periodo ${dateFrom} / ${dateTo}`;
+
+  const { data, error } = await supabase
+    .from('advisor_commission_periods')
+    .insert({
+      name,
+      date_from: dateFrom,
+      date_to: dateTo,
+      status: 'open',
+      notes: String(input.notes || '').trim() || null,
+      created_by_user_id: user.id,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+  return { ok: true as const, id: Number(data.id) };
+}
+
+export async function generateAdvisorCommissionClosuresAction(input: {
+  periodId: number;
+  baseCommissionPct: number;
+  advisorUserId?: string | null;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const periodId = Number(input.periodId || 0);
+  const baseCommissionPct = Math.max(0, toSafeNumber(input.baseCommissionPct, 0));
+  const advisorUserId = String(input.advisorUserId || '').trim() || null;
+
+  if (!Number.isFinite(periodId) || periodId <= 0) {
+    throw new Error('Selecciona un periodo valido.');
+  }
+
+  const { data: period, error: periodError } = await supabase
+    .from('advisor_commission_periods')
+    .select('id, name, date_from, date_to, status')
+    .eq('id', periodId)
+    .single();
+
+  if (periodError) {
+    throw new Error(periodError.message);
+  }
+
+  if (period.status !== 'open') {
+    throw new Error('Solo se pueden generar preliminares en periodos abiertos.');
+  }
+
+  const { data: advisorsData, error: advisorsError } = await supabase.rpc('get_advisor_profiles');
+  if (advisorsError) {
+    throw new Error(advisorsError.message);
+  }
+
+  const advisors = ((advisorsData ?? []) as Array<{
+    user_id: string;
+    full_name: string | null;
+    is_active: boolean | null;
+  }>)
+    .filter((advisor) => Boolean(advisor.is_active ?? true))
+    .filter((advisor) => !advisorUserId || String(advisor.user_id) === advisorUserId);
+
+  if (advisors.length === 0) {
+    throw new Error('No hay asesores activos para generar.');
+  }
+
+  const advisorIds = advisors.map((advisor) => String(advisor.user_id));
+  const advisorNamesById = new Map(
+    advisors.map((advisor) => [String(advisor.user_id), advisor.full_name?.trim() || 'Asesor'])
+  );
+  const endExclusive = new Date(`${period.date_to}T00:00:00-04:00`);
+  endExclusive.setDate(endExclusive.getDate() + 1);
+  const endExclusiveDate = getCaracasDateString(endExclusive);
+  const orderSelect = `
+    id,
+    order_number,
+    client_id,
+    attributed_advisor_id,
+    source,
+    status,
+    total_usd,
+    total_bs_snapshot,
+    created_at,
+    extra_fields,
+    client:clients!orders_client_id_fkey (
+      id,
+      full_name,
+      phone,
+      created_at,
+      client_type
+    ),
+    items:order_items (
+      id,
+      product_id,
+      qty,
+      unit_price_usd_snapshot,
+      line_total_usd,
+      product_name_snapshot,
+      sku_snapshot,
+      notes,
+      product:products!order_items_product_id_fkey (
+        id,
+        name,
+        type,
+        commission_mode,
+        commission_value
+      )
+    )
+  `;
+
+  const [scheduledOrdersResult, completedOrdersResult] = await Promise.all([
+    supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('status', 'delivered')
+      .in('attributed_advisor_id', advisorIds)
+      .gte('extra_fields->schedule->>date', period.date_from)
+      .lt('extra_fields->schedule->>date', endExclusiveDate)
+      .limit(5000),
+    supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('status', 'delivered')
+      .in('attributed_advisor_id', advisorIds)
+      .gte('extra_fields->delivery->>completed_at', `${period.date_from}T00:00:00-04:00`)
+      .lt('extra_fields->delivery->>completed_at', `${endExclusiveDate}T00:00:00-04:00`)
+      .limit(5000),
+  ]);
+
+  const ordersError = scheduledOrdersResult.error ?? completedOrdersResult.error;
+  if (ordersError) {
+    throw new Error(ordersError.message);
+  }
+
+  const ordersById = new Map<number, AdvisorCommissionOrderRow>();
+  for (const order of [
+    ...((scheduledOrdersResult.data ?? []) as AdvisorCommissionOrderRow[]),
+    ...((completedOrdersResult.data ?? []) as AdvisorCommissionOrderRow[]),
+  ]) {
+    const deliveryDate = getAdvisorCommissionDeliveryDate(order);
+    if (!deliveryDate || deliveryDate < period.date_from || deliveryDate > period.date_to) continue;
+    ordersById.set(Number(order.id), order);
+  }
+
+  const orders = Array.from(ordersById.values());
+  const orderIds = orders.map((order) => Number(order.id)).filter((id) => Number.isFinite(id) && id > 0);
+  const financialStates = new Map<number, AdvisorCommissionFinancialStateRow>();
+
+  if (orderIds.length > 0) {
+    const { data: financialStateData, error: financialStateError } = await (supabase as any).rpc(
+      'get_orders_financial_state',
+      {
+        p_order_ids: orderIds,
+        p_operation_date: null,
+        p_active_bs_rate: null,
+      }
+    );
+
+    if (financialStateError) {
+      throw new Error(financialStateError.message);
+    }
+
+    for (const state of (financialStateData ?? []) as AdvisorCommissionFinancialStateRow[]) {
+      const orderId = Number(state.order_id);
+      if (Number.isFinite(orderId) && orderId > 0) {
+        financialStates.set(orderId, state);
+      }
+    }
+  }
+
+  const { data: existingClosures, error: existingError } = await supabase
+    .from('advisor_commission_closures')
+    .select('advisor_user_id, status')
+    .eq('period_id', periodId);
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  const lockedAdvisorIds = new Set(
+    ((existingClosures ?? []) as Array<{ advisor_user_id: string; status: string }>)
+      .filter((closure) => closure.status === 'closed' || closure.status === 'paid')
+      .map((closure) => closure.advisor_user_id)
+  );
+
+  const snapshots = buildAdvisorCommissionSnapshots({
+    orders,
+    financialStates,
+    advisorIds: advisorIds.filter((id) => !lockedAdvisorIds.has(id)),
+    advisorNamesById,
+    period: {
+      id: Number(period.id),
+      name: String(period.name || ''),
+      date_from: String(period.date_from),
+      date_to: String(period.date_to),
+    },
+    baseCommissionPct,
+  });
+
+  if (snapshots.length > 0) {
+    const nowIso = new Date().toISOString();
+    const payload = snapshots.map((snapshot) => ({
+      ...snapshot,
+      generated_by_user_id: user.id,
+      generated_at: nowIso,
+      updated_at: nowIso,
+    }));
+
+    const { error: upsertError } = await supabase
+      .from('advisor_commission_closures')
+      .upsert(payload, { onConflict: 'period_id,advisor_user_id' });
+
+    if (upsertError) {
+      throw new Error(upsertError.message);
+    }
+  }
+
+  revalidatePath('/app/master/dashboard');
+
+  return {
+    ok: true as const,
+    generated: snapshots.length,
+    skippedLocked: lockedAdvisorIds.size,
+  };
 }
 
 export async function logoutAction() {

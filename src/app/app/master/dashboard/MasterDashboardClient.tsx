@@ -99,7 +99,9 @@ import {
   resolveMasterInboxItemsAction,
   reopenMasterInboxItemsAction,
   createCatalogItemAction,
+  createAdvisorCommissionPeriodAction,
   duplicateCatalogItemAction,
+  generateAdvisorCommissionClosuresAction,
   createClientAction,
   createOrderClientQuickAction,
   getClientFundSnapshotAction,
@@ -567,6 +569,39 @@ type AdvisorOption = {
   userId: string;
   fullName: string;
   isActive: boolean;
+};
+
+type AdvisorCommissionPeriod = {
+  id: number;
+  name: string;
+  dateFrom: string;
+  dateTo: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+};
+
+type AdvisorCommissionClosure = {
+  id: number;
+  periodId: number;
+  advisorUserId: string;
+  status: string;
+  baseCommissionPct: number;
+  deliveredOrdersCount: number;
+  billedUsd: number;
+  grossCommissionUsd: number;
+  pendingCollectionUsd: number;
+  punctualPaidCount: number;
+  latePaidCount: number;
+  pendingPaymentCount: number;
+  newOwnClientsCount: number;
+  newAssignedClientsCount: number;
+  giftDeductionsUsd: number;
+  manualDeductionsUsd: number;
+  payableUsd: number;
+  generatedAt: string | null;
+  closedAt: string | null;
+  paidAt: string | null;
 };
 
 
@@ -4026,6 +4061,9 @@ export default function MasterDashboardClient({
   initialMasterInboxItemStates = [],
   initialMasterNotifications = [],
   advisors = [],
+  advisorCommissionPeriods = [],
+  advisorCommissionClosures = [],
+  advisorCommissionSetupMissing = false,
   initialOrders,
   inboxOrders = [],
   calculationOrders = [],
@@ -4062,6 +4100,9 @@ export default function MasterDashboardClient({
   }>;
   initialMasterNotifications?: MasterOrderNotification[];
   advisors?: AdvisorOption[];
+  advisorCommissionPeriods?: AdvisorCommissionPeriod[];
+  advisorCommissionClosures?: AdvisorCommissionClosure[];
+  advisorCommissionSetupMissing?: boolean;
   initialOrders: Order[];
   inboxOrders?: Order[];
   calculationOrders?: Order[];
@@ -4175,6 +4216,11 @@ export default function MasterDashboardClient({
   const [advisorCalcSource, setAdvisorCalcSource] = useState<CalculationsSource>(calculationScope?.source ?? '');
   const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState(calculationScope?.advisorId ?? '');
   const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState(calculationScope?.basePct ?? '8');
+  const [advisorCommissionPeriodName, setAdvisorCommissionPeriodName] = useState('');
+  const [selectedAdvisorCommissionPeriodId, setSelectedAdvisorCommissionPeriodId] = useState(
+    advisorCommissionPeriods[0]?.id ? String(advisorCommissionPeriods[0].id) : ''
+  );
+  const [advisorCommissionBusy, setAdvisorCommissionBusy] = useState(false);
   const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
   const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
   const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerOption[]>(initialDeliveryPartners);
@@ -6037,6 +6083,12 @@ const showToast = (type: 'success' | 'error' | 'info', message: string) => {
   setToast({ type, message });
 };
 
+useEffect(() => {
+  if (selectedAdvisorCommissionPeriodId) return;
+  if (!advisorCommissionPeriods[0]?.id) return;
+  setSelectedAdvisorCommissionPeriodId(String(advisorCommissionPeriods[0].id));
+}, [advisorCommissionPeriods, selectedAdvisorCommissionPeriodId]);
+
 const generateCalculationsReport = useCallback(() => {
   if (!advisorCalcDateFrom || !advisorCalcDateTo) {
     showToast('error', 'Selecciona desde y hasta para generar el reporte.');
@@ -6076,6 +6128,83 @@ const generateCalculationsReport = useCallback(() => {
   advisorCalcSource,
   router,
   searchParams,
+]);
+
+const createAdvisorCommissionPeriod = useCallback(async () => {
+  if (advisorCommissionSetupMissing) {
+    showToast('error', 'Primero corre el SQL de periodos de comisiones.');
+    return;
+  }
+
+  if (!advisorCalcDateFrom || !advisorCalcDateTo) {
+    showToast('error', 'Selecciona desde y hasta para crear el periodo.');
+    return;
+  }
+
+  if (advisorCalcDateFrom > advisorCalcDateTo) {
+    showToast('error', 'El rango de fechas no es válido.');
+    return;
+  }
+
+  try {
+    setAdvisorCommissionBusy(true);
+    const result = await createAdvisorCommissionPeriodAction({
+      name: advisorCommissionPeriodName,
+      dateFrom: advisorCalcDateFrom,
+      dateTo: advisorCalcDateTo,
+    });
+    setSelectedAdvisorCommissionPeriodId(String(result.id));
+    setAdvisorCommissionPeriodName('');
+    showToast('success', 'Periodo de asesores creado.');
+    router.refresh();
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudo crear el periodo.');
+  } finally {
+    setAdvisorCommissionBusy(false);
+  }
+}, [
+  advisorCalcDateFrom,
+  advisorCalcDateTo,
+  advisorCommissionPeriodName,
+  advisorCommissionSetupMissing,
+  router,
+]);
+
+const generateAdvisorCommissionClosures = useCallback(async () => {
+  if (advisorCommissionSetupMissing) {
+    showToast('error', 'Primero corre el SQL de periodos de comisiones.');
+    return;
+  }
+
+  const periodId = Number(selectedAdvisorCommissionPeriodId || 0);
+  if (!periodId) {
+    showToast('error', 'Selecciona un periodo para generar preliminares.');
+    return;
+  }
+
+  try {
+    setAdvisorCommissionBusy(true);
+    const result = await generateAdvisorCommissionClosuresAction({
+      periodId,
+      baseCommissionPct: Number(String(advisorCalcBasePct || '0').replace(',', '.')) || 0,
+      advisorUserId: advisorCalcAdvisorId || null,
+    });
+    showToast(
+      'success',
+      `Preliminares generados: ${result.generated}${result.skippedLocked ? ` · protegidos: ${result.skippedLocked}` : ''}.`
+    );
+    router.refresh();
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudieron generar los preliminares.');
+  } finally {
+    setAdvisorCommissionBusy(false);
+  }
+}, [
+  advisorCalcAdvisorId,
+  advisorCalcBasePct,
+  advisorCommissionSetupMissing,
+  router,
+  selectedAdvisorCommissionPeriodId,
 ]);
 
 const openEditDashboardUser = (userItem: DashboardUser) => {
@@ -13035,6 +13164,48 @@ const selectedCreateOrderClientAddresses = useMemo(
     deliveredOrders,
   ]);
 
+  const selectedAdvisorCommissionPeriod = useMemo(
+    () =>
+      advisorCommissionPeriods.find(
+        (period) => String(period.id) === String(selectedAdvisorCommissionPeriodId)
+      ) ?? null,
+    [advisorCommissionPeriods, selectedAdvisorCommissionPeriodId]
+  );
+
+  const selectedAdvisorCommissionClosures = useMemo(
+    () =>
+      advisorCommissionClosures
+        .filter((closure) => String(closure.periodId) === String(selectedAdvisorCommissionPeriodId))
+        .sort((a, b) => {
+          const nameA = advisorNameById.get(a.advisorUserId) || '';
+          const nameB = advisorNameById.get(b.advisorUserId) || '';
+          return nameA.localeCompare(nameB);
+        }),
+    [advisorCommissionClosures, advisorNameById, selectedAdvisorCommissionPeriodId]
+  );
+
+  const selectedAdvisorCommissionTotals = useMemo(
+    () =>
+      selectedAdvisorCommissionClosures.reduce(
+        (summary, closure) => {
+          summary.billedUsd += closure.billedUsd;
+          summary.grossCommissionUsd += closure.grossCommissionUsd;
+          summary.pendingCollectionUsd += closure.pendingCollectionUsd;
+          summary.payableUsd += closure.payableUsd;
+          summary.orders += closure.deliveredOrdersCount;
+          return summary;
+        },
+        {
+          billedUsd: 0,
+          grossCommissionUsd: 0,
+          pendingCollectionUsd: 0,
+          payableUsd: 0,
+          orders: 0,
+        }
+      ),
+    [selectedAdvisorCommissionClosures]
+  );
+
   const deliveryCalculatedData = useMemo(() => {
     const { start, end } = advisorCalcRange;
 
@@ -14567,6 +14738,137 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     emptyText="Genera un periodo para calcular comisiones."
                     onRefresh={generateCalculationsReport}
                   />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Cierres de periodo por asesor</div>
+                      <div className="mt-1 text-sm text-[#B7B7C2]">
+                        Crea la quincena y genera preliminares congelables para revisión.
+                      </div>
+                    </div>
+                    {advisorCommissionSetupMissing ? (
+                      <span className="rounded-full border border-orange-500/40 px-3 py-1 text-xs font-semibold text-orange-300">
+                        Falta correr SQL
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_120px_130px]">
+                    <FieldInput
+                      label="Nombre del periodo"
+                      value={advisorCommissionPeriodName}
+                      onChange={setAdvisorCommissionPeriodName}
+                      hint="Ej. 1ra quincena julio"
+                    />
+                    <FieldInput label="Desde" value={advisorCalcDateFrom} onChange={setAdvisorCalcDateFrom} type="date" />
+                    <FieldInput label="Hasta" value={advisorCalcDateTo} onChange={setAdvisorCalcDateTo} type="date" />
+                    <FieldInput label="% base" value={advisorCalcBasePct} onChange={setAdvisorCalcBasePct} type="text" />
+                    <button
+                      className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3.5 py-2 text-sm font-semibold text-[#0B0B0D] transition hover:bg-[#FFF45C] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={advisorCommissionBusy || advisorCommissionSetupMissing}
+                      onClick={createAdvisorCommissionPeriod}
+                      type="button"
+                    >
+                      {advisorCommissionBusy ? 'Procesando' : 'Crear periodo'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_160px]">
+                    <FieldSelect
+                      label="Periodo"
+                      value={selectedAdvisorCommissionPeriodId}
+                      onChange={setSelectedAdvisorCommissionPeriodId}
+                      options={[
+                        { value: '', label: 'Selecciona un periodo' },
+                        ...advisorCommissionPeriods.map((period) => ({
+                          value: String(period.id),
+                          label: `${period.name} · ${period.dateFrom} / ${period.dateTo}`,
+                        })),
+                      ]}
+                    />
+                    <FieldSelect
+                      label="Asesor"
+                      value={advisorCalcAdvisorId}
+                      onChange={setAdvisorCalcAdvisorId}
+                      options={[
+                        { value: '', label: 'Todos los asesores' },
+                        ...advisors.map((advisor) => ({
+                          value: advisor.userId,
+                          label: advisor.fullName,
+                        })),
+                      ]}
+                    />
+                    <button
+                      className="self-end rounded-xl border border-[#2F3142] bg-[#0B0B0D] px-3.5 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={advisorCommissionBusy || advisorCommissionSetupMissing || !selectedAdvisorCommissionPeriodId}
+                      onClick={generateAdvisorCommissionClosures}
+                      type="button"
+                    >
+                      {advisorCommissionBusy ? 'Generando' : 'Generar preliminares'}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    {[
+                      ['Periodo', selectedAdvisorCommissionPeriod?.name || 'Sin periodo'],
+                      ['Facturado', fmtUSD(selectedAdvisorCommissionTotals.billedUsd)],
+                      ['Comision bruta', fmtUSD(selectedAdvisorCommissionTotals.grossCommissionUsd)],
+                      ['A pagar', fmtUSD(selectedAdvisorCommissionTotals.payableUsd)],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-3">
+                        <div className="text-xs text-[#B7B7C2]">{label}</div>
+                        <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="max-h-[320px] overflow-auto rounded-xl border border-[#242433]">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Asesor</th>
+                          <th className="px-3 py-2 text-left font-medium">Estado</th>
+                          <th className="px-3 py-2 text-right font-medium">Cierres</th>
+                          <th className="px-3 py-2 text-right font-medium">Facturado</th>
+                          <th className="px-3 py-2 text-right font-medium">Pendiente</th>
+                          <th className="px-3 py-2 text-right font-medium">Comision</th>
+                          <th className="px-3 py-2 text-right font-medium">A pagar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedAdvisorCommissionClosures.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={7}>
+                              Sin preliminares generados para este periodo.
+                            </td>
+                          </tr>
+                        ) : (
+                          selectedAdvisorCommissionClosures.map((closure, idx) => (
+                            <tr
+                              key={closure.id}
+                              className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                            >
+                              <td className="px-3 py-2">{advisorNameById.get(closure.advisorUserId) || 'Asesor'}</td>
+                              <td className="px-3 py-2 capitalize">{closure.status}</td>
+                              <td className="px-3 py-2 text-right">{closure.deliveredOrdersCount}</td>
+                              <td className="px-3 py-2 text-right">{fmtUSD(closure.billedUsd)}</td>
+                              <td className="px-3 py-2 text-right text-orange-300">
+                                {fmtUSD(closure.pendingCollectionUsd)}
+                              </td>
+                              <td className="px-3 py-2 text-right">{fmtUSD(closure.grossCommissionUsd)}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-[#FEEF00]">
+                                {fmtUSD(closure.payableUsd)}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
 
