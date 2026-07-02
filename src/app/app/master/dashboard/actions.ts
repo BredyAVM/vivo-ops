@@ -12030,7 +12030,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
 
 export async function updateAdvisorCommissionClosureStatusAction(input: {
   closureId: number;
-  nextStatus: 'closed' | 'paid';
+  nextStatus: 'preliminary' | 'closed' | 'paid';
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
   const closureId = Number(input.closureId || 0);
@@ -12040,7 +12040,7 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
     throw new Error('Selecciona un cierre valido.');
   }
 
-  if (nextStatus !== 'closed' && nextStatus !== 'paid') {
+  if (nextStatus !== 'preliminary' && nextStatus !== 'closed' && nextStatus !== 'paid') {
     throw new Error('Estado de cierre invalido.');
   }
 
@@ -12059,25 +12059,36 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
     throw new Error('Solo un preliminar puede pasar a cierre.');
   }
 
+  if (nextStatus === 'preliminary' && currentStatus !== 'closed') {
+    throw new Error('Solo un cierre confirmado puede reabrirse a preliminar.');
+  }
+
   if (nextStatus === 'paid' && currentStatus !== 'closed') {
     throw new Error('Solo un cierre confirmado puede marcarse como pagado.');
   }
 
   const nowIso = new Date().toISOString();
   const payload =
-    nextStatus === 'closed'
+    nextStatus === 'preliminary'
       ? {
-          status: 'closed',
-          closed_at: nowIso,
-          closed_by_user_id: user.id,
+          status: 'preliminary',
+          closed_at: null,
+          closed_by_user_id: null,
           updated_at: nowIso,
         }
-      : {
-          status: 'paid',
-          paid_at: nowIso,
-          paid_by_user_id: user.id,
-          updated_at: nowIso,
-        };
+      : nextStatus === 'closed'
+        ? {
+            status: 'closed',
+            closed_at: nowIso,
+            closed_by_user_id: user.id,
+            updated_at: nowIso,
+          }
+        : {
+            status: 'paid',
+            paid_at: nowIso,
+            paid_by_user_id: user.id,
+            updated_at: nowIso,
+          };
 
   const { error: updateError } = await supabase
     .from('advisor_commission_closures')

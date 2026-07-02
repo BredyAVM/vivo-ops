@@ -6410,12 +6410,19 @@ const generateAdvisorCommissionClosures = useCallback(async () => {
 
 const updateAdvisorCommissionClosureStatus = useCallback(async (
   closureId: number,
-  nextStatus: 'closed' | 'paid'
+  nextStatus: 'preliminary' | 'closed' | 'paid'
 ) => {
   try {
     setAdvisorCommissionBusy(true);
     await updateAdvisorCommissionClosureStatusAction({ closureId, nextStatus });
-    showToast('success', nextStatus === 'closed' ? 'Cierre confirmado.' : 'Cierre marcado como pagado.');
+    showToast(
+      'success',
+      nextStatus === 'preliminary'
+        ? 'Cierre reabierto como preliminar.'
+        : nextStatus === 'closed'
+          ? 'Cierre confirmado.'
+          : 'Cierre marcado como pagado.'
+    );
     await loadAdvisorCommissionClosures();
   } catch (error) {
     showToast('error', error instanceof Error ? error.message : 'No se pudo actualizar el cierre.');
@@ -15280,6 +15287,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           type="button"
                                         >
                                           Cerrar
+                                        </button>
+                                      ) : null}
+                                      {closure.status === 'closed' ? (
+                                        <button
+                                          className="rounded-full border border-[#2F3142] px-2.5 py-1 text-[11px] font-semibold text-[#B7B7C2] transition hover:border-[#FEEF00]/60 disabled:cursor-wait disabled:opacity-50"
+                                          disabled={advisorCommissionBusy}
+                                          onClick={() => updateAdvisorCommissionClosureStatus(closure.id, 'preliminary')}
+                                          type="button"
+                                        >
+                                          Reabrir
                                         </button>
                                       ) : null}
                                       {closure.status === 'closed' ? (
