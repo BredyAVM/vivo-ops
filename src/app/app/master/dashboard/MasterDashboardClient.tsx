@@ -103,6 +103,7 @@ import {
   createAdvisorCommissionPeriodAction,
   duplicateCatalogItemAction,
   generateAdvisorCommissionClosuresAction,
+  updateAdvisorCommissionClosureDeductionsAction,
   updateAdvisorCommissionClosureStatusAction,
   createClientAction,
   createOrderClientQuickAction,
@@ -646,6 +647,11 @@ type AdvisorCommissionClosure = {
       productName?: string | null;
       qty?: number;
       deductionUsd?: number;
+    }>;
+    deductions?: Array<{
+      kind?: string | null;
+      description?: string | null;
+      amountUsd?: number | string | null;
     }>;
     totals?: {
       regularBaseUsd?: number;
@@ -4286,6 +4292,9 @@ export default function MasterDashboardClient({
     advisorCommissionPeriods[0]?.id ? String(advisorCommissionPeriods[0].id) : ''
   );
   const [advisorCommissionBusy, setAdvisorCommissionBusy] = useState(false);
+  const [advisorCommissionDeductionDrafts, setAdvisorCommissionDeductionDrafts] = useState<
+    Record<number, { amount: string; notes: string }>
+  >({});
   const [expandedAdvisorCommissionClosureId, setExpandedAdvisorCommissionClosureId] = useState<number | null>(null);
   const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
   const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
@@ -6309,6 +6318,32 @@ const updateAdvisorCommissionClosureStatus = useCallback(async (
     setAdvisorCommissionBusy(false);
   }
 }, [router]);
+
+const updateAdvisorCommissionClosureDeductions = useCallback(async (closure: AdvisorCommissionClosure) => {
+  const draft = advisorCommissionDeductionDrafts[closure.id];
+  const amountText = draft?.amount ?? String(closure.manualDeductionsUsd || '');
+  const amount = Number(String(amountText || '0').replace(',', '.'));
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    showToast('error', 'El deducible debe ser un monto válido.');
+    return;
+  }
+
+  try {
+    setAdvisorCommissionBusy(true);
+    await updateAdvisorCommissionClosureDeductionsAction({
+      closureId: closure.id,
+      manualDeductionsUsd: amount,
+      deductionNotes: draft?.notes ?? '',
+    });
+    showToast('success', 'Deducibles del cierre actualizados.');
+    router.refresh();
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudieron guardar los deducibles.');
+  } finally {
+    setAdvisorCommissionBusy(false);
+  }
+}, [advisorCommissionDeductionDrafts, router]);
 
 const openEditDashboardUser = (userItem: DashboardUser) => {
   const userRoles = new Set(dashboardRolesByUserId.get(userItem.id) ?? []);
@@ -14998,6 +15033,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const giftRows = Array.isArray(closure.snapshot?.gifts)
                               ? closure.snapshot.gifts
                               : [];
+                            const deductionRows = Array.isArray(closure.snapshot?.deductions)
+                              ? closure.snapshot.deductions
+                              : [];
+                            const deductionDraft = advisorCommissionDeductionDrafts[closure.id] ?? {
+                              amount: closure.manualDeductionsUsd ? String(closure.manualDeductionsUsd) : '',
+                              notes: deductionRows
+                                .map((deduction) => String(deduction.description || '').trim())
+                                .filter(Boolean)
+                                .join('\n'),
+                            };
                             const normalOrders = snapshotOrders.filter((order) => order.commissionMode === 'default');
                             const itemSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'mixed_items');
                             const orderSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'fixed_order');
@@ -15111,7 +15156,63 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
                                             {fmtUSD(closure.giftDeductionsUsd + closure.manualDeductionsUsd)}
                                           </div>
-                                          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">A pagar {fmtUSD(closure.payableUsd)}</div>
+                                          <div className="mt-0.5 text-[11px] text-[#B7B7C2]">
+                                            Obsequios {fmtUSD(closure.giftDeductionsUsd)} · Manual {fmtUSD(closure.manualDeductionsUsd)}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="mb-3 rounded-xl border border-[#242433] bg-[#101018] p-3">
+                                        <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-xs font-semibold text-[#F5F5F7]">Deducibles manuales</div>
+                                            <div className="mt-1 text-[11px] text-[#8A8A96]">
+                                              Usa esto para teléfono, deuda asumida, ajuste administrativo u otro descuento del periodo.
+                                            </div>
+                                          </div>
+                                          <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 md:grid-cols-[130px_minmax(0,1fr)_110px]">
+                                            <FieldInput
+                                              label="Monto USD"
+                                              value={deductionDraft.amount}
+                                              onChange={(value) =>
+                                                setAdvisorCommissionDeductionDrafts((current) => ({
+                                                  ...current,
+                                                  [closure.id]: {
+                                                    amount: value,
+                                                    notes: current[closure.id]?.notes ?? deductionDraft.notes,
+                                                  },
+                                                }))
+                                              }
+                                              type="text"
+                                            />
+                                            <FieldInput
+                                              label="Detalle"
+                                              value={deductionDraft.notes}
+                                              onChange={(value) =>
+                                                setAdvisorCommissionDeductionDrafts((current) => ({
+                                                  ...current,
+                                                  [closure.id]: {
+                                                    amount: current[closure.id]?.amount ?? deductionDraft.amount,
+                                                    notes: value,
+                                                  },
+                                                }))
+                                              }
+                                              hint="Ej. Movistar julio, deuda asumida, ajuste"
+                                            />
+                                            <button
+                                              className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00] transition hover:border-[#FFF45C] disabled:cursor-wait disabled:opacity-50"
+                                              disabled={advisorCommissionBusy || closure.status === 'paid'}
+                                              onClick={() => updateAdvisorCommissionClosureDeductions(closure)}
+                                              type="button"
+                                            >
+                                              Guardar
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-[#B7B7C2] md:grid-cols-3">
+                                          <div>Comisión bruta: <span className="font-semibold text-[#F5F5F7]">{fmtUSD(closure.grossCommissionUsd)}</span></div>
+                                          <div>Total deducible: <span className="font-semibold text-orange-300">{fmtUSD(closure.giftDeductionsUsd + closure.manualDeductionsUsd)}</span></div>
+                                          <div>A pagar: <span className="font-semibold text-[#FEEF00]">{fmtUSD(closure.payableUsd)}</span></div>
                                         </div>
                                       </div>
 

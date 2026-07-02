@@ -12031,6 +12031,80 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
   return { ok: true as const };
 }
 
+export async function updateAdvisorCommissionClosureDeductionsAction(input: {
+  closureId: number;
+  manualDeductionsUsd: number;
+  deductionNotes?: string | null;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const closureId = Number(input.closureId || 0);
+  const manualDeductionsUsd = roundMoney(Math.max(0, toSafeNumber(input.manualDeductionsUsd, 0)));
+  const deductionNotes = String(input.deductionNotes || '').trim();
+
+  if (!Number.isFinite(closureId) || closureId <= 0) {
+    throw new Error('Selecciona un cierre valido.');
+  }
+
+  const { data: closure, error: closureError } = await supabase
+    .from('advisor_commission_closures')
+    .select('id, status, gross_commission_usd, gift_deductions_usd, snapshot')
+    .eq('id', closureId)
+    .single();
+
+  if (closureError || !closure) {
+    throw new Error(closureError?.message || 'No se pudo cargar el cierre.');
+  }
+
+  if (closure.status === 'paid') {
+    throw new Error('No se pueden cambiar deducibles de un cierre pagado.');
+  }
+
+  const grossCommissionUsd = roundMoney(closure.gross_commission_usd);
+  const giftDeductionsUsd = roundMoney(closure.gift_deductions_usd);
+  const payableUsd = roundMoney(grossCommissionUsd - giftDeductionsUsd - manualDeductionsUsd);
+  const snapshot =
+    closure.snapshot && typeof closure.snapshot === 'object' && !Array.isArray(closure.snapshot)
+      ? { ...(closure.snapshot as Record<string, unknown>) }
+      : {};
+  const totals =
+    snapshot.totals && typeof snapshot.totals === 'object' && !Array.isArray(snapshot.totals)
+      ? { ...(snapshot.totals as Record<string, unknown>) }
+      : {};
+
+  snapshot.totals = {
+    ...totals,
+    giftDeductionsUsd,
+    manualDeductionsUsd,
+    payableUsd,
+  };
+  snapshot.deductions = deductionNotes
+    ? [
+        {
+          kind: 'manual',
+          description: deductionNotes,
+          amountUsd: manualDeductionsUsd,
+        },
+      ]
+    : [];
+
+  const { error: updateError } = await supabase
+    .from('advisor_commission_closures')
+    .update({
+      manual_deductions_usd: manualDeductionsUsd,
+      payable_usd: payableUsd,
+      snapshot,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', closureId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  revalidatePath('/app/master/dashboard');
+  return { ok: true as const, payableUsd };
+}
+
 export async function logoutAction() {
   const supabase = await createSupabaseServer();
 
