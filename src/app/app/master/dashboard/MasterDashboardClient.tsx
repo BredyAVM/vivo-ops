@@ -14922,52 +14922,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           ) : calculationsTab === 'commissions' ? (
             <div className="space-y-5">
               <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Consulta auxiliar de comisiones</div>
-                    <div className="mt-1 text-sm text-[#B7B7C2]">
-                      Simulación bajo demanda. No crea ni modifica cierres de período.
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[150px_150px_220px_120px_120px]">
-                    <FieldInput label="Desde" value={advisorCalcDateFrom} onChange={setAdvisorCalcDateFrom} type="date" />
-                    <FieldInput label="Hasta" value={advisorCalcDateTo} onChange={setAdvisorCalcDateTo} type="date" />
-                    <FieldSelect
-                      label="Asesor"
-                      value={advisorCalcAdvisorId}
-                      onChange={setAdvisorCalcAdvisorId}
-                      options={[
-                        { value: '', label: 'Todos los asesores' },
-                        ...advisors.map((advisor) => ({
-                          value: advisor.userId,
-                          label: advisor.fullName,
-                        })),
-                      ]}
-                    />
-                    <FieldInput label="% base" value={advisorCalcBasePct} onChange={setAdvisorCalcBasePct} type="text" />
-                    <button
-                      className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3.5 py-2 text-sm font-semibold text-[#0B0B0D] transition hover:bg-[#FFF45C]"
-                      onClick={generateCalculationsReport}
-                      type="button"
-                    >
-                      Generar
-                    </button>
-                  </div>
-                  <GeneratedReportStatus
-                    generated={Boolean(calculationScope?.generated)}
-                    dateFrom={calculationScope?.dateFrom}
-                    dateTo={calculationScope?.dateTo}
-                    generatedAt={calculationScope?.generatedAt}
-                    limit={calculationScope?.limit}
-                    limitExceeded={calculationScope?.limitExceeded}
-                    emptyText="Genera un periodo para calcular comisiones."
-                    onRefresh={generateCalculationsReport}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -15059,7 +15013,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     ))}
                   </div>
 
-                  <div className="max-h-[320px] overflow-auto rounded-xl border border-[#242433]">
+                  <div className="overflow-x-auto rounded-xl border border-[#242433]">
                     <table className="w-full text-[11px]">
                       <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
                         <tr>
@@ -15847,121 +15801,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
               </div>
 
-              <details className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-[#F5F5F7]">
-                  Consulta auxiliar generada · {fmtUSD(commissionCalculatedData.commissionTotalUsd)}
-                </summary>
-                <div className="mt-3 text-sm text-[#8A8A96]">
-                  Esta simulación sirve para comparar números, pero no modifica el cierre oficial del periodo.
-                </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <Card title="Facturado Total" className="p-3">
-                  <StatRow label="Total" value={fmtUSD(commissionCalculatedData.facturadoTotalUsd)} />
-                  <StatRow label="Base" value={`${commissionCalculatedData.baseCommissionPct.toFixed(2)}%`} />
-                </Card>
-
-                <Card title="Ordenes Default" className="p-3">
-                  <StatRow label="Ordenes" value={commissionCalculatedData.defaultOrdersCount} />
-                  <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoBaseUsd)} />
-                </Card>
-
-                <Card title="Con Item Especial" className="p-3">
-                  <StatRow label="Ordenes" value={commissionCalculatedData.mixedOrdersCount} />
-                  <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoItemEspecialUsd)} />
-                  <StatRow label="Regla" value="% por item" />
-                </Card>
-
-                <Card title="Con Orden Fija" className="p-3">
-                  <StatRow label="Ordenes" value={commissionCalculatedData.fixedOrdersCount} />
-                  <StatRow label="Facturado" value={fmtUSD(commissionCalculatedData.facturadoOrdenEspecialUsd)} />
-                  <StatRow label="Regla" value="% fijo por orden" />
-                </Card>
-
-                <Card title="Comision Estimada" className="p-3">
-                  <StatRow label="Base normal" value={fmtUSD(commissionCalculatedData.facturadoBaseUsd)} />
-                  <StatRow label="Comision" value={fmtUSD(commissionCalculatedData.commissionTotalUsd)} highlightTone="brand" />
-                </Card>
-              </div>
-
-              <div className="rounded-2xl border border-[#242433] bg-[#121218]">
-                <div className="flex items-center justify-between border-b border-[#242433] px-4 py-3">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Detalle auxiliar de la consulta generada</div>
-                  <div className="text-sm font-semibold text-[#FEEF00]">{fmtUSD(commissionCalculatedData.commissionTotalUsd)}</div>
-                </div>
-                <div className="grid grid-cols-1 gap-2 border-b border-[#242433] bg-[#0F0F14] px-4 py-3 text-[11px] text-[#B7B7C2] md:grid-cols-3">
-                  <div>
-                    <span className="inline-flex rounded-full bg-[#191926] px-2 py-0.5 font-semibold text-[#B7B7C2]">Default</span>
-                    <span className="ml-2">usa el % base sobre la parte normal</span>
-                  </div>
-                  <div>
-                    <span className="inline-flex rounded-full bg-[#FEEF00] px-2 py-0.5 font-semibold text-[#0B0B0D]">Item especial</span>
-                    <span className="ml-2">solo cambia los items marcados</span>
-                  </div>
-                  <div>
-                    <span className="inline-flex rounded-full bg-orange-500 px-2 py-0.5 font-semibold text-[#0B0B0D]">Orden fija</span>
-                    <span className="ml-2">toda la orden usa ese % fijo</span>
-                  </div>
-                </div>
-                <div className="max-h-[420px] overflow-auto">
-                  <table className="w-full text-[11px]">
-                    <thead className="sticky top-0 z-10 bg-[#0B0B0D] text-[#B7B7C2]">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium">Nro# Orden</th>
-                        <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                        <th className="px-3 py-2 text-left font-medium">Detalle</th>
-                        <th className="px-3 py-2 text-right font-medium">Comision</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {commissionCalculatedData.rows.length === 0 ? (
-                        <tr>
-                          <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={4}>
-                            Sin cierres de advisor para este periodo.
-                          </td>
-                        </tr>
-                      ) : (
-                        commissionCalculatedData.rows.map((row, idx) => (
-                          <tr
-                            key={row.order.id}
-                            className={`${idx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
-                          >
-                            <td className="px-3 py-2">{fmtShortOrderLabel(row.order.id)}</td>
-                            <td className="px-3 py-2">{row.order.clientName}</td>
-                            <td className="px-3 py-2 leading-5">
-                              <div className="text-[#F5F5F7]">
-                                Total orden {fmtUSD(row.commissionableSubtotalUsd)}
-                              </div>
-                              {row.mode === 'fixed_order' ? (
-                                <div className="text-orange-400">
-                                  Orden fija {fmtUSD(row.fixedOrderBaseUsd)} {row.fixedOrderPct?.toFixed(2) ?? '0.00'}%
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="text-[#B7B7C2]">
-                                    Default {fmtUSD(row.regularBaseUsd)} {commissionCalculatedData.baseCommissionPct.toFixed(2)}%
-                                  </div>
-                                  {row.fixedItemBaseUsd > 0 ? (
-                                    <div className="text-[#FEEF00]">
-                                      Fixed item {fmtUSD(row.fixedItemBaseUsd)}{' '}
-                                      {row.fixedItemBaseUsd > 0
-                                        ? ((row.fixedItemCommissionUsd / row.fixedItemBaseUsd) * 100).toFixed(2)
-                                        : '0.00'}
-                                      %
-                                    </div>
-                                  ) : null}
-                                </>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right">{fmtUSD(row.totalCommissionUsd)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              </details>
             </div>
           ) : calculationsTab === 'deliveries' ? (
             <div className="space-y-5">
