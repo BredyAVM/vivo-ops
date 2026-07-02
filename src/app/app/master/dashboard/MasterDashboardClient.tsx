@@ -647,6 +647,7 @@ type AdvisorCommissionClosure = {
       clientName?: string | null;
       productName?: string | null;
       qty?: number;
+      unitDeductionUsd?: number;
       deductionUsd?: number;
     }>;
     deductions?: Array<{
@@ -974,6 +975,7 @@ type CatalogItem = {
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
+  advisorGiftCostUsd: number;
   internalRiderPayUsd: number | null;
   inventoryEnabled: boolean;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
@@ -4450,6 +4452,7 @@ const [newIsComboComponentSelectable, setNewIsComboComponentSelectable] = useSta
 const [newCommissionMode, setNewCommissionMode] = useState<'default' | 'fixed_item' | 'fixed_order'>('default');
 const [newCommissionValue, setNewCommissionValue] = useState('');
 const [newCommissionNotes, setNewCommissionNotes] = useState('');
+const [newAdvisorGiftCostUsd, setNewAdvisorGiftCostUsd] = useState('');
 const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
 const [newInventoryEnabled, setNewInventoryEnabled] = useState(false);
 const [newInventoryKind, setNewInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
@@ -4477,6 +4480,7 @@ const [editIsActive, setEditIsActive] = useState(true);
   const [editCommissionMode, setEditCommissionMode] = useState<'default' | 'fixed_item' | 'fixed_order'>('default');
   const [editCommissionValue, setEditCommissionValue] = useState('');
   const [editCommissionNotes, setEditCommissionNotes] = useState('');
+  const [editAdvisorGiftCostUsd, setEditAdvisorGiftCostUsd] = useState('');
   const [editInternalRiderPayUsd, setEditInternalRiderPayUsd] = useState('');
   const [editInventoryEnabled, setEditInventoryEnabled] = useState(false);
   const [editInventoryKind, setEditInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
@@ -5900,6 +5904,9 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
       selectedCatalogItem.commissionValue == null ? '' : String(selectedCatalogItem.commissionValue)
     );
     setEditCommissionNotes(selectedCatalogItem.commissionNotes || '');
+    setEditAdvisorGiftCostUsd(
+      selectedCatalogItem.advisorGiftCostUsd ? String(selectedCatalogItem.advisorGiftCostUsd) : ''
+    );
     setEditInternalRiderPayUsd(
       selectedCatalogItem.internalRiderPayUsd == null ? '' : String(selectedCatalogItem.internalRiderPayUsd)
     );
@@ -7604,6 +7611,9 @@ const handleSaveCatalog = async () => {
             ? Number(String(editCommissionValue).trim().replace(',', '.'))
             : null,
       commissionNotes: editCommissionNotes.trim() || null,
+      advisorGiftCostUsd: editAdvisorGiftCostUsd.trim()
+        ? Number(String(editAdvisorGiftCostUsd).trim().replace(',', '.'))
+        : 0,
       internalRiderPayUsd: editInternalRiderPayUsd.trim()
         ? Number(String(editInternalRiderPayUsd).trim().replace(',', '.'))
         : null,
@@ -9562,6 +9572,7 @@ const resetCreateCatalogForm = () => {
   setNewCommissionMode('default');
   setNewCommissionValue('');
   setNewCommissionNotes('');
+  setNewAdvisorGiftCostUsd('');
   setNewInternalRiderPayUsd('');
   setNewInventoryEnabled(false);
   setNewInventoryKind('finished_good');
@@ -10005,6 +10016,9 @@ const handleCreateCatalogItem = async () => {
             ? Number(String(newCommissionValue).trim().replace(',', '.'))
             : null,
       commissionNotes: newCommissionNotes.trim() || null,
+      advisorGiftCostUsd: newAdvisorGiftCostUsd.trim()
+        ? Number(String(newAdvisorGiftCostUsd).trim().replace(',', '.'))
+        : 0,
       internalRiderPayUsd: newInternalRiderPayUsd.trim()
         ? Number(String(newInternalRiderPayUsd).trim().replace(',', '.'))
         : null,
@@ -15050,11 +15064,27 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const normalOrders = snapshotOrders.filter((order) => order.commissionMode === 'default');
                             const itemSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'mixed_items');
                             const orderSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'fixed_order');
+                            const sumOrderTotals = (orders: AdvisorCommissionSnapshotOrder[]) =>
+                              orders.reduce((sum, order) => sum + Number(order.totalUsd || 0), 0);
+                            const newClientOrderIds = new Set(
+                              newClientRows.map((client) => Number(client.orderId || 0)).filter((id) => id > 0)
+                            );
+                            const newClientBilledUsd = snapshotOrders
+                              .filter((order) => newClientOrderIds.has(Number(order.orderId || 0)))
+                              .reduce((sum, order) => sum + Number(order.totalUsd || 0), 0);
                             const comboRows = productRows.filter((product) => {
                               const type = String(product.productType || '').toLowerCase();
                               const name = String(product.productName || '').toLowerCase();
                               return type === 'combo' || type === 'promo' || name.includes('combo') || name.includes('promo');
                             });
+                            const comboBilledUsd = comboRows.reduce(
+                              (sum, product) => sum + Number(product.lineBaseUsd || 0),
+                              0
+                            );
+                            const giftDeductionUsd = giftRows.reduce(
+                              (sum, gift) => sum + Number(gift.deductionUsd || 0),
+                              0
+                            );
                             const closureStatusLabel =
                               closure.status === 'preliminary'
                                 ? 'Preliminar'
@@ -15224,7 +15254,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                         <div className="rounded-xl border border-[#242433] bg-[#101018]">
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
                                             <div className="text-xs font-semibold text-[#F5F5F7]">Clientes nuevos</div>
-                                            <div className="text-[11px] text-[#B7B7C2]">{newClientRows.length} cliente(s)</div>
+                                            <div className="text-right">
+                                              <div className="text-[11px] text-[#B7B7C2]">{newClientRows.length} cliente(s)</div>
+                                              <div className="text-[11px] font-semibold text-[#F5F5F7]">{fmtUSD(newClientBilledUsd)}</div>
+                                            </div>
                                           </div>
                                           <div className="max-h-[180px] overflow-auto">
                                             <table className="w-full text-[11px]">
@@ -15444,7 +15477,12 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           <div key={group.title} className="rounded-xl border border-[#242433] bg-[#101018]">
                                             <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
                                               <div className="text-xs font-semibold text-[#F5F5F7]">{group.title}</div>
-                                              <div className={`text-[11px] font-semibold ${group.tone}`}>{group.rows.length}</div>
+                                              <div className="text-right">
+                                                <div className={`text-[11px] font-semibold ${group.tone}`}>{group.rows.length}</div>
+                                                <div className="text-[11px] font-semibold text-[#F5F5F7]">
+                                                  {fmtUSD(sumOrderTotals(group.rows))}
+                                                </div>
+                                              </div>
                                             </div>
                                             <div className="max-h-[170px] overflow-auto">
                                               <table className="w-full text-[11px]">
@@ -15498,7 +15536,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                         <div className="rounded-xl border border-[#242433] bg-[#101018]">
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
                                             <div className="text-xs font-semibold text-[#F5F5F7]">Combos / promos</div>
-                                            <div className="text-[11px] text-[#B7B7C2]">{comboRows.length} línea(s)</div>
+                                            <div className="text-right">
+                                              <div className="text-[11px] text-[#B7B7C2]">{comboRows.length} línea(s)</div>
+                                              <div className="text-[11px] font-semibold text-[#F5F5F7]">{fmtUSD(comboBilledUsd)}</div>
+                                            </div>
                                           </div>
                                           <div className="max-h-[190px] overflow-auto">
                                             <table className="w-full text-[11px]">
@@ -15545,7 +15586,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                         <div className="rounded-xl border border-[#242433] bg-[#101018]">
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
                                             <div className="text-xs font-semibold text-[#F5F5F7]">Obsequios / deducibles</div>
-                                            <div className="text-[11px] text-[#B7B7C2]">{giftRows.length} línea(s)</div>
+                                            <div className="text-right">
+                                              <div className="text-[11px] text-[#B7B7C2]">{giftRows.length} línea(s)</div>
+                                              <div className="text-[11px] font-semibold text-orange-300">{fmtUSD(giftDeductionUsd)}</div>
+                                            </div>
                                           </div>
                                           <div className="max-h-[190px] overflow-auto">
                                             <table className="w-full text-[11px]">
@@ -15555,13 +15599,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                   <th className="px-3 py-2 text-left font-medium">Cliente</th>
                                                   <th className="px-3 py-2 text-left font-medium">Orden</th>
                                                   <th className="px-3 py-2 text-right font-medium">Cant.</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Costo/u</th>
                                                   <th className="px-3 py-2 text-right font-medium">Deducible</th>
                                                 </tr>
                                               </thead>
                                               <tbody>
                                                 {giftRows.length === 0 ? (
                                                   <tr>
-                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={5}>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={6}>
                                                       Sin obsequios registrados en este periodo.
                                                     </td>
                                                   </tr>
@@ -15579,6 +15624,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                           {gift.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
                                                         </td>
                                                         <td className="px-3 py-2 text-right">{Number(gift.qty || 0)}</td>
+                                                        <td className="px-3 py-2 text-right">
+                                                          {fmtUSD(Number(gift.unitDeductionUsd || 0))}
+                                                        </td>
                                                         <td className="px-3 py-2 text-right">{fmtUSD(Number(gift.deductionUsd || 0))}</td>
                                                       </tr>
                                                     );
@@ -18672,6 +18720,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       value={editCommissionValue}
                       onChange={setEditCommissionValue}
                       type="text"
+                    />
+                    <FieldInput
+                      label="Costo asesor obsequio ($)"
+                      value={editAdvisorGiftCostUsd}
+                      onChange={setEditAdvisorGiftCostUsd}
+                      type="text"
+                      hint="Si este producto es un obsequio, este monto se descuenta por unidad en el cierre del asesor."
                     />
                   </div>
                   <div className="mt-3">
@@ -21943,6 +21998,13 @@ deliveryAssignMode === 'external' ? (
           value={newCommissionValue}
           onChange={setNewCommissionValue}
           type="text"
+        />
+        <FieldInput
+          label="Costo asesor obsequio ($)"
+          value={newAdvisorGiftCostUsd}
+          onChange={setNewAdvisorGiftCostUsd}
+          type="text"
+          hint="Si este producto es un obsequio, este monto se descuenta por unidad en el cierre del asesor."
         />
       </div>
 

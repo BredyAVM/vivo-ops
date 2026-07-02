@@ -4341,6 +4341,7 @@ export async function updateCatalogItemAction(input: {
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
+  advisorGiftCostUsd: number | null;
   internalRiderPayUsd: number | null;
   inventoryEnabled: boolean;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
@@ -4383,6 +4384,8 @@ export async function updateCatalogItemAction(input: {
   const detailUnitsLimit = Math.max(0, toSafeNumber(input.detailUnitsLimit, 0));
   const internalRiderPayUsd =
     input.internalRiderPayUsd == null ? null : Math.max(0, toSafeNumber(input.internalRiderPayUsd, 0));
+  const advisorGiftCostUsd =
+    input.advisorGiftCostUsd == null ? 0 : Math.max(0, toSafeNumber(input.advisorGiftCostUsd, 0));
   const packagingSize =
     input.packagingSize == null ? null : Math.max(0, toSafeNumber(input.packagingSize, 0));
   const currentStockUnits =
@@ -4427,7 +4430,7 @@ export async function updateCatalogItemAction(input: {
 
   const { data: currentProduct, error: productError } = await supabase
     .from('products')
-    .select('id, sku, name, source_price_amount, source_price_currency')
+    .select('id, sku, name, source_price_amount, source_price_currency, extra_fields')
     .eq('id', input.productId)
     .single();
 
@@ -4515,6 +4518,16 @@ export async function updateCatalogItemAction(input: {
       commission_mode: input.commissionMode,
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
+      extra_fields: {
+        ...(
+          currentProduct.extra_fields &&
+          typeof currentProduct.extra_fields === 'object' &&
+          !Array.isArray(currentProduct.extra_fields)
+            ? (currentProduct.extra_fields as Record<string, unknown>)
+            : {}
+        ),
+        advisor_gift_cost_usd: advisorGiftCostUsd,
+      },
       internal_rider_pay_usd: internalRiderPayUsd,
       inventory_enabled: input.inventoryEnabled,
       inventory_kind: input.inventoryKind,
@@ -7872,6 +7885,7 @@ async function createCatalogItemActionImpl(input: {
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
+  advisorGiftCostUsd: number | null;
   internalRiderPayUsd: number | null;
   inventoryEnabled: boolean;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_good';
@@ -7899,6 +7913,8 @@ async function createCatalogItemActionImpl(input: {
   const detailUnitsLimit = Number(input.detailUnitsLimit || 0);
   const internalRiderPayUsd =
     input.internalRiderPayUsd == null ? null : Math.max(0, Number(input.internalRiderPayUsd || 0));
+  const advisorGiftCostUsd =
+    input.advisorGiftCostUsd == null ? 0 : Math.max(0, Number(input.advisorGiftCostUsd || 0));
   const packagingSize =
     input.packagingSize == null ? null : Math.max(0, Number(input.packagingSize || 0));
   const currentStockUnits =
@@ -8005,6 +8021,9 @@ async function createCatalogItemActionImpl(input: {
       commission_mode: input.commissionMode,
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
+      extra_fields: {
+        advisor_gift_cost_usd: advisorGiftCostUsd,
+      },
       internal_rider_pay_usd: internalRiderPayUsd,
       inventory_enabled: input.inventoryEnabled,
       inventory_kind: input.inventoryKind,
@@ -8100,6 +8119,7 @@ export async function duplicateCatalogItemAction(input: {
         commission_mode,
         commission_value,
         commission_notes,
+        extra_fields,
         internal_rider_pay_usd,
         inventory_enabled,
         inventory_kind,
@@ -8174,6 +8194,10 @@ export async function duplicateCatalogItemAction(input: {
         commission_mode: source.commission_mode || 'default',
         commission_value: source.commission_value == null ? null : toSafeNumber(source.commission_value, 0),
         commission_notes: source.commission_notes || null,
+        extra_fields:
+          source.extra_fields && typeof source.extra_fields === 'object' && !Array.isArray(source.extra_fields)
+            ? source.extra_fields
+            : {},
         internal_rider_pay_usd:
           source.internal_rider_pay_usd == null ? null : toSafeNumber(source.internal_rider_pay_usd, 0),
         inventory_enabled: !!source.inventory_enabled,
@@ -11359,6 +11383,7 @@ type AdvisorCommissionOrderItemRow = {
         type: string | null;
         commission_mode: string | null;
         commission_value: number | string | null;
+        extra_fields: any;
       }
     | {
         id: number | string;
@@ -11366,6 +11391,7 @@ type AdvisorCommissionOrderItemRow = {
         type: string | null;
         commission_mode: string | null;
         commission_value: number | string | null;
+        extra_fields: any;
       }[]
     | null;
 };
@@ -11418,6 +11444,26 @@ function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
 
 function getAdvisorCommissionProduct(item: AdvisorCommissionOrderItemRow) {
   return Array.isArray(item.product) ? item.product[0] ?? null : item.product ?? null;
+}
+
+function getAdvisorGiftCostUsd(product: ReturnType<typeof getAdvisorCommissionProduct>) {
+  const extraFields =
+    product?.extra_fields && typeof product.extra_fields === 'object' && !Array.isArray(product.extra_fields)
+      ? (product.extra_fields as Record<string, unknown>)
+      : {};
+
+  return roundMoney(
+    Math.max(
+      0,
+      toSafeNumber(
+        extraFields.advisor_gift_cost_usd ??
+          extraFields.advisorGiftCostUsd ??
+          extraFields.gift_cost_usd ??
+          extraFields.advisor_cost_usd,
+        0
+      )
+    )
+  );
 }
 
 function getAdvisorCommissionDeliveryDate(order: AdvisorCommissionOrderRow) {
@@ -11556,13 +11602,19 @@ function buildAdvisorCommissionSnapshots(params: {
         const productType = String(product?.type || '').toLowerCase();
         const productName = item.product_name_snapshot || product?.name || 'Producto';
         if (productType === 'gambit' || productName.toLowerCase().includes('obsequio')) {
+          const qty = toSafeNumber(item.qty, 0);
+          const unitDeductionUsd = getAdvisorGiftCostUsd(product);
+          const deductionUsd = roundMoney(unitDeductionUsd * qty);
+          closure.totals.giftDeductionsUsd += deductionUsd;
           closure.gifts.push({
             orderId,
             orderNumber: order.order_number,
+            productId: product?.id ?? item.product_id,
             productName,
-            qty: toSafeNumber(item.qty, 0),
+            qty,
             clientName: getAdvisorCommissionClient(order)?.full_name || 'Cliente',
-            deductionUsd: 0,
+            unitDeductionUsd,
+            deductionUsd,
           });
         }
 
@@ -11850,7 +11902,8 @@ export async function generateAdvisorCommissionClosuresAction(input: {
         name,
         type,
         commission_mode,
-        commission_value
+        commission_value,
+        extra_fields
       )
     )
   `;

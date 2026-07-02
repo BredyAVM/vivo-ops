@@ -404,6 +404,7 @@ type RawProductRow = {
   commission_mode: 'default' | 'fixed_item' | 'fixed_order' | null;
   commission_value: number | string | null;
   commission_notes: string | null;
+  extra_fields: Record<string, unknown> | null;
   internal_rider_pay_usd: number | string | null;
   inventory_enabled: boolean;
   inventory_kind: 'raw_material' | 'prepared_base' | 'finished_good' | null;
@@ -2540,6 +2541,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       commission_mode,
       commission_value,
       commission_notes,
+      extra_fields,
       internal_rider_pay_usd,
       inventory_enabled,
       inventory_kind,
@@ -2765,6 +2767,12 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
           : ('default' as const),
     commissionValue: p.commission_value == null ? null : toNumber(p.commission_value, 0),
     commissionNotes: p.commission_notes ?? null,
+    advisorGiftCostUsd: toNumber(
+      p.extra_fields && typeof p.extra_fields === 'object' && !Array.isArray(p.extra_fields)
+        ? (p.extra_fields as Record<string, unknown>).advisor_gift_cost_usd
+        : 0,
+      0
+    ),
     internalRiderPayUsd: p.internal_rider_pay_usd == null ? null : toNumber(p.internal_rider_pay_usd, 0),
     inventoryEnabled: p.inventory_enabled,
     inventoryKind:
