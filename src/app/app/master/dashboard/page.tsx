@@ -318,6 +318,14 @@ type AdvisorCommissionClosureRow = {
   generated_at: string | null;
   closed_at: string | null;
   paid_at: string | null;
+  deductions: Array<{
+    id: number | string;
+    deduction_type: string | null;
+    description: string | null;
+    amount_usd: number | string | null;
+    notes: string | null;
+    created_at: string | null;
+  }>;
 };
 
 type RawProfileRow = {
@@ -1319,7 +1327,15 @@ const [advisorCommissionPeriodsResult, advisorCommissionClosuresResult] = await 
         snapshot,
         generated_at,
         closed_at,
-        paid_at
+        paid_at,
+        deductions:advisor_commission_deductions (
+          id,
+          deduction_type,
+          description,
+          amount_usd,
+          notes,
+          created_at
+        )
       `)
       .order('generated_at', { ascending: false })
       .limit(600),
@@ -1382,6 +1398,16 @@ const advisorCommissionClosures = advisorCommissionSetupMissing
       manualDeductionsUsd: roundMoney(row.manual_deductions_usd),
       payableUsd: roundMoney(row.payable_usd),
       snapshot: row.snapshot && typeof row.snapshot === 'object' ? row.snapshot : {},
+      manualDeductions: (row.deductions ?? [])
+        .filter((deduction) => String(deduction.deduction_type || '') !== 'gift')
+        .map((deduction) => ({
+          id: Number(deduction.id),
+          kind: deduction.deduction_type,
+          description: deduction.description || '',
+          amountUsd: roundMoney(deduction.amount_usd),
+          notes: deduction.notes,
+          createdAt: deduction.created_at,
+        })),
       generatedAt: row.generated_at,
       closedAt: row.closed_at,
       paidAt: row.paid_at,

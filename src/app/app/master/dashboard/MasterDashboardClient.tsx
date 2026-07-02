@@ -103,7 +103,8 @@ import {
   createAdvisorCommissionPeriodAction,
   duplicateCatalogItemAction,
   generateAdvisorCommissionClosuresAction,
-  updateAdvisorCommissionClosureDeductionsAction,
+  addAdvisorCommissionClosureDeductionAction,
+  deleteAdvisorCommissionClosureDeductionAction,
   updateAdvisorCommissionClosureStatusAction,
   createClientAction,
   createOrderClientQuickAction,
@@ -618,6 +619,14 @@ type AdvisorCommissionClosure = {
   giftDeductionsUsd: number;
   manualDeductionsUsd: number;
   payableUsd: number;
+  manualDeductions?: Array<{
+    id: number;
+    kind?: string | null;
+    description?: string | null;
+    amountUsd?: number | string | null;
+    notes?: string | null;
+    createdAt?: string | null;
+  }>;
   snapshot: {
     orders?: AdvisorCommissionSnapshotOrder[];
     paid_orders?: AdvisorCommissionSnapshotOrder[];
@@ -6327,31 +6336,59 @@ const updateAdvisorCommissionClosureStatus = useCallback(async (
   }
 }, [router]);
 
-const updateAdvisorCommissionClosureDeductions = useCallback(async (closure: AdvisorCommissionClosure) => {
+const addAdvisorCommissionClosureDeduction = useCallback(async (closure: AdvisorCommissionClosure) => {
   const draft = advisorCommissionDeductionDrafts[closure.id];
-  const amountText = draft?.amount ?? String(closure.manualDeductionsUsd || '');
+  const amountText = draft?.amount ?? '';
   const amount = Number(String(amountText || '0').replace(',', '.'));
+  const description = String(draft?.notes || '').trim();
 
-  if (!Number.isFinite(amount) || amount < 0) {
-    showToast('error', 'El deducible debe ser un monto válido.');
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('error', 'El deducible debe ser mayor a cero.');
+    return;
+  }
+  if (!description) {
+    showToast('error', 'Indica el detalle del deducible.');
     return;
   }
 
   try {
     setAdvisorCommissionBusy(true);
-    await updateAdvisorCommissionClosureDeductionsAction({
+    await addAdvisorCommissionClosureDeductionAction({
       closureId: closure.id,
-      manualDeductionsUsd: amount,
-      deductionNotes: draft?.notes ?? '',
+      amountUsd: amount,
+      description,
     });
-    showToast('success', 'Deducibles del cierre actualizados.');
+    setAdvisorCommissionDeductionDrafts((current) => ({
+      ...current,
+      [closure.id]: { amount: '', notes: '' },
+    }));
+    showToast('success', 'Deducible agregado.');
     router.refresh();
   } catch (error) {
-    showToast('error', error instanceof Error ? error.message : 'No se pudieron guardar los deducibles.');
+    showToast('error', error instanceof Error ? error.message : 'No se pudo agregar el deducible.');
   } finally {
     setAdvisorCommissionBusy(false);
   }
 }, [advisorCommissionDeductionDrafts, router]);
+
+const deleteAdvisorCommissionClosureDeduction = useCallback(async (
+  closure: AdvisorCommissionClosure,
+  deductionId: number
+) => {
+  try {
+    setAdvisorCommissionBusy(true);
+    await deleteAdvisorCommissionClosureDeductionAction({
+      closureId: closure.id,
+      deductionId,
+    });
+    showToast('success', 'Deducible eliminado.');
+    router.refresh();
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudo eliminar el deducible.');
+  } finally {
+    setAdvisorCommissionBusy(false);
+  }
+}, [router]);
 
 const openEditDashboardUser = (userItem: DashboardUser) => {
   const userRoles = new Set(dashboardRolesByUserId.get(userItem.id) ?? []);
@@ -15051,15 +15088,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const giftRows = Array.isArray(closure.snapshot?.gifts)
                               ? closure.snapshot.gifts
                               : [];
-                            const deductionRows = Array.isArray(closure.snapshot?.deductions)
-                              ? closure.snapshot.deductions
-                              : [];
+                            const deductionRows = Array.isArray(closure.manualDeductions) && closure.manualDeductions.length > 0
+                              ? closure.manualDeductions
+                              : Array.isArray(closure.snapshot?.deductions)
+                                ? closure.snapshot.deductions.map((deduction, deductionIdx) => ({
+                                    id: deductionIdx * -1 - 1,
+                                    kind: deduction.kind,
+                                    description: deduction.description,
+                                    amountUsd: deduction.amountUsd,
+                                    notes: null,
+                                    createdAt: null,
+                                  }))
+                                : [];
                             const deductionDraft = advisorCommissionDeductionDrafts[closure.id] ?? {
-                              amount: closure.manualDeductionsUsd ? String(closure.manualDeductionsUsd) : '',
-                              notes: deductionRows
-                                .map((deduction) => String(deduction.description || '').trim())
-                                .filter(Boolean)
-                                .join('\n'),
+                              amount: '',
+                              notes: '',
                             };
                             const normalOrders = snapshotOrders.filter((order) => order.commissionMode === 'default');
                             const itemSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'mixed_items');
@@ -15197,14 +15240,21 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                       </div>
 
                                       <div className="mb-3 rounded-xl border border-[#242433] bg-[#101018] p-3">
-                                        <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                                          <div className="min-w-0 flex-1">
-                                            <div className="text-xs font-semibold text-[#F5F5F7]">Deducibles manuales</div>
-                                            <div className="mt-1 text-[11px] text-[#8A8A96]">
-                                              Usa esto para teléfono, deuda asumida, ajuste administrativo u otro descuento del periodo.
+                                        <div className="flex flex-col gap-3">
+                                          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                                            <div className="min-w-0">
+                                              <div className="text-xs font-semibold text-[#F5F5F7]">Deducibles manuales</div>
+                                              <div className="mt-1 text-[11px] text-[#8A8A96]">
+                                                Agrega gastos, deudas asumidas o ajustes del periodo. Cada línea queda registrada por separado.
+                                              </div>
+                                            </div>
+                                            <div className="text-right">
+                                              <div className="text-[10px] uppercase tracking-[0.08em] text-[#8A8A96]">Total manual</div>
+                                              <div className="text-sm font-semibold text-orange-300">{fmtUSD(closure.manualDeductionsUsd)}</div>
                                             </div>
                                           </div>
-                                          <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 md:grid-cols-[130px_minmax(0,1fr)_110px]">
+
+                                          <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-[130px_minmax(0,1fr)_110px]">
                                             <FieldInput
                                               label="Monto USD"
                                               value={deductionDraft.amount}
@@ -15236,11 +15286,63 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                             <button
                                               className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#1D1A00] px-3 py-2 text-sm font-semibold text-[#FEEF00] transition hover:border-[#FFF45C] disabled:cursor-wait disabled:opacity-50"
                                               disabled={advisorCommissionBusy || closure.status === 'paid'}
-                                              onClick={() => updateAdvisorCommissionClosureDeductions(closure)}
+                                              onClick={() => addAdvisorCommissionClosureDeduction(closure)}
                                               type="button"
                                             >
-                                              Guardar
+                                              Agregar
                                             </button>
+                                          </div>
+
+                                          <div className="overflow-hidden rounded-xl border border-[#242433]">
+                                            <table className="w-full text-[11px]">
+                                              <thead className="bg-[#0B0B0D] text-[#B7B7C2]">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left font-medium">Detalle</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Monto</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Acción</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {deductionRows.length === 0 ? (
+                                                  <tr>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={3}>
+                                                      Sin deducibles manuales.
+                                                    </td>
+                                                  </tr>
+                                                ) : (
+                                                  deductionRows.map((deduction, deductionIdx) => {
+                                                    const deductionId = Number(deduction.id || 0);
+                                                    return (
+                                                      <tr
+                                                        key={`${closure.id}-manual-deduction-${deductionId || deductionIdx}`}
+                                                        className={`${deductionIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433] last:border-b-0`}
+                                                      >
+                                                        <td className="px-3 py-2 text-[#F5F5F7]">
+                                                          {deduction.description || 'Deducible'}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-semibold text-orange-300">
+                                                          {fmtUSD(Number(deduction.amountUsd || 0))}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">
+                                                          {deductionId > 0 ? (
+                                                            <button
+                                                              className="rounded-full border border-red-500/40 px-2.5 py-1 text-[11px] font-semibold text-red-300 transition hover:border-red-400 disabled:cursor-wait disabled:opacity-50"
+                                                              disabled={advisorCommissionBusy || closure.status === 'paid'}
+                                                              onClick={() => deleteAdvisorCommissionClosureDeduction(closure, deductionId)}
+                                                              type="button"
+                                                            >
+                                                              Eliminar
+                                                            </button>
+                                                          ) : (
+                                                            <span className="text-[#8A8A96]">Guardado en foto</span>
+                                                          )}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                )}
+                                              </tbody>
+                                            </table>
                                           </div>
                                         </div>
                                         <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-[#B7B7C2] md:grid-cols-3">

@@ -12092,20 +12092,7 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
   return { ok: true as const };
 }
 
-export async function updateAdvisorCommissionClosureDeductionsAction(input: {
-  closureId: number;
-  manualDeductionsUsd: number;
-  deductionNotes?: string | null;
-}) {
-  const { supabase } = await requireMasterOrAdmin();
-  const closureId = Number(input.closureId || 0);
-  const manualDeductionsUsd = roundMoney(Math.max(0, toSafeNumber(input.manualDeductionsUsd, 0)));
-  const deductionNotes = String(input.deductionNotes || '').trim();
-
-  if (!Number.isFinite(closureId) || closureId <= 0) {
-    throw new Error('Selecciona un cierre valido.');
-  }
-
+async function syncAdvisorCommissionClosureManualDeductions(supabase: Awaited<ReturnType<typeof requireMasterOrAdmin>>['supabase'], closureId: number) {
   const { data: closure, error: closureError } = await supabase
     .from('advisor_commission_closures')
     .select('id, status, gross_commission_usd, gift_deductions_usd, snapshot')
@@ -12120,6 +12107,28 @@ export async function updateAdvisorCommissionClosureDeductionsAction(input: {
     throw new Error('No se pueden cambiar deducibles de un cierre pagado.');
   }
 
+  const { data: deductionRows, error: deductionsError } = await supabase
+    .from('advisor_commission_deductions')
+    .select('id, deduction_type, description, amount_usd, notes, created_at')
+    .eq('closure_id', closureId)
+    .neq('deduction_type', 'gift')
+    .order('created_at', { ascending: true });
+
+  if (deductionsError) {
+    throw new Error(deductionsError.message);
+  }
+
+  const manualDeductions = (deductionRows ?? []).map((row) => ({
+    id: Number(row.id),
+    kind: row.deduction_type || 'manual_expense',
+    description: row.description || '',
+    amountUsd: roundMoney(row.amount_usd),
+    notes: row.notes || null,
+    createdAt: row.created_at || null,
+  }));
+  const manualDeductionsUsd = roundMoney(
+    manualDeductions.reduce((sum, deduction) => sum + toSafeNumber(deduction.amountUsd, 0), 0)
+  );
   const grossCommissionUsd = roundMoney(closure.gross_commission_usd);
   const giftDeductionsUsd = roundMoney(closure.gift_deductions_usd);
   const payableUsd = roundMoney(grossCommissionUsd - giftDeductionsUsd - manualDeductionsUsd);
@@ -12138,15 +12147,7 @@ export async function updateAdvisorCommissionClosureDeductionsAction(input: {
     manualDeductionsUsd,
     payableUsd,
   };
-  snapshot.deductions = deductionNotes
-    ? [
-        {
-          kind: 'manual',
-          description: deductionNotes,
-          amountUsd: manualDeductionsUsd,
-        },
-      ]
-    : [];
+  snapshot.deductions = manualDeductions;
 
   const { error: updateError } = await supabase
     .from('advisor_commission_closures')
@@ -12162,8 +12163,100 @@ export async function updateAdvisorCommissionClosureDeductionsAction(input: {
     throw new Error(updateError.message);
   }
 
+  return { manualDeductionsUsd, payableUsd };
+}
+
+export async function addAdvisorCommissionClosureDeductionAction(input: {
+  closureId: number;
+  amountUsd: number;
+  description: string;
+}) {
+  const { supabase, user } = await requireMasterOrAdmin();
+  const closureId = Number(input.closureId || 0);
+  const amountUsd = roundMoney(Math.max(0, toSafeNumber(input.amountUsd, 0)));
+  const description = String(input.description || '').trim();
+
+  if (!Number.isFinite(closureId) || closureId <= 0) {
+    throw new Error('Selecciona un cierre valido.');
+  }
+  if (amountUsd <= 0) {
+    throw new Error('El deducible debe ser mayor a cero.');
+  }
+  if (!description) {
+    throw new Error('Indica el detalle del deducible.');
+  }
+
+  const { data: closure, error: closureError } = await supabase
+    .from('advisor_commission_closures')
+    .select('id, status')
+    .eq('id', closureId)
+    .single();
+
+  if (closureError || !closure) {
+    throw new Error(closureError?.message || 'No se pudo cargar el cierre.');
+  }
+  if (closure.status === 'paid') {
+    throw new Error('No se pueden cambiar deducibles de un cierre pagado.');
+  }
+
+  const { error: insertError } = await supabase.from('advisor_commission_deductions').insert({
+    closure_id: closureId,
+    deduction_type: 'manual_expense',
+    description,
+    amount_usd: amountUsd,
+    created_by_user_id: user.id,
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  const totals = await syncAdvisorCommissionClosureManualDeductions(supabase, closureId);
+
   revalidatePath('/app/master/dashboard');
-  return { ok: true as const, payableUsd };
+  return { ok: true as const, ...totals };
+}
+
+export async function deleteAdvisorCommissionClosureDeductionAction(input: {
+  closureId: number;
+  deductionId: number;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const closureId = Number(input.closureId || 0);
+  const deductionId = Number(input.deductionId || 0);
+
+  if (!Number.isFinite(closureId) || closureId <= 0 || !Number.isFinite(deductionId) || deductionId <= 0) {
+    throw new Error('Selecciona un deducible valido.');
+  }
+
+  const { data: closure, error: closureError } = await supabase
+    .from('advisor_commission_closures')
+    .select('id, status')
+    .eq('id', closureId)
+    .single();
+
+  if (closureError || !closure) {
+    throw new Error(closureError?.message || 'No se pudo cargar el cierre.');
+  }
+  if (closure.status === 'paid') {
+    throw new Error('No se pueden cambiar deducibles de un cierre pagado.');
+  }
+
+  const { error: deleteError } = await supabase
+    .from('advisor_commission_deductions')
+    .delete()
+    .eq('id', deductionId)
+    .eq('closure_id', closureId)
+    .neq('deduction_type', 'gift');
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  const totals = await syncAdvisorCommissionClosureManualDeductions(supabase, closureId);
+
+  revalidatePath('/app/master/dashboard');
+  return { ok: true as const, ...totals };
 }
 
 export async function logoutAction() {
