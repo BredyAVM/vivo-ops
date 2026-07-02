@@ -15577,7 +15577,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         <td className="px-3 py-2">{clientTypeLabel}</td>
                                                         <td className="px-3 py-2">{client.clientName || 'Cliente'}</td>
                                                         <td className="px-3 py-2">
-                                                          {client.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : '—')}
+                                                          {orderId ? fmtShortOrderLabel(orderId) : '—'}
                                                         </td>
                                                       </tr>
                                                     );
@@ -15618,7 +15618,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         className={`${paidIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                                                       >
                                                         <td className="px-3 py-2">
-                                                          {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                          {orderId ? fmtShortOrderLabel(orderId) : 'Orden'}
                                                         </td>
                                                         <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
                                                         <td className="px-3 py-2 text-right text-emerald-300">
@@ -15663,7 +15663,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         className={`${pendingIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                                                       >
                                                         <td className="px-3 py-2">
-                                                          {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                          {orderId ? fmtShortOrderLabel(orderId) : 'Orden'}
                                                         </td>
                                                         <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
                                                         <td className="px-3 py-2 text-right text-orange-300">
@@ -15731,7 +15731,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                     className={`${orderIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                                                   >
                                                     <td className="px-3 py-2">
-                                                      {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                      {orderId ? fmtShortOrderLabel(orderId) : 'Orden'}
                                                     </td>
                                                     <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
                                                     <td className="px-3 py-2">{order.deliveryDate || '—'}</td>
@@ -15801,7 +15801,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                           className={`${groupIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
                                                         >
                                                           <td className="px-3 py-2">
-                                                            {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                            {orderId ? fmtShortOrderLabel(orderId) : 'Orden'}
                                                           </td>
                                                           <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
                                                           <td className="px-3 py-2 text-right">{fmtUSD(baseUsd)}</td>
@@ -15860,7 +15860,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         <td className="px-3 py-2">{product.productName || 'Producto'}</td>
                                                         <td className="px-3 py-2">{product.clientName || 'Cliente'}</td>
                                                         <td className="px-3 py-2">
-                                                          {product.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                          {orderId ? fmtShortOrderLabel(orderId) : 'Orden'}
                                                         </td>
                                                         <td className="px-3 py-2 text-right">{Number(product.qty || 0)}</td>
                                                         <td className="px-3 py-2 text-right">{fmtUSD(Number(product.lineBaseUsd || 0))}</td>
@@ -15911,7 +15911,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         <td className="px-3 py-2">{gift.productName || 'Producto'}</td>
                                                         <td className="px-3 py-2">{gift.clientName || 'Cliente'}</td>
                                                         <td className="px-3 py-2">
-                                                          {gift.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                          {orderId ? fmtShortOrderLabel(orderId) : 'Orden'}
                                                         </td>
                                                         <td className="px-3 py-2 text-right">{Number(gift.qty || 0)}</td>
                                                         <td className="px-3 py-2 text-right">
