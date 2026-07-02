@@ -1292,59 +1292,17 @@ const advisorOptions = ((advisorsRpcData ?? []) as Array<{
   }))
   .sort((a, b) => a.fullName.localeCompare(b.fullName));
 
-const [advisorCommissionPeriodsResult, advisorCommissionClosuresResult] = await Promise.all([
-  withDashboardOptionalTimeout(
-    'advisor_commission_periods',
-    supabase
-      .from('advisor_commission_periods')
-      .select('id, name, date_from, date_to, status, notes, created_at')
-      .order('date_from', { ascending: false })
-      .limit(12),
-    optionalSupabaseResponse([] as AdvisorCommissionPeriodRow[])
-  ),
-  withDashboardOptionalTimeout(
-    'advisor_commission_closures',
-    supabase
-      .from('advisor_commission_closures')
-      .select(`
-        id,
-        period_id,
-        advisor_user_id,
-        status,
-        base_commission_pct,
-        delivered_orders_count,
-        billed_usd,
-        gross_commission_usd,
-        pending_collection_usd,
-        punctual_paid_count,
-        late_paid_count,
-        pending_payment_count,
-        new_own_clients_count,
-        new_assigned_clients_count,
-        gift_deductions_usd,
-        manual_deductions_usd,
-        payable_usd,
-        snapshot,
-        generated_at,
-        closed_at,
-        paid_at,
-        deductions:advisor_commission_deductions (
-          id,
-          deduction_type,
-          description,
-          amount_usd,
-          notes,
-          created_at
-        )
-      `)
-      .order('generated_at', { ascending: false })
-      .limit(600),
-    optionalSupabaseResponse([] as AdvisorCommissionClosureRow[])
-  ),
-]);
+const advisorCommissionPeriodsResult = await withDashboardOptionalTimeout(
+  'advisor_commission_periods',
+  supabase
+    .from('advisor_commission_periods')
+    .select('id, name, date_from, date_to, status, notes, created_at')
+    .order('date_from', { ascending: false })
+    .limit(12),
+  optionalSupabaseResponse([] as AdvisorCommissionPeriodRow[])
+);
 
 const advisorCommissionPeriodsError = advisorCommissionPeriodsResult.error;
-const advisorCommissionClosuresError = advisorCommissionClosuresResult.error;
 const isAdvisorCommissionTableMissing = (error: unknown) =>
   Boolean(
     error &&
@@ -1353,16 +1311,10 @@ const isAdvisorCommissionTableMissing = (error: unknown) =>
       (String((error as { code?: unknown }).code || '') === 'PGRST205' ||
         String((error as { code?: unknown }).code || '') === '42P01')
   );
-const advisorCommissionSetupMissing =
-  isAdvisorCommissionTableMissing(advisorCommissionPeriodsError) ||
-  isAdvisorCommissionTableMissing(advisorCommissionClosuresError);
+const advisorCommissionSetupMissing = isAdvisorCommissionTableMissing(advisorCommissionPeriodsError);
 
 if (advisorCommissionPeriodsError && !advisorCommissionSetupMissing) {
   console.warn('advisor commission periods skipped', advisorCommissionPeriodsError.message);
-}
-
-if (advisorCommissionClosuresError && !advisorCommissionSetupMissing) {
-  console.warn('advisor commission closures skipped', advisorCommissionClosuresError.message);
 }
 
 const advisorCommissionPeriods = advisorCommissionSetupMissing
@@ -1377,41 +1329,7 @@ const advisorCommissionPeriods = advisorCommissionSetupMissing
       createdAt: row.created_at,
     }));
 
-const advisorCommissionClosures = advisorCommissionSetupMissing
-  ? []
-  : ((advisorCommissionClosuresResult.data ?? []) as AdvisorCommissionClosureRow[]).map((row) => ({
-      id: Number(row.id),
-      periodId: Number(row.period_id),
-      advisorUserId: row.advisor_user_id,
-      status: row.status,
-      baseCommissionPct: toNumber(row.base_commission_pct, 0),
-      deliveredOrdersCount: toNumber(row.delivered_orders_count, 0),
-      billedUsd: roundMoney(row.billed_usd),
-      grossCommissionUsd: roundMoney(row.gross_commission_usd),
-      pendingCollectionUsd: roundMoney(row.pending_collection_usd),
-      punctualPaidCount: toNumber(row.punctual_paid_count, 0),
-      latePaidCount: toNumber(row.late_paid_count, 0),
-      pendingPaymentCount: toNumber(row.pending_payment_count, 0),
-      newOwnClientsCount: toNumber(row.new_own_clients_count, 0),
-      newAssignedClientsCount: toNumber(row.new_assigned_clients_count, 0),
-      giftDeductionsUsd: roundMoney(row.gift_deductions_usd),
-      manualDeductionsUsd: roundMoney(row.manual_deductions_usd),
-      payableUsd: roundMoney(row.payable_usd),
-      snapshot: row.snapshot && typeof row.snapshot === 'object' ? row.snapshot : {},
-      manualDeductions: (row.deductions ?? [])
-        .filter((deduction) => String(deduction.deduction_type || '') !== 'gift')
-        .map((deduction) => ({
-          id: Number(deduction.id),
-          kind: deduction.deduction_type,
-          description: deduction.description || '',
-          amountUsd: roundMoney(deduction.amount_usd),
-          notes: deduction.notes,
-          createdAt: deduction.created_at,
-        })),
-      generatedAt: row.generated_at,
-      closedAt: row.closed_at,
-      paidAt: row.paid_at,
-    }));
+const advisorCommissionClosures: never[] = [];
 
   const { data: exchangeRateData, error: exchangeRateError } = await supabase
     .from('exchange_rates')

@@ -103,6 +103,8 @@ import {
   createAdvisorCommissionPeriodAction,
   duplicateCatalogItemAction,
   generateAdvisorCommissionClosuresAction,
+  loadAdvisorCommissionClosuresAction,
+  loadAdvisorCommissionPeriodAdvisorsAction,
   addAdvisorCommissionClosureDeductionAction,
   deleteAdvisorCommissionClosureDeductionAction,
   updateAdvisorCommissionClosureStatusAction,
@@ -4313,9 +4315,16 @@ export default function MasterDashboardClient({
   const [advisorCalcAdvisorId, setAdvisorCalcAdvisorId] = useState(calculationScope?.advisorId ?? '');
   const [advisorCalcBasePct, setAdvisorCalcBasePct] = useState(calculationScope?.basePct ?? '8');
   const [advisorCommissionPeriodName, setAdvisorCommissionPeriodName] = useState('');
-  const [selectedAdvisorCommissionPeriodId, setSelectedAdvisorCommissionPeriodId] = useState(
-    advisorCommissionPeriods[0]?.id ? String(advisorCommissionPeriods[0].id) : ''
+  const [selectedAdvisorCommissionPeriodId, setSelectedAdvisorCommissionPeriodId] = useState('');
+  const [advisorCommissionClosureResults, setAdvisorCommissionClosureResults] = useState<AdvisorCommissionClosure[]>(
+    advisorCommissionClosures
   );
+  const [advisorCommissionClosuresQueried, setAdvisorCommissionClosuresQueried] = useState(
+    advisorCommissionClosures.length > 0
+  );
+  const [advisorCommissionPeriodAdvisorIds, setAdvisorCommissionPeriodAdvisorIds] = useState<string[]>([]);
+  const [advisorCommissionPeriodAdvisorsLoaded, setAdvisorCommissionPeriodAdvisorsLoaded] = useState(false);
+  const [advisorCommissionPeriodAdvisorsLoading, setAdvisorCommissionPeriodAdvisorsLoading] = useState(false);
   const [advisorCommissionBusy, setAdvisorCommissionBusy] = useState(false);
   const [advisorCommissionDeductionDrafts, setAdvisorCommissionDeductionDrafts] = useState<
     Record<number, { amount: string; notes: string }>
@@ -6209,13 +6218,42 @@ const showToast = (type: 'success' | 'error' | 'info', message: string) => {
 };
 
 useEffect(() => {
-  if (selectedAdvisorCommissionPeriodId) return;
-  if (!advisorCommissionPeriods[0]?.id) return;
-  setSelectedAdvisorCommissionPeriodId(String(advisorCommissionPeriods[0].id));
-}, [advisorCommissionPeriods, selectedAdvisorCommissionPeriodId]);
+  setExpandedAdvisorCommissionClosureId(null);
+  setAdvisorCommissionClosureResults([]);
+  setAdvisorCommissionClosuresQueried(false);
+}, [advisorCalcAdvisorId, selectedAdvisorCommissionPeriodId]);
 
 useEffect(() => {
-  setExpandedAdvisorCommissionClosureId(null);
+  let cancelled = false;
+
+  setAdvisorCalcAdvisorId('');
+  setAdvisorCommissionPeriodAdvisorIds([]);
+  setAdvisorCommissionPeriodAdvisorsLoaded(false);
+
+  const periodId = Number(selectedAdvisorCommissionPeriodId || 0);
+  if (!periodId) return;
+
+  setAdvisorCommissionPeriodAdvisorsLoading(true);
+  loadAdvisorCommissionPeriodAdvisorsAction({ periodId })
+    .then((result) => {
+      if (cancelled) return;
+      setAdvisorCommissionPeriodAdvisorIds(result.advisorIds);
+      setAdvisorCommissionPeriodAdvisorsLoaded(true);
+    })
+    .catch((error) => {
+      if (cancelled) return;
+      showToast('error', error instanceof Error ? error.message : 'No se pudieron cargar los asesores del periodo.');
+      setAdvisorCommissionPeriodAdvisorsLoaded(true);
+    })
+    .finally(() => {
+      if (!cancelled) {
+        setAdvisorCommissionPeriodAdvisorsLoading(false);
+      }
+    });
+
+  return () => {
+    cancelled = true;
+  };
 }, [selectedAdvisorCommissionPeriodId]);
 
 const generateCalculationsReport = useCallback(() => {
@@ -6258,6 +6296,35 @@ const generateCalculationsReport = useCallback(() => {
   router,
   searchParams,
 ]);
+
+const loadAdvisorCommissionClosures = useCallback(async () => {
+  const periodId = Number(selectedAdvisorCommissionPeriodId || 0);
+
+  if (!periodId) {
+    showToast('error', 'Selecciona un periodo.');
+    return;
+  }
+
+  if (!advisorCalcAdvisorId) {
+    showToast('error', 'Selecciona un asesor.');
+    return;
+  }
+
+  try {
+    setAdvisorCommissionBusy(true);
+    const result = await loadAdvisorCommissionClosuresAction({
+      periodId,
+      advisorUserId: advisorCalcAdvisorId,
+    });
+    setAdvisorCommissionClosureResults(result.closures as AdvisorCommissionClosure[]);
+    setAdvisorCommissionClosuresQueried(true);
+    setExpandedAdvisorCommissionClosureId(null);
+  } catch (error) {
+    showToast('error', error instanceof Error ? error.message : 'No se pudieron cargar los cierres.');
+  } finally {
+    setAdvisorCommissionBusy(false);
+  }
+}, [advisorCalcAdvisorId, selectedAdvisorCommissionPeriodId]);
 
 const createAdvisorCommissionPeriod = useCallback(async () => {
   if (advisorCommissionSetupMissing) {
@@ -6311,18 +6378,23 @@ const generateAdvisorCommissionClosures = useCallback(async () => {
     return;
   }
 
+  if (!advisorCalcAdvisorId) {
+    showToast('error', 'Selecciona un asesor para generar preliminar.');
+    return;
+  }
+
   try {
     setAdvisorCommissionBusy(true);
     const result = await generateAdvisorCommissionClosuresAction({
       periodId,
       baseCommissionPct: Number(String(advisorCalcBasePct || '0').replace(',', '.')) || 0,
-      advisorUserId: advisorCalcAdvisorId || null,
+      advisorUserId: advisorCalcAdvisorId,
     });
     showToast(
       'success',
       `Preliminares generados: ${result.generated}${result.skippedLocked ? ` · protegidos: ${result.skippedLocked}` : ''}.`
     );
-    router.refresh();
+    await loadAdvisorCommissionClosures();
   } catch (error) {
     showToast('error', error instanceof Error ? error.message : 'No se pudieron generar los preliminares.');
   } finally {
@@ -6332,7 +6404,7 @@ const generateAdvisorCommissionClosures = useCallback(async () => {
   advisorCalcAdvisorId,
   advisorCalcBasePct,
   advisorCommissionSetupMissing,
-  router,
+  loadAdvisorCommissionClosures,
   selectedAdvisorCommissionPeriodId,
 ]);
 
@@ -6344,13 +6416,13 @@ const updateAdvisorCommissionClosureStatus = useCallback(async (
     setAdvisorCommissionBusy(true);
     await updateAdvisorCommissionClosureStatusAction({ closureId, nextStatus });
     showToast('success', nextStatus === 'closed' ? 'Cierre confirmado.' : 'Cierre marcado como pagado.');
-    router.refresh();
+    await loadAdvisorCommissionClosures();
   } catch (error) {
     showToast('error', error instanceof Error ? error.message : 'No se pudo actualizar el cierre.');
   } finally {
     setAdvisorCommissionBusy(false);
   }
-}, [router]);
+}, [loadAdvisorCommissionClosures]);
 
 const addAdvisorCommissionClosureDeduction = useCallback(async (closure: AdvisorCommissionClosure) => {
   const draft = advisorCommissionDeductionDrafts[closure.id];
@@ -6379,13 +6451,13 @@ const addAdvisorCommissionClosureDeduction = useCallback(async (closure: Advisor
       [closure.id]: { amount: '', notes: '' },
     }));
     showToast('success', 'Deducible agregado.');
-    router.refresh();
+    await loadAdvisorCommissionClosures();
   } catch (error) {
     showToast('error', error instanceof Error ? error.message : 'No se pudo agregar el deducible.');
   } finally {
     setAdvisorCommissionBusy(false);
   }
-}, [advisorCommissionDeductionDrafts, router]);
+}, [advisorCommissionDeductionDrafts, loadAdvisorCommissionClosures]);
 
 const deleteAdvisorCommissionClosureDeduction = useCallback(async (
   closure: AdvisorCommissionClosure,
@@ -6398,13 +6470,13 @@ const deleteAdvisorCommissionClosureDeduction = useCallback(async (
       deductionId,
     });
     showToast('success', 'Deducible eliminado.');
-    router.refresh();
+    await loadAdvisorCommissionClosures();
   } catch (error) {
     showToast('error', error instanceof Error ? error.message : 'No se pudo eliminar el deducible.');
   } finally {
     setAdvisorCommissionBusy(false);
   }
-}, [router]);
+}, [loadAdvisorCommissionClosures]);
 
 const openEditDashboardUser = (userItem: DashboardUser) => {
   const userRoles = new Set(dashboardRolesByUserId.get(userItem.id) ?? []);
@@ -13398,16 +13470,34 @@ const selectedCreateOrderClientAddresses = useMemo(
     [advisorCommissionPeriods, selectedAdvisorCommissionPeriodId]
   );
 
+  const advisorCommissionSelectableAdvisors = useMemo(() => {
+    if (!selectedAdvisorCommissionPeriodId) return [];
+    if (advisorCommissionPeriodAdvisorsLoading) return [];
+
+    if (advisorCommissionPeriodAdvisorsLoaded && advisorCommissionPeriodAdvisorIds.length > 0) {
+      const ids = new Set(advisorCommissionPeriodAdvisorIds);
+      return advisors.filter((advisor) => ids.has(advisor.userId));
+    }
+
+    return advisors.filter((advisor) => advisor.isActive);
+  }, [
+    advisorCommissionPeriodAdvisorIds,
+    advisorCommissionPeriodAdvisorsLoaded,
+    advisorCommissionPeriodAdvisorsLoading,
+    advisors,
+    selectedAdvisorCommissionPeriodId,
+  ]);
+
   const selectedAdvisorCommissionClosures = useMemo(
     () =>
-      advisorCommissionClosures
+      advisorCommissionClosureResults
         .filter((closure) => String(closure.periodId) === String(selectedAdvisorCommissionPeriodId))
         .sort((a, b) => {
           const nameA = advisorNameById.get(a.advisorUserId) || '';
           const nameB = advisorNameById.get(b.advisorUserId) || '';
           return nameA.localeCompare(nameB);
         }),
-    [advisorCommissionClosures, advisorNameById, selectedAdvisorCommissionPeriodId]
+    [advisorCommissionClosureResults, advisorNameById, selectedAdvisorCommissionPeriodId]
   );
 
   const selectedAdvisorCommissionTotals = useMemo(
@@ -14957,7 +15047,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_120px_180px]">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_120px_130px_180px]">
                     <FieldSelect
                       label="Periodo"
                       value={selectedAdvisorCommissionPeriodId}
@@ -14975,8 +15065,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       value={advisorCalcAdvisorId}
                       onChange={setAdvisorCalcAdvisorId}
                       options={[
-                        { value: '', label: 'Todos los asesores' },
-                        ...advisors.map((advisor) => ({
+                        {
+                          value: '',
+                          label: !selectedAdvisorCommissionPeriodId
+                            ? 'Primero selecciona periodo'
+                            : advisorCommissionPeriodAdvisorsLoading
+                              ? 'Cargando asesores...'
+                              : 'Selecciona un asesor',
+                        },
+                        ...advisorCommissionSelectableAdvisors.map((advisor) => ({
                           value: advisor.userId,
                           label: advisor.fullName,
                         })),
@@ -14990,8 +15087,28 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       hint="Cambia y vuelve a generar."
                     />
                     <button
+                      className="self-end rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3.5 py-2 text-sm font-semibold text-[#0B0B0D] transition hover:bg-[#FFF45C] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={
+                        advisorCommissionBusy ||
+                        advisorCommissionSetupMissing ||
+                        advisorCommissionPeriodAdvisorsLoading ||
+                        !selectedAdvisorCommissionPeriodId ||
+                        !advisorCalcAdvisorId
+                      }
+                      onClick={loadAdvisorCommissionClosures}
+                      type="button"
+                    >
+                      {advisorCommissionBusy ? 'Buscando' : 'Buscar'}
+                    </button>
+                    <button
                       className="self-end rounded-xl border border-[#2F3142] bg-[#0B0B0D] px-3.5 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={advisorCommissionBusy || advisorCommissionSetupMissing || !selectedAdvisorCommissionPeriodId}
+                      disabled={
+                        advisorCommissionBusy ||
+                        advisorCommissionSetupMissing ||
+                        advisorCommissionPeriodAdvisorsLoading ||
+                        !selectedAdvisorCommissionPeriodId ||
+                        !advisorCalcAdvisorId
+                      }
                       onClick={generateAdvisorCommissionClosures}
                       type="button"
                     >
@@ -15031,10 +15148,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedAdvisorCommissionClosures.length === 0 ? (
+                        {!advisorCommissionClosuresQueried ? (
                           <tr>
                             <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={11}>
-                              Sin preliminares generados para este periodo.
+                              Selecciona un periodo y un asesor, luego presiona Buscar.
+                            </td>
+                          </tr>
+                        ) : selectedAdvisorCommissionClosures.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={11}>
+                              Sin preliminares para esta consulta.
                             </td>
                           </tr>
                         ) : (

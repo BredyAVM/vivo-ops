@@ -12092,6 +12092,133 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
   return { ok: true as const };
 }
 
+export async function loadAdvisorCommissionClosuresAction(input: {
+  periodId: number;
+  advisorUserId?: string | null;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const periodId = Number(input.periodId || 0);
+  const advisorUserId = String(input.advisorUserId || '').trim();
+
+  if (!Number.isFinite(periodId) || periodId <= 0) {
+    throw new Error('Selecciona un periodo valido.');
+  }
+
+  let query = supabase
+    .from('advisor_commission_closures')
+    .select(`
+      id,
+      period_id,
+      advisor_user_id,
+      status,
+      base_commission_pct,
+      delivered_orders_count,
+      billed_usd,
+      gross_commission_usd,
+      pending_collection_usd,
+      punctual_paid_count,
+      late_paid_count,
+      pending_payment_count,
+      new_own_clients_count,
+      new_assigned_clients_count,
+      gift_deductions_usd,
+      manual_deductions_usd,
+      payable_usd,
+      snapshot,
+      generated_at,
+      closed_at,
+      paid_at,
+      deductions:advisor_commission_deductions (
+        id,
+        deduction_type,
+        description,
+        amount_usd,
+        notes,
+        created_at
+      )
+    `)
+    .eq('period_id', periodId)
+    .order('generated_at', { ascending: false })
+    .limit(80);
+
+  if (advisorUserId) {
+    query = query.eq('advisor_user_id', advisorUserId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    ok: true as const,
+    closures: ((data ?? []) as any[]).map((row) => ({
+      id: Number(row.id),
+      periodId: Number(row.period_id),
+      advisorUserId: row.advisor_user_id,
+      status: row.status,
+      baseCommissionPct: toSafeNumber(row.base_commission_pct, 0),
+      deliveredOrdersCount: toSafeNumber(row.delivered_orders_count, 0),
+      billedUsd: roundMoney(row.billed_usd),
+      grossCommissionUsd: roundMoney(row.gross_commission_usd),
+      pendingCollectionUsd: roundMoney(row.pending_collection_usd),
+      punctualPaidCount: toSafeNumber(row.punctual_paid_count, 0),
+      latePaidCount: toSafeNumber(row.late_paid_count, 0),
+      pendingPaymentCount: toSafeNumber(row.pending_payment_count, 0),
+      newOwnClientsCount: toSafeNumber(row.new_own_clients_count, 0),
+      newAssignedClientsCount: toSafeNumber(row.new_assigned_clients_count, 0),
+      giftDeductionsUsd: roundMoney(row.gift_deductions_usd),
+      manualDeductionsUsd: roundMoney(row.manual_deductions_usd),
+      payableUsd: roundMoney(row.payable_usd),
+      snapshot: row.snapshot && typeof row.snapshot === 'object' ? row.snapshot : {},
+      manualDeductions: (row.deductions ?? [])
+        .filter((deduction: any) => String(deduction.deduction_type || '') !== 'gift')
+        .map((deduction: any) => ({
+          id: Number(deduction.id),
+          kind: deduction.deduction_type,
+          description: deduction.description || '',
+          amountUsd: roundMoney(deduction.amount_usd),
+          notes: deduction.notes,
+          createdAt: deduction.created_at,
+        })),
+      generatedAt: row.generated_at,
+      closedAt: row.closed_at,
+      paidAt: row.paid_at,
+    })),
+  };
+}
+
+export async function loadAdvisorCommissionPeriodAdvisorsAction(input: { periodId: number }) {
+  const { supabase } = await requireMasterOrAdmin();
+  const periodId = Number(input.periodId || 0);
+
+  if (!Number.isFinite(periodId) || periodId <= 0) {
+    throw new Error('Selecciona un periodo valido.');
+  }
+
+  const { data, error } = await supabase
+    .from('advisor_commission_closures')
+    .select('advisor_user_id, status, generated_at')
+    .eq('period_id', periodId)
+    .order('generated_at', { ascending: false })
+    .limit(200);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const advisorIds = Array.from(
+    new Set(
+      ((data ?? []) as Array<{ advisor_user_id: string | null }>)
+        .map((row) => String(row.advisor_user_id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  return { ok: true as const, advisorIds };
+}
+
 async function syncAdvisorCommissionClosureManualDeductions(supabase: Awaited<ReturnType<typeof requireMasterOrAdmin>>['supabase'], closureId: number) {
   const { data: closure, error: closureError } = await supabase
     .from('advisor_commission_closures')
