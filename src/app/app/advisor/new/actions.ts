@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
+import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { sendPushToRoleDevices } from '@/lib/push';
 
 const STALE_ORDER_EDIT_MESSAGE =
   'No se guardaron los cambios porque otra persona actualizó esta orden después de que la abriste. Para evitar pisar su trabajo, actualiza la orden, revisa lo nuevo y vuelve a guardar si todavía aplica.';
@@ -277,6 +279,24 @@ export async function ensureAdvisorOrderCreatedEventAction(input: { orderId: num
     .insert(recipientRows);
 
   if (recipientsError) throw new Error(recipientsError.message);
+
+  try {
+    const orderLabel = formatOrderDisplayLabel(orderId);
+    await sendPushToRoleDevices({
+      roles: ['master', 'admin'],
+      title: `${orderLabel}: Orden creada`,
+      body: 'La orden fue creada por un asesor y requiere aprobacion.',
+      url: '/app/master/dashboard',
+      tag: `master-order-${orderId}-order_created`,
+      tone: 'critical',
+      requireInteraction: true,
+    });
+  } catch (pushError) {
+    console.warn(
+      'advisor order_created role push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
+  }
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');

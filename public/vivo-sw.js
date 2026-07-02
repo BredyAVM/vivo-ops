@@ -81,6 +81,7 @@ self.addEventListener('push', (event) => {
     icon: '/pwa/advisor-192.png',
     badge: '/pwa/advisor-192.png',
     renotify: true,
+    silent: false,
     requireInteraction: Boolean(payload.requireInteraction),
     vibrate: payload.tone === 'critical' ? [120, 60, 120] : [80],
     data: {
