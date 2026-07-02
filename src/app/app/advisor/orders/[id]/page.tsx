@@ -719,6 +719,7 @@ function eventTitle(eventType: string, fallbackTitle: string) {
     payment_confirmed: 'Pago confirmado',
     payment_rejected: 'Pago rechazado',
     client_fund_application_requested: 'Solicitud de pago con fondo',
+    advisor_master_ping: 'Ping al master',
   };
 
   return titles[eventType] || safeText(fallbackTitle, 'Evento');
@@ -747,6 +748,7 @@ function fallbackTimelineMessage(eventType: string) {
     payment_confirmed: 'El pago ya quedo confirmado.',
     payment_rejected: 'El pago fue rechazado y necesita correccion.',
     client_fund_application_requested: 'Se solicito aplicar fondo del cliente a esta orden.',
+    advisor_master_ping: 'El asesor solicito atencion del master para esta orden.',
   };
 
   return messages[eventType] || 'Sin detalle adicional.';
@@ -757,7 +759,8 @@ function eventTone(eventType: string): TimelineEvent['tone'] {
   if (
     ACTION_EVENT_TYPES.has(eventType) ||
     eventType.includes('delayed') ||
-    eventType === 'client_fund_application_requested'
+    eventType === 'client_fund_application_requested' ||
+    eventType === 'advisor_master_ping'
   ) return 'warning';
   if (eventType === 'payment_confirmed' || eventType === 'order_delivered' || eventType === 'pickup_collected') return 'success';
   return 'neutral';
@@ -784,6 +787,10 @@ function buildDetailLines(eventType: string, payload: Record<string, unknown>) {
     if (amount != null && String(amount).trim()) details.push(`Monto solicitado: $${Number(amount).toFixed(2)}`);
     if (available != null && String(available).trim()) details.push(`Fondo disponible: $${Number(available).toFixed(2)}`);
     if (reason) details.push(`Nota: ${reason}`);
+  }
+
+  if (eventType === 'advisor_master_ping') {
+    details.push('Aviso enviado a master/admin.');
   }
 
   if (
@@ -1059,6 +1066,12 @@ export default async function AdvisorOrderDetailPage({
     confirmedPaidUsd <= 0.005 &&
     pendingPaidUsd <= 0.005 &&
     clientFundUsedUsd <= 0.005;
+  const canPingMaster = !['cancelled', 'delivered'].includes(order.status);
+  const latestMasterPingEvent = timeline.find((event) => event.eventType === 'advisor_master_ping');
+  const masterPingAvailableAt =
+    latestMasterPingEvent?.createdAt && !Number.isNaN(new Date(latestMasterPingEvent.createdAt).getTime())
+      ? new Date(new Date(latestMasterPingEvent.createdAt).getTime() + 3 * 60 * 1000).toISOString()
+      : null;
   const actionableEvents = timeline.filter((event) => event.requiresAction).length;
   const openPaymentOnLoad = resolvedSearchParams.reportPayment === '1';
   const paymentSummary = getPaymentSummary(
@@ -1194,6 +1207,8 @@ export default async function AdvisorOrderDetailPage({
             canReportPayment={canReportPayment}
             canRequestClientFund={canRequestClientFund}
             canCancelOrder={canCancelOrder}
+            canPingMaster={canPingMaster}
+            masterPingAvailableAt={masterPingAvailableAt}
             clientFundAvailableUsd={clientFundAvailableUsd}
             fundRequestSuggestedUsd={fundRequestSuggestedUsd}
             hasPendingFundRequest={hasPendingFundRequest}

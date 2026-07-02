@@ -10,6 +10,7 @@ import {
   cancelAdvisorOrderAction,
   createAdvisorPaymentReportAction,
   loadAdvisorPaymentOptionsAction,
+  pingMasterForAdvisorOrderAction,
   requestClientFundApplicationAction,
 } from './actions';
 
@@ -133,6 +134,8 @@ export default function OrderDetailActions({
   canReportPayment,
   canRequestClientFund,
   canCancelOrder,
+  canPingMaster,
+  masterPingAvailableAt,
   clientFundAvailableUsd,
   fundRequestSuggestedUsd,
   hasPendingFundRequest,
@@ -154,6 +157,8 @@ export default function OrderDetailActions({
   canReportPayment: boolean;
   canRequestClientFund: boolean;
   canCancelOrder: boolean;
+  canPingMaster: boolean;
+  masterPingAvailableAt: string | null;
   clientFundAvailableUsd: number;
   fundRequestSuggestedUsd: number;
   hasPendingFundRequest: boolean;
@@ -174,6 +179,7 @@ export default function OrderDetailActions({
   const copySummaryRef = useRef(false);
   const fundRequestRef = useRef(false);
   const paymentReportRef = useRef(false);
+  const masterPingRef = useRef(false);
   const canOpenPaymentTools = canReportPayment || canRequestClientFund;
   const [reportBoxOpen, setReportBoxOpen] = useState(initialReportBoxOpen && canOpenPaymentTools);
   const [error, setError] = useState<string | null>(null);
@@ -181,6 +187,7 @@ export default function OrderDetailActions({
   const [copyingSummary, setCopyingSummary] = useState(false);
   const [sendingFundRequest, setSendingFundRequest] = useState(false);
   const [sendingPaymentReport, setSendingPaymentReport] = useState(false);
+  const [sendingMasterPing, setSendingMasterPing] = useState(false);
   const [cancelBoxOpen, setCancelBoxOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [sendingCancel, setSendingCancel] = useState(false);
@@ -323,6 +330,9 @@ export default function OrderDetailActions({
   const fundRequestDisabled = fundRequestPending || sendingFundRequest || fundRequestSent || !canRequestClientFund;
   const paymentReportDisabled = isPending || sendingPaymentReport;
   const cancelOrderDisabled = isPending || sendingCancel || !canCancelOrder;
+  const masterPingWaitMs = masterPingAvailableAt ? new Date(masterPingAvailableAt).getTime() - Date.now() : 0;
+  const masterPingWaitMinutes = masterPingWaitMs > 0 ? Math.max(1, Math.ceil(masterPingWaitMs / 60000)) : 0;
+  const masterPingDisabled = isPending || sendingMasterPing || !canPingMaster || masterPingWaitMinutes > 0;
 
   async function handleCopySummary() {
     if (copySummaryRef.current) return;
@@ -343,7 +353,15 @@ export default function OrderDetailActions({
     }
   }
 
-  if (!canCorrectOrder && !canDuplicateOrder && !canReportPayment && !canRequestClientFund && !canCancelOrder && !whatsappSummary.trim()) return null;
+  if (
+    !canCorrectOrder &&
+    !canDuplicateOrder &&
+    !canReportPayment &&
+    !canRequestClientFund &&
+    !canCancelOrder &&
+    !canPingMaster &&
+    !whatsappSummary.trim()
+  ) return null;
 
   return (
     <div className="space-y-3">
@@ -417,6 +435,54 @@ export default function OrderDetailActions({
             ].join(' ')}
           >
             {reportBoxOpen ? 'Pago abierto' : 'Pago'}
+          </button>
+        ) : null}
+
+        {canPingMaster ? (
+          <button
+            type="button"
+            aria-busy={sendingMasterPing}
+            data-busy={sendingMasterPing ? 'true' : undefined}
+            disabled={masterPingDisabled}
+            onClick={() => {
+              if (masterPingRef.current || masterPingDisabled) return;
+
+              setError(null);
+              setSuccess(null);
+              masterPingRef.current = true;
+              setSendingMasterPing(true);
+
+              startTransition(async () => {
+                try {
+                  const formData = new FormData();
+                  formData.set('orderId', String(orderId));
+
+                  await pingMasterForAdvisorOrderAction(formData);
+
+                  setSuccess('Ping enviado al master.');
+                  router.refresh();
+                } catch (submitError) {
+                  setError(
+                    submitError instanceof Error ? submitError.message : 'No se pudo enviar el ping al master.',
+                  );
+                } finally {
+                  masterPingRef.current = false;
+                  setSendingMasterPing(false);
+                }
+              });
+            }}
+            className={[
+              'inline-flex h-9 items-center justify-center rounded-full border px-3.5 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed',
+              masterPingDisabled
+                ? 'border-[#232632] bg-[#232632] text-[#6F7890]'
+                : 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]',
+            ].join(' ')}
+          >
+            {sendingMasterPing
+              ? 'Enviando...'
+              : masterPingWaitMinutes > 0
+                ? `Ping en ${masterPingWaitMinutes} min`
+                : 'Ping master'}
           </button>
         ) : null}
 

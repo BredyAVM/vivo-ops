@@ -53,6 +53,8 @@ type OrderEventRecipientInput = {
   requiresAction?: boolean;
 };
 
+const MASTER_PING_COOLDOWN_MS = 3 * 60 * 1000;
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -751,6 +753,88 @@ export async function requestClientFundApplicationAction(formData: FormData) {
   revalidatePath('/app/advisor/payments');
   revalidatePath('/app/advisor/inbox');
   revalidatePath('/app/master/dashboard');
+}
+
+export async function pingMasterForAdvisorOrderAction(formData: FormData) {
+  const ctx = await requireAuthContext();
+  if (!isAdvisorRole(ctx.roles)) {
+    throw new Error('Solo un asesor puede enviar un ping al master desde esta vista.');
+  }
+
+  const orderId = Number(formData.get('orderId') || 0);
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const { data: order, error: orderError } = await ctx.supabase
+    .from('orders')
+    .select('id, order_number, attributed_advisor_id, status')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (order.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes enviar ping por una orden de otro asesor.');
+  }
+
+  if (['cancelled', 'delivered'].includes(String(order.status || ''))) {
+    throw new Error('Esta orden ya no permite ping al master.');
+  }
+
+  const cooldownSince = new Date(Date.now() - MASTER_PING_COOLDOWN_MS).toISOString();
+  const { data: recentPing, error: recentPingError } = await ctx.supabase
+    .from('order_timeline_events')
+    .select('id, created_at')
+    .eq('order_id', orderId)
+    .eq('event_type', 'advisor_master_ping')
+    .eq('actor_user_id', ctx.user.id)
+    .gte('created_at', cooldownSince)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (recentPingError) {
+    throw new Error(recentPingError.message);
+  }
+
+  if (recentPing?.created_at) {
+    const recentAt = new Date(String(recentPing.created_at)).getTime();
+    const remainingMs = MASTER_PING_COOLDOWN_MS - (Date.now() - recentAt);
+    const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    throw new Error(`Ya enviaste un ping hace poco. Espera ${remainingMinutes} min.`);
+  }
+
+  const eventContext = await loadOrderEventContext(ctx.supabase, orderId);
+  await appendOrderEvent(ctx.supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'advisor_master_ping',
+    eventGroup: 'approval',
+    title: 'Ping del asesor',
+    message: 'El asesor solicita atencion del master para esta orden.',
+    severity: 'critical',
+    actorUserId: ctx.user.id,
+    payload: {
+      previous_status: order.status,
+      source: 'advisor_mobile',
+      cooldown_seconds: MASTER_PING_COOLDOWN_MS / 1000,
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: true },
+      { targetRole: 'admin', requiresAction: true },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/dashboard');
+
+  return { ok: true };
 }
 
 export async function cancelAdvisorOrderAction(formData: FormData) {
