@@ -620,6 +620,7 @@ type AdvisorCommissionClosure = {
   payableUsd: number;
   snapshot: {
     orders?: AdvisorCommissionSnapshotOrder[];
+    paid_orders?: AdvisorCommissionSnapshotOrder[];
     pending_orders?: AdvisorCommissionSnapshotOrder[];
     new_clients?: Array<{
       clientId?: number | string | null;
@@ -15021,6 +15022,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const snapshotOrders = Array.isArray(closure.snapshot?.orders)
                               ? closure.snapshot.orders
                               : [];
+                            const paidSnapshotOrders = Array.isArray(closure.snapshot?.paid_orders)
+                              ? closure.snapshot.paid_orders
+                              : snapshotOrders.filter((order) => Number(order.pendingUsd || 0) <= 0.005);
                             const pendingSnapshotOrders = Array.isArray(closure.snapshot?.pending_orders)
                               ? closure.snapshot.pending_orders
                               : snapshotOrders.filter((order) => Number(order.pendingUsd || 0) > 0.005);
@@ -15216,7 +15220,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                         </div>
                                       </div>
 
-                                      <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                                      <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
                                         <div className="rounded-xl border border-[#242433] bg-[#101018]">
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
                                             <div className="text-xs font-semibold text-[#F5F5F7]">Clientes nuevos</div>
@@ -15257,6 +15261,51 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         <td className="px-3 py-2">{client.clientName || 'Cliente'}</td>
                                                         <td className="px-3 py-2">
                                                           {client.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : '—')}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018]">
+                                          <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
+                                            <div className="text-xs font-semibold text-[#F5F5F7]">Pagos puntuales</div>
+                                            <div className="text-[11px] font-semibold text-emerald-300">{paidSnapshotOrders.length}</div>
+                                          </div>
+                                          <div className="max-h-[180px] overflow-auto">
+                                            <table className="w-full text-[11px]">
+                                              <thead className="sticky top-0 bg-[#0B0B0D] text-[#B7B7C2]">
+                                                <tr>
+                                                  <th className="px-3 py-2 text-left font-medium">Orden</th>
+                                                  <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Pagado</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {paidSnapshotOrders.length === 0 ? (
+                                                  <tr>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={3}>
+                                                      Sin pagos puntuales en este periodo.
+                                                    </td>
+                                                  </tr>
+                                                ) : (
+                                                  paidSnapshotOrders.map((order, paidIdx) => {
+                                                    const orderId = Number(order.orderId || 0);
+                                                    return (
+                                                      <tr
+                                                        key={`${closure.id}-paid-${orderId || paidIdx}`}
+                                                        className={`${paidIdx % 2 === 0 ? 'bg-[#121218]' : 'bg-[#151522]'} border-b border-[#242433]`}
+                                                      >
+                                                        <td className="px-3 py-2">
+                                                          {order.orderNumber || (orderId ? fmtShortOrderLabel(orderId) : 'Orden')}
+                                                        </td>
+                                                        <td className="px-3 py-2">{order.clientName || 'Cliente'}</td>
+                                                        <td className="px-3 py-2 text-right text-emerald-300">
+                                                          {fmtUSD(Number(order.confirmedPaidUsd || order.totalUsd || 0))}
                                                         </td>
                                                       </tr>
                                                     );

@@ -11459,6 +11459,7 @@ function buildAdvisorCommissionSnapshots(params: {
     advisorUserId: string;
     advisorName: string;
     orders: Array<Record<string, unknown>>;
+    paidOrders: Array<Record<string, unknown>>;
     pendingOrders: Array<Record<string, unknown>>;
     newClients: Array<Record<string, unknown>>;
     products: Array<Record<string, unknown>>;
@@ -11487,6 +11488,7 @@ function buildAdvisorCommissionSnapshots(params: {
       advisorUserId: advisorId,
       advisorName: advisorNamesById.get(advisorId) || 'Asesor',
       orders: [],
+      paidOrders: [],
       pendingOrders: [],
       newClients: [],
       products: [],
@@ -11636,7 +11638,11 @@ function buildAdvisorCommissionSnapshots(params: {
     };
 
     closure.orders.push(orderSnapshot);
-    if (isPending) closure.pendingOrders.push(orderSnapshot);
+    if (isPending) {
+      closure.pendingOrders.push(orderSnapshot);
+    } else {
+      closure.paidOrders.push(orderSnapshot);
+    }
   }
 
   return Array.from(closuresByAdvisor.values()).map((closure) => {
@@ -11655,6 +11661,7 @@ function buildAdvisorCommissionSnapshots(params: {
     };
 
     closure.orders.sort(byDateThenOrder);
+    closure.paidOrders.sort(byDateThenOrder);
     closure.pendingOrders.sort(byDateThenOrder);
     closure.newClients.sort((a, b) => {
       const typeCompare = String(a.clientType || '').localeCompare(String(b.clientType || ''));
@@ -11707,6 +11714,7 @@ function buildAdvisorCommissionSnapshots(params: {
         base_commission_pct: baseCommissionPct,
         totals,
         orders: closure.orders,
+        paid_orders: closure.paidOrders,
         pending_orders: closure.pendingOrders,
         new_clients: closure.newClients,
         products: closure.products,
