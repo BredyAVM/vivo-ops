@@ -39,6 +39,23 @@ function safeText(value: unknown, fallback = '') {
   return text || fallback;
 }
 
+function webPushTopicFromTag(value: unknown) {
+  const source = safeText(value, 'vivo-notification');
+  const normalized = source.replace(/[^A-Za-z0-9_-]/g, '-');
+
+  if (normalized.length > 0 && normalized.length <= 32) return normalized;
+
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    hash = Math.imul(31, hash) + source.charCodeAt(i);
+    hash |= 0;
+  }
+
+  const suffix = Math.abs(hash).toString(36).slice(0, 8) || '0';
+  const prefix = (normalized || 'vivo-notification').slice(0, Math.max(1, 31 - suffix.length));
+  return `${prefix}-${suffix}`.slice(0, 32);
+}
+
 function eventPushTone(eventType: string): AdvisorPushTone {
   if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected' || eventType === 'order_returned_to_review') {
     return 'critical';
@@ -273,7 +290,7 @@ export async function sendPushToUserDevices(input: {
         {
           TTL: tone === 'critical' ? 300 : 120,
           urgency: tone === 'critical' ? 'high' : tone === 'warning' ? 'normal' : 'low',
-          topic: safeText(input.tag, 'vivo-notification'),
+          topic: webPushTopicFromTag(input.tag),
         },
       ),
     ),
@@ -299,6 +316,15 @@ export async function sendPushToUserDevices(input: {
     skipped: false,
     delivered: results.filter((result) => result.status === 'fulfilled').length,
     invalid: invalidEndpoints.length,
+    failures: results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => ({
+        statusCode: Number((result.reason as { statusCode?: number })?.statusCode || 0) || null,
+        message:
+          result.reason instanceof Error
+            ? result.reason.message
+            : safeText((result.reason as { message?: unknown })?.message, 'push_rejected'),
+      })),
   };
 }
 
@@ -348,13 +374,36 @@ export async function sendPushToRoleDevices(input: {
     ),
   );
 
+  const settledResults = results.map((result) => {
+    if (result.status === 'rejected') {
+      return {
+        skipped: true as const,
+        reason: 'send_failed' as const,
+        delivered: 0,
+        failures: [
+          {
+            statusCode: Number((result.reason as { statusCode?: number })?.statusCode || 0) || null,
+            message:
+              result.reason instanceof Error
+                ? result.reason.message
+                : safeText((result.reason as { message?: unknown })?.message, 'push_rejected'),
+          },
+        ],
+      };
+    }
+
+    return result.value;
+  });
+
   return {
     skipped: false,
     users: userIds.length,
-    delivered: results.reduce((sum, result) => {
-      if (result.status !== 'fulfilled' || result.value.skipped) return sum;
-      return sum + Number(result.value.delivered || 0);
+    delivered: settledResults.reduce((sum, result) => {
+      if (result.skipped) return sum;
+      return sum + Number(result.delivered || 0);
     }, 0),
+    skippedUsers: settledResults.filter((result) => result.skipped).length,
+    failures: settledResults.flatMap((result) => ('failures' in result ? result.failures ?? [] : [])),
   };
 }
 
@@ -426,7 +475,7 @@ export async function sendPushToAdvisorDevices(input: {
               : copy.tone === 'warning'
                 ? 'normal'
                 : 'low',
-          topic: String(input.tag || '').trim() || copy.tag,
+          topic: webPushTopicFromTag(input.tag || copy.tag),
         },
       ),
     ),
@@ -452,6 +501,15 @@ export async function sendPushToAdvisorDevices(input: {
     skipped: false,
     delivered: results.filter((result) => result.status === 'fulfilled').length,
     invalid: invalidEndpoints.length,
+    failures: results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => ({
+        statusCode: Number((result.reason as { statusCode?: number })?.statusCode || 0) || null,
+        message:
+          result.reason instanceof Error
+            ? result.reason.message
+            : safeText((result.reason as { message?: unknown })?.message, 'push_rejected'),
+      })),
   };
 }
 

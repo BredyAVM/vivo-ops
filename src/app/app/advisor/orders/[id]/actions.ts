@@ -296,7 +296,7 @@ async function appendOrderEvent(
   if (rolePushTargets.size > 0) {
     try {
       const orderLabel = formatOrderDisplayLabel(input.orderId);
-      await sendPushToRoleDevices({
+      const pushResult = await sendPushToRoleDevices({
         roles: Array.from(rolePushTargets),
         title: `${orderLabel}: ${input.title}`,
         body: input.message || 'Requiere revision en el dashboard.',
@@ -305,6 +305,10 @@ async function appendOrderEvent(
         tone: input.severity === 'critical' ? 'critical' : input.severity === 'warning' ? 'warning' : 'info',
         requireInteraction: input.eventType === 'payment_reported' || input.severity === 'critical',
       });
+
+      if (pushResult.skipped || Number(pushResult.delivered || 0) <= 0) {
+        console.warn('advisor appendOrderEvent role push not delivered', JSON.stringify(pushResult));
+      }
     } catch (pushError) {
       console.warn(
         'advisor appendOrderEvent role push skipped',
