@@ -675,6 +675,19 @@ type AdvisorCommissionClosure = {
   paidAt: string | null;
 };
 
+type AdvisorCommissionClosureDetailTab = 'summary' | 'orders' | 'payments' | 'products' | 'deductions';
+
+const ADVISOR_COMMISSION_CLOSURE_DETAIL_TABS: Array<{
+  id: AdvisorCommissionClosureDetailTab;
+  label: string;
+}> = [
+  { id: 'summary', label: 'Resumen' },
+  { id: 'orders', label: 'Ordenes' },
+  { id: 'payments', label: 'Pagos y clientes' },
+  { id: 'products', label: 'Productos' },
+  { id: 'deductions', label: 'Deducibles' },
+];
+
 
 type DeliveryPartnerOption = {
   id: number;
@@ -4308,6 +4321,9 @@ export default function MasterDashboardClient({
     Record<number, { amount: string; notes: string }>
   >({});
   const [expandedAdvisorCommissionClosureId, setExpandedAdvisorCommissionClosureId] = useState<number | null>(null);
+  const [advisorCommissionClosureDetailTabs, setAdvisorCommissionClosureDetailTabs] = useState<
+    Record<number, AdvisorCommissionClosureDetailTab>
+  >({});
   const [deliveryInternalDriverFilter, setDeliveryInternalDriverFilter] = useState('');
   const [deliveryExternalPartnerFilter, setDeliveryExternalPartnerFilter] = useState('');
   const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerOption[]>(initialDeliveryPartners);
@@ -15070,6 +15086,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         ) : (
                           selectedAdvisorCommissionClosures.map((closure, idx) => {
                             const isExpanded = expandedAdvisorCommissionClosureId === closure.id;
+                            const activeDetailTab = advisorCommissionClosureDetailTabs[closure.id] ?? 'summary';
                             const snapshotOrders = Array.isArray(closure.snapshot?.orders)
                               ? closure.snapshot.orders
                               : [];
@@ -15166,9 +15183,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                                       <button
                                         className="rounded-full border border-[#2F3142] px-2.5 py-1 text-[11px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
-                                        onClick={() =>
-                                          setExpandedAdvisorCommissionClosureId(isExpanded ? null : closure.id)
-                                        }
+                                        onClick={() => {
+                                          setExpandedAdvisorCommissionClosureId(isExpanded ? null : closure.id);
+                                          if (!isExpanded) {
+                                            setAdvisorCommissionClosureDetailTabs((current) =>
+                                              current[closure.id] ? current : { ...current, [closure.id]: 'summary' }
+                                            );
+                                          }
+                                        }}
                                         type="button"
                                       >
                                         {isExpanded ? 'Ocultar' : 'Ver órdenes'}
@@ -15239,6 +15261,70 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                         </div>
                                       </div>
 
+                                      <div className="mb-3 flex flex-wrap gap-2 rounded-xl border border-[#242433] bg-[#101018] p-2">
+                                        {ADVISOR_COMMISSION_CLOSURE_DETAIL_TABS.map((tab) => (
+                                          <button
+                                            key={tab.id}
+                                            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                              activeDetailTab === tab.id
+                                                ? 'border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]'
+                                                : 'border-[#2F3142] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FEEF00]/60 hover:text-[#F5F5F7]'
+                                            }`}
+                                            onClick={() =>
+                                              setAdvisorCommissionClosureDetailTabs((current) => ({
+                                                ...current,
+                                                [closure.id]: tab.id,
+                                              }))
+                                            }
+                                            type="button"
+                                          >
+                                            {tab.label}
+                                          </button>
+                                        ))}
+                                      </div>
+
+                                      {activeDetailTab === 'summary' ? (
+                                        <div className="rounded-xl border border-[#242433] bg-[#101018] p-4">
+                                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                            <div>
+                                              <div className="text-xs text-[#8A8A96]">Comisión bruta</div>
+                                              <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">
+                                                {fmtUSD(closure.grossCommissionUsd)}
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <div className="text-xs text-[#8A8A96]">Deducibles totales</div>
+                                              <div className="mt-1 text-lg font-semibold text-orange-300">
+                                                {fmtUSD(closure.giftDeductionsUsd + closure.manualDeductionsUsd)}
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <div className="text-xs text-[#8A8A96]">Total a pagar</div>
+                                              <div className="mt-1 text-lg font-semibold text-[#FEEF00]">
+                                                {fmtUSD(closure.payableUsd)}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-[#B7B7C2] md:grid-cols-3">
+                                            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                                              Normales: <span className="font-semibold text-[#F5F5F7]">{normalOrders.length}</span> ·{' '}
+                                              {fmtUSD(sumOrderTotals(normalOrders))}
+                                            </div>
+                                            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                                              Items especiales:{' '}
+                                              <span className="font-semibold text-[#F5F5F7]">{itemSpecialOrders.length}</span> ·{' '}
+                                              {fmtUSD(sumOrderTotals(itemSpecialOrders))}
+                                            </div>
+                                            <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                                              Orden fija:{' '}
+                                              <span className="font-semibold text-[#F5F5F7]">{orderSpecialOrders.length}</span> ·{' '}
+                                              {fmtUSD(sumOrderTotals(orderSpecialOrders))}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : null}
+
+                                      {activeDetailTab === 'deductions' ? (
                                       <div className="mb-3 rounded-xl border border-[#242433] bg-[#101018] p-3">
                                         <div className="flex flex-col gap-3">
                                           <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
@@ -15351,7 +15437,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           <div>A pagar: <span className="font-semibold text-[#FEEF00]">{fmtUSD(closure.payableUsd)}</span></div>
                                         </div>
                                       </div>
+                                      ) : null}
 
+                                      {activeDetailTab === 'payments' ? (
                                       <div className="mb-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
                                         <div className="rounded-xl border border-[#242433] bg-[#101018]">
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
@@ -15496,7 +15584,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           </div>
                                         </div>
                                       </div>
+                                      ) : null}
 
+                                      {activeDetailTab === 'orders' ? (
+                                      <>
                                       <div className="mb-2 flex items-center justify-between gap-3">
                                         <div className="text-xs font-semibold text-[#F5F5F7]">
                                           Facturación y comisión por orden
@@ -15633,7 +15724,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           </div>
                                         ))}
                                       </div>
+                                      </>
+                                      ) : null}
 
+                                      {activeDetailTab === 'products' ? (
                                       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
                                         <div className="rounded-xl border border-[#242433] bg-[#101018]">
                                           <div className="flex items-center justify-between border-b border-[#242433] px-3 py-2">
@@ -15739,6 +15833,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                           </div>
                                         </div>
                                       </div>
+                                      ) : null}
                                     </td>
                                   </tr>
                                 ) : null}
@@ -15752,7 +15847,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <details className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[#F5F5F7]">
+                  Consulta auxiliar generada · {fmtUSD(commissionCalculatedData.commissionTotalUsd)}
+                </summary>
+                <div className="mt-3 text-sm text-[#8A8A96]">
+                  Esta simulación sirve para comparar números, pero no modifica el cierre oficial del periodo.
+                </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <Card title="Facturado Total" className="p-3">
                   <StatRow label="Total" value={fmtUSD(commissionCalculatedData.facturadoTotalUsd)} />
                   <StatRow label="Base" value={`${commissionCalculatedData.baseCommissionPct.toFixed(2)}%`} />
@@ -15858,6 +15961,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </table>
                 </div>
               </div>
+              </details>
             </div>
           ) : calculationsTab === 'deliveries' ? (
             <div className="space-y-5">
