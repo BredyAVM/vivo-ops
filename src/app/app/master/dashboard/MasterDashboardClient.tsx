@@ -5494,7 +5494,40 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         });
       }
     }
-    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity(initialMasterNotifications
+    const timelineActivity = dashboardOrders.flatMap((order) =>
+      (order.events ?? [])
+        .filter((event) => {
+          if (!event.id.startsWith('timeline-')) return false;
+          if (event.actorUserId && event.actorUserId === currentUser.id) return false;
+          return event.recipientRequiresAction || event.eventGroup === 'approval' || event.eventGroup === 'payment';
+        })
+        .map((event): MasterInboxEvent => {
+          const display = getOrderEventDisplay(order, event);
+          const severity =
+            event.severity === 'critical'
+              ? 'critical'
+              : event.severity === 'warning' || event.recipientRequiresAction
+                ? 'warning'
+                : 'info';
+
+          return {
+            id: event.id,
+            orderId: order.id,
+            label: `${order.id} · ${repairDisplayText(order.clientName)}`,
+            deliveryText: `Entrega: ${fmtDeliveryTextES(order.deliveryAtISO)}`,
+            advisorName: order.advisorName,
+            title: repairDisplayText(display.title),
+            message: display.message ? repairDisplayText(display.message) : null,
+            severity,
+            openTab: 'eventos',
+            createdAtISO: event.createdAt,
+            detailLines: getOrderEventDetailLines(order, event),
+            isUrgent: !event.recipientReadAt && isOrderUrgentForInbox(order, severity),
+          };
+        })
+    );
+
+    const notificationActivity: MasterInboxEvent[] = initialMasterNotifications
       .map((notification) => {
         const order = dashboardOrders.find((candidate) => candidate.id === notification.orderId);
         if (!order) return null;
@@ -5525,8 +5558,14 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
         };
       })
       .filter((event): event is MasterInboxEvent => event != null)
+      .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime());
+
+    const activity: MasterInboxEvent[] = coalesceMasterInboxActivity([
+      ...timelineActivity,
+      ...notificationActivity,
+    ])
       .sort((a, b) => new Date(b.createdAtISO).getTime() - new Date(a.createdAtISO).getTime())
-    ).slice(0, 20);
+      .slice(0, 20);
 
     const pr = (t: MasterTaskType) => {
       if (t === 'RE-APROBAR' || t === 'RECALCULAR_PRESUPUESTO') return 1;
@@ -5543,7 +5582,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       activity,
       count: tasks.length,
     };
-  }, [catalogItems, dashboardOrders, currentTimeMs, initialMasterNotifications]);
+  }, [catalogItems, currentTimeMs, currentUser.id, dashboardOrders, initialMasterNotifications]);
 
   const masterInboxActiveIds = useMemo(
     () => new Set([...masterInbox.tasks.map((item) => item.id), ...masterInbox.activity.map((item) => item.id)]),
