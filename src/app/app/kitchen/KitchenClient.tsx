@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { getWhatsAppLineUnits } from '@/lib/orders/whatsapp-summary';
 import { ModulePreference } from '../ModulePreference';
 import { kitchenTakeAction, markReadyAction, updateKitchenEtaAction } from '../master/dashboard/actions';
 
@@ -170,6 +171,11 @@ function formatQty(value: number) {
   return value.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
 
+function floorKitchenPieces(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.floor(value);
+}
+
 function extractUnitsPerService(name: string) {
   const match = name.match(/(\d+(?:[.,]\d+)?)\s*(?:und|uds|unidad(?:es)?|pzs?|piezas?)/i);
   if (!match) return 0;
@@ -182,10 +188,16 @@ function isNonKitchenLine(name: string) {
 
 function getItemUnits(item: KitchenOrderItem) {
   if (isNonKitchenLine(item.name)) return 0;
-  if (item.unitsPerService > 0) return item.qty * item.unitsPerService;
+  const lineUnits = getWhatsAppLineUnits({
+    qty: item.qty,
+    name: item.name,
+    unitsPerService: item.unitsPerService,
+  });
+  if (lineUnits != null) return lineUnits;
+
   const unitsPerService = extractUnitsPerService(item.name);
-  if (unitsPerService <= 0) return item.qty;
-  return item.qty * unitsPerService;
+  if (unitsPerService > 0) return floorKitchenPieces(item.qty * unitsPerService);
+  return item.qty;
 }
 
 function parseDetailLines(notes: string | null): KitchenDetailLine[] {
@@ -198,7 +210,7 @@ function parseDetailLines(notes: string | null): KitchenDetailLine[] {
       if (!match) return { label: line, qty: null };
       return {
         label: match[2].trim(),
-        qty: toNumber(match[1].replace(',', '.'), 0),
+        qty: floorKitchenPieces(toNumber(match[1].replace(',', '.'), 0)),
       };
     });
 }
