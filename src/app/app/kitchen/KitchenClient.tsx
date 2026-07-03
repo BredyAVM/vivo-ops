@@ -186,6 +186,14 @@ function isNonKitchenLine(name: string) {
   return /\b(delivery|entrega|envio|envío)\b/i.test(name);
 }
 
+function isKitchenAccessoryLine(name: string) {
+  return /\b(salsa|salsas|refresco|refrescos|bebida|bebidas|agua|jugo|jugos|malta|coca|pepsi|chinotto|papel[oÃ³]n|tequechicha)\b/i.test(name);
+}
+
+function isKitchenPreparedLine(name: string) {
+  return !isNonKitchenLine(name) && !isKitchenAccessoryLine(name);
+}
+
 function getItemUnits(item: KitchenOrderItem) {
   if (isNonKitchenLine(item.name)) return 0;
   const lineUnits = getWhatsAppLineUnits({
@@ -216,7 +224,12 @@ function parseDetailLines(notes: string | null): KitchenDetailLine[] {
 }
 
 function getItemPreparedUnits(item: KitchenOrderItem) {
-  const detailUnits = parseDetailLines(item.notes).reduce((sum, line) => sum + (line.qty ?? 0), 0);
+  if (!isKitchenPreparedLine(item.name)) return 0;
+
+  const detailUnits = parseDetailLines(item.notes).reduce((sum, line) => {
+    if (line.qty == null || !isKitchenPreparedLine(line.label)) return sum;
+    return sum + line.qty;
+  }, 0);
   if (detailUnits > 0) return detailUnits;
   return getItemUnits(item);
 }
@@ -425,7 +438,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   }
 
   return (
-    <main className="min-h-screen bg-[#08090D] text-[#F5F5F7]">
+    <main className="h-screen snap-y snap-proximity overflow-y-auto scroll-smooth bg-[#08090D] text-[#F5F5F7]">
       <ModulePreference moduleKey="kitchen" />
       <div className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col px-2.5 py-2 sm:px-3">
         <header className="sticky top-0 z-30 -mx-3 border-b border-[#242433] bg-[#08090D]/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:px-4">
@@ -504,7 +517,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
             </span>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {activeOrders.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#2A2A38] bg-[#101018] px-4 py-10 text-center text-sm text-[#8A8A96]">
                 {activeColumn.empty}
@@ -527,7 +540,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
               const remainingMinutes = remainingPrepMinutes(order, currentTimeMs);
 
                     return (
-                <article key={order.id} className="rounded-xl border border-[#2A2A38] bg-[#101018] p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
+                <article key={order.id} className="snap-start scroll-mt-40 rounded-xl border border-[#2A2A38] bg-[#101018] p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
                         <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-xl font-black leading-none tracking-tight text-[#FEEF00]">
