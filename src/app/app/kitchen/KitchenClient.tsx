@@ -11,6 +11,7 @@ export type KitchenOrderItem = {
   qty: number;
   name: string;
   notes: string | null;
+  unitsPerService: number;
 };
 
 export type KitchenOrder = {
@@ -22,6 +23,7 @@ export type KitchenOrder = {
   clientPhone: string | null;
   fulfillment: 'pickup' | 'delivery';
   deliveryAddress: string | null;
+  notes: string | null;
   createdAt: string;
   scheduledDate: string | null;
   scheduledTime: string | null;
@@ -43,7 +45,7 @@ const STATUS_COLUMNS: Array<{
   empty: string;
 }> = [
   { key: 'confirmed', title: 'Cola', empty: 'Sin pedidos pendientes.' },
-  { key: 'in_kitchen', title: 'Preparando', empty: 'Sin pedidos en preparacion.' },
+  { key: 'in_kitchen', title: 'Preparando', empty: 'Sin pedidos en preparación.' },
   { key: 'ready', title: 'Listos', empty: 'Sin pedidos listos.' },
 ];
 
@@ -53,6 +55,16 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString('es-VE', {
     dateStyle: 'short',
     timeStyle: 'short',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function formatKitchenToday() {
+  return new Date().toLocaleDateString('es-VE', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
     timeZone: 'America/Caracas',
   });
 }
@@ -91,6 +103,7 @@ function isNonKitchenLine(name: string) {
 
 function getItemUnits(item: KitchenOrderItem) {
   if (isNonKitchenLine(item.name)) return 0;
+  if (item.unitsPerService > 0) return item.qty * item.unitsPerService;
   const unitsPerService = extractUnitsPerService(item.name);
   if (unitsPerService <= 0) return item.qty;
   return item.qty * unitsPerService;
@@ -145,6 +158,7 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
   const totalReady = ordersByStatus.get('ready')?.length ?? 0;
   const activeColumn = STATUS_COLUMNS.find((column) => column.key === activeStatus) ?? STATUS_COLUMNS[0];
   const activeOrders = ordersByStatus.get(activeColumn.key) ?? [];
+  const todayLabel = formatKitchenToday();
 
   const runAction = (key: string, action: () => Promise<void>) => {
     setPendingKey(key);
@@ -154,7 +168,7 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
         await action();
         router.refresh();
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'No se pudo completar la accion.');
+        setErrorMessage(error instanceof Error ? error.message : 'No se pudo completar la acción.');
       } finally {
         setPendingKey(null);
       }
@@ -164,13 +178,16 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
   return (
     <main className="min-h-screen bg-[#08090D] text-[#F5F5F7]">
       <ModulePreference moduleKey="kitchen" />
-      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-3 py-3 sm:px-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col px-2.5 py-2 sm:px-3">
         <header className="sticky top-0 z-30 -mx-3 border-b border-[#242433] bg-[#08090D]/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:px-4">
           <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-[0.18em] text-[#8A8A96]">VIVO OPS</div>
-              <h1 className="mt-1 text-[22px] font-semibold leading-tight">Cocina</h1>
-              <div className="mt-0.5 text-xs text-[#B7B7C2]">{fullName || 'Operacion de cocina'}</div>
+              <h1 className="mt-1 text-xl font-semibold leading-tight">Cocina</h1>
+              <div className="mt-0.5 text-xs text-[#B7B7C2]">{fullName || 'Operación de cocina'}</div>
+              <div className="mt-1 inline-flex rounded-full border border-[#303041] bg-[#0B0B10] px-2 py-0.5 text-xs font-semibold text-[#F5F5F7]">
+                Hoy {todayLabel}
+              </div>
           </div>
 
             <div className="flex items-center gap-2">
@@ -190,13 +207,13 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-3 gap-2">
             <Metric label="Cola" value={totalPending} tone="warn" />
             <Metric label="Prep." value={totalPreparing} tone="ok" />
             <Metric label="Listas" value={totalReady} tone="brand" />
           </div>
 
-          <nav className="mt-3 grid grid-cols-3 gap-2">
+          <nav className="mt-2 grid grid-cols-3 gap-2">
             {STATUS_COLUMNS.map((column) => {
               const count = ordersByStatus.get(column.key)?.length ?? 0;
               const active = activeStatus === column.key;
@@ -206,7 +223,7 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
                   type="button"
                   onClick={() => setActiveStatus(column.key)}
                   className={[
-                    'h-11 rounded-xl border px-2 text-sm font-semibold transition active:scale-[0.98]',
+                    'h-10 rounded-xl border px-2 text-sm font-semibold transition active:scale-[0.98]',
                     active
                       ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
                       : 'border-[#242433] bg-[#101018] text-[#D9D9E3]',
@@ -225,15 +242,15 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
           </div>
         ) : null}
 
-        <section className="flex-1 py-3">
-          <div className="mb-3 flex items-center justify-between gap-3 px-1">
+        <section className="flex-1 py-2">
+          <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <h2 className="text-base font-semibold">{activeColumn.title}</h2>
             <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(activeColumn.key)}`}>
               {activeOrders.length}
             </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {activeOrders.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#2A2A38] bg-[#101018] px-4 py-10 text-center text-sm text-[#8A8A96]">
                 {activeColumn.empty}
@@ -256,10 +273,10 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
               const readyTime = etaClockLabel(order);
 
                     return (
-                <article key={order.id} className="rounded-2xl border border-[#2A2A38] bg-[#101018] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
+                <article key={order.id} className="rounded-xl border border-[#2A2A38] bg-[#101018] p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
                         <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[28px] font-black leading-none tracking-tight text-[#FEEF00]">
+                      <div className="text-xl font-black leading-none tracking-tight text-[#FEEF00]">
                         Orden #{order.displayNumber}
                       </div>
                       <div className="mt-1 truncate text-base font-semibold text-[#F5F5F7]">{order.clientName}</div>
@@ -277,50 +294,61 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
                         ) : null}
                           </div>
                     </div>
-                    <div className="text-right">
-                      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(order.status)}`}>
+                    <div className="shrink-0 text-right">
+                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusTone(order.status)}`}>
                         {activeColumn.title}
                           </span>
-                      <div className="mt-2 text-xl font-black text-[#F5F5F7]">{formatQty(totalUnits)}</div>
-                      <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">und</div>
+                      <div className="mt-1 text-2xl font-black text-[#F5F5F7]">{formatQty(totalUnits)}</div>
+                      <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">piezas</div>
                         </div>
                   </div>
 
                   {readyTime ? (
-                    <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-200">
+                    <div className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1.5 text-sm font-semibold text-emerald-200">
                       Lista aprox. {readyTime}
                           </div>
                   ) : null}
 
                         {order.deliveryAddress ? (
-                    <div className="mt-3 rounded-xl border border-[#242433] bg-[#0B0B10] px-3 py-2 text-xs text-[#B7B7C2]">
+                    <div className="mt-2 rounded-lg border border-[#242433] bg-[#0B0B10] px-2.5 py-1.5 text-xs text-[#B7B7C2]">
                             {order.deliveryAddress}
                           </div>
                         ) : null}
 
-                        <div className="mt-3 space-y-2">
+                  {order.notes?.trim() ? (
+                    <div className="mt-2 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-semibold text-orange-100">
+                      Nota: {order.notes.trim()}
+                    </div>
+                  ) : null}
+
+                        <div className="mt-2 space-y-1.5">
                     {order.items.map((item) => {
                       const itemUnits = getItemUnits(item);
                       const detailLines = splitDetailLines(item.notes);
                       return (
-                        <div key={item.id} className="rounded-xl border border-[#242433] bg-[#0B0B10] px-3 py-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="text-base font-black text-[#F5F5F7]">
-                                {formatQty(item.qty)} {item.name}
-                              </div>
-                            </div>
+                        <div key={item.id} className="rounded-lg border border-[#242433] bg-[#0B0B10] px-2.5 py-2">
+                          <div className="flex items-start gap-2.5">
                             {itemUnits > 0 ? (
-                              <div className="shrink-0 rounded-xl border border-[#343449] bg-[#15151D] px-2.5 py-1.5 text-right">
-                                <div className="text-lg font-black text-[#FEEF00]">{formatQty(itemUnits)}</div>
-                                <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">und</div>
+                              <div className="w-[76px] shrink-0 rounded-lg border border-[#FEEF00]/35 bg-[#FEEF00]/10 px-2 py-1 text-center">
+                                <div className="text-2xl font-black leading-none text-[#FEEF00]">{formatQty(itemUnits)}</div>
+                                <div className="text-[10px] uppercase tracking-[0.12em] text-[#B7B7C2]">und</div>
                               </div>
                             ) : null}
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-black leading-snug text-[#F5F5F7]">{item.name}</div>
+                              {itemUnits > 0 && Math.abs(itemUnits - item.qty) > 0.001 ? (
+                                <div className="mt-0.5 text-xs text-[#8A8A96]">
+                                  {formatQty(item.qty)} serv. x {formatQty(item.unitsPerService || extractUnitsPerService(item.name))} und
+                                </div>
+                              ) : itemUnits > 0 ? (
+                                <div className="mt-0.5 text-xs text-[#8A8A96]">{formatQty(item.qty)} serv.</div>
+                              ) : null}
+                            </div>
                           </div>
                           {detailLines.length > 0 ? (
-                            <div className="mt-2 space-y-1 border-l-2 border-[#FEEF00]/40 pl-3">
+                            <div className="mt-1.5 space-y-0.5 border-l-2 border-[#FEEF00]/40 pl-3">
                               {detailLines.map((line, idx) => (
-                                <div key={`${item.id}-detail-${idx}`} className="text-sm leading-snug text-[#C9C9D4]">
+                                <div key={`${item.id}-detail-${idx}`} className="text-xs font-semibold leading-snug text-[#C9C9D4]">
                                   {line}
                                 </div>
                               ))}
@@ -342,7 +370,7 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
                                 setEtaByOrder((current) => ({ ...current, [order.id]: event.target.value }))
                               }
                         className="h-12 w-full rounded-xl border border-[#2A2A38] bg-[#0B0B10] px-3 text-center text-lg font-semibold text-[#F5F5F7]"
-                              aria-label={`Minutos de preparacion orden ${order.displayNumber}`}
+                              aria-label={`Minutos de preparación orden ${order.displayNumber}`}
                             />
                             <button
                               type="button"

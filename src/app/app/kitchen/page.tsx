@@ -9,6 +9,7 @@ type RawKitchenOrder = {
   status: 'confirmed' | 'in_kitchen' | 'ready';
   fulfillment: 'pickup' | 'delivery';
   delivery_address: string | null;
+  notes: string | null;
   created_at: string;
   sent_to_kitchen_at: string | null;
   kitchen_started_at: string | null;
@@ -34,6 +35,10 @@ type RawKitchenItem = {
   qty: number | string;
   product_name_snapshot: string | null;
   notes: string | null;
+  product:
+    | { units_per_service: number | string | null }[]
+    | { units_per_service: number | string | null }
+    | null;
 };
 
 function normalizeClient(order: RawKitchenOrder) {
@@ -78,6 +83,7 @@ export default async function KitchenPage() {
         'status',
         'fulfillment',
         'delivery_address',
+        'notes',
         'created_at',
         'sent_to_kitchen_at',
         'kitchen_started_at',
@@ -102,7 +108,7 @@ export default async function KitchenPage() {
   const { data: itemsData, error: itemsError } = orderIds.length
     ? await ctx.supabase
         .from('order_items')
-        .select('id, order_id, qty, product_name_snapshot, notes')
+        .select('id, order_id, qty, product_name_snapshot, notes, product:products!order_items_product_id_fkey(units_per_service)')
         .in('order_id', orderIds)
         .order('id', { ascending: true })
     : { data: [], error: null };
@@ -114,11 +120,13 @@ export default async function KitchenPage() {
   const itemsByOrder = new Map<number, KitchenOrderItem[]>();
   for (const item of (itemsData ?? []) as unknown as RawKitchenItem[]) {
     const orderItems = itemsByOrder.get(item.order_id) ?? [];
+    const product = Array.isArray(item.product) ? item.product[0] ?? null : item.product;
     orderItems.push({
       id: item.id,
       qty: toSafeNumber(item.qty, 0),
       name: item.product_name_snapshot || 'Producto',
       notes: item.notes,
+      unitsPerService: toSafeNumber(product?.units_per_service, 0),
     });
     itemsByOrder.set(item.order_id, orderItems);
   }
@@ -142,6 +150,7 @@ export default async function KitchenPage() {
         clientPhone: client?.phone || null,
         fulfillment: order.fulfillment,
         deliveryAddress: order.delivery_address,
+        notes: order.notes,
         createdAt: order.created_at,
         scheduledDate: order.extra_fields?.schedule?.date || null,
         scheduledTime: getScheduleTime(order),
