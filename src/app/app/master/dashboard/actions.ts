@@ -12208,22 +12208,33 @@ export async function loadAdvisorCommissionPeriodAdvisorsAction(input: { periodI
     throw new Error('Selecciona un periodo valido.');
   }
 
-  const { data, error } = await supabase
-    .from('advisor_commission_closures')
-    .select('advisor_user_id, status, generated_at')
-    .eq('period_id', periodId)
-    .order('generated_at', { ascending: false })
-    .limit(200);
+  const [advisorsResult, closuresResult] = await Promise.all([
+    supabase.rpc('get_advisor_profiles'),
+    supabase
+      .from('advisor_commission_closures')
+      .select('advisor_user_id, status, generated_at')
+      .eq('period_id', periodId)
+      .order('generated_at', { ascending: false })
+      .limit(200),
+  ]);
 
-  if (error) {
-    throw new Error(error.message);
+  if (advisorsResult.error) {
+    throw new Error(advisorsResult.error.message);
+  }
+
+  if (closuresResult.error) {
+    throw new Error(closuresResult.error.message);
   }
 
   const advisorIds = Array.from(
     new Set(
-      ((data ?? []) as Array<{ advisor_user_id: string | null }>)
-        .map((row) => String(row.advisor_user_id || '').trim())
-        .filter(Boolean)
+      [
+        ...((advisorsResult.data ?? []) as Array<{ user_id: string | null; is_active: boolean | null }>)
+          .filter((advisor) => Boolean(advisor.is_active ?? true))
+          .map((advisor) => String(advisor.user_id || '').trim()),
+        ...((closuresResult.data ?? []) as Array<{ advisor_user_id: string | null }>)
+          .map((row) => String(row.advisor_user_id || '').trim()),
+      ].filter(Boolean)
     )
   );
 
