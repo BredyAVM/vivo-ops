@@ -15615,8 +15615,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                       ? snapshotOrders.find((order) => Number(order.orderId || 0) === orderId)
                                                       : null;
                                                     const orderLabel =
-                                                      String(client.orderNumber || legacyOrder?.orderNumber || '').trim() ||
-                                                      (orderId > 0 ? fmtShortOrderLabel(orderId) : '—');
+                                                      orderId > 0
+                                                        ? fmtShortOrderLabel(orderId)
+                                                        : String(client.orderNumber || legacyOrder?.orderNumber || '').trim() || '—';
                                                     return (
                                                       <tr
                                                         key={`${closure.id}-client-${client.clientId || clientIdx}`}

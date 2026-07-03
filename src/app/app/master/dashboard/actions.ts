@@ -11525,7 +11525,7 @@ function getAdvisorCommissionDiscountFactor(order: AdvisorCommissionOrderRow, it
 function buildAdvisorCommissionSnapshots(params: {
   orders: AdvisorCommissionOrderRow[];
   financialStates: Map<number, AdvisorCommissionFinancialStateRow>;
-  firstDeliveredOrdersByClientId: Map<number, AdvisorCommissionFirstOrderRow>;
+  firstPurchaseOrdersByClientId: Map<number, AdvisorCommissionFirstOrderRow>;
   advisorIds: string[];
   advisorNamesById: Map<string, string>;
   period: { id: number; name: string; date_from: string; date_to: string };
@@ -11534,7 +11534,7 @@ function buildAdvisorCommissionSnapshots(params: {
   const {
     orders,
     financialStates,
-    firstDeliveredOrdersByClientId,
+    firstPurchaseOrdersByClientId,
     advisorIds,
     advisorNamesById,
     period,
@@ -11705,15 +11705,15 @@ function buildAdvisorCommissionSnapshots(params: {
     const clientType = String(client?.client_type || '').toLowerCase();
     const isLegacyImport = Boolean(clientCreatedDate && clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF);
     const clientIdNumber = Number(client?.id ?? 0);
-    const firstDeliveredOrder = Number.isFinite(clientIdNumber) && clientIdNumber > 0
-      ? firstDeliveredOrdersByClientId.get(clientIdNumber) ?? null
+    const firstPurchaseOrder = Number.isFinite(clientIdNumber) && clientIdNumber > 0
+      ? firstPurchaseOrdersByClientId.get(clientIdNumber) ?? null
       : null;
-    const firstOrderId = Number(firstDeliveredOrder?.id ?? 0);
+    const firstOrderId = Number(firstPurchaseOrder?.id ?? 0);
     const isFirstPurchaseForThisAdvisor =
       !isLegacyImport &&
       firstOrderId === orderId &&
-      String(firstDeliveredOrder?.source || '') === 'advisor' &&
-      String(firstDeliveredOrder?.attributed_advisor_id || '') === advisorId;
+      String(firstPurchaseOrder?.source || '') === 'advisor' &&
+      String(firstPurchaseOrder?.attributed_advisor_id || '') === advisorId;
 
     if (isFirstPurchaseForThisAdvisor) {
       const alreadyAdded = closure.newClients.some((row) => String(row.clientId ?? '') === String(client?.id ?? ''));
@@ -12015,7 +12015,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       .filter((id) => Number.isFinite(id) && id > 0)
   ));
   const financialStates = new Map<number, AdvisorCommissionFinancialStateRow>();
-  const firstDeliveredOrdersByClientId = new Map<number, AdvisorCommissionFirstOrderRow>();
+  const firstPurchaseOrdersByClientId = new Map<number, AdvisorCommissionFirstOrderRow>();
 
   if (orderIds.length > 0) {
     const { data: financialStateData, error: financialStateError } = await (supabase as any).rpc(
@@ -12043,7 +12043,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     const { data: firstOrderCandidates, error: firstOrderCandidatesError } = await supabase
       .from('orders')
       .select('id, order_number, client_id, attributed_advisor_id, source, status, created_at, extra_fields')
-      .eq('status', 'delivered')
+      .neq('status', 'cancelled')
       .in('client_id', clientIds)
       .order('created_at', { ascending: true })
       .limit(10000);
@@ -12056,9 +12056,9 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       const clientId = Number(candidate.client_id ?? 0);
       if (!Number.isFinite(clientId) || clientId <= 0) continue;
 
-      const current = firstDeliveredOrdersByClientId.get(clientId);
+      const current = firstPurchaseOrdersByClientId.get(clientId);
       if (!current) {
-        firstDeliveredOrdersByClientId.set(clientId, candidate);
+        firstPurchaseOrdersByClientId.set(clientId, candidate);
         continue;
       }
 
@@ -12067,7 +12067,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       const currentDate =
         getOrderDeliveryReferenceDate(current) || dateOnlyFromIso(current.created_at) || '';
       if (candidateDate && (!currentDate || candidateDate < currentDate)) {
-        firstDeliveredOrdersByClientId.set(clientId, candidate);
+        firstPurchaseOrdersByClientId.set(clientId, candidate);
       }
     }
   }
@@ -12090,7 +12090,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   const snapshots = buildAdvisorCommissionSnapshots({
     orders,
     financialStates,
-    firstDeliveredOrdersByClientId,
+    firstPurchaseOrdersByClientId,
     advisorIds: advisorIds.filter((id) => !lockedAdvisorIds.has(id)),
     advisorNamesById,
     period: {
