@@ -12,7 +12,12 @@ import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
-import { getOrderCommercialNetUsd, getOrderLineTotalUsd, getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import {
+  getOrderCommercialNetUsd,
+  getOrderLineTotalUsd,
+  getOrderMoneySnapshot,
+  getOrderRoundingClosureSnapshot,
+} from '@/lib/orders/order-money';
 import { getMasterDashboardPermissions } from './permissions';
 
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
@@ -325,6 +330,21 @@ function getEffectiveOrderTotalBs(order: { total_bs_snapshot?: unknown; extra_fi
   }
 
   return roundMoney(order.total_bs_snapshot);
+}
+
+function getEffectiveOrderPendingUsd(input: {
+  order: { extra_fields?: any };
+  financialState?: { pending_usd?: unknown } | null;
+  fallbackPendingUsd?: unknown;
+}) {
+  const roundingClosure = getOrderRoundingClosureSnapshot(input.order);
+  if (roundingClosure.isClosed) return 0;
+
+  return roundMoney(
+    input.financialState?.pending_usd ??
+      input.fallbackPendingUsd ??
+      0
+  );
 }
 
 function normalizeDateOnly(value: unknown) {
@@ -11569,7 +11589,11 @@ function buildAdvisorCommissionSnapshots(params: {
     const financialState = financialStates.get(orderId);
     const moneySnapshot = getOrderMoneySnapshot(order);
     const totalUsd = roundMoney(financialState?.total_usd ?? moneySnapshot.totalUsd);
-    const pendingUsd = roundMoney(financialState?.pending_usd ?? Math.max(0, totalUsd));
+    const pendingUsd = getEffectiveOrderPendingUsd({
+      order,
+      financialState,
+      fallbackPendingUsd: Math.max(0, totalUsd),
+    });
     const confirmedPaidUsd = roundMoney(financialState?.confirmed_paid_usd ?? 0);
     const deliveryDate = financialState?.delivery_reference_date || getAdvisorCommissionDeliveryDate(order);
     const discountFactor = getAdvisorCommissionDiscountFactor(order, items);
@@ -11640,7 +11664,10 @@ function buildAdvisorCommissionSnapshots(params: {
     const fixedOrderCommissionUsd =
       fixedOrderPct == null ? 0 : fixedOrderBaseUsd * (fixedOrderPct / 100);
     const orderCommissionUsd = roundMoney(regularCommissionUsd + specialItemCommissionUsd + fixedOrderCommissionUsd);
-    const paymentStatus = String(financialState?.payment_status || '').toLowerCase();
+    const roundingClosure = getOrderRoundingClosureSnapshot(order);
+    const paymentStatus = roundingClosure.isClosed
+      ? 'closed_by_rounding'
+      : String(financialState?.payment_status || '').toLowerCase();
     const isPending = pendingUsd > 0.005;
 
     closure.totals.deliveredOrdersCount += 1;
@@ -11699,12 +11726,14 @@ function buildAdvisorCommissionSnapshots(params: {
       totalUsd,
       confirmedPaidUsd,
       pendingUsd,
+      roundingClosedUsd: roundingClosure.shortfallClosedUsd,
+      roundingGainClosedUsd: roundingClosure.gainClosedUsd,
       regularBaseUsd: roundMoney(regularBaseUsd),
       specialItemBaseUsd: roundMoney(specialItemBaseUsd),
       specialOrderBaseUsd: roundMoney(fixedOrderBaseUsd),
       commissionUsd: orderCommissionUsd,
       commissionMode: fixedOrderPct == null ? (specialItemBaseUsd > 0 ? 'mixed_items' : 'default') : 'fixed_order',
-      paymentStatus: financialState?.payment_status ?? null,
+      paymentStatus,
     };
 
     closure.orders.push(orderSnapshot);

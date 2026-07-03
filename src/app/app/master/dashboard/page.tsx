@@ -2,7 +2,11 @@ import type { ComponentProps } from 'react';
 import { redirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { getOrderCommercialNetUsd, getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import {
+  getOrderCommercialNetUsd,
+  getOrderMoneySnapshot,
+  getOrderRoundingClosureSnapshot,
+} from '@/lib/orders/order-money';
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
@@ -1700,11 +1704,14 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
     const snapshot = getOrderMoneySnapshot(row);
     const totalUsd = financialState ? roundMoney(financialState.total_usd) : roundMoney(snapshot.totalUsd);
     const confirmedPaidUsd = financialState ? roundMoney(financialState.confirmed_paid_usd) : 0;
-    const pendingUsd = financialState
-      ? roundMoney(financialState.pending_usd)
-      : row.status === 'cancelled'
-        ? 0
-        : roundMoney(totalUsd);
+    const roundingClosure = getOrderRoundingClosureSnapshot(row);
+    const pendingUsd = roundingClosure.isClosed
+      ? 0
+      : financialState
+        ? roundMoney(financialState.pending_usd)
+        : row.status === 'cancelled'
+          ? 0
+          : roundMoney(totalUsd);
 
     if (row.status !== 'cancelled' && totalUsd > 0.005) {
       summary.cierres += 1;
@@ -2844,7 +2851,8 @@ const productComponents = ((productComponentsData ?? []) as RawProductComponentR
       : financialState
         ? roundMoney(financialState.confirmed_paid_usd)
         : roundMoney((confirmedPaidByOrder.get(row.id) ?? 0) + clientFundUsedUsd);
-    const balanceUsd = isCancelled
+    const roundingClosure = getOrderRoundingClosureSnapshot(row);
+    const balanceUsd = isCancelled || roundingClosure.isClosed
       ? 0
       : financialState
         ? roundMoney(financialState.pending_usd)

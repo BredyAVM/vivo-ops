@@ -595,6 +595,8 @@ type AdvisorCommissionSnapshotOrder = {
   totalUsd?: number;
   confirmedPaidUsd?: number;
   pendingUsd?: number;
+  roundingClosedUsd?: number;
+  roundingGainClosedUsd?: number;
   regularBaseUsd?: number;
   specialItemBaseUsd?: number;
   specialOrderBaseUsd?: number;

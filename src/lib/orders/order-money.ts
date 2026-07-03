@@ -3,6 +3,7 @@ export type OrderMoneySource = {
   total_bs_snapshot?: number | string | null;
   extra_fields?: {
     pricing?: {
+      [key: string]: unknown;
       fx_rate?: number | string | null;
       subtotal_usd?: number | string | null;
       subtotal_bs?: number | string | null;
@@ -17,6 +18,19 @@ export type OrderMoneySource = {
       invoice_tax_amount_bs?: number | string | null;
       total_usd?: number | string | null;
       total_bs?: number | string | null;
+      rounding_closed_usd?: number | string | null;
+      rounding_gain_closed_usd?: number | string | null;
+    } | null;
+    payment?: {
+      [key: string]: unknown;
+      rounding_close?: {
+        [key: string]: unknown;
+        closed_balance_usd?: number | string | null;
+      } | null;
+      rounding_gain_close?: {
+        [key: string]: unknown;
+        closed_balance_usd?: number | string | null;
+      } | null;
     } | null;
   } | null;
 };
@@ -54,6 +68,29 @@ export function toOrderMoneyNumber(value: unknown, fallback = 0) {
 
 export function roundOrderMoney(value: unknown) {
   return Number(toOrderMoneyNumber(value, 0).toFixed(2));
+}
+
+export function getOrderRoundingClosureSnapshot(order: OrderMoneySource) {
+  const pricing = order.extra_fields?.pricing ?? {};
+  const payment = order.extra_fields?.payment ?? {};
+  const shortfallClosedUsd = roundOrderMoney(
+    toOrderMoneyNumber(
+      payment.rounding_close?.closed_balance_usd,
+      toOrderMoneyNumber(pricing.rounding_closed_usd, 0)
+    )
+  );
+  const gainClosedUsd = roundOrderMoney(
+    toOrderMoneyNumber(
+      payment.rounding_gain_close?.closed_balance_usd,
+      toOrderMoneyNumber(pricing.rounding_gain_closed_usd, 0)
+    )
+  );
+
+  return {
+    shortfallClosedUsd,
+    gainClosedUsd,
+    isClosed: shortfallClosedUsd > 0.005 || gainClosedUsd > 0.005,
+  };
 }
 
 export function getOrderMoneySnapshot(order: OrderMoneySource): OrderMoneySnapshot {
