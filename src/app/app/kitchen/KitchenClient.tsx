@@ -547,7 +547,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                     'rounded-xl border p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]',
                     orderIndex % 2 === 0
                       ? 'border-[#2A2A38] bg-[#101018]'
-                      : 'border-[#343446] bg-[#15151F]',
+                      : 'border-[#56566A] bg-[#282834] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.18)]',
                   ].join(' ')}
                 >
                         <div className="flex items-start justify-between gap-3">
