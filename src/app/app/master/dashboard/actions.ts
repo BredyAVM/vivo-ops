@@ -11446,6 +11446,17 @@ type AdvisorCommissionOrderRow = {
   items: AdvisorCommissionOrderItemRow[] | null;
 };
 
+type AdvisorCommissionFirstOrderRow = {
+  id: number | string;
+  order_number: string | null;
+  client_id: number | string | null;
+  attributed_advisor_id: string | null;
+  source: string | null;
+  status: string | null;
+  created_at: string | null;
+  extra_fields: any;
+};
+
 type AdvisorCommissionFinancialStateRow = {
   order_id: number | string;
   total_usd: number | string | null;
@@ -11514,12 +11525,21 @@ function getAdvisorCommissionDiscountFactor(order: AdvisorCommissionOrderRow, it
 function buildAdvisorCommissionSnapshots(params: {
   orders: AdvisorCommissionOrderRow[];
   financialStates: Map<number, AdvisorCommissionFinancialStateRow>;
+  firstDeliveredOrdersByClientId: Map<number, AdvisorCommissionFirstOrderRow>;
   advisorIds: string[];
   advisorNamesById: Map<string, string>;
   period: { id: number; name: string; date_from: string; date_to: string };
   baseCommissionPct: number;
 }) {
-  const { orders, financialStates, advisorIds, advisorNamesById, period, baseCommissionPct } = params;
+  const {
+    orders,
+    financialStates,
+    firstDeliveredOrdersByClientId,
+    advisorIds,
+    advisorNamesById,
+    period,
+    baseCommissionPct,
+  } = params;
 
   const closuresByAdvisor = new Map<string, {
     advisorUserId: string;
@@ -11682,38 +11702,32 @@ function buildAdvisorCommissionSnapshots(params: {
 
     const client = getAdvisorCommissionClient(order);
     const clientCreatedDate = dateOnlyFromIso(client?.created_at);
-    if (clientCreatedDate && clientCreatedDate >= period.date_from && clientCreatedDate <= period.date_to) {
-      const clientType = String(client?.client_type || '').toLowerCase();
-      const isLegacyImport = clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF;
-      if (!isLegacyImport) {
-        const clientId = client?.id == null ? null : String(client.id);
-        const existingNewClient = closure.newClients.find((row) =>
-          clientId
-            ? String(row.clientId ?? '') === clientId
-            : String(row.clientName || '').trim().toLowerCase() === String(client?.full_name || '').trim().toLowerCase()
-        );
+    const clientType = String(client?.client_type || '').toLowerCase();
+    const isLegacyImport = Boolean(clientCreatedDate && clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF);
+    const clientIdNumber = Number(client?.id ?? 0);
+    const firstDeliveredOrder = Number.isFinite(clientIdNumber) && clientIdNumber > 0
+      ? firstDeliveredOrdersByClientId.get(clientIdNumber) ?? null
+      : null;
+    const firstOrderId = Number(firstDeliveredOrder?.id ?? 0);
+    const isFirstPurchaseForThisAdvisor =
+      !isLegacyImport &&
+      firstOrderId === orderId &&
+      String(firstDeliveredOrder?.source || '') === 'advisor' &&
+      String(firstDeliveredOrder?.attributed_advisor_id || '') === advisorId;
 
-        if (existingNewClient) {
-          existingNewClient.closuresCount = toSafeNumber(existingNewClient.closuresCount, 0) + 1;
-          existingNewClient.billedUsd = roundMoney(toSafeNumber(existingNewClient.billedUsd, 0) + commissionableSubtotalUsd);
-          existingNewClient.totalUsd = roundMoney(toSafeNumber(existingNewClient.totalUsd, 0) + totalUsd);
-          existingNewClient.orderIds = Array.isArray(existingNewClient.orderIds)
-            ? [...existingNewClient.orderIds, orderId]
-            : [orderId];
-        } else {
-          if (clientType === 'own') closure.totals.newOwnClientsCount += 1;
-          if (clientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
-          closure.newClients.push({
-            clientId: client?.id,
-            clientName: client?.full_name || 'Cliente',
-            clientType,
-            closuresCount: 1,
-            billedUsd: roundMoney(commissionableSubtotalUsd),
-            totalUsd: roundMoney(totalUsd),
-            orderIds: [orderId],
-            createdAt: client?.created_at,
-          });
-        }
+    if (isFirstPurchaseForThisAdvisor) {
+      const alreadyAdded = closure.newClients.some((row) => String(row.clientId ?? '') === String(client?.id ?? ''));
+      if (!alreadyAdded) {
+        if (clientType === 'own') closure.totals.newOwnClientsCount += 1;
+        if (clientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
+        closure.newClients.push({
+          clientId: client?.id,
+          clientName: client?.full_name || 'Cliente',
+          clientType,
+          orderId,
+          orderNumber: order.order_number,
+          createdAt: client?.created_at,
+        });
       }
     }
 
@@ -11995,7 +12009,13 @@ export async function generateAdvisorCommissionClosuresAction(input: {
 
   const orders = Array.from(ordersById.values());
   const orderIds = orders.map((order) => Number(order.id)).filter((id) => Number.isFinite(id) && id > 0);
+  const clientIds = Array.from(new Set(
+    orders
+      .map((order) => Number(order.client_id ?? 0))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  ));
   const financialStates = new Map<number, AdvisorCommissionFinancialStateRow>();
+  const firstDeliveredOrdersByClientId = new Map<number, AdvisorCommissionFirstOrderRow>();
 
   if (orderIds.length > 0) {
     const { data: financialStateData, error: financialStateError } = await (supabase as any).rpc(
@@ -12019,6 +12039,39 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     }
   }
 
+  if (clientIds.length > 0) {
+    const { data: firstOrderCandidates, error: firstOrderCandidatesError } = await supabase
+      .from('orders')
+      .select('id, order_number, client_id, attributed_advisor_id, source, status, created_at, extra_fields')
+      .eq('status', 'delivered')
+      .in('client_id', clientIds)
+      .order('created_at', { ascending: true })
+      .limit(10000);
+
+    if (firstOrderCandidatesError) {
+      throw new Error(firstOrderCandidatesError.message);
+    }
+
+    for (const candidate of (firstOrderCandidates ?? []) as AdvisorCommissionFirstOrderRow[]) {
+      const clientId = Number(candidate.client_id ?? 0);
+      if (!Number.isFinite(clientId) || clientId <= 0) continue;
+
+      const current = firstDeliveredOrdersByClientId.get(clientId);
+      if (!current) {
+        firstDeliveredOrdersByClientId.set(clientId, candidate);
+        continue;
+      }
+
+      const candidateDate =
+        getOrderDeliveryReferenceDate(candidate) || dateOnlyFromIso(candidate.created_at) || '';
+      const currentDate =
+        getOrderDeliveryReferenceDate(current) || dateOnlyFromIso(current.created_at) || '';
+      if (candidateDate && (!currentDate || candidateDate < currentDate)) {
+        firstDeliveredOrdersByClientId.set(clientId, candidate);
+      }
+    }
+  }
+
   const { data: existingClosures, error: existingError } = await supabase
     .from('advisor_commission_closures')
     .select('advisor_user_id, status')
@@ -12037,6 +12090,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   const snapshots = buildAdvisorCommissionSnapshots({
     orders,
     financialStates,
+    firstDeliveredOrdersByClientId,
     advisorIds: advisorIds.filter((id) => !lockedAdvisorIds.has(id)),
     advisorNamesById,
     period: {

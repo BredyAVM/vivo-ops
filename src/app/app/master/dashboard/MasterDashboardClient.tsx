@@ -639,6 +639,8 @@ type AdvisorCommissionClosure = {
       clientId?: number | string | null;
       clientName?: string | null;
       clientType?: string | null;
+      orderId?: number | string | null;
+      orderNumber?: string | null;
       closuresCount?: number | string | null;
       billedUsd?: number | string | null;
       totalUsd?: number | string | null;
@@ -15253,19 +15255,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                             const orderSpecialOrders = snapshotOrders.filter((order) => order.commissionMode === 'fixed_order');
                             const sumOrderTotals = (orders: AdvisorCommissionSnapshotOrder[]) =>
                               orders.reduce((sum, order) => sum + Number(order.totalUsd || 0), 0);
-                            const newClientBilledUsd = newClientRows.reduce(
-                              (sum, client) => {
-                                const storedAmount = Number(client.billedUsd ?? client.totalUsd ?? 0);
-                                if (Number.isFinite(storedAmount) && storedAmount > 0) return sum + storedAmount;
-
-                                const legacyOrderId = Number((client as { orderId?: number | string }).orderId || 0);
-                                const legacyOrder = legacyOrderId
-                                  ? snapshotOrders.find((order) => Number(order.orderId || 0) === legacyOrderId)
-                                  : null;
-                                return sum + Number(legacyOrder?.totalUsd || 0);
-                              },
-                              0
-                            );
                             const comboRows = productRows.filter((product) => {
                               const type = String(product.productType || '').toLowerCase();
                               const name = String(product.productName || '').toLowerCase();
@@ -15590,7 +15579,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                             <div className="text-xs font-semibold text-[#F5F5F7]">Clientes nuevos</div>
                                             <div className="text-right">
                                               <div className="text-[11px] text-[#B7B7C2]">{newClientRows.length} cliente(s)</div>
-                                              <div className="text-[11px] font-semibold text-[#F5F5F7]">{fmtUSD(newClientBilledUsd)}</div>
                                             </div>
                                           </div>
                                           <div className="max-h-[180px] overflow-auto">
@@ -15599,14 +15587,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                 <tr>
                                                   <th className="px-3 py-2 text-left font-medium">Tipo</th>
                                                   <th className="px-3 py-2 text-left font-medium">Cliente</th>
-                                                  <th className="px-3 py-2 text-right font-medium">Cierres</th>
-                                                  <th className="px-3 py-2 text-right font-medium">Total</th>
+                                                  <th className="px-3 py-2 text-right font-medium">Orden</th>
                                                 </tr>
                                               </thead>
                                               <tbody>
                                                 {newClientRows.length === 0 ? (
                                                   <tr>
-                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={4}>
+                                                    <td className="px-3 py-4 text-center text-[#B7B7C2]" colSpan={3}>
                                                       Sin clientes nuevos en este periodo.
                                                     </td>
                                                   </tr>
@@ -15619,16 +15606,17 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                         : clientType === 'assigned'
                                                           ? 'Asignado'
                                                           : clientType || 'Otro';
-                                                    const closuresCount = Number(client.closuresCount || 0) || 1;
-                                                    const storedBilledUsd = Number(client.billedUsd ?? client.totalUsd ?? 0);
-                                                    const legacyOrderId = Number((client as { orderId?: number | string }).orderId || 0);
-                                                    const legacyOrder = legacyOrderId
-                                                      ? snapshotOrders.find((order) => Number(order.orderId || 0) === legacyOrderId)
+                                                    const orderId = Number(
+                                                      client.orderId ||
+                                                        (Array.isArray(client.orderIds) ? client.orderIds[0] : 0) ||
+                                                        0
+                                                    );
+                                                    const legacyOrder = orderId
+                                                      ? snapshotOrders.find((order) => Number(order.orderId || 0) === orderId)
                                                       : null;
-                                                    const billedUsd =
-                                                      Number.isFinite(storedBilledUsd) && storedBilledUsd > 0
-                                                        ? storedBilledUsd
-                                                        : Number(legacyOrder?.totalUsd || 0);
+                                                    const orderLabel =
+                                                      String(client.orderNumber || legacyOrder?.orderNumber || '').trim() ||
+                                                      (orderId > 0 ? fmtShortOrderLabel(orderId) : '—');
                                                     return (
                                                       <tr
                                                         key={`${closure.id}-client-${client.clientId || clientIdx}`}
@@ -15636,10 +15624,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                                       >
                                                         <td className="px-3 py-2">{clientTypeLabel}</td>
                                                         <td className="px-3 py-2">{client.clientName || 'Cliente'}</td>
-                                                        <td className="px-3 py-2 text-right">{closuresCount}</td>
-                                                        <td className="px-3 py-2 text-right font-semibold text-[#F5F5F7]">
-                                                          {fmtUSD(billedUsd)}
-                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-semibold text-[#F5F5F7]">{orderLabel}</td>
                                                       </tr>
                                                     );
                                                   })
