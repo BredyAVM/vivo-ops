@@ -49,6 +49,13 @@ const STATUS_COLUMNS: Array<{
   { key: 'ready', title: 'Listos', empty: 'Sin pedidos listos.' },
 ];
 
+const HIDDEN_DETAIL_PREFIX = '@sel|';
+
+type KitchenDetailLine = {
+  label: string;
+  qty: number | null;
+};
+
 function formatDateTime(value: string | null) {
   if (!value) return 'Sin hora';
 
@@ -109,11 +116,25 @@ function getItemUnits(item: KitchenOrderItem) {
   return item.qty * unitsPerService;
 }
 
-function splitDetailLines(notes: string | null) {
+function parseDetailLines(notes: string | null): KitchenDetailLine[] {
   return String(notes || '')
     .split('\n')
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => line && !line.startsWith(HIDDEN_DETAIL_PREFIX))
+    .map((line) => {
+      const match = line.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+      if (!match) return { label: line, qty: null };
+      return {
+        label: match[2].trim(),
+        qty: toNumber(match[1].replace(',', '.'), 0),
+      };
+    });
+}
+
+function getItemPreparedUnits(item: KitchenOrderItem) {
+  const detailUnits = parseDetailLines(item.notes).reduce((sum, line) => sum + (line.qty ?? 0), 0);
+  if (detailUnits > 0) return detailUnits;
+  return getItemUnits(item);
 }
 
 function elapsedMinutes(value: string | null) {
@@ -263,7 +284,7 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
               const delayActionKey = `delay:${order.id}`;
                     const readyActionKey = `ready:${order.id}`;
                     const etaValue = etaByOrder[order.id] ?? String(order.etaMinutes || 15);
-              const totalUnits = order.items.reduce((sum, item) => sum + getItemUnits(item), 0);
+              const totalUnits = order.items.reduce((sum, item) => sum + getItemPreparedUnits(item), 0);
               const elapsed =
                 order.status === 'confirmed'
                   ? elapsedMinutes(order.sentToKitchenAt || order.createdAt)
@@ -323,8 +344,9 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
 
                         <div className="mt-2 space-y-1.5">
                     {order.items.map((item) => {
-                      const itemUnits = getItemUnits(item);
-                      const detailLines = splitDetailLines(item.notes);
+                      const detailLines = parseDetailLines(item.notes);
+                      const hasComponentDetails = detailLines.some((line) => line.qty != null);
+                      const itemUnits = hasComponentDetails ? 0 : getItemUnits(item);
                       return (
                         <div key={item.id} className="rounded-lg border border-[#242433] bg-[#0B0B10] px-2.5 py-2">
                           <div className="flex items-start gap-2.5">
@@ -346,11 +368,26 @@ export default function KitchenClient({ fullName, orders }: KitchenClientProps) 
                             </div>
                           </div>
                           {detailLines.length > 0 ? (
-                            <div className="mt-1.5 space-y-0.5 border-l-2 border-[#FEEF00]/40 pl-3">
+                            <div className="mt-1.5 space-y-1 border-l-2 border-[#FEEF00]/40 pl-3">
                               {detailLines.map((line, idx) => (
-                                <div key={`${item.id}-detail-${idx}`} className="text-xs font-semibold leading-snug text-[#C9C9D4]">
-                                  {line}
-                                </div>
+                                line.qty != null ? (
+                                  <div
+                                    key={`${item.id}-detail-${idx}`}
+                                    className="flex items-center gap-2 rounded-md bg-[#15151D] px-2 py-1"
+                                  >
+                                    <div className="w-12 shrink-0 rounded-md border border-[#3A3A4D] bg-[#20202A] px-1.5 py-0.5 text-center">
+                                      <div className="text-base font-black leading-none text-[#FEEF00]">{formatQty(line.qty)}</div>
+                                      <div className="text-[9px] uppercase tracking-[0.1em] text-[#8A8A96]">und</div>
+                                    </div>
+                                    <div className="min-w-0 flex-1 text-xs font-semibold leading-snug text-[#D9D9E3]">
+                                      {line.label}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div key={`${item.id}-detail-${idx}`} className="text-xs font-semibold leading-snug text-[#C9C9D4]">
+                                    {line.label}
+                                  </div>
+                                )
                               ))}
                             </div>
                           ) : null}
