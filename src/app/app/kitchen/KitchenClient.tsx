@@ -459,30 +459,20 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
             </div>
           </div>
 
-          <div className="mt-2 grid grid-cols-3 gap-2">
-            <Metric label="Cola" value={totalPending} tone="warn" />
-            <Metric label="Prep." value={totalPreparing} tone="ok" />
-            <Metric label="Listas" value={totalReady} tone="brand" />
-          </div>
-
           <nav className="mt-2 grid grid-cols-3 gap-2">
             {STATUS_COLUMNS.map((column) => {
               const count = ordersByStatus.get(column.key)?.length ?? 0;
               const active = activeStatus === column.key;
+              const tone = column.key === 'confirmed' ? 'warn' : column.key === 'in_kitchen' ? 'ok' : 'brand';
               return (
-                <button
+                <StatusTab
                   key={column.key}
-                  type="button"
+                  label={column.key === 'in_kitchen' ? 'Prep.' : column.title}
+                  value={count}
+                  tone={tone}
+                  active={active}
                   onClick={() => setActiveStatus(column.key)}
-                  className={[
-                    'h-10 rounded-xl border px-2 text-sm font-semibold transition active:scale-[0.98]',
-                    active
-                      ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
-                      : 'border-[#242433] bg-[#101018] text-[#D9D9E3]',
-                  ].join(' ')}
-                >
-                  {column.title} <span className="ml-1 opacity-70">{count}</span>
-                </button>
+                />
               );
             })}
           </nav>
@@ -657,9 +647,9 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                         ) : null}
 
                         {order.status === 'in_kitchen' ? (
-                          <div className="mt-3 space-y-2">
+                          <div className="mt-2 space-y-2">
                             <div className={[
-                              'rounded-xl border px-3 py-2',
+                              'rounded-lg border px-2.5 py-1.5',
                               remainingMinutes != null && remainingMinutes < 0
                                 ? 'border-red-400/40 bg-red-400/10'
                                 : 'border-emerald-400/30 bg-emerald-400/10',
@@ -686,31 +676,33 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                                 </div>
                               </div>
                             </div>
-                      <button
-                        type="button"
-                        disabled={isPending && pendingKey === delayActionKey}
-                        onClick={() =>
-                          runAction(delayActionKey, async () => {
-                            const etaMinutes = Math.max(1, Math.round(Number(order.etaMinutes || 15) + 5));
-                            await updateKitchenEtaAction({ orderId: order.id, etaMinutes });
-                          })
-                        }
-                        className="h-11 w-full rounded-xl border border-orange-400/40 bg-orange-400/10 px-3 text-sm font-bold text-orange-200 active:scale-[0.98] disabled:opacity-60"
-                      >
-                        {isPending && pendingKey === delayActionKey ? 'Reportando...' : 'Reportar retraso +5 min'}
-                      </button>
-                            <button
-                              type="button"
-                              disabled={isPending && pendingKey === readyActionKey}
-                              onClick={() =>
-                                runAction(readyActionKey, async () => {
-                                  await markReadyAction({ orderId: order.id });
-                                })
-                              }
-                        className="h-12 w-full rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-3 text-base font-black text-black active:scale-[0.98] disabled:opacity-60"
-                            >
-                              {isPending && pendingKey === readyActionKey ? 'Marcando...' : 'Marcar lista'}
-                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                disabled={isPending && pendingKey === delayActionKey}
+                                onClick={() =>
+                                  runAction(delayActionKey, async () => {
+                                    const etaMinutes = Math.max(1, Math.round(Number(order.etaMinutes || 15) + 5));
+                                    await updateKitchenEtaAction({ orderId: order.id, etaMinutes });
+                                  })
+                                }
+                                className="h-11 rounded-xl border border-orange-400/40 bg-orange-400/10 px-2 text-xs font-bold text-orange-200 active:scale-[0.98] disabled:opacity-60"
+                              >
+                                {isPending && pendingKey === delayActionKey ? 'Reportando...' : 'Retraso +5'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isPending && pendingKey === readyActionKey}
+                                onClick={() =>
+                                  runAction(readyActionKey, async () => {
+                                    await markReadyAction({ orderId: order.id });
+                                  })
+                                }
+                                className="h-11 rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-2 text-sm font-black text-black active:scale-[0.98] disabled:opacity-60"
+                              >
+                                {isPending && pendingKey === readyActionKey ? 'Marcando...' : 'Marcar lista'}
+                              </button>
+                            </div>
                           </div>
                         ) : null}
                       </article>
@@ -723,7 +715,19 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone: 'warn' | 'ok' | 'brand' }) {
+function StatusTab({
+  label,
+  value,
+  tone,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  tone: 'warn' | 'ok' | 'brand';
+  active: boolean;
+  onClick: () => void;
+}) {
   const toneClass =
     tone === 'warn'
       ? 'text-orange-200'
@@ -732,9 +736,18 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: 'w
         : 'text-[#FEEF00]';
 
   return (
-    <div className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-center">
-      <div className="text-[11px] text-[#8A8A96]">{label}</div>
-      <div className={`mt-0.5 text-xl font-black ${toneClass}`}>{value}</div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'h-12 rounded-xl border px-2 text-center transition active:scale-[0.98]',
+        active ? 'border-[#FEEF00] bg-[#FEEF00] text-black' : 'border-[#242433] bg-[#121218]',
+      ].join(' ')}
+    >
+      <div className={active ? 'text-[11px] font-semibold text-black/70' : 'text-[11px] font-semibold text-[#8A8A96]'}>
+        {label}
+      </div>
+      <div className={`mt-0.5 text-lg font-black ${active ? 'text-black' : toneClass}`}>{value}</div>
+    </button>
   );
 }
