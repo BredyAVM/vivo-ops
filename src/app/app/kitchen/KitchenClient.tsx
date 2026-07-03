@@ -56,6 +56,7 @@ const STATUS_COLUMNS: Array<{
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 const PUSH_TIMEOUT_MS = 12000;
+const ETA_PRESETS = [10, 15];
 
 type KitchenDetailLine = {
   label: string;
@@ -438,7 +439,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   }
 
   return (
-    <main className="h-screen snap-y snap-proximity overflow-y-auto scroll-smooth bg-[#08090D] text-[#F5F5F7]">
+    <main className="min-h-screen bg-[#08090D] text-[#F5F5F7]">
       <ModulePreference moduleKey="kitchen" />
       <div className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col px-2.5 py-2 sm:px-3">
         <header className="sticky top-0 z-30 -mx-3 border-b border-[#242433] bg-[#08090D]/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:px-4">
@@ -524,7 +525,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
               </div>
             ) : null}
 
-            {activeOrders.map((order) => {
+            {activeOrders.map((order, orderIndex) => {
                     const takeActionKey = `take:${order.id}`;
               const delayActionKey = `delay:${order.id}`;
                     const readyActionKey = `ready:${order.id}`;
@@ -540,7 +541,15 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
               const remainingMinutes = remainingPrepMinutes(order, currentTimeMs);
 
                     return (
-                <article key={order.id} className="snap-start scroll-mt-40 rounded-xl border border-[#2A2A38] bg-[#101018] p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]">
+                <article
+                  key={order.id}
+                  className={[
+                    'rounded-xl border p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]',
+                    orderIndex % 2 === 0
+                      ? 'border-[#2A2A38] bg-[#101018]'
+                      : 'border-[#343446] bg-[#15151F]',
+                  ].join(' ')}
+                >
                         <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-xl font-black leading-none tracking-tight text-[#FEEF00]">
@@ -643,7 +652,26 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                         </div>
 
                         {order.status === 'confirmed' ? (
-                  <div className="mt-3 grid grid-cols-[94px_1fr] gap-2">
+                  <div className="mt-3 grid grid-cols-[52px_52px_76px_1fr] gap-2">
+                            {ETA_PRESETS.map((minutes) => {
+                              const activePreset = Math.round(Number(etaValue) || 0) === minutes;
+                              return (
+                                <button
+                                  key={`${order.id}-eta-${minutes}`}
+                                  type="button"
+                                  onClick={() => setEtaByOrder((current) => ({ ...current, [order.id]: String(minutes) }))}
+                                  className={[
+                                    'h-12 rounded-xl border text-sm font-black active:scale-[0.98]',
+                                    activePreset
+                                      ? 'border-[#FEEF00]/70 bg-[#FEEF00] text-black'
+                                      : 'border-[#2A2A38] bg-[#0B0B10] text-[#F5F5F7]',
+                                  ].join(' ')}
+                                  aria-label={`${minutes} minutos para orden ${order.displayNumber}`}
+                                >
+                                  {minutes}
+                                </button>
+                              );
+                            })}
                             <input
                               type="number"
                               min="1"
@@ -652,7 +680,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                               onChange={(event) =>
                                 setEtaByOrder((current) => ({ ...current, [order.id]: event.target.value }))
                               }
-                        className="h-12 w-full rounded-xl border border-[#2A2A38] bg-[#0B0B10] px-3 text-center text-lg font-semibold text-[#F5F5F7]"
+                        className="h-12 w-full rounded-xl border border-[#2A2A38] bg-[#0B0B10] px-2 text-center text-base font-semibold text-[#F5F5F7]"
                               aria-label={`Minutos de preparación orden ${order.displayNumber}`}
                             />
                             <button
@@ -664,7 +692,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                                   await kitchenTakeAction({ orderId: order.id, etaMinutes });
                                 })
                               }
-                        className="h-12 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 text-base font-black text-emerald-200 active:scale-[0.98] disabled:opacity-60"
+                        className="h-12 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 text-sm font-black text-emerald-200 active:scale-[0.98] disabled:opacity-60"
                             >
                               {isPending && pendingKey === takeActionKey ? 'Tomando...' : 'Tomar pedido'}
                             </button>
