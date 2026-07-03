@@ -11659,16 +11659,34 @@ function buildAdvisorCommissionSnapshots(params: {
       const clientType = String(client?.client_type || '').toLowerCase();
       const isLegacyImport = clientCreatedDate < ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF;
       if (!isLegacyImport) {
-        if (clientType === 'own') closure.totals.newOwnClientsCount += 1;
-        if (clientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
-        closure.newClients.push({
-          clientId: client?.id,
-          clientName: client?.full_name || 'Cliente',
-          clientType,
-          orderId,
-          orderNumber: order.order_number,
-          createdAt: client?.created_at,
-        });
+        const clientId = client?.id == null ? null : String(client.id);
+        const existingNewClient = closure.newClients.find((row) =>
+          clientId
+            ? String(row.clientId ?? '') === clientId
+            : String(row.clientName || '').trim().toLowerCase() === String(client?.full_name || '').trim().toLowerCase()
+        );
+
+        if (existingNewClient) {
+          existingNewClient.closuresCount = toSafeNumber(existingNewClient.closuresCount, 0) + 1;
+          existingNewClient.billedUsd = roundMoney(toSafeNumber(existingNewClient.billedUsd, 0) + commissionableSubtotalUsd);
+          existingNewClient.totalUsd = roundMoney(toSafeNumber(existingNewClient.totalUsd, 0) + totalUsd);
+          existingNewClient.orderIds = Array.isArray(existingNewClient.orderIds)
+            ? [...existingNewClient.orderIds, orderId]
+            : [orderId];
+        } else {
+          if (clientType === 'own') closure.totals.newOwnClientsCount += 1;
+          if (clientType === 'assigned') closure.totals.newAssignedClientsCount += 1;
+          closure.newClients.push({
+            clientId: client?.id,
+            clientName: client?.full_name || 'Cliente',
+            clientType,
+            closuresCount: 1,
+            billedUsd: roundMoney(commissionableSubtotalUsd),
+            totalUsd: roundMoney(totalUsd),
+            orderIds: [orderId],
+            createdAt: client?.created_at,
+          });
+        }
       }
     }
 
