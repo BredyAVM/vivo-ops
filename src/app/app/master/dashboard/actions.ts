@@ -1205,6 +1205,9 @@ async function appendOrderEvent(
     }
 
     const rolePushTargets = new Set<string>();
+    const kitchenRequiresAction = (input.recipients ?? []).some(
+      (recipient) => recipient.targetRole === 'kitchen' && recipient.requiresAction,
+    );
     for (const recipient of input.recipients ?? []) {
       if (!recipient.requiresAction) continue;
       if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
@@ -1230,6 +1233,27 @@ async function appendOrderEvent(
       } catch (pushError) {
         console.warn(
           'appendOrderEvent role push skipped',
+          pushError instanceof Error ? pushError.message : 'unknown push error',
+        );
+      }
+    }
+
+    if (kitchenRequiresAction) {
+      try {
+        const orderLabel = formatOrderDisplayLabel(input.orderId);
+        const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
+        await sendPushToRoleDevices({
+          roles: ['kitchen'],
+          title: `${orderLabel}: nueva orden en cola`,
+          body: `${clientLabel}${input.message || 'Hay una orden nueva para tomar en cocina.'}`,
+          url: '/app/kitchen',
+          tag: `kitchen-order-${input.orderId}-${input.eventType}`,
+          tone: input.eventType === 'order_sent_to_kitchen' ? 'critical' : 'warning',
+          requireInteraction: input.eventType === 'order_sent_to_kitchen',
+        });
+      } catch (pushError) {
+        console.warn(
+          'appendOrderEvent kitchen push skipped',
           pushError instanceof Error ? pushError.message : 'unknown push error',
         );
       }
@@ -3147,8 +3171,8 @@ export async function sendToKitchenAction(input: {
       eventType: 'order_sent_to_kitchen',
       eventGroup: 'kitchen',
       title: 'Enviada a cocina',
-      message: 'La orden fue enviada a cocina.',
-      severity: 'info',
+      message: 'Nueva orden en cola para tomar en cocina.',
+      severity: 'critical',
       actorUserId: user.id,
       recipients: [
         { targetRole: 'kitchen', requiresAction: true },
@@ -4037,8 +4061,8 @@ export async function updateKitchenEtaAction(input: {
     context: eventContext,
     eventType: delayed ? 'kitchen_delayed_prep' : 'kitchen_eta_updated',
     eventGroup: 'kitchen',
-    title: delayed ? 'Cocina ajusto el tiempo de preparacion' : 'Cocina actualizo el tiempo estimado',
-    message: `Nuevo estimado: ${etaMinutes} min.`,
+    title: delayed ? 'Cocina reporto retraso' : 'Cocina actualizo el tiempo estimado',
+    message: delayed ? `Retraso reportado. Nuevo estimado: ${etaMinutes} min.` : `Nuevo estimado: ${etaMinutes} min.`,
     severity: delayed ? 'warning' : 'info',
     actorUserId: user.id,
     payload: {

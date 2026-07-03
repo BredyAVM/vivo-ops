@@ -90,7 +90,19 @@ self.addEventListener('push', (event) => {
     tag: payload.tag || 'vivo-notification',
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'vivo-push',
+            payload,
+          });
+        });
+      }),
+    ])
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {

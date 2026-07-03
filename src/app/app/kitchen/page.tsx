@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
+import { getPublicVapidKey } from '@/lib/push';
 import KitchenClient, { type KitchenOrder, type KitchenOrderItem } from './KitchenClient';
 
 type RawKitchenOrder = {
@@ -171,6 +172,7 @@ export default async function KitchenPage() {
 
   return (
     <KitchenClient
+      publicVapidKey={getPublicVapidKey()}
       fullName={
         profile?.full_name?.trim() ||
         ctx.user.user_metadata?.full_name ||
