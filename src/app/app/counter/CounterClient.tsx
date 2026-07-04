@@ -6,7 +6,12 @@ import { useRouter } from 'next/navigation';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { ModulePreference } from '../ModulePreference';
-import { createPaymentReportAction, markDeliveredAction, outForDeliveryAction } from '../master/dashboard/actions';
+import {
+  confirmPaymentReportAction,
+  createPaymentReportAction,
+  markDeliveredAction,
+  outForDeliveryAction,
+} from '../master/dashboard/actions';
 
 export type CounterPaymentAccountOption = {
   accountId: number;
@@ -259,6 +264,16 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       return;
     }
 
+    const reportedUsdEquivalent =
+      account.currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount;
+    if (account.autoConfirmsReport && reportedUsdEquivalent > order.balanceUsd + 0.005) {
+      setMessage({
+        tone: 'error',
+        text: 'Este pago supera el pendiente. El manejo de cambio o fondo va en el siguiente bloque.',
+      });
+      return;
+    }
+
     const validationError = validatePaymentReportDetails({
       method: account.paymentMethodCode,
       operationDate: input.operationDate,
@@ -276,7 +291,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
     setWorkingOrderId(order.id);
     startTransition(async () => {
       try {
-        await createPaymentReportAction({
+        const result = await createPaymentReportAction({
           orderId: order.id,
           reportedMoneyAccountId: account.accountId,
           reportedCurrency: account.currencyCode,
@@ -290,9 +305,34 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
           notes: input.notes.trim() || null,
         });
 
+        if (account.autoConfirmsReport) {
+          const reportId = Number(result?.reportId || 0);
+          if (!Number.isFinite(reportId) || reportId <= 0) {
+            throw new Error('No se pudo identificar el reporte para confirmar.');
+          }
+
+          await confirmPaymentReportAction({
+            reportId,
+            orderId: order.id,
+            confirmedMoneyAccountId: account.accountId,
+            confirmedCurrency: account.currencyCode,
+            confirmedAmount: amount,
+            movementDate: input.operationDate || getTodayKey(),
+            confirmedExchangeRateVesPerUsd: exchangeRate,
+            reviewNotes: 'Auto confirmado por mostrador.',
+            referenceCode: input.referenceCode.trim() || null,
+            counterpartyName: order.clientName,
+            description: `Pago mostrador orden ${order.displayNumber}`,
+            overpaymentHandling: null,
+            overpaymentNotes: null,
+          });
+        }
+
         setMessage({
           tone: 'success',
-          text: `Pago reportado en orden #${order.displayNumber}.`,
+          text: account.autoConfirmsReport
+            ? `Pago registrado y confirmado en orden #${order.displayNumber}.`
+            : `Pago reportado en orden #${order.displayNumber}.`,
         });
         router.refresh();
       } catch (error) {
@@ -675,12 +715,13 @@ function CounterPaymentBox({
         <div>
           <h3 className="font-semibold">Registrar pago recibido</h3>
           <p className="mt-1 text-sm text-[#9FA0AA]">
-            Se registra como reporte de pago. La confirmacion automatica de punto/caja va en el siguiente bloque.
+            Caja y punto se confirman al guardar. Transferencias y pagos remotos quedan para revision.
           </p>
         </div>
         {selectedAccount ? (
           <span className="rounded-full border border-[#303044] px-3 py-1 text-xs text-[#C7C8D1]">
             {getPaymentMethodLabel(selectedAccount.paymentMethodCode)}
+            {selectedAccount.autoConfirmsReport ? ' - Auto' : ' - Revision'}
           </span>
         ) : null}
       </div>

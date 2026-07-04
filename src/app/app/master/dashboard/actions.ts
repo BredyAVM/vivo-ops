@@ -1819,6 +1819,7 @@ export async function createPaymentReportAction(input: {
     snapshotEquivalentUsd != null && snapshotEquivalentUsd > 0.005
       ? Number((input.reportedAmount / snapshotEquivalentUsd).toFixed(6))
       : input.reportedExchangeRateVesPerUsd;
+  let createdPaymentReportId: number | null = null;
 
   if (paymentMethod === 'retention') {
     const reportedAmount = roundMoney(input.reportedAmount);
@@ -1838,7 +1839,7 @@ export async function createPaymentReportAction(input: {
       throw new Error('El monto de la retención no es válido.');
     }
 
-    const { error: insertRetentionError } = await supabase
+    const { data: insertedRetention, error: insertRetentionError } = await supabase
       .from('payment_reports')
       .insert({
         order_id: input.orderId,
@@ -1854,9 +1855,12 @@ export async function createPaymentReportAction(input: {
         payer_name: reportPayerName,
         notes: reportNotes,
         operation_date: operationDate || null,
-      });
+      })
+      .select('id')
+      .single();
 
     if (insertRetentionError) throw new Error(insertRetentionError.message);
+    createdPaymentReportId = Number(insertedRetention?.id || 0) || null;
   } else {
     const { data: createdReportId, error } = await supabase.rpc('create_payment_report', {
       p_order_id: input.orderId,
@@ -1871,6 +1875,7 @@ export async function createPaymentReportAction(input: {
 
     if (error) throw new Error(error.message);
 
+    createdPaymentReportId = Number(createdReportId || 0) || null;
     await savePaymentReportOperationDate(createdReportId, operationDate);
   }
 
@@ -1887,6 +1892,7 @@ export async function createPaymentReportAction(input: {
       .maybeSingle();
 
     if (latestReport?.id) {
+      createdPaymentReportId = Number(latestReport.id || 0) || createdPaymentReportId;
       const { error: updateEquivalentError } = await supabase
         .from('payment_reports')
         .update({
@@ -1928,6 +1934,10 @@ export async function createPaymentReportAction(input: {
   });
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/counter');
+
+  return {
+    reportId: createdPaymentReportId,
+  };
 }
 
 export async function confirmPaymentReportAction(input: {
@@ -1958,14 +1968,41 @@ export async function confirmPaymentReportAction(input: {
   changeAmount?: number | null;
   changeExchangeRateVesPerUsd?: number | null;
 }) {
-  const { supabase, user, roles } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requirePaymentReportOperator();
   const { data: paymentReportForDate, error: paymentReportForDateError } = await supabase
     .from('payment_reports')
-    .select('operation_date, reported_amount_usd_equivalent')
+    .select('operation_date, reported_amount_usd_equivalent, created_by_user_id, reported_money_account_id')
     .eq('id', input.reportId)
     .maybeSingle();
 
   if (paymentReportForDateError) throw new Error(paymentReportForDateError.message);
+  if (!paymentReportForDate) throw new Error('No se encontro el reporte de pago.');
+
+  const isMasterOrAdmin = roles.includes('admin') || roles.includes('master');
+  if (!isMasterOrAdmin) {
+    const reportAccountId = Number(paymentReportForDate.reported_money_account_id || 0);
+    if (paymentReportForDate.created_by_user_id !== user.id || reportAccountId !== input.confirmedMoneyAccountId) {
+      throw new Error('No tienes permiso para confirmar este reporte.');
+    }
+
+    const { data: allowedRule, error: allowedRuleError } = await supabase
+      .from('money_account_payment_rules')
+      .select('id')
+      .eq('money_account_id', input.confirmedMoneyAccountId)
+      .eq('is_active', true)
+      .in('role', roles)
+      .or('can_confirm_payment.eq.true,auto_confirms_report.eq.true')
+      .limit(1)
+      .maybeSingle();
+
+    if (allowedRuleError) {
+      throw new Error(allowedRuleError.message);
+    }
+
+    if (!allowedRule) {
+      throw new Error('No tienes permiso para confirmar pagos en esta cuenta.');
+    }
+  }
 
   const effectiveMovementDate =
     normalizeDateOnly(paymentReportForDate?.operation_date) ||
