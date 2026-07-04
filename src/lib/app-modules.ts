@@ -60,9 +60,9 @@ export const APP_MODULES: AppModuleDefinition[] = [
     shortLabel: 'Counter',
     description: 'Mostrador, ventas presenciales, cobros y entregas en local.',
     href: '/app/counter',
-    status: 'planned',
+    status: 'available',
     roles: ['counter'],
-    recommendedDevice: 'Computadora o tablet',
+    recommendedDevice: 'Computadora',
   },
   {
     key: 'driver',
