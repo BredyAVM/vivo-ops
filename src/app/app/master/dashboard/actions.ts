@@ -55,6 +55,17 @@ async function requireDeliveryOperator() {
   return ctx;
 }
 
+async function requirePaymentReportOperator() {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
+
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de cobro, master o administrador.');
+  }
+
+  return ctx;
+}
+
 async function loadActiveExchangeRate(supabase: Awaited<ReturnType<typeof createSupabaseServer>>) {
   const { data, error } = await supabase
     .from('exchange_rates')
@@ -1707,8 +1718,35 @@ export async function createPaymentReportAction(input: {
   payerName: string | null;
   notes: string | null;
 }) {
-  const { supabase, user, roles } = await requireMasterOrAdmin();
+  const { supabase, user, roles } = await requirePaymentReportOperator();
   const paymentMethod = normalizePaymentMethodCode(input.paymentMethod);
+  const isMasterOrAdmin = roles.includes('admin') || roles.includes('master');
+
+  if (!isMasterOrAdmin) {
+    if (!paymentMethod) {
+      throw new Error('Debes indicar el metodo de pago.');
+    }
+
+    const { data: allowedRule, error: allowedRuleError } = await supabase
+      .from('money_account_payment_rules')
+      .select('id')
+      .eq('money_account_id', input.reportedMoneyAccountId)
+      .eq('payment_method_code', paymentMethod)
+      .eq('can_report_payment', true)
+      .eq('is_active', true)
+      .in('role', roles)
+      .limit(1)
+      .maybeSingle();
+
+    if (allowedRuleError) {
+      throw new Error(allowedRuleError.message);
+    }
+
+    if (!allowedRule) {
+      throw new Error('No tienes permiso para reportar pagos en esta cuenta.');
+    }
+  }
+
   const requirements = getPaymentReportRequirements(paymentMethod);
   const requiresOperationData = requirements.requiresOperationDate;
   const requiresBank = requirements.requiresBank;
@@ -1889,6 +1927,7 @@ export async function createPaymentReportAction(input: {
     ],
   });
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/counter');
 }
 
 export async function confirmPaymentReportAction(input: {

@@ -8,7 +8,11 @@ import {
   roundOrderMoney,
   toOrderMoneyNumber,
 } from '@/lib/orders/order-money';
-import CounterClient, { type CounterOrder, type CounterOrderItem } from './CounterClient';
+import CounterClient, {
+  type CounterPaymentAccountOption,
+  type CounterOrder,
+  type CounterOrderItem,
+} from './CounterClient';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -82,6 +86,24 @@ type RawPaymentReport = {
   status: string | null;
 };
 
+type RawMoneyAccount = {
+  id: number;
+  name: string | null;
+  currency_code: 'USD' | 'VES' | string | null;
+  account_kind: string | null;
+  is_active: boolean | null;
+};
+
+type RawPaymentRule = {
+  money_account_id: number;
+  role: string;
+  payment_method_code: string | null;
+  can_report_payment: boolean | null;
+  auto_confirms_report: boolean | null;
+  review_required: boolean | null;
+  is_active: boolean | null;
+};
+
 function normalizeClient(order: RawCounterOrder) {
   return Array.isArray(order.client) ? order.client[0] ?? null : order.client;
 }
@@ -121,7 +143,12 @@ export default async function CounterPage() {
     redirect(resolveHomePath(ctx.roles));
   }
 
-  const [{ data: profile }, { data: ordersData, error: ordersError }] = await Promise.all([
+  const [
+    { data: profile },
+    { data: ordersData, error: ordersError },
+    { data: accountsData, error: accountsError },
+    { data: rulesData, error: rulesError },
+  ] = await Promise.all([
     ctx.supabase.from('profiles').select('full_name').eq('id', ctx.user.id).maybeSingle(),
     ctx.supabase
       .from('orders')
@@ -145,14 +172,66 @@ export default async function CounterPage() {
       .order('ready_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(120),
+    ctx.supabase
+      .from('money_accounts')
+      .select('id, name, currency_code, account_kind, is_active')
+      .eq('is_active', true)
+      .order('id', { ascending: true }),
+    ctx.supabase
+      .from('money_account_payment_rules')
+      .select(
+        [
+          'money_account_id',
+          'role',
+          'payment_method_code',
+          'can_report_payment',
+          'auto_confirms_report',
+          'review_required',
+          'is_active',
+        ].join(', ')
+      )
+      .eq('role', 'counter')
+      .eq('can_report_payment', true)
+      .eq('is_active', true)
+      .order('money_account_id', { ascending: true })
+      .order('payment_method_code', { ascending: true }),
   ]);
 
   if (ordersError) {
     throw new Error(ordersError.message);
   }
+  if (accountsError) {
+    throw new Error(accountsError.message);
+  }
+  if (rulesError) {
+    throw new Error(rulesError.message);
+  }
 
   const rawOrders = (ordersData ?? []) as unknown as RawCounterOrder[];
   const orderIds = rawOrders.map((order) => order.id);
+  const accountsById = new Map<number, RawMoneyAccount>();
+  for (const account of (accountsData ?? []) as unknown as RawMoneyAccount[]) {
+    if (account.is_active) accountsById.set(account.id, account);
+  }
+
+  const paymentAccounts: CounterPaymentAccountOption[] = [];
+  for (const rule of (rulesData ?? []) as unknown as RawPaymentRule[]) {
+    if (!rule.is_active || !rule.can_report_payment || rule.role !== 'counter') continue;
+    const account = accountsById.get(rule.money_account_id);
+    if (!account || !account.is_active || !rule.payment_method_code) continue;
+    const currencyCode = String(account.currency_code || '').toUpperCase();
+    if (currencyCode !== 'USD' && currencyCode !== 'VES') continue;
+
+    paymentAccounts.push({
+      accountId: account.id,
+      accountName: account.name || `Cuenta ${account.id}`,
+      accountKind: account.account_kind || 'other',
+      currencyCode,
+      paymentMethodCode: rule.payment_method_code,
+      autoConfirmsReport: Boolean(rule.auto_confirms_report),
+      reviewRequired: Boolean(rule.review_required),
+    });
+  }
 
   const [
     { data: itemsData, error: itemsError },
@@ -271,6 +350,7 @@ export default async function CounterPage() {
         'Mostrador'
       }
       orders={orders}
+      paymentAccounts={paymentAccounts}
     />
   );
 }

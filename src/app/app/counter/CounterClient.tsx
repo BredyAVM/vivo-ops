@@ -1,11 +1,22 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { ModulePreference } from '../ModulePreference';
-import { markDeliveredAction, outForDeliveryAction } from '../master/dashboard/actions';
+import { createPaymentReportAction, markDeliveredAction, outForDeliveryAction } from '../master/dashboard/actions';
+
+export type CounterPaymentAccountOption = {
+  accountId: number;
+  accountName: string;
+  accountKind: string;
+  currencyCode: 'USD' | 'VES';
+  paymentMethodCode: string;
+  autoConfirmsReport: boolean;
+  reviewRequired: boolean;
+};
 
 export type CounterOrderItem = {
   id: number;
@@ -52,6 +63,18 @@ export type CounterOrder = {
 type CounterClientProps = {
   fullName: string;
   orders: CounterOrder[];
+  paymentAccounts: CounterPaymentAccountOption[];
+};
+
+type CounterPaymentReportInput = {
+  paymentAccountKey: string;
+  amount: string;
+  exchangeRate: string;
+  operationDate: string;
+  referenceCode: string;
+  bankName: string;
+  payerName: string;
+  notes: string;
 };
 
 type CounterFilter = 'all' | 'pickup' | 'delivery' | 'pending' | 'paid';
@@ -93,6 +116,16 @@ function formatDateTime(value: string | null) {
   });
 }
 
+function getTodayKey() {
+  return new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
+}
+
+function paymentAccountKey(account: CounterPaymentAccountOption) {
+  return `${account.accountId}|${account.paymentMethodCode}`;
+}
+
 function paymentLabel(order: CounterOrder) {
   if (order.balanceUsd <= 0.005) return 'Pagado';
   if (order.confirmedPaidUsd > 0.005) return 'Abonado';
@@ -117,7 +150,7 @@ function scheduleLabel(order: CounterOrder) {
   return formatDateTime(order.createdAt);
 }
 
-export default function CounterClient({ fullName, orders }: CounterClientProps) {
+export default function CounterClient({ fullName, orders, paymentAccounts }: CounterClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
@@ -126,6 +159,10 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
   const [filter, setFilter] = useState<CounterFilter>('all');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(orders[0]?.id ?? null);
+
+  useEffect(() => {
+    setLocalOrders(orders);
+  }, [orders]);
 
   const stats = useMemo(() => {
     const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
@@ -195,6 +232,73 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
         setMessage({
           tone: 'error',
           text: error instanceof Error ? error.message : 'No se pudo completar la accion.',
+        });
+      } finally {
+        setWorkingOrderId(null);
+      }
+    });
+  }
+
+  function handleCreatePaymentReport(order: CounterOrder, input: CounterPaymentReportInput) {
+    const account = paymentAccounts.find((item) => paymentAccountKey(item) === input.paymentAccountKey);
+    if (!account) {
+      setMessage({ tone: 'error', text: 'Selecciona una cuenta valida.' });
+      return;
+    }
+
+    const amount = Number(String(input.amount || '').replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setMessage({ tone: 'error', text: 'Indica un monto valido.' });
+      return;
+    }
+
+    const exchangeRate =
+      account.currencyCode === 'VES' ? Number(String(input.exchangeRate || '').replace(',', '.')) : null;
+    if (account.currencyCode === 'VES' && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      setMessage({ tone: 'error', text: 'Indica una tasa valida para pagos en bolivares.' });
+      return;
+    }
+
+    const validationError = validatePaymentReportDetails({
+      method: account.paymentMethodCode,
+      operationDate: input.operationDate,
+      referenceCode: input.referenceCode,
+      bankName: input.bankName,
+      holderName: input.payerName,
+    });
+
+    if (validationError) {
+      setMessage({ tone: 'error', text: validationError });
+      return;
+    }
+
+    setMessage(null);
+    setWorkingOrderId(order.id);
+    startTransition(async () => {
+      try {
+        await createPaymentReportAction({
+          orderId: order.id,
+          reportedMoneyAccountId: account.accountId,
+          reportedCurrency: account.currencyCode,
+          reportedAmount: amount,
+          reportedExchangeRateVesPerUsd: exchangeRate,
+          paymentMethod: account.paymentMethodCode,
+          operationDate: input.operationDate || getTodayKey(),
+          referenceCode: input.referenceCode.trim() || null,
+          bankName: input.bankName.trim() || null,
+          payerName: input.payerName.trim() || null,
+          notes: input.notes.trim() || null,
+        });
+
+        setMessage({
+          tone: 'success',
+          text: `Pago reportado en orden #${order.displayNumber}.`,
+        });
+        router.refresh();
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo reportar el pago.',
         });
       } finally {
         setWorkingOrderId(null);
@@ -346,8 +450,10 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
             {selectedOrder ? (
               <OrderDetail
                 order={selectedOrder}
+                paymentAccounts={paymentAccounts}
                 isWorking={workingOrderId === selectedOrder.id}
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
+                onCreatePaymentReport={handleCreatePaymentReport}
               />
             ) : (
               <div className="p-8 text-sm text-[#9FA0AA]">Selecciona un pedido listo para operar.</div>
@@ -373,14 +479,19 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
 
 function OrderDetail({
   order,
+  paymentAccounts,
   isWorking,
   onPrimaryDeliveryAction,
+  onCreatePaymentReport,
 }: {
   order: CounterOrder;
+  paymentAccounts: CounterPaymentAccountOption[];
   isWorking: boolean;
   onPrimaryDeliveryAction: (order: CounterOrder) => void;
+  onCreatePaymentReport: (order: CounterOrder, input: CounterPaymentReportInput) => void;
 }) {
   const paid = order.balanceUsd <= 0.005;
+  const [paymentOpen, setPaymentOpen] = useState(false);
 
   return (
     <div>
@@ -481,13 +592,211 @@ function OrderDetail({
                 ? 'Entregar a motorizado'
                 : 'Entregar pickup'}
           </button>
-          <ActionButton label="Registrar pago" />
+          <button
+            type="button"
+            onClick={() => setPaymentOpen((current) => !current)}
+            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+          >
+            {paymentOpen ? 'Ocultar pago' : 'Registrar pago'}
+          </button>
           <ActionButton label="Dar cambio" />
           <ActionButton label="Agregar producto" />
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
             Este bloque ya actualiza entrega. Siguiente: pago, caja, punto, cambio y modificacion rapida.
           </div>
         </aside>
+      </div>
+
+      {paymentOpen ? (
+        <div className="border-t border-[#242433] p-5">
+          <CounterPaymentBox
+            order={order}
+            paymentAccounts={paymentAccounts}
+            isWorking={isWorking}
+            onSubmit={(input) => onCreatePaymentReport(order, input)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CounterPaymentBox({
+  order,
+  paymentAccounts,
+  isWorking,
+  onSubmit,
+}: {
+  order: CounterOrder;
+  paymentAccounts: CounterPaymentAccountOption[];
+  isWorking: boolean;
+  onSubmit: (input: CounterPaymentReportInput) => void;
+}) {
+  const firstAccount = paymentAccounts[0] ?? null;
+  const [paymentAccountValue, setPaymentAccountValue] = useState(firstAccount ? paymentAccountKey(firstAccount) : '');
+  const selectedAccount = paymentAccounts.find((item) => paymentAccountKey(item) === paymentAccountValue) ?? firstAccount;
+  const suggestedAmount =
+    selectedAccount?.currencyCode === 'VES'
+      ? Math.max(0, order.balanceUsd * Math.max(order.fxRate, 0)).toFixed(2)
+      : Math.max(0, order.balanceUsd).toFixed(2);
+  const [amount, setAmount] = useState(suggestedAmount);
+  const [exchangeRate, setExchangeRate] = useState(order.fxRate > 0 ? String(Number(order.fxRate.toFixed(2))) : '');
+  const [operationDate, setOperationDate] = useState(getTodayKey());
+  const [referenceCode, setReferenceCode] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [payerName, setPayerName] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const requirements = getPaymentReportRequirements(selectedAccount?.paymentMethodCode);
+
+  useEffect(() => {
+    if (!selectedAccount) return;
+    const nextAmount =
+      selectedAccount.currencyCode === 'VES'
+        ? Math.max(0, order.balanceUsd * Math.max(order.fxRate, 0)).toFixed(2)
+        : Math.max(0, order.balanceUsd).toFixed(2);
+    setAmount(nextAmount);
+    if (selectedAccount.currencyCode === 'VES' && order.fxRate > 0) {
+      setExchangeRate(String(Number(order.fxRate.toFixed(2))));
+    }
+  }, [order.balanceUsd, order.fxRate, selectedAccount?.accountId, selectedAccount?.currencyCode]);
+
+  if (paymentAccounts.length === 0) {
+    return (
+      <div className="rounded-[8px] border border-orange-400/40 bg-orange-400/10 p-4 text-sm text-orange-200">
+        No hay cuentas habilitadas para que mostrador reporte pagos.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">Registrar pago recibido</h3>
+          <p className="mt-1 text-sm text-[#9FA0AA]">
+            Se registra como reporte de pago. La confirmacion automatica de punto/caja va en el siguiente bloque.
+          </p>
+        </div>
+        {selectedAccount ? (
+          <span className="rounded-full border border-[#303044] px-3 py-1 text-xs text-[#C7C8D1]">
+            {getPaymentMethodLabel(selectedAccount.paymentMethodCode)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <label className="text-sm text-[#9FA0AA]">
+          Cuenta
+          <select
+            value={paymentAccountValue}
+            onChange={(event) => setPaymentAccountValue(event.target.value)}
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+          >
+            {paymentAccounts.map((account) => (
+              <option key={paymentAccountKey(account)} value={paymentAccountKey(account)}>
+                {account.accountName} - {getPaymentMethodLabel(account.paymentMethodCode)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm text-[#9FA0AA]">
+          Monto {selectedAccount?.currencyCode || ''}
+          <input
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputMode="decimal"
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+          />
+        </label>
+
+        {selectedAccount?.currencyCode === 'VES' ? (
+          <label className="text-sm text-[#9FA0AA]">
+            Tasa Bs/USD
+            <input
+              value={exchangeRate}
+              onChange={(event) => setExchangeRate(event.target.value)}
+              inputMode="decimal"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </label>
+        ) : null}
+
+        <label className="text-sm text-[#9FA0AA]">
+          Fecha operacion
+          <input
+            type="date"
+            value={operationDate}
+            onChange={(event) => setOperationDate(event.target.value)}
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+          />
+        </label>
+
+        {requirements.requiresReference ? (
+          <label className="text-sm text-[#9FA0AA]">
+            Referencia
+            <input
+              value={referenceCode}
+              onChange={(event) => setReferenceCode(event.target.value)}
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </label>
+        ) : null}
+
+        {requirements.requiresBank ? (
+          <label className="text-sm text-[#9FA0AA]">
+            Banco
+            <input
+              value={bankName}
+              onChange={(event) => setBankName(event.target.value)}
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </label>
+        ) : null}
+
+        {requirements.requiresHolderName || requirements.requiresInvoiceNumber ? (
+          <label className="text-sm text-[#9FA0AA]">
+            {requirements.requiresInvoiceNumber ? 'Factura' : 'Titular'}
+            <input
+              value={payerName}
+              onChange={(event) => setPayerName(event.target.value)}
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </label>
+        ) : null}
+
+        <label className="text-sm text-[#9FA0AA] lg:col-span-3">
+          Nota
+          <input
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Opcional"
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          disabled={isWorking || !selectedAccount}
+          onClick={() =>
+            onSubmit({
+              paymentAccountKey: paymentAccountValue,
+              amount,
+              exchangeRate,
+              operationDate,
+              referenceCode,
+              bankName,
+              payerName,
+              notes,
+            })
+          }
+          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+        >
+          {isWorking ? 'Guardando...' : 'Reportar pago'}
+        </button>
       </div>
     </div>
   );
