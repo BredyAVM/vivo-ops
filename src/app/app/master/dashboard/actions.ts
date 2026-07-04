@@ -4081,6 +4081,55 @@ export async function updateKitchenEtaAction(input: {
   revalidatePath('/app/advisor/inbox');
 }
 
+export async function reportKitchenIncidentAction(input: {
+  orderId: number;
+  reason: string;
+  note?: string | null;
+}) {
+  const { supabase, user } = await requireKitchenOperator();
+  const orderId = Number(input.orderId || 0);
+  const reason = String(input.reason || '').trim();
+  const note = String(input.note || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  if (!reason) {
+    throw new Error('Selecciona el motivo de la incidencia.');
+  }
+
+  const eventContext = await loadOrderEventContext(supabase, orderId);
+  if (!eventContext || !['confirmed', 'in_kitchen', 'ready'].includes(String(eventContext.status || ''))) {
+    throw new Error('Solo se pueden reportar incidencias de pedidos en cocina.');
+  }
+
+  const message = note ? `${reason}. ${note}` : reason;
+  await appendOrderEvent(supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'kitchen_incident',
+    eventGroup: 'kitchen',
+    title: 'Incidencia en cocina',
+    message,
+    severity: 'critical',
+    actorUserId: user.id,
+    payload: {
+      reason,
+      note: note || null,
+    },
+    recipients: [
+      { targetRole: 'master', requiresAction: true },
+      { targetUserId: eventContext.advisorUserId },
+    ],
+  });
+
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
+}
+
 export async function markReadyAction(input: {
   orderId: number;
 }) {

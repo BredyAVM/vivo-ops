@@ -6,7 +6,12 @@ import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getWhatsAppLineUnits } from '@/lib/orders/whatsapp-summary';
 import { ModulePreference } from '../ModulePreference';
-import { kitchenTakeAction, markReadyAction, updateKitchenEtaAction } from '../master/dashboard/actions';
+import {
+  kitchenTakeAction,
+  markReadyAction,
+  reportKitchenIncidentAction,
+  updateKitchenEtaAction,
+} from '../master/dashboard/actions';
 
 export type KitchenOrderItem = {
   id: number;
@@ -57,6 +62,28 @@ const STATUS_COLUMNS: Array<{
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 const PUSH_TIMEOUT_MS = 12000;
 const ETA_PRESETS = [10, 15];
+const KITCHEN_INCIDENT_REASONS = [
+  {
+    key: 'power',
+    label: 'Sin luz / planta',
+    message: 'Cocina queda mas lenta por falla electrica o cambio a planta.',
+  },
+  {
+    key: 'slow',
+    label: 'Produccion lenta',
+    message: 'Cocina reporta retraso operativo en la preparacion.',
+  },
+  {
+    key: 'missing_item',
+    label: 'Falta producto',
+    message: 'Cocina necesita revision por falta de producto o componente.',
+  },
+  {
+    key: 'question',
+    label: 'Duda del pedido',
+    message: 'Cocina necesita que master revise una duda del pedido.',
+  },
+] as const;
 
 type KitchenDetailLine = {
   label: string;
@@ -292,6 +319,9 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [etaByOrder, setEtaByOrder] = useState<Record<number, string>>({});
+  const [incidentOrderId, setIncidentOrderId] = useState<number | null>(null);
+  const [incidentReasonByOrder, setIncidentReasonByOrder] = useState<Record<number, string>>({});
+  const [incidentNoteByOrder, setIncidentNoteByOrder] = useState<Record<number, string>>({});
   const [activeStatus, setActiveStatus] = useState<KitchenOrder['status']>('confirmed');
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
   const [pushState, setPushState] = useState<PushState>('checking');
@@ -529,7 +559,14 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                     const takeActionKey = `take:${order.id}`;
               const delayActionKey = `delay:${order.id}`;
                     const readyActionKey = `ready:${order.id}`;
+              const incidentActionKey = `incident:${order.id}`;
                     const etaValue = etaByOrder[order.id] ?? String(order.etaMinutes || 15);
+              const incidentOpen = incidentOrderId === order.id;
+              const incidentReasonKey = incidentReasonByOrder[order.id] ?? KITCHEN_INCIDENT_REASONS[0].key;
+              const incidentReason =
+                KITCHEN_INCIDENT_REASONS.find((reason) => reason.key === incidentReasonKey) ??
+                KITCHEN_INCIDENT_REASONS[0];
+              const incidentNote = incidentNoteByOrder[order.id] ?? '';
               const totalUnits = order.items.reduce((sum, item) => sum + getItemPreparedUnits(item), 0);
               const elapsed =
                 order.status === 'confirmed'
@@ -756,6 +793,66 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                                 {isPending && pendingKey === readyActionKey ? 'Marcando...' : 'Marcar lista'}
                               </button>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setIncidentOrderId((current) => current === order.id ? null : order.id)}
+                              className="h-10 w-full rounded-xl border border-red-400/40 bg-red-400/10 px-3 text-xs font-black text-red-100 active:scale-[0.98]"
+                            >
+                              {incidentOpen ? 'Cerrar problema' : 'Reportar problema'}
+                            </button>
+                            {incidentOpen ? (
+                              <div className="rounded-xl border border-red-400/35 bg-[#260F13] p-2.5">
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {KITCHEN_INCIDENT_REASONS.map((reason) => {
+                                    const activeReason = reason.key === incidentReasonKey;
+                                    return (
+                                      <button
+                                        key={`${order.id}-${reason.key}`}
+                                        type="button"
+                                        onClick={() =>
+                                          setIncidentReasonByOrder((current) => ({ ...current, [order.id]: reason.key }))
+                                        }
+                                        className={[
+                                          'min-h-10 rounded-lg border px-2 text-left text-xs font-semibold active:scale-[0.98]',
+                                          activeReason
+                                            ? 'border-[#FEEF00]/70 bg-[#FEEF00] text-black'
+                                            : 'border-red-400/30 bg-[#12090B] text-red-100',
+                                        ].join(' ')}
+                                      >
+                                        {reason.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <textarea
+                                  value={incidentNote}
+                                  onChange={(event) =>
+                                    setIncidentNoteByOrder((current) => ({ ...current, [order.id]: event.target.value }))
+                                  }
+                                  rows={2}
+                                  placeholder="Nota opcional"
+                                  className="mt-2 w-full rounded-lg border border-red-400/30 bg-[#12090B] px-2.5 py-2 text-sm text-[#F5F5F7] placeholder:text-red-100/45"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={isPending && pendingKey === incidentActionKey}
+                                  onClick={() =>
+                                    runAction(incidentActionKey, async () => {
+                                      await reportKitchenIncidentAction({
+                                        orderId: order.id,
+                                        reason: `${incidentReason.label}: ${incidentReason.message}`,
+                                        note: incidentNote,
+                                      });
+                                      setIncidentOrderId(null);
+                                      setIncidentNoteByOrder((current) => ({ ...current, [order.id]: '' }));
+                                    })
+                                  }
+                                  className="mt-2 h-10 w-full rounded-xl border border-red-300/50 bg-red-500/20 px-3 text-sm font-black text-red-50 active:scale-[0.98] disabled:opacity-60"
+                                >
+                                  {isPending && pendingKey === incidentActionKey ? 'Enviando...' : 'Avisar al master'}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </article>
