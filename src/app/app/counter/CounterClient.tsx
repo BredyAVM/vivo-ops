@@ -1,10 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { ModulePreference } from '../ModulePreference';
+import { markDeliveredAction, outForDeliveryAction } from '../master/dashboard/actions';
 
 export type CounterOrderItem = {
   id: number;
@@ -118,29 +119,33 @@ function scheduleLabel(order: CounterOrder) {
 
 export default function CounterClient({ fullName, orders }: CounterClientProps) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [localOrders, setLocalOrders] = useState(orders);
   const [filter, setFilter] = useState<CounterFilter>('all');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(orders[0]?.id ?? null);
 
   const stats = useMemo(() => {
-    const pickup = orders.filter((order) => order.fulfillment === 'pickup').length;
-    const delivery = orders.filter((order) => order.fulfillment === 'delivery').length;
-    const pendingUsd = orders.reduce((sum, order) => sum + Math.max(0, order.balanceUsd), 0);
-    const paid = orders.filter((order) => order.balanceUsd <= 0.005).length;
+    const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
+    const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
+    const pendingUsd = localOrders.reduce((sum, order) => sum + Math.max(0, order.balanceUsd), 0);
+    const paid = localOrders.filter((order) => order.balanceUsd <= 0.005).length;
 
     return {
-      total: orders.length,
+      total: localOrders.length,
       pickup,
       delivery,
       pendingUsd,
       paid,
     };
-  }, [orders]);
+  }, [localOrders]);
 
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es-VE');
 
-    return orders.filter((order) => {
+    return localOrders.filter((order) => {
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
       if (filter === 'pending' && order.balanceUsd <= 0.005) return false;
@@ -158,10 +163,44 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
         .filter(Boolean)
         .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term));
     });
-  }, [filter, orders, search]);
+  }, [filter, localOrders, search]);
 
   const selectedOrder =
-    orders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0] ?? orders[0] ?? null;
+    localOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0] ?? localOrders[0] ?? null;
+
+  function completeLocalOrder(orderId: number) {
+    setLocalOrders((current) => {
+      const next = current.filter((order) => order.id !== orderId);
+      setSelectedOrderId((selected) => (selected === orderId ? next[0]?.id ?? null : selected));
+      return next;
+    });
+  }
+
+  function handlePrimaryDeliveryAction(order: CounterOrder) {
+    setMessage(null);
+    setWorkingOrderId(order.id);
+    startTransition(async () => {
+      try {
+        if (order.fulfillment === 'delivery') {
+          await outForDeliveryAction({ orderId: order.id });
+          completeLocalOrder(order.id);
+          setMessage({ tone: 'success', text: `Orden #${order.displayNumber} enviada a delivery.` });
+        } else {
+          await markDeliveredAction({ orderId: order.id });
+          completeLocalOrder(order.id);
+          setMessage({ tone: 'success', text: `Orden #${order.displayNumber} retirada por el cliente.` });
+        }
+        router.refresh();
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo completar la accion.',
+        });
+      } finally {
+        setWorkingOrderId(null);
+      }
+    });
+  }
 
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
@@ -176,6 +215,7 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
             <button
               type="button"
               onClick={() => router.refresh()}
+              disabled={isPending}
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
             >
               Actualizar
@@ -198,6 +238,19 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
           <Summary label="Pagados" value={String(stats.paid)} tone="good" />
           <Summary label="Por cobrar" value={moneyUsd(stats.pendingUsd)} tone={stats.pendingUsd > 0 ? 'warn' : 'good'} />
         </div>
+
+        {message ? (
+          <div
+            className={[
+              'mt-4 rounded-[8px] border px-4 py-3 text-sm font-semibold',
+              message.tone === 'success'
+                ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
+                : 'border-red-400/40 bg-red-400/10 text-red-200',
+            ].join(' ')}
+          >
+            {message.text}
+          </div>
+        ) : null}
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(360px,0.92fr)_minmax(520px,1.08fr)]">
           <section className="rounded-[8px] border border-[#242433] bg-[#111118]">
@@ -291,7 +344,11 @@ export default function CounterClient({ fullName, orders }: CounterClientProps) 
 
           <section className="rounded-[8px] border border-[#242433] bg-[#111118]">
             {selectedOrder ? (
-              <OrderDetail order={selectedOrder} />
+              <OrderDetail
+                order={selectedOrder}
+                isWorking={workingOrderId === selectedOrder.id}
+                onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
+              />
             ) : (
               <div className="p-8 text-sm text-[#9FA0AA]">Selecciona un pedido listo para operar.</div>
             )}
@@ -314,7 +371,15 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
   );
 }
 
-function OrderDetail({ order }: { order: CounterOrder }) {
+function OrderDetail({
+  order,
+  isWorking,
+  onPrimaryDeliveryAction,
+}: {
+  order: CounterOrder;
+  isWorking: boolean;
+  onPrimaryDeliveryAction: (order: CounterOrder) => void;
+}) {
   const paid = order.balanceUsd <= 0.005;
 
   return (
@@ -404,12 +469,23 @@ function OrderDetail({ order }: { order: CounterOrder }) {
         </div>
 
         <aside className="space-y-3">
-          <ActionButton label={order.fulfillment === 'delivery' ? 'Entregar a motorizado' : 'Entregar pickup'} />
+          <button
+            type="button"
+            onClick={() => onPrimaryDeliveryAction(order)}
+            disabled={isWorking}
+            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+          >
+            {isWorking
+              ? 'Guardando...'
+              : order.fulfillment === 'delivery'
+                ? 'Entregar a motorizado'
+                : 'Entregar pickup'}
+          </button>
           <ActionButton label="Registrar pago" />
           <ActionButton label="Dar cambio" />
           <ActionButton label="Agregar producto" />
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
-            Siguiente bloque: estas acciones conectan caja, puntos, cambios y modificacion rapida sin pasar por aprobacion master.
+            Este bloque ya actualiza entrega. Siguiente: pago, caja, punto, cambio y modificacion rapida.
           </div>
         </aside>
       </div>

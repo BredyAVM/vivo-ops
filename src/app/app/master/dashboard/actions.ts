@@ -44,6 +44,17 @@ async function requireKitchenOperator() {
   return ctx;
 }
 
+async function requireDeliveryOperator() {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
+
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
+  }
+
+  return ctx;
+}
+
 async function loadActiveExchangeRate(supabase: Awaited<ReturnType<typeof createSupabaseServer>>) {
   const { data, error } = await supabase
     .from('exchange_rates')
@@ -4170,7 +4181,7 @@ export async function outForDeliveryAction(input: {
   orderId: number;
   etaMinutes?: number | null;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireDeliveryOperator();
   const eventContext = await loadOrderEventContext(supabase, input.orderId);
   const normalizedEta =
     input.etaMinutes != null && Number.isFinite(input.etaMinutes) && input.etaMinutes > 0
@@ -4252,12 +4263,18 @@ export async function outForDeliveryAction(input: {
       { targetUserId: eventContext?.internalDriverUserId },
     ],
   });
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
 }
 
 export async function markDeliveredAction(input: {
   orderId: number;
 }) {
-  const { supabase, user } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireDeliveryOperator();
 
   let existingExtraFields: Record<string, unknown> = {};
 
@@ -4331,6 +4348,12 @@ export async function markDeliveredAction(input: {
       { targetUserId: eventContext?.internalDriverUserId },
     ],
   });
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
 }
 
 export async function clearDeliveryAssignmentAction(input: {
