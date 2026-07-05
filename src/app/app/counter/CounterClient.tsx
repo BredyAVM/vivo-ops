@@ -111,13 +111,14 @@ type CounterChangeLineDraft = {
   exchangeRate: string;
 };
 
-type CounterFilter = 'all' | 'pickup' | 'delivery' | 'route' | 'pending' | 'paid';
+type CounterFilter = 'all' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
   { key: 'all', label: 'Todos' },
   { key: 'pickup', label: 'Pickup' },
   { key: 'delivery', label: 'Delivery' },
   { key: 'route', label: 'En camino' },
+  { key: 'change', label: 'Con cambio' },
   { key: 'pending', label: 'Por cobrar' },
   { key: 'paid', label: 'Pagados' },
 ];
@@ -226,6 +227,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
     const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
     const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
     const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
+    const change = localOrders.filter((order) => order.paymentRequiresChange).length;
     const pendingUsd = localOrders.reduce((sum, order) => sum + Math.max(0, order.balanceUsd), 0);
     const paid = localOrders.filter((order) => order.balanceUsd <= 0.005).length;
 
@@ -234,6 +236,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       pickup,
       delivery,
       route,
+      change,
       pendingUsd,
       paid,
     };
@@ -246,6 +249,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
       if (filter === 'route' && order.status !== 'out_for_delivery') return false;
+      if (filter === 'change' && !order.paymentRequiresChange) return false;
       if (filter === 'pending' && order.balanceUsd <= 0.005) return false;
       if (filter === 'paid' && order.balanceUsd > 0.005) return false;
 
@@ -563,11 +567,12 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           <Summary label="Activos" value={String(stats.total)} />
           <Summary label="Pickup" value={String(stats.pickup)} />
           <Summary label="Delivery" value={String(stats.delivery)} />
           <Summary label="En camino" value={String(stats.route)} />
+          <Summary label="Con cambio" value={String(stats.change)} tone={stats.change > 0 ? 'warn' : 'good'} />
           <Summary label="Pagados" value={String(stats.paid)} tone="good" />
           <Summary label="Por cobrar" value={moneyUsd(stats.pendingUsd)} tone={stats.pendingUsd > 0 ? 'warn' : 'good'} />
         </div>
@@ -658,6 +663,11 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
                             <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', paymentClass(order)].join(' ')}>
                               {paymentLabel(order)}
                             </span>
+                            {order.paymentRequiresChange ? (
+                              <span className="rounded-full border border-orange-300/40 bg-orange-300/10 px-2 py-0.5 text-xs font-semibold text-orange-200">
+                                Cambio
+                              </span>
+                            ) : null}
                           </div>
                           <div className="mt-1 truncate text-sm font-semibold text-[#F5F5F7]">{order.clientName}</div>
                           <div className="mt-1 text-xs text-[#9FA0AA]">{scheduleLabel(order)}</div>
