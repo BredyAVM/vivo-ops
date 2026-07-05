@@ -12,6 +12,7 @@ import CounterClient, {
   type CounterPaymentAccountOption,
   type CounterOrder,
   type CounterOrderItem,
+  type CounterQuickSaleProductOption,
 } from './CounterClient';
 
 export const dynamic = 'force-dynamic';
@@ -120,6 +121,18 @@ type RawDeliveryPartner = {
   name: string | null;
 };
 
+type RawCounterProduct = {
+  id: number;
+  sku: string | null;
+  name: string | null;
+  type: string | null;
+  source_price_currency: string | null;
+  source_price_amount: number | string | null;
+  base_price_usd: number | string | null;
+  base_price_bs: number | string | null;
+  units_per_service: number | string | null;
+};
+
 function normalizeClient(order: RawCounterOrder) {
   return Array.isArray(order.client) ? order.client[0] ?? null : order.client;
 }
@@ -164,6 +177,8 @@ export default async function CounterPage() {
     { data: ordersData, error: ordersError },
     { data: accountsData, error: accountsError },
     { data: rulesData, error: rulesError },
+    { data: productsData, error: productsError },
+    { data: activeRateData, error: activeRateError },
   ] = await Promise.all([
     ctx.supabase.from('profiles').select('full_name').eq('id', ctx.user.id).maybeSingle(),
     ctx.supabase
@@ -217,6 +232,19 @@ export default async function CounterPage() {
       .or('can_report_payment.eq.true,can_confirm_payment.eq.true,auto_confirms_report.eq.true')
       .order('money_account_id', { ascending: true })
       .order('payment_method_code', { ascending: true }),
+    ctx.supabase
+      .from('products')
+      .select('id, sku, name, type, source_price_currency, source_price_amount, base_price_usd, base_price_bs, units_per_service')
+      .eq('is_active', true)
+      .order('name', { ascending: true })
+      .limit(500),
+    ctx.supabase
+      .from('exchange_rates')
+      .select('rate_bs_per_usd')
+      .eq('is_active', true)
+      .order('effective_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (ordersError) {
@@ -227,6 +255,12 @@ export default async function CounterPage() {
   }
   if (rulesError) {
     throw new Error(rulesError.message);
+  }
+  if (productsError) {
+    throw new Error(productsError.message);
+  }
+  if (activeRateError) {
+    throw new Error(activeRateError.message);
   }
 
   const rawOrders = (ordersData ?? []) as unknown as RawCounterOrder[];
@@ -429,6 +463,25 @@ export default async function CounterPage() {
     };
   });
 
+  const quickSaleProducts: CounterQuickSaleProductOption[] = ((productsData ?? []) as unknown as RawCounterProduct[])
+    .map((product) => {
+      const sourcePriceCurrency: 'USD' | 'VES' = product.source_price_currency === 'VES' ? 'VES' : 'USD';
+
+      return {
+        id: Number(product.id),
+        sku: product.sku,
+        name: product.name || 'Producto',
+        type: product.type || null,
+        sourcePriceCurrency,
+        sourcePriceAmount: toNumber(product.source_price_amount, 0),
+        basePriceUsd: toNumber(product.base_price_usd, 0),
+        basePriceBs: toNumber(product.base_price_bs, 0),
+        unitsPerService: toNumber(product.units_per_service, 0),
+      };
+    })
+    .filter((product) => product.id > 0);
+  const activeBsRate = toNumber(activeRateData?.rate_bs_per_usd, 0);
+
   return (
     <CounterClient
       fullName={
@@ -439,6 +492,8 @@ export default async function CounterPage() {
       }
       orders={orders}
       paymentAccounts={paymentAccounts}
+      quickSaleProducts={quickSaleProducts}
+      activeBsRate={activeBsRate}
     />
   );
 }

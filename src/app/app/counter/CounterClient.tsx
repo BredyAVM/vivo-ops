@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../ModulePreference';
 import {
   confirmPaymentReportAction,
@@ -12,6 +13,7 @@ import {
   markDeliveredAction,
   outForDeliveryAction,
 } from '../master/dashboard/actions';
+import { createCounterQuickSaleAction } from './actions';
 
 export type CounterPaymentAccountOption = {
   accountId: number;
@@ -23,6 +25,18 @@ export type CounterPaymentAccountOption = {
   canConfirmPayment: boolean;
   autoConfirmsReport: boolean;
   reviewRequired: boolean;
+};
+
+export type CounterQuickSaleProductOption = {
+  id: number;
+  sku: string | null;
+  name: string;
+  type: string | null;
+  sourcePriceCurrency: 'USD' | 'VES';
+  sourcePriceAmount: number;
+  basePriceUsd: number;
+  basePriceBs: number;
+  unitsPerService: number;
 };
 
 export type CounterOrderItem = {
@@ -75,6 +89,8 @@ type CounterClientProps = {
   fullName: string;
   orders: CounterOrder[];
   paymentAccounts: CounterPaymentAccountOption[];
+  quickSaleProducts: CounterQuickSaleProductOption[];
+  activeBsRate: number;
 };
 
 type CounterPaymentReportInput = {
@@ -115,6 +131,13 @@ type CounterChangeLineDraft = {
   exchangeRate: string;
 };
 
+type CounterQuickSaleCartItem = {
+  id: string;
+  productId: number;
+  qty: string;
+  notes: string;
+};
+
 type CounterFilter = 'all' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
@@ -125,6 +148,16 @@ const FILTERS: Array<{ key: CounterFilter; label: string }> = [
   { key: 'change', label: 'Con cambio' },
   { key: 'pending', label: 'Por cobrar' },
   { key: 'paid', label: 'Pagados' },
+];
+
+const QUICK_SALE_PAYMENT_METHODS = [
+  { code: 'pos', label: 'Punto' },
+  { code: 'payment_mobile', label: 'Pago movil' },
+  { code: 'transfer', label: 'Transferencia' },
+  { code: 'cash_usd', label: 'Efectivo USD' },
+  { code: 'cash_ves', label: 'Efectivo Bs' },
+  { code: 'zelle', label: 'Zelle' },
+  { code: 'mixed', label: 'Mixto' },
 ];
 
 function moneyUsd(value: number) {
@@ -221,7 +254,13 @@ function scheduleLabel(order: CounterOrder) {
   return formatDateTime(order.createdAt);
 }
 
-export default function CounterClient({ fullName, orders, paymentAccounts }: CounterClientProps) {
+export default function CounterClient({
+  fullName,
+  orders,
+  paymentAccounts,
+  quickSaleProducts,
+  activeBsRate,
+}: CounterClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
@@ -230,6 +269,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
   const [filter, setFilter] = useState<CounterFilter>('all');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(orders[0]?.id ?? null);
+  const [quickSaleOpen, setQuickSaleOpen] = useState(false);
 
   useEffect(() => {
     setLocalOrders(orders);
@@ -588,6 +628,42 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
     });
   }
 
+  function handleCreateQuickSale(input: {
+    clientName: string;
+    clientPhone: string;
+    fulfillment: 'pickup' | 'delivery';
+    deliveryAddress: string;
+    note: string;
+    paymentMethod: string;
+    paymentCurrency: 'USD' | 'VES';
+    paymentRequiresChange: boolean;
+    paymentChangeFor: string;
+    paymentChangeCurrency: 'USD' | 'VES';
+    paymentNote: string;
+    items: Array<{ productId: number; qty: number; notes?: string | null }>;
+  }) {
+    setMessage(null);
+    setWorkingOrderId(-1);
+    startTransition(async () => {
+      try {
+        const result = await createCounterQuickSaleAction(input);
+        setMessage({
+          tone: 'success',
+          text: `Venta creada y enviada a cocina. Orden #${result.id}.`,
+        });
+        setQuickSaleOpen(false);
+        router.refresh();
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo crear la venta.',
+        });
+      } finally {
+        setWorkingOrderId(null);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <ModulePreference moduleKey="counter" />
@@ -598,6 +674,13 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
             <div className="text-sm text-[#9FA0AA]">{fullName} - Mostrador y entregas listas</div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setQuickSaleOpen((current) => !current)}
+              className="rounded-full border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black hover:bg-[#fff45c]"
+            >
+              Nueva venta
+            </button>
             <button
               type="button"
               onClick={() => router.refresh()}
@@ -639,6 +722,16 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
           >
             {message.text}
           </div>
+        ) : null}
+
+        {quickSaleOpen ? (
+          <CounterQuickSalePanel
+            products={quickSaleProducts}
+            activeBsRate={activeBsRate}
+            isWorking={workingOrderId === -1}
+            onCancel={() => setQuickSaleOpen(false)}
+            onSubmit={handleCreateQuickSale}
+          />
         ) : null}
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(360px,0.92fr)_minmax(520px,1.08fr)]">
@@ -812,6 +905,414 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
       <div className="text-sm text-[#9FA0AA]">{label}</div>
       <div className={['mt-1 text-xl font-semibold', toneClass].join(' ')}>{value}</div>
     </div>
+  );
+}
+
+function CounterQuickSalePanel({
+  products,
+  activeBsRate,
+  isWorking,
+  onCancel,
+  onSubmit,
+}: {
+  products: CounterQuickSaleProductOption[];
+  activeBsRate: number;
+  isWorking: boolean;
+  onCancel: () => void;
+  onSubmit: (input: {
+    clientName: string;
+    clientPhone: string;
+    fulfillment: 'pickup' | 'delivery';
+    deliveryAddress: string;
+    note: string;
+    paymentMethod: string;
+    paymentCurrency: 'USD' | 'VES';
+    paymentRequiresChange: boolean;
+    paymentChangeFor: string;
+    paymentChangeCurrency: 'USD' | 'VES';
+    paymentNote: string;
+    items: Array<{ productId: number; qty: number; notes?: string | null }>;
+  }) => void;
+}) {
+  const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>('pickup');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [note, setNote] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('pos');
+  const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'VES'>('VES');
+  const [paymentRequiresChange, setPaymentRequiresChange] = useState(false);
+  const [paymentChangeFor, setPaymentChangeFor] = useState('');
+  const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<'USD' | 'VES'>('USD');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ? String(products[0].id) : '');
+  const [qty, setQty] = useState('1');
+  const [itemNotes, setItemNotes] = useState('');
+  const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedProductId || !products[0]?.id) return;
+    setSelectedProductId(String(products[0].id));
+  }, [products, selectedProductId]);
+
+  const productsById = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products]
+  );
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLocaleLowerCase('es-VE');
+    if (!term) return products.slice(0, 80);
+    return products
+      .filter((product) =>
+        [product.name, product.sku, product.type]
+          .filter(Boolean)
+          .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term))
+      )
+      .slice(0, 80);
+  }, [productSearch, products]);
+  const lineRows = useMemo(() => {
+    return cartItems.map((item) => {
+      const product = productsById.get(item.productId) ?? null;
+      const itemQty = Math.max(0, toDecimalInput(item.qty));
+      const sourceAmount =
+        product?.sourcePriceCurrency === 'VES'
+          ? product.sourcePriceAmount || product.basePriceBs
+          : product?.sourcePriceAmount || product?.basePriceUsd || 0;
+      const snapshot = product
+        ? calculateOrderLineSnapshot({
+            sourceCurrency: product.sourcePriceCurrency,
+            sourceAmount,
+            quantity: itemQty,
+            fxRate: activeBsRate,
+            fallbackUnitUsd: product.basePriceUsd,
+          })
+        : { unitUsd: 0, lineUsd: 0, unitBs: 0, lineBs: 0 };
+
+      return {
+        item,
+        product,
+        qty: itemQty,
+        snapshot,
+      };
+    });
+  }, [activeBsRate, cartItems, productsById]);
+  const totals = useMemo(() => {
+    const subtotalUsd = lineRows.reduce((sum, row) => sum + row.snapshot.lineUsd, 0);
+    const subtotalBs = lineRows.reduce((sum, row) => sum + row.snapshot.lineBs, 0);
+    return calculateOrderTotalsSnapshot({ subtotalUsd, subtotalBs, discountPct: 0, invoiceTaxPct: 0 });
+  }, [lineRows]);
+
+  function addCartItem() {
+    const productId = Number(selectedProductId || 0);
+    const product = productsById.get(productId);
+    const itemQty = toDecimalInput(qty);
+
+    if (!product) {
+      setLocalError('Selecciona un producto valido.');
+      return;
+    }
+    if (!Number.isFinite(itemQty) || itemQty <= 0) {
+      setLocalError('Indica una cantidad valida.');
+      return;
+    }
+
+    setCartItems((current) => [
+      ...current,
+      {
+        id: `cart-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        productId,
+        qty,
+        notes: itemNotes.trim(),
+      },
+    ]);
+    setQty('1');
+    setItemNotes('');
+    setLocalError(null);
+  }
+
+  function submitQuickSale() {
+    if (!clientName.trim()) {
+      setLocalError('Indica el nombre del cliente.');
+      return;
+    }
+    if (!clientPhone.trim()) {
+      setLocalError('Indica el telefono del cliente.');
+      return;
+    }
+    if (fulfillment === 'delivery' && !deliveryAddress.trim()) {
+      setLocalError('Indica la direccion para delivery.');
+      return;
+    }
+    if (cartItems.length === 0) {
+      setLocalError('Agrega al menos un producto.');
+      return;
+    }
+
+    onSubmit({
+      clientName: clientName.trim(),
+      clientPhone: clientPhone.trim(),
+      fulfillment,
+      deliveryAddress: deliveryAddress.trim(),
+      note: note.trim(),
+      paymentMethod,
+      paymentCurrency,
+      paymentRequiresChange,
+      paymentChangeFor,
+      paymentChangeCurrency,
+      paymentNote: paymentNote.trim(),
+      items: cartItems.map((item) => ({
+        productId: item.productId,
+        qty: toDecimalInput(item.qty),
+        notes: item.notes.trim() || null,
+      })),
+    });
+  }
+
+  return (
+    <section className="mt-5 rounded-[8px] border border-[#FEEF00]/35 bg-[#15150F] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Nueva venta de mostrador</h2>
+          <p className="mt-1 text-sm text-[#B9B9A8]">
+            Crea una orden directa, calcula con la tasa activa y la envia a cocina.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-[#303044] px-3 py-1 text-xs font-semibold text-[#C7C8D1]">
+            Tasa {activeBsRate > 0 ? moneyBs(activeBsRate) : 'sin tasa'}
+          </span>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+
+      {localError ? (
+        <div className="mt-4 rounded-[8px] border border-red-400/40 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-200">
+          {localError}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.15fr_280px]">
+        <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+          <h3 className="font-semibold">Cliente</h3>
+          <label className="text-sm text-[#9FA0AA]">
+            Nombre
+            <input
+              value={clientName}
+              onChange={(event) => setClientName(event.target.value)}
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </label>
+          <label className="text-sm text-[#9FA0AA]">
+            Telefono
+            <input
+              value={clientPhone}
+              onChange={(event) => setClientPhone(event.target.value)}
+              inputMode="tel"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['pickup', 'delivery'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setFulfillment(option)}
+                className={[
+                  'rounded-[8px] border px-3 py-2 text-sm font-semibold',
+                  fulfillment === option
+                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                    : 'border-[#303044] bg-[#111118] text-[#C7C8D1]',
+                ].join(' ')}
+              >
+                {option === 'pickup' ? 'Pickup' : 'Delivery'}
+              </button>
+            ))}
+          </div>
+          {fulfillment === 'delivery' ? (
+            <label className="text-sm text-[#9FA0AA]">
+              Direccion
+              <textarea
+                value={deliveryAddress}
+                onChange={(event) => setDeliveryAddress(event.target.value)}
+                rows={3}
+                className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              />
+            </label>
+          ) : null}
+          <label className="text-sm text-[#9FA0AA]">
+            Nota de orden
+            <input
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Opcional"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+            />
+          </label>
+        </div>
+
+        <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">Pedido</h3>
+            <span className="text-sm font-semibold text-[#F5F5F7]">{cartItems.length} item(s)</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[1fr_110px]">
+            <input
+              value={productSearch}
+              onChange={(event) => setProductSearch(event.target.value)}
+              placeholder="Buscar producto"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+            />
+            <input
+              value={qty}
+              onChange={(event) => setQty(event.target.value)}
+              inputMode="decimal"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </div>
+          <select
+            value={selectedProductId}
+            onChange={(event) => setSelectedProductId(event.target.value)}
+            className="w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+          >
+            {filteredProducts.map((product) => (
+              <option key={product.id} value={String(product.id)}>
+                {product.name} {product.sku ? `(${product.sku})` : ''}
+              </option>
+            ))}
+          </select>
+          <div className="grid gap-2 md:grid-cols-[1fr_130px]">
+            <input
+              value={itemNotes}
+              onChange={(event) => setItemNotes(event.target.value)}
+              placeholder="Nota del item (opcional)"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+            />
+            <button
+              type="button"
+              onClick={addCartItem}
+              disabled={products.length === 0 || activeBsRate <= 0}
+              className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Agregar
+            </button>
+          </div>
+
+          <div className="max-h-[330px] overflow-y-auto rounded-[8px] border border-[#242433]">
+            {lineRows.length === 0 ? (
+              <div className="p-4 text-sm text-[#9FA0AA]">Sin productos agregados.</div>
+            ) : (
+              <div className="divide-y divide-[#242433]">
+                {lineRows.map((row) => (
+                  <div key={row.item.id} className="grid gap-2 p-3 sm:grid-cols-[60px_1fr_105px_auto]">
+                    <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(row.qty)}</div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{row.product?.name || 'Producto'}</div>
+                      {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
+                    </div>
+                    <div className="text-sm font-semibold sm:text-right">{moneyUsd(row.snapshot.lineUsd)}</div>
+                    <button
+                      type="button"
+                      onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
+                      className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/10"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+          <h3 className="font-semibold">Pago esperado</h3>
+          <label className="text-sm text-[#9FA0AA]">
+            Metodo
+            <select
+              value={paymentMethod}
+              onChange={(event) => setPaymentMethod(event.target.value)}
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            >
+              {QUICK_SALE_PAYMENT_METHODS.map((method) => (
+                <option key={method.code} value={method.code}>
+                  {method.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-[#9FA0AA]">
+            Moneda
+            <select
+              value={paymentCurrency}
+              onChange={(event) => setPaymentCurrency(event.target.value === 'VES' ? 'VES' : 'USD')}
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            >
+              <option value="VES">VES</option>
+              <option value="USD">USD</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={paymentRequiresChange}
+              onChange={(event) => setPaymentRequiresChange(event.target.checked)}
+            />
+            Requiere cambio
+          </label>
+          {paymentRequiresChange ? (
+            <div className="grid grid-cols-[1fr_90px] gap-2">
+              <input
+                value={paymentChangeFor}
+                onChange={(event) => setPaymentChangeFor(event.target.value)}
+                placeholder="Cambio para"
+                inputMode="decimal"
+                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+              <select
+                value={paymentChangeCurrency}
+                onChange={(event) => setPaymentChangeCurrency(event.target.value === 'VES' ? 'VES' : 'USD')}
+                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              >
+                <option value="USD">USD</option>
+                <option value="VES">VES</option>
+              </select>
+            </div>
+          ) : null}
+          <label className="text-sm text-[#9FA0AA]">
+            Nota de pago
+            <input
+              value={paymentNote}
+              onChange={(event) => setPaymentNote(event.target.value)}
+              placeholder="Opcional"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+            />
+          </label>
+
+          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-4">
+            <div className="text-sm text-[#9FA0AA]">Total</div>
+            <div className="mt-1 text-2xl font-semibold">{moneyUsd(totals.totalUsd)}</div>
+            <div className="mt-1 text-sm font-semibold text-[#C7C8D1]">{moneyBs(totals.totalBs)}</div>
+          </div>
+
+          <button
+            type="button"
+            onClick={submitQuickSale}
+            disabled={isWorking || activeBsRate <= 0 || cartItems.length === 0}
+            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isWorking ? 'Creando...' : 'Crear y enviar a cocina'}
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
