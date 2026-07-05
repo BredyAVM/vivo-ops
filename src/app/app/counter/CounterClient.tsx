@@ -723,6 +723,13 @@ function OrderDetail({
   onCreatePaymentReport: (order: CounterOrder, input: CounterPaymentReportInput) => void;
 }) {
   const paid = order.balanceUsd <= 0.005;
+  const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
+  const hasPendingBalance = order.balanceUsd > 0.005;
+  const hasPendingReports = order.reports.pending > 0;
+  const primaryActionBlocked = isDeliverySettlement && (hasPendingBalance || hasPendingReports);
+  const primaryActionBlockedMessage = hasPendingBalance
+    ? 'Primero registra el cobro recibido del motorizado.'
+    : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
 
   return (
@@ -803,6 +810,48 @@ function OrderDetail({
             </div>
           ) : null}
 
+          {isDeliverySettlement ? (
+            <div className="rounded-[8px] border border-sky-400/30 bg-sky-950/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-sky-100">Liquidacion de delivery</h3>
+                  <p className="mt-1 text-sm text-sky-100/70">
+                    Registra el retorno del motorizado antes de marcar la orden como entregada.
+                  </p>
+                </div>
+                <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1 text-xs font-semibold text-sky-100">
+                  En camino
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <Metric
+                  label="Por cobrar"
+                  value={moneyUsd(order.balanceUsd)}
+                  tone={hasPendingBalance ? 'warn' : 'good'}
+                />
+                <Metric label="Metodo esperado" value={getPaymentMethodLabel(order.paymentMethod)} />
+                <Metric
+                  label="Pagos por revisar"
+                  value={String(order.reports.pending)}
+                  tone={hasPendingReports ? 'warn' : 'good'}
+                />
+              </div>
+              {order.paymentRequiresChange ? (
+                <div className="mt-3 rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-sm text-[#C7C8D1]">
+                  Cambio indicado: {order.paymentChangeFor || '-'} {order.paymentChangeCurrency || ''}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setPaymentOpen(true)}
+                disabled={!hasPendingBalance && !hasPendingReports}
+                className="mt-4 w-full rounded-[8px] border border-sky-300/50 bg-sky-300/10 px-4 py-3 text-sm font-bold text-sky-100 transition hover:bg-sky-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Registrar retorno / cobro
+              </button>
+            </div>
+          ) : null}
+
           {order.notes ? (
             <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
               <h3 className="font-semibold">Notas</h3>
@@ -815,17 +864,22 @@ function OrderDetail({
           <button
             type="button"
             onClick={() => onPrimaryDeliveryAction(order)}
-            disabled={isWorking}
-            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+            disabled={isWorking || primaryActionBlocked}
+            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isWorking ? 'Guardando...' : primaryCounterActionLabel(order)}
           </button>
+          {primaryActionBlocked ? (
+            <div className="rounded-[8px] border border-orange-400/30 bg-orange-950/20 p-3 text-xs leading-relaxed text-orange-100">
+              {primaryActionBlockedMessage}
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => setPaymentOpen((current) => !current)}
             className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
           >
-            {paymentOpen ? 'Ocultar pago' : 'Registrar pago'}
+            {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Registrar retorno / cobro' : 'Registrar pago'}
           </button>
           <ActionButton label="Dar cambio" />
           <ActionButton label="Agregar producto" />
