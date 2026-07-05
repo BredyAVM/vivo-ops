@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { ModulePreference } from '../ModulePreference';
 import {
@@ -38,7 +38,7 @@ export type CounterOrder = {
   id: number;
   orderNumber: string;
   displayNumber: string;
-  status: 'ready';
+  status: 'ready' | 'out_for_delivery';
   fulfillment: 'pickup' | 'delivery';
   clientName: string;
   clientPhone: string | null;
@@ -97,12 +97,13 @@ type CounterChangeLineDraft = {
   exchangeRate: string;
 };
 
-type CounterFilter = 'all' | 'pickup' | 'delivery' | 'pending' | 'paid';
+type CounterFilter = 'all' | 'pickup' | 'delivery' | 'route' | 'pending' | 'paid';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
   { key: 'all', label: 'Todos' },
   { key: 'pickup', label: 'Pickup' },
   { key: 'delivery', label: 'Delivery' },
+  { key: 'route', label: 'En camino' },
   { key: 'pending', label: 'Por cobrar' },
   { key: 'paid', label: 'Pagados' },
 ];
@@ -176,6 +177,17 @@ function fulfillmentLabel(value: CounterOrder['fulfillment']) {
   return value === 'delivery' ? 'Delivery' : 'Pickup';
 }
 
+function counterStatusClass(order: CounterOrder) {
+  if (order.status === 'out_for_delivery') return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
+  return 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]';
+}
+
+function primaryCounterActionLabel(order: CounterOrder) {
+  if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
+  if (order.fulfillment === 'delivery' && order.status === 'out_for_delivery') return 'Marcar entregada';
+  return 'Entregar pickup';
+}
+
 function scheduleLabel(order: CounterOrder) {
   if (order.scheduledDate && order.scheduledTime) return `${order.scheduledDate} - ${order.scheduledTime}`;
   if (order.scheduledDate) return order.scheduledDate;
@@ -199,6 +211,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
   const stats = useMemo(() => {
     const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
     const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
+    const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
     const pendingUsd = localOrders.reduce((sum, order) => sum + Math.max(0, order.balanceUsd), 0);
     const paid = localOrders.filter((order) => order.balanceUsd <= 0.005).length;
 
@@ -206,6 +219,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       total: localOrders.length,
       pickup,
       delivery,
+      route,
       pendingUsd,
       paid,
     };
@@ -217,6 +231,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
     return localOrders.filter((order) => {
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
+      if (filter === 'route' && order.status !== 'out_for_delivery') return false;
       if (filter === 'pending' && order.balanceUsd <= 0.005) return false;
       if (filter === 'paid' && order.balanceUsd > 0.005) return false;
 
@@ -245,19 +260,31 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
     });
   }
 
+  function updateLocalOrderStatus(orderId: number, status: CounterOrder['status']) {
+    setLocalOrders((current) =>
+      current.map((order) => (order.id === orderId ? { ...order, status } : order))
+    );
+  }
+
   function handlePrimaryDeliveryAction(order: CounterOrder) {
     setMessage(null);
     setWorkingOrderId(order.id);
     startTransition(async () => {
       try {
-        if (order.fulfillment === 'delivery') {
+        if (order.fulfillment === 'delivery' && order.status === 'ready') {
           await outForDeliveryAction({ orderId: order.id });
-          completeLocalOrder(order.id);
+          updateLocalOrderStatus(order.id, 'out_for_delivery');
           setMessage({ tone: 'success', text: `Orden #${order.displayNumber} enviada a delivery.` });
         } else {
           await markDeliveredAction({ orderId: order.id });
           completeLocalOrder(order.id);
-          setMessage({ tone: 'success', text: `Orden #${order.displayNumber} retirada por el cliente.` });
+          setMessage({
+            tone: 'success',
+            text:
+              order.fulfillment === 'pickup'
+                ? `Orden #${order.displayNumber} retirada por el cliente.`
+                : `Orden #${order.displayNumber} marcada como entregada.`,
+          });
         }
         router.refresh();
       } catch (error) {
@@ -455,10 +482,11 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid gap-3 lg:grid-cols-5">
-          <Summary label="Listos" value={String(stats.total)} />
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <Summary label="Activos" value={String(stats.total)} />
           <Summary label="Pickup" value={String(stats.pickup)} />
           <Summary label="Delivery" value={String(stats.delivery)} />
+          <Summary label="En camino" value={String(stats.route)} />
           <Summary label="Pagados" value={String(stats.paid)} tone="good" />
           <Summary label="Por cobrar" value={moneyUsd(stats.pendingUsd)} tone={stats.pendingUsd > 0 ? 'warn' : 'good'} />
         </div>
@@ -481,9 +509,9 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
             <div className="border-b border-[#242433] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h1 className="text-lg font-semibold">Pedidos listos</h1>
+                  <h1 className="text-lg font-semibold">Pedidos de mostrador</h1>
                   <p className="text-sm text-[#9FA0AA]">
-                    Cocina ya los marco listos. Mostrador decide entrega y cobro.
+                    Listos para entregar o en camino para liquidar al regreso.
                   </p>
                 </div>
                 <span className="rounded-full border border-[#303044] px-3 py-1 text-xs text-[#C7C8D1]">
@@ -542,6 +570,9 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
                             <span className="text-base font-semibold">#{order.displayNumber}</span>
                             <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
                               {fulfillmentLabel(order.fulfillment)}
+                            </span>
+                            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', counterStatusClass(order)].join(' ')}>
+                              {getOperationalStatusLabel(order)}
                             </span>
                             <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', paymentClass(order)].join(' ')}>
                               {paymentLabel(order)}
@@ -620,8 +651,8 @@ function OrderDetail({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-semibold">Orden #{order.displayNumber}</h2>
-              <span className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1 text-sm font-semibold text-[#FEEF00]">
-                Lista
+              <span className={['rounded-full border px-3 py-1 text-sm font-semibold', counterStatusClass(order)].join(' ')}>
+                {getOperationalStatusLabel(order)}
               </span>
               <span className="rounded-full border border-[#303044] px-3 py-1 text-sm text-[#C7C8D1]">
                 {fulfillmentLabel(order.fulfillment)}
@@ -706,11 +737,7 @@ function OrderDetail({
             disabled={isWorking}
             className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
           >
-            {isWorking
-              ? 'Guardando...'
-              : order.fulfillment === 'delivery'
-                ? 'Entregar a motorizado'
-                : 'Entregar pickup'}
+            {isWorking ? 'Guardando...' : primaryCounterActionLabel(order)}
           </button>
           <button
             type="button"
@@ -722,7 +749,7 @@ function OrderDetail({
           <ActionButton label="Dar cambio" />
           <ActionButton label="Agregar producto" />
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
-            Este bloque ya actualiza entrega. Siguiente: pago, caja, punto, cambio y modificacion rapida.
+            Para delivery, esta vista mantiene la orden hasta que se marque entregada y se liquide el cobro.
           </div>
         </aside>
       </div>

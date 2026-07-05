@@ -20,7 +20,7 @@ export const revalidate = 0;
 type RawCounterOrder = {
   id: number;
   order_number: string | null;
-  status: 'ready';
+  status: 'ready' | 'out_for_delivery';
   fulfillment: 'pickup' | 'delivery';
   delivery_address: string | null;
   total_usd: number | string | null;
@@ -169,7 +169,7 @@ export default async function CounterPage() {
           'client:clients(full_name, phone)',
         ].join(', ')
       )
-      .eq('status', 'ready')
+      .in('status', ['ready', 'out_for_delivery'])
       .order('ready_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(120),
