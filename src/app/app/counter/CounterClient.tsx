@@ -269,6 +269,40 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
 
   const selectedOrder =
     localOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0] ?? localOrders[0] ?? null;
+  const orderSections = useMemo(() => {
+    if (filter !== 'all') {
+      const filterLabel = FILTERS.find((item) => item.key === filter)?.label ?? 'Resultados';
+      return [
+        {
+          key: `filter-${filter}`,
+          title: filterLabel,
+          helper: 'Pedidos que coinciden con el filtro actual.',
+          orders: filteredOrders,
+        },
+      ];
+    }
+
+    return [
+      {
+        key: 'pickup-ready',
+        title: 'Pickup listo',
+        helper: 'Cliente en mostrador o por retirar.',
+        orders: filteredOrders.filter((order) => order.fulfillment === 'pickup' && order.status === 'ready'),
+      },
+      {
+        key: 'delivery-ready',
+        title: 'Delivery listo',
+        helper: 'Entregar al motorizado y preparar cambio si aplica.',
+        orders: filteredOrders.filter((order) => order.fulfillment === 'delivery' && order.status === 'ready'),
+      },
+      {
+        key: 'delivery-route',
+        title: 'En camino',
+        helper: 'Liquidar cobro al regreso del motorizado.',
+        orders: filteredOrders.filter((order) => order.status === 'out_for_delivery'),
+      },
+    ].filter((section) => section.orders.length > 0);
+  }, [filter, filteredOrders]);
 
   function completeLocalOrder(orderId: number) {
     setLocalOrders((current) => {
@@ -637,51 +671,29 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
                   No hay pedidos listos con este filtro.
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {filteredOrders.map((order) => (
-                    <button
-                      key={order.id}
-                      type="button"
-                      onClick={() => setSelectedOrderId(order.id)}
-                      className={[
-                        'w-full rounded-[8px] border p-3 text-left transition',
-                        selectedOrder?.id === order.id
-                          ? 'border-[#FEEF00] bg-[#FEEF00]/8'
-                          : 'border-[#242433] bg-[#0B0B0D] hover:border-[#3D3D52]',
-                      ].join(' ')}
-                    >
-                      <div className="flex items-start justify-between gap-3">
+                <div className="space-y-3">
+                  {orderSections.map((section) => (
+                    <div key={section.key} className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-2">
+                      <div className="flex items-start justify-between gap-3 px-2 pb-2 pt-1">
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-base font-semibold">#{order.displayNumber}</span>
-                            <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
-                              {fulfillmentLabel(order.fulfillment)}
-                            </span>
-                            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', counterStatusClass(order)].join(' ')}>
-                              {getOperationalStatusLabel(order)}
-                            </span>
-                            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', paymentClass(order)].join(' ')}>
-                              {paymentLabel(order)}
-                            </span>
-                            {order.paymentRequiresChange ? (
-                              <span className="rounded-full border border-orange-300/40 bg-orange-300/10 px-2 py-0.5 text-xs font-semibold text-orange-200">
-                                Cambio
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-1 truncate text-sm font-semibold text-[#F5F5F7]">{order.clientName}</div>
-                          <div className="mt-1 text-xs text-[#9FA0AA]">{scheduleLabel(order)}</div>
+                          <div className="text-sm font-semibold text-[#F5F5F7]">{section.title}</div>
+                          <div className="mt-0.5 text-xs text-[#9FA0AA]">{section.helper}</div>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <div className="text-sm font-semibold">{moneyUsd(order.totalUsd)}</div>
-                          {order.balanceUsd > 0.005 ? (
-                            <div className="text-xs font-semibold text-orange-300">Debe {moneyUsd(order.balanceUsd)}</div>
-                          ) : (
-                            <div className="text-xs font-semibold text-emerald-300">OK</div>
-                          )}
-                        </div>
+                        <span className="shrink-0 rounded-full border border-[#303044] px-2 py-0.5 text-xs font-semibold text-[#C7C8D1]">
+                          {section.orders.length}
+                        </span>
                       </div>
-                    </button>
+                      <div className="space-y-2">
+                        {section.orders.map((order) => (
+                          <CounterOrderCard
+                            key={order.id}
+                            order={order}
+                            selected={selectedOrder?.id === order.id}
+                            onSelect={() => setSelectedOrderId(order.id)}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -704,6 +716,61 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
         </div>
       </section>
     </main>
+  );
+}
+
+function CounterOrderCard({
+  order,
+  selected,
+  onSelect,
+}: {
+  order: CounterOrder;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={[
+        'w-full rounded-[8px] border p-3 text-left transition',
+        selected
+          ? 'border-[#FEEF00] bg-[#FEEF00]/8'
+          : 'border-[#242433] bg-[#111118] hover:border-[#3D3D52]',
+      ].join(' ')}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-base font-semibold">#{order.displayNumber}</span>
+            <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+              {fulfillmentLabel(order.fulfillment)}
+            </span>
+            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', counterStatusClass(order)].join(' ')}>
+              {getOperationalStatusLabel(order)}
+            </span>
+            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', paymentClass(order)].join(' ')}>
+              {paymentLabel(order)}
+            </span>
+            {order.paymentRequiresChange ? (
+              <span className="rounded-full border border-orange-300/40 bg-orange-300/10 px-2 py-0.5 text-xs font-semibold text-orange-200">
+                Cambio
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 truncate text-sm font-semibold text-[#F5F5F7]">{order.clientName}</div>
+          <div className="mt-1 text-xs text-[#9FA0AA]">{scheduleLabel(order)}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-sm font-semibold">{moneyUsd(order.totalUsd)}</div>
+          {order.balanceUsd > 0.005 ? (
+            <div className="text-xs font-semibold text-orange-300">Debe {moneyUsd(order.balanceUsd)}</div>
+          ) : (
+            <div className="text-xs font-semibold text-emerald-300">OK</div>
+          )}
+        </div>
+      </div>
+    </button>
   );
 }
 
