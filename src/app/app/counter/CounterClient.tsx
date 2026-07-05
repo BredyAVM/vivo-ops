@@ -52,7 +52,10 @@ export type CounterOrder = {
   id: number;
   orderNumber: string;
   displayNumber: string;
-  status: 'ready' | 'out_for_delivery';
+  status: 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  source: string | null;
+  isCounterSale: boolean;
+  isCounterScheduled: boolean;
   fulfillment: 'pickup' | 'delivery';
   clientName: string;
   clientPhone: string | null;
@@ -138,10 +141,11 @@ type CounterQuickSaleCartItem = {
   notes: string;
 };
 
-type CounterFilter = 'all' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
+type CounterFilter = 'all' | 'agenda' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
   { key: 'all', label: 'Todos' },
+  { key: 'agenda', label: 'Agenda counter' },
   { key: 'pickup', label: 'Pickup' },
   { key: 'delivery', label: 'Delivery' },
   { key: 'route', label: 'En camino' },
@@ -231,10 +235,14 @@ function fulfillmentLabel(value: CounterOrder['fulfillment']) {
 
 function counterStatusClass(order: CounterOrder) {
   if (order.status === 'out_for_delivery') return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
+  if (order.status === 'in_kitchen') return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
+  if (order.status === 'confirmed') return 'border-orange-400/40 bg-orange-400/10 text-orange-200';
   return 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]';
 }
 
 function primaryCounterActionLabel(order: CounterOrder) {
+  if (order.status === 'confirmed') return 'En cola de cocina';
+  if (order.status === 'in_kitchen') return 'En preparacion';
   if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
   if (order.fulfillment === 'delivery' && order.status === 'out_for_delivery') return 'Marcar entregada';
   return 'Entregar pickup';
@@ -252,6 +260,10 @@ function scheduleLabel(order: CounterOrder) {
   if (order.scheduledDate && order.scheduledTime) return `${order.scheduledDate} - ${order.scheduledTime}`;
   if (order.scheduledDate) return order.scheduledDate;
   return formatDateTime(order.createdAt);
+}
+
+function isCounterAgendaOrder(order: CounterOrder) {
+  return order.isCounterSale && (order.status === 'confirmed' || order.status === 'in_kitchen');
 }
 
 export default function CounterClient({
@@ -278,6 +290,7 @@ export default function CounterClient({
   const stats = useMemo(() => {
     const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
     const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
+    const agenda = localOrders.filter(isCounterAgendaOrder).length;
     const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
     const change = localOrders.filter((order) => order.paymentRequiresChange).length;
     const unassignedDelivery = localOrders.filter(
@@ -290,6 +303,7 @@ export default function CounterClient({
       total: localOrders.length,
       pickup,
       delivery,
+      agenda,
       route,
       change,
       unassignedDelivery,
@@ -303,6 +317,7 @@ export default function CounterClient({
 
     return localOrders.filter((order) => {
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
+      if (filter === 'agenda' && !isCounterAgendaOrder(order)) return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
       if (filter === 'route' && order.status !== 'out_for_delivery') return false;
       if (filter === 'change' && !order.paymentRequiresChange) return false;
@@ -339,6 +354,12 @@ export default function CounterClient({
     }
 
     return [
+      {
+        key: 'counter-agenda',
+        title: 'Agenda counter',
+        helper: 'Ventas de mostrador aun en cola o preparacion.',
+        orders: filteredOrders.filter(isCounterAgendaOrder),
+      },
       {
         key: 'pickup-ready',
         title: 'Pickup listo',
@@ -634,6 +655,9 @@ export default function CounterClient({
     fulfillment: 'pickup' | 'delivery';
     deliveryAddress: string;
     note: string;
+    scheduleAsap: boolean;
+    scheduledDate: string;
+    scheduledTime: string;
     paymentMethod: string;
     paymentCurrency: 'USD' | 'VES';
     paymentRequiresChange: boolean;
@@ -702,6 +726,7 @@ export default function CounterClient({
       <section className="mx-auto max-w-7xl px-5 py-5">
         <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
           <Summary label="Activos" value={String(stats.total)} />
+          <Summary label="Agenda" value={String(stats.agenda)} tone={stats.agenda > 0 ? 'warn' : 'neutral'} />
           <Summary label="Pickup" value={String(stats.pickup)} />
           <Summary label="Delivery" value={String(stats.delivery)} />
           <Summary label="En camino" value={String(stats.route)} />
@@ -925,6 +950,9 @@ function CounterQuickSalePanel({
     fulfillment: 'pickup' | 'delivery';
     deliveryAddress: string;
     note: string;
+    scheduleAsap: boolean;
+    scheduledDate: string;
+    scheduledTime: string;
     paymentMethod: string;
     paymentCurrency: 'USD' | 'VES';
     paymentRequiresChange: boolean;
@@ -939,6 +967,9 @@ function CounterQuickSalePanel({
   const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [note, setNote] = useState('');
+  const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now');
+  const [scheduledDate, setScheduledDate] = useState(getTodayKey());
+  const [scheduledTime, setScheduledTime] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('pos');
   const [paymentCurrency, setPaymentCurrency] = useState<'USD' | 'VES'>('VES');
   const [paymentRequiresChange, setPaymentRequiresChange] = useState(false);
@@ -1045,6 +1076,10 @@ function CounterQuickSalePanel({
       setLocalError('Indica la direccion para delivery.');
       return;
     }
+    if (scheduleMode === 'scheduled' && (!scheduledDate || !scheduledTime)) {
+      setLocalError('Indica fecha y hora para agendar el pedido.');
+      return;
+    }
     if (cartItems.length === 0) {
       setLocalError('Agrega al menos un producto.');
       return;
@@ -1056,6 +1091,9 @@ function CounterQuickSalePanel({
       fulfillment,
       deliveryAddress: deliveryAddress.trim(),
       note: note.trim(),
+      scheduleAsap: scheduleMode === 'now',
+      scheduledDate,
+      scheduledTime,
       paymentMethod,
       paymentCurrency,
       paymentRequiresChange,
@@ -1156,6 +1194,58 @@ function CounterQuickSalePanel({
               className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
           </label>
+          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setScheduleMode('now')}
+                className={[
+                  'rounded-[8px] border px-3 py-2 text-sm font-semibold',
+                  scheduleMode === 'now'
+                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                    : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
+                ].join(' ')}
+              >
+                Ahora
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleMode('scheduled')}
+                className={[
+                  'rounded-[8px] border px-3 py-2 text-sm font-semibold',
+                  scheduleMode === 'scheduled'
+                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                    : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
+                ].join(' ')}
+              >
+                Agendar
+              </button>
+            </div>
+            {scheduleMode === 'scheduled' ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="text-sm text-[#9FA0AA]">
+                  Fecha
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(event) => setScheduledDate(event.target.value)}
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+                <label className="text-sm text-[#9FA0AA]">
+                  Hora
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(event) => setScheduledTime(event.target.value)}
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-[#9FA0AA]">Se envia a cocina con la hora actual.</div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
@@ -1333,15 +1423,18 @@ function OrderDetail({
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
   const deliveryReadyWithoutAssignee =
     order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
+  const notReadyForCounter = order.status === 'confirmed' || order.status === 'in_kitchen';
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
   const primaryActionBlocked =
-    deliveryReadyWithoutAssignee || (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
-  const primaryActionBlockedMessage = deliveryReadyWithoutAssignee
-    ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
-    : hasPendingBalance
-      ? 'Primero registra el cobro recibido del motorizado.'
-      : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
+    notReadyForCounter || deliveryReadyWithoutAssignee || (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
+  const primaryActionBlockedMessage = notReadyForCounter
+    ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
+    : deliveryReadyWithoutAssignee
+      ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
+      : hasPendingBalance
+        ? 'Primero registra el cobro recibido del motorizado.'
+        : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
 
   return (

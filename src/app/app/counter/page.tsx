@@ -21,7 +21,8 @@ export const revalidate = 0;
 type RawCounterOrder = {
   id: number;
   order_number: string | null;
-  status: 'ready' | 'out_for_delivery';
+  status: 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  source: string | null;
   fulfillment: 'pickup' | 'delivery';
   delivery_address: string | null;
   delivery_mode: string | null;
@@ -55,6 +56,10 @@ type RawCounterOrder = {
       rounding_gain_close?: {
         closed_balance_usd?: number | string | null;
       } | null;
+    } | null;
+    counter?: {
+      quick_sale?: boolean | null;
+      scheduled_by_counter?: boolean | null;
     } | null;
     pricing?: {
       fx_rate?: number | string | null;
@@ -188,6 +193,7 @@ export default async function CounterPage() {
           'id',
           'order_number',
           'status',
+          'source',
           'fulfillment',
           'delivery_address',
           'delivery_mode',
@@ -204,7 +210,7 @@ export default async function CounterPage() {
           'client:clients(full_name, phone)',
         ].join(', ')
       )
-      .in('status', ['ready', 'out_for_delivery'])
+      .in('status', ['confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
       .order('ready_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(120),
@@ -433,6 +439,9 @@ export default async function CounterPage() {
       orderNumber: order.order_number || String(order.id),
       displayNumber: formatOrderDisplayNumber(order.id),
       status: order.status,
+      source: order.source || null,
+      isCounterSale: order.source === 'walk_in' || Boolean(order.extra_fields?.counter?.quick_sale),
+      isCounterScheduled: Boolean(order.extra_fields?.counter?.scheduled_by_counter),
       fulfillment: order.fulfillment,
       clientName: client?.full_name || 'Cliente',
       clientPhone: client?.phone || null,

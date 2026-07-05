@@ -12,6 +12,9 @@ type CounterQuickSaleInput = {
   fulfillment: 'pickup' | 'delivery';
   deliveryAddress: string;
   note: string;
+  scheduleAsap: boolean;
+  scheduledDate: string;
+  scheduledTime: string;
   paymentMethod: string;
   paymentCurrency: 'USD' | 'VES';
   paymentRequiresChange: boolean;
@@ -85,6 +88,44 @@ function getCaracasDateParts() {
     date: `${get('year')}-${get('month')}-${get('day')}`,
     time24: `${pad2(hour)}:${pad2(minute)}`,
     time12: `${hour12}:${pad2(minute)} ${ampm}`,
+  };
+}
+
+function normalizeSchedule(input: CounterQuickSaleInput) {
+  const current = getCaracasDateParts();
+  if (input.scheduleAsap) {
+    return {
+      date: current.date,
+      time24: current.time24,
+      time12: current.time12,
+      asap: true,
+    };
+  }
+
+  const date = String(input.scheduledDate || '').trim();
+  const time24 = String(input.scheduledTime || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error('Indica una fecha valida para agendar el pedido.');
+  }
+  if (!/^\d{2}:\d{2}$/.test(time24)) {
+    throw new Error('Indica una hora valida para agendar el pedido.');
+  }
+
+  const [rawHour, rawMinute] = time24.split(':');
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+    throw new Error('Indica una hora valida para agendar el pedido.');
+  }
+
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+
+  return {
+    date,
+    time24,
+    time12: `${hour12}:${pad2(minute)} ${ampm}`,
+    asap: false,
   };
 }
 
@@ -216,7 +257,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   const totals = calculateOrderTotalsSnapshot({ subtotalUsd, subtotalBs, discountPct: 0, invoiceTaxPct: 0 });
   const orderNumber = await generateUniqueOrderNumber(supabase);
   const nowIso = new Date().toISOString();
-  const schedule = getCaracasDateParts();
+  const schedule = normalizeSchedule(input);
   const paymentChangeFor = String(input.paymentChangeFor || '').trim()
     ? toSafeNumber(String(input.paymentChangeFor).replace(',', '.'), 0)
     : null;
@@ -279,6 +320,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
     counter: {
       quick_sale: true,
       created_at: nowIso,
+      scheduled_by_counter: !schedule.asap,
     },
   };
 
