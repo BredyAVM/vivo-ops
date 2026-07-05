@@ -891,8 +891,17 @@ function OrderDetail({
           >
             {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Registrar retorno / cobro' : 'Registrar pago'}
           </button>
-          <ActionButton label="Dar cambio" />
-          <ActionButton label="Agregar producto" />
+          {order.paymentRequiresChange ? (
+            <ActionHint
+              title="Preparar cambio"
+              text={`Cambio para ${order.paymentChangeFor || '-'} ${order.paymentChangeCurrency || ''}. El egreso se registra al liquidar el cobro.`}
+              tone="warn"
+            />
+          ) : null}
+          <ActionHint
+            title="Agregar productos"
+            text="Pendiente del siguiente bloque: ampliar o modificar la orden desde mostrador."
+          />
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
             Para delivery, esta vista mantiene la orden hasta que se marque entregada y se liquide el cobro.
           </div>
@@ -1422,14 +1431,24 @@ function Metric({
   );
 }
 
-function ActionButton({ label }: { label: string }) {
+function ActionHint({
+  title,
+  text,
+  tone = 'neutral',
+}: {
+  title: string;
+  text: string;
+  tone?: 'neutral' | 'warn';
+}) {
+  const toneClass =
+    tone === 'warn'
+      ? 'border-orange-300/30 bg-orange-950/20 text-orange-100'
+      : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]';
+
   return (
-    <button
-      type="button"
-      disabled
-      className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm font-semibold text-[#777987]"
-    >
-      {label}
-    </button>
+    <div className={['rounded-[8px] border p-3 text-xs leading-relaxed', toneClass].join(' ')}>
+      <div className="text-sm font-semibold text-[#F5F5F7]">{title}</div>
+      <div className="mt-1">{text}</div>
+    </div>
   );
 }
