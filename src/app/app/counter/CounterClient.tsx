@@ -43,6 +43,10 @@ export type CounterOrder = {
   clientName: string;
   clientPhone: string | null;
   deliveryAddress: string | null;
+  deliveryMode: string | null;
+  deliveryAssigneeKind: 'internal' | 'external' | null;
+  deliveryAssigneeName: string | null;
+  externalReference: string | null;
   notes: string | null;
   createdAt: string;
   readyAt: string | null;
@@ -203,6 +207,14 @@ function primaryCounterActionLabel(order: CounterOrder) {
   return 'Entregar pickup';
 }
 
+function deliveryAssigneeLabel(order: CounterOrder) {
+  if (order.fulfillment !== 'delivery') return null;
+  if (!order.deliveryAssigneeName) return 'Sin asignar';
+  return order.deliveryAssigneeKind === 'external'
+    ? `Externo: ${order.deliveryAssigneeName}`
+    : `Interno: ${order.deliveryAssigneeName}`;
+}
+
 function scheduleLabel(order: CounterOrder) {
   if (order.scheduledDate && order.scheduledTime) return `${order.scheduledDate} - ${order.scheduledTime}`;
   if (order.scheduledDate) return order.scheduledDate;
@@ -228,6 +240,9 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
     const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
     const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
     const change = localOrders.filter((order) => order.paymentRequiresChange).length;
+    const unassignedDelivery = localOrders.filter(
+      (order) => order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName
+    ).length;
     const pendingUsd = localOrders.reduce((sum, order) => sum + Math.max(0, order.balanceUsd), 0);
     const paid = localOrders.filter((order) => order.balanceUsd <= 0.005).length;
 
@@ -237,6 +252,7 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       delivery,
       route,
       change,
+      unassignedDelivery,
       pendingUsd,
       paid,
     };
@@ -601,12 +617,13 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
           <Summary label="Activos" value={String(stats.total)} />
           <Summary label="Pickup" value={String(stats.pickup)} />
           <Summary label="Delivery" value={String(stats.delivery)} />
           <Summary label="En camino" value={String(stats.route)} />
           <Summary label="Con cambio" value={String(stats.change)} tone={stats.change > 0 ? 'warn' : 'good'} />
+          <Summary label="Sin driver" value={String(stats.unassignedDelivery)} tone={stats.unassignedDelivery > 0 ? 'warn' : 'good'} />
           <Summary label="Pagados" value={String(stats.paid)} tone="good" />
           <Summary label="Por cobrar" value={moneyUsd(stats.pendingUsd)} tone={stats.pendingUsd > 0 ? 'warn' : 'good'} />
         </div>
@@ -757,6 +774,18 @@ function CounterOrderCard({
                 Cambio
               </span>
             ) : null}
+            {order.fulfillment === 'delivery' ? (
+              <span
+                className={[
+                  'rounded-full border px-2 py-0.5 text-xs font-semibold',
+                  order.deliveryAssigneeName
+                    ? 'border-sky-300/40 bg-sky-300/10 text-sky-100'
+                    : 'border-red-300/40 bg-red-300/10 text-red-100',
+                ].join(' ')}
+              >
+                {deliveryAssigneeLabel(order)}
+              </span>
+            ) : null}
           </div>
           <div className="mt-1 truncate text-sm font-semibold text-[#F5F5F7]">{order.clientName}</div>
           <div className="mt-1 text-xs text-[#9FA0AA]">{scheduleLabel(order)}</div>
@@ -801,12 +830,17 @@ function OrderDetail({
 }) {
   const paid = order.balanceUsd <= 0.005;
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
+  const deliveryReadyWithoutAssignee =
+    order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
-  const primaryActionBlocked = isDeliverySettlement && (hasPendingBalance || hasPendingReports);
-  const primaryActionBlockedMessage = hasPendingBalance
-    ? 'Primero registra el cobro recibido del motorizado.'
-    : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
+  const primaryActionBlocked =
+    deliveryReadyWithoutAssignee || (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
+  const primaryActionBlockedMessage = deliveryReadyWithoutAssignee
+    ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
+    : hasPendingBalance
+      ? 'Primero registra el cobro recibido del motorizado.'
+      : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
 
   return (
@@ -883,7 +917,20 @@ function OrderDetail({
           {order.fulfillment === 'delivery' || order.deliveryAddress ? (
             <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
               <h3 className="font-semibold">Entrega</h3>
-              <div className="mt-2 text-sm text-[#C7C8D1]">{order.deliveryAddress || 'Sin direccion'}</div>
+              <div className="mt-2 grid gap-2 text-sm text-[#C7C8D1] sm:grid-cols-2">
+                <div className="sm:col-span-2">{order.deliveryAddress || 'Sin direccion'}</div>
+                {order.fulfillment === 'delivery' ? (
+                  <>
+                    <div>
+                      Asignacion:{' '}
+                      <span className={order.deliveryAssigneeName ? 'font-semibold text-[#F5F5F7]' : 'font-semibold text-red-200'}>
+                        {deliveryAssigneeLabel(order)}
+                      </span>
+                    </div>
+                    {order.externalReference ? <div>Ref. externa: {order.externalReference}</div> : null}
+                  </>
+                ) : null}
+              </div>
             </div>
           ) : null}
 
@@ -905,6 +952,11 @@ function OrderDetail({
                   label="Por cobrar"
                   value={moneyUsd(order.balanceUsd)}
                   tone={hasPendingBalance ? 'warn' : 'good'}
+                />
+                <Metric
+                  label="Motorizado"
+                  value={deliveryAssigneeLabel(order) || 'No aplica'}
+                  tone={order.deliveryAssigneeName ? 'neutral' : 'warn'}
                 />
                 <Metric label="Metodo esperado" value={getPaymentMethodLabel(order.paymentMethod)} />
                 <Metric

@@ -23,6 +23,11 @@ type RawCounterOrder = {
   status: 'ready' | 'out_for_delivery';
   fulfillment: 'pickup' | 'delivery';
   delivery_address: string | null;
+  delivery_mode: string | null;
+  internal_driver_user_id: string | null;
+  external_partner_id: number | string | null;
+  external_driver_name: string | null;
+  external_reference: string | null;
   total_usd: number | string | null;
   total_bs_snapshot: number | string | null;
   notes: string | null;
@@ -105,6 +110,16 @@ type RawPaymentRule = {
   is_active: boolean | null;
 };
 
+type RawDriverProfile = {
+  id: string;
+  full_name: string | null;
+};
+
+type RawDeliveryPartner = {
+  id: number;
+  name: string | null;
+};
+
 function normalizeClient(order: RawCounterOrder) {
   return Array.isArray(order.client) ? order.client[0] ?? null : order.client;
 }
@@ -160,6 +175,11 @@ export default async function CounterPage() {
           'status',
           'fulfillment',
           'delivery_address',
+          'delivery_mode',
+          'internal_driver_user_id',
+          'external_partner_id',
+          'external_driver_name',
+          'external_reference',
           'total_usd',
           'total_bs_snapshot',
           'notes',
@@ -211,6 +231,20 @@ export default async function CounterPage() {
 
   const rawOrders = (ordersData ?? []) as unknown as RawCounterOrder[];
   const orderIds = rawOrders.map((order) => order.id);
+  const internalDriverIds = Array.from(
+    new Set(
+      rawOrders
+        .map((order) => order.internal_driver_user_id)
+        .filter((id): id is string => Boolean(id && String(id).trim()))
+    )
+  );
+  const externalPartnerIds = Array.from(
+    new Set(
+      rawOrders
+        .map((order) => Number(order.external_partner_id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
   const accountsById = new Map<number, RawMoneyAccount>();
   for (const account of (accountsData ?? []) as unknown as RawMoneyAccount[]) {
     if (account.is_active) accountsById.set(account.id, account);
@@ -247,6 +281,8 @@ export default async function CounterPage() {
     { data: itemsData, error: itemsError },
     { data: movementsData, error: movementsError },
     { data: reportsData, error: reportsError },
+    { data: driversData, error: driversError },
+    { data: partnersData, error: partnersError },
   ] = await Promise.all(
     orderIds.length
       ? [
@@ -260,8 +296,16 @@ export default async function CounterPage() {
             .select('order_id, direction, status, amount_usd_equivalent')
             .in('order_id', orderIds),
           ctx.supabase.from('payment_reports').select('order_id, status').in('order_id', orderIds),
+          internalDriverIds.length
+            ? ctx.supabase.from('profiles').select('id, full_name').in('id', internalDriverIds)
+            : Promise.resolve({ data: [], error: null }),
+          externalPartnerIds.length
+            ? ctx.supabase.from('delivery_partners').select('id, name').in('id', externalPartnerIds)
+            : Promise.resolve({ data: [], error: null }),
         ]
       : [
+          Promise.resolve({ data: [], error: null }),
+          Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
@@ -277,6 +321,25 @@ export default async function CounterPage() {
   if (reportsError) {
     throw new Error(reportsError.message);
   }
+  if (driversError) {
+    throw new Error(driversError.message);
+  }
+  if (partnersError) {
+    throw new Error(partnersError.message);
+  }
+
+  const internalDriverNameById = new Map(
+    ((driversData ?? []) as RawDriverProfile[]).map((driver) => [
+      driver.id,
+      driver.full_name?.trim() || 'Motorizado interno',
+    ])
+  );
+  const deliveryPartnerNameById = new Map(
+    ((partnersData ?? []) as RawDeliveryPartner[]).map((partner) => [
+      Number(partner.id),
+      partner.name?.trim() || `Partner #${partner.id}`,
+    ])
+  );
 
   const itemsByOrder = new Map<number, CounterOrderItem[]>();
   for (const item of (itemsData ?? []) as RawCounterItem[]) {
@@ -319,6 +382,17 @@ export default async function CounterPage() {
     const balanceUsd = roundingClosure.isClosed
       ? 0
       : roundOrderMoney(Math.max(0, moneySnapshot.totalUsd - confirmedPaidUsd));
+    const internalDriverName = order.internal_driver_user_id
+      ? internalDriverNameById.get(order.internal_driver_user_id) ?? null
+      : null;
+    const externalPartnerName = order.external_partner_id
+      ? deliveryPartnerNameById.get(Number(order.external_partner_id)) ?? null
+      : null;
+    const deliveryAssigneeKind = internalDriverName
+      ? 'internal'
+      : externalPartnerName || order.external_driver_name
+        ? 'external'
+        : null;
 
     return {
       id: order.id,
@@ -329,6 +403,10 @@ export default async function CounterPage() {
       clientName: client?.full_name || 'Cliente',
       clientPhone: client?.phone || null,
       deliveryAddress: order.delivery_address,
+      deliveryMode: order.delivery_mode || null,
+      deliveryAssigneeKind,
+      deliveryAssigneeName: internalDriverName || externalPartnerName || order.external_driver_name || null,
+      externalReference: order.external_reference || null,
       notes: order.notes,
       createdAt: order.created_at,
       readyAt: order.ready_at,
