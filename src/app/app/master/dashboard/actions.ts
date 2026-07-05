@@ -2132,6 +2132,31 @@ export async function confirmPaymentReportAction(input: {
         throw new Error('Debes agregar al menos una linea de devolucion.');
       }
 
+      if (!isMasterOrAdmin) {
+        const changeAccountIds = Array.from(new Set(changeLines.map((line) => line.moneyAccountId)));
+        const { data: changeRules, error: changeRulesError } = await supabase
+          .from('money_account_payment_rules')
+          .select('money_account_id, payment_method_code')
+          .in('money_account_id', changeAccountIds)
+          .eq('is_active', true)
+          .in('role', roles)
+          .or('can_confirm_payment.eq.true,auto_confirms_report.eq.true');
+
+        if (changeRulesError) {
+          throw new Error(changeRulesError.message);
+        }
+
+        const allowedChangeAccounts = new Set(
+          (changeRules ?? [])
+            .filter((rule) => rule.payment_method_code === 'cash_usd' || rule.payment_method_code === 'cash_ves')
+            .map((rule) => Number(rule.money_account_id))
+        );
+
+        if (changeAccountIds.some((accountId) => !allowedChangeAccounts.has(accountId))) {
+          throw new Error('No tienes permiso para entregar cambio desde una de estas cuentas.');
+        }
+      }
+
       for (const line of changeLines) {
         if (line.currencyCode === 'VES' && (!line.exchangeRate || line.exchangeRate <= 0)) {
           throw new Error('Debes indicar una tasa valida para cada devolucion en Bs.');

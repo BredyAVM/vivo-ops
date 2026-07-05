@@ -80,6 +80,10 @@ type CounterPaymentReportInput = {
   bankName: string;
   payerName: string;
   notes: string;
+  overpaymentHandling: 'store_fund' | 'change_given';
+  changeAccountKey: string;
+  changeAmount: string;
+  changeExchangeRate: string;
 };
 
 type CounterFilter = 'all' | 'pickup' | 'delivery' | 'pending' | 'paid';
@@ -129,6 +133,14 @@ function getTodayKey() {
 
 function paymentAccountKey(account: CounterPaymentAccountOption) {
   return `${account.accountId}|${account.paymentMethodCode}`;
+}
+
+function toDecimalInput(value: string) {
+  return Number(String(value || '').replace(',', '.'));
+}
+
+function getPaymentAmountUsd(amount: number, account: CounterPaymentAccountOption, exchangeRate: number | null) {
+  return account.currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount;
 }
 
 function paymentLabel(order: CounterOrder) {
@@ -251,27 +263,48 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
       return;
     }
 
-    const amount = Number(String(input.amount || '').replace(',', '.'));
+    const amount = toDecimalInput(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setMessage({ tone: 'error', text: 'Indica un monto valido.' });
       return;
     }
 
     const exchangeRate =
-      account.currencyCode === 'VES' ? Number(String(input.exchangeRate || '').replace(',', '.')) : null;
+      account.currencyCode === 'VES' ? toDecimalInput(input.exchangeRate) : null;
     if (account.currencyCode === 'VES' && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       setMessage({ tone: 'error', text: 'Indica una tasa valida para pagos en bolivares.' });
       return;
     }
 
-    const reportedUsdEquivalent =
-      account.currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount;
-    if (account.autoConfirmsReport && reportedUsdEquivalent > order.balanceUsd + 0.005) {
-      setMessage({
-        tone: 'error',
-        text: 'Este pago supera el pendiente. El manejo de cambio o fondo va en el siguiente bloque.',
-      });
-      return;
+    const reportedUsdEquivalent = getPaymentAmountUsd(amount, account, exchangeRate);
+    const hasOverpayment = account.autoConfirmsReport && reportedUsdEquivalent > order.balanceUsd + 0.005;
+    let changeAccount: CounterPaymentAccountOption | null = null;
+    let changeAmount = 0;
+    let changeExchangeRate: number | null = null;
+
+    if (hasOverpayment && input.overpaymentHandling === 'change_given') {
+      changeAccount = paymentAccounts.find((item) => paymentAccountKey(item) === input.changeAccountKey) ?? null;
+
+      if (!changeAccount || (changeAccount.paymentMethodCode !== 'cash_usd' && changeAccount.paymentMethodCode !== 'cash_ves')) {
+        setMessage({ tone: 'error', text: 'Selecciona una caja de efectivo para entregar cambio.' });
+        return;
+      }
+
+      changeAmount = toDecimalInput(input.changeAmount);
+      if (!Number.isFinite(changeAmount) || changeAmount <= 0) {
+        setMessage({ tone: 'error', text: 'Indica un monto de cambio valido.' });
+        return;
+      }
+
+      changeExchangeRate =
+        changeAccount.currencyCode === 'VES' ? toDecimalInput(input.changeExchangeRate || input.exchangeRate) : null;
+      if (
+        changeAccount.currencyCode === 'VES' &&
+        (!changeExchangeRate || !Number.isFinite(changeExchangeRate) || changeExchangeRate <= 0)
+      ) {
+        setMessage({ tone: 'error', text: 'Indica una tasa valida para cambio en bolivares.' });
+        return;
+      }
     }
 
     const validationError = validatePaymentReportDetails({
@@ -323,8 +356,20 @@ export default function CounterClient({ fullName, orders, paymentAccounts }: Cou
             referenceCode: input.referenceCode.trim() || null,
             counterpartyName: order.clientName,
             description: `Pago mostrador orden ${order.displayNumber}`,
-            overpaymentHandling: null,
-            overpaymentNotes: null,
+            overpaymentHandling: hasOverpayment ? input.overpaymentHandling : null,
+            overpaymentNotes: input.notes.trim() || null,
+            changeLines:
+              hasOverpayment && input.overpaymentHandling === 'change_given' && changeAccount
+                ? [
+                    {
+                      moneyAccountId: changeAccount.accountId,
+                      currencyCode: changeAccount.currencyCode,
+                      amount: changeAmount,
+                      exchangeRateVesPerUsd: changeExchangeRate,
+                      notes: input.notes.trim() || null,
+                    },
+                  ]
+                : undefined,
           });
         }
 
@@ -686,8 +731,41 @@ function CounterPaymentBox({
   const [bankName, setBankName] = useState('');
   const [payerName, setPayerName] = useState('');
   const [notes, setNotes] = useState('');
+  const [overpaymentHandling, setOverpaymentHandling] = useState<'store_fund' | 'change_given'>('store_fund');
+  const changeAccounts = paymentAccounts.filter(
+    (account) => account.paymentMethodCode === 'cash_usd' || account.paymentMethodCode === 'cash_ves'
+  );
+  const firstChangeAccount = changeAccounts[0] ?? null;
+  const [changeAccountValue, setChangeAccountValue] = useState(
+    firstChangeAccount ? paymentAccountKey(firstChangeAccount) : ''
+  );
+  const selectedChangeAccount =
+    changeAccounts.find((item) => paymentAccountKey(item) === changeAccountValue) ?? firstChangeAccount;
+  const [changeAmount, setChangeAmount] = useState('');
+  const [changeExchangeRate, setChangeExchangeRate] = useState(
+    order.fxRate > 0 ? String(Number(order.fxRate.toFixed(2))) : ''
+  );
 
   const requirements = getPaymentReportRequirements(selectedAccount?.paymentMethodCode);
+  const currentAmount = toDecimalInput(amount);
+  const currentExchangeRate = selectedAccount?.currencyCode === 'VES' ? toDecimalInput(exchangeRate) : null;
+  const reportedUsd =
+    selectedAccount && Number.isFinite(currentAmount) && currentAmount > 0
+      ? getPaymentAmountUsd(currentAmount, selectedAccount, currentExchangeRate)
+      : 0;
+  const excessUsd = selectedAccount?.autoConfirmsReport
+    ? Math.max(0, Number((reportedUsd - order.balanceUsd).toFixed(2)))
+    : 0;
+  const selectedChangeExchangeRate =
+    selectedChangeAccount?.currencyCode === 'VES' ? toDecimalInput(changeExchangeRate) : null;
+  const changeUsd =
+    selectedChangeAccount && toDecimalInput(changeAmount) > 0
+      ? getPaymentAmountUsd(toDecimalInput(changeAmount), selectedChangeAccount, selectedChangeExchangeRate)
+      : 0;
+  const remainingAfterChangeUsd =
+    excessUsd > 0 && overpaymentHandling === 'change_given'
+      ? Number((excessUsd - changeUsd).toFixed(2))
+      : 0;
 
   useEffect(() => {
     if (!selectedAccount) return;
@@ -700,6 +778,25 @@ function CounterPaymentBox({
       setExchangeRate(String(Number(order.fxRate.toFixed(2))));
     }
   }, [order.balanceUsd, order.fxRate, selectedAccount?.accountId, selectedAccount?.currencyCode]);
+
+  useEffect(() => {
+    if (excessUsd <= 0 || overpaymentHandling !== 'change_given' || !selectedChangeAccount) return;
+
+    const nextAmount =
+      selectedChangeAccount.currencyCode === 'VES'
+        ? (excessUsd * Math.max(order.fxRate, 0)).toFixed(2)
+        : excessUsd.toFixed(2);
+    setChangeAmount(nextAmount);
+    if (selectedChangeAccount.currencyCode === 'VES' && order.fxRate > 0) {
+      setChangeExchangeRate(String(Number(order.fxRate.toFixed(2))));
+    }
+  }, [
+    excessUsd,
+    order.fxRate,
+    overpaymentHandling,
+    selectedChangeAccount?.accountId,
+    selectedChangeAccount?.currencyCode,
+  ]);
 
   if (paymentAccounts.length === 0) {
     return (
@@ -818,6 +915,103 @@ function CounterPaymentBox({
         </label>
       </div>
 
+      {excessUsd > 0.005 ? (
+        <div className="mt-4 rounded-[8px] border border-sky-400/30 bg-sky-400/10 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-sky-100">Excedente detectado: {moneyUsd(excessUsd)}</div>
+              <div className="mt-1 text-xs text-[#B9C4D6]">
+                Decide si queda en fondo del cliente o si se entrega cambio desde caja.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setOverpaymentHandling('store_fund')}
+              className={[
+                'rounded-full border px-3 py-1.5 text-sm font-semibold',
+                overpaymentHandling === 'store_fund'
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                  : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
+              ].join(' ')}
+            >
+              Guardar en fondo
+            </button>
+            <button
+              type="button"
+              onClick={() => setOverpaymentHandling('change_given')}
+              className={[
+                'rounded-full border px-3 py-1.5 text-sm font-semibold',
+                overpaymentHandling === 'change_given'
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                  : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
+              ].join(' ')}
+            >
+              Entregar cambio
+            </button>
+          </div>
+
+          {overpaymentHandling === 'change_given' ? (
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              <label className="text-sm text-[#9FA0AA]">
+                Caja de cambio
+                <select
+                  value={changeAccountValue}
+                  onChange={(event) => setChangeAccountValue(event.target.value)}
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                >
+                  {changeAccounts.length === 0 ? <option value="">Sin cajas disponibles</option> : null}
+                  {changeAccounts.map((account) => (
+                    <option key={paymentAccountKey(account)} value={paymentAccountKey(account)}>
+                      {account.accountName} - {getPaymentMethodLabel(account.paymentMethodCode)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-sm text-[#9FA0AA]">
+                Cambio {selectedChangeAccount?.currencyCode || ''}
+                <input
+                  value={changeAmount}
+                  onChange={(event) => setChangeAmount(event.target.value)}
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                />
+              </label>
+
+              {selectedChangeAccount?.currencyCode === 'VES' ? (
+                <label className="text-sm text-[#9FA0AA]">
+                  Tasa cambio
+                  <input
+                    value={changeExchangeRate}
+                    onChange={(event) => setChangeExchangeRate(event.target.value)}
+                    inputMode="decimal"
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+              ) : null}
+
+              {Math.abs(remainingAfterChangeUsd) > 0.005 ? (
+                <div
+                  className={[
+                    'rounded-[8px] border px-3 py-2 text-sm lg:col-span-3',
+                    remainingAfterChangeUsd > 0
+                      ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+                      : 'border-orange-400/40 bg-orange-400/10 text-orange-200',
+                  ].join(' ')}
+                >
+                  {remainingAfterChangeUsd > 0
+                    ? `Quedaran ${moneyUsd(remainingAfterChangeUsd)} en fondo del cliente.`
+                    : `Se entrega ${moneyUsd(Math.abs(remainingAfterChangeUsd))} mas de lo debido; la orden quedara pendiente por ese monto.`}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="mt-4 flex justify-end">
         <button
           type="button"
@@ -832,6 +1026,10 @@ function CounterPaymentBox({
               bankName,
               payerName,
               notes,
+              overpaymentHandling,
+              changeAccountKey: changeAccountValue,
+              changeAmount,
+              changeExchangeRate,
             })
           }
           className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
