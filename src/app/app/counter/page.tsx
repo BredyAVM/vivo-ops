@@ -99,6 +99,7 @@ type RawPaymentRule = {
   role: string;
   payment_method_code: string | null;
   can_report_payment: boolean | null;
+  can_confirm_payment: boolean | null;
   auto_confirms_report: boolean | null;
   review_required: boolean | null;
   is_active: boolean | null;
@@ -185,14 +186,15 @@ export default async function CounterPage() {
           'role',
           'payment_method_code',
           'can_report_payment',
+          'can_confirm_payment',
           'auto_confirms_report',
           'review_required',
           'is_active',
         ].join(', ')
       )
       .eq('role', 'counter')
-      .eq('can_report_payment', true)
       .eq('is_active', true)
+      .or('can_report_payment.eq.true,can_confirm_payment.eq.true,auto_confirms_report.eq.true')
       .order('money_account_id', { ascending: true })
       .order('payment_method_code', { ascending: true }),
   ]);
@@ -216,7 +218,13 @@ export default async function CounterPage() {
 
   const paymentAccounts: CounterPaymentAccountOption[] = [];
   for (const rule of (rulesData ?? []) as unknown as RawPaymentRule[]) {
-    if (!rule.is_active || !rule.can_report_payment || rule.role !== 'counter') continue;
+    if (
+      !rule.is_active ||
+      rule.role !== 'counter' ||
+      (!rule.can_report_payment && !rule.can_confirm_payment && !rule.auto_confirms_report)
+    ) {
+      continue;
+    }
     const account = accountsById.get(rule.money_account_id);
     if (!account || !account.is_active || !rule.payment_method_code) continue;
     const currencyCode = String(account.currency_code || '').toUpperCase();
@@ -228,6 +236,8 @@ export default async function CounterPage() {
       accountKind: account.account_kind || 'other',
       currencyCode,
       paymentMethodCode: rule.payment_method_code,
+      canReportPayment: Boolean(rule.can_report_payment),
+      canConfirmPayment: Boolean(rule.can_confirm_payment),
       autoConfirmsReport: Boolean(rule.auto_confirms_report),
       reviewRequired: Boolean(rule.review_required),
     });

@@ -2147,9 +2147,7 @@ export async function confirmPaymentReportAction(input: {
         }
 
         const allowedChangeAccounts = new Set(
-          (changeRules ?? [])
-            .filter((rule) => rule.payment_method_code === 'cash_usd' || rule.payment_method_code === 'cash_ves')
-            .map((rule) => Number(rule.money_account_id))
+          (changeRules ?? []).map((rule) => Number(rule.money_account_id))
         );
 
         if (changeAccountIds.some((accountId) => !allowedChangeAccounts.has(accountId))) {
