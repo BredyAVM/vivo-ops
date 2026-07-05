@@ -21,7 +21,7 @@ export const revalidate = 0;
 type RawCounterOrder = {
   id: number;
   order_number: string | null;
-  status: 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
   source: string | null;
   fulfillment: 'pickup' | 'delivery';
   delivery_address: string | null;
@@ -210,7 +210,7 @@ export default async function CounterPage() {
           'client:clients(full_name, phone)',
         ].join(', ')
       )
-      .in('status', ['confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
+      .in('status', ['created', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
       .order('ready_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(120),

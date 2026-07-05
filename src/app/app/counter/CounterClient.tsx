@@ -52,7 +52,7 @@ export type CounterOrder = {
   id: number;
   orderNumber: string;
   displayNumber: string;
-  status: 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
   source: string | null;
   isCounterSale: boolean;
   isCounterScheduled: boolean;
@@ -236,11 +236,13 @@ function fulfillmentLabel(value: CounterOrder['fulfillment']) {
 function counterStatusClass(order: CounterOrder) {
   if (order.status === 'out_for_delivery') return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
   if (order.status === 'in_kitchen') return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
+  if (order.status === 'created') return 'border-purple-300/40 bg-purple-300/10 text-purple-100';
   if (order.status === 'confirmed') return 'border-orange-400/40 bg-orange-400/10 text-orange-200';
   return 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]';
 }
 
 function primaryCounterActionLabel(order: CounterOrder) {
+  if (order.status === 'created') return 'Pendiente master';
   if (order.status === 'confirmed') return 'En cola de cocina';
   if (order.status === 'in_kitchen') return 'En preparacion';
   if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
@@ -263,7 +265,7 @@ function scheduleLabel(order: CounterOrder) {
 }
 
 function isCounterAgendaOrder(order: CounterOrder) {
-  return order.isCounterSale && (order.status === 'confirmed' || order.status === 'in_kitchen');
+  return order.isCounterSale && (order.status === 'created' || order.status === 'confirmed' || order.status === 'in_kitchen');
 }
 
 export default function CounterClient({
@@ -1423,13 +1425,16 @@ function OrderDetail({
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
   const deliveryReadyWithoutAssignee =
     order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
-  const notReadyForCounter = order.status === 'confirmed' || order.status === 'in_kitchen';
+  const waitingForMaster = order.status === 'created';
+  const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
   const primaryActionBlocked =
     notReadyForCounter || deliveryReadyWithoutAssignee || (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
-  const primaryActionBlockedMessage = notReadyForCounter
-    ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
+  const primaryActionBlockedMessage = waitingForMaster
+    ? 'Esta orden quedo agendada. Master debe enviarla a cocina cuando corresponda.'
+    : notReadyForCounter
+      ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
       : hasPendingBalance

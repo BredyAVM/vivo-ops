@@ -258,6 +258,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   const orderNumber = await generateUniqueOrderNumber(supabase);
   const nowIso = new Date().toISOString();
   const schedule = normalizeSchedule(input);
+  const sendNowToKitchen = schedule.asap;
   const paymentChangeFor = String(input.paymentChangeFor || '').trim()
     ? toSafeNumber(String(input.paymentChangeFor).replace(',', '.'), 0)
     : null;
@@ -333,8 +334,8 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       attributed_advisor_id: ctx.user.id,
       source: 'walk_in',
       fulfillment,
-      status: 'confirmed',
-      sent_to_kitchen_at: nowIso,
+      status: sendNowToKitchen ? 'confirmed' : 'created',
+      sent_to_kitchen_at: sendNowToKitchen ? nowIso : null,
       total_usd: totals.totalUsd,
       total_bs_snapshot: totals.totalBs,
       is_price_locked: false,
@@ -382,15 +383,20 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   await supabase.from('order_timeline_events').insert({
     order_id: orderId,
     order_number: orderNumber,
-    event_type: 'counter_quick_sale_created',
-    event_group: 'kitchen',
-    title: 'Venta de mostrador enviada a cocina',
-    message: 'El counter creo la venta y la envio directamente a cocina.',
-    severity: 'info',
+    event_type: sendNowToKitchen ? 'counter_quick_sale_created' : 'counter_scheduled_order_created',
+    event_group: sendNowToKitchen ? 'kitchen' : 'approval',
+    title: sendNowToKitchen ? 'Venta de mostrador enviada a cocina' : 'Pedido agendado por mostrador',
+    message: sendNowToKitchen
+      ? 'El counter creo la venta y la envio directamente a cocina.'
+      : 'El counter creo un pedido agendado para que master lo envie a cocina cuando corresponda.',
+    severity: sendNowToKitchen ? 'info' : 'warning',
     actor_user_id: ctx.user.id,
     payload: {
       source: 'counter_quick_sale',
       fulfillment,
+      scheduled: !sendNowToKitchen,
+      schedule_date: schedule.date,
+      schedule_time: schedule.time24,
     },
   });
 
