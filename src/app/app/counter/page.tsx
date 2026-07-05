@@ -210,7 +210,7 @@ export default async function CounterPage() {
           'client:clients(full_name, phone)',
         ].join(', ')
       )
-      .in('status', ['created', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
+      .or('status.in.(confirmed,in_kitchen,ready,out_for_delivery),and(status.eq.created,source.eq.walk_in)')
       .order('ready_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(120),

@@ -13,7 +13,11 @@ import {
   markDeliveredAction,
   outForDeliveryAction,
 } from '../master/dashboard/actions';
-import { createCounterQuickSaleAction } from './actions';
+import {
+  createCounterQuickSaleAction,
+  searchCounterAgendaAction,
+  type CounterAgendaSearchResult,
+} from './actions';
 
 export type CounterPaymentAccountOption = {
   accountId: number;
@@ -141,11 +145,12 @@ type CounterQuickSaleCartItem = {
   notes: string;
 };
 
-type CounterFilter = 'all' | 'agenda' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
+type CounterFilter = 'all' | 'agenda' | 'kitchen' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
   { key: 'all', label: 'Todos' },
-  { key: 'agenda', label: 'Agenda counter' },
+  { key: 'agenda', label: 'Agenda' },
+  { key: 'kitchen', label: 'En cocina' },
   { key: 'pickup', label: 'Pickup' },
   { key: 'delivery', label: 'Delivery' },
   { key: 'route', label: 'En camino' },
@@ -265,7 +270,29 @@ function scheduleLabel(order: CounterOrder) {
 }
 
 function isCounterAgendaOrder(order: CounterOrder) {
-  return order.isCounterSale && (order.status === 'created' || order.status === 'confirmed' || order.status === 'in_kitchen');
+  return order.isCounterSale && order.status === 'created';
+}
+
+function isKitchenFollowUpOrder(order: CounterOrder) {
+  return order.status === 'confirmed' || order.status === 'in_kitchen';
+}
+
+function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
+  if (status === 'created') return 'Agendado / pendiente master';
+  if (status === 'confirmed') return 'En cola de cocina';
+  if (status === 'in_kitchen') return 'En preparacion';
+  if (status === 'ready') return 'Listo';
+  if (status === 'out_for_delivery') return 'En camino';
+  return status;
+}
+
+function agendaSearchReason(result: CounterAgendaSearchResult) {
+  if (result.status === 'created') return 'Master aun no lo ha enviado a cocina.';
+  if (result.status === 'confirmed') return 'Ya esta enviado a cocina; falta que lo tomen.';
+  if (result.status === 'in_kitchen') return 'Cocina lo esta preparando.';
+  if (result.status === 'ready') return 'Ya esta listo para entrega.';
+  if (result.status === 'out_for_delivery') return 'Ya fue entregado al motorizado.';
+  return null;
 }
 
 export default function CounterClient({
@@ -284,6 +311,9 @@ export default function CounterClient({
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(orders[0]?.id ?? null);
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
+  const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
+  const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
+  const [masterAgendaSearched, setMasterAgendaSearched] = useState(false);
 
   useEffect(() => {
     setLocalOrders(orders);
@@ -293,6 +323,7 @@ export default function CounterClient({
     const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
     const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
     const agenda = localOrders.filter(isCounterAgendaOrder).length;
+    const kitchen = localOrders.filter(isKitchenFollowUpOrder).length;
     const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
     const change = localOrders.filter((order) => order.paymentRequiresChange).length;
     const unassignedDelivery = localOrders.filter(
@@ -306,6 +337,7 @@ export default function CounterClient({
       pickup,
       delivery,
       agenda,
+      kitchen,
       route,
       change,
       unassignedDelivery,
@@ -320,6 +352,7 @@ export default function CounterClient({
     return localOrders.filter((order) => {
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
       if (filter === 'agenda' && !isCounterAgendaOrder(order)) return false;
+      if (filter === 'kitchen' && !isKitchenFollowUpOrder(order)) return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
       if (filter === 'route' && order.status !== 'out_for_delivery') return false;
       if (filter === 'change' && !order.paymentRequiresChange) return false;
@@ -358,9 +391,15 @@ export default function CounterClient({
     return [
       {
         key: 'counter-agenda',
-        title: 'Agenda counter',
-        helper: 'Ventas de mostrador aun en cola o preparacion.',
+        title: 'Agenda',
+        helper: 'Pedidos agendados por mostrador, pendientes de master.',
         orders: filteredOrders.filter(isCounterAgendaOrder),
+      },
+      {
+        key: 'kitchen-follow-up',
+        title: 'En cocina',
+        helper: 'Pedidos enviados a cocina, en cola o preparacion.',
+        orders: filteredOrders.filter(isKitchenFollowUpOrder),
       },
       {
         key: 'pickup-ready',
@@ -690,6 +729,29 @@ export default function CounterClient({
     });
   }
 
+  function handleMasterAgendaSearch() {
+    const query = masterAgendaSearch.trim();
+    if (query.length < 2) {
+      setMessage({ tone: 'error', text: 'Escribe al menos 2 caracteres para buscar en agenda.' });
+      return;
+    }
+
+    setMessage(null);
+    setMasterAgendaSearched(true);
+    startTransition(async () => {
+      try {
+        const results = await searchCounterAgendaAction({ query });
+        setMasterAgendaResults(results);
+      } catch (error) {
+        setMasterAgendaResults([]);
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo consultar la agenda.',
+        });
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <ModulePreference moduleKey="counter" />
@@ -726,9 +788,10 @@ export default function CounterClient({
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-9">
           <Summary label="Activos" value={String(stats.total)} />
           <Summary label="Agenda" value={String(stats.agenda)} tone={stats.agenda > 0 ? 'warn' : 'neutral'} />
+          <Summary label="En cocina" value={String(stats.kitchen)} tone={stats.kitchen > 0 ? 'warn' : 'neutral'} />
           <Summary label="Pickup" value={String(stats.pickup)} />
           <Summary label="Delivery" value={String(stats.delivery)} />
           <Summary label="En camino" value={String(stats.route)} />
@@ -760,6 +823,20 @@ export default function CounterClient({
             onSubmit={handleCreateQuickSale}
           />
         ) : null}
+
+        <MasterAgendaSearchPanel
+          query={masterAgendaSearch}
+          results={masterAgendaResults}
+          searched={masterAgendaSearched}
+          isPending={isPending}
+          onQueryChange={setMasterAgendaSearch}
+          onSearch={handleMasterAgendaSearch}
+          onClear={() => {
+            setMasterAgendaSearch('');
+            setMasterAgendaResults([]);
+            setMasterAgendaSearched(false);
+          }}
+        />
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(360px,0.92fr)_minmax(520px,1.08fr)]">
           <section className="rounded-[8px] border border-[#242433] bg-[#111118]">
@@ -932,6 +1009,111 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
       <div className="text-sm text-[#9FA0AA]">{label}</div>
       <div className={['mt-1 text-xl font-semibold', toneClass].join(' ')}>{value}</div>
     </div>
+  );
+}
+
+function MasterAgendaSearchPanel({
+  query,
+  results,
+  searched,
+  isPending,
+  onQueryChange,
+  onSearch,
+  onClear,
+}: {
+  query: string;
+  results: CounterAgendaSearchResult[];
+  searched: boolean;
+  isPending: boolean;
+  onQueryChange: (value: string) => void;
+  onSearch: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Consultar agenda master</h2>
+          <p className="mt-1 text-sm text-[#9FA0AA]">
+            Busca una orden puntual por numero, cliente o telefono cuando no aparezca en la cola del counter.
+          </p>
+        </div>
+        {searched ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
+          >
+            Limpiar
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-2 md:grid-cols-[1fr_150px]">
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onSearch();
+          }}
+          placeholder="Orden, cliente o telefono"
+          className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+        />
+        <button
+          type="button"
+          onClick={onSearch}
+          disabled={isPending}
+          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+        >
+          {isPending ? 'Buscando...' : 'Buscar'}
+        </button>
+      </div>
+
+      {searched ? (
+        <div className="mt-4">
+          {results.length === 0 ? (
+            <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA]">
+              Sin resultados para esa busqueda.
+            </div>
+          ) : (
+            <div className="grid gap-2 xl:grid-cols-2">
+              {results.map((result) => {
+                const reason = agendaSearchReason(result);
+
+                return (
+                  <div key={result.id} className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-base font-semibold">#{result.displayNumber}</span>
+                          <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+                            {result.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}
+                          </span>
+                          <span className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-2 py-0.5 text-xs font-semibold text-[#FEEF00]">
+                            {agendaSearchStatusLabel(result.status)}
+                          </span>
+                        </div>
+                        <div className="mt-1 truncate text-sm font-semibold">{result.clientName}</div>
+                        <div className="mt-1 text-xs text-[#9FA0AA]">
+                          {result.clientPhone || 'Sin telefono'} - {result.scheduledDate || 'Sin fecha'}{' '}
+                          {result.scheduledTime || ''}
+                        </div>
+                        {reason ? <div className="mt-2 text-sm text-[#C7C8D1]">{reason}</div> : null}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-semibold">{moneyUsd(result.totalUsd)}</div>
+                        <div className="text-xs text-[#9FA0AA]">{moneyBs(result.totalBs)}</div>
+                      </div>
+                    </div>
+                    {result.note ? <div className="mt-2 text-xs text-[#9FA0AA]">Nota: {result.note}</div> : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

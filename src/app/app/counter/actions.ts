@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
+import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 
@@ -36,6 +37,44 @@ type CounterProductRow = {
   source_price_amount: number | string | null;
   base_price_usd: number | string | null;
   base_price_bs: number | string | null;
+};
+
+export type CounterAgendaSearchResult = {
+  id: number;
+  displayNumber: string;
+  orderNumber: string | null;
+  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  fulfillment: 'pickup' | 'delivery';
+  clientName: string;
+  clientPhone: string | null;
+  scheduledDate: string | null;
+  scheduledTime: string | null;
+  totalUsd: number;
+  totalBs: number;
+  note: string | null;
+};
+
+type CounterAgendaOrderRow = {
+  id: number;
+  order_number: string | null;
+  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  fulfillment: 'pickup' | 'delivery';
+  total_usd: number | string | null;
+  total_bs_snapshot: number | string | null;
+  notes: string | null;
+  created_at: string;
+  extra_fields: {
+    schedule?: {
+      date?: string | null;
+      time_12?: string | null;
+      time_24?: string | null;
+      asap?: boolean | null;
+    } | null;
+  } | null;
+  client:
+    | { full_name: string | null; phone: string | null }[]
+    | { full_name: string | null; phone: string | null }
+    | null;
 };
 
 function createSupabaseServiceRoleServer() {
@@ -138,6 +177,81 @@ function buildClientPhoneOrFilters(phone: string) {
       .slice(0, 5)
       .map((term) => `phone.ilike.%${term}%`),
   ];
+}
+
+function buildClientSearchOrFilters(term: string) {
+  const safeTerm = term.replace(/[,%]/g, ' ').trim();
+  const normalizedPhone = normalizePhone(term);
+  const filters = new Set<string>();
+
+  if (safeTerm) {
+    filters.add(`full_name.ilike.%${safeTerm}%`);
+    filters.add(`phone.ilike.%${safeTerm}%`);
+  }
+
+  for (const phoneTerm of getPhoneSearchTerms(normalizedPhone || term)) {
+    const safePhoneTerm = phoneTerm.replace(/[,%]/g, ' ').trim();
+    if (safePhoneTerm) filters.add(`phone.ilike.%${safePhoneTerm}%`);
+  }
+
+  return Array.from(filters);
+}
+
+function normalizeAgendaClient(order: CounterAgendaOrderRow) {
+  return Array.isArray(order.client) ? order.client[0] ?? null : order.client;
+}
+
+function mapAgendaOrder(order: CounterAgendaOrderRow): CounterAgendaSearchResult {
+  const client = normalizeAgendaClient(order);
+  const schedule = order.extra_fields?.schedule;
+
+  return {
+    id: order.id,
+    displayNumber: formatOrderDisplayNumber(order.id),
+    orderNumber: order.order_number,
+    status: order.status,
+    fulfillment: order.fulfillment,
+    clientName: client?.full_name || 'Cliente',
+    clientPhone: client?.phone || null,
+    scheduledDate: schedule?.date || null,
+    scheduledTime: schedule?.asap ? 'Lo antes posible' : schedule?.time_12 || schedule?.time_24 || null,
+    totalUsd: toSafeNumber(order.total_usd, 0),
+    totalBs: toSafeNumber(order.total_bs_snapshot, 0),
+    note: order.notes || null,
+  };
+}
+
+async function searchAgendaOrdersBy(
+  supabase: ReturnType<typeof createSupabaseServiceRoleServer>,
+  mode: 'id' | 'order_number' | 'client_ids',
+  value: number | string | number[]
+) {
+  const selectColumns = [
+    'id',
+    'order_number',
+    'status',
+    'fulfillment',
+    'total_usd',
+    'total_bs_snapshot',
+    'notes',
+    'created_at',
+    'extra_fields',
+    'client:clients(full_name, phone)',
+  ].join(', ');
+  let query = supabase
+    .from('orders')
+    .select(selectColumns)
+    .in('status', ['created', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
+    .order('created_at', { ascending: false })
+    .limit(12);
+
+  if (mode === 'id') query = query.eq('id', value as number);
+  if (mode === 'order_number') query = query.ilike('order_number', `%${String(value).replace(/[,%]/g, ' ')}%`);
+  if (mode === 'client_ids') query = query.in('client_id', value as number[]);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as CounterAgendaOrderRow[];
 }
 
 async function loadActiveExchangeRate(supabase: ReturnType<typeof createSupabaseServiceRoleServer>) {
@@ -272,7 +386,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       date: schedule.date,
       time_12: schedule.time12,
       time_24: schedule.time24,
-      asap: true,
+      asap: schedule.asap,
     },
     receiver: {
       name: null,
@@ -405,4 +519,55 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   revalidatePath('/app/master/dashboard');
 
   return { id: orderId, orderNumber };
+}
+
+export async function searchCounterAgendaAction(input: { query: string }) {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
+  }
+
+  const query = String(input.query || '').trim();
+  if (query.length < 2) return [];
+
+  const supabase = createSupabaseServiceRoleServer();
+  const safeTerm = query.replace(/[,%]/g, ' ').trim();
+  const digitTerm = query.replace(/\D/g, '');
+  const rows: CounterAgendaOrderRow[] = [];
+
+  if (digitTerm && digitTerm.length <= 8) {
+    rows.push(...(await searchAgendaOrdersBy(supabase, 'id', Number(digitTerm))));
+  }
+
+  rows.push(...(await searchAgendaOrdersBy(supabase, 'order_number', safeTerm)));
+
+  const clientFilters = buildClientSearchOrFilters(query);
+  if (clientFilters.length > 0) {
+    const { data: clientsData, error: clientsError } = await supabase
+      .from('clients')
+      .select('id')
+      .or(clientFilters.join(','))
+      .limit(20);
+
+    if (clientsError) throw new Error(clientsError.message);
+
+    const clientIds = (clientsData ?? [])
+      .map((client) => Number(client.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (clientIds.length > 0) {
+      rows.push(...(await searchAgendaOrdersBy(supabase, 'client_ids', clientIds)));
+    }
+  }
+
+  const unique = new Map<number, CounterAgendaOrderRow>();
+  for (const row of rows) {
+    unique.set(row.id, row);
+  }
+
+  return Array.from(unique.values())
+    .sort((a, b) => Number(b.id) - Number(a.id))
+    .slice(0, 10)
+    .map(mapAgendaOrder);
 }
