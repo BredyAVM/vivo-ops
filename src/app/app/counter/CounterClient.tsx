@@ -262,6 +262,7 @@ function primaryCounterActionLabel(order: CounterOrder) {
   if (order.status === 'created') return 'Pendiente master';
   if (order.status === 'confirmed') return 'En cola de cocina';
   if (order.status === 'in_kitchen') return 'En preparacion';
+  if (order.fulfillment === 'pickup' && order.status === 'ready' && order.balanceUsd > 0.005) return 'Primero cobrar';
   if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
   if (order.fulfillment === 'delivery' && order.status === 'out_for_delivery') return 'Marcar entregada';
   return 'Entregar pickup';
@@ -1772,6 +1773,82 @@ function getCounterCurrentAction(order: CounterOrder) {
   };
 }
 
+function getCounterWorkflowChecks(order: CounterOrder) {
+  const paid = order.balanceUsd <= 0.005;
+  const hasPendingReports = order.reports.pending > 0;
+  const inKitchenFlow = order.status === 'confirmed' || order.status === 'in_kitchen';
+
+  if (order.status === 'created') {
+    return [
+      { label: 'Agenda', detail: 'Master debe enviarlo a cocina', state: 'current' as const },
+      { label: 'Cocina', detail: 'Pendiente', state: 'pending' as const },
+      { label: 'Entrega', detail: 'Pendiente', state: 'pending' as const },
+    ];
+  }
+
+  if (inKitchenFlow) {
+    return [
+      { label: 'Agenda', detail: 'Enviado', state: 'done' as const },
+      { label: 'Cocina', detail: order.status === 'in_kitchen' ? 'Preparando' : 'En cola', state: 'current' as const },
+      { label: 'Entrega', detail: 'Esperando cocina', state: 'pending' as const },
+    ];
+  }
+
+  if (order.fulfillment === 'pickup' && order.status === 'ready') {
+    const paymentOk = paid && !hasPendingReports;
+    return [
+      { label: 'Cocina', detail: 'Lista', state: 'done' as const },
+      {
+        label: 'Cobro',
+        detail: paymentOk ? 'Cubierto' : hasPendingReports ? 'Pago por revisar' : `Falta ${moneyUsd(order.balanceUsd)}`,
+        state: paymentOk ? ('done' as const) : ('current' as const),
+      },
+      {
+        label: 'Retiro',
+        detail: paymentOk ? 'Marcar retirado' : 'Bloqueado hasta cobrar',
+        state: paymentOk ? ('current' as const) : ('blocked' as const),
+      },
+    ];
+  }
+
+  if (order.fulfillment === 'delivery' && order.status === 'ready') {
+    return [
+      { label: 'Cocina', detail: 'Lista', state: 'done' as const },
+      {
+        label: 'Asignacion',
+        detail: order.deliveryAssigneeName ? deliveryAssigneeLabel(order) || 'Asignado' : 'Falta asignar',
+        state: order.deliveryAssigneeName ? ('done' as const) : ('current' as const),
+      },
+      {
+        label: 'Salida',
+        detail: order.deliveryAssigneeName ? 'Entregar y marcar en camino' : 'Esperando master',
+        state: order.deliveryAssigneeName ? ('current' as const) : ('blocked' as const),
+      },
+    ];
+  }
+
+  if (order.status === 'out_for_delivery') {
+    const settlementOk = paid && !hasPendingReports;
+    return [
+      { label: 'Salida', detail: 'En camino', state: 'done' as const },
+      {
+        label: 'Retorno',
+        detail: settlementOk ? 'Liquidado' : hasPendingReports ? 'Pago por revisar' : `Cobrar ${moneyUsd(order.balanceUsd)}`,
+        state: settlementOk ? ('done' as const) : ('current' as const),
+      },
+      {
+        label: 'Cierre',
+        detail: settlementOk ? 'Marcar entregada' : 'Esperando liquidacion',
+        state: settlementOk ? ('current' as const) : ('blocked' as const),
+      },
+    ];
+  }
+
+  return [
+    { label: 'Revision', detail: 'Sin accion inmediata', state: 'pending' as const },
+  ];
+}
+
 function OrderDetail({
   order,
   paymentAccounts,
@@ -1799,12 +1876,21 @@ function OrderDetail({
   const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
+  const pickupReadyNeedsPayment =
+    order.fulfillment === 'pickup' && order.status === 'ready' && (hasPendingBalance || hasPendingReports);
   const primaryActionBlocked =
-    notReadyForCounter || deliveryReadyWithoutAssignee || (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
+    notReadyForCounter ||
+    pickupReadyNeedsPayment ||
+    deliveryReadyWithoutAssignee ||
+    (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
   const primaryActionBlockedMessage = waitingForMaster
     ? 'Esta orden quedo agendada. Master debe enviarla a cocina cuando corresponda.'
     : notReadyForCounter
       ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
+    : pickupReadyNeedsPayment
+      ? hasPendingReports
+        ? 'Hay pagos pendientes de revision. No marques retirado hasta que queden confirmados.'
+        : 'Primero registra el cobro antes de marcar el pickup como retirado.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
       : hasPendingBalance
@@ -1844,6 +1930,7 @@ function OrderDetail({
       <div className="grid gap-4 p-5 xl:grid-cols-[1fr_260px]">
         <div className="space-y-4">
           <CurrentActionCard action={currentAction} />
+          <CounterWorkflowChecklist items={getCounterWorkflowChecks(order)} />
 
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Total" value={moneyUsd(order.totalUsd)} note={moneyBs(order.totalBs)} />
@@ -1999,10 +2086,16 @@ function OrderDetail({
               tone="warn"
             />
           ) : null}
-          <ActionHint
-            title="Agregar productos"
-            text="Pendiente del siguiente bloque: ampliar o modificar la orden desde mostrador."
-          />
+          {canAddItems ? (
+            <ActionHint
+              title="Agregar productos"
+              text={
+                order.status === 'ready'
+                  ? 'Si agregas productos a una orden lista, vuelve a cocina para preparar lo nuevo.'
+                  : 'Puedes ampliar la orden mientras siga activa en mostrador.'
+              }
+            />
+          ) : null}
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
             Para delivery, esta vista mantiene la orden hasta que se marque entregada y se liquide el cobro.
           </div>
@@ -2864,6 +2957,43 @@ function CounterPaymentBox({
           {isWorking ? 'Guardando...' : submitLabel}
         </button>
       </div>
+    </div>
+  );
+}
+
+function CounterWorkflowChecklist({
+  items,
+}: {
+  items: Array<{
+    label: string;
+    detail: string;
+    state: 'done' | 'current' | 'blocked' | 'pending';
+  }>;
+}) {
+  const stateClass = {
+    done: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-100',
+    current: 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]',
+    blocked: 'border-orange-400/35 bg-orange-950/20 text-orange-100',
+    pending: 'border-[#303044] bg-[#0B0B0D] text-[#9FA0AA]',
+  };
+  const dotClass = {
+    done: 'bg-emerald-300',
+    current: 'bg-[#FEEF00]',
+    blocked: 'bg-orange-300',
+    pending: 'bg-[#666878]',
+  };
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {items.map((item) => (
+        <div key={item.label} className={['rounded-[8px] border p-3', stateClass[item.state]].join(' ')}>
+          <div className="flex items-center gap-2">
+            <span className={['h-2.5 w-2.5 rounded-full', dotClass[item.state]].join(' ')} />
+            <span className="text-xs font-semibold uppercase tracking-[0.14em]">{item.label}</span>
+          </div>
+          <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{item.detail}</div>
+        </div>
+      ))}
     </div>
   );
 }
