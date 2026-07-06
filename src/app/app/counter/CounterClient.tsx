@@ -2295,6 +2295,22 @@ function CounterPaymentBox({
     excessUsd > 0 && overpaymentHandling === 'change_given'
       ? Number((excessUsd - changeUsd).toFixed(2))
       : 0;
+  const pendingReviewUsd = Math.max(0, Number((reportedUsd - autoReportedUsd).toFixed(2)));
+  const immediateBalanceUsd =
+    overpaymentHandling === 'change_given'
+      ? Number((order.balanceUsd - autoReportedUsd + changeUsd).toFixed(2))
+      : Math.max(0, Number((order.balanceUsd - autoReportedUsd).toFixed(2)));
+  const immediatePendingUsd = Math.max(0, immediateBalanceUsd);
+  const immediateFundUsd =
+    overpaymentHandling === 'store_fund'
+      ? excessUsd
+      : Math.max(0, Number((-immediateBalanceUsd).toFixed(2)));
+  const submitLabel =
+    pendingReviewUsd > 0.005
+      ? 'Registrar pagos'
+      : immediatePendingUsd > 0.005
+        ? 'Registrar abono'
+        : 'Cerrar cobro';
 
   function nativePaymentAmount(account: CounterPaymentAccountOption | null, usdAmount: number) {
     if (!account) return '';
@@ -2339,6 +2355,34 @@ function CounterPaymentBox({
     setPaymentLines((current) => [...current, makePaymentLine(pendingUsd > 0 ? pendingUsd : 0)]);
   }
 
+  function fillPaymentLineWithPending(id: string) {
+    setPaymentLines((current) => {
+      const otherReportedUsd = current.reduce((sum, line) => {
+        if (line.id === id) return sum;
+        const lineAccount = reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
+        const lineAmount = toDecimalInput(line.amount);
+        if (!lineAccount || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
+        const lineExchangeRate =
+          lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
+        return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
+      }, 0);
+      const pendingUsd = Math.max(0, order.balanceUsd - otherReportedUsd);
+
+      return current.map((line) => {
+        if (line.id !== id) return line;
+        const lineAccount = reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? null;
+        return {
+          ...line,
+          amount: nativePaymentAmount(lineAccount, pendingUsd),
+          exchangeRate:
+            lineAccount?.currencyCode === 'VES' && order.fxRate > 0
+              ? String(Number(order.fxRate.toFixed(2)))
+              : line.exchangeRate,
+        };
+      });
+    });
+  }
+
   function nativeChangeAmount(account: CounterPaymentAccountOption | null, usdAmount: number) {
     if (!account) return '';
     return account.currencyCode === 'VES'
@@ -2377,6 +2421,34 @@ function CounterPaymentBox({
     setChangeLines((current) => [...current, makeChangeLine(pendingUsd > 0 ? pendingUsd : 0)]);
   }
 
+  function fillChangeLineWithExcess(id: string) {
+    setChangeLines((current) => {
+      const otherChangeUsd = current.reduce((sum, line) => {
+        if (line.id === id) return sum;
+        const lineAccount = changeAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
+        const lineAmount = toDecimalInput(line.amount);
+        if (!lineAccount || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
+        const lineExchangeRate =
+          lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
+        return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
+      }, 0);
+      const pendingChangeUsd = Math.max(0, excessUsd - otherChangeUsd);
+
+      return current.map((line) => {
+        if (line.id !== id) return line;
+        const lineAccount = changeAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? null;
+        return {
+          ...line,
+          amount: nativeChangeAmount(lineAccount, pendingChangeUsd),
+          exchangeRate:
+            lineAccount?.currencyCode === 'VES' && order.fxRate > 0
+              ? String(Number(order.fxRate.toFixed(2)))
+              : line.exchangeRate,
+        };
+      });
+    });
+  }
+
   useEffect(() => {
     setPaymentLines(firstAccount ? [makePaymentLine(order.balanceUsd)] : []);
     setChangeLines([]);
@@ -2406,9 +2478,13 @@ function CounterPaymentBox({
     <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold">Registrar pago recibido</h3>
+          <h3 className="font-semibold">
+            {order.fulfillment === 'delivery' && order.status === 'out_for_delivery'
+              ? 'Registrar retorno de delivery'
+              : 'Registrar cobro'}
+          </h3>
           <p className="mt-1 text-sm text-[#9FA0AA]">
-            Caja y punto se confirman al guardar. Transferencias y pagos remotos quedan para revision.
+            Puedes dividir el pago en varias cuentas y entregar cambio desde una o varias cajas.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -2428,6 +2504,51 @@ function CounterPaymentBox({
           >
             Falta {moneyUsd(Math.max(0, order.balanceUsd - reportedUsd))}
           </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+          <div className="text-xs text-[#9FA0AA]">Pendiente orden</div>
+          <div className="mt-1 text-lg font-semibold text-orange-200">{moneyUsd(order.balanceUsd)}</div>
+          <div className="text-xs text-[#9FA0AA]">{moneyBs(order.balanceUsd * Math.max(order.fxRate, 0))}</div>
+        </div>
+        <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+          <div className="text-xs text-[#9FA0AA]">Recibido ahora</div>
+          <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{moneyUsd(reportedUsd)}</div>
+          <div className="text-xs text-[#9FA0AA]">
+            {pendingReviewUsd > 0.005 ? `${moneyUsd(pendingReviewUsd)} por revisar` : 'Todo inmediato'}
+          </div>
+        </div>
+        <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+          <div className="text-xs text-[#9FA0AA]">Cambio / fondo</div>
+          <div className="mt-1 text-lg font-semibold text-sky-100">
+            {overpaymentHandling === 'change_given' ? moneyUsd(changeUsd) : moneyUsd(immediateFundUsd)}
+          </div>
+          <div className="text-xs text-[#9FA0AA]">
+            {overpaymentHandling === 'change_given' ? 'Cambio entregado' : 'Fondo cliente'}
+          </div>
+        </div>
+        <div
+          className={[
+            'rounded-[8px] border p-3',
+            immediatePendingUsd > 0.005
+              ? 'border-orange-400/40 bg-orange-400/10'
+              : 'border-emerald-400/30 bg-emerald-400/10',
+          ].join(' ')}
+        >
+          <div className="text-xs text-[#9FA0AA]">Resultado inmediato</div>
+          <div
+            className={[
+              'mt-1 text-lg font-semibold',
+              immediatePendingUsd > 0.005 ? 'text-orange-200' : 'text-emerald-200',
+            ].join(' ')}
+          >
+            {immediatePendingUsd > 0.005 ? `Pendiente ${moneyUsd(immediatePendingUsd)}` : 'Orden cubierta'}
+          </div>
+          <div className="text-xs text-[#9FA0AA]">
+            {immediateFundUsd > 0.005 ? `Fondo ${moneyUsd(immediateFundUsd)}` : 'Sin excedente'}
+          </div>
         </div>
       </div>
 
@@ -2476,6 +2597,13 @@ function CounterPaymentBox({
                     inputMode="decimal"
                     className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
                   />
+                  <button
+                    type="button"
+                    onClick={() => fillPaymentLineWithPending(line.id)}
+                    className="mt-2 w-full rounded-full border border-[#303044] px-3 py-1.5 text-xs font-semibold text-[#C7C8D1] transition hover:border-[#FEEF00]/60 hover:text-[#FEEF00]"
+                  >
+                    Completar pendiente
+                  </button>
                 </label>
 
                 {lineAccount?.currencyCode === 'VES' ? (
@@ -2655,6 +2783,13 @@ function CounterPaymentBox({
                         inputMode="decimal"
                         className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
                       />
+                      <button
+                        type="button"
+                        onClick={() => fillChangeLineWithExcess(line.id)}
+                        className="mt-2 w-full rounded-full border border-sky-300/30 px-3 py-1.5 text-xs font-semibold text-sky-100 transition hover:bg-sky-400/10"
+                      >
+                        Cambio exacto
+                      </button>
                     </label>
 
                     {lineAccount?.currencyCode === 'VES' ? (
@@ -2726,7 +2861,7 @@ function CounterPaymentBox({
           }
           className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
         >
-          {isWorking ? 'Guardando...' : 'Reportar pago'}
+          {isWorking ? 'Guardando...' : submitLabel}
         </button>
       </div>
     </div>
