@@ -89,7 +89,10 @@ movement_totals as (
     round(sum(
       case
         when mm.status = 'confirmed' and mm.direction = 'inflow' then coalesce(mm.amount_usd_equivalent, 0)
-        when mm.status = 'confirmed' and mm.direction = 'outflow' then -coalesce(mm.amount_usd_equivalent, 0)
+        when mm.status = 'confirmed'
+          and mm.direction = 'outflow'
+          and mm.movement_type = 'change_given'
+          then -coalesce(mm.amount_usd_equivalent, 0)
         else 0
       end
     )::numeric, 2) as confirmed_paid_usd,

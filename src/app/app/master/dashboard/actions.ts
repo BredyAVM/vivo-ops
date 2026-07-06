@@ -3069,7 +3069,7 @@ export async function settleClientFundPayoutAction(input: {
         counterparty_name: null,
         description: `Devolucion de fondo cliente - linea ${index + 1} - orden ${orderId}`,
         notes: line.notes ?? sharedNotes,
-        order_id: orderId,
+        order_id: null,
         payment_report_id: null,
         movement_group_id: groupId,
       }));
