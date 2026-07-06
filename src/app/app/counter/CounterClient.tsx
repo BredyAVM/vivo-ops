@@ -918,7 +918,10 @@ export default function CounterClient({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setQuickSaleOpen((current) => !current)}
+              onClick={() => {
+                setSelectedOrderId(null);
+                setQuickSaleOpen((current) => !current);
+              }}
               className="rounded-full border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black hover:bg-[#fff45c]"
             >
               Nueva venta
@@ -977,16 +980,6 @@ export default function CounterClient({
           >
             {message.text}
           </div>
-        ) : null}
-
-        {quickSaleOpen ? (
-          <CounterQuickSalePanel
-            products={quickSaleProducts}
-            activeBsRate={activeBsRate}
-            isWorking={workingOrderId === -1}
-            onCancel={() => setQuickSaleOpen(false)}
-            onSubmit={handleCreateQuickSale}
-          />
         ) : null}
 
         {cashPanelOpen ? (
@@ -1088,7 +1081,10 @@ export default function CounterClient({
                             key={order.id}
                             order={order}
                             selected={selectedOrder?.id === order.id}
-                            onSelect={() => setSelectedOrderId(order.id)}
+                            onSelect={() => {
+                              setQuickSaleOpen(false);
+                              setSelectedOrderId(order.id);
+                            }}
                           />
                         ))}
                       </div>
@@ -1100,7 +1096,15 @@ export default function CounterClient({
           </section>
 
           <section className="rounded-[8px] border border-[#242433] bg-[#111118]">
-            {selectedOrder ? (
+            {quickSaleOpen ? (
+              <CounterQuickSalePanel
+                products={quickSaleProducts}
+                activeBsRate={activeBsRate}
+                isWorking={workingOrderId === -1}
+                onCancel={() => setQuickSaleOpen(false)}
+                onSubmit={handleCreateQuickSale}
+              />
+            ) : selectedOrder ? (
               <OrderDetail
                 order={selectedOrder}
                 paymentAccounts={paymentAccounts}
@@ -1114,7 +1118,10 @@ export default function CounterClient({
             ) : (
               <CounterEmptyWorkSurface
                 hasOrders={filteredOrders.length > 0}
-                onNewSale={() => setQuickSaleOpen(true)}
+                onNewSale={() => {
+                  setSelectedOrderId(null);
+                  setQuickSaleOpen(true);
+                }}
               />
             )}
           </section>
@@ -1728,6 +1735,7 @@ function CounterQuickSalePanel({
     () => new Map(products.map((product) => [product.id, product])),
     [products]
   );
+  const selectedProduct = selectedProductId ? productsById.get(Number(selectedProductId)) ?? null : null;
   const filteredProducts = useMemo(() => {
     const term = productSearch.trim().toLocaleLowerCase('es-VE');
     if (!term) return products.slice(0, 80);
@@ -1845,11 +1853,11 @@ function CounterQuickSalePanel({
   }
 
   return (
-    <section className="mt-5 rounded-[8px] border border-[#FEEF00]/35 bg-[#15150F] p-4">
+    <section className="rounded-[8px] border border-[#FEEF00]/35 bg-[#15150F] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Nueva venta de mostrador</h2>
-          <p className="mt-1 text-sm text-[#B9B9A8]">
+          <h2 className="text-lg font-semibold">Nueva venta</h2>
+          <p className="mt-1 text-xs text-[#B9B9A8]">
             Crea una orden directa, calcula con la tasa activa y la envia a cocina.
           </p>
         </div>
@@ -1873,26 +1881,28 @@ function CounterQuickSalePanel({
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.15fr_280px]">
-        <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
-          <h3 className="font-semibold">Cliente</h3>
-          <label className="text-sm text-[#9FA0AA]">
+      <div className="mt-4 space-y-3">
+        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <h3 className="text-sm font-semibold">Cliente</h3>
+          <div className="grid gap-2 sm:grid-cols-2">
+          <label className="text-xs text-[#9FA0AA]">
             Nombre
             <input
               value={clientName}
               onChange={(event) => setClientName(event.target.value)}
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
             />
           </label>
-          <label className="text-sm text-[#9FA0AA]">
+          <label className="text-xs text-[#9FA0AA]">
             Telefono
             <input
               value={clientPhone}
               onChange={(event) => setClientPhone(event.target.value)}
               inputMode="tel"
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
             />
           </label>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {(['pickup', 'delivery'] as const).map((option) => (
               <button
@@ -1916,27 +1926,27 @@ function CounterQuickSalePanel({
               <textarea
                 value={deliveryAddress}
                 onChange={(event) => setDeliveryAddress(event.target.value)}
-                rows={3}
-                className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                rows={2}
+                className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
               />
             </label>
           ) : null}
-          <label className="text-sm text-[#9FA0AA]">
+          <label className="text-xs text-[#9FA0AA]">
             Nota de orden
             <input
               value={note}
               onChange={(event) => setNote(event.target.value)}
               placeholder="Opcional"
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
           </label>
-          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-2">
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setScheduleMode('now')}
                 className={[
-                  'rounded-[8px] border px-3 py-2 text-sm font-semibold',
+                  'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
                   scheduleMode === 'now'
                     ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                     : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
@@ -1948,7 +1958,7 @@ function CounterQuickSalePanel({
                 type="button"
                 onClick={() => setScheduleMode('scheduled')}
                 className={[
-                  'rounded-[8px] border px-3 py-2 text-sm font-semibold',
+                  'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
                   scheduleMode === 'scheduled'
                     ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                     : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
@@ -1965,7 +1975,7 @@ function CounterQuickSalePanel({
                     type="date"
                     value={scheduledDate}
                     onChange={(event) => setScheduledDate(event.target.value)}
-                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
                   />
                 </label>
                 <label className="text-sm text-[#9FA0AA]">
@@ -1974,7 +1984,7 @@ function CounterQuickSalePanel({
                     type="time"
                     value={scheduledTime}
                     onChange={(event) => setScheduledTime(event.target.value)}
-                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
                   />
                 </label>
               </div>
@@ -1984,9 +1994,9 @@ function CounterQuickSalePanel({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold">Pedido</h3>
+            <h3 className="text-sm font-semibold">Pedido</h3>
             <span className="text-sm font-semibold text-[#F5F5F7]">{cartItems.length} item(s)</span>
           </div>
           <div className="grid gap-2 md:grid-cols-[1fr_110px]">
@@ -1994,44 +2004,73 @@ function CounterQuickSalePanel({
               value={productSearch}
               onChange={(event) => setProductSearch(event.target.value)}
               placeholder="Buscar producto"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
             <input
               value={qty}
               onChange={(event) => setQty(event.target.value)}
               inputMode="decimal"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
             />
           </div>
-          <select
-            value={selectedProductId}
-            onChange={(event) => setSelectedProductId(event.target.value)}
-            className="w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-          >
-            {filteredProducts.map((product) => (
-              <option key={product.id} value={String(product.id)}>
-                {product.name} {product.sku ? `(${product.sku})` : ''}
-              </option>
-            ))}
-          </select>
+          {productSearch.trim() ? (
+            <div className="max-h-[210px] overflow-y-auto rounded-[8px] border border-[#242433] bg-[#111118]">
+              {filteredProducts.length === 0 ? (
+                <div className="px-3 py-3 text-sm text-[#9FA0AA]">Sin resultados.</div>
+              ) : (
+                filteredProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedProductId(String(product.id));
+                      setProductSearch(product.name);
+                    }}
+                    className={[
+                      'w-full border-b border-[#242433] px-3 py-2 text-left last:border-b-0 hover:bg-[#1A1A22]',
+                      selectedProductId === String(product.id) ? 'bg-[#1A1A22]' : '',
+                    ].join(' ')}
+                  >
+                    <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
+                    <div className="mt-0.5 text-xs text-[#9FA0AA]">
+                      {product.unitsPerService > 0 ? `${product.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
+                      {product.sourcePriceCurrency === 'VES' ? moneyBs(product.basePriceBs) : moneyUsd(product.basePriceUsd)}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+
+          {selectedProduct ? (
+            <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
+              <div className="font-semibold text-emerald-100">{selectedProduct.name}</div>
+              <div className="mt-1 text-xs text-emerald-100/75">
+                {selectedProduct.unitsPerService > 0 ? `${selectedProduct.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
+                {selectedProduct.sourcePriceCurrency === 'VES'
+                  ? `${moneyBs(selectedProduct.basePriceBs)} / ${moneyUsd(selectedProduct.basePriceUsd)}`
+                  : `${moneyUsd(selectedProduct.basePriceUsd)} / ${moneyBs(selectedProduct.basePriceBs)}`}
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-2 md:grid-cols-[1fr_130px]">
             <input
               value={itemNotes}
               onChange={(event) => setItemNotes(event.target.value)}
               placeholder="Nota del item (opcional)"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
             <button
               type="button"
               onClick={addCartItem}
               disabled={products.length === 0 || activeBsRate <= 0}
-              className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Agregar
             </button>
           </div>
 
-          <div className="max-h-[330px] overflow-y-auto rounded-[8px] border border-[#242433]">
+          <div className="max-h-[240px] overflow-y-auto rounded-[8px] border border-[#242433]">
             {lineRows.length === 0 ? (
               <div className="p-4 text-sm text-[#9FA0AA]">Sin productos agregados.</div>
             ) : (
@@ -2058,14 +2097,15 @@ function CounterQuickSalePanel({
           </div>
         </div>
 
-        <div className="space-y-3 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
-          <h3 className="font-semibold">Pago esperado</h3>
-          <label className="text-sm text-[#9FA0AA]">
+        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <h3 className="text-sm font-semibold">Pago esperado</h3>
+          <div className="grid gap-2 sm:grid-cols-2">
+          <label className="text-xs text-[#9FA0AA]">
             Metodo
             <select
               value={paymentMethod}
               onChange={(event) => setPaymentMethod(event.target.value)}
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
             >
               {QUICK_SALE_PAYMENT_METHODS.map((method) => (
                 <option key={method.code} value={method.code}>
@@ -2074,17 +2114,18 @@ function CounterQuickSalePanel({
               ))}
             </select>
           </label>
-          <label className="text-sm text-[#9FA0AA]">
+          <label className="text-xs text-[#9FA0AA]">
             Moneda
             <select
               value={paymentCurrency}
               onChange={(event) => setPaymentCurrency(event.target.value === 'VES' ? 'VES' : 'USD')}
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
             >
               <option value="VES">VES</option>
               <option value="USD">USD</option>
             </select>
           </label>
+          </div>
           <label className="flex items-center gap-2 rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-sm text-[#F5F5F7]">
             <input
               type="checkbox"
@@ -2100,31 +2141,31 @@ function CounterQuickSalePanel({
                 onChange={(event) => setPaymentChangeFor(event.target.value)}
                 placeholder="Cambio para"
                 inputMode="decimal"
-                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
               />
               <select
                 value={paymentChangeCurrency}
                 onChange={(event) => setPaymentChangeCurrency(event.target.value === 'VES' ? 'VES' : 'USD')}
-                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
               >
                 <option value="USD">USD</option>
                 <option value="VES">VES</option>
               </select>
             </div>
           ) : null}
-          <label className="text-sm text-[#9FA0AA]">
+          <label className="text-xs text-[#9FA0AA]">
             Nota de pago
             <input
               value={paymentNote}
               onChange={(event) => setPaymentNote(event.target.value)}
               placeholder="Opcional"
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
           </label>
 
-          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-4">
+          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
             <div className="text-sm text-[#9FA0AA]">Total</div>
-            <div className="mt-1 text-2xl font-semibold">{moneyUsd(totals.totalUsd)}</div>
+            <div className="mt-1 text-xl font-semibold">{moneyUsd(totals.totalUsd)}</div>
             <div className="mt-1 text-sm font-semibold text-[#C7C8D1]">{moneyBs(totals.totalBs)}</div>
           </div>
 
@@ -2132,7 +2173,7 @@ function CounterQuickSalePanel({
             type="button"
             onClick={submitQuickSale}
             disabled={isWorking || activeBsRate <= 0 || cartItems.length === 0}
-            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-2.5 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isWorking ? 'Creando...' : 'Crear y enviar a cocina'}
           </button>
@@ -2376,8 +2417,31 @@ function OrderDetail({
         </div>
       </div>
 
-      <div className="grid gap-4 p-5 xl:grid-cols-[1fr_260px]">
-        <div className="space-y-4">
+      <div className="grid gap-4 p-4 xl:grid-cols-[1fr_220px]">
+        <div className="space-y-3">
+          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold">Pedido</h3>
+              <span className="text-sm font-semibold text-[#C7C8D1]">{order.items.length} item(s)</span>
+            </div>
+            <div className="mt-3 divide-y divide-[#242433]">
+              {order.items.length === 0 ? (
+                <div className="py-3 text-sm text-[#9FA0AA]">Sin items cargados.</div>
+              ) : (
+                order.items.map((item) => (
+                  <div key={item.id} className="grid gap-2 py-2.5 sm:grid-cols-[64px_1fr_92px]">
+                    <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(item.qty)}</div>
+                    <div>
+                      <div className="text-sm font-semibold">{item.name}</div>
+                      {item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{item.notes}</div> : null}
+                    </div>
+                    <div className="text-left text-sm font-semibold sm:text-right">{moneyUsd(item.lineTotalUsd)}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           <CurrentActionCard action={currentAction} />
           <CounterWorkflowChecklist items={getCounterWorkflowChecks(order)} />
 
@@ -2401,26 +2465,6 @@ function OrderDetail({
                 </div>
               ) : null}
               {order.paymentNote ? <div className="sm:col-span-2">Nota: {order.paymentNote}</div> : null}
-            </div>
-          </div>
-
-          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
-            <h3 className="font-semibold">Pedido</h3>
-            <div className="mt-3 divide-y divide-[#242433]">
-              {order.items.length === 0 ? (
-                <div className="py-3 text-sm text-[#9FA0AA]">Sin items cargados.</div>
-              ) : (
-                order.items.map((item) => (
-                  <div key={item.id} className="grid gap-2 py-3 sm:grid-cols-[70px_1fr_100px]">
-                    <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(item.qty)}</div>
-                    <div>
-                      <div className="text-sm font-semibold">{item.name}</div>
-                      {item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{item.notes}</div> : null}
-                    </div>
-                    <div className="text-left text-sm font-semibold sm:text-right">{moneyUsd(item.lineTotalUsd)}</div>
-                  </div>
-                ))
-              )}
             </div>
           </div>
 
@@ -2499,12 +2543,12 @@ function OrderDetail({
           ) : null}
         </div>
 
-        <aside className="space-y-3">
+        <aside className="space-y-2">
           <button
             type="button"
             onClick={() => onPrimaryDeliveryAction(order)}
             disabled={isWorking || primaryActionBlocked}
-            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isWorking ? 'Guardando...' : primaryCounterActionLabel(order)}
           </button>
@@ -2516,7 +2560,7 @@ function OrderDetail({
           <button
             type="button"
             onClick={() => setPaymentOpen((current) => !current)}
-            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
           >
             {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Registrar retorno / cobro' : 'Registrar pago'}
           </button>
@@ -2524,7 +2568,7 @@ function OrderDetail({
             type="button"
             onClick={() => setAddItemsOpen((current) => !current)}
             disabled={!canAddItems || isWorking}
-            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {addItemsOpen ? 'Ocultar agregar' : 'Agregar productos'}
           </button>
@@ -3435,12 +3479,12 @@ function CounterWorkflowChecklist({
   return (
     <div className="grid gap-2 sm:grid-cols-3">
       {items.map((item) => (
-        <div key={item.label} className={['rounded-[8px] border p-3', stateClass[item.state]].join(' ')}>
+        <div key={item.label} className={['rounded-[8px] border px-3 py-2', stateClass[item.state]].join(' ')}>
           <div className="flex items-center gap-2">
-            <span className={['h-2.5 w-2.5 rounded-full', dotClass[item.state]].join(' ')} />
-            <span className="text-xs font-semibold uppercase tracking-[0.14em]">{item.label}</span>
+            <span className={['h-2 w-2 rounded-full', dotClass[item.state]].join(' ')} />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">{item.label}</span>
           </div>
-          <div className="mt-2 text-sm font-semibold text-[#F5F5F7]">{item.detail}</div>
+          <div className="mt-1 truncate text-xs font-semibold text-[#F5F5F7]">{item.detail}</div>
         </div>
       ))}
     </div>
@@ -3462,9 +3506,9 @@ function Metric({
     tone === 'good' ? 'text-emerald-300' : tone === 'warn' ? 'text-orange-300' : 'text-[#F5F5F7]';
 
   return (
-    <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
-      <div className="text-sm text-[#9FA0AA]">{label}</div>
-      <div className={['mt-1 text-lg font-semibold', toneClass].join(' ')}>{value}</div>
+    <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+      <div className="text-xs text-[#9FA0AA]">{label}</div>
+      <div className={['mt-1 text-base font-semibold', toneClass].join(' ')}>{value}</div>
       {note ? <div className="mt-1 text-xs text-[#9FA0AA]">{note}</div> : null}
     </div>
   );
@@ -3489,24 +3533,16 @@ function CurrentActionCard({
         : 'border-sky-300/30 bg-sky-300/10 text-sky-100';
 
   return (
-    <div className={['rounded-[8px] border p-4', toneClass].join(' ')}>
+    <div className={['rounded-[8px] border px-3 py-2.5', toneClass].join(' ')}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[#9FA0AA]">Accion actual</div>
-          <h3 className="mt-1 text-lg font-semibold text-[#F5F5F7]">{action.title}</h3>
-          <p className="mt-1 text-sm leading-relaxed text-[#C7C8D1]">{action.description}</p>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9FA0AA]">Accion actual</div>
+          <h3 className="mt-1 text-sm font-semibold text-[#F5F5F7]">{action.title}</h3>
+          <p className="mt-1 text-xs leading-relaxed text-[#C7C8D1]">{action.description}</p>
         </div>
         <span className={['rounded-full border px-3 py-1 text-xs font-semibold', badgeClass].join(' ')}>
           {action.tone === 'good' ? 'Listo' : action.tone === 'warn' ? 'Atencion' : 'Seguimiento'}
         </span>
-      </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        {action.steps.map((step, index) => (
-          <div key={`${step}-${index}`} className="rounded-[8px] border border-[#303044] bg-[#0B0B0D]/70 p-3">
-            <div className="text-xs font-semibold text-[#9FA0AA]">Paso {index + 1}</div>
-            <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{step}</div>
-          </div>
-        ))}
       </div>
     </div>
   );
