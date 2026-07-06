@@ -9,8 +9,10 @@ import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 
 type CounterQuickSaleInput = {
+  clientId?: number | null;
   clientName: string;
   clientPhone: string;
+  clientType?: 'own' | 'assigned' | 'legacy';
   fulfillment: 'pickup' | 'delivery';
   deliveryAddress: string;
   note: string;
@@ -23,11 +25,32 @@ type CounterQuickSaleInput = {
   paymentChangeFor: string;
   paymentChangeCurrency: 'USD' | 'VES';
   paymentNote: string;
+  discountEnabled?: boolean;
+  discountPct?: string | number | null;
+  hasDeliveryNote?: boolean;
+  hasInvoice?: boolean;
+  invoiceTaxPct?: string | number | null;
   items: Array<{
     productId: number;
     qty: number;
     notes?: string | null;
   }>;
+};
+
+export type CounterClientSearchResult = {
+  id: number;
+  fullName: string;
+  phone: string | null;
+  clientType: string | null;
+  fundBalanceUsd: number;
+};
+
+type CounterClientRow = {
+  id: number;
+  full_name: string | null;
+  phone: string | null;
+  client_type: string | null;
+  fund_balance_usd: number | string | null;
 };
 
 type CounterProductRow = {
@@ -336,6 +359,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
     throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
   }
 
+  const requestedClientId = Number(input.clientId || 0);
   const clientName = String(input.clientName || '').trim();
   const phone = normalizePhone(input.clientPhone || '');
   const fulfillment = input.fulfillment === 'delivery' ? 'delivery' : 'pickup';
@@ -348,8 +372,8 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
     }))
     .filter((item) => item.productId > 0 && item.qty > 0);
 
-  if (!clientName) throw new Error('Indica el nombre del cliente.');
-  if (!phone) throw new Error('Indica un telefono valido del cliente.');
+  if (!requestedClientId && !clientName) throw new Error('Indica el nombre del cliente.');
+  if (!requestedClientId && !phone) throw new Error('Indica un telefono valido del cliente.');
   if (fulfillment === 'delivery' && !deliveryAddress) throw new Error('La direccion es obligatoria para delivery.');
   if (items.length === 0) throw new Error('Agrega al menos un producto.');
 
@@ -371,28 +395,60 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
     throw new Error('Uno de los productos no esta activo o no existe.');
   }
 
-  const { data: existingClients, error: existingClientError } = await supabase
-    .from('clients')
-    .select('id')
-    .or(buildClientPhoneOrFilters(phone).join(','))
-    .limit(1);
+  let clientId = requestedClientId;
+  let resolvedClientName = clientName;
+  let resolvedClientPhone = phone;
 
-  if (existingClientError) throw new Error(existingClientError.message);
+  if (clientId > 0) {
+    const { data: selectedClient, error: selectedClientError } = await supabase
+      .from('clients')
+      .select('id, full_name, phone, client_type, fund_balance_usd')
+      .eq('id', clientId)
+      .maybeSingle();
 
-  let clientId = Number(existingClients?.[0]?.id || 0);
+    if (selectedClientError) throw new Error(selectedClientError.message);
+    if (!selectedClient) throw new Error('El cliente seleccionado no existe.');
+
+    const client = selectedClient as CounterClientRow;
+    resolvedClientName = String(client.full_name || clientName || '').trim();
+    resolvedClientPhone = normalizePhone(client.phone || phone || '');
+  } else {
+    const { data: existingClients, error: existingClientError } = await supabase
+      .from('clients')
+      .select('id, full_name, phone, client_type, fund_balance_usd')
+      .or(buildClientPhoneOrFilters(phone).join(','))
+      .limit(1);
+
+    if (existingClientError) throw new Error(existingClientError.message);
+
+    const existingClient = (existingClients?.[0] ?? null) as CounterClientRow | null;
+    clientId = Number(existingClient?.id || 0);
+    if (existingClient) {
+      resolvedClientName = String(existingClient.full_name || clientName).trim();
+      resolvedClientPhone = normalizePhone(existingClient.phone || phone);
+    }
+  }
+
   if (!clientId) {
+    const clientType =
+      input.clientType === 'assigned' || input.clientType === 'legacy' || input.clientType === 'own'
+        ? input.clientType
+        : 'own';
     const { data: createdClient, error: createClientError } = await supabase
       .from('clients')
       .insert({
         full_name: clientName,
         phone,
-        client_type: 'own',
+        client_type: clientType,
       })
-      .select('id')
+      .select('id, full_name, phone, client_type, fund_balance_usd')
       .single();
 
     if (createClientError) throw new Error(createClientError.message);
     clientId = Number(createdClient.id);
+    const client = createdClient as CounterClientRow;
+    resolvedClientName = String(client.full_name || clientName).trim();
+    resolvedClientPhone = normalizePhone(client.phone || phone);
   }
 
   const itemSnapshots = items.map((item) => {
@@ -414,7 +470,13 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   });
   const subtotalUsd = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
   const subtotalBs = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
-  const totals = calculateOrderTotalsSnapshot({ subtotalUsd, subtotalBs, discountPct: 0, invoiceTaxPct: 0 });
+  const discountPct = input.discountEnabled
+    ? Math.max(0, Math.min(100, toSafeNumber(String(input.discountPct || '0').replace(',', '.'), 0)))
+    : 0;
+  const invoiceTaxPct = input.hasInvoice
+    ? Math.max(0, toSafeNumber(String(input.invoiceTaxPct || '16').replace(',', '.'), 16))
+    : 0;
+  const totals = calculateOrderTotalsSnapshot({ subtotalUsd, subtotalBs, discountPct, invoiceTaxPct });
   const orderNumber = await generateUniqueOrderNumber(supabase);
   const nowIso = new Date().toISOString();
   const schedule = normalizeSchedule(input);
@@ -452,21 +514,21 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       client_fund_used_usd: 0,
     },
     documents: {
-      has_delivery_note: false,
-      has_invoice: false,
+      has_delivery_note: Boolean(input.hasDeliveryNote),
+      has_invoice: Boolean(input.hasInvoice),
       invoice_data_note: null,
       invoice_snapshot: null,
       delivery_note_snapshot: null,
     },
     pricing: {
       fx_rate: fxRate,
-      discount_enabled: false,
-      discount_pct: 0,
-      discount_amount_usd: 0,
-      discount_amount_bs: 0,
-      invoice_tax_pct: 0,
-      invoice_tax_amount_usd: 0,
-      invoice_tax_amount_bs: 0,
+      discount_enabled: discountPct > 0,
+      discount_pct: discountPct,
+      discount_amount_usd: totals.discountAmountUsd,
+      discount_amount_bs: totals.discountAmountBs,
+      invoice_tax_pct: invoiceTaxPct,
+      invoice_tax_amount_usd: totals.invoiceTaxAmountUsd,
+      invoice_tax_amount_bs: totals.invoiceTaxAmountBs,
       subtotal_usd: totals.subtotalAfterDiscountUsd,
       subtotal_bs: totals.subtotalAfterDiscountBs,
       subtotal_after_discount_usd: totals.subtotalAfterDiscountUsd,
@@ -482,6 +544,8 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       quick_sale: true,
       created_at: nowIso,
       scheduled_by_counter: !schedule.asap,
+      client_name_snapshot: resolvedClientName,
+      client_phone_snapshot: resolvedClientPhone || null,
     },
   };
 
@@ -891,6 +955,37 @@ export async function createCounterCashMovementAction(input: CounterCashMovement
     currencyCode,
     amountUsdEquivalent,
   };
+}
+
+export async function searchCounterClientsAction(input: { query: string }): Promise<CounterClientSearchResult[]> {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
+  }
+
+  const query = String(input.query || '').trim();
+  if (query.length < 2) return [];
+
+  const filters = buildClientSearchOrFilters(query);
+  if (filters.length === 0) return [];
+
+  const supabase = createSupabaseServiceRoleServer();
+  const { data, error } = await supabase
+    .from('clients')
+    .select('id, full_name, phone, client_type, fund_balance_usd')
+    .or(filters.join(','))
+    .limit(10);
+
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as CounterClientRow[]).map((client) => ({
+    id: Number(client.id),
+    fullName: String(client.full_name || 'Cliente'),
+    phone: client.phone ? String(client.phone) : null,
+    clientType: client.client_type ? String(client.client_type) : null,
+    fundBalanceUsd: toSafeNumber(client.fund_balance_usd, 0),
+  }));
 }
 
 export async function searchCounterAgendaAction(input: { query: string }) {

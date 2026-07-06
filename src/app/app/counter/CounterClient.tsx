@@ -17,8 +17,10 @@ import {
   addCounterOrderItemsAction,
   createCounterCashMovementAction,
   createCounterQuickSaleAction,
+  searchCounterClientsAction,
   searchCounterAgendaAction,
   type CounterAgendaSearchResult,
+  type CounterClientSearchResult,
 } from './actions';
 
 export type CounterPaymentAccountOption = {
@@ -794,8 +796,10 @@ export default function CounterClient({
   }
 
   function handleCreateQuickSale(input: {
+    clientId?: number | null;
     clientName: string;
     clientPhone: string;
+    clientType?: 'own' | 'assigned' | 'legacy';
     fulfillment: 'pickup' | 'delivery';
     deliveryAddress: string;
     note: string;
@@ -808,6 +812,11 @@ export default function CounterClient({
     paymentChangeFor: string;
     paymentChangeCurrency: 'USD' | 'VES';
     paymentNote: string;
+    discountEnabled?: boolean;
+    discountPct?: string | number | null;
+    hasDeliveryNote?: boolean;
+    hasInvoice?: boolean;
+    invoiceTaxPct?: string | number | null;
     items: Array<{ productId: number; qty: number; notes?: string | null }>;
   }) {
     setMessage(null);
@@ -1688,8 +1697,10 @@ function CounterQuickSalePanel({
   isWorking: boolean;
   onCancel: () => void;
   onSubmit: (input: {
+    clientId?: number | null;
     clientName: string;
     clientPhone: string;
+    clientType?: 'own' | 'assigned' | 'legacy';
     fulfillment: 'pickup' | 'delivery';
     deliveryAddress: string;
     note: string;
@@ -1702,11 +1713,22 @@ function CounterQuickSalePanel({
     paymentChangeFor: string;
     paymentChangeCurrency: 'USD' | 'VES';
     paymentNote: string;
+    discountEnabled?: boolean;
+    discountPct?: string | number | null;
+    hasDeliveryNote?: boolean;
+    hasInvoice?: boolean;
+    invoiceTaxPct?: string | number | null;
     items: Array<{ productId: number; qty: number; notes?: string | null }>;
   }) => void;
 }) {
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientSearchResults, setClientSearchResults] = useState<CounterClientSearchResult[]>([]);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<CounterClientSearchResult | null>(null);
+  const [newClientMode, setNewClientMode] = useState(false);
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientType, setClientType] = useState<'own' | 'assigned' | 'legacy'>('own');
   const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [note, setNote] = useState('');
@@ -1719,17 +1741,17 @@ function CounterQuickSalePanel({
   const [paymentChangeFor, setPaymentChangeFor] = useState('');
   const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<'USD' | 'VES'>('USD');
   const [paymentNote, setPaymentNote] = useState('');
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountPct, setDiscountPct] = useState('0');
+  const [hasDeliveryNote, setHasDeliveryNote] = useState(false);
+  const [hasInvoice, setHasInvoice] = useState(false);
+  const [invoiceTaxPct, setInvoiceTaxPct] = useState('16');
   const [productSearch, setProductSearch] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ? String(products[0].id) : '');
+  const [selectedProductId, setSelectedProductId] = useState('');
   const [qty, setQty] = useState('1');
   const [itemNotes, setItemNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (selectedProductId || !products[0]?.id) return;
-    setSelectedProductId(String(products[0].id));
-  }, [products, selectedProductId]);
 
   const productsById = useMemo(
     () => new Map(products.map((product) => [product.id, product])),
@@ -1773,11 +1795,73 @@ function CounterQuickSalePanel({
       };
     });
   }, [activeBsRate, cartItems, productsById]);
+  const cartSubtotal = useMemo(
+    () => ({
+      usd: lineRows.reduce((sum, row) => sum + row.snapshot.lineUsd, 0),
+      bs: lineRows.reduce((sum, row) => sum + row.snapshot.lineBs, 0),
+    }),
+    [lineRows]
+  );
   const totals = useMemo(() => {
-    const subtotalUsd = lineRows.reduce((sum, row) => sum + row.snapshot.lineUsd, 0);
-    const subtotalBs = lineRows.reduce((sum, row) => sum + row.snapshot.lineBs, 0);
-    return calculateOrderTotalsSnapshot({ subtotalUsd, subtotalBs, discountPct: 0, invoiceTaxPct: 0 });
-  }, [lineRows]);
+    return calculateOrderTotalsSnapshot({
+      subtotalUsd: cartSubtotal.usd,
+      subtotalBs: cartSubtotal.bs,
+      discountPct: discountEnabled ? toDecimalInput(discountPct) : 0,
+      invoiceTaxPct: hasInvoice ? toDecimalInput(invoiceTaxPct) : 0,
+    });
+  }, [cartSubtotal.bs, cartSubtotal.usd, discountEnabled, discountPct, hasInvoice, invoiceTaxPct]);
+
+  async function handleClientSearch() {
+    const query = clientSearch.trim();
+    if (query.length < 2) {
+      setLocalError('Escribe telefono o nombre para buscar el cliente.');
+      return;
+    }
+
+    setClientSearchLoading(true);
+    setLocalError(null);
+    try {
+      const results = await searchCounterClientsAction({ query });
+      setClientSearchResults(results);
+      if (results.length === 0) {
+        setNewClientMode(true);
+        setSelectedClient(null);
+        if (query.replace(/\D/g, '').length >= 5) {
+          setClientPhone(query);
+        } else {
+          setClientName(query);
+        }
+      }
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'No se pudo buscar el cliente.');
+    } finally {
+      setClientSearchLoading(false);
+    }
+  }
+
+  function selectClient(client: CounterClientSearchResult) {
+    setSelectedClient(client);
+    setNewClientMode(false);
+    setClientSearchResults([]);
+    setClientName(client.fullName);
+    setClientPhone(client.phone || '');
+    setClientType(
+      client.clientType === 'assigned' || client.clientType === 'legacy' || client.clientType === 'own'
+        ? client.clientType
+        : 'own'
+    );
+    setLocalError(null);
+  }
+
+  function startNewClient() {
+    const query = clientSearch.trim();
+    setSelectedClient(null);
+    setNewClientMode(true);
+    setClientSearchResults([]);
+    if (!clientName && query && query.replace(/\D/g, '').length < 5) setClientName(query);
+    if (!clientPhone && query.replace(/\D/g, '').length >= 5) setClientPhone(query);
+    setLocalError(null);
+  }
 
   function addCartItem() {
     const productId = Number(selectedProductId || 0);
@@ -1804,10 +1888,16 @@ function CounterQuickSalePanel({
     ]);
     setQty('1');
     setItemNotes('');
+    setProductSearch('');
+    setSelectedProductId('');
     setLocalError(null);
   }
 
   function submitQuickSale() {
+    if (!selectedClient && !newClientMode) {
+      setLocalError('Busca un cliente existente o marca crear cliente nuevo.');
+      return;
+    }
     if (!clientName.trim()) {
       setLocalError('Indica el nombre del cliente.');
       return;
@@ -1830,8 +1920,10 @@ function CounterQuickSalePanel({
     }
 
     onSubmit({
+      clientId: selectedClient?.id ?? null,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim(),
+      clientType,
       fulfillment,
       deliveryAddress: deliveryAddress.trim(),
       note: note.trim(),
@@ -1844,6 +1936,11 @@ function CounterQuickSalePanel({
       paymentChangeFor,
       paymentChangeCurrency,
       paymentNote: paymentNote.trim(),
+      discountEnabled,
+      discountPct,
+      hasDeliveryNote,
+      hasInvoice,
+      invoiceTaxPct,
       items: cartItems.map((item) => ({
         productId: item.productId,
         qty: toDecimalInput(item.qty),
@@ -1884,25 +1981,229 @@ function CounterQuickSalePanel({
       <div className="mt-4 space-y-3">
         <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
           <h3 className="text-sm font-semibold">Cliente</h3>
-          <div className="grid gap-2 sm:grid-cols-2">
-          <label className="text-xs text-[#9FA0AA]">
-            Nombre
+          <div className="grid gap-2 md:grid-cols-[1fr_120px_145px]">
             <input
-              value={clientName}
-              onChange={(event) => setClientName(event.target.value)}
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              value={clientSearch}
+              onChange={(event) => setClientSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleClientSearch();
+                }
+              }}
+              placeholder="Buscar por telefono o nombre"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
-          </label>
-          <label className="text-xs text-[#9FA0AA]">
-            Telefono
-            <input
-              value={clientPhone}
-              onChange={(event) => setClientPhone(event.target.value)}
-              inputMode="tel"
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-            />
-          </label>
+            <button
+              type="button"
+              onClick={() => void handleClientSearch()}
+              disabled={clientSearchLoading}
+              className="rounded-[8px] border border-[#303044] bg-[#15151C] px-3 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50 disabled:opacity-60"
+            >
+              {clientSearchLoading ? 'Buscando...' : 'Buscar'}
+            </button>
+            <button
+              type="button"
+              onClick={startNewClient}
+              className="rounded-[8px] border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-sm font-semibold text-[#FEEF00] hover:bg-[#FEEF00]/15"
+            >
+              Crear cliente
+            </button>
           </div>
+          {clientSearchResults.length > 0 ? (
+            <div className="max-h-[180px] overflow-y-auto rounded-[8px] border border-[#242433] bg-[#111118]">
+              {clientSearchResults.map((client) => (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() => selectClient(client)}
+                  className="w-full border-b border-[#242433] px-3 py-2 text-left last:border-b-0 hover:bg-[#1A1A22]"
+                >
+                  <div className="text-sm font-semibold text-[#F5F5F7]">{client.fullName}</div>
+                  <div className="mt-0.5 text-xs text-[#9FA0AA]">
+                    {client.phone || 'Sin telefono'} - {client.clientType || 'sin tipo'} - Fondo {moneyUsd(client.fundBalanceUsd)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {selectedClient ? (
+            <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
+              <div className="text-sm font-semibold text-emerald-100">{selectedClient.fullName}</div>
+              <div className="mt-1 text-xs text-emerald-100/75">
+                {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
+              </div>
+            </div>
+          ) : null}
+          {newClientMode ? (
+            <div className="space-y-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9FA0AA]">Cliente nuevo</div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="text-xs text-[#9FA0AA]">
+                  Nombre
+                  <input
+                    value={clientName}
+                    onChange={(event) => setClientName(event.target.value)}
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+                <label className="text-xs text-[#9FA0AA]">
+                  Telefono
+                  <input
+                    value={clientPhone}
+                    onChange={(event) => setClientPhone(event.target.value)}
+                    inputMode="tel"
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+              </div>
+              <label className="text-xs text-[#9FA0AA]">
+                Tipo
+                <select
+                  value={clientType}
+                  onChange={(event) =>
+                    setClientType(
+                      event.target.value === 'assigned' || event.target.value === 'legacy' ? event.target.value : 'own'
+                    )
+                  }
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                >
+                  <option value="own">Propio</option>
+                  <option value="assigned">Asignado</option>
+                  <option value="legacy">Antiguo</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Pedido</h3>
+            <span className="text-sm font-semibold text-[#F5F5F7]">{cartItems.length} item(s)</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[1fr_110px]">
+            <input
+              value={productSearch}
+              onChange={(event) => setProductSearch(event.target.value)}
+              placeholder="Buscar producto"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+            />
+            <input
+              value={qty}
+              onChange={(event) => setQty(event.target.value)}
+              inputMode="decimal"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+            />
+          </div>
+          {productSearch.trim() ? (
+            <div className="max-h-[210px] overflow-y-auto rounded-[8px] border border-[#242433] bg-[#111118]">
+              {filteredProducts.length === 0 ? (
+                <div className="px-3 py-3 text-sm text-[#9FA0AA]">Sin resultados.</div>
+              ) : (
+                filteredProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedProductId(String(product.id));
+                      setProductSearch(product.name);
+                    }}
+                    className={[
+                      'w-full border-b border-[#242433] px-3 py-2 text-left last:border-b-0 hover:bg-[#1A1A22]',
+                      selectedProductId === String(product.id) ? 'bg-[#1A1A22]' : '',
+                    ].join(' ')}
+                  >
+                    <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
+                    <div className="mt-0.5 text-xs text-[#9FA0AA]">
+                      {product.unitsPerService > 0 ? `${product.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
+                      {moneyUsd(product.basePriceUsd)} / {moneyBs(product.basePriceBs)}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : null}
+
+          {selectedProduct ? (
+            <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
+              <div className="font-semibold text-emerald-100">{selectedProduct.name}</div>
+              <div className="mt-1 text-xs text-emerald-100/75">
+                {selectedProduct.unitsPerService > 0 ? `${selectedProduct.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
+                {moneyUsd(selectedProduct.basePriceUsd)} / {moneyBs(selectedProduct.basePriceBs)}
+              </div>
+            </div>
+          ) : null}
+          <div className="grid gap-2 md:grid-cols-[1fr_130px]">
+            <input
+              value={itemNotes}
+              onChange={(event) => setItemNotes(event.target.value)}
+              placeholder="Nota del item (opcional)"
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+            />
+            <button
+              type="button"
+              onClick={addCartItem}
+              disabled={products.length === 0 || activeBsRate <= 0}
+              className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Agregar
+            </button>
+          </div>
+
+          <div className="max-h-[240px] overflow-y-auto rounded-[8px] border border-[#242433]">
+            {lineRows.length === 0 ? (
+              <div className="p-4 text-sm text-[#9FA0AA]">Sin productos agregados.</div>
+            ) : (
+              <div className="divide-y divide-[#242433]">
+                {lineRows.map((row) => (
+                  <div key={row.item.id} className="grid gap-2 p-3 sm:grid-cols-[60px_1fr_145px_auto]">
+                    <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(row.qty)}</div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">{row.product?.name || 'Producto'}</div>
+                      <div className="mt-1 text-xs text-[#9FA0AA]">
+                        Unit. {moneyUsd(row.snapshot.unitUsd)} / {moneyBs(row.snapshot.unitBs)}
+                      </div>
+                      {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
+                    </div>
+                    <div className="text-sm font-semibold sm:text-right">
+                      <div>{moneyUsd(row.snapshot.lineUsd)}</div>
+                      <div className="mt-0.5 text-xs text-[#9FA0AA]">{moneyBs(row.snapshot.lineBs)}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
+                      className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/10"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="grid gap-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3 sm:grid-cols-2">
+            <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={discountEnabled}
+                onChange={(event) => setDiscountEnabled(event.target.checked)}
+              />
+              Descuento
+            </label>
+            <input
+              value={discountPct}
+              onChange={(event) => setDiscountPct(event.target.value)}
+              disabled={!discountEnabled}
+              inputMode="decimal"
+              placeholder="% descuento"
+              className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70 disabled:opacity-50"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <h3 className="text-sm font-semibold">Entrega</h3>
           <div className="grid grid-cols-2 gap-2">
             {(['pickup', 'delivery'] as const).map((option) => (
               <button
@@ -1931,15 +2232,6 @@ function CounterQuickSalePanel({
               />
             </label>
           ) : null}
-          <label className="text-xs text-[#9FA0AA]">
-            Nota de orden
-            <input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Opcional"
-              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-            />
-          </label>
           <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-2">
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -1992,113 +2284,48 @@ function CounterQuickSalePanel({
               <div className="mt-3 text-xs text-[#9FA0AA]">Se envia a cocina con la hora actual.</div>
             )}
           </div>
-        </div>
-
-        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Pedido</h3>
-            <span className="text-sm font-semibold text-[#F5F5F7]">{cartItems.length} item(s)</span>
-          </div>
-          <div className="grid gap-2 md:grid-cols-[1fr_110px]">
+          <label className="text-xs text-[#9FA0AA]">
+            Nota de orden
             <input
-              value={productSearch}
-              onChange={(event) => setProductSearch(event.target.value)}
-              placeholder="Buscar producto"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Opcional"
+              className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
             />
-            <input
-              value={qty}
-              onChange={(event) => setQty(event.target.value)}
-              inputMode="decimal"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-            />
-          </div>
-          {productSearch.trim() ? (
-            <div className="max-h-[210px] overflow-y-auto rounded-[8px] border border-[#242433] bg-[#111118]">
-              {filteredProducts.length === 0 ? (
-                <div className="px-3 py-3 text-sm text-[#9FA0AA]">Sin resultados.</div>
-              ) : (
-                filteredProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedProductId(String(product.id));
-                      setProductSearch(product.name);
-                    }}
-                    className={[
-                      'w-full border-b border-[#242433] px-3 py-2 text-left last:border-b-0 hover:bg-[#1A1A22]',
-                      selectedProductId === String(product.id) ? 'bg-[#1A1A22]' : '',
-                    ].join(' ')}
-                  >
-                    <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
-                    <div className="mt-0.5 text-xs text-[#9FA0AA]">
-                      {product.unitsPerService > 0 ? `${product.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
-                      {product.sourcePriceCurrency === 'VES' ? moneyBs(product.basePriceBs) : moneyUsd(product.basePriceUsd)}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          ) : null}
-
-          {selectedProduct ? (
-            <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
-              <div className="font-semibold text-emerald-100">{selectedProduct.name}</div>
-              <div className="mt-1 text-xs text-emerald-100/75">
-                {selectedProduct.unitsPerService > 0 ? `${selectedProduct.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
-                {selectedProduct.sourcePriceCurrency === 'VES'
-                  ? `${moneyBs(selectedProduct.basePriceBs)} / ${moneyUsd(selectedProduct.basePriceUsd)}`
-                  : `${moneyUsd(selectedProduct.basePriceUsd)} / ${moneyBs(selectedProduct.basePriceBs)}`}
-              </div>
-            </div>
-          ) : null}
-          <div className="grid gap-2 md:grid-cols-[1fr_130px]">
-            <input
-              value={itemNotes}
-              onChange={(event) => setItemNotes(event.target.value)}
-              placeholder="Nota del item (opcional)"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-            />
-            <button
-              type="button"
-              onClick={addCartItem}
-              disabled={products.length === 0 || activeBsRate <= 0}
-              className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Agregar
-            </button>
-          </div>
-
-          <div className="max-h-[240px] overflow-y-auto rounded-[8px] border border-[#242433]">
-            {lineRows.length === 0 ? (
-              <div className="p-4 text-sm text-[#9FA0AA]">Sin productos agregados.</div>
-            ) : (
-              <div className="divide-y divide-[#242433]">
-                {lineRows.map((row) => (
-                  <div key={row.item.id} className="grid gap-2 p-3 sm:grid-cols-[60px_1fr_105px_auto]">
-                    <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(row.qty)}</div>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">{row.product?.name || 'Producto'}</div>
-                      {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
-                    </div>
-                    <div className="text-sm font-semibold sm:text-right">{moneyUsd(row.snapshot.lineUsd)}</div>
-                    <button
-                      type="button"
-                      onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
-                      className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-400/10"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          </label>
         </div>
 
         <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
           <h3 className="text-sm font-semibold">Pago esperado</h3>
+          <div className="grid gap-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3 sm:grid-cols-2">
+            <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={hasDeliveryNote}
+                onChange={(event) => setHasDeliveryNote(event.target.checked)}
+              />
+              Nota de entrega
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
+              <input
+                type="checkbox"
+                checked={hasInvoice}
+                onChange={(event) => setHasInvoice(event.target.checked)}
+              />
+              Factura
+            </label>
+            {hasInvoice ? (
+              <label className="text-xs text-[#9FA0AA] sm:col-span-2">
+                IVA %
+                <input
+                  value={invoiceTaxPct}
+                  onChange={(event) => setInvoiceTaxPct(event.target.value)}
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                />
+              </label>
+            ) : null}
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs text-[#9FA0AA]">
             Metodo
@@ -2164,9 +2391,28 @@ function CounterQuickSalePanel({
           </label>
 
           <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
-            <div className="text-sm text-[#9FA0AA]">Total</div>
-            <div className="mt-1 text-xl font-semibold">{moneyUsd(totals.totalUsd)}</div>
-            <div className="mt-1 text-sm font-semibold text-[#C7C8D1]">{moneyBs(totals.totalBs)}</div>
+            <div className="grid gap-2 text-sm">
+              <div className="flex justify-between gap-3 text-[#C7C8D1]">
+                <span>Subtotal</span>
+                <span>{moneyUsd(cartSubtotal.usd)} / {moneyBs(cartSubtotal.bs)}</span>
+              </div>
+              {discountEnabled && toDecimalInput(discountPct) > 0 ? (
+                <div className="flex justify-between gap-3 text-emerald-200">
+                  <span>Descuento ({toDecimalInput(discountPct)}%)</span>
+                  <span>-{moneyUsd(totals.discountAmountUsd)} / -{moneyBs(totals.discountAmountBs)}</span>
+                </div>
+              ) : null}
+              {hasInvoice && toDecimalInput(invoiceTaxPct) > 0 ? (
+                <div className="flex justify-between gap-3 text-[#FEEF00]">
+                  <span>IVA ({toDecimalInput(invoiceTaxPct)}%)</span>
+                  <span>+{moneyUsd(totals.invoiceTaxAmountUsd)} / +{moneyBs(totals.invoiceTaxAmountBs)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-3 border-t border-[#303044] pt-2 text-base font-semibold text-[#F5F5F7]">
+                <span>Total</span>
+                <span>{moneyUsd(totals.totalUsd)} / {moneyBs(totals.totalBs)}</span>
+              </div>
+            </div>
           </div>
 
           <button
