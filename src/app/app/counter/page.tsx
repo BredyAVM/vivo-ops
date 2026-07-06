@@ -6,7 +6,6 @@ import {
   getOrderMoneySnapshot,
   getOrderRoundingClosureSnapshot,
   roundOrderMoney,
-  toOrderMoneyNumber,
 } from '@/lib/orders/order-money';
 import CounterClient, {
   type CounterPaymentAccountOption,
@@ -85,11 +84,10 @@ type RawCounterItem = {
   notes: string | null;
 };
 
-type RawMoneyMovement = {
+type RawOrderFinancialState = {
   order_id: number | null;
-  direction: 'inflow' | 'outflow' | string | null;
-  status: string | null;
-  amount_usd_equivalent: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  pending_usd: number | string | null;
 };
 
 type RawPaymentReport = {
@@ -151,16 +149,6 @@ function getScheduleTime(order: RawCounterOrder) {
   const schedule = order.extra_fields?.schedule;
   if (schedule?.asap) return 'Lo antes posible';
   return schedule?.time_12 || schedule?.time_24 || null;
-}
-
-function getConfirmedSignedUsd(movements: RawMoneyMovement[]) {
-  return roundOrderMoney(
-    movements.reduce((sum, movement) => {
-      if (movement.status !== 'confirmed') return sum;
-      const sign = movement.direction === 'outflow' ? -1 : 1;
-      return sum + sign * toOrderMoneyNumber(movement.amount_usd_equivalent, 0);
-    }, 0)
-  );
 }
 
 export default async function CounterPage() {
@@ -271,6 +259,7 @@ export default async function CounterPage() {
 
   const rawOrders = (ordersData ?? []) as unknown as RawCounterOrder[];
   const orderIds = rawOrders.map((order) => order.id);
+  const activeBsRate = toNumber(activeRateData?.rate_bs_per_usd, 0);
   const internalDriverIds = Array.from(
     new Set(
       rawOrders
@@ -319,7 +308,7 @@ export default async function CounterPage() {
 
   const [
     { data: itemsData, error: itemsError },
-    { data: movementsData, error: movementsError },
+    { data: financialStateData, error: financialStateError },
     { data: reportsData, error: reportsError },
     { data: driversData, error: driversError },
     { data: partnersData, error: partnersError },
@@ -331,10 +320,11 @@ export default async function CounterPage() {
             .select('id, order_id, qty, product_name_snapshot, line_total_usd, line_total_bs_snapshot, notes')
             .in('order_id', orderIds)
             .order('id', { ascending: true }),
-          ctx.supabase
-            .from('money_movements')
-            .select('order_id, direction, status, amount_usd_equivalent')
-            .in('order_id', orderIds),
+          (ctx.supabase as any).rpc('get_orders_financial_state', {
+            p_order_ids: orderIds,
+            p_operation_date: null,
+            p_active_bs_rate: activeBsRate > 0 ? activeBsRate : null,
+          }),
           ctx.supabase.from('payment_reports').select('order_id, status').in('order_id', orderIds),
           internalDriverIds.length
             ? ctx.supabase.from('profiles').select('id, full_name').in('id', internalDriverIds)
@@ -355,8 +345,8 @@ export default async function CounterPage() {
   if (itemsError) {
     throw new Error(itemsError.message);
   }
-  if (movementsError) {
-    throw new Error(movementsError.message);
+  if (financialStateError) {
+    throw new Error(financialStateError.message);
   }
   if (reportsError) {
     throw new Error(reportsError.message);
@@ -395,12 +385,10 @@ export default async function CounterPage() {
     itemsByOrder.set(item.order_id, orderItems);
   }
 
-  const movementsByOrder = new Map<number, RawMoneyMovement[]>();
-  for (const movement of (movementsData ?? []) as RawMoneyMovement[]) {
-    if (!movement.order_id) continue;
-    const orderMovements = movementsByOrder.get(movement.order_id) ?? [];
-    orderMovements.push(movement);
-    movementsByOrder.set(movement.order_id, orderMovements);
+  const financialStateByOrder = new Map<number, RawOrderFinancialState>();
+  for (const state of (financialStateData ?? []) as RawOrderFinancialState[]) {
+    const orderId = Number(state.order_id || 0);
+    if (orderId > 0) financialStateByOrder.set(orderId, state);
   }
 
   const reportsByOrder = new Map<number, { pending: number; confirmed: number; rejected: number }>();
@@ -416,12 +404,14 @@ export default async function CounterPage() {
   const orders: CounterOrder[] = rawOrders.map((order) => {
     const client = normalizeClient(order);
     const moneySnapshot = getOrderMoneySnapshot(order);
-    const clientFundUsedUsd = roundOrderMoney(order.extra_fields?.payment?.client_fund_used_usd);
-    const confirmedPaidUsd = roundOrderMoney(getConfirmedSignedUsd(movementsByOrder.get(order.id) ?? []) + clientFundUsedUsd);
+    const financialState = financialStateByOrder.get(order.id);
+    const confirmedPaidUsd = financialState ? roundOrderMoney(financialState.confirmed_paid_usd) : 0;
     const roundingClosure = getOrderRoundingClosureSnapshot(order);
     const balanceUsd = roundingClosure.isClosed
       ? 0
-      : roundOrderMoney(Math.max(0, moneySnapshot.totalUsd - confirmedPaidUsd));
+      : financialState
+        ? roundOrderMoney(financialState.pending_usd)
+        : roundOrderMoney(Math.max(0, moneySnapshot.totalUsd - confirmedPaidUsd));
     const internalDriverName = order.internal_driver_user_id
       ? internalDriverNameById.get(order.internal_driver_user_id) ?? null
       : null;
@@ -489,7 +479,6 @@ export default async function CounterPage() {
       };
     })
     .filter((product) => product.id > 0);
-  const activeBsRate = toNumber(activeRateData?.rate_bs_per_usd, 0);
 
   return (
     <CounterClient
