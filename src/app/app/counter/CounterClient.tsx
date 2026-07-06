@@ -94,6 +94,7 @@ export type CounterOrder = {
   fulfillment: 'pickup' | 'delivery';
   clientName: string;
   clientPhone: string | null;
+  advisorName: string | null;
   deliveryAddress: string | null;
   deliveryMode: string | null;
   deliveryAssigneeKind: 'internal' | 'external' | null;
@@ -290,6 +291,15 @@ function paymentClass(order: CounterOrder) {
   return 'border-orange-400/40 bg-orange-400/10 text-orange-200';
 }
 
+function isCounterImmediatePaymentMethod(method: string | null | undefined) {
+  const normalized = String(method || '').trim();
+  return normalized === 'pos' || normalized === 'cash_usd' || normalized === 'cash_ves';
+}
+
+function mustSettleBeforeCounterDelivery(order: CounterOrder) {
+  return isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005;
+}
+
 function fulfillmentLabel(value: CounterOrder['fulfillment']) {
   return value === 'delivery' ? 'Delivery' : 'Pickup';
 }
@@ -314,7 +324,7 @@ function primaryCounterActionLabel(order: CounterOrder) {
   if (order.status === 'created') return 'Pendiente master';
   if (order.status === 'confirmed') return 'En cola de cocina';
   if (order.status === 'in_kitchen') return 'En preparacion';
-  if (order.fulfillment === 'pickup' && order.status === 'ready' && order.balanceUsd > 0.005) return 'Primero cobrar';
+  if (order.fulfillment === 'pickup' && order.status === 'ready' && mustSettleBeforeCounterDelivery(order)) return 'Primero cobrar';
   if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
   if (order.fulfillment === 'delivery' && order.status === 'out_for_delivery') return 'Marcar entregada';
   return 'Entregar pickup';
@@ -464,6 +474,7 @@ export default function CounterClient({
         order.orderNumber,
         order.clientName,
         order.clientPhone,
+        order.advisorName,
         order.deliveryAddress,
       ]
         .filter(Boolean)
@@ -1164,6 +1175,7 @@ function CounterOrderCard({
         <div className="min-w-0">
           <div className="text-sm font-semibold text-[#FEEF00]">Orden #{order.displayNumber}</div>
           <div className="mt-1 truncate text-base font-semibold text-[#F5F5F7]">{order.clientName}</div>
+          <div className="mt-1 truncate text-xs text-[#9FA0AA]">Asesor: {order.advisorName || 'Sin asesor'}</div>
           <div className="mt-1 text-xs text-[#9FA0AA]">{scheduleLabel(order)}</div>
         </div>
         <div className="shrink-0 text-right">
@@ -2432,6 +2444,8 @@ function CounterQuickSalePanel({
 function getCounterCurrentAction(order: CounterOrder) {
   const paid = order.balanceUsd <= 0.005;
   const hasPendingReports = order.reports.pending > 0;
+  const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
+  const mustCollectNow = mustSettleBeforeCounterDelivery(order);
 
   if (order.status === 'created') {
     return {
@@ -2453,14 +2467,18 @@ function getCounterCurrentAction(order: CounterOrder) {
 
   if (order.fulfillment === 'pickup' && order.status === 'ready') {
     return {
-      title: paid ? 'Entregar pickup' : 'Cobrar y entregar pickup',
+      title: paid ? 'Entregar pickup' : mustCollectNow ? 'Cobrar y entregar pickup' : 'Entregar pickup pendiente',
       description: paid
         ? 'El pedido esta listo y pagado. Solo falta entregarlo al cliente.'
-        : 'Antes de entregar, registra el pago o confirma que quede por cobrar segun corresponda.',
-      tone: paid ? ('good' as const) : ('warn' as const),
+        : mustCollectNow
+          ? 'El metodo esperado es efectivo o punto. Registra el cobro antes de entregar.'
+          : 'El pedido puede entregarse pendiente; el asesor queda responsable del cobro.',
+      tone: paid ? ('good' as const) : mustCollectNow ? ('warn' as const) : ('neutral' as const),
       steps: paid
         ? ['Validar cliente', 'Entregar pedido', 'Marcar retirado']
-        : ['Registrar pago', 'Validar cliente', 'Entregar pedido y marcar retirado'],
+        : mustCollectNow
+          ? ['Registrar pago', 'Validar cliente', 'Entregar pedido y marcar retirado']
+          : ['Validar cliente', 'Entregar pedido', 'Marcar retirado como pendiente'],
     };
   }
 
@@ -2487,13 +2505,15 @@ function getCounterCurrentAction(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
-    const needsSettlement = order.balanceUsd > 0.005 || hasPendingReports;
+    const needsSettlement = mustCollectNow || (immediatePaymentExpected && hasPendingReports);
 
     return {
       title: needsSettlement ? 'Liquidar delivery' : 'Cerrar entrega',
       description: needsSettlement
         ? 'Cuando el motorizado regrese, registra el cobro recibido antes de cerrar la entrega.'
-        : 'El delivery ya esta sin saldo pendiente. Puedes marcarlo como entregado.',
+        : paid
+          ? 'El delivery ya esta sin saldo pendiente. Puedes marcarlo como entregado.'
+          : 'Puedes marcarlo entregado; el pendiente queda bajo responsabilidad del asesor.',
       tone: needsSettlement ? ('warn' as const) : ('good' as const),
       steps: needsSettlement
         ? ['Esperar retorno del motorizado', 'Registrar cobro o revisar pago', 'Marcar entregada']
@@ -2513,6 +2533,8 @@ function getCounterWorkflowChecks(order: CounterOrder) {
   const paid = order.balanceUsd <= 0.005;
   const hasPendingReports = order.reports.pending > 0;
   const inKitchenFlow = order.status === 'confirmed' || order.status === 'in_kitchen';
+  const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
+  const mustCollectNow = mustSettleBeforeCounterDelivery(order);
 
   if (order.status === 'created') {
     return [
@@ -2536,13 +2558,19 @@ function getCounterWorkflowChecks(order: CounterOrder) {
       { label: 'Cocina', detail: 'Lista', state: 'done' as const },
       {
         label: 'Cobro',
-        detail: paymentOk ? 'Cubierto' : hasPendingReports ? 'Pago por revisar' : `Falta ${moneyUsd(order.balanceUsd)}`,
-        state: paymentOk ? ('done' as const) : ('current' as const),
+        detail: paymentOk
+          ? 'Cubierto'
+          : hasPendingReports && immediatePaymentExpected
+            ? 'Pago por revisar'
+            : mustCollectNow
+              ? `Cobrar ${moneyUsd(order.balanceUsd)}`
+              : `Pendiente asesor ${moneyUsd(order.balanceUsd)}`,
+        state: paymentOk ? ('done' as const) : mustCollectNow ? ('current' as const) : ('pending' as const),
       },
       {
         label: 'Retiro',
-        detail: paymentOk ? 'Marcar retirado' : 'Bloqueado hasta cobrar',
-        state: paymentOk ? ('current' as const) : ('blocked' as const),
+        detail: paymentOk ? 'Marcar retirado' : mustCollectNow ? 'Bloqueado hasta cobrar' : 'Puede entregarse',
+        state: paymentOk || !mustCollectNow ? ('current' as const) : ('blocked' as const),
       },
     ];
   }
@@ -2564,18 +2592,22 @@ function getCounterWorkflowChecks(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
-    const settlementOk = paid && !hasPendingReports;
+    const settlementBlocked = mustCollectNow || (immediatePaymentExpected && hasPendingReports);
     return [
       { label: 'Salida', detail: 'En camino', state: 'done' as const },
       {
         label: 'Retorno',
-        detail: settlementOk ? 'Liquidado' : hasPendingReports ? 'Pago por revisar' : `Cobrar ${moneyUsd(order.balanceUsd)}`,
-        state: settlementOk ? ('done' as const) : ('current' as const),
+        detail: paid
+          ? 'Liquidado'
+          : settlementBlocked
+            ? hasPendingReports ? 'Pago por revisar' : `Cobrar ${moneyUsd(order.balanceUsd)}`
+            : `Pendiente asesor ${moneyUsd(order.balanceUsd)}`,
+        state: settlementBlocked ? ('current' as const) : ('done' as const),
       },
       {
         label: 'Cierre',
-        detail: settlementOk ? 'Marcar entregada' : 'Esperando liquidacion',
-        state: settlementOk ? ('current' as const) : ('blocked' as const),
+        detail: settlementBlocked ? 'Esperando liquidacion' : 'Marcar entregada',
+        state: settlementBlocked ? ('blocked' as const) : ('current' as const),
       },
     ];
   }
@@ -2612,13 +2644,17 @@ function OrderDetail({
   const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
+  const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
+  const mustCollectNow = mustSettleBeforeCounterDelivery(order);
   const pickupReadyNeedsPayment =
-    order.fulfillment === 'pickup' && order.status === 'ready' && (hasPendingBalance || hasPendingReports);
+    order.fulfillment === 'pickup' &&
+    order.status === 'ready' &&
+    (mustCollectNow || (immediatePaymentExpected && hasPendingReports));
   const primaryActionBlocked =
     notReadyForCounter ||
     pickupReadyNeedsPayment ||
     deliveryReadyWithoutAssignee ||
-    (isDeliverySettlement && (hasPendingBalance || hasPendingReports));
+    (isDeliverySettlement && (mustCollectNow || (immediatePaymentExpected && hasPendingReports)));
   const primaryActionBlockedMessage = waitingForMaster
     ? 'Esta orden quedo agendada. Master debe enviarla a cocina cuando corresponda.'
     : notReadyForCounter
@@ -2626,11 +2662,11 @@ function OrderDetail({
     : pickupReadyNeedsPayment
       ? hasPendingReports
         ? 'Hay pagos pendientes de revision. No marques retirado hasta que queden confirmados.'
-        : 'Primero registra el cobro antes de marcar el pickup como retirado.'
+        : 'El metodo esperado es efectivo o punto. Primero registra el cobro antes de marcar el pickup como retirado.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
-      : hasPendingBalance
-        ? 'Primero registra el cobro recibido del motorizado.'
+      : mustCollectNow
+        ? 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
         : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
@@ -2654,6 +2690,9 @@ function OrderDetail({
             <div className="mt-2 text-sm text-[#9FA0AA]">
               {order.clientName}
               {order.clientPhone ? ` · ${order.clientPhone}` : ''}
+            </div>
+            <div className="mt-1 text-sm text-[#9FA0AA]">
+              Asesor: <span className="font-semibold text-[#F5F5F7]">{order.advisorName || 'Sin asesor'}</span>
             </div>
             <div className="mt-1 text-sm text-[#9FA0AA]">Lista: {formatDateTime(order.readyAt)}</div>
           </div>

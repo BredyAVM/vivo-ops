@@ -24,6 +24,7 @@ type RawCounterOrder = {
   status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
   source: string | null;
   fulfillment: 'pickup' | 'delivery';
+  attributed_advisor_id: string | null;
   delivery_address: string | null;
   delivery_mode: string | null;
   internal_driver_user_id: string | null;
@@ -216,6 +217,7 @@ export default async function CounterPage() {
           'status',
           'source',
           'fulfillment',
+          'attributed_advisor_id',
           'delivery_address',
           'delivery_mode',
           'internal_driver_user_id',
@@ -300,6 +302,13 @@ export default async function CounterPage() {
         .filter((id): id is string => Boolean(id && String(id).trim()))
     )
   );
+  const advisorIds = Array.from(
+    new Set(
+      rawOrders
+        .map((order) => order.attributed_advisor_id)
+        .filter((id): id is string => Boolean(id && String(id).trim()))
+    )
+  );
   const externalPartnerIds = Array.from(
     new Set(
       rawOrders
@@ -353,6 +362,7 @@ export default async function CounterPage() {
     { data: financialStateData, error: financialStateError },
     { data: reportsData, error: reportsError },
     { data: driversData, error: driversError },
+    { data: advisorsData, error: advisorsError },
     { data: partnersData, error: partnersError },
     { data: counterMovementsData, error: counterMovementsError },
   ] = await Promise.all(
@@ -371,6 +381,9 @@ export default async function CounterPage() {
           ctx.supabase.from('payment_reports').select('order_id, status').in('order_id', orderIds),
           internalDriverIds.length
             ? ctx.supabase.from('profiles').select('id, full_name').in('id', internalDriverIds)
+            : Promise.resolve({ data: [], error: null }),
+          advisorIds.length
+            ? ctx.supabase.from('profiles').select('id, full_name').in('id', advisorIds)
             : Promise.resolve({ data: [], error: null }),
           externalPartnerIds.length
             ? ctx.supabase.from('delivery_partners').select('id, name').in('id', externalPartnerIds)
@@ -403,6 +416,7 @@ export default async function CounterPage() {
             : Promise.resolve({ data: [], error: null }),
         ]
       : [
+          Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
@@ -448,6 +462,9 @@ export default async function CounterPage() {
   }
   if (driversError) {
     throw new Error(driversError.message);
+  }
+  if (advisorsError) {
+    throw new Error(advisorsError.message);
   }
   if (partnersError) {
     throw new Error(partnersError.message);
@@ -528,6 +545,12 @@ export default async function CounterPage() {
       driver.full_name?.trim() || 'Motorizado interno',
     ])
   );
+  const advisorNameById = new Map(
+    ((advisorsData ?? []) as RawDriverProfile[]).map((advisor) => [
+      advisor.id,
+      advisor.full_name?.trim() || 'Asesor',
+    ])
+  );
   const deliveryPartnerNameById = new Map(
     ((partnersData ?? []) as RawDeliveryPartner[]).map((partner) => [
       Number(partner.id),
@@ -599,6 +622,9 @@ export default async function CounterPage() {
       fulfillment: order.fulfillment,
       clientName: client?.full_name || 'Cliente',
       clientPhone: client?.phone || null,
+      advisorName: order.attributed_advisor_id
+        ? advisorNameById.get(order.attributed_advisor_id) ?? null
+        : null,
       deliveryAddress: order.delivery_address,
       deliveryMode: order.delivery_mode || null,
       deliveryAssigneeKind,
