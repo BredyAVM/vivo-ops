@@ -518,7 +518,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   revalidatePath('/app/kitchen');
   revalidatePath('/app/master/dashboard');
 
-  return { id: orderId, orderNumber };
+  return { id: orderId, orderNumber, sentToKitchen: sendNowToKitchen, scheduled: !sendNowToKitchen };
 }
 
 export async function searchCounterAgendaAction(input: { query: string }) {

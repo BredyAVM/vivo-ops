@@ -145,9 +145,20 @@ type CounterQuickSaleCartItem = {
   notes: string;
 };
 
-type CounterFilter = 'all' | 'agenda' | 'kitchen' | 'pickup' | 'delivery' | 'route' | 'change' | 'pending' | 'paid';
+type CounterFilter =
+  | 'now'
+  | 'all'
+  | 'agenda'
+  | 'kitchen'
+  | 'pickup'
+  | 'delivery'
+  | 'route'
+  | 'change'
+  | 'pending'
+  | 'paid';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
+  { key: 'now', label: 'Ahora' },
   { key: 'all', label: 'Todos' },
   { key: 'agenda', label: 'Agenda' },
   { key: 'kitchen', label: 'En cocina' },
@@ -277,6 +288,48 @@ function isKitchenFollowUpOrder(order: CounterOrder) {
   return order.status === 'confirmed' || order.status === 'in_kitchen';
 }
 
+function isCounterActionableOrder(order: CounterOrder) {
+  return order.status === 'ready' || order.status === 'out_for_delivery';
+}
+
+function isCounterReadyPickup(order: CounterOrder) {
+  return order.fulfillment === 'pickup' && order.status === 'ready';
+}
+
+function isCounterReadyDelivery(order: CounterOrder) {
+  return order.fulfillment === 'delivery' && order.status === 'ready';
+}
+
+function isCounterRouteSettlement(order: CounterOrder) {
+  return order.status === 'out_for_delivery';
+}
+
+function getCounterOrderPriority(order: CounterOrder) {
+  if (isCounterReadyPickup(order) && order.balanceUsd > 0.005) return 1;
+  if (isCounterReadyPickup(order)) return 2;
+  if (isCounterReadyDelivery(order) && !order.deliveryAssigneeName) return 3;
+  if (isCounterReadyDelivery(order)) return 4;
+  if (isCounterRouteSettlement(order) && order.balanceUsd > 0.005) return 5;
+  if (isCounterRouteSettlement(order)) return 6;
+  if (isKitchenFollowUpOrder(order)) return 7;
+  if (isCounterAgendaOrder(order)) return 8;
+  return 20;
+}
+
+function sortCounterOrders(orders: CounterOrder[]) {
+  return [...orders].sort((a, b) => {
+    const priorityDiff = getCounterOrderPriority(a) - getCounterOrderPriority(b);
+    if (priorityDiff !== 0) return priorityDiff;
+    const aTime = Date.parse(a.readyAt || a.createdAt || '');
+    const bTime = Date.parse(b.readyAt || b.createdAt || '');
+    return (Number.isFinite(aTime) ? aTime : 0) - (Number.isFinite(bTime) ? bTime : 0);
+  });
+}
+
+function getInitialCounterOrderId(orders: CounterOrder[]) {
+  return sortCounterOrders(orders)[0]?.id ?? null;
+}
+
 function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
   if (status === 'created') return 'Agendado / pendiente master';
   if (status === 'confirmed') return 'En cola de cocina';
@@ -307,9 +360,9 @@ export default function CounterClient({
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [localOrders, setLocalOrders] = useState(orders);
-  const [filter, setFilter] = useState<CounterFilter>('all');
+  const [filter, setFilter] = useState<CounterFilter>('now');
   const [search, setSearch] = useState('');
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(orders[0]?.id ?? null);
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(getInitialCounterOrderId(orders));
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
   const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
   const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
@@ -317,6 +370,9 @@ export default function CounterClient({
 
   useEffect(() => {
     setLocalOrders(orders);
+    setSelectedOrderId((current) =>
+      current != null && orders.some((order) => order.id === current) ? current : getInitialCounterOrderId(orders)
+    );
   }, [orders]);
 
   const stats = useMemo(() => {
@@ -324,6 +380,7 @@ export default function CounterClient({
     const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
     const agenda = localOrders.filter(isCounterAgendaOrder).length;
     const kitchen = localOrders.filter(isKitchenFollowUpOrder).length;
+    const now = localOrders.filter(isCounterActionableOrder).length;
     const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
     const change = localOrders.filter((order) => order.paymentRequiresChange).length;
     const unassignedDelivery = localOrders.filter(
@@ -334,6 +391,7 @@ export default function CounterClient({
 
     return {
       total: localOrders.length,
+      now,
       pickup,
       delivery,
       agenda,
@@ -349,7 +407,8 @@ export default function CounterClient({
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('es-VE');
 
-    return localOrders.filter((order) => {
+    return sortCounterOrders(localOrders.filter((order) => {
+      if (filter === 'now' && !isCounterActionableOrder(order)) return false;
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
       if (filter === 'agenda' && !isCounterAgendaOrder(order)) return false;
       if (filter === 'kitchen' && !isKitchenFollowUpOrder(order)) return false;
@@ -370,12 +429,38 @@ export default function CounterClient({
       ]
         .filter(Boolean)
         .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term));
-    });
+    }));
   }, [filter, localOrders, search]);
 
   const selectedOrder =
-    localOrders.find((order) => order.id === selectedOrderId) ?? filteredOrders[0] ?? localOrders[0] ?? null;
+    filteredOrders.find((order) => order.id === selectedOrderId) ??
+    filteredOrders[0] ??
+    sortCounterOrders(localOrders)[0] ??
+    null;
   const orderSections = useMemo(() => {
+    const actionableSections = [
+      {
+        key: 'pickup-ready',
+        title: 'Pickup listo',
+        helper: 'Cliente en mostrador o por retirar.',
+        orders: filteredOrders.filter(isCounterReadyPickup),
+      },
+      {
+        key: 'delivery-ready',
+        title: 'Delivery listo',
+        helper: 'Entregar al motorizado y preparar cambio si aplica.',
+        orders: filteredOrders.filter(isCounterReadyDelivery),
+      },
+      {
+        key: 'delivery-route',
+        title: 'En camino',
+        helper: 'Liquidar cobro al regreso del motorizado.',
+        orders: filteredOrders.filter(isCounterRouteSettlement),
+      },
+    ].filter((section) => section.orders.length > 0);
+
+    if (filter === 'now') return actionableSections;
+
     if (filter !== 'all') {
       const filterLabel = FILTERS.find((item) => item.key === filter)?.label ?? 'Resultados';
       return [
@@ -389,35 +474,18 @@ export default function CounterClient({
     }
 
     return [
-      {
-        key: 'counter-agenda',
-        title: 'Agenda',
-        helper: 'Pedidos agendados por mostrador, pendientes de master.',
-        orders: filteredOrders.filter(isCounterAgendaOrder),
-      },
+      ...actionableSections,
       {
         key: 'kitchen-follow-up',
-        title: 'En cocina',
+        title: 'Seguimiento cocina',
         helper: 'Pedidos enviados a cocina, en cola o preparacion.',
         orders: filteredOrders.filter(isKitchenFollowUpOrder),
       },
       {
-        key: 'pickup-ready',
-        title: 'Pickup listo',
-        helper: 'Cliente en mostrador o por retirar.',
-        orders: filteredOrders.filter((order) => order.fulfillment === 'pickup' && order.status === 'ready'),
-      },
-      {
-        key: 'delivery-ready',
-        title: 'Delivery listo',
-        helper: 'Entregar al motorizado y preparar cambio si aplica.',
-        orders: filteredOrders.filter((order) => order.fulfillment === 'delivery' && order.status === 'ready'),
-      },
-      {
-        key: 'delivery-route',
-        title: 'En camino',
-        helper: 'Liquidar cobro al regreso del motorizado.',
-        orders: filteredOrders.filter((order) => order.status === 'out_for_delivery'),
+        key: 'counter-agenda',
+        title: 'Agenda mostrador',
+        helper: 'Pedidos agendados por mostrador, pendientes de master.',
+        orders: filteredOrders.filter(isCounterAgendaOrder),
       },
     ].filter((section) => section.orders.length > 0);
   }, [filter, filteredOrders]);
@@ -714,7 +782,9 @@ export default function CounterClient({
         const result = await createCounterQuickSaleAction(input);
         setMessage({
           tone: 'success',
-          text: `Venta creada y enviada a cocina. Orden #${result.id}.`,
+          text: result.sentToKitchen
+            ? `Venta creada y enviada a cocina. Orden #${result.id}.`
+            : `Pedido agendado para master. Orden #${result.id}.`,
         });
         setQuickSaleOpen(false);
         router.refresh();
@@ -788,7 +858,8 @@ export default function CounterClient({
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-9">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-11">
+          <Summary label="Ahora" value={String(stats.now)} tone={stats.now > 0 ? 'warn' : 'good'} />
           <Summary label="Activos" value={String(stats.total)} />
           <Summary label="Agenda" value={String(stats.agenda)} tone={stats.agenda > 0 ? 'warn' : 'neutral'} />
           <Summary label="En cocina" value={String(stats.kitchen)} tone={stats.kitchen > 0 ? 'warn' : 'neutral'} />
