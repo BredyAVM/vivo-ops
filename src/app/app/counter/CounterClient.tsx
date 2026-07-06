@@ -1661,6 +1661,86 @@ function CounterQuickSalePanel({
   );
 }
 
+function getCounterCurrentAction(order: CounterOrder) {
+  const paid = order.balanceUsd <= 0.005;
+  const hasPendingReports = order.reports.pending > 0;
+
+  if (order.status === 'created') {
+    return {
+      title: 'Agendado para master',
+      description: 'El pedido fue creado por mostrador para otro momento. Master debe enviarlo a cocina cuando corresponda.',
+      tone: 'warn' as const,
+      steps: ['Confirmar hora con el cliente', 'Mantenerlo en agenda', 'Esperar accion del master'],
+    };
+  }
+
+  if (order.status === 'confirmed' || order.status === 'in_kitchen') {
+    return {
+      title: 'Seguimiento de cocina',
+      description: 'El pedido todavia no debe entregarse. Mostrador solo informa el estado al cliente.',
+      tone: 'neutral' as const,
+      steps: ['Ver estado actual', 'Informar al cliente si pregunta', 'Esperar que cocina marque lista'],
+    };
+  }
+
+  if (order.fulfillment === 'pickup' && order.status === 'ready') {
+    return {
+      title: paid ? 'Entregar pickup' : 'Cobrar y entregar pickup',
+      description: paid
+        ? 'El pedido esta listo y pagado. Solo falta entregarlo al cliente.'
+        : 'Antes de entregar, registra el pago o confirma que quede por cobrar segun corresponda.',
+      tone: paid ? ('good' as const) : ('warn' as const),
+      steps: paid
+        ? ['Validar cliente', 'Entregar pedido', 'Marcar retirado']
+        : ['Registrar pago', 'Validar cliente', 'Entregar pedido y marcar retirado'],
+    };
+  }
+
+  if (order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName) {
+    return {
+      title: 'Falta asignacion de delivery',
+      description: 'La orden esta lista, pero no debe salir hasta que master asigne motorizado o partner.',
+      tone: 'warn' as const,
+      steps: ['Avisar a master', 'Esperar asignacion', 'Entregar al motorizado cuando este asignado'],
+    };
+  }
+
+  if (order.fulfillment === 'delivery' && order.status === 'ready') {
+    return {
+      title: order.paymentRequiresChange ? 'Preparar cambio y entregar' : 'Entregar al motorizado',
+      description: order.paymentRequiresChange
+        ? 'Prepara el cambio indicado antes de entregar el pedido al motorizado.'
+        : 'El pedido esta listo para salir con el motorizado asignado.',
+      tone: order.paymentRequiresChange ? ('warn' as const) : ('good' as const),
+      steps: order.paymentRequiresChange
+        ? ['Preparar cambio', 'Entregar pedido al motorizado', 'Marcar en camino']
+        : ['Validar motorizado', 'Entregar pedido', 'Marcar en camino'],
+    };
+  }
+
+  if (order.status === 'out_for_delivery') {
+    const needsSettlement = order.balanceUsd > 0.005 || hasPendingReports;
+
+    return {
+      title: needsSettlement ? 'Liquidar delivery' : 'Cerrar entrega',
+      description: needsSettlement
+        ? 'Cuando el motorizado regrese, registra el cobro recibido antes de cerrar la entrega.'
+        : 'El delivery ya esta sin saldo pendiente. Puedes marcarlo como entregado.',
+      tone: needsSettlement ? ('warn' as const) : ('good' as const),
+      steps: needsSettlement
+        ? ['Esperar retorno del motorizado', 'Registrar cobro o revisar pago', 'Marcar entregada']
+        : ['Confirmar entrega', 'Marcar entregada'],
+    };
+  }
+
+  return {
+    title: 'Sin accion inmediata',
+    description: 'Esta orden no requiere una accion de mostrador en este momento.',
+    tone: 'neutral' as const,
+    steps: ['Revisar datos', 'Consultar con master si hace falta'],
+  };
+}
+
 function OrderDetail({
   order,
   paymentAccounts,
@@ -1694,6 +1774,7 @@ function OrderDetail({
         ? 'Primero registra el cobro recibido del motorizado.'
         : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const currentAction = getCounterCurrentAction(order);
 
   return (
     <div>
@@ -1723,6 +1804,8 @@ function OrderDetail({
 
       <div className="grid gap-4 p-5 xl:grid-cols-[1fr_260px]">
         <div className="space-y-4">
+          <CurrentActionCard action={currentAction} />
+
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Total" value={moneyUsd(order.totalUsd)} note={moneyBs(order.totalBs)} />
             <Metric label="Confirmado" value={moneyUsd(order.confirmedPaidUsd)} tone="good" />
@@ -2398,6 +2481,48 @@ function Metric({
       <div className="text-sm text-[#9FA0AA]">{label}</div>
       <div className={['mt-1 text-lg font-semibold', toneClass].join(' ')}>{value}</div>
       {note ? <div className="mt-1 text-xs text-[#9FA0AA]">{note}</div> : null}
+    </div>
+  );
+}
+
+function CurrentActionCard({
+  action,
+}: {
+  action: ReturnType<typeof getCounterCurrentAction>;
+}) {
+  const toneClass =
+    action.tone === 'good'
+      ? 'border-emerald-400/30 bg-emerald-400/10'
+      : action.tone === 'warn'
+        ? 'border-orange-400/35 bg-orange-950/20'
+        : 'border-sky-400/25 bg-sky-950/15';
+  const badgeClass =
+    action.tone === 'good'
+      ? 'border-emerald-300/40 bg-emerald-300/10 text-emerald-100'
+      : action.tone === 'warn'
+        ? 'border-orange-300/40 bg-orange-300/10 text-orange-100'
+        : 'border-sky-300/30 bg-sky-300/10 text-sky-100';
+
+  return (
+    <div className={['rounded-[8px] border p-4', toneClass].join(' ')}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[#9FA0AA]">Accion actual</div>
+          <h3 className="mt-1 text-lg font-semibold text-[#F5F5F7]">{action.title}</h3>
+          <p className="mt-1 text-sm leading-relaxed text-[#C7C8D1]">{action.description}</p>
+        </div>
+        <span className={['rounded-full border px-3 py-1 text-xs font-semibold', badgeClass].join(' ')}>
+          {action.tone === 'good' ? 'Listo' : action.tone === 'warn' ? 'Atencion' : 'Seguimiento'}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {action.steps.map((step, index) => (
+          <div key={`${step}-${index}`} className="rounded-[8px] border border-[#303044] bg-[#0B0B0D]/70 p-3">
+            <div className="text-xs font-semibold text-[#9FA0AA]">Paso {index + 1}</div>
+            <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">{step}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
