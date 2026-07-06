@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { formatOrderDisplayNumber, getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../ModulePreference';
@@ -30,6 +30,33 @@ export type CounterPaymentAccountOption = {
   canConfirmPayment: boolean;
   autoConfirmsReport: boolean;
   reviewRequired: boolean;
+};
+
+export type CounterCashMovement = {
+  id: number;
+  movementDate: string;
+  createdAt: string | null;
+  direction: 'inflow' | 'outflow';
+  movementType: string;
+  amount: number;
+  amountUsdEquivalent: number;
+  currencyCode: 'USD' | 'VES';
+  referenceCode: string | null;
+  counterpartyName: string | null;
+  description: string | null;
+  orderId: number | null;
+};
+
+export type CounterCashAccountSummary = {
+  accountId: number;
+  accountName: string;
+  accountKind: string;
+  currencyCode: 'USD' | 'VES';
+  methods: string[];
+  inflow: number;
+  outflow: number;
+  net: number;
+  movements: CounterCashMovement[];
 };
 
 export type CounterQuickSaleProductOption = {
@@ -97,6 +124,7 @@ type CounterClientProps = {
   fullName: string;
   orders: CounterOrder[];
   paymentAccounts: CounterPaymentAccountOption[];
+  cashAccounts: CounterCashAccountSummary[];
   quickSaleProducts: CounterQuickSaleProductOption[];
   activeBsRate: number;
 };
@@ -250,6 +278,28 @@ function fulfillmentLabel(value: CounterOrder['fulfillment']) {
   return value === 'delivery' ? 'Delivery' : 'Pickup';
 }
 
+function accountKindLabel(value: string | null) {
+  if (value === 'cash') return 'Caja';
+  if (value === 'pos') return 'Punto';
+  if (value === 'bank') return 'Banco';
+  if (value === 'wallet') return 'Wallet';
+  return 'Cuenta';
+}
+
+function movementTypeLabel(value: string) {
+  const labels: Record<string, string> = {
+    order_payment: 'Pago de orden',
+    change_given: 'Cambio entregado',
+    withdrawal: 'Retiro',
+    other_income: 'Ingreso',
+    expense: 'Egreso',
+    adjustment: 'Ajuste',
+    cash_count_adjustment: 'Ajuste de caja',
+    fee_charge: 'Comision',
+  };
+  return labels[value] ?? value.replaceAll('_', ' ');
+}
+
 function counterStatusClass(order: CounterOrder) {
   if (order.status === 'out_for_delivery') return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
   if (order.status === 'in_kitchen') return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
@@ -354,6 +404,7 @@ export default function CounterClient({
   fullName,
   orders,
   paymentAccounts,
+  cashAccounts,
   quickSaleProducts,
   activeBsRate,
 }: CounterClientProps) {
@@ -366,6 +417,7 @@ export default function CounterClient({
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(getInitialCounterOrderId(orders));
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
+  const [cashPanelOpen, setCashPanelOpen] = useState(true);
   const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
   const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
   const [masterAgendaSearched, setMasterAgendaSearched] = useState(false);
@@ -924,6 +976,13 @@ export default function CounterClient({
           />
         ) : null}
 
+        <CounterCashPanel
+          accounts={cashAccounts}
+          open={cashPanelOpen}
+          onToggle={() => setCashPanelOpen((current) => !current)}
+          onRefresh={() => router.refresh()}
+        />
+
         <MasterAgendaSearchPanel
           query={masterAgendaSearch}
           results={masterAgendaResults}
@@ -1112,6 +1171,172 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
       <div className="text-sm text-[#9FA0AA]">{label}</div>
       <div className={['mt-1 text-xl font-semibold', toneClass].join(' ')}>{value}</div>
     </div>
+  );
+}
+
+function CounterCashPanel({
+  accounts,
+  open,
+  onToggle,
+  onRefresh,
+}: {
+  accounts: CounterCashAccountSummary[];
+  open: boolean;
+  onToggle: () => void;
+  onRefresh: () => void;
+}) {
+  const totalInflowUsd = accounts.reduce((sum, account) => {
+    if (account.currencyCode === 'USD') return sum + account.inflow;
+    return sum + account.movements
+      .filter((movement) => movement.direction === 'inflow')
+      .reduce((movementSum, movement) => movementSum + movement.amountUsdEquivalent, 0);
+  }, 0);
+  const totalOutflowUsd = accounts.reduce((sum, account) => {
+    if (account.currencyCode === 'USD') return sum + account.outflow;
+    return sum + account.movements
+      .filter((movement) => movement.direction === 'outflow')
+      .reduce((movementSum, movement) => movementSum + movement.amountUsdEquivalent, 0);
+  }, 0);
+  const recentMovements = accounts
+    .flatMap((account) =>
+      account.movements.map((movement) => ({
+        ...movement,
+        accountName: account.accountName,
+      }))
+    )
+    .sort((a, b) => Date.parse(b.createdAt || b.movementDate) - Date.parse(a.createdAt || a.movementDate))
+    .slice(0, 8);
+
+  return (
+    <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Caja de mostrador</h2>
+          <p className="mt-1 text-sm text-[#9FA0AA]">
+            Movimientos confirmados del dia en cuentas que mostrador puede operar.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
+          >
+            Actualizar
+          </button>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
+          >
+            {open ? 'Ocultar' : 'Ver caja'}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <Summary label="Entradas ref." value={moneyUsd(totalInflowUsd)} tone={totalInflowUsd > 0 ? 'good' : 'neutral'} />
+        <Summary label="Salidas ref." value={moneyUsd(totalOutflowUsd)} tone={totalOutflowUsd > 0 ? 'warn' : 'neutral'} />
+        <Summary
+          label="Cuentas visibles"
+          value={String(accounts.length)}
+          tone={accounts.length > 0 ? 'good' : 'warn'}
+        />
+      </div>
+
+      {open ? (
+        <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {accounts.length === 0 ? (
+              <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA] sm:col-span-2">
+                Mostrador no tiene cuentas activas para operar.
+              </div>
+            ) : (
+              accounts.map((account) => (
+                <div key={account.accountId} className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">{account.accountName}</div>
+                      <div className="mt-1 text-xs text-[#9FA0AA]">
+                        {accountKindLabel(account.accountKind)} · {account.currencyCode}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+                      {account.movements.length}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <div className="text-[#9FA0AA]">Entradas</div>
+                      <div className="mt-1 font-semibold text-emerald-300">
+                        {account.currencyCode === 'VES' ? moneyBs(account.inflow) : moneyUsd(account.inflow)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[#9FA0AA]">Salidas</div>
+                      <div className="mt-1 font-semibold text-orange-300">
+                        {account.currencyCode === 'VES' ? moneyBs(account.outflow) : moneyUsd(account.outflow)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[#9FA0AA]">Neto</div>
+                      <div className="mt-1 font-semibold text-[#F5F5F7]">
+                        {account.currencyCode === 'VES' ? moneyBs(account.net) : moneyUsd(account.net)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {account.methods.map((method) => (
+                      <span key={method} className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+                        {getPaymentMethodLabel(method)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Ultimos movimientos</h3>
+              <span className="text-xs text-[#9FA0AA]">{recentMovements.length} visibles</span>
+            </div>
+            <div className="mt-3 divide-y divide-[#242433]">
+              {recentMovements.length === 0 ? (
+                <div className="py-4 text-sm text-[#9FA0AA]">Sin movimientos confirmados hoy.</div>
+              ) : (
+                recentMovements.map((movement) => (
+                  <div key={movement.id} className="grid gap-2 py-3 sm:grid-cols-[92px_1fr_110px]">
+                    <div className="text-xs text-[#9FA0AA]">{movement.movementDate}</div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-[#F5F5F7]">
+                        {movementTypeLabel(movement.movementType)}
+                        {movement.orderId ? ` · Orden #${formatOrderDisplayNumber(movement.orderId)}` : ''}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-[#9FA0AA]">
+                        {movement.accountName}
+                        {movement.referenceCode ? ` · Ref. ${movement.referenceCode}` : ''}
+                        {movement.counterpartyName ? ` · ${movement.counterpartyName}` : ''}
+                      </div>
+                    </div>
+                    <div
+                      className={[
+                        'text-left text-sm font-semibold sm:text-right',
+                        movement.direction === 'inflow' ? 'text-emerald-300' : 'text-orange-300',
+                      ].join(' ')}
+                    >
+                      {movement.direction === 'outflow' ? '-' : '+'}
+                      {movement.currencyCode === 'VES' ? moneyBs(movement.amount) : moneyUsd(movement.amount)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

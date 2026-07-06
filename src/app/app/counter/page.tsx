@@ -8,6 +8,7 @@ import {
   roundOrderMoney,
 } from '@/lib/orders/order-money';
 import CounterClient, {
+  type CounterCashAccountSummary,
   type CounterPaymentAccountOption,
   type CounterOrder,
   type CounterOrderItem,
@@ -114,6 +115,22 @@ type RawPaymentRule = {
   is_active: boolean | null;
 };
 
+type RawCounterMoneyMovement = {
+  id: number;
+  money_account_id: number | null;
+  movement_date: string | null;
+  created_at: string | null;
+  direction: 'inflow' | 'outflow' | string | null;
+  movement_type: string | null;
+  currency_code: string | null;
+  amount: number | string | null;
+  amount_usd_equivalent: number | string | null;
+  reference_code: string | null;
+  counterparty_name: string | null;
+  description: string | null;
+  order_id: number | null;
+};
+
 type RawDriverProfile = {
   id: string;
   full_name: string | null;
@@ -149,6 +166,12 @@ function getScheduleTime(order: RawCounterOrder) {
   const schedule = order.extra_fields?.schedule;
   if (schedule?.asap) return 'Lo antes posible';
   return schedule?.time_12 || schedule?.time_24 || null;
+}
+
+function getCaracasTodayKey() {
+  return new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Caracas',
+  });
 }
 
 export default async function CounterPage() {
@@ -305,6 +328,8 @@ export default async function CounterPage() {
       reviewRequired: Boolean(rule.review_required),
     });
   }
+  const counterAccountIds = Array.from(new Set(paymentAccounts.map((account) => account.accountId)));
+  const todayKey = getCaracasTodayKey();
 
   const [
     { data: itemsData, error: itemsError },
@@ -312,6 +337,7 @@ export default async function CounterPage() {
     { data: reportsData, error: reportsError },
     { data: driversData, error: driversError },
     { data: partnersData, error: partnersError },
+    { data: counterMovementsData, error: counterMovementsError },
   ] = await Promise.all(
     orderIds.length
       ? [
@@ -332,6 +358,32 @@ export default async function CounterPage() {
           externalPartnerIds.length
             ? ctx.supabase.from('delivery_partners').select('id, name').in('id', externalPartnerIds)
             : Promise.resolve({ data: [], error: null }),
+          counterAccountIds.length
+            ? ctx.supabase
+                .from('money_movements')
+                .select(
+                  [
+                    'id',
+                    'money_account_id',
+                    'movement_date',
+                    'created_at',
+                    'direction',
+                    'movement_type',
+                    'currency_code',
+                    'amount',
+                    'amount_usd_equivalent',
+                    'reference_code',
+                    'counterparty_name',
+                    'description',
+                    'order_id',
+                  ].join(', ')
+                )
+                .in('money_account_id', counterAccountIds)
+                .eq('movement_date', todayKey)
+                .eq('status', 'confirmed')
+                .order('created_at', { ascending: false })
+                .limit(80)
+            : Promise.resolve({ data: [], error: null }),
         ]
       : [
           Promise.resolve({ data: [], error: null }),
@@ -339,6 +391,32 @@ export default async function CounterPage() {
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
+          counterAccountIds.length
+            ? ctx.supabase
+                .from('money_movements')
+                .select(
+                  [
+                    'id',
+                    'money_account_id',
+                    'movement_date',
+                    'created_at',
+                    'direction',
+                    'movement_type',
+                    'currency_code',
+                    'amount',
+                    'amount_usd_equivalent',
+                    'reference_code',
+                    'counterparty_name',
+                    'description',
+                    'order_id',
+                  ].join(', ')
+                )
+                .in('money_account_id', counterAccountIds)
+                .eq('movement_date', todayKey)
+                .eq('status', 'confirmed')
+                .order('created_at', { ascending: false })
+                .limit(80)
+            : Promise.resolve({ data: [], error: null }),
         ]
   );
 
@@ -357,6 +435,75 @@ export default async function CounterPage() {
   if (partnersError) {
     throw new Error(partnersError.message);
   }
+  if (counterMovementsError) {
+    throw new Error(counterMovementsError.message);
+  }
+
+  const counterMovementsByAccount = new Map<number, RawCounterMoneyMovement[]>();
+  for (const movement of (counterMovementsData ?? []) as unknown as RawCounterMoneyMovement[]) {
+    const accountId = Number(movement.money_account_id || 0);
+    if (!accountId) continue;
+    const current = counterMovementsByAccount.get(accountId) ?? [];
+    current.push(movement);
+    counterMovementsByAccount.set(accountId, current);
+  }
+
+  const counterMethodsByAccount = new Map<number, Set<string>>();
+  for (const account of paymentAccounts) {
+    const current = counterMethodsByAccount.get(account.accountId) ?? new Set<string>();
+    current.add(account.paymentMethodCode);
+    counterMethodsByAccount.set(account.accountId, current);
+  }
+
+  const cashAccounts: CounterCashAccountSummary[] = counterAccountIds
+    .map((accountId) => {
+      const account = accountsById.get(accountId);
+      const currencyCode = String(account?.currency_code || '').toUpperCase();
+      if (!account || (currencyCode !== 'USD' && currencyCode !== 'VES')) return null;
+      const movements = (counterMovementsByAccount.get(accountId) ?? [])
+        .map((movement) => {
+          const movementCurrency = String(movement.currency_code || currencyCode).toUpperCase();
+          return {
+            id: Number(movement.id),
+            movementDate: movement.movement_date || todayKey,
+            createdAt: movement.created_at,
+            direction: movement.direction === 'outflow' ? 'outflow' as const : 'inflow' as const,
+            movementType: movement.movement_type || 'other',
+            amount: roundOrderMoney(movement.amount),
+            amountUsdEquivalent: roundOrderMoney(movement.amount_usd_equivalent),
+            currencyCode: movementCurrency === 'VES' ? 'VES' as const : 'USD' as const,
+            referenceCode: movement.reference_code,
+            counterpartyName: movement.counterparty_name,
+            description: movement.description,
+            orderId: movement.order_id,
+          };
+        });
+      const inflow = movements
+        .filter((movement) => movement.direction === 'inflow')
+        .reduce((sum, movement) => sum + movement.amount, 0);
+      const outflow = movements
+        .filter((movement) => movement.direction === 'outflow')
+        .reduce((sum, movement) => sum + movement.amount, 0);
+
+      return {
+        accountId,
+        accountName: account.name || `Cuenta ${accountId}`,
+        accountKind: account.account_kind || 'other',
+        currencyCode,
+        methods: Array.from(counterMethodsByAccount.get(accountId) ?? []),
+        inflow: roundOrderMoney(inflow),
+        outflow: roundOrderMoney(outflow),
+        net: roundOrderMoney(inflow - outflow),
+        movements,
+      };
+    })
+    .filter((account): account is CounterCashAccountSummary => Boolean(account))
+    .sort((a, b) => {
+      const kindPriority = (kind: string) => (kind === 'cash' ? 1 : kind === 'pos' ? 2 : kind === 'bank' ? 3 : 4);
+      const priorityDiff = kindPriority(a.accountKind) - kindPriority(b.accountKind);
+      if (priorityDiff !== 0) return priorityDiff;
+      return a.accountName.localeCompare(b.accountName, 'es');
+    });
 
   const internalDriverNameById = new Map(
     ((driversData ?? []) as RawDriverProfile[]).map((driver) => [
@@ -490,6 +637,7 @@ export default async function CounterPage() {
       }
       orders={orders}
       paymentAccounts={paymentAccounts}
+      cashAccounts={cashAccounts}
       quickSaleProducts={quickSaleProducts}
       activeBsRate={activeBsRate}
     />
