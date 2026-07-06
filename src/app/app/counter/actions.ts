@@ -63,6 +63,19 @@ type CounterAddItemsInput = {
   }>;
 };
 
+type CounterCashMovementInput = {
+  direction: 'inflow' | 'outflow';
+  outflowPurpose?: 'change' | 'expense' | null;
+  moneyAccountId: number;
+  amount: number;
+  movementDate: string;
+  exchangeRateVesPerUsd: number | null;
+  referenceCode?: string | null;
+  counterpartyName?: string | null;
+  description: string;
+  notes?: string | null;
+};
+
 export type CounterAgendaSearchResult = {
   id: number;
   displayNumber: string;
@@ -739,6 +752,136 @@ export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
     addedLines: items.length,
     totalUsd: totals.totalUsd,
     totalBs: totals.totalBs,
+  };
+}
+
+export async function createCounterCashMovementAction(input: CounterCashMovementInput) {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
+  }
+
+  const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
+  const outflowPurpose = input.outflowPurpose === 'change' ? 'change' : 'expense';
+  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const amount = Number(input.amount || 0);
+  const movementDate = String(input.movementDate || '').trim();
+  const referenceCode = String(input.referenceCode || '').trim() || null;
+  const counterpartyName = String(input.counterpartyName || '').trim() || null;
+  const description = String(input.description || '').trim();
+  const notes = String(input.notes || '').trim() || null;
+
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Debes seleccionar una cuenta.');
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('El monto debe ser mayor a 0.');
+  }
+  if (!movementDate || !/^\d{4}-\d{2}-\d{2}$/.test(movementDate)) {
+    throw new Error('Debes indicar una fecha valida.');
+  }
+  if (!description) {
+    throw new Error('Debes indicar el motivo.');
+  }
+
+  const supabase = createSupabaseServiceRoleServer();
+  const { data: account, error: accountError } = await supabase
+    .from('money_accounts')
+    .select('id, name, currency_code, account_kind, is_active')
+    .eq('id', moneyAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
+  }
+  if (!account.is_active) {
+    throw new Error('La cuenta seleccionada esta inactiva.');
+  }
+
+  const accountKind = String(account.account_kind || '');
+  if (accountKind !== 'cash' && accountKind !== 'pos') {
+    throw new Error('Mostrador solo puede registrar movimientos directos en cajas y puntos.');
+  }
+
+  const currencyCode = String(account.currency_code || '').toUpperCase();
+  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
+    throw new Error('La moneda de la cuenta no es valida.');
+  }
+
+  const { data: allowedRule, error: allowedRuleError } = await supabase
+    .from('money_account_payment_rules')
+    .select('id')
+    .eq('money_account_id', moneyAccountId)
+    .eq('role', 'counter')
+    .eq('is_active', true)
+    .or('can_confirm_payment.eq.true,auto_confirms_report.eq.true')
+    .limit(1)
+    .maybeSingle();
+
+  if (allowedRuleError) {
+    throw new Error(allowedRuleError.message);
+  }
+  if (!allowedRule && !ctx.roles.includes('admin') && !ctx.roles.includes('master')) {
+    throw new Error('Mostrador no tiene permiso para mover esta cuenta.');
+  }
+
+  const exchangeRate =
+    currencyCode === 'VES'
+      ? Number(input.exchangeRateVesPerUsd || 0)
+      : null;
+  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
+    throw new Error('Debes indicar una tasa valida para movimientos en Bs.');
+  }
+
+  const amountRounded = Number(amount.toFixed(2));
+  const amountUsdEquivalent =
+    currencyCode === 'USD'
+      ? amountRounded
+      : Number((amountRounded / (exchangeRate ?? 1)).toFixed(2));
+  const movementType =
+    direction === 'inflow'
+      ? 'other_income'
+      : outflowPurpose === 'change'
+        ? 'change_given'
+        : 'expense_payment';
+
+  const { error: insertError } = await supabase.from('money_movements').insert({
+    movement_date: movementDate,
+    created_by_user_id: ctx.user.id,
+    confirmed_at: new Date().toISOString(),
+    confirmed_by_user_id: ctx.user.id,
+    status: 'confirmed',
+    approval_required: false,
+    approval_required_reason: null,
+    direction,
+    movement_type: movementType,
+    money_account_id: moneyAccountId,
+    currency_code: currencyCode,
+    amount: amountRounded,
+    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+    amount_usd_equivalent: amountUsdEquivalent,
+    reference_code: referenceCode,
+    counterparty_name: counterpartyName,
+    description: `Mostrador - ${description}`,
+    notes,
+    order_id: null,
+    payment_report_id: null,
+    movement_group_id: null,
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/master/dashboard');
+
+  return {
+    ok: true,
+    amount: amountRounded,
+    currencyCode,
+    amountUsdEquivalent,
   };
 }
 

@@ -15,6 +15,7 @@ import {
 } from '../master/dashboard/actions';
 import {
   addCounterOrderItemsAction,
+  createCounterCashMovementAction,
   createCounterQuickSaleAction,
   searchCounterAgendaAction,
   type CounterAgendaSearchResult,
@@ -146,6 +147,19 @@ type CounterPaymentReportInput = {
     amount: string;
     exchangeRate: string;
   }>;
+};
+
+type CounterCashMovementInput = {
+  direction: 'inflow' | 'outflow';
+  outflowPurpose: 'change' | 'expense';
+  moneyAccountId: number;
+  amount: number;
+  movementDate: string;
+  exchangeRateVesPerUsd: number | null;
+  referenceCode: string | null;
+  counterpartyName: string | null;
+  description: string;
+  notes: string | null;
 };
 
 type CounterPaymentLineDraft = {
@@ -290,6 +304,7 @@ function movementTypeLabel(value: string) {
   const labels: Record<string, string> = {
     order_payment: 'Pago de orden',
     change_given: 'Cambio entregado',
+    expense_payment: 'Pago de gasto',
     withdrawal: 'Retiro',
     other_income: 'Ingreso',
     expense: 'Egreso',
@@ -903,6 +918,28 @@ export default function CounterClient({
     });
   }
 
+  function handleCreateCashMovement(input: CounterCashMovementInput) {
+    setMessage(null);
+    setWorkingOrderId(-2);
+    startTransition(async () => {
+      try {
+        const result = await createCounterCashMovementAction(input);
+        setMessage({
+          tone: 'success',
+          text: `Movimiento registrado: ${result.currencyCode === 'VES' ? moneyBs(result.amount) : moneyUsd(result.amount)}.`,
+        });
+        router.refresh();
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo registrar el movimiento.',
+        });
+      } finally {
+        setWorkingOrderId(null);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <ModulePreference moduleKey="counter" />
@@ -978,9 +1015,12 @@ export default function CounterClient({
 
         <CounterCashPanel
           accounts={cashAccounts}
+          activeBsRate={activeBsRate}
           open={cashPanelOpen}
+          isWorking={workingOrderId === -2}
           onToggle={() => setCashPanelOpen((current) => !current)}
           onRefresh={() => router.refresh()}
+          onCreateMovement={handleCreateCashMovement}
         />
 
         <MasterAgendaSearchPanel
@@ -1176,15 +1216,38 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
 
 function CounterCashPanel({
   accounts,
+  activeBsRate,
   open,
+  isWorking,
   onToggle,
   onRefresh,
+  onCreateMovement,
 }: {
   accounts: CounterCashAccountSummary[];
+  activeBsRate: number;
   open: boolean;
+  isWorking: boolean;
   onToggle: () => void;
   onRefresh: () => void;
+  onCreateMovement: (input: CounterCashMovementInput) => void;
 }) {
+  const firstAccount = accounts[0] ?? null;
+  const [movementOpen, setMovementOpen] = useState(false);
+  const [movementAccountId, setMovementAccountId] = useState(firstAccount ? String(firstAccount.accountId) : '');
+  const [movementDirection, setMovementDirection] = useState<'inflow' | 'outflow'>('inflow');
+  const [movementOutflowPurpose, setMovementOutflowPurpose] = useState<'change' | 'expense'>('expense');
+  const [movementAmount, setMovementAmount] = useState('');
+  const [movementDate, setMovementDate] = useState(getTodayKey());
+  const [movementExchangeRate, setMovementExchangeRate] = useState(
+    activeBsRate > 0 ? String(Number(activeBsRate.toFixed(2))) : ''
+  );
+  const [movementReferenceCode, setMovementReferenceCode] = useState('');
+  const [movementCounterpartyName, setMovementCounterpartyName] = useState('');
+  const [movementDescription, setMovementDescription] = useState('');
+  const [movementNotes, setMovementNotes] = useState('');
+  const [movementError, setMovementError] = useState<string | null>(null);
+  const selectedAccount =
+    accounts.find((account) => String(account.accountId) === movementAccountId) ?? firstAccount;
   const totalInflowUsd = accounts.reduce((sum, account) => {
     if (account.currencyCode === 'USD') return sum + account.inflow;
     return sum + account.movements
@@ -1207,6 +1270,61 @@ function CounterCashPanel({
     .sort((a, b) => Date.parse(b.createdAt || b.movementDate) - Date.parse(a.createdAt || a.movementDate))
     .slice(0, 8);
 
+  useEffect(() => {
+    if (!firstAccount) return;
+    setMovementAccountId((current) =>
+      current && accounts.some((account) => String(account.accountId) === current)
+        ? current
+        : String(firstAccount.accountId)
+    );
+  }, [accounts, firstAccount?.accountId]);
+
+  function submitMovement() {
+    const moneyAccountId = Number(movementAccountId || 0);
+    const amount = toDecimalInput(movementAmount);
+    const exchangeRate =
+      selectedAccount?.currencyCode === 'VES'
+        ? toDecimalInput(movementExchangeRate)
+        : null;
+    const description = movementDescription.trim();
+
+    if (!moneyAccountId) {
+      setMovementError('Selecciona una cuenta.');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setMovementError('Indica un monto valido.');
+      return;
+    }
+    if (selectedAccount?.currencyCode === 'VES' && (!exchangeRate || exchangeRate <= 0)) {
+      setMovementError('Indica una tasa valida.');
+      return;
+    }
+    if (!description) {
+      setMovementError('Indica el motivo del movimiento.');
+      return;
+    }
+
+    setMovementError(null);
+    onCreateMovement({
+      direction: movementDirection,
+      outflowPurpose: movementOutflowPurpose,
+      moneyAccountId,
+      amount,
+      movementDate,
+      exchangeRateVesPerUsd: exchangeRate,
+      referenceCode: movementReferenceCode.trim() || null,
+      counterpartyName: movementCounterpartyName.trim() || null,
+      description,
+      notes: movementNotes.trim() || null,
+    });
+    setMovementAmount('');
+    setMovementReferenceCode('');
+    setMovementCounterpartyName('');
+    setMovementDescription('');
+    setMovementNotes('');
+  }
+
   return (
     <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1223,6 +1341,14 @@ function CounterCashPanel({
             className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
           >
             Actualizar
+          </button>
+          <button
+            type="button"
+            onClick={() => setMovementOpen((current) => !current)}
+            disabled={accounts.length === 0}
+            className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-sm font-semibold text-[#FEEF00] hover:bg-[#FEEF00]/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {movementOpen ? 'Ocultar movimiento' : 'Registrar movimiento'}
           </button>
           <button
             type="button"
@@ -1243,6 +1369,163 @@ function CounterCashPanel({
           tone={accounts.length > 0 ? 'good' : 'warn'}
         />
       </div>
+
+      {movementOpen ? (
+        <div className="mt-4 rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold">Movimiento rapido</h3>
+              <p className="mt-1 text-xs text-[#9FA0AA]">
+                Para ingresos/egresos operativos de mostrador. Los pagos de orden siguen registrandose desde la orden.
+              </p>
+            </div>
+            <div className="flex rounded-full border border-[#303044] bg-[#111118] p-1">
+              {(['inflow', 'outflow'] as const).map((direction) => (
+                <button
+                  key={direction}
+                  type="button"
+                  onClick={() => setMovementDirection(direction)}
+                  className={[
+                    'rounded-full px-3 py-1 text-xs font-semibold',
+                    movementDirection === direction
+                      ? 'bg-[#FEEF00] text-black'
+                      : 'text-[#C7C8D1] hover:text-[#FEEF00]',
+                  ].join(' ')}
+                >
+                  {direction === 'inflow' ? 'Entrada' : 'Salida'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {movementError ? (
+            <div className="mt-3 rounded-[8px] border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-200">
+              {movementError}
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr_0.65fr_0.75fr]">
+            <label className="text-sm text-[#9FA0AA]">
+              Cuenta
+              <select
+                value={movementAccountId}
+                onChange={(event) => setMovementAccountId(event.target.value)}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              >
+                {accounts.map((account) => (
+                  <option key={account.accountId} value={account.accountId}>
+                    {account.accountName} - {accountKindLabel(account.accountKind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-sm text-[#9FA0AA]">
+              Monto {selectedAccount?.currencyCode || ''}
+              <input
+                value={movementAmount}
+                onChange={(event) => setMovementAmount(event.target.value)}
+                inputMode="decimal"
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              />
+            </label>
+
+            {selectedAccount?.currencyCode === 'VES' ? (
+              <label className="text-sm text-[#9FA0AA]">
+                Tasa
+                <input
+                  value={movementExchangeRate}
+                  onChange={(event) => setMovementExchangeRate(event.target.value)}
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                />
+              </label>
+            ) : (
+              <div className="hidden lg:block" />
+            )}
+
+            <label className="text-sm text-[#9FA0AA]">
+              Fecha
+              <input
+                type="date"
+                value={movementDate}
+                onChange={(event) => setMovementDate(event.target.value)}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              />
+            </label>
+          </div>
+
+          {movementDirection === 'outflow' ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(['expense', 'change'] as const).map((purpose) => (
+                <button
+                  key={purpose}
+                  type="button"
+                  onClick={() => setMovementOutflowPurpose(purpose)}
+                  className={[
+                    'rounded-full border px-3 py-1.5 text-sm font-semibold',
+                    movementOutflowPurpose === purpose
+                      ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                      : 'border-[#303044] text-[#C7C8D1] hover:border-[#FEEF00]/50',
+                  ].join(' ')}
+                >
+                  {purpose === 'change' ? 'Cambio' : 'Gasto operativo'}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            <label className="text-sm text-[#9FA0AA]">
+              Motivo
+              <input
+                value={movementDescription}
+                onChange={(event) => setMovementDescription(event.target.value)}
+                placeholder={movementDirection === 'inflow' ? 'Ingreso adicional' : 'Gasto / cambio'}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+            </label>
+            <label className="text-sm text-[#9FA0AA]">
+              Referencia
+              <input
+                value={movementReferenceCode}
+                onChange={(event) => setMovementReferenceCode(event.target.value)}
+                placeholder="Opcional"
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+            </label>
+            <label className="text-sm text-[#9FA0AA]">
+              Persona
+              <input
+                value={movementCounterpartyName}
+                onChange={(event) => setMovementCounterpartyName(event.target.value)}
+                placeholder="Opcional"
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+            </label>
+            <label className="text-sm text-[#9FA0AA] lg:col-span-3">
+              Nota
+              <input
+                value={movementNotes}
+                onChange={(event) => setMovementNotes(event.target.value)}
+                placeholder="Opcional"
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={submitMovement}
+              disabled={isWorking || accounts.length === 0}
+              className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+            >
+              {isWorking ? 'Guardando...' : 'Guardar movimiento'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {open ? (
         <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
