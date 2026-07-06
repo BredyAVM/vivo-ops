@@ -174,6 +174,16 @@ function getCaracasTodayKey() {
   });
 }
 
+function isCounterDirectAccount(account: RawMoneyAccount | undefined) {
+  if (!account) return false;
+  const kind = String(account.account_kind || '');
+  if (kind === 'pos') return true;
+  if (kind !== 'cash') return false;
+
+  const name = String(account.name || '').toLocaleLowerCase('es-VE');
+  return name.includes('dark') || name.includes('dar');
+}
+
 export default async function CounterPage() {
   noStore();
 
@@ -328,7 +338,14 @@ export default async function CounterPage() {
       reviewRequired: Boolean(rule.review_required),
     });
   }
-  const counterAccountIds = Array.from(new Set(paymentAccounts.map((account) => account.accountId)));
+  const counterDirectPaymentAccounts = paymentAccounts.filter((account) => {
+    const sourceAccount = accountsById.get(account.accountId);
+    return (
+      isCounterDirectAccount(sourceAccount) &&
+      (account.canConfirmPayment || account.autoConfirmsReport)
+    );
+  });
+  const counterAccountIds = Array.from(new Set(counterDirectPaymentAccounts.map((account) => account.accountId)));
   const todayKey = getCaracasTodayKey();
 
   const [
@@ -449,7 +466,7 @@ export default async function CounterPage() {
   }
 
   const counterMethodsByAccount = new Map<number, Set<string>>();
-  for (const account of paymentAccounts) {
+  for (const account of counterDirectPaymentAccounts) {
     const current = counterMethodsByAccount.get(account.accountId) ?? new Set<string>();
     current.add(account.paymentMethodCode);
     counterMethodsByAccount.set(account.accountId, current);

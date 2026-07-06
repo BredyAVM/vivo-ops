@@ -135,6 +135,15 @@ function toSafeNumber(value: unknown, fallback = 0) {
   return Number.isFinite(amount) ? amount : fallback;
 }
 
+function isCounterDirectAccount(account: { name?: string | null; account_kind?: string | null }) {
+  const kind = String(account.account_kind || '');
+  if (kind === 'pos') return true;
+  if (kind !== 'cash') return false;
+
+  const name = String(account.name || '').toLocaleLowerCase('es-VE');
+  return name.includes('dark') || name.includes('dar');
+}
+
 function pad2(value: number) {
   return String(value).padStart(2, '0');
 }
@@ -799,9 +808,8 @@ export async function createCounterCashMovementAction(input: CounterCashMovement
     throw new Error('La cuenta seleccionada esta inactiva.');
   }
 
-  const accountKind = String(account.account_kind || '');
-  if (accountKind !== 'cash' && accountKind !== 'pos') {
-    throw new Error('Mostrador solo puede registrar movimientos directos en cajas y puntos.');
+  if (!isCounterDirectAccount(account)) {
+    throw new Error('Mostrador solo puede registrar movimientos directos en cajas DAR y puntos.');
   }
 
   const currencyCode = String(account.currency_code || '').toUpperCase();

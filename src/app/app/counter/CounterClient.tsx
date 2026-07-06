@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { formatOrderDisplayNumber, getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../ModulePreference';
@@ -300,21 +300,6 @@ function accountKindLabel(value: string | null) {
   return 'Cuenta';
 }
 
-function movementTypeLabel(value: string) {
-  const labels: Record<string, string> = {
-    order_payment: 'Pago de orden',
-    change_given: 'Cambio entregado',
-    expense_payment: 'Pago de gasto',
-    withdrawal: 'Retiro',
-    other_income: 'Ingreso',
-    expense: 'Egreso',
-    adjustment: 'Ajuste',
-    cash_count_adjustment: 'Ajuste de caja',
-    fee_charge: 'Comision',
-  };
-  return labels[value] ?? value.replaceAll('_', ' ');
-}
-
 function counterStatusClass(order: CounterOrder) {
   if (order.status === 'out_for_delivery') return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
   if (order.status === 'in_kitchen') return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
@@ -393,10 +378,6 @@ function sortCounterOrders(orders: CounterOrder[]) {
   });
 }
 
-function getInitialCounterOrderId(orders: CounterOrder[]) {
-  return sortCounterOrders(orders)[0]?.id ?? null;
-}
-
 function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
   if (status === 'created') return 'Agendado / pendiente master';
   if (status === 'confirmed') return 'En cola de cocina';
@@ -430,46 +411,33 @@ export default function CounterClient({
   const [localOrders, setLocalOrders] = useState(orders);
   const [filter, setFilter] = useState<CounterFilter>('now');
   const [search, setSearch] = useState('');
-  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(getInitialCounterOrderId(orders));
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
-  const [cashPanelOpen, setCashPanelOpen] = useState(true);
+  const [cashPanelOpen, setCashPanelOpen] = useState(false);
   const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
   const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
   const [masterAgendaSearched, setMasterAgendaSearched] = useState(false);
+  const [masterAgendaOpen, setMasterAgendaOpen] = useState(false);
 
   useEffect(() => {
     setLocalOrders(orders);
     setSelectedOrderId((current) =>
-      current != null && orders.some((order) => order.id === current) ? current : getInitialCounterOrderId(orders)
+      current != null && orders.some((order) => order.id === current) ? current : null
     );
   }, [orders]);
 
-  const stats = useMemo(() => {
-    const pickup = localOrders.filter((order) => order.fulfillment === 'pickup').length;
-    const delivery = localOrders.filter((order) => order.fulfillment === 'delivery').length;
-    const agenda = localOrders.filter(isCounterAgendaOrder).length;
-    const kitchen = localOrders.filter(isKitchenFollowUpOrder).length;
-    const now = localOrders.filter(isCounterActionableOrder).length;
-    const route = localOrders.filter((order) => order.status === 'out_for_delivery').length;
-    const change = localOrders.filter((order) => order.paymentRequiresChange).length;
-    const unassignedDelivery = localOrders.filter(
-      (order) => order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName
-    ).length;
-    const pendingUsd = localOrders.reduce((sum, order) => sum + Math.max(0, order.balanceUsd), 0);
-    const paid = localOrders.filter((order) => order.balanceUsd <= 0.005).length;
-
+  const filterCounts = useMemo<Record<CounterFilter, number>>(() => {
     return {
-      total: localOrders.length,
-      now,
-      pickup,
-      delivery,
-      agenda,
-      kitchen,
-      route,
-      change,
-      unassignedDelivery,
-      pendingUsd,
-      paid,
+      now: localOrders.filter(isCounterActionableOrder).length,
+      all: localOrders.length,
+      agenda: localOrders.filter(isCounterAgendaOrder).length,
+      kitchen: localOrders.filter(isKitchenFollowUpOrder).length,
+      pickup: localOrders.filter((order) => order.fulfillment === 'pickup').length,
+      delivery: localOrders.filter((order) => order.fulfillment === 'delivery').length,
+      route: localOrders.filter((order) => order.status === 'out_for_delivery').length,
+      change: localOrders.filter((order) => order.paymentRequiresChange).length,
+      pending: localOrders.filter((order) => order.balanceUsd > 0.005).length,
+      paid: localOrders.filter((order) => order.balanceUsd <= 0.005).length,
     };
   }, [localOrders]);
 
@@ -501,11 +469,9 @@ export default function CounterClient({
     }));
   }, [filter, localOrders, search]);
 
-  const selectedOrder =
-    filteredOrders.find((order) => order.id === selectedOrderId) ??
-    filteredOrders[0] ??
-    sortCounterOrders(localOrders)[0] ??
-    null;
+  const selectedOrder = selectedOrderId == null
+    ? null
+    : localOrders.find((order) => order.id === selectedOrderId) ?? null;
   const orderSections = useMemo(() => {
     const actionableSections = [
       {
@@ -959,6 +925,30 @@ export default function CounterClient({
             </button>
             <button
               type="button"
+              onClick={() => setCashPanelOpen((current) => !current)}
+              className={[
+                'rounded-full border px-4 py-2 text-sm font-semibold hover:border-[#FEEF00]/60',
+                cashPanelOpen
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              Caja
+            </button>
+            <button
+              type="button"
+              onClick={() => setMasterAgendaOpen((current) => !current)}
+              className={[
+                'rounded-full border px-4 py-2 text-sm font-semibold hover:border-[#FEEF00]/60',
+                masterAgendaOpen
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              Consultar agenda
+            </button>
+            <button
+              type="button"
               onClick={() => router.refresh()}
               disabled={isPending}
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
@@ -976,20 +966,6 @@ export default function CounterClient({
       </header>
 
       <section className="mx-auto max-w-7xl px-5 py-5">
-        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-11">
-          <Summary label="Ahora" value={String(stats.now)} tone={stats.now > 0 ? 'warn' : 'good'} />
-          <Summary label="Activos" value={String(stats.total)} />
-          <Summary label="Agenda" value={String(stats.agenda)} tone={stats.agenda > 0 ? 'warn' : 'neutral'} />
-          <Summary label="En cocina" value={String(stats.kitchen)} tone={stats.kitchen > 0 ? 'warn' : 'neutral'} />
-          <Summary label="Pickup" value={String(stats.pickup)} />
-          <Summary label="Delivery" value={String(stats.delivery)} />
-          <Summary label="En camino" value={String(stats.route)} />
-          <Summary label="Con cambio" value={String(stats.change)} tone={stats.change > 0 ? 'warn' : 'good'} />
-          <Summary label="Sin driver" value={String(stats.unassignedDelivery)} tone={stats.unassignedDelivery > 0 ? 'warn' : 'good'} />
-          <Summary label="Pagados" value={String(stats.paid)} tone="good" />
-          <Summary label="Por cobrar" value={moneyUsd(stats.pendingUsd)} tone={stats.pendingUsd > 0 ? 'warn' : 'good'} />
-        </div>
-
         {message ? (
           <div
             className={[
@@ -1013,29 +989,31 @@ export default function CounterClient({
           />
         ) : null}
 
-        <CounterCashPanel
-          accounts={cashAccounts}
-          activeBsRate={activeBsRate}
-          open={cashPanelOpen}
-          isWorking={workingOrderId === -2}
-          onToggle={() => setCashPanelOpen((current) => !current)}
-          onRefresh={() => router.refresh()}
-          onCreateMovement={handleCreateCashMovement}
-        />
+        {cashPanelOpen ? (
+          <CounterCashPanel
+            accounts={cashAccounts}
+            activeBsRate={activeBsRate}
+            isWorking={workingOrderId === -2}
+            onRefresh={() => router.refresh()}
+            onCreateMovement={handleCreateCashMovement}
+          />
+        ) : null}
 
-        <MasterAgendaSearchPanel
-          query={masterAgendaSearch}
-          results={masterAgendaResults}
-          searched={masterAgendaSearched}
-          isPending={isPending}
-          onQueryChange={setMasterAgendaSearch}
-          onSearch={handleMasterAgendaSearch}
-          onClear={() => {
-            setMasterAgendaSearch('');
-            setMasterAgendaResults([]);
-            setMasterAgendaSearched(false);
-          }}
-        />
+        {masterAgendaOpen ? (
+          <MasterAgendaSearchPanel
+            query={masterAgendaSearch}
+            results={masterAgendaResults}
+            searched={masterAgendaSearched}
+            isPending={isPending}
+            onQueryChange={setMasterAgendaSearch}
+            onSearch={handleMasterAgendaSearch}
+            onClear={() => {
+              setMasterAgendaSearch('');
+              setMasterAgendaResults([]);
+              setMasterAgendaSearched(false);
+            }}
+          />
+        ) : null}
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(360px,0.92fr)_minmax(520px,1.08fr)]">
           <section className="rounded-[8px] border border-[#242433] bg-[#111118]">
@@ -1065,7 +1043,15 @@ export default function CounterClient({
                         : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1] hover:border-[#FEEF00]/50',
                     ].join(' ')}
                   >
-                    {item.label}
+                    <span>{item.label}</span>
+                    <span
+                      className={[
+                        'ml-2 rounded-full px-2 py-0.5 text-xs',
+                        filter === item.key ? 'bg-black/20 text-[#FEEF00]' : 'bg-[#1A1A22] text-[#9FA0AA]',
+                      ].join(' ')}
+                    >
+                      {filterCounts[item.key]}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1126,7 +1112,10 @@ export default function CounterClient({
                 onAddItems={handleAddItemsToOrder}
               />
             ) : (
-              <div className="p-8 text-sm text-[#9FA0AA]">Selecciona un pedido listo para operar.</div>
+              <CounterEmptyWorkSurface
+                hasOrders={filteredOrders.length > 0}
+                onNewSale={() => setQuickSaleOpen(true)}
+              />
             )}
           </section>
         </div>
@@ -1149,44 +1138,16 @@ function CounterOrderCard({
       type="button"
       onClick={onSelect}
       className={[
-        'w-full rounded-[8px] border p-3 text-left transition',
+        'w-full rounded-[8px] border p-4 text-left transition',
         selected
           ? 'border-[#FEEF00] bg-[#FEEF00]/8'
           : 'border-[#242433] bg-[#111118] hover:border-[#3D3D52]',
       ].join(' ')}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-semibold">#{order.displayNumber}</span>
-            <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
-              {fulfillmentLabel(order.fulfillment)}
-            </span>
-            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', counterStatusClass(order)].join(' ')}>
-              {getOperationalStatusLabel(order)}
-            </span>
-            <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', paymentClass(order)].join(' ')}>
-              {paymentLabel(order)}
-            </span>
-            {order.paymentRequiresChange ? (
-              <span className="rounded-full border border-orange-300/40 bg-orange-300/10 px-2 py-0.5 text-xs font-semibold text-orange-200">
-                Cambio
-              </span>
-            ) : null}
-            {order.fulfillment === 'delivery' ? (
-              <span
-                className={[
-                  'rounded-full border px-2 py-0.5 text-xs font-semibold',
-                  order.deliveryAssigneeName
-                    ? 'border-sky-300/40 bg-sky-300/10 text-sky-100'
-                    : 'border-red-300/40 bg-red-300/10 text-red-100',
-                ].join(' ')}
-              >
-                {deliveryAssigneeLabel(order)}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-1 truncate text-sm font-semibold text-[#F5F5F7]">{order.clientName}</div>
+          <div className="text-sm font-semibold text-[#FEEF00]">Orden #{order.displayNumber}</div>
+          <div className="mt-1 truncate text-base font-semibold text-[#F5F5F7]">{order.clientName}</div>
           <div className="mt-1 text-xs text-[#9FA0AA]">{scheduleLabel(order)}</div>
         </div>
         <div className="shrink-0 text-right">
@@ -1198,18 +1159,62 @@ function CounterOrderCard({
           )}
         </div>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+          {fulfillmentLabel(order.fulfillment)}
+        </span>
+        <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', counterStatusClass(order)].join(' ')}>
+          {getOperationalStatusLabel(order)}
+        </span>
+        <span className={['rounded-full border px-2 py-0.5 text-xs font-semibold', paymentClass(order)].join(' ')}>
+          {paymentLabel(order)}
+        </span>
+        {order.paymentRequiresChange ? (
+          <span className="rounded-full border border-orange-300/40 bg-orange-300/10 px-2 py-0.5 text-xs font-semibold text-orange-200">
+            Cambio
+          </span>
+        ) : null}
+        {order.fulfillment === 'delivery' ? (
+          <span
+            className={[
+              'rounded-full border px-2 py-0.5 text-xs font-semibold',
+              order.deliveryAssigneeName
+                ? 'border-sky-300/40 bg-sky-300/10 text-sky-100'
+                : 'border-red-300/40 bg-red-300/10 text-red-100',
+            ].join(' ')}
+          >
+            {deliveryAssigneeLabel(order)}
+          </span>
+        ) : null}
+      </div>
     </button>
   );
 }
 
-function Summary({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'good' | 'warn' }) {
-  const toneClass =
-    tone === 'good' ? 'text-emerald-300' : tone === 'warn' ? 'text-orange-300' : 'text-[#F5F5F7]';
-
+function CounterEmptyWorkSurface({
+  hasOrders,
+  onNewSale,
+}: {
+  hasOrders: boolean;
+  onNewSale: () => void;
+}) {
   return (
-    <div className="rounded-[8px] border border-[#242433] bg-[#111118] p-4">
-      <div className="text-sm text-[#9FA0AA]">{label}</div>
-      <div className={['mt-1 text-xl font-semibold', toneClass].join(' ')}>{value}</div>
+    <div className="flex min-h-[520px] items-center justify-center p-8">
+      <div className="max-w-md rounded-[8px] border border-dashed border-[#303044] bg-[#0B0B0D] p-6 text-center">
+        <div className="text-lg font-semibold">Mostrador listo</div>
+        <p className="mt-2 text-sm leading-6 text-[#9FA0AA]">
+          {hasOrders
+            ? 'Selecciona un pedido para cobrar, entregar o revisar sus datos operativos.'
+            : 'No hay pedidos en esta vista. Puedes cambiar el filtro o crear una venta nueva.'}
+        </p>
+        <button
+          type="button"
+          onClick={onNewSale}
+          className="mt-5 rounded-full border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-2 text-sm font-bold text-black hover:bg-[#fff45c]"
+        >
+          Nueva venta
+        </button>
+      </div>
     </div>
   );
 }
@@ -1217,17 +1222,13 @@ function Summary({ label, value, tone = 'neutral' }: { label: string; value: str
 function CounterCashPanel({
   accounts,
   activeBsRate,
-  open,
   isWorking,
-  onToggle,
   onRefresh,
   onCreateMovement,
 }: {
   accounts: CounterCashAccountSummary[];
   activeBsRate: number;
-  open: boolean;
   isWorking: boolean;
-  onToggle: () => void;
   onRefresh: () => void;
   onCreateMovement: (input: CounterCashMovementInput) => void;
 }) {
@@ -1260,15 +1261,6 @@ function CounterCashPanel({
       .filter((movement) => movement.direction === 'outflow')
       .reduce((movementSum, movement) => movementSum + movement.amountUsdEquivalent, 0);
   }, 0);
-  const recentMovements = accounts
-    .flatMap((account) =>
-      account.movements.map((movement) => ({
-        ...movement,
-        accountName: account.accountName,
-      }))
-    )
-    .sort((a, b) => Date.parse(b.createdAt || b.movementDate) - Date.parse(a.createdAt || a.movementDate))
-    .slice(0, 8);
 
   useEffect(() => {
     if (!firstAccount) return;
@@ -1329,9 +1321,9 @@ function CounterCashPanel({
     <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Caja de mostrador</h2>
+          <h2 className="text-lg font-semibold">Caja</h2>
           <p className="mt-1 text-sm text-[#9FA0AA]">
-            Movimientos confirmados del dia en cuentas que mostrador puede operar.
+            Cajas DAR y puntos. Vista operativa del dia.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1350,24 +1342,22 @@ function CounterCashPanel({
           >
             {movementOpen ? 'Ocultar movimiento' : 'Registrar movimiento'}
           </button>
-          <button
-            type="button"
-            onClick={onToggle}
-            className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
-          >
-            {open ? 'Ocultar' : 'Ver caja'}
-          </button>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <Summary label="Entradas ref." value={moneyUsd(totalInflowUsd)} tone={totalInflowUsd > 0 ? 'good' : 'neutral'} />
-        <Summary label="Salidas ref." value={moneyUsd(totalOutflowUsd)} tone={totalOutflowUsd > 0 ? 'warn' : 'neutral'} />
-        <Summary
-          label="Cuentas visibles"
-          value={String(accounts.length)}
-          tone={accounts.length > 0 ? 'good' : 'warn'}
-        />
+        <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <div className="text-xs text-[#9FA0AA]">Entradas ref.</div>
+          <div className="mt-1 text-lg font-semibold text-emerald-300">{moneyUsd(totalInflowUsd)}</div>
+        </div>
+        <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <div className="text-xs text-[#9FA0AA]">Salidas ref.</div>
+          <div className="mt-1 text-lg font-semibold text-orange-300">{moneyUsd(totalOutflowUsd)}</div>
+        </div>
+        <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <div className="text-xs text-[#9FA0AA]">Cuentas</div>
+          <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{accounts.length}</div>
+        </div>
       </div>
 
       {movementOpen ? (
@@ -1527,98 +1517,49 @@ function CounterCashPanel({
         </div>
       ) : null}
 
-      {open ? (
-        <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {accounts.length === 0 ? (
-              <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA] sm:col-span-2">
-                Mostrador no tiene cuentas activas para operar.
-              </div>
-            ) : (
-              accounts.map((account) => (
-                <div key={account.accountId} className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold">{account.accountName}</div>
-                      <div className="mt-1 text-xs text-[#9FA0AA]">
-                        {accountKindLabel(account.accountKind)} · {account.currencyCode}
-                      </div>
-                    </div>
-                    <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
-                      {account.movements.length}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <div className="text-[#9FA0AA]">Entradas</div>
-                      <div className="mt-1 font-semibold text-emerald-300">
-                        {account.currencyCode === 'VES' ? moneyBs(account.inflow) : moneyUsd(account.inflow)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[#9FA0AA]">Salidas</div>
-                      <div className="mt-1 font-semibold text-orange-300">
-                        {account.currencyCode === 'VES' ? moneyBs(account.outflow) : moneyUsd(account.outflow)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[#9FA0AA]">Neto</div>
-                      <div className="mt-1 font-semibold text-[#F5F5F7]">
-                        {account.currencyCode === 'VES' ? moneyBs(account.net) : moneyUsd(account.net)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {account.methods.map((method) => (
-                      <span key={method} className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
-                        {getPaymentMethodLabel(method)}
-                      </span>
-                    ))}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {accounts.length === 0 ? (
+          <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA] sm:col-span-2">
+            Mostrador no tiene cuentas operativas activas.
+          </div>
+        ) : (
+          accounts.map((account) => (
+            <div key={account.accountId} className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">{account.accountName}</div>
+                  <div className="mt-1 text-xs text-[#9FA0AA]">
+                    {accountKindLabel(account.accountKind)} · {account.currencyCode}
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-
-          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">Ultimos movimientos</h3>
-              <span className="text-xs text-[#9FA0AA]">{recentMovements.length} visibles</span>
-            </div>
-            <div className="mt-3 divide-y divide-[#242433]">
-              {recentMovements.length === 0 ? (
-                <div className="py-4 text-sm text-[#9FA0AA]">Sin movimientos confirmados hoy.</div>
-              ) : (
-                recentMovements.map((movement) => (
-                  <div key={movement.id} className="grid gap-2 py-3 sm:grid-cols-[92px_1fr_110px]">
-                    <div className="text-xs text-[#9FA0AA]">{movement.movementDate}</div>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-[#F5F5F7]">
-                        {movementTypeLabel(movement.movementType)}
-                        {movement.orderId ? ` · Orden #${formatOrderDisplayNumber(movement.orderId)}` : ''}
-                      </div>
-                      <div className="mt-0.5 truncate text-xs text-[#9FA0AA]">
-                        {movement.accountName}
-                        {movement.referenceCode ? ` · Ref. ${movement.referenceCode}` : ''}
-                        {movement.counterpartyName ? ` · ${movement.counterpartyName}` : ''}
-                      </div>
-                    </div>
-                    <div
-                      className={[
-                        'text-left text-sm font-semibold sm:text-right',
-                        movement.direction === 'inflow' ? 'text-emerald-300' : 'text-orange-300',
-                      ].join(' ')}
-                    >
-                      {movement.direction === 'outflow' ? '-' : '+'}
-                      {movement.currencyCode === 'VES' ? moneyBs(movement.amount) : moneyUsd(movement.amount)}
-                    </div>
+                <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+                  {account.methods.map((method) => getPaymentMethodLabel(method)).join(', ')}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <div className="text-[#9FA0AA]">Entró</div>
+                  <div className="mt-1 font-semibold text-emerald-300">
+                    {account.currencyCode === 'VES' ? moneyBs(account.inflow) : moneyUsd(account.inflow)}
                   </div>
-                ))
-              )}
+                </div>
+                <div>
+                  <div className="text-[#9FA0AA]">Salió</div>
+                  <div className="mt-1 font-semibold text-orange-300">
+                    {account.currencyCode === 'VES' ? moneyBs(account.outflow) : moneyUsd(account.outflow)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[#9FA0AA]">Neto</div>
+                  <div className="mt-1 font-semibold text-[#F5F5F7]">
+                    {account.currencyCode === 'VES' ? moneyBs(account.net) : moneyUsd(account.net)}
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      ) : null}
+          ))
+        )}
+      </div>
     </section>
   );
 }
@@ -1641,11 +1582,11 @@ function MasterAgendaSearchPanel({
   onClear: () => void;
 }) {
   return (
-    <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-4">
+    <section className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Consultar agenda master</h2>
-          <p className="mt-1 text-sm text-[#9FA0AA]">
+          <h2 className="text-sm font-semibold">Consultar agenda master</h2>
+          <p className="mt-1 text-xs text-[#9FA0AA]">
             Busca una orden puntual por numero, cliente o telefono cuando no aparezca en la cola del counter.
           </p>
         </div>
@@ -1660,7 +1601,7 @@ function MasterAgendaSearchPanel({
         ) : null}
       </div>
 
-      <div className="mt-4 grid gap-2 md:grid-cols-[1fr_150px]">
+      <div className="mt-3 grid gap-2 md:grid-cols-[1fr_128px]">
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
@@ -1668,13 +1609,13 @@ function MasterAgendaSearchPanel({
             if (event.key === 'Enter') onSearch();
           }}
           placeholder="Orden, cliente o telefono"
-          className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+          className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
         />
         <button
           type="button"
           onClick={onSearch}
           disabled={isPending}
-          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
         >
           {isPending ? 'Buscando...' : 'Buscar'}
         </button>
