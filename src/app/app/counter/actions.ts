@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 
@@ -37,6 +38,29 @@ type CounterProductRow = {
   source_price_amount: number | string | null;
   base_price_usd: number | string | null;
   base_price_bs: number | string | null;
+};
+
+type CounterOrderForItemsRow = {
+  id: number;
+  order_number: string | null;
+  status: string | null;
+  total_usd: number | string | null;
+  total_bs_snapshot: number | string | null;
+  extra_fields: Record<string, any> | null;
+};
+
+type CounterExistingItemRow = {
+  line_total_usd: number | string | null;
+  line_total_bs_snapshot: number | string | null;
+};
+
+type CounterAddItemsInput = {
+  orderId: number;
+  items: Array<{
+    productId: number;
+    qty: number;
+    notes?: string | null;
+  }>;
 };
 
 export type CounterAgendaSearchResult = {
@@ -519,6 +543,203 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   revalidatePath('/app/master/dashboard');
 
   return { id: orderId, orderNumber, sentToKitchen: sendNowToKitchen, scheduled: !sendNowToKitchen };
+}
+
+export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
+  const ctx = await requireAuthContext();
+  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
+  if (!allowed) {
+    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
+  }
+
+  const orderId = Number(input.orderId || 0);
+  const items = (input.items || [])
+    .map((item) => ({
+      productId: Number(item.productId || 0),
+      qty: Math.max(0, Number(item.qty || 0)),
+      notes: String(item.notes || '').trim() || null,
+    }))
+    .filter((item) => item.productId > 0 && item.qty > 0);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) throw new Error('Orden invalida.');
+  if (items.length === 0) throw new Error('Agrega al menos un producto.');
+
+  const supabase = createSupabaseServiceRoleServer();
+  const { data: orderData, error: orderError } = await supabase
+    .from('orders')
+    .select('id, order_number, status, total_usd, total_bs_snapshot, extra_fields')
+    .eq('id', orderId)
+    .single();
+
+  if (orderError || !orderData) throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+
+  const order = orderData as CounterOrderForItemsRow;
+  if (order.status === 'out_for_delivery' || order.status === 'delivered' || order.status === 'cancelled') {
+    throw new Error('Esta orden ya no puede modificarse desde mostrador.');
+  }
+
+  const fxRate = await loadActiveExchangeRate(supabase);
+  const productIds = Array.from(new Set(items.map((item) => item.productId)));
+  const { data: productsData, error: productsError } = await supabase
+    .from('products')
+    .select('id, sku, name, source_price_currency, source_price_amount, base_price_usd, base_price_bs')
+    .in('id', productIds)
+    .eq('is_active', true);
+
+  if (productsError) throw new Error(productsError.message);
+
+  const productsById = new Map<number, CounterProductRow>(
+    ((productsData ?? []) as CounterProductRow[]).map((product) => [Number(product.id), product])
+  );
+  if (productsById.size !== productIds.length) {
+    throw new Error('Uno de los productos no esta activo o no existe.');
+  }
+
+  const itemSnapshots = items.map((item) => {
+    const product = productsById.get(item.productId);
+    if (!product) throw new Error('Producto no encontrado.');
+    const sourceCurrency = product.source_price_currency === 'VES' ? 'VES' : 'USD';
+    const sourceAmount =
+      sourceCurrency === 'VES'
+        ? toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_bs, 0))
+        : toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_usd, 0));
+
+    return calculateOrderLineSnapshot({
+      sourceCurrency,
+      sourceAmount,
+      quantity: item.qty,
+      fxRate,
+      fallbackUnitUsd: toSafeNumber(product.base_price_usd, 0),
+    });
+  });
+
+  const { data: existingItemsData, error: existingItemsError } = await supabase
+    .from('order_items')
+    .select('line_total_usd, line_total_bs_snapshot')
+    .eq('order_id', orderId);
+
+  if (existingItemsError) throw new Error(existingItemsError.message);
+
+  const existingSubtotalUsd = ((existingItemsData ?? []) as CounterExistingItemRow[]).reduce(
+    (sum, item) => sum + toSafeNumber(item.line_total_usd, 0),
+    0
+  );
+  const existingSubtotalBs = ((existingItemsData ?? []) as CounterExistingItemRow[]).reduce(
+    (sum, item) => sum + toSafeNumber(item.line_total_bs_snapshot, 0),
+    0
+  );
+  const addedSubtotalUsd = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
+  const addedSubtotalBs = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
+  const currentMoney = getOrderMoneySnapshot(order);
+  const totals = calculateOrderTotalsSnapshot({
+    subtotalUsd: existingSubtotalUsd + addedSubtotalUsd,
+    subtotalBs: existingSubtotalBs + addedSubtotalBs,
+    discountPct: currentMoney.discountEnabled ? currentMoney.discountPct : 0,
+    invoiceTaxPct: currentMoney.hasInvoice ? currentMoney.invoiceTaxPct : 0,
+  });
+
+  const nowIso = new Date().toISOString();
+  const shouldReturnToKitchen = order.status === 'ready';
+  const itemsPayload = items.map((item, index) => {
+    const product = productsById.get(item.productId);
+    if (!product) throw new Error('Producto no encontrado.');
+    const sourceCurrency = product.source_price_currency === 'VES' ? 'VES' : 'USD';
+    const sourceAmount =
+      sourceCurrency === 'VES'
+        ? toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_bs, 0))
+        : toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_usd, 0));
+    const snapshot = itemSnapshots[index];
+
+    return {
+      order_id: orderId,
+      product_id: item.productId,
+      qty: item.qty,
+      pricing_origin_currency: sourceCurrency,
+      pricing_origin_amount: sourceAmount,
+      unit_price_usd_snapshot: snapshot.unitUsd,
+      line_total_usd: snapshot.lineUsd,
+      unit_price_bs_snapshot: snapshot.unitBs,
+      line_total_bs_snapshot: snapshot.lineBs,
+      sku_snapshot: product.sku,
+      product_name_snapshot: product.name || 'Producto',
+      notes: item.notes,
+    };
+  });
+
+  const { error: insertItemsError } = await supabase.from('order_items').insert(itemsPayload);
+  if (insertItemsError) throw new Error(insertItemsError.message);
+
+  const currentExtraFields = order.extra_fields ?? {};
+  const currentPricing = (currentExtraFields.pricing ?? {}) as Record<string, any>;
+  const nextExtraFields = {
+    ...currentExtraFields,
+    pricing: {
+      ...currentPricing,
+      fx_rate: fxRate,
+      discount_enabled: currentMoney.discountEnabled,
+      discount_pct: currentMoney.discountEnabled ? currentMoney.discountPct : 0,
+      discount_amount_usd: totals.discountAmountUsd,
+      discount_amount_bs: totals.discountAmountBs,
+      subtotal_usd: existingSubtotalUsd + addedSubtotalUsd,
+      subtotal_bs: existingSubtotalBs + addedSubtotalBs,
+      subtotal_after_discount_usd: totals.subtotalAfterDiscountUsd,
+      subtotal_after_discount_bs: totals.subtotalAfterDiscountBs,
+      invoice_tax_pct: currentMoney.hasInvoice ? currentMoney.invoiceTaxPct : 0,
+      invoice_tax_amount_usd: totals.invoiceTaxAmountUsd,
+      invoice_tax_amount_bs: totals.invoiceTaxAmountBs,
+      total_usd: totals.totalUsd,
+      total_bs: totals.totalBs,
+    },
+    counter: {
+      ...((currentExtraFields.counter ?? {}) as Record<string, any>),
+      last_added_items_at: nowIso,
+      last_added_items_by: ctx.user.id,
+    },
+  };
+
+  const updatePayload: Record<string, any> = {
+    total_usd: totals.totalUsd,
+    total_bs_snapshot: totals.totalBs,
+    extra_fields: nextExtraFields,
+  };
+  if (shouldReturnToKitchen) {
+    updatePayload.status = 'confirmed';
+    updatePayload.ready_at = null;
+    updatePayload.sent_to_kitchen_at = nowIso;
+  }
+
+  const { error: updateOrderError } = await supabase.from('orders').update(updatePayload).eq('id', orderId);
+  if (updateOrderError) throw new Error(updateOrderError.message);
+
+  await supabase.from('order_timeline_events').insert({
+    order_id: orderId,
+    order_number: order.order_number,
+    event_type: 'counter_items_added',
+    event_group: shouldReturnToKitchen ? 'kitchen' : 'order',
+    title: shouldReturnToKitchen ? 'Mostrador agrego productos y regreso a cocina' : 'Mostrador agrego productos',
+    message: `Se agregaron ${items.length} linea(s) desde mostrador.`,
+    severity: shouldReturnToKitchen ? 'warning' : 'info',
+    actor_user_id: ctx.user.id,
+    payload: {
+      source: 'counter',
+      added_lines: items.length,
+      returned_to_kitchen: shouldReturnToKitchen,
+      total_usd: totals.totalUsd,
+      total_bs: totals.totalBs,
+    },
+  });
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/dashboard');
+
+  return {
+    ok: true,
+    returnedToKitchen: shouldReturnToKitchen,
+    addedLines: items.length,
+    totalUsd: totals.totalUsd,
+    totalBs: totals.totalBs,
+  };
 }
 
 export async function searchCounterAgendaAction(input: { query: string }) {

@@ -14,6 +14,7 @@ import {
   outForDeliveryAction,
 } from '../master/dashboard/actions';
 import {
+  addCounterOrderItemsAction,
   createCounterQuickSaleAction,
   searchCounterAgendaAction,
   type CounterAgendaSearchResult,
@@ -799,6 +800,33 @@ export default function CounterClient({
     });
   }
 
+  function handleAddItemsToOrder(
+    order: CounterOrder,
+    items: Array<{ productId: number; qty: number; notes?: string | null }>
+  ) {
+    setMessage(null);
+    setWorkingOrderId(order.id);
+    startTransition(async () => {
+      try {
+        const result = await addCounterOrderItemsAction({ orderId: order.id, items });
+        setMessage({
+          tone: 'success',
+          text: result.returnedToKitchen
+            ? `Se agregaron ${result.addedLines} linea(s). La orden #${order.displayNumber} regreso a cocina.`
+            : `Se agregaron ${result.addedLines} linea(s) a la orden #${order.displayNumber}.`,
+        });
+        router.refresh();
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudieron agregar productos.',
+        });
+      } finally {
+        setWorkingOrderId(null);
+      }
+    });
+  }
+
   function handleMasterAgendaSearch() {
     const query = masterAgendaSearch.trim();
     if (query.length < 2) {
@@ -990,9 +1018,12 @@ export default function CounterClient({
               <OrderDetail
                 order={selectedOrder}
                 paymentAccounts={paymentAccounts}
+                quickSaleProducts={quickSaleProducts}
+                activeBsRate={activeBsRate}
                 isWorking={workingOrderId === selectedOrder.id}
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
                 onCreatePaymentReport={handleCreatePaymentReport}
+                onAddItems={handleAddItemsToOrder}
               />
             ) : (
               <div className="p-8 text-sm text-[#9FA0AA]">Selecciona un pedido listo para operar.</div>
@@ -1744,15 +1775,21 @@ function getCounterCurrentAction(order: CounterOrder) {
 function OrderDetail({
   order,
   paymentAccounts,
+  quickSaleProducts,
+  activeBsRate,
   isWorking,
   onPrimaryDeliveryAction,
   onCreatePaymentReport,
+  onAddItems,
 }: {
   order: CounterOrder;
   paymentAccounts: CounterPaymentAccountOption[];
+  quickSaleProducts: CounterQuickSaleProductOption[];
+  activeBsRate: number;
   isWorking: boolean;
   onPrimaryDeliveryAction: (order: CounterOrder) => void;
   onCreatePaymentReport: (order: CounterOrder, input: CounterPaymentReportInput) => void;
+  onAddItems: (order: CounterOrder, items: Array<{ productId: number; qty: number; notes?: string | null }>) => void;
 }) {
   const paid = order.balanceUsd <= 0.005;
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
@@ -1774,7 +1811,9 @@ function OrderDetail({
         ? 'Primero registra el cobro recibido del motorizado.'
         : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [addItemsOpen, setAddItemsOpen] = useState(false);
   const currentAction = getCounterCurrentAction(order);
+  const canAddItems = order.status !== 'out_for_delivery';
 
   return (
     <div>
@@ -1945,6 +1984,14 @@ function OrderDetail({
           >
             {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Registrar retorno / cobro' : 'Registrar pago'}
           </button>
+          <button
+            type="button"
+            onClick={() => setAddItemsOpen((current) => !current)}
+            disabled={!canAddItems || isWorking}
+            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {addItemsOpen ? 'Ocultar agregar' : 'Agregar productos'}
+          </button>
           {order.paymentRequiresChange ? (
             <ActionHint
               title="Preparar cambio"
@@ -1972,6 +2019,230 @@ function OrderDetail({
           />
         </div>
       ) : null}
+
+      {addItemsOpen ? (
+        <div className="border-t border-[#242433] p-5">
+          <CounterAddItemsBox
+            order={order}
+            products={quickSaleProducts}
+            activeBsRate={activeBsRate}
+            isWorking={isWorking}
+            onSubmit={(items) => onAddItems(order, items)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CounterAddItemsBox({
+  order,
+  products,
+  activeBsRate,
+  isWorking,
+  onSubmit,
+}: {
+  order: CounterOrder;
+  products: CounterQuickSaleProductOption[];
+  activeBsRate: number;
+  isWorking: boolean;
+  onSubmit: (items: Array<{ productId: number; qty: number; notes?: string | null }>) => void;
+}) {
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ? String(products[0].id) : '');
+  const [qty, setQty] = useState('1');
+  const [notes, setNotes] = useState('');
+  const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLocaleLowerCase('es-VE');
+    if (!term) return products.slice(0, 80);
+    return products
+      .filter((product) =>
+        [product.name, product.sku, product.type]
+          .filter(Boolean)
+          .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term))
+      )
+      .slice(0, 80);
+  }, [productSearch, products]);
+  const lineRows = useMemo(() => {
+    return cartItems.map((item) => {
+      const product = productsById.get(item.productId) ?? null;
+      const itemQty = Math.max(0, toDecimalInput(item.qty));
+      const sourceAmount =
+        product?.sourcePriceCurrency === 'VES'
+          ? product.sourcePriceAmount || product.basePriceBs
+          : product?.sourcePriceAmount || product?.basePriceUsd || 0;
+      const snapshot = product
+        ? calculateOrderLineSnapshot({
+            sourceCurrency: product.sourcePriceCurrency,
+            sourceAmount,
+            quantity: itemQty,
+            fxRate: activeBsRate,
+            fallbackUnitUsd: product.basePriceUsd,
+          })
+        : { unitUsd: 0, lineUsd: 0, unitBs: 0, lineBs: 0 };
+
+      return { item, product, qty: itemQty, snapshot };
+    });
+  }, [activeBsRate, cartItems, productsById]);
+  const addedUsd = lineRows.reduce((sum, row) => sum + row.snapshot.lineUsd, 0);
+  const addedBs = lineRows.reduce((sum, row) => sum + row.snapshot.lineBs, 0);
+
+  function addLine() {
+    const productId = Number(selectedProductId || 0);
+    const product = productsById.get(productId);
+    const itemQty = toDecimalInput(qty);
+
+    if (!product) {
+      setLocalError('Selecciona un producto valido.');
+      return;
+    }
+    if (!Number.isFinite(itemQty) || itemQty <= 0) {
+      setLocalError('Indica una cantidad valida.');
+      return;
+    }
+
+    setCartItems((current) => [
+      ...current,
+      {
+        id: `add-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        productId,
+        qty,
+        notes: notes.trim(),
+      },
+    ]);
+    setQty('1');
+    setNotes('');
+    setLocalError(null);
+  }
+
+  function submitItems() {
+    if (cartItems.length === 0) {
+      setLocalError('Agrega al menos una linea.');
+      return;
+    }
+
+    onSubmit(
+      cartItems.map((item) => ({
+        productId: item.productId,
+        qty: toDecimalInput(item.qty),
+        notes: item.notes.trim() || null,
+      }))
+    );
+  }
+
+  return (
+    <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold">Agregar al pedido</h3>
+          <p className="mt-1 text-sm text-[#9FA0AA]">
+            Se recalcula el total. Si la orden estaba lista, vuelve a cocina.
+          </p>
+        </div>
+        <div className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-right">
+          <div className="text-xs text-[#9FA0AA]">Agregado</div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">{moneyUsd(addedUsd)}</div>
+          <div className="text-xs text-[#9FA0AA]">{moneyBs(addedBs)}</div>
+        </div>
+      </div>
+
+      {localError ? (
+        <div className="mt-3 rounded-[8px] border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-200">
+          {localError}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_110px_1fr_130px]">
+        <label className="text-sm text-[#9FA0AA]">
+          Producto
+          <input
+            value={productSearch}
+            onChange={(event) => setProductSearch(event.target.value)}
+            placeholder="Buscar producto"
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+          />
+          <select
+            value={selectedProductId}
+            onChange={(event) => setSelectedProductId(event.target.value)}
+            className="mt-2 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+          >
+            {filteredProducts.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm text-[#9FA0AA]">
+          Cant.
+          <input
+            value={qty}
+            onChange={(event) => setQty(event.target.value)}
+            inputMode="decimal"
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+          />
+        </label>
+        <label className="text-sm text-[#9FA0AA]">
+          Nota
+          <input
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="Opcional"
+            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+          />
+        </label>
+        <div className="flex items-end">
+          <button
+            type="button"
+            onClick={addLine}
+            disabled={products.length === 0}
+            className="w-full rounded-[8px] border border-[#303044] bg-[#111118] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Agregar
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 divide-y divide-[#242433] rounded-[8px] border border-[#242433]">
+        {lineRows.length === 0 ? (
+          <div className="p-4 text-sm text-[#9FA0AA]">Sin lineas por agregar.</div>
+        ) : (
+          lineRows.map((row) => (
+            <div key={row.item.id} className="grid gap-3 p-3 sm:grid-cols-[70px_1fr_110px_90px]">
+              <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(row.qty)}</div>
+              <div>
+                <div className="text-sm font-semibold">{row.product?.name || 'Producto'}</div>
+                {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
+              </div>
+              <div className="text-sm font-semibold">{moneyUsd(row.snapshot.lineUsd)}</div>
+              <button
+                type="button"
+                onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
+                className="rounded-[8px] border border-red-400/40 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-400/10"
+              >
+                Quitar
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-[#9FA0AA]">
+          Orden #{order.displayNumber} quedara con nuevo saldo al refrescar.
+        </div>
+        <button
+          type="button"
+          onClick={submitItems}
+          disabled={isWorking || cartItems.length === 0 || activeBsRate <= 0}
+          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+        >
+          {isWorking ? 'Guardando...' : 'Aplicar agregado'}
+        </button>
+      </div>
     </div>
   );
 }
