@@ -34,6 +34,7 @@ type CounterQuickSaleInput = {
     productId: number;
     qty: number;
     notes?: string | null;
+    editableDetailLines?: string[] | null;
   }>;
 };
 
@@ -83,6 +84,7 @@ type CounterAddItemsInput = {
     productId: number;
     qty: number;
     notes?: string | null;
+    editableDetailLines?: string[] | null;
   }>;
 };
 
@@ -156,6 +158,18 @@ function createSupabaseServiceRoleServer() {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function buildOrderItemNotes(input: {
+  notes?: string | null;
+  editableDetailLines?: string[] | null;
+}) {
+  const lines = [
+    String(input.notes || '').trim(),
+    ...(input.editableDetailLines ?? []).map((line) => String(line || '').trim()),
+  ].filter(Boolean);
+
+  return lines.length > 0 ? lines.join('\n') : null;
 }
 
 function isCounterDirectAccount(account: { name?: string | null; account_kind?: string | null }) {
@@ -369,6 +383,9 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       productId: Number(item.productId || 0),
       qty: Math.max(0, Number(item.qty || 0)),
       notes: String(item.notes || '').trim() || null,
+      editableDetailLines: Array.isArray(item.editableDetailLines)
+        ? item.editableDetailLines.map((line) => String(line || '').trim()).filter(Boolean)
+        : [],
     }))
     .filter((item) => item.productId > 0 && item.qty > 0);
 
@@ -597,7 +614,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       line_total_bs_snapshot: snapshot.lineBs,
       sku_snapshot: product.sku,
       product_name_snapshot: product.name || 'Producto',
-      notes: item.notes,
+      notes: buildOrderItemNotes(item),
     };
   });
 
@@ -644,6 +661,9 @@ export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
       productId: Number(item.productId || 0),
       qty: Math.max(0, Number(item.qty || 0)),
       notes: String(item.notes || '').trim() || null,
+      editableDetailLines: Array.isArray(item.editableDetailLines)
+        ? item.editableDetailLines.map((line) => String(line || '').trim()).filter(Boolean)
+        : [],
     }))
     .filter((item) => item.productId > 0 && item.qty > 0);
 
@@ -748,7 +768,7 @@ export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
       line_total_bs_snapshot: snapshot.lineBs,
       sku_snapshot: product.sku,
       product_name_snapshot: product.name || 'Producto',
-      notes: item.notes,
+      notes: buildOrderItemNotes(item),
     };
   });
 

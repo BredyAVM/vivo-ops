@@ -12,6 +12,7 @@ import CounterClient, {
   type CounterPaymentAccountOption,
   type CounterOrder,
   type CounterOrderItem,
+  type CounterQuickSaleProductComponent,
   type CounterQuickSaleProductOption,
 } from './CounterClient';
 
@@ -152,6 +153,29 @@ type RawCounterProduct = {
   base_price_usd: number | string | null;
   base_price_bs: number | string | null;
   units_per_service: number | string | null;
+  is_detail_editable: boolean | null;
+  detail_units_limit: number | string | null;
+  is_combo_component_selectable: boolean | null;
+};
+
+type RawCounterProductComponent = {
+  id: number;
+  parent_product_id: number | null;
+  component_product_id: number | null;
+  component_mode: 'fixed' | 'selectable' | string | null;
+  quantity: number | string | null;
+  counts_toward_detail_limit: boolean | null;
+  is_required: boolean | null;
+  sort_order: number | string | null;
+  notes: string | null;
+  parent_product:
+    | { sku: string | null; name: string | null }[]
+    | { sku: string | null; name: string | null }
+    | null;
+  component_product:
+    | { sku: string | null; name: string | null; type: string | null }[]
+    | { sku: string | null; name: string | null; type: string | null }
+    | null;
 };
 
 function normalizeClient(order: RawCounterOrder) {
@@ -263,7 +287,22 @@ export default async function CounterPage() {
       .order('payment_method_code', { ascending: true }),
     ctx.supabase
       .from('products')
-      .select('id, sku, name, type, source_price_currency, source_price_amount, base_price_usd, base_price_bs, units_per_service')
+      .select(
+        [
+          'id',
+          'sku',
+          'name',
+          'type',
+          'source_price_currency',
+          'source_price_amount',
+          'base_price_usd',
+          'base_price_bs',
+          'units_per_service',
+          'is_detail_editable',
+          'detail_units_limit',
+          'is_combo_component_selectable',
+        ].join(', ')
+      )
       .eq('is_active', true)
       .order('name', { ascending: true })
       .limit(500),
@@ -294,6 +333,9 @@ export default async function CounterPage() {
 
   const rawOrders = (ordersData ?? []) as unknown as RawCounterOrder[];
   const orderIds = rawOrders.map((order) => order.id);
+  const quickSaleProductIds = ((productsData ?? []) as unknown as RawCounterProduct[])
+    .map((product) => Number(product.id || 0))
+    .filter((id) => Number.isFinite(id) && id > 0);
   const activeBsRate = toNumber(activeRateData?.rate_bs_per_usd, 0);
   const internalDriverIds = Array.from(
     new Set(
@@ -365,6 +407,7 @@ export default async function CounterPage() {
     { data: advisorsData, error: advisorsError },
     { data: partnersData, error: partnersError },
     { data: counterMovementsData, error: counterMovementsError },
+    { data: productComponentsData, error: productComponentsError },
   ] = await Promise.all(
     orderIds.length
       ? [
@@ -414,6 +457,28 @@ export default async function CounterPage() {
                 .order('created_at', { ascending: false })
                 .limit(80)
             : Promise.resolve({ data: [], error: null }),
+          quickSaleProductIds.length
+            ? ctx.supabase
+                .from('product_components')
+                .select(
+                  [
+                    'id',
+                    'parent_product_id',
+                    'component_product_id',
+                    'component_mode',
+                    'quantity',
+                    'counts_toward_detail_limit',
+                    'is_required',
+                    'sort_order',
+                    'notes',
+                    'parent_product:products!product_components_parent_product_id_fkey(sku, name)',
+                    'component_product:products!product_components_component_product_id_fkey(sku, name, type)',
+                  ].join(', ')
+                )
+                .in('parent_product_id', quickSaleProductIds)
+                .order('parent_product_id', { ascending: true })
+                .order('sort_order', { ascending: true })
+            : Promise.resolve({ data: [], error: null }),
         ]
       : [
           Promise.resolve({ data: [], error: null }),
@@ -448,6 +513,28 @@ export default async function CounterPage() {
                 .order('created_at', { ascending: false })
                 .limit(80)
             : Promise.resolve({ data: [], error: null }),
+          quickSaleProductIds.length
+            ? ctx.supabase
+                .from('product_components')
+                .select(
+                  [
+                    'id',
+                    'parent_product_id',
+                    'component_product_id',
+                    'component_mode',
+                    'quantity',
+                    'counts_toward_detail_limit',
+                    'is_required',
+                    'sort_order',
+                    'notes',
+                    'parent_product:products!product_components_parent_product_id_fkey(sku, name)',
+                    'component_product:products!product_components_component_product_id_fkey(sku, name, type)',
+                  ].join(', ')
+                )
+                .in('parent_product_id', quickSaleProductIds)
+                .order('parent_product_id', { ascending: true })
+                .order('sort_order', { ascending: true })
+            : Promise.resolve({ data: [], error: null }),
         ]
   );
 
@@ -471,6 +558,9 @@ export default async function CounterPage() {
   }
   if (counterMovementsError) {
     throw new Error(counterMovementsError.message);
+  }
+  if (productComponentsError) {
+    throw new Error(productComponentsError.message);
   }
 
   const counterMovementsByAccount = new Map<number, RawCounterMoneyMovement[]>();
@@ -666,9 +756,42 @@ export default async function CounterPage() {
         basePriceUsd: toNumber(product.base_price_usd, 0),
         basePriceBs: toNumber(product.base_price_bs, 0),
         unitsPerService: toNumber(product.units_per_service, 0),
+        isDetailEditable: Boolean(product.is_detail_editable),
+        detailUnitsLimit: toNumber(product.detail_units_limit, 0),
+        isComboComponentSelectable: Boolean(product.is_combo_component_selectable),
       };
     })
     .filter((product) => product.id > 0);
+
+  const quickSaleProductComponents: CounterQuickSaleProductComponent[] = (
+    (productComponentsData ?? []) as unknown as RawCounterProductComponent[]
+  )
+    .map((component) => {
+      const parent = Array.isArray(component.parent_product)
+        ? component.parent_product[0] ?? null
+        : component.parent_product;
+      const componentProduct = Array.isArray(component.component_product)
+        ? component.component_product[0] ?? null
+        : component.component_product;
+
+      return {
+        id: Number(component.id),
+        parentProductId: Number(component.parent_product_id || 0),
+        componentProductId: Number(component.component_product_id || 0),
+        componentMode: component.component_mode === 'selectable' ? ('selectable' as const) : ('fixed' as const),
+        quantity: toNumber(component.quantity, 0),
+        countsTowardDetailLimit: Boolean(component.counts_toward_detail_limit),
+        isRequired: Boolean(component.is_required),
+        sortOrder: toNumber(component.sort_order, 0),
+        notes: component.notes,
+        parentSku: parent?.sku ?? null,
+        parentName: parent?.name ?? null,
+        componentSku: componentProduct?.sku ?? null,
+        componentName: componentProduct?.name || 'Componente',
+        componentType: componentProduct?.type ?? null,
+      };
+    })
+    .filter((component) => component.parentProductId > 0 && component.componentProductId > 0);
 
   return (
     <CounterClient
@@ -682,6 +805,7 @@ export default async function CounterPage() {
       paymentAccounts={paymentAccounts}
       cashAccounts={cashAccounts}
       quickSaleProducts={quickSaleProducts}
+      quickSaleProductComponents={quickSaleProductComponents}
       activeBsRate={activeBsRate}
     />
   );

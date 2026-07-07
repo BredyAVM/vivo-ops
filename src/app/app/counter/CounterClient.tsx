@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import {
+  buildComponentDetailLines,
+  getVisibleEditableDetailLines,
+  type OrderComposerProductComponent,
+} from '@/lib/orders/order-composer';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../ModulePreference';
@@ -72,6 +77,18 @@ export type CounterQuickSaleProductOption = {
   basePriceUsd: number;
   basePriceBs: number;
   unitsPerService: number;
+  isDetailEditable: boolean;
+  detailUnitsLimit: number;
+  isComboComponentSelectable: boolean;
+};
+
+export type CounterQuickSaleProductComponent = OrderComposerProductComponent & {
+  id: number;
+  parentSku: string | null;
+  parentName: string | null;
+  componentSku: string | null;
+  componentType: string | null;
+  notes: string | null;
 };
 
 export type CounterOrderItem = {
@@ -130,6 +147,7 @@ type CounterClientProps = {
   paymentAccounts: CounterPaymentAccountOption[];
   cashAccounts: CounterCashAccountSummary[];
   quickSaleProducts: CounterQuickSaleProductOption[];
+  quickSaleProductComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
 };
 
@@ -189,6 +207,7 @@ type CounterQuickSaleCartItem = {
   productId: number;
   qty: string;
   notes: string;
+  editableDetailLines: string[];
 };
 
 type CounterFilter =
@@ -414,6 +433,7 @@ export default function CounterClient({
   paymentAccounts,
   cashAccounts,
   quickSaleProducts,
+  quickSaleProductComponents,
   activeBsRate,
 }: CounterClientProps) {
   const router = useRouter();
@@ -828,7 +848,7 @@ export default function CounterClient({
     hasDeliveryNote?: boolean;
     hasInvoice?: boolean;
     invoiceTaxPct?: string | number | null;
-    items: Array<{ productId: number; qty: number; notes?: string | null }>;
+    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>;
   }) {
     setMessage(null);
     setWorkingOrderId(-1);
@@ -856,7 +876,7 @@ export default function CounterClient({
 
   function handleAddItemsToOrder(
     order: CounterOrder,
-    items: Array<{ productId: number; qty: number; notes?: string | null }>
+    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>
   ) {
     setMessage(null);
     setWorkingOrderId(order.id);
@@ -1119,6 +1139,7 @@ export default function CounterClient({
             {quickSaleOpen ? (
               <CounterQuickSalePanel
                 products={quickSaleProducts}
+                productComponents={quickSaleProductComponents}
                 activeBsRate={activeBsRate}
                 isWorking={workingOrderId === -1}
                 onCancel={() => setQuickSaleOpen(false)}
@@ -1129,6 +1150,7 @@ export default function CounterClient({
                 order={selectedOrder}
                 paymentAccounts={paymentAccounts}
                 quickSaleProducts={quickSaleProducts}
+                quickSaleProductComponents={quickSaleProductComponents}
                 activeBsRate={activeBsRate}
                 isWorking={workingOrderId === selectedOrder.id}
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
@@ -1699,12 +1721,14 @@ function MasterAgendaSearchPanel({
 
 function CounterQuickSalePanel({
   products,
+  productComponents,
   activeBsRate,
   isWorking,
   onCancel,
   onSubmit,
 }: {
   products: CounterQuickSaleProductOption[];
+  productComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
   onCancel: () => void;
@@ -1730,7 +1754,7 @@ function CounterQuickSalePanel({
     hasDeliveryNote?: boolean;
     hasInvoice?: boolean;
     invoiceTaxPct?: string | number | null;
-    items: Array<{ productId: number; qty: number; notes?: string | null }>;
+    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>;
   }) => void;
 }) {
   const [clientSearch, setClientSearch] = useState('');
@@ -1763,13 +1787,39 @@ function CounterQuickSalePanel({
   const [qty, setQty] = useState('1');
   const [itemNotes, setItemNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [configProductId, setConfigProductId] = useState<number | null>(null);
+  const [configAlias, setConfigAlias] = useState('');
+  const [configSelections, setConfigSelections] = useState<Array<{
+    localId: string;
+    componentProductId: number;
+    componentName: string;
+    qty: number;
+  }>>([]);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const productsById = useMemo(
     () => new Map(products.map((product) => [product.id, product])),
     [products]
   );
+  const componentsByParentId = useMemo(() => {
+    const map = new Map<number, CounterQuickSaleProductComponent[]>();
+    for (const component of productComponents) {
+      const current = map.get(component.parentProductId) ?? [];
+      current.push(component);
+      map.set(component.parentProductId, current);
+    }
+    return map;
+  }, [productComponents]);
   const selectedProduct = selectedProductId ? productsById.get(Number(selectedProductId)) ?? null : null;
+  const configProduct = configProductId ? productsById.get(configProductId) ?? null : null;
+  const configComponents = configProductId ? componentsByParentId.get(configProductId) ?? [] : [];
+  const configSelectableComponents = configComponents.filter(
+    (component) => component.componentMode === 'selectable' || (component.componentMode === 'fixed' && !component.isRequired)
+  );
+  const configSelectedUnits = configSelections.reduce((sum, row) => {
+    const component = configComponents.find((item) => item.componentProductId === row.componentProductId);
+    return sum + (component?.countsTowardDetailLimit ? Number(row.qty || 0) : 0);
+  }, 0);
   const filteredProducts = useMemo(() => {
     const term = productSearch.trim().toLocaleLowerCase('es-VE');
     if (!term) return products.slice(0, 80);
@@ -1878,6 +1928,7 @@ function CounterQuickSalePanel({
   function addCartItem() {
     const productId = Number(selectedProductId || 0);
     const product = productsById.get(productId);
+    const productConfigComponents = componentsByParentId.get(productId) ?? [];
     const itemQty = toDecimalInput(qty);
 
     if (!product) {
@@ -1889,6 +1940,28 @@ function CounterQuickSalePanel({
       return;
     }
 
+    if (product.isDetailEditable) {
+      if (itemQty !== 1) {
+        setLocalError('Los productos configurables se cargan uno por uno. Usa cantidad 1.');
+        return;
+      }
+
+      const optionalFixedSelections = productConfigComponents
+        .filter((component) => component.componentMode === 'fixed' && !component.isRequired && Number(component.quantity || 0) > 0)
+        .map((component) => ({
+          localId: `fixed-${component.componentProductId}`,
+          componentProductId: component.componentProductId,
+          componentName: component.componentName,
+          qty: Number(component.quantity || 0),
+        }));
+
+      setConfigProductId(product.id);
+      setConfigAlias('');
+      setConfigSelections(optionalFixedSelections);
+      setLocalError(null);
+      return;
+    }
+
     setCartItems((current) => [
       ...current,
       {
@@ -1896,12 +1969,87 @@ function CounterQuickSalePanel({
         productId,
         qty,
         notes: itemNotes.trim(),
+        editableDetailLines: buildComponentDetailLines(productConfigComponents, {
+          totalMultiplier: itemQty,
+        }),
       },
     ]);
     setQty('1');
     setItemNotes('');
     setProductSearch('');
     setSelectedProductId('');
+    setLocalError(null);
+  }
+
+  function setConfigSelectionQty(
+    componentProductId: number,
+    componentName: string,
+    qtyValue: number
+  ) {
+    const safeQty = Math.max(0, Math.floor(Number(qtyValue || 0)));
+    setConfigSelections((current) => {
+      const others = current.filter((row) => row.componentProductId !== componentProductId);
+      if (safeQty === 0) return others;
+      return [
+        ...others,
+        {
+          localId: String(componentProductId),
+          componentProductId,
+          componentName,
+          qty: safeQty,
+        },
+      ];
+    });
+  }
+
+  function closeProductConfig() {
+    setConfigProductId(null);
+    setConfigAlias('');
+    setConfigSelections([]);
+  }
+
+  function confirmProductConfig() {
+    if (!configProduct) return;
+
+    const limit = Number(configProduct.detailUnitsLimit || 0);
+    if (limit > 0 && configSelectedUnits !== limit) {
+      setLocalError(`Debes seleccionar exactamente ${limit} piezas.`);
+      return;
+    }
+
+    const selectedByProductId = new Map(
+      configSelections
+        .filter((row) => row.qty > 0)
+        .map((row) => [row.componentProductId, row.qty] as const)
+    );
+    const detailLines: string[] = [];
+
+    if (configAlias.trim()) {
+      detailLines.push(`Para: ${configAlias.trim()}`);
+    }
+
+    detailLines.push(
+      ...buildComponentDetailLines(configComponents, {
+        selectedByProductId,
+        includeMetadata: true,
+      })
+    );
+
+    setCartItems((current) => [
+      ...current,
+      {
+        id: `cart-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        productId: configProduct.id,
+        qty: '1',
+        notes: itemNotes.trim(),
+        editableDetailLines: detailLines,
+      },
+    ]);
+    setQty('1');
+    setItemNotes('');
+    setProductSearch('');
+    setSelectedProductId('');
+    closeProductConfig();
     setLocalError(null);
   }
 
@@ -1957,6 +2105,7 @@ function CounterQuickSalePanel({
         productId: item.productId,
         qty: toDecimalInput(item.qty),
         notes: item.notes.trim() || null,
+        editableDetailLines: item.editableDetailLines,
       })),
     });
   }
@@ -2139,11 +2288,89 @@ function CounterQuickSalePanel({
 
           {selectedProduct ? (
             <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
-              <div className="font-semibold text-emerald-100">{selectedProduct.name}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="font-semibold text-emerald-100">{selectedProduct.name}</div>
+                {selectedProduct.isDetailEditable ? (
+                  <span className="rounded-full border border-emerald-200/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                    Armable
+                  </span>
+                ) : (componentsByParentId.get(selectedProduct.id) ?? []).length > 0 ? (
+                  <span className="rounded-full border border-emerald-200/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                    Combo
+                  </span>
+                ) : null}
+              </div>
               <div className="mt-1 text-xs text-emerald-100/75">
                 {selectedProduct.unitsPerService > 0 ? `${selectedProduct.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
                 {moneyUsd(selectedProduct.basePriceUsd)} / {moneyBs(selectedProduct.basePriceBs)}
               </div>
+            </div>
+          ) : null}
+          {configProduct ? (
+            <div className="space-y-3 rounded-[8px] border border-[#FEEF00]/40 bg-[#181807] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Armar {configProduct.name}</div>
+                  <div className="mt-1 text-xs text-[#B9B9A8]">
+                    {configProduct.detailUnitsLimit > 0
+                      ? `${configSelectedUnits}/${configProduct.detailUnitsLimit} piezas seleccionadas`
+                      : `${configSelectedUnits} piezas seleccionadas`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeProductConfig}
+                  className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1 text-xs font-semibold text-[#F5F5F7]"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <input
+                value={configAlias}
+                onChange={(event) => setConfigAlias(event.target.value)}
+                placeholder="Para / nombre dentro del pedido (opcional)"
+                className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+              <div className="grid gap-2 md:grid-cols-2">
+                {configSelectableComponents.map((component) => {
+                  const currentQty =
+                    configSelections.find((row) => row.componentProductId === component.componentProductId)?.qty ?? 0;
+
+                  return (
+                    <label
+                      key={component.componentProductId}
+                      className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-2 text-sm text-[#F5F5F7]"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">{component.componentName}</span>
+                        <input
+                          value={currentQty ? String(currentQty) : ''}
+                          onChange={(event) =>
+                            setConfigSelectionQty(
+                              component.componentProductId,
+                              component.componentName,
+                              Number(event.target.value || 0)
+                            )
+                          }
+                          inputMode="numeric"
+                          className="h-9 w-20 rounded-[8px] border border-[#303044] bg-[#111118] px-2 text-right text-sm outline-none focus:border-[#FEEF00]/70"
+                        />
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#9FA0AA]">
+                        {component.componentMode === 'fixed' ? 'Fijo opcional' : 'Seleccionable'}
+                        {component.countsTowardDetailLimit ? ' · cuenta para limite' : ''}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={confirmProductConfig}
+                className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c]"
+              >
+                Guardar armado
+              </button>
             </div>
           ) : null}
           <div className="grid gap-2 md:grid-cols-[1fr_130px]">
@@ -2177,6 +2404,13 @@ function CounterQuickSalePanel({
                         Unit. {moneyUsd(row.snapshot.unitUsd)} / {moneyBs(row.snapshot.unitBs)}
                       </div>
                       {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
+                      {getVisibleEditableDetailLines(row.item.editableDetailLines).length > 0 ? (
+                        <ul className="mt-1 space-y-0.5 text-xs text-[#C7C8D1]">
+                          {getVisibleEditableDetailLines(row.item.editableDetailLines).map((detail, detailIdx) => (
+                            <li key={`${row.item.id}-${detailIdx}`}>• {detail}</li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                     <div className="text-sm font-semibold sm:text-right">
                       <div>{moneyUsd(row.snapshot.lineUsd)}</div>
@@ -2621,6 +2855,7 @@ function OrderDetail({
   order,
   paymentAccounts,
   quickSaleProducts,
+  quickSaleProductComponents,
   activeBsRate,
   isWorking,
   onPrimaryDeliveryAction,
@@ -2630,11 +2865,15 @@ function OrderDetail({
   order: CounterOrder;
   paymentAccounts: CounterPaymentAccountOption[];
   quickSaleProducts: CounterQuickSaleProductOption[];
+  quickSaleProductComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
   onPrimaryDeliveryAction: (order: CounterOrder) => void;
   onCreatePaymentReport: (order: CounterOrder, input: CounterPaymentReportInput) => void;
-  onAddItems: (order: CounterOrder, items: Array<{ productId: number; qty: number; notes?: string | null }>) => void;
+  onAddItems: (
+    order: CounterOrder,
+    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>
+  ) => void;
 }) {
   const paid = order.balanceUsd <= 0.005;
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
@@ -2718,7 +2957,13 @@ function OrderDetail({
                     <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(item.qty)}</div>
                     <div>
                       <div className="text-sm font-semibold">{item.name}</div>
-                      {item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{item.notes}</div> : null}
+                      {item.notes ? (
+                        <ul className="mt-1 space-y-0.5 text-xs text-[#9FA0AA]">
+                          {getVisibleEditableDetailLines(item.notes.split('\n')).map((detail, detailIdx) => (
+                            <li key={`${item.id}-note-${detailIdx}`}>• {detail}</li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                     <div className="text-left text-sm font-semibold sm:text-right">{moneyUsd(item.lineTotalUsd)}</div>
                   </div>
@@ -2896,6 +3141,7 @@ function OrderDetail({
           <CounterAddItemsBox
             order={order}
             products={quickSaleProducts}
+            productComponents={quickSaleProductComponents}
             activeBsRate={activeBsRate}
             isWorking={isWorking}
             onSubmit={(items) => onAddItems(order, items)}
@@ -2909,23 +3155,51 @@ function OrderDetail({
 function CounterAddItemsBox({
   order,
   products,
+  productComponents,
   activeBsRate,
   isWorking,
   onSubmit,
 }: {
   order: CounterOrder;
   products: CounterQuickSaleProductOption[];
+  productComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
-  onSubmit: (items: Array<{ productId: number; qty: number; notes?: string | null }>) => void;
+  onSubmit: (items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>) => void;
 }) {
   const [productSearch, setProductSearch] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ? String(products[0].id) : '');
+  const [selectedProductId, setSelectedProductId] = useState('');
   const [qty, setQty] = useState('1');
   const [notes, setNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [configProductId, setConfigProductId] = useState<number | null>(null);
+  const [configAlias, setConfigAlias] = useState('');
+  const [configSelections, setConfigSelections] = useState<Array<{
+    localId: string;
+    componentProductId: number;
+    componentName: string;
+    qty: number;
+  }>>([]);
   const [localError, setLocalError] = useState<string | null>(null);
   const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const componentsByParentId = useMemo(() => {
+    const map = new Map<number, CounterQuickSaleProductComponent[]>();
+    for (const component of productComponents) {
+      const current = map.get(component.parentProductId) ?? [];
+      current.push(component);
+      map.set(component.parentProductId, current);
+    }
+    return map;
+  }, [productComponents]);
+  const configProduct = configProductId ? productsById.get(configProductId) ?? null : null;
+  const configComponents = configProductId ? componentsByParentId.get(configProductId) ?? [] : [];
+  const configSelectableComponents = configComponents.filter(
+    (component) => component.componentMode === 'selectable' || (component.componentMode === 'fixed' && !component.isRequired)
+  );
+  const configSelectedUnits = configSelections.reduce((sum, row) => {
+    const component = configComponents.find((item) => item.componentProductId === row.componentProductId);
+    return sum + (component?.countsTowardDetailLimit ? Number(row.qty || 0) : 0);
+  }, 0);
   const filteredProducts = useMemo(() => {
     const term = productSearch.trim().toLocaleLowerCase('es-VE');
     if (!term) return products.slice(0, 80);
@@ -2964,6 +3238,7 @@ function CounterAddItemsBox({
   function addLine() {
     const productId = Number(selectedProductId || 0);
     const product = productsById.get(productId);
+    const productConfigComponents = componentsByParentId.get(productId) ?? [];
     const itemQty = toDecimalInput(qty);
 
     if (!product) {
@@ -2975,6 +3250,28 @@ function CounterAddItemsBox({
       return;
     }
 
+    if (product.isDetailEditable) {
+      if (itemQty !== 1) {
+        setLocalError('Los productos configurables se cargan uno por uno. Usa cantidad 1.');
+        return;
+      }
+
+      const optionalFixedSelections = productConfigComponents
+        .filter((component) => component.componentMode === 'fixed' && !component.isRequired && Number(component.quantity || 0) > 0)
+        .map((component) => ({
+          localId: `fixed-${component.componentProductId}`,
+          componentProductId: component.componentProductId,
+          componentName: component.componentName,
+          qty: Number(component.quantity || 0),
+        }));
+
+      setConfigProductId(product.id);
+      setConfigAlias('');
+      setConfigSelections(optionalFixedSelections);
+      setLocalError(null);
+      return;
+    }
+
     setCartItems((current) => [
       ...current,
       {
@@ -2982,10 +3279,83 @@ function CounterAddItemsBox({
         productId,
         qty,
         notes: notes.trim(),
+        editableDetailLines: buildComponentDetailLines(productConfigComponents, {
+          totalMultiplier: itemQty,
+        }),
       },
     ]);
     setQty('1');
     setNotes('');
+    setLocalError(null);
+  }
+
+  function setConfigSelectionQty(
+    componentProductId: number,
+    componentName: string,
+    qtyValue: number
+  ) {
+    const safeQty = Math.max(0, Math.floor(Number(qtyValue || 0)));
+    setConfigSelections((current) => {
+      const others = current.filter((row) => row.componentProductId !== componentProductId);
+      if (safeQty === 0) return others;
+      return [
+        ...others,
+        {
+          localId: String(componentProductId),
+          componentProductId,
+          componentName,
+          qty: safeQty,
+        },
+      ];
+    });
+  }
+
+  function closeProductConfig() {
+    setConfigProductId(null);
+    setConfigAlias('');
+    setConfigSelections([]);
+  }
+
+  function confirmProductConfig() {
+    if (!configProduct) return;
+
+    const limit = Number(configProduct.detailUnitsLimit || 0);
+    if (limit > 0 && configSelectedUnits !== limit) {
+      setLocalError(`Debes seleccionar exactamente ${limit} piezas.`);
+      return;
+    }
+
+    const selectedByProductId = new Map(
+      configSelections
+        .filter((row) => row.qty > 0)
+        .map((row) => [row.componentProductId, row.qty] as const)
+    );
+    const detailLines: string[] = [];
+
+    if (configAlias.trim()) {
+      detailLines.push(`Para: ${configAlias.trim()}`);
+    }
+
+    detailLines.push(
+      ...buildComponentDetailLines(configComponents, {
+        selectedByProductId,
+        includeMetadata: true,
+      })
+    );
+
+    setCartItems((current) => [
+      ...current,
+      {
+        id: `add-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        productId: configProduct.id,
+        qty: '1',
+        notes: notes.trim(),
+        editableDetailLines: detailLines,
+      },
+    ]);
+    setQty('1');
+    setNotes('');
+    closeProductConfig();
     setLocalError(null);
   }
 
@@ -3000,6 +3370,7 @@ function CounterAddItemsBox({
         productId: item.productId,
         qty: toDecimalInput(item.qty),
         notes: item.notes.trim() || null,
+        editableDetailLines: item.editableDetailLines,
       }))
     );
   }
@@ -3077,6 +3448,74 @@ function CounterAddItemsBox({
         </div>
       </div>
 
+      {configProduct ? (
+        <div className="mt-4 space-y-3 rounded-[8px] border border-[#FEEF00]/40 bg-[#181807] p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-[#F5F5F7]">Armar {configProduct.name}</div>
+              <div className="mt-1 text-xs text-[#B9B9A8]">
+                {configProduct.detailUnitsLimit > 0
+                  ? `${configSelectedUnits}/${configProduct.detailUnitsLimit} piezas seleccionadas`
+                  : `${configSelectedUnits} piezas seleccionadas`}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={closeProductConfig}
+              className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1 text-xs font-semibold text-[#F5F5F7]"
+            >
+              Cerrar
+            </button>
+          </div>
+          <input
+            value={configAlias}
+            onChange={(event) => setConfigAlias(event.target.value)}
+            placeholder="Para / nombre dentro del pedido (opcional)"
+            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+          />
+          <div className="grid gap-2 md:grid-cols-2">
+            {configSelectableComponents.map((component) => {
+              const currentQty =
+                configSelections.find((row) => row.componentProductId === component.componentProductId)?.qty ?? 0;
+
+              return (
+                <label
+                  key={component.componentProductId}
+                  className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-2 text-sm text-[#F5F5F7]"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">{component.componentName}</span>
+                    <input
+                      value={currentQty ? String(currentQty) : ''}
+                      onChange={(event) =>
+                        setConfigSelectionQty(
+                          component.componentProductId,
+                          component.componentName,
+                          Number(event.target.value || 0)
+                        )
+                      }
+                      inputMode="numeric"
+                      className="h-9 w-20 rounded-[8px] border border-[#303044] bg-[#111118] px-2 text-right text-sm outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#9FA0AA]">
+                    {component.componentMode === 'fixed' ? 'Fijo opcional' : 'Seleccionable'}
+                    {component.countsTowardDetailLimit ? ' · cuenta para limite' : ''}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={confirmProductConfig}
+            className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c]"
+          >
+            Guardar armado
+          </button>
+        </div>
+      ) : null}
+
       <div className="mt-4 divide-y divide-[#242433] rounded-[8px] border border-[#242433]">
         {lineRows.length === 0 ? (
           <div className="p-4 text-sm text-[#9FA0AA]">Sin lineas por agregar.</div>
@@ -3087,6 +3526,13 @@ function CounterAddItemsBox({
               <div>
                 <div className="text-sm font-semibold">{row.product?.name || 'Producto'}</div>
                 {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
+                {getVisibleEditableDetailLines(row.item.editableDetailLines).length > 0 ? (
+                  <ul className="mt-1 space-y-0.5 text-xs text-[#C7C8D1]">
+                    {getVisibleEditableDetailLines(row.item.editableDetailLines).map((detail, detailIdx) => (
+                      <li key={`${row.item.id}-${detailIdx}`}>• {detail}</li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
               <div className="text-sm font-semibold">{moneyUsd(row.snapshot.lineUsd)}</div>
               <button
