@@ -1505,6 +1505,7 @@ export default function AdvisorOrderComposer({
   );
   const catalogPriceDriftItems = useMemo(() => {
     if (!isEditingOrder || fxRateNumber <= 0) return [];
+    if (!advisorRecalculationMode) return [];
     if (existingOrderStatus === 'delivered' || existingOrderStatus === 'cancelled') return [];
 
     return draftItems.filter((item) => {
@@ -1512,7 +1513,7 @@ export default function AdvisorOrderComposer({
       if (!product) return false;
       return draftItemHasCatalogPriceDrift(item, product, fxRateNumber);
     });
-  }, [draftItems, existingOrderStatus, fxRateNumber, isEditingOrder, productById]);
+  }, [advisorRecalculationMode, draftItems, existingOrderStatus, fxRateNumber, isEditingOrder, productById]);
   const advisorEditHasCatalogPriceDrift = catalogPriceDriftItems.length > 0;
   const draftTotalUsd = useMemo(
     () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
