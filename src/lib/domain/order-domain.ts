@@ -34,6 +34,7 @@ export type OfficialOrderDateKey =
   | 'cancelled_at';
 
 export const ORDER_STATUS = ORDER_STATUS_LABELS;
+export const ORDER_PRICE_PROTECTION_PAID_RATIO = 0.9;
 
 export const OFFICIAL_ORDER_DATES: Array<{
   key: OfficialOrderDateKey;
@@ -156,6 +157,37 @@ export function isOpenOrderStatus(status: string | null | undefined) {
 export function canAdvisorModifyOrder(orderOrStatus: OrderStatusInput | string | null | undefined) {
   const status = typeof orderOrStatus === 'object' && orderOrStatus !== null ? orderOrStatus.status : orderOrStatus;
   return hasStatus(status, ADVISOR_EDITABLE_STATUSES);
+}
+
+function toFiniteMoneyNumber(value: unknown) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+export function getOrderPriceProtectionPaidRatio(order: {
+  totalUsd?: number | string | null;
+  confirmedPaidUsd?: number | string | null;
+}) {
+  const totalUsd = toFiniteMoneyNumber(order.totalUsd);
+  if (totalUsd <= 0.005) return 0;
+
+  const confirmedPaidUsd = Math.max(0, toFiniteMoneyNumber(order.confirmedPaidUsd));
+  return confirmedPaidUsd / totalUsd;
+}
+
+export function isOrderPriceProtectedByPayment(order: {
+  totalUsd?: number | string | null;
+  confirmedPaidUsd?: number | string | null;
+}) {
+  return getOrderPriceProtectionPaidRatio(order) + 0.000001 >= ORDER_PRICE_PROTECTION_PAID_RATIO;
+}
+
+export function isOrderPriceProtected(order: {
+  isPriceLocked?: boolean | null;
+  totalUsd?: number | string | null;
+  confirmedPaidUsd?: number | string | null;
+}) {
+  return Boolean(order.isPriceLocked) || isOrderPriceProtectedByPayment(order);
 }
 
 export function needsInitialOrderApproval(order: OrderProcessInput) {

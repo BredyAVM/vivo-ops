@@ -12,6 +12,7 @@ import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
+import { isOrderPriceProtected } from '@/lib/domain/order-domain';
 import {
   getOrderCommercialNetUsd,
   getOrderLineTotalUsd,
@@ -1345,7 +1346,7 @@ async function notifyOpenOrdersAffectedByCatalogPriceChange(
 
   const { data: orderRows, error: ordersError } = await supabase
     .from('orders')
-    .select('id, status, total_usd, order_number, attributed_advisor_id, extra_fields')
+    .select('id, status, total_usd, order_number, attributed_advisor_id, is_price_locked, extra_fields')
     .in('id', impactedOrderIds);
 
   if (ordersError) {
@@ -1382,7 +1383,16 @@ async function notifyOpenOrdersAffectedByCatalogPriceChange(
     const totalUsd = toSafeNumber((order.extra_fields as any)?.pricing?.total_usd, toSafeNumber(order.total_usd, 0));
     const clientFundUsd = toSafeNumber((order.extra_fields as any)?.payment?.client_fund_used_usd, 0);
     const confirmedPaidUsd = (confirmedPaidByOrder.get(orderId) ?? 0) + clientFundUsd;
-    if (Math.max(0, totalUsd - confirmedPaidUsd) <= 0.01) continue;
+    if (
+      Math.max(0, totalUsd - confirmedPaidUsd) <= 0.01 ||
+      isOrderPriceProtected({
+        isPriceLocked: Boolean(order.is_price_locked),
+        totalUsd,
+        confirmedPaidUsd,
+      })
+    ) {
+      continue;
+    }
 
     const context = await loadOrderEventContext(supabase, orderId);
     await appendOrderEvent(supabase, {
@@ -4189,6 +4199,74 @@ export async function updateKitchenEtaAction(input: {
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/advisor');
   revalidatePath('/app/advisor/inbox');
+}
+
+export async function protectOrderPriceAction(input: { orderId: number }) {
+  const { user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+  const orderId = Number(input.orderId);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const supabase = createSupabaseServiceRoleServer();
+  const { data: currentOrder, error: currentOrderError } = await supabase
+    .from('orders')
+    .select('id, status, is_price_locked')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (currentOrderError || !currentOrder) {
+    throw new Error(currentOrderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (['cancelled', 'delivered'].includes(String(currentOrder.status || ''))) {
+    throw new Error('No se puede proteger precio de una orden cerrada.');
+  }
+
+  if (currentOrder.is_price_locked) {
+    return { ok: true as const, alreadyProtected: true };
+  }
+
+  const nowIso = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({
+      is_price_locked: true,
+      last_modified_at: nowIso,
+      last_modified_by: user.id,
+    })
+    .eq('id', orderId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  const eventContext = await loadOrderEventContext(supabase, orderId);
+  await appendOrderEvent(supabase, {
+    orderId,
+    context: eventContext,
+    eventType: 'order_price_protected',
+    eventGroup: 'modification',
+    title: 'Precio protegido manualmente',
+    message: 'Admin protegió el snapshot de precio por acuerdo con el cliente.',
+    severity: 'info',
+    actorUserId: user.id,
+    payload: {
+      protected_at: nowIso,
+      protection_source: 'admin_manual',
+    },
+    recipients: [
+      { targetRole: 'master' },
+      { targetRole: 'admin' },
+      { targetUserId: eventContext?.advisorUserId },
+    ],
+  });
+
+  revalidatePath('/app/master/dashboard');
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  return { ok: true as const, alreadyProtected: false };
 }
 
 export async function reportKitchenIncidentAction(input: {

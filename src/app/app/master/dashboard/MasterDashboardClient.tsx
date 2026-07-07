@@ -23,6 +23,8 @@ import {
   canSendOrderToKitchen,
   canStartOrderDelivery,
   getMasterOrderProcessFlag,
+  getOrderPriceProtectionPaidRatio,
+  isOrderPriceProtected,
   isRecognizedBillingOrder as isRecognizedBillingOrderByDomain,
   isScheduledClosingOrder as isScheduledClosingOrderByDomain,
   needsInitialOrderApproval,
@@ -113,6 +115,7 @@ import {
   addAdvisorCommissionClosureDeductionAction,
   deleteAdvisorCommissionClosureDeductionAction,
   updateAdvisorCommissionClosureStatusAction,
+  protectOrderPriceAction,
   createClientAction,
   createOrderClientQuickAction,
   getClientFundSnapshotAction,
@@ -814,6 +817,7 @@ type Order = {
   status: OrderStatus;
   queuedNeedsReapproval: boolean;
   returnedToAdvisor: boolean;
+  isPriceLocked: boolean;
   totalUsd: number;
   balanceUsd: number;
   totalBs: number;
@@ -2397,6 +2401,7 @@ function getExpiredQuotePriceReview(
   catalogItemById: Map<number, CatalogItem>,
   currentTimeMs: number
 ) {
+  if (isOrderPriceProtected(order)) return null;
   if (order.balanceUsd <= 0.01) return null;
   if (order.status === 'cancelled' || order.status === 'delivered') return null;
   if (currentTimeMs - (parseIsoMs(order.createdAtISO) ?? currentTimeMs) < QUOTE_PRICE_REVIEW_AGE_MS) return null;
@@ -2457,6 +2462,7 @@ function getCatalogPriceImpactForProduct(params: {
   }
 
   const affectedOrders = params.orders.filter((order) => {
+    if (isOrderPriceProtected(order)) return false;
     if (order.balanceUsd <= 0.01) return false;
     if (order.status === 'cancelled' || order.status === 'delivered') return false;
 
@@ -6633,6 +6639,26 @@ const runOrderAction = async (
 const isOrderActionBusy = orderActionBusyKey != null;
 const getOrderActionLabel = (key: string, idleLabel: string) =>
   orderActionBusyKey === key ? orderActionBusyLabel : idleLabel;
+
+const handleProtectOrderPrice = async (o: Order) => {
+  try {
+    const result = await protectOrderPriceAction({ orderId: o.id });
+    if (!result.ok) {
+      showToast('error', 'No se pudo proteger el precio.');
+      return;
+    }
+
+    updateLocalOrder(o.id, () => ({ isPriceLocked: true }));
+    showToast(
+      'success',
+      result.alreadyProtected ? 'El precio ya estaba protegido.' : 'Precio protegido para esta orden.'
+    );
+    router.refresh();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Error protegiendo precio.';
+    showToast('error', message);
+  }
+};
 
 const handleSendToKitchen = async (orderId: number) => {
   try {
@@ -19258,6 +19284,16 @@ onClose={() => {
                 <span>Total</span>
                 <span>{fmtBs(selectedOrder.totalBs)} / {fmtUSD(selectedOrder.totalUsd)}</span>
               </div>
+
+              {isOrderPriceProtected(selectedOrder) ? (
+                <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-[11px] text-emerald-200">
+                  {selectedOrder.isPriceLocked
+                    ? 'Precio protegido manualmente por administración.'
+                    : `Precio protegido automáticamente: ${Math.floor(
+                        Math.min(1, getOrderPriceProtectionPaidRatio(selectedOrder)) * 100
+                      )}% abonado.`}
+                </div>
+              ) : null}
             </div>
           );
         })()}
@@ -20136,6 +20172,26 @@ onClick={() => {
           >
             Devolver para recalcular
           </button>
+        ) : null}
+
+        {isAdmin && !isOrderPriceProtected(selectedOrder) && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' ? (
+          <button
+            className="rounded-md border border-emerald-500/50 bg-[#0D1511] px-2.5 py-1.5 text-[11px] font-medium text-emerald-300 disabled:cursor-wait disabled:opacity-60"
+            onClick={() =>
+              runOrderAction(`protect-price:${selectedOrder.id}`, 'Protegiendo...', () =>
+                handleProtectOrderPrice(selectedOrder)
+              )
+            }
+            disabled={isOrderActionBusy}
+          >
+            {getOrderActionLabel(`protect-price:${selectedOrder.id}`, 'Proteger precio')}
+          </button>
+        ) : null}
+
+        {selectedOrder.isPriceLocked ? (
+          <div className="rounded-md border border-emerald-500/30 bg-[#0D1511] px-2 py-1.5 text-[10px] text-emerald-300">
+            Precio protegido
+          </div>
         ) : null}
 
         {!processFlag(selectedOrder) && !selectedOrderExpiredQuoteReview && canReturnToAdvisor(selectedOrder) ? (

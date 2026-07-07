@@ -28,6 +28,7 @@ type RawOrderRow = {
   delivery_address: string | null;
   receiver_name: string | null;
   receiver_phone: string | null;
+  is_price_locked: boolean | null;
   status:
     | 'created'
     | 'queued'
@@ -1411,6 +1412,7 @@ const orderSelect = `
       delivery_address,
       receiver_name,
       receiver_phone,
+      is_price_locked,
       status,
       total_usd,
       total_bs_snapshot,
@@ -3058,8 +3060,9 @@ return {
       clientName,
       clientPhone: clientRow?.phone ?? null,
       fulfillment: row.fulfillment,
-      address: row.delivery_address ?? undefined,
-      status: row.status,
+  address: row.delivery_address ?? undefined,
+  isPriceLocked: Boolean(row.is_price_locked),
+  status: row.status,
       queuedNeedsReapproval: row.queued_needs_reapproval ?? false,
       returnedToAdvisor,
       totalUsd,
