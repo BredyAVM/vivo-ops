@@ -3,6 +3,7 @@
 import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
@@ -1861,7 +1862,7 @@ export default function AdvisorOrderComposer({
         } else {
           const order = existingOrderResult.data as ExistingOrderRow;
           setExistingOrderLastModifiedAt(order.last_modified_at ?? null);
-          if (isEditingOrder && !['created', 'queued'].includes(String(order.status || ''))) {
+          if (isEditingOrder && !canAdvisorModifyOrder(String(order.status || ''))) {
             router.replace(`/app/advisor/orders/${order.id}`);
             return;
           }
@@ -3415,7 +3416,7 @@ export default function AdvisorOrderComposer({
         client_id: clientId,
         attributed_advisor_id: authUserId,
         source: 'advisor',
-        status: 'created',
+        status: isEditingOrder ? existingOrderStatus || 'created' : 'created',
         fulfillment,
         total_usd: finalTotalUsd,
         total_bs_snapshot: Number(finalTotalBs.toFixed(2)),

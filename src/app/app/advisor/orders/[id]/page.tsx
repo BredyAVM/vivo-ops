@@ -10,6 +10,7 @@ import {
   formatOrderDisplayNumber,
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -1055,7 +1056,7 @@ export default async function AdvisorOrderDetailPage({
     reportableBalanceUsd > 0.005 &&
     order.status !== 'cancelled';
   const canCorrectOrder =
-    ['created', 'queued'].includes(order.status) &&
+    canAdvisorModifyOrder(order.status) &&
     (latestReviewEvent?.eventType === 'order_returned_to_review' ||
       latestReviewEvent?.eventType === 'order_changes_rejected' ||
       order.status === 'created' ||

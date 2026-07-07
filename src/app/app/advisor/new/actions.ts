@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
+import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { sendPushToRoleDevices } from '@/lib/push';
 
@@ -81,7 +82,7 @@ function toFiniteNumber(value: unknown, fallback = 0) {
 }
 
 function assertAdvisorCanEditOrderStatus(status: unknown) {
-  if (!['created', 'queued'].includes(String(status || ''))) {
+  if (!canAdvisorModifyOrder(String(status || ''))) {
     throw new Error('El asesor solo puede modificar una orden antes de entrar a cocina.');
   }
 }
@@ -368,10 +369,25 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
       returned_to_advisor_corrected_by: ctx.user.id,
     };
   }
+  const currentStatus = String(order.status || '');
+  const reapprovalPayload =
+    currentStatus === 'queued'
+      ? {
+          queued_needs_reapproval: true,
+          queued_last_modified_at: nowIso,
+          queued_last_modified_by: ctx.user.id,
+        }
+      : {
+          queued_needs_reapproval: false,
+          queued_last_modified_at: null,
+          queued_last_modified_by: null,
+        };
   let updateOrderQuery = adminSupabase
     .from('orders')
     .update({
       ...payload,
+      status: currentStatus,
+      ...reapprovalPayload,
       delivery_address: payload.fulfillment === 'delivery' ? payload.delivery_address : null,
       extra_fields: nextExtraFields,
       last_modified_at: nowIso,
