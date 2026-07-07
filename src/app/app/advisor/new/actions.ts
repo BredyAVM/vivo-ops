@@ -369,25 +369,14 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
       returned_to_advisor_corrected_by: ctx.user.id,
     };
   }
-  const currentStatus = String(order.status || '');
-  const reapprovalPayload =
-    currentStatus === 'queued'
-      ? {
-          queued_needs_reapproval: true,
-          queued_last_modified_at: nowIso,
-          queued_last_modified_by: ctx.user.id,
-        }
-      : {
-          queued_needs_reapproval: false,
-          queued_last_modified_at: null,
-          queued_last_modified_by: null,
-        };
   let updateOrderQuery = adminSupabase
     .from('orders')
     .update({
       ...payload,
-      status: currentStatus,
-      ...reapprovalPayload,
+      status: 'created',
+      queued_needs_reapproval: false,
+      queued_last_modified_at: null,
+      queued_last_modified_by: null,
       delivery_address: payload.fulfillment === 'delivery' ? payload.delivery_address : null,
       extra_fields: nextExtraFields,
       last_modified_at: nowIso,
