@@ -24,6 +24,7 @@ import {
   markAdvisorOrderDraftConvertedAction,
   replaceAdvisorOrderItemsAction,
   saveAdvisorOrderDraftAction,
+  submitAdvisorOrderCorrectionForReviewAction,
   updateAdvisorOrderHeaderAction,
 } from './actions';
 
@@ -1060,41 +1061,6 @@ function buildOrderEditChangeSummary(before: OrderEditSnapshot, after: OrderEdit
   };
 }
 
-async function resolveAdvisorOrderReviewNotifications(params: {
-  supabase: ReturnType<typeof createSupabaseBrowser>;
-  orderId: number;
-  advisorUserId: string | null;
-}) {
-  if (!params.advisorUserId || !Number.isFinite(params.orderId) || params.orderId <= 0) return;
-
-  const { data: actionEvents, error: eventsError } = await params.supabase
-    .from('order_timeline_events')
-    .select('id')
-    .eq('order_id', params.orderId)
-    .in('event_type', ['order_returned_to_review', 'order_changes_rejected']);
-
-  if (eventsError || !actionEvents?.length) {
-    if (eventsError) console.warn('No se pudieron cargar alertas pendientes del asesor.', eventsError.message);
-    return;
-  }
-
-  const eventIds = actionEvents.map((event) => Number(event.id)).filter((id) => Number.isFinite(id) && id > 0);
-  if (eventIds.length === 0) return;
-
-  const { error: recipientsError } = await params.supabase
-    .from('order_timeline_event_recipients')
-    .update({
-      requires_action: false,
-      read_at: new Date().toISOString(),
-    })
-    .in('event_id', eventIds)
-    .or(`target_user_id.eq.${params.advisorUserId},target_role.eq.advisor`);
-
-  if (recipientsError) {
-    console.warn('No se pudieron cerrar alertas pendientes del asesor.', recipientsError.message);
-  }
-}
-
 function inputClass(multiline = false) {
   return [
     'min-w-0 w-full rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 text-sm text-[#F5F7FB] placeholder:text-[#636C80]',
@@ -1439,7 +1405,6 @@ export default function AdvisorOrderComposer({
   const savingDraftRef = useRef(false);
   const [itemJustAdded, setItemJustAdded] = useState(false);
   const [originalEditSnapshot, setOriginalEditSnapshot] = useState<OrderEditSnapshot | null>(null);
-  const [existingOrderNumber, setExistingOrderNumber] = useState('');
   const [existingOrderStatus, setExistingOrderStatus] = useState('');
   const [existingOrderLastModifiedAt, setExistingOrderLastModifiedAt] = useState<string | null>(null);
   const [advisorRecalculationMode, setAdvisorRecalculationMode] = useState(false);
@@ -1849,7 +1814,6 @@ export default function AdvisorOrderComposer({
 
       if (!isEditingOrder) {
         setOriginalEditSnapshot(null);
-        setExistingOrderNumber('');
         setExistingOrderStatus('');
         setExistingOrderLastModifiedAt(null);
         setAdvisorRecalculationMode(false);
@@ -2000,7 +1964,6 @@ export default function AdvisorOrderComposer({
           setDeliveryNotePhone(
             documents?.delivery_note_snapshot?.phone || orderClient?.delivery_note_phone || ''
           );
-          setExistingOrderNumber(String(order.order_number || ''));
           setExistingOrderStatus(String(order.status || ''));
 
           if (isEditingOrder) {
@@ -2079,7 +2042,6 @@ export default function AdvisorOrderComposer({
             );
           } else {
             setOriginalEditSnapshot(null);
-            setExistingOrderNumber('');
             setExistingOrderStatus('');
             setInfo(
               skippedRepeatItems.length > 0
@@ -2235,7 +2197,6 @@ export default function AdvisorOrderComposer({
     setActiveDraftId(Number(draft.id));
     setActiveDraftStatus(nextStatus);
     setOriginalEditSnapshot(null);
-    setExistingOrderNumber('');
     setExistingOrderStatus('');
     setAdvisorRecalculationMode(false);
 
@@ -3388,6 +3349,10 @@ export default function AdvisorOrderComposer({
     try {
       const clientId = await ensureClientId();
       const nextEditSnapshot = isEditingOrder ? buildCurrentEditSnapshot(clientId) : null;
+      const advisorEditChangeMeta =
+        isEditingOrder && nextEditSnapshot && originalEditSnapshot
+          ? buildOrderEditChangeSummary(originalEditSnapshot, nextEditSnapshot)
+          : null;
       if (selectedClient) rememberClient(selectedClient);
       if (fulfillment === 'delivery') rememberAddress(deliveryAddress, deliveryGpsUrl);
       const recentAddresses = mergeRecentAddresses(
@@ -3497,6 +3462,10 @@ export default function AdvisorOrderComposer({
             };
           }),
         });
+        await submitAdvisorOrderCorrectionForReviewAction({
+          orderId: targetOrderId,
+          changeSummary: advisorEditChangeMeta,
+        });
       } else {
         const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
         if (itemsError) throw new Error(itemsError.message);
@@ -3508,38 +3477,6 @@ export default function AdvisorOrderComposer({
             'No se pudo registrar el evento de creación.',
             timelineError instanceof Error ? timelineError.message : timelineError
           );
-        }
-      }
-
-      if (isEditingOrder && nextEditSnapshot && originalEditSnapshot) {
-        const changeMeta = buildOrderEditChangeSummary(originalEditSnapshot, nextEditSnapshot);
-
-        await resolveAdvisorOrderReviewNotifications({
-          supabase,
-          orderId: targetOrderId,
-          advisorUserId: authUserId,
-        });
-
-        if (changeMeta.summary.length > 0) {
-          const { error: timelineError } = await supabase.from('order_timeline_events').insert({
-            order_id: targetOrderId,
-            order_number: existingOrderNumber || null,
-            event_type: 'order_modified',
-            event_group: 'modification',
-            title: 'Orden modificada pendiente de aprobacion',
-            message: changeMeta.summary.join(' '),
-            severity: 'warning',
-            actor_user_id: authUserId || null,
-            payload: {
-              changed_sections: changeMeta.sections,
-              change_summary: changeMeta.summary,
-              source: 'advisor_mobile',
-            },
-          });
-
-          if (timelineError) {
-            console.warn('No se pudo registrar el evento de modificacion.', timelineError.message);
-          }
         }
       }
 

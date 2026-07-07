@@ -24,6 +24,11 @@ type ReplaceAdvisorOrderItemInput = {
   editableDetailLines: string[];
 };
 
+type AdvisorOrderChangeSummaryInput = {
+  sections?: string[];
+  summary?: string[];
+};
+
 type AdvisorOrderHeaderInput = {
   orderId: number;
   expectedLastModifiedAt?: string | null;
@@ -90,6 +95,110 @@ function assertAdvisorCanEditOrderStatus(status: unknown) {
 function sanitizePlainObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function sanitizeStringList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20);
+}
+
+async function clearAdvisorReviewActionRecipients(
+  supabase: ReturnType<typeof createSupabaseServiceRoleServer>,
+  orderId: number,
+  advisorUserId: string,
+  nowIso: string
+) {
+  const { data: actionEvents, error: eventsError } = await supabase
+    .from('order_timeline_events')
+    .select('id')
+    .eq('order_id', orderId)
+    .in('event_type', ['order_returned_to_review', 'order_changes_rejected']);
+
+  if (eventsError) throw new Error(eventsError.message);
+
+  const eventIds = (actionEvents ?? [])
+    .map((event) => Number(event.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (eventIds.length === 0) return;
+
+  const { error: recipientsError } = await supabase
+    .from('order_timeline_event_recipients')
+    .update({
+      requires_action: false,
+      read_at: nowIso,
+    })
+    .in('event_id', eventIds)
+    .or(`target_user_id.eq.${advisorUserId},target_role.eq.advisor`);
+
+  if (recipientsError) throw new Error(recipientsError.message);
+}
+
+async function appendAdvisorCorrectionSubmittedEvent(params: {
+  supabase: ReturnType<typeof createSupabaseServiceRoleServer>;
+  orderId: number;
+  orderNumber: string | number | null;
+  advisorUserId: string;
+  changeSummary?: AdvisorOrderChangeSummaryInput | null;
+}) {
+  const summary = sanitizeStringList(params.changeSummary?.summary);
+  const sections = sanitizeStringList(params.changeSummary?.sections);
+  const message = summary.length > 0
+    ? summary.join(' ')
+    : 'El asesor corrigio la orden y la reenvio para aprobacion.';
+
+  const { data: event, error: eventError } = await params.supabase
+    .from('order_timeline_events')
+    .insert({
+      order_id: params.orderId,
+      order_number: params.orderNumber,
+      event_type: 'order_modified',
+      event_group: 'approval',
+      title: 'Correccion reenviada',
+      message,
+      severity: 'warning',
+      actor_user_id: params.advisorUserId,
+      payload: {
+        changed_sections: sections,
+        change_summary: summary,
+        source: 'advisor_mobile',
+        submitted_for_master_review: true,
+      },
+    })
+    .select('id')
+    .single();
+
+  if (eventError || !event) {
+    throw new Error(eventError?.message || 'No se pudo registrar el reenvio de la orden.');
+  }
+
+  const { error: recipientsError } = await params.supabase
+    .from('order_timeline_event_recipients')
+    .insert([
+      { event_id: event.id, target_role: 'master', target_user_id: null, requires_action: true },
+      { event_id: event.id, target_role: 'admin', target_user_id: null, requires_action: true },
+      { event_id: event.id, target_role: null, target_user_id: params.advisorUserId, requires_action: false },
+    ]);
+
+  if (recipientsError) throw new Error(recipientsError.message);
+
+  try {
+    const orderLabel = formatOrderDisplayLabel(params.orderId);
+    await sendPushToRoleDevices({
+      roles: ['master', 'admin'],
+      title: `${orderLabel}: Correccion reenviada`,
+      body: 'Un asesor corrigio una orden devuelta y requiere aprobacion.',
+      url: '/app/master/dashboard',
+      tag: `master-order-${params.orderId}-advisor-correction`,
+      tone: 'critical',
+      requireInteraction: true,
+    });
+  } catch (pushError) {
+    console.warn(
+      'advisor correction role push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
+  }
 }
 
 function normalizeDraftStatus(value: unknown): AdvisorOrderDraftStatus {
@@ -353,20 +462,17 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   const adminSupabase = createSupabaseServiceRoleServer();
   const nowIso = new Date().toISOString();
+  const existingExtraFields = sanitizePlainObject(order.extra_fields);
+  const existingReview = sanitizePlainObject(existingExtraFields.review);
   const nextExtraFields =
     payload.extra_fields && typeof payload.extra_fields === 'object' && !Array.isArray(payload.extra_fields)
       ? { ...(payload.extra_fields as Record<string, unknown>) }
       : {};
-  const currentReview =
-    nextExtraFields.review && typeof nextExtraFields.review === 'object' && !Array.isArray(nextExtraFields.review)
-      ? { ...(nextExtraFields.review as Record<string, unknown>) }
-      : {};
-  if (currentReview.returned_to_advisor) {
+  const incomingReview = sanitizePlainObject(nextExtraFields.review);
+  if (Object.keys(existingReview).length > 0 || Object.keys(incomingReview).length > 0) {
     nextExtraFields.review = {
-      ...currentReview,
-      returned_to_advisor: false,
-      returned_to_advisor_corrected_at: nowIso,
-      returned_to_advisor_corrected_by: ctx.user.id,
+      ...existingReview,
+      ...incomingReview,
     };
   }
   let updateOrderQuery = adminSupabase
@@ -401,9 +507,83 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
   revalidatePath('/app/master/dashboard');
 
   return { ok: true as const, lastModifiedAt: nowIso };
+}
+
+export async function submitAdvisorOrderCorrectionForReviewAction(input: {
+  orderId: number;
+  changeSummary?: AdvisorOrderChangeSummaryInput | null;
+}) {
+  const ctx = await requireAuthContext();
+  const orderId = Number(input.orderId);
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('Orden invalida.');
+  }
+
+  const adminSupabase = createSupabaseServiceRoleServer();
+  const { data: order, error: orderError } = await adminSupabase
+    .from('orders')
+    .select('id, order_number, attributed_advisor_id, status, extra_fields')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (orderError || !order) {
+    throw new Error(orderError?.message || 'No se pudo cargar la orden.');
+  }
+
+  if (order.attributed_advisor_id !== ctx.user.id) {
+    throw new Error('No puedes reenviar esta orden.');
+  }
+
+  if (String(order.status || '') !== 'created') {
+    throw new Error('La orden debe quedar en creado para volver a revision.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const extraFields = sanitizePlainObject(order.extra_fields);
+  const review = sanitizePlainObject(extraFields.review);
+  const wasReturnedToAdvisor = Boolean(review.returned_to_advisor);
+
+  if (wasReturnedToAdvisor) {
+    const { error: clearReturnError } = await adminSupabase
+      .from('orders')
+      .update({
+        extra_fields: {
+          ...extraFields,
+          review: {
+            ...review,
+            returned_to_advisor: false,
+            returned_to_advisor_corrected_at: nowIso,
+            returned_to_advisor_corrected_by: ctx.user.id,
+          },
+        },
+        last_modified_at: nowIso,
+        last_modified_by: ctx.user.id,
+      })
+      .eq('id', orderId)
+      .eq('attributed_advisor_id', ctx.user.id);
+
+    if (clearReturnError) throw new Error(clearReturnError.message);
+
+    await clearAdvisorReviewActionRecipients(adminSupabase, orderId, ctx.user.id, nowIso);
+  }
+
+  await appendAdvisorCorrectionSubmittedEvent({
+    supabase: adminSupabase,
+    orderId,
+    orderNumber: order.order_number ?? null,
+    advisorUserId: ctx.user.id,
+    changeSummary: input.changeSummary,
+  });
+
+  revalidatePath(`/app/advisor/orders/${orderId}`);
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/dashboard');
 }
 
 export async function replaceAdvisorOrderItemsAction(input: {
@@ -456,7 +636,6 @@ export async function replaceAdvisorOrderItemsAction(input: {
   }));
 
   const adminSupabase = createSupabaseServiceRoleServer();
-  const nowIso = new Date().toISOString();
 
   const { data: existingItems, error: existingItemsError } = await adminSupabase
     .from('order_items')
@@ -487,39 +666,6 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
     if (deleteItemsError) {
       throw new Error(deleteItemsError.message);
-    }
-  }
-
-  const extraFields =
-    order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)
-      ? { ...(order.extra_fields as Record<string, unknown>) }
-      : {};
-  const review =
-    extraFields.review && typeof extraFields.review === 'object' && !Array.isArray(extraFields.review)
-      ? { ...(extraFields.review as Record<string, unknown>) }
-      : {};
-
-  if (review.returned_to_advisor) {
-    const { error: clearReturnError } = await adminSupabase
-      .from('orders')
-      .update({
-        extra_fields: {
-          ...extraFields,
-          review: {
-            ...review,
-            returned_to_advisor: false,
-            returned_to_advisor_corrected_at: nowIso,
-            returned_to_advisor_corrected_by: ctx.user.id,
-          },
-        },
-        last_modified_at: nowIso,
-        last_modified_by: ctx.user.id,
-      })
-      .eq('id', orderId)
-      .eq('attributed_advisor_id', ctx.user.id);
-
-    if (clearReturnError) {
-      throw new Error(clearReturnError.message);
     }
   }
 
