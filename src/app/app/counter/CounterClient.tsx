@@ -53,6 +53,7 @@ export type CounterCashMovement = {
   counterpartyName: string | null;
   description: string | null;
   orderId: number | null;
+  createdByName: string | null;
 };
 
 export type CounterCashAccountSummary = {
@@ -64,6 +65,7 @@ export type CounterCashAccountSummary = {
   inflow: number;
   outflow: number;
   net: number;
+  balance: number;
   movements: CounterCashMovement[];
 };
 
@@ -1311,6 +1313,10 @@ function CounterCashPanel({
       .filter((movement) => movement.direction === 'outflow')
       .reduce((movementSum, movement) => movementSum + movement.amountUsdEquivalent, 0);
   }, 0);
+  const totalBalanceUsd = accounts.reduce((sum, account) => {
+    if (account.currencyCode === 'USD') return sum + account.balance;
+    return activeBsRate > 0 ? sum + account.balance / activeBsRate : sum;
+  }, 0);
 
   useEffect(() => {
     if (!firstAccount) return;
@@ -1407,6 +1413,10 @@ function CounterCashPanel({
         <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
           <div className="text-xs text-[#9FA0AA]">Cuentas</div>
           <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{accounts.length}</div>
+        </div>
+        <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3 sm:col-span-3">
+          <div className="text-xs text-[#9FA0AA]">Saldo operativo ref.</div>
+          <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{moneyUsd(totalBalanceUsd)}</div>
         </div>
       </div>
 
@@ -1587,6 +1597,12 @@ function CounterCashPanel({
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <div className="col-span-3 rounded-[8px] border border-[#303044] bg-[#111118] px-2 py-2">
+                  <div className="text-[#9FA0AA]">Saldo actual</div>
+                  <div className="mt-1 text-base font-semibold text-[#F5F5F7]">
+                    {account.currencyCode === 'VES' ? moneyBs(account.balance) : moneyUsd(account.balance)}
+                  </div>
+                </div>
                 <div>
                   <div className="text-[#9FA0AA]">Entró</div>
                   <div className="mt-1 font-semibold text-emerald-300">
@@ -1606,6 +1622,27 @@ function CounterCashPanel({
                   </div>
                 </div>
               </div>
+              {account.movements.length > 0 ? (
+                <div className="mt-3 space-y-1 border-t border-[#242433] pt-2">
+                  {account.movements.slice(0, 3).map((movement) => (
+                    <div key={movement.id} className="flex items-start justify-between gap-2 text-[11px]">
+                      <div className="min-w-0">
+                        <div className="truncate text-[#C7C8D1]">
+                          {movement.description || (movement.direction === 'inflow' ? 'Entrada' : 'Salida')}
+                        </div>
+                        <div className="truncate text-[#777988]">
+                          {movement.createdByName || 'Usuario'}
+                          {movement.referenceCode ? ` · ${movement.referenceCode}` : ''}
+                        </div>
+                      </div>
+                      <div className={movement.direction === 'outflow' ? 'shrink-0 text-orange-300' : 'shrink-0 text-emerald-300'}>
+                        {movement.direction === 'outflow' ? '-' : '+'}
+                        {movement.currencyCode === 'VES' ? moneyBs(movement.amount) : moneyUsd(movement.amount)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))
         )}

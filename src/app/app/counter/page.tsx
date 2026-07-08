@@ -122,6 +122,7 @@ type RawCounterMoneyMovement = {
   money_account_id: number | null;
   movement_date: string | null;
   created_at: string | null;
+  created_by_user_id: string | null;
   direction: 'inflow' | 'outflow' | string | null;
   movement_type: string | null;
   currency_code: string | null;
@@ -440,6 +441,7 @@ export default async function CounterPage() {
                     'money_account_id',
                     'movement_date',
                     'created_at',
+                    'created_by_user_id',
                     'direction',
                     'movement_type',
                     'currency_code',
@@ -455,7 +457,6 @@ export default async function CounterPage() {
                 .eq('movement_date', todayKey)
                 .eq('status', 'confirmed')
                 .order('created_at', { ascending: false })
-                .limit(80)
             : Promise.resolve({ data: [], error: null }),
           quickSaleProductIds.length
             ? ctx.supabase
@@ -496,6 +497,7 @@ export default async function CounterPage() {
                     'money_account_id',
                     'movement_date',
                     'created_at',
+                    'created_by_user_id',
                     'direction',
                     'movement_type',
                     'currency_code',
@@ -511,7 +513,6 @@ export default async function CounterPage() {
                 .eq('movement_date', todayKey)
                 .eq('status', 'confirmed')
                 .order('created_at', { ascending: false })
-                .limit(80)
             : Promise.resolve({ data: [], error: null }),
           quickSaleProductIds.length
             ? ctx.supabase
@@ -563,6 +564,63 @@ export default async function CounterPage() {
     throw new Error(productComponentsError.message);
   }
 
+  const { data: counterBalanceMovementsData, error: counterBalanceMovementsError } =
+    counterAccountIds.length
+      ? await ctx.supabase
+          .from('money_movements')
+          .select('money_account_id, movement_date, direction, currency_code, amount, amount_usd_equivalent')
+          .in('money_account_id', counterAccountIds)
+          .eq('status', 'confirmed')
+          .lte('movement_date', todayKey)
+      : { data: [], error: null };
+
+  if (counterBalanceMovementsError) {
+    throw new Error(counterBalanceMovementsError.message);
+  }
+
+  const movementCreatorIds = Array.from(
+    new Set(
+      ((counterMovementsData ?? []) as unknown as RawCounterMoneyMovement[])
+        .map((movement) => movement.created_by_user_id)
+        .filter((id): id is string => Boolean(id && String(id).trim()))
+    )
+  );
+
+  const { data: movementCreatorsData, error: movementCreatorsError } =
+    movementCreatorIds.length
+      ? await ctx.supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', movementCreatorIds)
+      : { data: [], error: null };
+
+  if (movementCreatorsError) {
+    throw new Error(movementCreatorsError.message);
+  }
+
+  const movementCreatorNameById = new Map<string, string>();
+  for (const profile of (movementCreatorsData ?? []) as RawDriverProfile[]) {
+    movementCreatorNameById.set(profile.id, profile.full_name?.trim() || 'Usuario');
+  }
+
+  const counterBalanceByAccount = new Map<number, number>();
+  for (const movement of (counterBalanceMovementsData ?? []) as unknown as RawCounterMoneyMovement[]) {
+    const accountId = Number(movement.money_account_id || 0);
+    if (!accountId) continue;
+    const account = accountsById.get(accountId);
+    const accountCurrencyCode = String(account?.currency_code || '').toUpperCase();
+    const movementCurrencyCode = String(movement.currency_code || accountCurrencyCode).toUpperCase();
+    const amount =
+      accountCurrencyCode === movementCurrencyCode
+        ? roundOrderMoney(movement.amount)
+        : roundOrderMoney(movement.amount_usd_equivalent);
+    const signedAmount = movement.direction === 'outflow' ? -amount : amount;
+    counterBalanceByAccount.set(
+      accountId,
+      roundOrderMoney((counterBalanceByAccount.get(accountId) ?? 0) + signedAmount)
+    );
+  }
+
   const counterMovementsByAccount = new Map<number, RawCounterMoneyMovement[]>();
   for (const movement of (counterMovementsData ?? []) as unknown as RawCounterMoneyMovement[]) {
     const accountId = Number(movement.money_account_id || 0);
@@ -600,6 +658,9 @@ export default async function CounterPage() {
             counterpartyName: movement.counterparty_name,
             description: movement.description,
             orderId: movement.order_id,
+            createdByName: movement.created_by_user_id
+              ? movementCreatorNameById.get(movement.created_by_user_id) ?? 'Usuario'
+              : null,
           };
         });
       const inflow = movements
@@ -618,6 +679,7 @@ export default async function CounterPage() {
         inflow: roundOrderMoney(inflow),
         outflow: roundOrderMoney(outflow),
         net: roundOrderMoney(inflow - outflow),
+        balance: roundOrderMoney(counterBalanceByAccount.get(accountId) ?? 0),
         movements,
       };
     })
