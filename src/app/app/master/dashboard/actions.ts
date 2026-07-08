@@ -2457,6 +2457,7 @@ export async function confirmPaymentReportAction(input: {
 export async function applyStaffPayrollPaymentAction(input: {
   orderId: number;
   moneyAccountId: number;
+  amountUsd?: number | string | null;
   operationDate?: string | null;
   notes?: string | null;
 }) {
@@ -2465,6 +2466,10 @@ export async function applyStaffPayrollPaymentAction(input: {
 
   const orderId = Number(input.orderId || 0);
   const moneyAccountId = Number(input.moneyAccountId || 0);
+  const requestedAmountUsd =
+    input.amountUsd == null || String(input.amountUsd).trim() === ''
+      ? null
+      : roundMoney(Number(String(input.amountUsd).replace(',', '.')));
   const operationDate =
     normalizeDateOnly(input.operationDate) || getCaracasDateString(new Date());
   const notes = String(input.notes || '').trim() || null;
@@ -2547,6 +2552,16 @@ export async function applyStaffPayrollPaymentAction(input: {
     throw new Error('Esta orden ya no tiene saldo pendiente.');
   }
 
+  if (requestedAmountUsd != null && (!Number.isFinite(requestedAmountUsd) || requestedAmountUsd <= 0.005)) {
+    throw new Error('El monto por nomina debe ser mayor a cero.');
+  }
+
+  const paymentUsd = roundMoney(requestedAmountUsd ?? pendingUsd);
+
+  if (paymentUsd - pendingUsd > 0.005) {
+    throw new Error('El monto por nomina no puede superar el saldo pendiente de la orden.');
+  }
+
   const statePendingBs = financialState ? roundMoney(financialState.pending_bs) : 0;
   const exchangeRate =
     currencyCode === 'VES'
@@ -2563,10 +2578,17 @@ export async function applyStaffPayrollPaymentAction(input: {
     throw new Error('No se pudo determinar una tasa valida para aplicar el pago por nomina.');
   }
 
+  const paysFullBalance = Math.abs(paymentUsd - pendingUsd) <= 0.005;
   const nativeAmount =
     currencyCode === 'VES'
-      ? Number((statePendingBs > 0.005 ? statePendingBs : pendingUsd * Number(exchangeRate || 0)).toFixed(2))
-      : pendingUsd;
+      ? Number(
+          (
+            paysFullBalance && statePendingBs > 0.005
+              ? statePendingBs
+              : paymentUsd * Number(exchangeRate || 0)
+          ).toFixed(2)
+        )
+      : paymentUsd;
 
   if (!Number.isFinite(nativeAmount) || nativeAmount <= 0) {
     throw new Error('No se pudo determinar el monto a pagar por nomina.');
@@ -2593,7 +2615,7 @@ export async function applyStaffPayrollPaymentAction(input: {
       reported_currency_code: currencyCode,
       reported_amount: nativeAmount,
       reported_exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-      reported_amount_usd_equivalent: pendingUsd,
+      reported_amount_usd_equivalent: paymentUsd,
       reported_money_account_id: moneyAccountId,
       reference_code: referenceCode,
       payer_name: clientName,
@@ -2656,7 +2678,7 @@ export async function applyStaffPayrollPaymentAction(input: {
       currency_code: currencyCode,
       amount: nativeAmount,
       exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-      amount_usd_equivalent: pendingUsd,
+      amount_usd_equivalent: paymentUsd,
       reference_code: referenceCode,
       counterparty_name: clientName,
       description: `Compensacion nomina - ${orderLabel}`,
@@ -2681,7 +2703,9 @@ export async function applyStaffPayrollPaymentAction(input: {
     eventType: 'staff_payroll_payment',
     eventGroup: 'payment',
     title: 'Pago por nomina aplicado',
-    message: 'La orden fue saldada con descuento de personal y compensada en la cuenta interna.',
+    message: paysFullBalance
+      ? 'La orden fue saldada con descuento de personal y compensada en la cuenta interna.'
+      : 'Se aplico un abono por descuento de personal y se compenso en la cuenta interna.',
     severity: 'info',
     actorUserId: user.id,
     payload: {
@@ -2690,7 +2714,8 @@ export async function applyStaffPayrollPaymentAction(input: {
       money_account_name: account.name,
       currency: currencyCode,
       amount: nativeAmount,
-      amount_usd: pendingUsd,
+      amount_usd: paymentUsd,
+      pending_usd_before_payment: pendingUsd,
       movement_date: operationDate,
       reference_code: referenceCode,
       movement_group_id: movementGroupId,

@@ -4543,6 +4543,7 @@ const [paymentReportNotes, setPaymentReportNotes] = useState('');
 const [paymentReportMethodOverride, setPaymentReportMethodOverride] = useState<string | null>(null);
 const [staffPayrollBoxOpen, setStaffPayrollBoxOpen] = useState(false);
 const [staffPayrollMoneyAccountId, setStaffPayrollMoneyAccountId] = useState('');
+const [staffPayrollAmountUsd, setStaffPayrollAmountUsd] = useState('');
 const [staffPayrollOperationDate, setStaffPayrollOperationDate] = useState('');
 const [staffPayrollNotes, setStaffPayrollNotes] = useState('');
 const [staffPayrollSaving, setStaffPayrollSaving] = useState(false);
@@ -7021,6 +7022,7 @@ const openStaffPayrollBox = (o: Order) => {
   setPaymentGiveChangeBoxOpen(false);
   setStaffPayrollBoxOpen(true);
   setStaffPayrollMoneyAccountId(preferredAccount ? String(preferredAccount.id) : '');
+  setStaffPayrollAmountUsd(o.balanceUsd > 0.005 ? String(Number(o.balanceUsd.toFixed(2))) : '');
   setStaffPayrollOperationDate(today);
   setStaffPayrollNotes(`Descuento de personal · orden ${o.id}`);
 };
@@ -7053,11 +7055,23 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
       return;
     }
 
+    const amountUsd = Number(String(staffPayrollAmountUsd || '').replace(',', '.'));
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0.005) {
+      showToast('error', 'Debes indicar un monto de nómina mayor a cero.');
+      return;
+    }
+
+    if (amountUsd - o.balanceUsd > 0.005) {
+      showToast('error', 'El monto por nómina no puede superar el saldo pendiente.');
+      return;
+    }
+
     setStaffPayrollSaving(true);
 
     await applyStaffPayrollPaymentAction({
       orderId: o.id,
       moneyAccountId: account.id,
+      amountUsd,
       operationDate: appliedOperationDate,
       notes: staffPayrollNotes.trim() || null,
     });
@@ -7065,6 +7079,7 @@ const handleApplyStaffPayrollPayment = async (o: Order) => {
     showToast('success', 'Pago por nómina aplicado.');
     setStaffPayrollBoxOpen(false);
     setStaffPayrollMoneyAccountId('');
+    setStaffPayrollAmountUsd('');
     setStaffPayrollOperationDate('');
     setStaffPayrollNotes('');
     await loadMoneyActivity(true, {
@@ -11575,6 +11590,18 @@ const getSuggestedOrderPaymentAmount = (
 
   return order.balanceUsd > 0 ? String(Number(order.balanceUsd.toFixed(2))) : '';
 };
+
+const staffPayrollAmountUsdNumber = Number(String(staffPayrollAmountUsd || '').replace(',', '.'));
+const staffPayrollBalanceBsPreview = selectedOrder
+  ? getOrderPaymentBalanceBs(selectedOrder, staffPayrollOperationDate)
+  : 0;
+const staffPayrollAmountBsPreview =
+  selectedOrder &&
+  selectedOrder.balanceUsd > 0.005 &&
+  Number.isFinite(staffPayrollAmountUsdNumber) &&
+  staffPayrollAmountUsdNumber > 0
+    ? Number(((staffPayrollBalanceBsPreview / selectedOrder.balanceUsd) * staffPayrollAmountUsdNumber).toFixed(2))
+    : 0;
 
 const selectedOrderClient =
   selectedOrder && selectedOrder.clientId != null
@@ -20442,12 +20469,31 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
           />
         </div>
 
+        <div>
+          <div className="mb-1 text-[10px] text-[#8A8A96]">Monto USD a aplicar</div>
+          <input
+            value={staffPayrollAmountUsd}
+            onChange={(e) => setStaffPayrollAmountUsd(e.target.value)}
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder={String(Number(selectedOrder.balanceUsd.toFixed(2)))}
+            className="w-full rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5 text-[11px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
-          <div className="text-[10px] text-[#8A8A96]">Monto que se aplicará</div>
+          <div className="text-[10px] text-[#8A8A96]">Pendiente de la orden</div>
+          <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">{fmtUSD(selectedOrder.balanceUsd)}</div>
+        </div>
+        <div className="rounded-md border border-[#242433] bg-[#121218] px-2 py-1.5">
+          <div className="text-[10px] text-[#8A8A96]">Equivalente en cuenta</div>
           <div className="mt-0.5 text-[12px] font-semibold text-[#F5F5F7]">
             {selectedStaffPayrollAccount?.currencyCode === 'VES'
-              ? fmtBs(getOrderPaymentBalanceBs(selectedOrder, staffPayrollOperationDate))
-              : fmtUSD(selectedOrder.balanceUsd)}
+              ? fmtBs(staffPayrollAmountBsPreview)
+              : fmtUSD(Number.isFinite(staffPayrollAmountUsdNumber) ? staffPayrollAmountUsdNumber : 0)}
           </div>
         </div>
       </div>
@@ -20480,6 +20526,7 @@ selectedOrder.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD ? (
           onClick={() => {
             setStaffPayrollBoxOpen(false);
             setStaffPayrollMoneyAccountId('');
+            setStaffPayrollAmountUsd('');
             setStaffPayrollOperationDate('');
             setStaffPayrollNotes('');
           }}
