@@ -12180,7 +12180,10 @@ const selectedCreateOrderClientAddresses = useMemo(
       if (accountAuditUserFilter && !group.movements.some((movement) => movementTouchesUser(movement, accountAuditUserFilter))) {
         return false;
       }
-      if (accountAuditApprovalOnly && !group.movements.some((movement) => movement.approvalRequired)) {
+      if (
+        accountAuditApprovalOnly &&
+        !group.movements.some((movement) => movement.status === 'pending' && movement.approvalRequired)
+      ) {
         return false;
       }
       if (
@@ -12301,7 +12304,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       rejectedGroups: rejectedGroups.length,
       voidedGroups: voidedGroups.length,
       approvalRequiredGroups: selectedAccountAllMovementGroups.filter((group) =>
-        group.movements.some((movement) => movement.approvalRequired)
+        group.movements.some((movement) => movement.status === 'pending' && movement.approvalRequired)
       ).length,
       transferGroups: selectedAccountAllMovementGroups.filter((group) => group.isTransfer).length,
       confirmedInflowNative,
@@ -12337,7 +12340,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       if (globalAuditFocusFilter === 'transfers') return group.isTransfer;
       if (globalAuditFocusFilter === 'fees') return group.feeMovements.length > 0;
       if (globalAuditFocusFilter === 'approvals') {
-        return group.movements.some((movement) => movement.approvalRequired);
+        return group.movements.some((movement) => movement.status === 'pending' && movement.approvalRequired);
       }
       return true;
     });
@@ -12367,7 +12370,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       pendingGroups: pendingGroups.length,
       exceptionGroups: exceptionGroups.length,
       approvalRequiredGroups: globalAuditFilteredGroups.filter((group) =>
-        group.movements.some((movement) => movement.approvalRequired)
+        group.movements.some((movement) => movement.status === 'pending' && movement.approvalRequired)
       ).length,
       transferGroups: globalAuditFilteredGroups.filter((group) => group.isTransfer).length,
       feeGroups: globalAuditFilteredGroups.filter((group) => group.feeMovements.length > 0).length,
@@ -12932,7 +12935,10 @@ const selectedCreateOrderClientAddresses = useMemo(
       if (accountAuditUserFilter && !group.movements.some((movement) => movementTouchesUser(movement, accountAuditUserFilter))) {
         return false;
       }
-      if (accountAuditApprovalOnly && !group.movements.some((movement) => movement.approvalRequired)) {
+      if (
+        accountAuditApprovalOnly &&
+        !group.movements.some((movement) => movement.status === 'pending' && movement.approvalRequired)
+      ) {
         return false;
       }
       if (

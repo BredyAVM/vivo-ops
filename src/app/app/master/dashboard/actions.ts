@@ -8868,6 +8868,8 @@ export async function approveMoneyMovementGroupAction(input: {
     status: 'confirmed',
     confirmed_at: now,
     confirmed_by_user_id: user.id,
+    approval_required: false,
+    approval_required_reason: null,
     reviewed_at: now,
     reviewed_by_user_id: user.id,
     rejected_at: null,
@@ -8876,11 +8878,14 @@ export async function approveMoneyMovementGroupAction(input: {
   };
 
   const query = supabase.from('money_movements').update(updatePayload).eq('status', 'pending');
-  const { error } = movementGroupId
-    ? await query.eq('movement_group_id', movementGroupId)
-    : await query.eq('id', movementId);
+  const { data, error } = movementGroupId
+    ? await query.eq('movement_group_id', movementGroupId).select('id')
+    : await query.eq('id', movementId).select('id');
 
   if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error('No hubo movimientos pendientes disponibles para aprobar.');
+  }
 
   revalidatePath('/app/master/dashboard');
 }
@@ -8909,6 +8914,8 @@ export async function rejectMoneyMovementGroupAction(input: {
   const now = new Date().toISOString();
   const updatePayload = {
     status: 'rejected',
+    approval_required: false,
+    approval_required_reason: null,
     reviewed_at: now,
     reviewed_by_user_id: user.id,
     rejected_at: now,
@@ -8917,13 +8924,17 @@ export async function rejectMoneyMovementGroupAction(input: {
   };
 
   const query = supabase.from('money_movements').update(updatePayload).eq('status', 'pending');
-  const { error } = movementGroupId
-    ? await query.eq('movement_group_id', movementGroupId)
-    : await query.eq('id', movementId);
+  const { data, error } = movementGroupId
+    ? await query.eq('movement_group_id', movementGroupId).select('id')
+    : await query.eq('id', movementId).select('id');
 
   if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error('No hubo movimientos pendientes disponibles para rechazar.');
+  }
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/counter');
 }
 
 export async function voidMoneyMovementGroupAction(input: {
