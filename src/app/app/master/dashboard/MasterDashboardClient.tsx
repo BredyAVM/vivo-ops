@@ -1203,6 +1203,42 @@ const ACCOUNT_DETAIL_TAB_LABEL: Record<AccountDetailTab, string> = {
 
 const VISIBLE_ACCOUNT_DETAIL_TABS: AccountDetailTab[] = ['operation', 'closures', 'audit', 'rules'];
 
+function getFinanceLatestSnapshotLabel(workstream?: FinanceAccountWorkstream | null) {
+  switch (workstream) {
+    case 'cash':
+      return 'Último arqueo';
+    case 'pos':
+      return 'Último cierre';
+    case 'retention':
+      return 'Última revisión';
+    case 'fund':
+      return 'Último cierre';
+    case 'bank':
+    case 'wallet':
+      return 'Última conciliación';
+    default:
+      return 'Última foto';
+  }
+}
+
+function getFinanceNoSnapshotLabel(workstream?: FinanceAccountWorkstream | null) {
+  switch (workstream) {
+    case 'cash':
+      return 'Sin arqueo';
+    case 'pos':
+      return 'Sin cierre';
+    case 'retention':
+      return 'Sin revisión';
+    case 'fund':
+      return 'Sin cierre';
+    case 'bank':
+    case 'wallet':
+      return 'Sin conciliación';
+    default:
+      return 'Sin foto';
+  }
+}
+
 const FINANCE_WORKSPACE_VIEW_LABEL: Record<FinanceWorkspaceView, string> = {
   accounts: 'Cuentas',
   movements: 'Movimientos',
@@ -11838,6 +11874,12 @@ const selectedOrderChangeMovements = useMemo(() => {
     ...ACCOUNT_DETAIL_TAB_LABEL,
     closures: selectedAccountFinanceVocabulary?.historyTitle ?? ACCOUNT_DETAIL_TAB_LABEL.closures,
   };
+  const selectedAccountLatestSnapshotLabel = getFinanceLatestSnapshotLabel(
+    selectedAccountFinanceVocabulary?.workstream
+  );
+  const selectedAccountNoSnapshotLabel = getFinanceNoSnapshotLabel(
+    selectedAccountFinanceVocabulary?.workstream
+  );
 
   const selectedAccountClosureTargetAccount = selectedAccountClosureProfile?.defaultTargetMoneyAccountId
     ? moneyAccounts.find((account) => account.id === selectedAccountClosureProfile.defaultTargetMoneyAccountId) ?? null
@@ -13039,7 +13081,7 @@ const selectedCreateOrderClientAddresses = useMemo(
           ? `Traspaso desde ${counterpartAccount.name}`
           : `Traspaso hacia ${counterpartAccount.name}`;
       } else if (movement.movementType === 'order_payment') {
-        const orderLabel = movement.orderId ? `Orden #${movement.orderId}` : 'Pago de orden';
+        const orderLabel = movement.orderId ? `Orden ${fmtShortOrderLabel(movement.orderId)}` : 'Pago de orden';
         concept = [orderLabel, clientLabel || linkedOrder?.clientName || null]
           .filter(Boolean)
           .join(' · ');
@@ -17557,7 +17599,9 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       </div>
                     </div>
                   ) : (
-                    <span className="text-[#8A8A96]">Sin cierre</span>
+                    <span className="text-[#8A8A96]">
+                      {getFinanceNoSnapshotLabel(financeVocabulary.workstream)}
+                    </span>
                   )}
                 </td>
                 <td className="px-3 py-2.5">
@@ -17567,16 +17611,6 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </td>
                 <td className="px-3 py-2.5">
                   <div className="flex flex-wrap items-start gap-1.5">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-2.5 py-1.5 text-[11px] text-[#B7B7C2]"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openAccountDetailDrawer(account.id);
-                      }}
-                    >
-                      Abrir
-                    </button>
                     {activeBaseline ? (
                       <button
                         type="button"
@@ -17602,7 +17636,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         Línea base
                       </button>
                     )}
-                    <div className="min-w-[116px]" onClick={(event) => event.stopPropagation()}>
+                    <div className="min-w-[92px]" onClick={(event) => event.stopPropagation()}>
                       <button
                         type="button"
                         className={[
@@ -17613,7 +17647,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         ].join(' ')}
                         onClick={() => setAccountMoreOpenId((current) => (current === account.id ? null : account.id))}
                       >
-                        Más
+                        Config.
                       </button>
                       {accountMoreOpenId === account.id ? (
                         <div className="mt-1 overflow-hidden rounded-xl border border-[#242433] bg-[#0B0B0D] p-1 shadow-2xl">
@@ -17626,7 +17660,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                 openAccountRulesEditor(account);
                               }}
                             >
-                              Reglas
+                              Reglas de cobro
                             </button>
                           ) : null}
                           {permissions.canManageMoneyAccounts ? (
@@ -17638,7 +17672,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                                 openEditAccount(account);
                               }}
                             >
-                              Editar
+                              Editar cuenta
                             </button>
                           ) : null}
                           {permissions.canManageMoneyAccounts ? (
@@ -23505,7 +23539,7 @@ deliveryAssignMode === 'external' ? (
                         ].join(' ')}
                         onClick={() => setAccountDetailMoreOpen((current) => !current)}
                       >
-                        Opciones
+                        Herramientas
                       </button>
                       {accountDetailMoreOpen ? (
                         <div className="mt-1 overflow-hidden rounded-xl border border-[#242433] bg-[#0B0B0D] p-1 text-sm shadow-2xl">
@@ -23523,7 +23557,7 @@ deliveryAssignMode === 'external' ? (
                             }}
                             disabled={moneyActivityLoading}
                           >
-                            Refrescar datos
+                            Actualizar datos
                           </button>
                           <button
                             type="button"
@@ -23533,7 +23567,7 @@ deliveryAssignMode === 'external' ? (
                               downloadSelectedAccountReportCsv();
                             }}
                           >
-                            Exportar
+                            Exportar CSV
                           </button>
                           {permissions.canManageMoneyAccounts ? (
                             <>
@@ -23545,7 +23579,7 @@ deliveryAssignMode === 'external' ? (
                                   openEditAccount(selectedAccount);
                                 }}
                               >
-                                Editar
+                                Editar cuenta
                               </button>
                               <button
                                 type="button"
@@ -23567,7 +23601,7 @@ deliveryAssignMode === 'external' ? (
               </div>
             </div>
 
-            <div className="flex max-w-full gap-1 overflow-x-auto rounded-2xl border border-[#242433] bg-[#121218] p-2">
+            <div className="flex max-w-full flex-wrap gap-1 rounded-2xl border border-[#242433] bg-[#121218] p-2">
               {VISIBLE_ACCOUNT_DETAIL_TABS.map((tab) => (
                 <button
                   key={tab}
@@ -23629,13 +23663,13 @@ deliveryAssignMode === 'external' ? (
                   </div>
                 </div>
                 <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-                  <div className="text-[#8A8A96]">Última conciliación</div>
+                  <div className="text-[#8A8A96]">{selectedAccountLatestSnapshotLabel}</div>
                   <div className="mt-1 font-semibold text-[#F5F5F7]">
                     {selectedAccountReportSummary.latestClosure
                       ? fmtClosureMoment(selectedAccountReportSummary.latestClosure)
                       : selectedAccountBaseline
                         ? selectedAccountBaseline.baselineDate
-                        : 'Sin foto'}
+                        : selectedAccountNoSnapshotLabel}
                   </div>
                 </div>
                 <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
@@ -23742,7 +23776,7 @@ deliveryAssignMode === 'external' ? (
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#B7B7C2]"
                       onClick={() => openMoneyTransferDrawer(selectedAccount.id)}
                     >
-                      Traspaso
+                      Registrar traspaso
                     </button>
                   ) : null}
                 </div>
@@ -24291,7 +24325,9 @@ deliveryAssignMode === 'external' ? (
                               {row.reference}
                             </div>
                             {movement.orderId ? (
-                              <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]">#{movement.orderId}</div>
+                              <div className="mt-0.5 truncate text-[10px] text-[#8A8A96]">
+                                Orden {fmtShortOrderLabel(movement.orderId)}
+                              </div>
                             ) : null}
                           </div>
                           <div className="min-w-0 self-center text-right">
