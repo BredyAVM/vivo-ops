@@ -8746,10 +8746,35 @@ const handleSaveQuickCatalog = async () => {
 
     try {
       setMovementReviewSaving(true);
-      await approveMoneyMovementGroupAction({
+      const result = await approveMoneyMovementGroupAction({
         movementId: selectedMovementGroup.primaryMovement.id,
         movementGroupId: selectedMovementGroup.primaryMovement.movementGroupId,
       });
+      if (!result.ok) {
+        showToast('error', result.message);
+        return;
+      }
+      const approvedIds = new Set(result.movementIds ?? []);
+      const reviewedAt = new Date().toISOString();
+      setMoneyMovements((prev) =>
+        prev.map((movement) =>
+          approvedIds.has(movement.id)
+            ? {
+                ...movement,
+                status: 'confirmed',
+                approvalRequired: false,
+                approvalRequiredReason: null,
+                reviewedAt,
+                reviewedByUserId: currentUser.id,
+                confirmedAt: reviewedAt,
+                confirmedByUserId: currentUser.id,
+                rejectedAt: null,
+                rejectedByUserId: null,
+                rejectionReason: null,
+              }
+            : movement
+        )
+      );
       showToast('success', 'Movimiento aprobado.');
       setMovementDetailOpen(false);
       await loadMoneyActivity(true);
@@ -8765,11 +8790,34 @@ const handleSaveQuickCatalog = async () => {
 
     try {
       setMovementReviewSaving(true);
-      await rejectMoneyMovementGroupAction({
+      const result = await rejectMoneyMovementGroupAction({
         movementId: selectedMovementGroup.primaryMovement.id,
         movementGroupId: selectedMovementGroup.primaryMovement.movementGroupId,
         reason: movementRejectReason,
       });
+      if (!result.ok) {
+        showToast('error', result.message);
+        return;
+      }
+      const rejectedIds = new Set(result.movementIds ?? []);
+      const reviewedAt = new Date().toISOString();
+      setMoneyMovements((prev) =>
+        prev.map((movement) =>
+          rejectedIds.has(movement.id)
+            ? {
+                ...movement,
+                status: 'rejected',
+                approvalRequired: false,
+                approvalRequiredReason: null,
+                reviewedAt,
+                reviewedByUserId: currentUser.id,
+                rejectedAt: reviewedAt,
+                rejectedByUserId: currentUser.id,
+                rejectionReason: movementRejectReason.trim(),
+              }
+            : movement
+        )
+      );
       showToast('success', 'Movimiento rechazado.');
       setMovementDetailOpen(false);
       setMovementRejectReason('');

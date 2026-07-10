@@ -8852,10 +8852,11 @@ export async function approveMoneyMovementGroupAction(input: {
   movementId: number;
   movementGroupId: string | null;
 }) {
-  const { supabase, user, roles } = await requireMasterOrAdmin();
+  const { user, roles } = await requireMasterOrAdmin();
   if (!getMasterDashboardPermissions(roles).isAdmin) {
-    throw new Error('Solo admin puede aprobar movimientos pendientes.');
+    return { ok: false as const, message: 'Solo admin puede aprobar movimientos pendientes.' };
   }
+  const supabase = createSupabaseServiceRoleServer();
 
   const movementId = Number(input.movementId || 0);
   const movementGroupId = String(input.movementGroupId || '').trim() || null;
@@ -8884,10 +8885,11 @@ export async function approveMoneyMovementGroupAction(input: {
 
   if (error) throw new Error(error.message);
   if (!data || data.length === 0) {
-    throw new Error('No hubo movimientos pendientes disponibles para aprobar.');
+    return { ok: false as const, message: 'No hubo movimientos pendientes disponibles para aprobar.' };
   }
 
   revalidatePath('/app/master/dashboard');
+  return { ok: true as const, movementIds: data.map((movement) => movement.id) };
 }
 
 export async function rejectMoneyMovementGroupAction(input: {
@@ -8895,10 +8897,11 @@ export async function rejectMoneyMovementGroupAction(input: {
   movementGroupId: string | null;
   reason: string;
 }) {
-  const { supabase, user, roles } = await requireMasterOrAdmin();
+  const { user, roles } = await requireMasterOrAdmin();
   if (!getMasterDashboardPermissions(roles).isAdmin) {
-    throw new Error('Solo admin puede rechazar movimientos pendientes.');
+    return { ok: false as const, message: 'Solo admin puede rechazar movimientos pendientes.' };
   }
+  const supabase = createSupabaseServiceRoleServer();
 
   const movementId = Number(input.movementId || 0);
   const movementGroupId = String(input.movementGroupId || '').trim() || null;
@@ -8930,11 +8933,11 @@ export async function rejectMoneyMovementGroupAction(input: {
 
   if (error) throw new Error(error.message);
   if (!data || data.length === 0) {
-    throw new Error('No hubo movimientos pendientes disponibles para rechazar.');
+    return { ok: false as const, message: 'No hubo movimientos pendientes disponibles para rechazar.' };
   }
 
   revalidatePath('/app/master/dashboard');
-  revalidatePath('/app/counter');
+  return { ok: true as const, movementIds: data.map((movement) => movement.id) };
 }
 
 export async function voidMoneyMovementGroupAction(input: {
