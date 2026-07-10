@@ -10,6 +10,7 @@ import {
 import { sortOrderItemsByPriority } from '@/lib/orders/order-item-priority';
 import { createSupabaseServer } from '@/lib/supabase/server';
 import { getPublicVapidKey } from '@/lib/push';
+import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import MasterDashboardClient from './MasterDashboardClient';
 
 export const dynamic = 'force-dynamic';
@@ -216,6 +217,84 @@ type MoneyAccountClosureProfileRow = {
   default_target_money_account_id: number | null;
   baseline_required: boolean;
   notes: string | null;
+};
+
+type RawMoneyAccountClosureRow = {
+  id: number;
+  money_account_id: number;
+  closure_date: string;
+  closure_at: string | null;
+  expected_amount: number | string;
+  counted_amount: number | string;
+  difference_amount: number | string;
+  expected_amount_usd: number | string;
+  counted_amount_usd: number | string;
+  difference_amount_usd: number | string;
+  currency_code: 'USD' | 'VES';
+  exchange_rate_ves_per_usd: number | string | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'recorded' | 'approved' | 'rejected';
+  created_by_user_id: string;
+  created_at: string;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+};
+
+type RawMoneyAccountBaselineRow = {
+  id: number;
+  money_account_id: number;
+  baseline_date: string;
+  baseline_at: string;
+  expected_amount: number | string;
+  counted_amount: number | string;
+  difference_amount: number | string;
+  expected_amount_usd: number | string;
+  counted_amount_usd: number | string;
+  difference_amount_usd: number | string;
+  currency_code: 'USD' | 'VES';
+  exchange_rate_ves_per_usd: number | string | null;
+  reason: string | null;
+  notes: string | null;
+  status: 'active' | 'superseded' | 'voided';
+  created_by_user_id: string;
+  created_at: string;
+  voided_by_user_id: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
+};
+
+type RawMoneyAccountReconciliationItemRow = {
+  id: number;
+  money_account_id: number;
+  source_kind: 'baseline' | 'closure' | 'manual';
+  source_id: number | null;
+  item_type:
+    | 'unidentified_payment'
+    | 'unregistered_fee'
+    | 'unregistered_transfer'
+    | 'conversion_difference'
+    | 'amount_error'
+    | 'timing_difference'
+    | 'manual_adjustment'
+    | 'other_pending';
+  direction: 'surplus' | 'shortage';
+  currency_code: 'USD' | 'VES';
+  amount: number | string;
+  amount_usd_equivalent: number | string;
+  operation_date: string | null;
+  reference_code: string | null;
+  counterparty_name: string | null;
+  description: string;
+  status: 'open' | 'resolved' | 'voided';
+  created_by_user_id: string;
+  created_at: string;
+  resolved_by_user_id: string | null;
+  resolved_at: string | null;
+  resolution_notes: string | null;
+  voided_by_user_id: string | null;
+  voided_at: string | null;
+  void_reason: string | null;
 };
 
 type RawMoneyMovementRow = {
@@ -2086,6 +2165,123 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
   }
 
   const { moneyAccountsData, moneyAccountPaymentRulesData, moneyAccountClosureProfilesData } = financialReferences;
+  const financialSnapshotClient = createDashboardReferenceClient();
+  let initialClosuresData: RawMoneyAccountClosureRow[] = [];
+  let initialBaselinesData: RawMoneyAccountBaselineRow[] = [];
+  let initialReconciliationItemsData: RawMoneyAccountReconciliationItemRow[] = [];
+  let initialMoneyAccountBalanceSnapshots: ComponentProps<typeof MasterDashboardClient>['moneyAccountBalanceSnapshots'] = [];
+
+  try {
+    const [closuresResult, baselinesResult, reconciliationItemsResult, balanceSnapshots] = await Promise.all([
+      financialSnapshotClient
+        .from('money_account_closures')
+        .select(`
+          id,
+          money_account_id,
+          closure_date,
+          closure_at,
+          expected_amount,
+          counted_amount,
+          difference_amount,
+          expected_amount_usd,
+          counted_amount_usd,
+          difference_amount_usd,
+          currency_code,
+          exchange_rate_ves_per_usd,
+          reason,
+          notes,
+          status,
+          created_by_user_id,
+          created_at,
+          reviewed_by_user_id,
+          reviewed_at
+        `)
+        .in('status', ['recorded', 'approved'])
+        .order('closure_date', { ascending: false })
+        .order('closure_at', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(500),
+      financialSnapshotClient
+        .from('money_account_closure_baselines')
+        .select(`
+          id,
+          money_account_id,
+          baseline_date,
+          baseline_at,
+          expected_amount,
+          counted_amount,
+          difference_amount,
+          expected_amount_usd,
+          counted_amount_usd,
+          difference_amount_usd,
+          currency_code,
+          exchange_rate_ves_per_usd,
+          reason,
+          notes,
+          status,
+          created_by_user_id,
+          created_at,
+          voided_by_user_id,
+          voided_at,
+          void_reason
+        `)
+        .eq('status', 'active')
+        .order('baseline_at', { ascending: false }),
+      financialSnapshotClient
+        .from('money_account_reconciliation_items')
+        .select(`
+          id,
+          money_account_id,
+          source_kind,
+          source_id,
+          item_type,
+          direction,
+          currency_code,
+          amount,
+          amount_usd_equivalent,
+          operation_date,
+          reference_code,
+          counterparty_name,
+          description,
+          status,
+          created_by_user_id,
+          created_at,
+          resolved_by_user_id,
+          resolved_at,
+          resolution_notes,
+          voided_by_user_id,
+          voided_at,
+          void_reason
+        `)
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(300),
+      loadMoneyAccountBalanceSnapshots(financialSnapshotClient),
+    ]);
+
+    if (closuresResult.error) throw new Error(closuresResult.error.message);
+    if (baselinesResult.error) throw new Error(baselinesResult.error.message);
+    if (reconciliationItemsResult.error) throw new Error(reconciliationItemsResult.error.message);
+
+    initialClosuresData = (closuresResult.data ?? []) as RawMoneyAccountClosureRow[];
+    initialBaselinesData = (baselinesResult.data ?? []) as RawMoneyAccountBaselineRow[];
+    initialReconciliationItemsData = (reconciliationItemsResult.data ?? []) as RawMoneyAccountReconciliationItemRow[];
+    initialMoneyAccountBalanceSnapshots = balanceSnapshots;
+  } catch (error) {
+    return (
+      <div className="min-h-screen bg-[#0B0B0D] p-6 text-[#F5F5F7]">
+        <div className="mx-auto max-w-xl rounded-2xl border border-[#242433] bg-[#121218] p-4">
+          <div className="text-lg font-semibold">Error cargando saldos financieros</div>
+          <div className="mt-2 text-sm text-[#B7B7C2]">
+            No se pudo obtener la foto actual de saldos, cierres y conciliaciones.
+          </div>
+          <pre className="mt-3 overflow-auto rounded-xl bg-[#0B0B0D] p-3 text-xs text-[#B7B7C2]">
+            {error instanceof Error ? error.message : 'Error desconocido'}
+          </pre>
+        </div>
+      </div>
+    );
+  }
 
   const rawReports = (reportsData ?? []) as RawPaymentReportRow[];
   const reportIdsForMovementStatus = rawReports
@@ -2268,7 +2464,81 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
     };
   });
 
-  const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] = [];
+  const moneyAccountClosures: ComponentProps<typeof MasterDashboardClient>['moneyAccountClosures'] =
+    initialClosuresData.map((closure) => ({
+      id: Number(closure.id),
+      moneyAccountId: Number(closure.money_account_id),
+      closureDate: closure.closure_date,
+      closureAt: closure.closure_at,
+      expectedAmount: toNumber(closure.expected_amount, 0),
+      countedAmount: toNumber(closure.counted_amount, 0),
+      differenceAmount: toNumber(closure.difference_amount, 0),
+      expectedAmountUsd: toNumber(closure.expected_amount_usd, 0),
+      countedAmountUsd: toNumber(closure.counted_amount_usd, 0),
+      differenceAmountUsd: toNumber(closure.difference_amount_usd, 0),
+      currencyCode: closure.currency_code,
+      exchangeRateVesPerUsd:
+        closure.exchange_rate_ves_per_usd == null ? null : toNumber(closure.exchange_rate_ves_per_usd, 0),
+      reason: closure.reason ?? null,
+      notes: closure.notes ?? null,
+      status: closure.status,
+      createdByUserId: closure.created_by_user_id,
+      createdAt: closure.created_at,
+      reviewedByUserId: closure.reviewed_by_user_id ?? null,
+      reviewedAt: closure.reviewed_at ?? null,
+    }));
+
+  const moneyAccountBaselines: ComponentProps<typeof MasterDashboardClient>['moneyAccountBaselines'] =
+    initialBaselinesData.map((baseline) => ({
+      id: Number(baseline.id),
+      moneyAccountId: Number(baseline.money_account_id),
+      baselineDate: baseline.baseline_date,
+      baselineAt: baseline.baseline_at,
+      expectedAmount: toNumber(baseline.expected_amount, 0),
+      countedAmount: toNumber(baseline.counted_amount, 0),
+      differenceAmount: toNumber(baseline.difference_amount, 0),
+      expectedAmountUsd: toNumber(baseline.expected_amount_usd, 0),
+      countedAmountUsd: toNumber(baseline.counted_amount_usd, 0),
+      differenceAmountUsd: toNumber(baseline.difference_amount_usd, 0),
+      currencyCode: baseline.currency_code,
+      exchangeRateVesPerUsd:
+        baseline.exchange_rate_ves_per_usd == null ? null : toNumber(baseline.exchange_rate_ves_per_usd, 0),
+      reason: baseline.reason ?? null,
+      notes: baseline.notes ?? null,
+      status: baseline.status,
+      createdByUserId: baseline.created_by_user_id,
+      createdAt: baseline.created_at,
+      voidedByUserId: baseline.voided_by_user_id ?? null,
+      voidedAt: baseline.voided_at ?? null,
+      voidReason: baseline.void_reason ?? null,
+    }));
+
+  const moneyAccountReconciliationItems: ComponentProps<
+    typeof MasterDashboardClient
+  >['moneyAccountReconciliationItems'] = initialReconciliationItemsData.map((item) => ({
+    id: Number(item.id),
+    moneyAccountId: Number(item.money_account_id),
+    sourceKind: item.source_kind,
+    sourceId: item.source_id == null ? null : Number(item.source_id),
+    itemType: item.item_type,
+    direction: item.direction,
+    currencyCode: item.currency_code,
+    amount: toNumber(item.amount, 0),
+    amountUsdEquivalent: toNumber(item.amount_usd_equivalent, 0),
+    operationDate: item.operation_date ?? null,
+    referenceCode: item.reference_code ?? null,
+    counterpartyName: item.counterparty_name ?? null,
+    description: item.description,
+    status: item.status,
+    createdByUserId: item.created_by_user_id,
+    createdAt: item.created_at,
+    resolvedByUserId: item.resolved_by_user_id ?? null,
+    resolvedAt: item.resolved_at ?? null,
+    resolutionNotes: item.resolution_notes ?? null,
+    voidedByUserId: item.voided_by_user_id ?? null,
+    voidedAt: item.voided_at ?? null,
+    voidReason: item.void_reason ?? null,
+  }));
 
   const moneyAccountNameById = new Map<number, string>();
   const moneyAccountById = new Map<number, (typeof moneyAccounts)[number]>();
@@ -3267,6 +3537,9 @@ currentUser={{
       moneyAccountClosureProfiles={moneyAccountClosureProfiles}
       moneyMovements={moneyMovements}
       moneyAccountClosures={moneyAccountClosures}
+      moneyAccountBaselines={moneyAccountBaselines}
+      moneyAccountReconciliationItems={moneyAccountReconciliationItems}
+      moneyAccountBalanceSnapshots={initialMoneyAccountBalanceSnapshots}
       inventoryItems={inventoryItems}
       inventoryMovements={inventoryMovements}
       inventoryRecipes={inventoryRecipes}

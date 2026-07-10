@@ -13,6 +13,7 @@ import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone
 import { normalizeRemoteSearchValue } from '@/lib/search/normalize-search';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { isOrderPriceProtected } from '@/lib/domain/order-domain';
+import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import {
   getOrderCommercialNetUsd,
   getOrderLineTotalUsd,
@@ -5470,7 +5471,7 @@ export async function loadMoneyActivityAction(input?: {
     reconciliationItemsQuery = reconciliationItemsQuery.eq('money_account_id', moneyAccountId);
   }
 
-  const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult] = await Promise.all([
+  const [movementsResult, closuresResult, baselinesResult, reconciliationItemsResult, balanceSnapshots] = await Promise.all([
     movementsQuery
       .order('movement_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -5481,6 +5482,9 @@ export async function loadMoneyActivityAction(input?: {
       .limit(closureLimit),
     baselinesQuery.order('baseline_at', { ascending: false }),
     reconciliationItemsQuery.order('created_at', { ascending: false }).limit(reconciliationLimit),
+    loadMoneyAccountBalanceSnapshots(supabase, {
+      moneyAccountIds: hasMoneyAccountFilter ? [moneyAccountId] : undefined,
+    }),
   ]);
 
   if (movementsResult.error) throw new Error(movementsResult.error.message);
@@ -5635,7 +5639,7 @@ export async function loadMoneyActivityAction(input?: {
     voidReason: row.void_reason ?? null,
   }));
 
-  return { movements, closures, baselines, reconciliationItems };
+  return { movements, closures, baselines, reconciliationItems, balanceSnapshots };
 }
 
 export async function loadInventoryMovementsAction(input?: {

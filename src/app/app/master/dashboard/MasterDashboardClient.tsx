@@ -39,6 +39,7 @@ import {
   MONEY_ACCOUNT_CLOSURE_LABELS,
   MONEY_ACCOUNT_KIND_LABELS,
 } from '@/lib/domain/finance-domain';
+import type { MoneyAccountBalanceSnapshot } from '@/lib/finance/account-balances';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -4128,6 +4129,9 @@ export default function MasterDashboardClient({
   moneyAccountClosureProfiles = [],
   moneyMovements: initialMoneyMovements = [],
   moneyAccountClosures: initialMoneyAccountClosures = [],
+  moneyAccountBaselines: initialMoneyAccountBaselines = [],
+  moneyAccountReconciliationItems: initialMoneyAccountReconciliationItems = [],
+  moneyAccountBalanceSnapshots: initialMoneyAccountBalanceSnapshots = [],
   inventoryItems = [],
   inventoryMovements: initialInventoryMovements = [],
   inventoryRecipes = [],
@@ -4183,6 +4187,9 @@ export default function MasterDashboardClient({
   moneyAccountClosureProfiles?: MoneyAccountClosureProfile[];
   moneyMovements?: MoneyMovementItem[];
   moneyAccountClosures?: MoneyAccountClosureItem[];
+  moneyAccountBaselines?: MoneyAccountBaselineItem[];
+  moneyAccountReconciliationItems?: MoneyAccountReconciliationItem[];
+  moneyAccountBalanceSnapshots?: MoneyAccountBalanceSnapshot[];
   inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovementItem[];
   inventoryRecipes?: InventoryRecipeItem[];
@@ -4344,10 +4351,17 @@ export default function MasterDashboardClient({
   const [moneyAccountClosures, setMoneyAccountClosures] = useState<MoneyAccountClosureItem[]>(
     initialMoneyAccountClosures
   );
-  const [moneyAccountBaselines, setMoneyAccountBaselines] = useState<MoneyAccountBaselineItem[]>([]);
+  const [moneyAccountBaselines, setMoneyAccountBaselines] =
+    useState<MoneyAccountBaselineItem[]>(initialMoneyAccountBaselines);
   const [moneyAccountReconciliationItems, setMoneyAccountReconciliationItems] = useState<
     MoneyAccountReconciliationItem[]
-  >([]);
+  >(initialMoneyAccountReconciliationItems);
+  const [moneyAccountBalanceSnapshots, setMoneyAccountBalanceSnapshots] = useState<MoneyAccountBalanceSnapshot[]>(
+    initialMoneyAccountBalanceSnapshots
+  );
+  const moneyAccountBalanceSnapshotByAccountId = useMemo(() => {
+    return new Map(moneyAccountBalanceSnapshots.map((snapshot) => [snapshot.moneyAccountId, snapshot]));
+  }, [moneyAccountBalanceSnapshots]);
   const [moneyActivityLoaded, setMoneyActivityLoaded] = useState(false);
   const [moneyActivityLoadedScope, setMoneyActivityLoadedScope] = useState('');
   const [moneyActivityLastLoadedAt, setMoneyActivityLastLoadedAt] = useState<string | null>(null);
@@ -8080,6 +8094,11 @@ const handleSaveQuickCatalog = async () => {
 
   const getExpectedAccountBalanceNative = useCallback(
     (accountId: number) => {
+      const snapshot = moneyAccountBalanceSnapshotByAccountId.get(accountId) ?? null;
+      if (snapshot) {
+        return Number(snapshot.balanceNative.toFixed(2));
+      }
+
       const anchor = getAccountBalanceAnchor(accountId);
       const movementDelta = moneyMovements.reduce((sum, movement) => {
         if (movement.moneyAccountId !== accountId) return sum;
@@ -8090,7 +8109,7 @@ const handleSaveQuickCatalog = async () => {
 
       return Number((anchor.amount + movementDelta).toFixed(2));
     },
-    [getAccountBalanceAnchor, moneyMovements]
+    [getAccountBalanceAnchor, moneyAccountBalanceSnapshotByAccountId, moneyMovements]
   );
 
   const getExpectedAccountBalanceNativeAt = useCallback(
@@ -8461,6 +8480,20 @@ const handleSaveQuickCatalog = async () => {
           });
         });
         setMoneyAccountReconciliationItems(result.reconciliationItems as MoneyAccountReconciliationItem[]);
+        setMoneyAccountBalanceSnapshots((currentSnapshots) => {
+          const loadedSnapshots = result.balanceSnapshots as MoneyAccountBalanceSnapshot[];
+          const snapshotByAccountId = new Map<number, MoneyAccountBalanceSnapshot>();
+
+          for (const snapshot of currentSnapshots) {
+            snapshotByAccountId.set(snapshot.moneyAccountId, snapshot);
+          }
+
+          for (const snapshot of loadedSnapshots) {
+            snapshotByAccountId.set(snapshot.moneyAccountId, snapshot);
+          }
+
+          return Array.from(snapshotByAccountId.values()).sort((a, b) => a.moneyAccountId - b.moneyAccountId);
+        });
         setMoneyActivityLoaded(true);
         setMoneyActivityLoadedScope(scopeKey);
         setMoneyActivityLastLoadedAt(new Date().toISOString());
@@ -23585,7 +23618,7 @@ deliveryAssignMode === 'external' ? (
                   </button>
                 )}
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs lg:grid-cols-4">
                 <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
                   <div className="text-[#8A8A96]">Saldo sistema</div>
                   <div className="mt-1 font-semibold text-[#F5F5F7]">
@@ -23596,15 +23629,17 @@ deliveryAssignMode === 'external' ? (
                   </div>
                 </div>
                 <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-                  <div className="text-[#8A8A96]">Última foto</div>
+                  <div className="text-[#8A8A96]">Última conciliación</div>
                   <div className="mt-1 font-semibold text-[#F5F5F7]">
                     {selectedAccountReportSummary.latestClosure
                       ? fmtClosureMoment(selectedAccountReportSummary.latestClosure)
-                      : 'Sin cierre'}
+                      : selectedAccountBaseline
+                        ? selectedAccountBaseline.baselineDate
+                        : 'Sin foto'}
                   </div>
                 </div>
                 <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-                  <div className="text-[#8A8A96]">Pendiente</div>
+                  <div className="text-[#8A8A96]">Pend. operación</div>
                   <div
                     className={[
                       'mt-1 font-semibold',
@@ -23615,6 +23650,20 @@ deliveryAssignMode === 'external' ? (
                       selectedAccountStatementData.pendingNative,
                       selectedAccount.currencyCode
                     )}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                  <div className="text-[#8A8A96]">Por conciliar</div>
+                  <div
+                    className={[
+                      'mt-1 font-semibold',
+                      selectedAccountBankSummary.openReconciliationCount > 0 ? 'text-[#FEEF00]' : 'text-[#F5F5F7]',
+                    ].join(' ')}
+                  >
+                    {`${selectedAccountBankSummary.openReconciliationCount} · ${fmtMoneyByCurrency(
+                      Math.abs(selectedAccountBankSummary.openReconciliationAmountNative),
+                      selectedAccount.currencyCode
+                    )}`}
                   </div>
                 </div>
               </div>
