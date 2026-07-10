@@ -166,6 +166,12 @@ function getMovementRecordedAtMs(movement: {
   return Number.isNaN(parsedTimestamp.getTime()) ? null : parsedTimestamp.getTime();
 }
 
+function accountUsesDailyBalanceCutoff(accountKind: string | null | undefined, closureKind: string | null | undefined) {
+  if (accountKind === 'cash' || accountKind === 'pos') return false;
+  if (closureKind === 'cash' || closureKind === 'pos') return false;
+  return true;
+}
+
 function getDefaultMoneyAccountClosureProfile(input: {
   accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
   currencyCode: 'USD' | 'VES';
@@ -9258,7 +9264,7 @@ export async function createMoneyAccountClosureAction(input: {
 
   const { data: account, error: accountError } = await supabase
     .from('money_accounts')
-    .select('id, name, currency_code')
+    .select('id, name, currency_code, account_kind')
     .eq('id', moneyAccountId)
     .single();
 
@@ -9277,19 +9283,6 @@ export async function createMoneyAccountClosureAction(input: {
     throw new Error('Debes indicar una tasa vÃ¡lida para cerrar una cuenta en Bs.');
   }
 
-    const { data: existingActiveClosures, error: existingActiveClosureError } = await supabase
-    .from('money_account_closures')
-    .select('id')
-    .eq('money_account_id', moneyAccountId)
-    .eq('closure_at', closureAt)
-    .in('status', ['recorded', 'approved'])
-    .limit(1);
-
-  if (existingActiveClosureError) throw new Error(existingActiveClosureError.message);
-  if ((existingActiveClosures ?? []).length > 0) {
-    throw new Error('Ya existe un cierre activo para esta cuenta en esa fecha y hora. Ajusta la hora o anula el cierre anterior.');
-  }
-
   const { data: profile, error: profileError } = await supabase
     .from('money_account_closure_profiles')
     .select(
@@ -9300,6 +9293,30 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (profileError) throw new Error(profileError.message);
 
+  const usesDailyCutoff = accountUsesDailyBalanceCutoff(account.account_kind, profile?.closure_kind);
+
+  let existingActiveClosuresQuery = supabase
+    .from('money_account_closures')
+    .select('id')
+    .eq('money_account_id', moneyAccountId)
+    .in('status', ['recorded', 'approved'])
+    .limit(1);
+
+  existingActiveClosuresQuery = usesDailyCutoff
+    ? existingActiveClosuresQuery.eq('closure_date', closureDate)
+    : existingActiveClosuresQuery.eq('closure_at', closureAt);
+
+  const { data: existingActiveClosures, error: existingActiveClosureError } = await existingActiveClosuresQuery;
+
+  if (existingActiveClosureError) throw new Error(existingActiveClosureError.message);
+  if ((existingActiveClosures ?? []).length > 0) {
+    throw new Error(
+      usesDailyCutoff
+        ? 'Ya existe una conciliación activa para esta cuenta en ese día. Anula la anterior antes de registrar otra.'
+        : 'Ya existe un cierre activo para esta cuenta en esa fecha y hora. Ajusta la hora o anula el cierre anterior.'
+    );
+  }
+
   const { data: activeBaseline, error: baselineError } = await supabase
     .from('money_account_closure_baselines')
     .select('baseline_date, baseline_at, counted_amount, counted_amount_usd')
@@ -9309,16 +9326,24 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (baselineError) throw new Error(baselineError.message);
 
-  const { data: previousClosure, error: previousClosureError } = await supabase
+  let previousClosureQuery = supabase
     .from('money_account_closures')
     .select('closure_date, closure_at, counted_amount, counted_amount_usd')
     .eq('money_account_id', moneyAccountId)
-    .in('status', ['recorded', 'approved'])
-    .lt('closure_at', closureAt)
-    .order('closure_at', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .in('status', ['recorded', 'approved']);
+
+  previousClosureQuery = usesDailyCutoff
+    ? previousClosureQuery
+        .lt('closure_date', closureDate)
+        .order('closure_date', { ascending: false })
+        .order('closure_at', { ascending: false })
+        .order('created_at', { ascending: false })
+    : previousClosureQuery
+        .lt('closure_at', closureAt)
+        .order('closure_at', { ascending: false })
+        .order('created_at', { ascending: false });
+
+  const { data: previousClosure, error: previousClosureError } = await previousClosureQuery.limit(1).maybeSingle();
 
   if (previousClosureError) throw new Error(previousClosureError.message);
 
@@ -9330,7 +9355,9 @@ export async function createMoneyAccountClosureAction(input: {
     .lte('movement_date', closureDate);
 
   if (previousClosure?.closure_date) {
-    movementsQuery = movementsQuery.gte('movement_date', previousClosure.closure_date);
+    movementsQuery = usesDailyCutoff
+      ? movementsQuery.gt('movement_date', previousClosure.closure_date)
+      : movementsQuery.gte('movement_date', previousClosure.closure_date);
   } else if (activeBaseline?.baseline_date) {
     movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
   }
@@ -9357,10 +9384,12 @@ export async function createMoneyAccountClosureAction(input: {
     const movementRecordedAtMs = getMovementRecordedAtMs(movement);
 
     if (movementDate > closureDate) continue;
-    if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
+    if (!usesDailyCutoff && movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
     if (previousClosureDate) {
+      if (usesDailyCutoff && movementDate <= previousClosureDate) continue;
       if (movementDate < previousClosureDate) continue;
       if (
+        !usesDailyCutoff &&
         movementDate === previousClosureDate &&
         previousClosureAtMs != null &&
         movementRecordedAtMs != null &&
@@ -9476,13 +9505,23 @@ export async function previewMoneyAccountClosureAction(input: {
 
   const { data: account, error: accountError } = await supabase
     .from('money_accounts')
-    .select('id, currency_code')
+    .select('id, currency_code, account_kind')
     .eq('id', moneyAccountId)
     .single();
 
   if (accountError || !account) {
     throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
   }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('money_account_closure_profiles')
+    .select('closure_kind')
+    .eq('money_account_id', moneyAccountId)
+    .maybeSingle();
+
+  if (profileError) throw new Error(profileError.message);
+
+  const usesDailyCutoff = accountUsesDailyBalanceCutoff(account.account_kind, profile?.closure_kind);
 
   const { data: activeBaseline, error: baselineError } = await supabase
     .from('money_account_closure_baselines')
@@ -9493,16 +9532,24 @@ export async function previewMoneyAccountClosureAction(input: {
 
   if (baselineError) throw new Error(baselineError.message);
 
-  const { data: previousClosure, error: previousClosureError } = await supabase
+  let previousClosureQuery = supabase
     .from('money_account_closures')
     .select('closure_date, closure_at, counted_amount, counted_amount_usd')
     .eq('money_account_id', moneyAccountId)
-    .in('status', ['recorded', 'approved'])
-    .lt('closure_at', closureAt)
-    .order('closure_at', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .in('status', ['recorded', 'approved']);
+
+  previousClosureQuery = usesDailyCutoff
+    ? previousClosureQuery
+        .lt('closure_date', closureDate)
+        .order('closure_date', { ascending: false })
+        .order('closure_at', { ascending: false })
+        .order('created_at', { ascending: false })
+    : previousClosureQuery
+        .lt('closure_at', closureAt)
+        .order('closure_at', { ascending: false })
+        .order('created_at', { ascending: false });
+
+  const { data: previousClosure, error: previousClosureError } = await previousClosureQuery.limit(1).maybeSingle();
 
   if (previousClosureError) throw new Error(previousClosureError.message);
 
@@ -9514,7 +9561,9 @@ export async function previewMoneyAccountClosureAction(input: {
     .lte('movement_date', closureDate);
 
   if (previousClosure?.closure_date) {
-    movementsQuery = movementsQuery.gte('movement_date', previousClosure.closure_date);
+    movementsQuery = usesDailyCutoff
+      ? movementsQuery.gt('movement_date', previousClosure.closure_date)
+      : movementsQuery.gte('movement_date', previousClosure.closure_date);
   } else if (activeBaseline?.baseline_date) {
     movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
   }
@@ -9541,10 +9590,12 @@ export async function previewMoneyAccountClosureAction(input: {
     const movementRecordedAtMs = getMovementRecordedAtMs(movement);
 
     if (movementDate > closureDate) continue;
-    if (movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
+    if (!usesDailyCutoff && movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) continue;
     if (previousClosureDate) {
+      if (usesDailyCutoff && movementDate <= previousClosureDate) continue;
       if (movementDate < previousClosureDate) continue;
       if (
+        !usesDailyCutoff &&
         movementDate === previousClosureDate &&
         previousClosureAtMs != null &&
         movementRecordedAtMs != null &&

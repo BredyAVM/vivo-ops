@@ -420,7 +420,50 @@ type AccountStatementRow = {
   outflowNative: number;
   netNative: number;
   runningBalanceNative: number;
+  affectsCurrentBalance: boolean;
 };
+
+type AccountBalanceAnchor = {
+  kind: 'closure' | 'baseline' | 'none';
+  date: string | null;
+  at: string | null;
+  amount: number;
+  usesDailyCutoff: boolean;
+  closure: MoneyAccountClosureItem | null;
+  baseline: MoneyAccountBaselineItem | null;
+};
+
+function compareAccountClosuresDesc(a: MoneyAccountClosureItem, b: MoneyAccountClosureItem) {
+  const byDate = String(b.closureDate).localeCompare(String(a.closureDate));
+  if (byDate !== 0) return byDate;
+  return String(b.closureAt || b.createdAt).localeCompare(String(a.closureAt || a.createdAt));
+}
+
+function accountUsesDailyBalanceCutoff(
+  account: MoneyAccountOption | null | undefined,
+  profile: MoneyAccountClosureProfile | null | undefined
+) {
+  if (account?.accountKind === 'cash' || account?.accountKind === 'pos') return false;
+  if (profile?.closureKind === 'cash' || profile?.closureKind === 'pos') return false;
+  return true;
+}
+
+function movementAffectsBalanceAfterAnchor(movement: MoneyMovementItem, anchor: AccountBalanceAnchor) {
+  if (!anchor.date) return true;
+
+  if (anchor.usesDailyCutoff) {
+    return movement.movementDate > anchor.date;
+  }
+
+  if (movement.movementDate < anchor.date) return false;
+  if (movement.movementDate > anchor.date) return true;
+  if (!anchor.at) return false;
+
+  const movementRecordedAt = movement.confirmedAt || movement.createdAt;
+  if (!movementRecordedAt) return true;
+
+  return new Date(movementRecordedAt).getTime() > new Date(anchor.at).getTime();
+}
 
 function accountMovementGroupMatchesFilter(group: AccountMovementGroup, accountMovementFilter: AccountMovementFilter) {
   if (accountMovementFilter === 'all') return true;
@@ -7983,86 +8026,126 @@ const handleSaveQuickCatalog = async () => {
     setTransferOpen(true);
   };
 
-  const getExpectedAccountBalanceNative = useCallback(
-    (accountId: number) => {
+  const getAccountBalanceAnchor = useCallback(
+    (accountId: number): AccountBalanceAnchor => {
+      const account = moneyAccounts.find((item) => item.id === accountId) ?? null;
+      const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
+      const usesDailyCutoff = accountUsesDailyBalanceCutoff(account, profile);
       const latestClosure =
         moneyAccountClosures
-          .filter(
-            (closure) =>
-              closure.moneyAccountId === accountId &&
-              closure.status !== 'rejected' &&
-              Boolean(closure.closureAt)
-          )
-          .sort(
-            (a, b) =>
-              new Date(b.closureAt || b.createdAt).getTime() -
-              new Date(a.closureAt || a.createdAt).getTime()
-          )[0] ?? null;
-      const activeBaseline =
-        latestClosure == null
-          ? moneyAccountBaselines.find(
-              (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
-            ) ?? null
-          : null;
-      const anchorAmount = latestClosure?.countedAmount ?? activeBaseline?.countedAmount ?? 0;
-      const anchorDate = latestClosure?.closureDate ?? activeBaseline?.baselineDate ?? null;
-      const anchorAtMs = latestClosure?.closureAt ? new Date(latestClosure.closureAt).getTime() : null;
+          .filter((closure) => closure.moneyAccountId === accountId && closure.status !== 'rejected')
+          .sort(compareAccountClosuresDesc)[0] ?? null;
 
+      if (latestClosure) {
+        return {
+          kind: 'closure',
+          date: latestClosure.closureDate,
+          at: latestClosure.closureAt || latestClosure.createdAt,
+          amount: Number(latestClosure.countedAmount || 0),
+          usesDailyCutoff,
+          closure: latestClosure,
+          baseline: null,
+        };
+      }
+
+      const activeBaseline =
+        moneyAccountBaselines.find(
+          (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
+        ) ?? null;
+
+      if (activeBaseline) {
+        return {
+          kind: 'baseline',
+          date: activeBaseline.baselineDate,
+          at: activeBaseline.baselineAt,
+          amount: Number(activeBaseline.countedAmount || 0),
+          usesDailyCutoff: true,
+          closure: null,
+          baseline: activeBaseline,
+        };
+      }
+
+      return {
+        kind: 'none',
+        date: null,
+        at: null,
+        amount: 0,
+        usesDailyCutoff,
+        closure: null,
+        baseline: null,
+      };
+    },
+    [moneyAccountBaselines, moneyAccountClosureProfiles, moneyAccountClosures, moneyAccounts]
+  );
+
+  const getExpectedAccountBalanceNative = useCallback(
+    (accountId: number) => {
+      const anchor = getAccountBalanceAnchor(accountId);
       const movementDelta = moneyMovements.reduce((sum, movement) => {
         if (movement.moneyAccountId !== accountId) return sum;
         if (movement.status !== 'confirmed') return sum;
-
-        if (latestClosure && anchorDate) {
-          if (movement.movementDate < anchorDate) return sum;
-          const movementRecordedAt = movement.confirmedAt || movement.createdAt;
-          const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
-          if (
-            movement.movementDate === anchorDate &&
-            anchorAtMs != null &&
-            movementRecordedAtMs != null &&
-            movementRecordedAtMs <= anchorAtMs
-          ) {
-            return sum;
-          }
-        } else if (anchorDate && movement.movementDate <= anchorDate) {
-          return sum;
-        }
-
+        if (!movementAffectsBalanceAfterAnchor(movement, anchor)) return sum;
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);
 
-      return Number((anchorAmount + movementDelta).toFixed(2));
+      return Number((anchor.amount + movementDelta).toFixed(2));
     },
-    [moneyAccountBaselines, moneyAccountClosures, moneyMovements]
+    [getAccountBalanceAnchor, moneyMovements]
   );
 
   const getExpectedAccountBalanceNativeAt = useCallback(
     (accountId: number, cutoffDate: string, cutoffTime: string) => {
       const cutoffAt = buildCaracasClosureAt(cutoffDate, cutoffTime);
       const cutoffAtMs = cutoffAt?.getTime() ?? null;
+      const account = moneyAccounts.find((item) => item.id === accountId) ?? null;
+      const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
+      const usesDailyCutoff = accountUsesDailyBalanceCutoff(account, profile);
       const latestClosure =
         moneyAccountClosures
           .filter((closure) => {
-            if (closure.moneyAccountId !== accountId || closure.status === 'rejected' || !closure.closureAt) {
+            if (closure.moneyAccountId !== accountId || closure.status === 'rejected') {
               return false;
             }
-            if (cutoffAtMs == null) return true;
+            if (usesDailyCutoff) return closure.closureDate < cutoffDate;
+            if (cutoffAtMs == null || !closure.closureAt) return true;
             return new Date(closure.closureAt).getTime() < cutoffAtMs;
           })
-          .sort(
-            (a, b) =>
-              new Date(b.closureAt || b.createdAt).getTime() -
-              new Date(a.closureAt || a.createdAt).getTime()
-          )[0] ?? null;
+          .sort(compareAccountClosuresDesc)[0] ?? null;
       const activeBaseline =
         latestClosure == null
           ? moneyAccountBaselines.find(
               (baseline) => baseline.moneyAccountId === accountId && baseline.status === 'active'
             ) ?? null
           : null;
-      const anchorAmount = latestClosure?.countedAmount ?? activeBaseline?.countedAmount ?? 0;
-      const anchorDate = latestClosure?.closureDate ?? activeBaseline?.baselineDate ?? null;
-      const anchorAtMs = latestClosure?.closureAt ? new Date(latestClosure.closureAt).getTime() : null;
+      const anchor: AccountBalanceAnchor = latestClosure
+        ? {
+            kind: 'closure',
+            date: latestClosure.closureDate,
+            at: latestClosure.closureAt || latestClosure.createdAt,
+            amount: Number(latestClosure.countedAmount || 0),
+            usesDailyCutoff,
+            closure: latestClosure,
+            baseline: null,
+          }
+        : activeBaseline
+          ? {
+              kind: 'baseline',
+              date: activeBaseline.baselineDate,
+              at: activeBaseline.baselineAt,
+              amount: Number(activeBaseline.countedAmount || 0),
+              usesDailyCutoff: true,
+              closure: null,
+              baseline: activeBaseline,
+            }
+          : {
+              kind: 'none',
+              date: null,
+              at: null,
+              amount: 0,
+              usesDailyCutoff,
+              closure: null,
+              baseline: null,
+            };
 
       const movementDelta = moneyMovements.reduce((sum, movement) => {
         if (movement.moneyAccountId !== accountId) return sum;
@@ -8073,6 +8156,7 @@ const handleSaveQuickCatalog = async () => {
         const movementRecordedAtMs = movementRecordedAt ? new Date(movementRecordedAt).getTime() : null;
 
         if (
+          !usesDailyCutoff &&
           movement.movementDate === cutoffDate &&
           cutoffAtMs != null &&
           movementRecordedAtMs != null &&
@@ -8081,26 +8165,14 @@ const handleSaveQuickCatalog = async () => {
           return sum;
         }
 
-        if (latestClosure && anchorDate) {
-          if (movement.movementDate < anchorDate) return sum;
-          if (
-            movement.movementDate === anchorDate &&
-            anchorAtMs != null &&
-            movementRecordedAtMs != null &&
-            movementRecordedAtMs <= anchorAtMs
-          ) {
-            return sum;
-          }
-        } else if (anchorDate && movement.movementDate <= anchorDate) {
-          return sum;
-        }
+        if (!movementAffectsBalanceAfterAnchor(movement, anchor)) return sum;
 
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);
 
-      return Number((anchorAmount + movementDelta).toFixed(2));
+      return Number((anchor.amount + movementDelta).toFixed(2));
     },
-    [moneyAccountBaselines, moneyAccountClosures, moneyMovements]
+    [moneyAccountBaselines, moneyAccountClosureProfiles, moneyAccountClosures, moneyAccounts, moneyMovements]
   );
 
   const getClosurePreviewKey = (accountId: number, date: string, time: string) =>
@@ -12155,12 +12227,13 @@ const selectedCreateOrderClientAddresses = useMemo(
     if (!selectedAccountId) return [];
     return moneyAccountClosures
       .filter((closure) => closure.moneyAccountId === selectedAccountId)
-      .sort(
-        (a, b) =>
-          new Date(b.closureAt || b.createdAt).getTime() -
-          new Date(a.closureAt || a.createdAt).getTime()
-      );
+      .sort(compareAccountClosuresDesc);
   }, [moneyAccountClosures, selectedAccountId]);
+
+  const selectedAccountLatestValidClosure = useMemo(
+    () => selectedAccountClosures.find((closure) => closure.status !== 'rejected') ?? null,
+    [selectedAccountClosures]
+  );
 
   const selectedAccountReconciliationItems = useMemo(() => {
     if (!selectedAccountId) return [];
@@ -12330,7 +12403,7 @@ const selectedCreateOrderClientAddresses = useMemo(
     const confirmedFeeNative = confirmedGroups.reduce((sum, group) => sum + group.feeNative, 0);
     const confirmedNetNative = confirmedGroups.reduce((sum, group) => sum + group.netNative, 0);
     const pendingUsd = pendingGroups.reduce((sum, group) => sum + Math.abs(group.netUsd), 0);
-    const latestClosure = selectedAccountClosures[0] ?? null;
+    const latestClosure = selectedAccountLatestValidClosure;
     const lastTouchedAt =
       selectedAccountAllMovementGroups
         .flatMap((group) =>
@@ -12364,7 +12437,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       latestClosure,
       lastTouchedAt,
     };
-  }, [selectedAccountAllMovementGroups, selectedAccountClosures]);
+  }, [selectedAccountAllMovementGroups, selectedAccountClosures, selectedAccountLatestValidClosure]);
 
   const globalAuditFilteredGroups = useMemo(() => {
     const selectedAccountNumber = Number(globalAuditAccountFilter);
@@ -12842,16 +12915,17 @@ const selectedCreateOrderClientAddresses = useMemo(
       };
     }
 
-    const baselineDate = selectedAccountBaseline?.baselineDate ?? null;
-    const baselineAmount = selectedAccountBaseline?.countedAmount ?? 0;
+    const balanceAnchor = getAccountBalanceAnchor(selectedAccount.id);
+    const anchorDate = balanceAnchor.date;
+    const anchorAmount = balanceAnchor.amount;
     const effectiveDateFrom = accountDetailDateFrom || (!accountDetailDateTo ? defaultMoneyActivityDate : '');
     const effectiveDateTo = accountDetailDateTo || (!accountDetailDateFrom ? defaultMoneyActivityDate : '');
-    const startDate = effectiveDateFrom || baselineDate || '';
-    const isAfterBaseline = (movement: MoneyMovementItem) => !baselineDate || movement.movementDate > baselineDate;
+    const startDate = effectiveDateFrom || anchorDate || '';
+    const affectsCurrentBalance = (movement: MoneyMovementItem) =>
+      movementAffectsBalanceAfterAnchor(movement, balanceAnchor);
     const isBeforePeriod = (movement: MoneyMovementItem) =>
       effectiveDateFrom ? movement.movementDate < effectiveDateFrom : false;
     const isInsidePeriod = (movement: MoneyMovementItem) => {
-      if (baselineDate && movement.movementDate <= baselineDate) return false;
       if (effectiveDateFrom && movement.movementDate < effectiveDateFrom) return false;
       if (effectiveDateTo && movement.movementDate > effectiveDateTo) return false;
       return true;
@@ -12860,12 +12934,12 @@ const selectedCreateOrderClientAddresses = useMemo(
     const openingDelta = moneyMovements.reduce((sum, movement) => {
       if (movement.moneyAccountId !== selectedAccountId) return sum;
       if (movement.status !== 'confirmed') return sum;
-      if (!isAfterBaseline(movement)) return sum;
+      if (!affectsCurrentBalance(movement)) return sum;
       if (!isBeforePeriod(movement)) return sum;
       return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
     }, 0);
 
-    let runningBalance = Number((baselineAmount + openingDelta).toFixed(2));
+    let runningBalance = Number((anchorAmount + openingDelta).toFixed(2));
     let inflowNative = 0;
     let outflowNative = 0;
     let pendingNative = 0;
@@ -12893,6 +12967,7 @@ const selectedCreateOrderClientAddresses = useMemo(
         : null;
       const confirmedMovements = group.selectedMovements.filter((item) => item.status === 'confirmed');
       const pendingMovements = group.selectedMovements.filter((item) => item.status === 'pending');
+      const balanceMovements = confirmedMovements.filter(affectsCurrentBalance);
       const inflow = Number(
         confirmedMovements
           .filter((item) => item.direction === 'inflow')
@@ -12905,7 +12980,13 @@ const selectedCreateOrderClientAddresses = useMemo(
           .reduce((sum, item) => sum + item.amount, 0)
           .toFixed(2)
       );
-      const netNative = Number((inflow - outflow).toFixed(2));
+      const balanceInflow = balanceMovements
+        .filter((item) => item.direction === 'inflow')
+        .reduce((sum, item) => sum + item.amount, 0);
+      const balanceOutflow = balanceMovements
+        .filter((item) => item.direction === 'outflow')
+        .reduce((sum, item) => sum + item.amount, 0);
+      const netNative = Number((balanceInflow - balanceOutflow).toFixed(2));
 
       if (confirmedMovements.length > 0) {
         runningBalance = Number((runningBalance + netNative).toFixed(2));
@@ -12942,11 +13023,12 @@ const selectedCreateOrderClientAddresses = useMemo(
         outflowNative: outflow,
         netNative,
         runningBalanceNative: runningBalance,
+        affectsCurrentBalance: balanceMovements.length > 0,
       };
     });
 
     return {
-      openingBalanceNative: Number((baselineAmount + openingDelta).toFixed(2)),
+      openingBalanceNative: Number((anchorAmount + openingDelta).toFixed(2)),
       inflowNative: Number(inflowNative.toFixed(2)),
       outflowNative: Number(outflowNative.toFixed(2)),
       pendingNative: Number(pendingNative.toFixed(2)),
@@ -12954,21 +13036,21 @@ const selectedCreateOrderClientAddresses = useMemo(
       rows,
       startLabel: effectiveDateFrom
         ? effectiveDateFrom
-        : baselineDate
-          ? `desde ${baselineDate}`
-          : startDate || 'sin línea base',
+        : anchorDate
+          ? `desde ${anchorDate}`
+          : startDate || 'sin ancla',
     };
   }, [
     accountDetailDateFrom,
     accountDetailDateTo,
     defaultMoneyActivityDate,
     getMovementGroupClientLabel,
+    getAccountBalanceAnchor,
     moneyAccounts,
     moneyMovements,
     orderLookupById,
     selectedAccount,
-    selectedAccountBaseline,
-      selectedAccountId,
+    selectedAccountId,
   ]);
 
   const selectedAccountVisibleStatementRows = useMemo(() => {
@@ -13051,7 +13133,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       .filter((movement) => movement.status === 'confirmed' && movement.direction === 'outflow')
       .reduce((sum, movement) => sum + movement.amount, 0);
     const todayPendingMovements = todayMovements.filter((movement) => movement.status === 'pending');
-    const latestClosure = selectedAccountClosures[0] ?? null;
+    const latestClosure = selectedAccountLatestValidClosure;
     const openReconciliationAmountNative = selectedAccountOpenReconciliationItems.reduce(
       (sum, item) => sum + (item.direction === 'surplus' ? item.amount : -item.amount),
       0
@@ -13075,7 +13157,7 @@ const selectedCreateOrderClientAddresses = useMemo(
   }, [
     moneyMovements,
     selectedAccount,
-    selectedAccountClosures,
+    selectedAccountLatestValidClosure,
     selectedAccountOpenReconciliationItems,
     selectedAccountSystemBalanceNative,
   ]);
@@ -17357,12 +17439,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
             const hasReview = rules.some((rule) => rule.reviewRequired);
             const latestClosure =
               moneyAccountClosures
-                .filter((closure) => closure.moneyAccountId === account.id)
-                .sort(
-                  (a, b) =>
-                    new Date(b.closureAt || b.createdAt).getTime() -
-                    new Date(a.closureAt || a.createdAt).getTime()
-                )[0] ?? null;
+                .filter((closure) => closure.moneyAccountId === account.id && closure.status !== 'rejected')
+                .sort(compareAccountClosuresDesc)[0] ?? null;
             const closureProfile = moneyAccountClosureProfileByAccountId.get(account.id) ?? null;
             const financeVocabulary = getFinanceClosureVocabulary({
               accountKind: account.accountKind,
@@ -24189,7 +24267,7 @@ deliveryAssignMode === 'external' ? (
                             <div className="truncate font-semibold text-[#F5F5F7]">
                               {fmtMoneyByCurrency(row.runningBalanceNative, selectedAccount.currencyCode)}
                             </div>
-                            {movement.status !== 'confirmed' ? (
+                            {movement.status !== 'confirmed' || !row.affectsCurrentBalance ? (
                               <div className="mt-0.5 text-[10px] text-[#8A8A96]">No afecta saldo</div>
                             ) : null}
                           </div>
