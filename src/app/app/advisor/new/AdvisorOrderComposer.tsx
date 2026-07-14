@@ -2900,8 +2900,9 @@ export default function AdvisorOrderComposer({
     const parts: string[] = [];
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
-    const deliveryDayLabel = deliveryDate
-      ? new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+    const effectiveDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const deliveryDayLabel = effectiveDeliveryDate
+      ? new Date(`${effectiveDeliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
           weekday: 'long',
           day: '2-digit',
           month: '2-digit',
@@ -2978,8 +2979,9 @@ export default function AdvisorOrderComposer({
     const parts: string[] = [];
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
-    const deliveryDayLabel = deliveryDate
-      ? new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+    const effectiveDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const deliveryDayLabel = effectiveDeliveryDate
+      ? new Date(`${effectiveDeliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
           weekday: 'long',
           day: '2-digit',
           month: '2-digit',
@@ -3052,8 +3054,9 @@ export default function AdvisorOrderComposer({
   function buildMasterStyleQuoteSummary() {
     const clientName = selectedClient?.full_name || newClientName.trim() || 'Cliente';
     const clientPhone = selectedClient?.phone || newClientPhone.trim();
-    const deliveryDayLabel = deliveryDate
-      ? new Date(`${deliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
+    const effectiveDeliveryDate = deliveryDate.trim() || (isAsap ? getTodayInputValue() : '');
+    const deliveryDayLabel = effectiveDeliveryDate
+      ? new Date(`${effectiveDeliveryDate}T12:00:00`).toLocaleDateString('es-VE', {
           weekday: 'long',
           day: '2-digit',
           month: '2-digit',
@@ -3094,11 +3097,13 @@ export default function AdvisorOrderComposer({
         totalUsd: finalTotalUsd,
       },
       fulfillment,
-      deliveryText: isAsap ? 'Lo antes posible' : `${deliveryDayLabel} - ${deliveryHourLabel}`,
-      deliveryDateText: isAsap ? 'Lo antes posible' : formatWhatsAppDateVE(deliveryDate),
+      deliveryText: isAsap ? `${deliveryDayLabel} - Lo antes posible` : `${deliveryDayLabel} - ${deliveryHourLabel}`,
+      deliveryDateText: formatWhatsAppDateVE(effectiveDeliveryDate),
       deliveryTimeText:
-        isAsap || !deliveryHour12.trim() || !deliveryMinute.trim()
-          ? null
+        isAsap
+          ? 'Lo antes posible'
+          : !deliveryHour12.trim() || !deliveryMinute.trim()
+            ? null
           : formatWhatsAppTimeAmPm(`${deliveryHour12}:${deliveryMinute} ${deliveryAmPm}`),
       address: deliveryAddress,
       gpsUrl: deliveryGpsUrl,

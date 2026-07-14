@@ -2854,9 +2854,11 @@ function buildWhatsAppOrderSummary(order: Order) {
       totalUsd: order.totalUsd,
     },
     fulfillment: order.fulfillment,
-    deliveryText: fmtDeliveryTextES(order.deliveryAtISO),
+    deliveryText: order.editMeta.isAsap
+      ? `${formatWhatsAppDateVE(order.deliveryAtISO)} - Lo antes posible`
+      : fmtDeliveryTextES(order.deliveryAtISO),
     deliveryDateText: formatWhatsAppDateVE(order.deliveryAtISO),
-    deliveryTimeText: formatWhatsAppTimeAmPm(order.deliveryAtISO),
+    deliveryTimeText: order.editMeta.isAsap ? 'Lo antes posible' : formatWhatsAppTimeAmPm(order.deliveryAtISO),
     address: order.address,
     gpsUrl: order.editMeta.deliveryGpsUrl,
     paymentMethodLabel: getSharedPaymentMethodLabel(order.editMeta.paymentMethod),

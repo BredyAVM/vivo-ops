@@ -387,9 +387,9 @@ function deliveryText(
     | null
     | undefined,
 ) {
-  if (schedule?.asap) return 'Lo antes posible';
-
   const date = safeText(schedule?.date, '');
+  if (schedule?.asap) return `${date || 'Sin fecha'} - Lo antes posible`;
+
   const time = safeText(schedule?.time_12, '');
   return `${date} ${time}`.trim() || 'Sin horario';
 }
@@ -404,7 +404,6 @@ function deliveryDayText(
     | null
     | undefined,
 ) {
-  if (schedule?.asap) return 'Lo antes posible';
   return safeText(schedule?.date, 'Sin fecha');
 }
 
@@ -418,7 +417,7 @@ function deliveryHourText(
     | null
     | undefined,
 ) {
-  if (schedule?.asap) return '';
+  if (schedule?.asap) return 'Lo antes posible';
   return safeText(schedule?.time_12, '');
 }
 
@@ -596,11 +595,9 @@ function buildCleanWhatsAppOrderSummary({
     },
     fulfillment: order.fulfillment,
     deliveryText: deliveryFullText || deliveryText(order.extra_fields?.schedule),
-    deliveryDateText: order.extra_fields?.schedule?.asap
-      ? 'Lo antes posible'
-      : formatWhatsAppDateVE(order.extra_fields?.schedule?.date),
+    deliveryDateText: formatWhatsAppDateVE(order.extra_fields?.schedule?.date),
     deliveryTimeText: order.extra_fields?.schedule?.asap
-      ? null
+      ? 'Lo antes posible'
       : formatWhatsAppTimeAmPm(order.extra_fields?.schedule?.time_12),
     address: order.delivery_address,
     gpsUrl: order.extra_fields?.delivery?.gps_url,
