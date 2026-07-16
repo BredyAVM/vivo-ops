@@ -100,16 +100,33 @@ export function formatWhatsAppDateVE(value: string | null | undefined) {
   if (!normalized) return '';
 
   const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+  const date = dateOnly
+    ? new Date(`${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}T12:00:00-04:00`)
+    : new Date(normalized);
 
-  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return normalized;
+
+  const parts = new Intl.DateTimeFormat('es-VE', {
+    timeZone: 'America/Caracas',
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  }).formatToParts(date);
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  const weekday = getPart('weekday');
+  const day = getPart('day');
+  const month = getPart('month');
+  const year = getPart('year');
+
+  if (weekday && day && month && year) return `${weekday} ${day}/${month}/${year}`;
 
   return new Intl.DateTimeFormat('es-VE', {
     timeZone: 'America/Caracas',
+    weekday: 'long',
     day: '2-digit',
     month: '2-digit',
-    year: 'numeric',
+    year: '2-digit',
   }).format(date);
 }
 
