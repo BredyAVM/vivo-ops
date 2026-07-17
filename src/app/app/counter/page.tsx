@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { getPublicVapidKey } from '@/lib/push';
 import {
   getOrderMoneySnapshot,
   getOrderRoundingClosureSnapshot,
@@ -837,6 +838,7 @@ export default async function CounterPage() {
 
   return (
     <CounterClient
+      publicVapidKey={getPublicVapidKey()}
       fullName={
         profile?.full_name?.trim() ||
         ctx.user.user_metadata?.full_name ||

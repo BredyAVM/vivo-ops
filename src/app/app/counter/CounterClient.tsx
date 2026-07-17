@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -144,6 +145,7 @@ export type CounterOrder = {
 };
 
 type CounterClientProps = {
+  publicVapidKey: string;
   fullName: string;
   orders: CounterOrder[];
   paymentAccounts: CounterPaymentAccountOption[];
@@ -212,29 +214,21 @@ type CounterQuickSaleCartItem = {
   editableDetailLines: string[];
 };
 
+type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
+
 type CounterFilter =
   | 'now'
-  | 'all'
-  | 'agenda'
   | 'kitchen'
   | 'pickup'
   | 'delivery'
-  | 'route'
-  | 'change'
-  | 'pending'
-  | 'paid';
+  | 'route';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
-  { key: 'now', label: 'Ahora' },
-  { key: 'all', label: 'Todos' },
-  { key: 'agenda', label: 'Agenda' },
-  { key: 'kitchen', label: 'En cocina' },
+  { key: 'now', label: 'Listos' },
   { key: 'pickup', label: 'Pickup' },
   { key: 'delivery', label: 'Delivery' },
+  { key: 'kitchen', label: 'En cocina' },
   { key: 'route', label: 'En camino' },
-  { key: 'change', label: 'Con cambio' },
-  { key: 'pending', label: 'Por cobrar' },
-  { key: 'paid', label: 'Pagados' },
 ];
 
 const QUICK_SALE_PAYMENT_METHODS = [
@@ -246,6 +240,106 @@ const QUICK_SALE_PAYMENT_METHODS = [
   { code: 'zelle', label: 'Zelle' },
   { code: 'mixed', label: 'Mixto' },
 ];
+
+const PUSH_TIMEOUT_MS = 12000;
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
+}
+
+function subscriptionToJson(subscription: PushSubscription) {
+  return subscription.toJSON() as {
+    endpoint: string;
+    keys: {
+      p256dh: string;
+      auth: string;
+    };
+  };
+}
+
+async function withTimeout<T>(promise: Promise<T>, message: string) {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), PUSH_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function getAppServiceWorker() {
+  const existing = await navigator.serviceWorker.getRegistration('/app/');
+  if (existing) return existing;
+
+  return navigator.serviceWorker.register('/vivo-sw.js', {
+    scope: '/app/',
+    updateViaCache: 'none',
+  });
+}
+
+async function waitForActiveServiceWorker(registration: ServiceWorkerRegistration) {
+  if (registration.active) return registration;
+
+  const worker = registration.installing || registration.waiting;
+  if (!worker) return navigator.serviceWorker.ready;
+
+  await withTimeout(
+    new Promise<void>((resolve, reject) => {
+      const onStateChange = () => {
+        if (worker.state === 'activated') {
+          worker.removeEventListener('statechange', onStateChange);
+          resolve();
+        }
+      };
+
+      worker.addEventListener('statechange', onStateChange);
+
+      if (worker.state === 'activated') {
+        worker.removeEventListener('statechange', onStateChange);
+        resolve();
+      }
+
+      if (worker.state === 'redundant') {
+        worker.removeEventListener('statechange', onStateChange);
+        reject(new Error('El servicio de notificaciones no pudo activarse.'));
+      }
+    }),
+    'La app tardo demasiado en activar el servicio de notificaciones.'
+  );
+
+  return navigator.serviceWorker.ready;
+}
+
+function playCounterAlert() {
+  try {
+    const AudioContextCtor = window.AudioContext || (window as Window & {
+      webkitAudioContext?: typeof AudioContext;
+    }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    const ctx = new AudioContextCtor();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'square';
+    oscillator.frequency.setValueAtTime(740, ctx.currentTime);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.38);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.42);
+    setTimeout(() => void ctx.close().catch(() => undefined), 650);
+  } catch {
+    // Browsers can block audio until the user interacts with the page.
+  }
+}
 
 function moneyUsd(value: number) {
   return `$${value.toLocaleString('es-VE', {
@@ -444,6 +538,7 @@ function agendaSearchReason(result: CounterAgendaSearchResult) {
 }
 
 export default function CounterClient({
+  publicVapidKey,
   fullName,
   orders,
   paymentAccounts,
@@ -453,12 +548,15 @@ export default function CounterClient({
   activeBsRate,
 }: CounterClientProps) {
   const router = useRouter();
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [localOrders, setLocalOrders] = useState(orders);
   const previousOrderIdsRef = useRef<Set<number> | null>(null);
   const [lastAutoRefreshAt, setLastAutoRefreshAt] = useState<string | null>(null);
+  const [pushState, setPushState] = useState<PushState>('checking');
+  const [pushBusy, setPushBusy] = useState(false);
   const [filter, setFilter] = useState<CounterFilter>('now');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -473,6 +571,36 @@ export default function CounterClient({
     setLastAutoRefreshAt(new Date().toISOString());
     router.refresh();
   }, [router]);
+
+  useEffect(() => {
+    async function bootPushState() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        setPushState('unsupported');
+        return;
+      }
+      if (!publicVapidKey) {
+        setPushState('error');
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        setPushState('denied');
+        return;
+      }
+
+      try {
+        const registration = await waitForActiveServiceWorker(await getAppServiceWorker());
+        const currentSubscription = await withTimeout(
+          registration.pushManager.getSubscription(),
+          'La app tardo demasiado en revisar alertas.'
+        );
+        setPushState(currentSubscription ? 'subscribed' : 'ready');
+      } catch {
+        setPushState('error');
+      }
+    }
+
+    void bootPushState();
+  }, [publicVapidKey]);
 
   useEffect(() => {
     const previousOrderIds = previousOrderIdsRef.current;
@@ -531,6 +659,7 @@ export default function CounterClient({
         tone: 'success',
         text: data.payload?.title || data.payload?.body || 'Hay novedades en mostrador.',
       });
+      playCounterAlert();
       refreshCounter();
     };
 
@@ -538,18 +667,77 @@ export default function CounterClient({
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, [refreshCounter]);
 
+  async function getAccessToken() {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || '';
+  }
+
+  async function enablePush() {
+    setPushBusy(true);
+    setMessage(null);
+
+    try {
+      if (!publicVapidKey) throw new Error('Falta configurar alertas push.');
+      const permission = await Notification.requestPermission();
+      if (permission === 'denied') {
+        setPushState('denied');
+        throw new Error('El navegador bloqueo las notificaciones.');
+      }
+
+      const registration = await waitForActiveServiceWorker(await getAppServiceWorker());
+      let subscription = await withTimeout(
+        registration.pushManager.getSubscription(),
+        'La app tardo demasiado en revisar alertas.'
+      );
+      if (!subscription) {
+        subscription = await withTimeout(
+          registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
+          }),
+          'La suscripcion push tardo demasiado.'
+        );
+      }
+
+      const response = await withTimeout(
+        fetch('/api/push-subscriptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accessToken: await getAccessToken(),
+            scope: 'counter',
+            subscription: subscriptionToJson(subscription),
+          }),
+        }),
+        'Guardar las alertas tardo demasiado.'
+      );
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error || 'No se pudo guardar este dispositivo.');
+      }
+
+      playCounterAlert();
+      setPushState('subscribed');
+      setMessage({ tone: 'success', text: 'Alertas del mostrador activadas en este dispositivo.' });
+    } catch (error) {
+      setPushState((current) => current === 'denied' ? 'denied' : 'error');
+      setMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'No se pudo activar alertas.',
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
   const filterCounts = useMemo<Record<CounterFilter, number>>(() => {
     return {
       now: localOrders.filter(isCounterActionableOrder).length,
-      all: localOrders.length,
-      agenda: localOrders.filter(isCounterAgendaOrder).length,
       kitchen: localOrders.filter(isKitchenFollowUpOrder).length,
       pickup: localOrders.filter((order) => order.fulfillment === 'pickup').length,
       delivery: localOrders.filter((order) => order.fulfillment === 'delivery').length,
       route: localOrders.filter((order) => order.status === 'out_for_delivery').length,
-      change: localOrders.filter((order) => order.paymentRequiresChange).length,
-      pending: localOrders.filter((order) => order.balanceUsd > 0.005).length,
-      paid: localOrders.filter((order) => order.balanceUsd <= 0.005).length,
     };
   }, [localOrders]);
 
@@ -559,13 +747,9 @@ export default function CounterClient({
     return sortCounterOrders(localOrders.filter((order) => {
       if (filter === 'now' && !isCounterActionableOrder(order)) return false;
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
-      if (filter === 'agenda' && !isCounterAgendaOrder(order)) return false;
       if (filter === 'kitchen' && !isKitchenFollowUpOrder(order)) return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
       if (filter === 'route' && order.status !== 'out_for_delivery') return false;
-      if (filter === 'change' && !order.paymentRequiresChange) return false;
-      if (filter === 'pending' && order.balanceUsd <= 0.005) return false;
-      if (filter === 'paid' && order.balanceUsd > 0.005) return false;
 
       if (!term) return true;
 
@@ -609,33 +793,34 @@ export default function CounterClient({
 
     if (filter === 'now') return actionableSections;
 
-    if (filter !== 'all') {
-      const filterLabel = FILTERS.find((item) => item.key === filter)?.label ?? 'Resultados';
-      return [
-        {
-          key: `filter-${filter}`,
-          title: filterLabel,
-          helper: 'Pedidos que coinciden con el filtro actual.',
-          orders: filteredOrders,
-        },
-      ];
-    }
+    const filterMeta: Record<Exclude<CounterFilter, 'now'>, { title: string; helper: string }> = {
+      pickup: {
+        title: 'Pickup',
+        helper: 'Pedidos para retirar en mostrador.',
+      },
+      delivery: {
+        title: 'Delivery',
+        helper: 'Pedidos con entrega a domicilio.',
+      },
+      kitchen: {
+        title: 'En cocina',
+        helper: 'Pedidos en cola o preparacion para responder al cliente.',
+      },
+      route: {
+        title: 'En camino',
+        helper: 'Pedidos entregados al motorizado y pendientes de liquidar.',
+      },
+    };
+    const meta = filterMeta[filter];
 
     return [
-      ...actionableSections,
       {
-        key: 'kitchen-follow-up',
-        title: 'Seguimiento cocina',
-        helper: 'Pedidos enviados a cocina, en cola o preparacion.',
-        orders: filteredOrders.filter(isKitchenFollowUpOrder),
+        key: `filter-${filter}`,
+        title: meta.title,
+        helper: meta.helper,
+        orders: filteredOrders,
       },
-      {
-        key: 'counter-agenda',
-        title: 'Agenda mostrador',
-        helper: 'Pedidos agendados por mostrador, pendientes de master.',
-        orders: filteredOrders.filter(isCounterAgendaOrder),
-      },
-    ].filter((section) => section.orders.length > 0);
+    ];
   }, [filter, filteredOrders]);
 
   function completeLocalOrder(orderId: number) {
@@ -1078,6 +1263,21 @@ export default function CounterClient({
             </button>
             <button
               type="button"
+              onClick={() => {
+                if (pushState !== 'subscribed') void enablePush();
+              }}
+              disabled={pushBusy || pushState === 'unsupported' || pushState === 'subscribed'}
+              className={[
+                'rounded-full border px-4 py-2 text-sm font-semibold hover:border-[#FEEF00]/60 disabled:opacity-70',
+                pushState === 'subscribed'
+                  ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
+                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              {pushBusy ? 'Activando...' : pushState === 'subscribed' ? 'Alertas ON' : 'Alertas'}
+            </button>
+            <button
+              type="button"
               onClick={refreshCounter}
               disabled={isPending}
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
@@ -1144,11 +1344,11 @@ export default function CounterClient({
                 <div>
                   <h1 className="text-lg font-semibold">Pedidos de mostrador</h1>
                   <p className="text-sm text-[#9FA0AA]">
-                    Listos para entregar o en camino para liquidar al regreso.
+                    Entregas listas, seguimiento de cocina y liquidacion al regreso.
                   </p>
                 </div>
                 <span className="rounded-full border border-[#303044] px-3 py-1 text-xs text-[#C7C8D1]">
-                  {filteredOrders.length} visibles
+                  {filteredOrders.length} en vista
                 </span>
               </div>
 
@@ -1181,7 +1381,7 @@ export default function CounterClient({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Filtrar pedidos visibles"
+                placeholder="Buscar en esta vista: orden, cliente o telefono"
                 className="mt-4 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
               />
             </div>
@@ -1189,7 +1389,7 @@ export default function CounterClient({
             <div className="max-h-[calc(100vh-330px)] overflow-y-auto p-2">
               {filteredOrders.length === 0 ? (
                 <div className="rounded-[8px] border border-dashed border-[#303044] p-6 text-sm text-[#9FA0AA]">
-                  No hay pedidos listos con este filtro.
+                  No hay pedidos en esta vista.
                 </div>
               ) : (
                 <div className="space-y-3">
