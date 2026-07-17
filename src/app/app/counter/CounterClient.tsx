@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
@@ -276,6 +276,16 @@ function formatDateTime(value: string | null) {
   });
 }
 
+function formatRefreshTime(value: string | null) {
+  if (!value) return 'Auto activo';
+
+  return `Actualizado ${new Date(value).toLocaleTimeString('es-VE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Caracas',
+  })}`;
+}
+
 function getTodayKey() {
   return new Date().toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
@@ -447,6 +457,8 @@ export default function CounterClient({
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [localOrders, setLocalOrders] = useState(orders);
+  const previousOrderIdsRef = useRef<Set<number> | null>(null);
+  const [lastAutoRefreshAt, setLastAutoRefreshAt] = useState<string | null>(null);
   const [filter, setFilter] = useState<CounterFilter>('now');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -457,12 +469,74 @@ export default function CounterClient({
   const [masterAgendaSearched, setMasterAgendaSearched] = useState(false);
   const [masterAgendaOpen, setMasterAgendaOpen] = useState(false);
 
+  const refreshCounter = useCallback(() => {
+    setLastAutoRefreshAt(new Date().toISOString());
+    router.refresh();
+  }, [router]);
+
   useEffect(() => {
+    const previousOrderIds = previousOrderIdsRef.current;
+    const newOrders = previousOrderIds
+      ? orders.filter((order) => !previousOrderIds.has(order.id))
+      : [];
+    previousOrderIdsRef.current = new Set(orders.map((order) => order.id));
+
     setLocalOrders(orders);
     setSelectedOrderId((current) =>
       current != null && orders.some((order) => order.id === current) ? current : null
     );
+
+    if (newOrders.length > 0) {
+      const firstOrder = newOrders[0];
+      setMessage({
+        tone: 'success',
+        text:
+          newOrders.length === 1
+            ? `Nuevo pedido visible: #${firstOrder.displayNumber} - ${firstOrder.clientName}.`
+            : `${newOrders.length} pedidos nuevos visibles en mostrador.`,
+      });
+    }
   }, [orders]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'hidden') return;
+      refreshCounter();
+    };
+
+    const intervalId = window.setInterval(refreshIfVisible, 30000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshCounter();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [refreshCounter]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data && typeof event.data === 'object'
+        ? event.data as { type?: string; payload?: { url?: string; title?: string; body?: string } }
+        : null;
+      if (data?.type !== 'vivo-push') return;
+      const url = data.payload?.url || '';
+      if (url && !url.startsWith('/app/counter')) return;
+
+      setMessage({
+        tone: 'success',
+        text: data.payload?.title || data.payload?.body || 'Hay novedades en mostrador.',
+      });
+      refreshCounter();
+    };
+
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [refreshCounter]);
 
   const filterCounts = useMemo<Record<CounterFilter, number>>(() => {
     return {
@@ -604,7 +678,7 @@ export default function CounterClient({
                 : `Orden #${order.displayNumber} marcada como entregada.`,
           });
         }
-        router.refresh();
+        refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -826,7 +900,7 @@ export default function CounterClient({
               ? `${preparedPayments.length} pago(s) registrados en orden #${order.displayNumber}. ${pendingCount} quedan por revision.`
               : `${preparedPayments.length} pago(s) registrados y confirmados en orden #${order.displayNumber}.`,
         });
-        router.refresh();
+        refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -874,7 +948,7 @@ export default function CounterClient({
             : `Pedido agendado para master. Orden #${result.id}.`,
         });
         setQuickSaleOpen(false);
-        router.refresh();
+        refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -901,7 +975,7 @@ export default function CounterClient({
             ? `Se agregaron ${result.addedLines} linea(s). La orden #${order.displayNumber} regreso a cocina.`
             : `Se agregaron ${result.addedLines} linea(s) a la orden #${order.displayNumber}.`,
         });
-        router.refresh();
+        refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -946,7 +1020,7 @@ export default function CounterClient({
           tone: 'success',
           text: `Movimiento registrado: ${result.currencyCode === 'VES' ? moneyBs(result.amount) : moneyUsd(result.amount)}.`,
         });
-        router.refresh();
+        refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1004,12 +1078,15 @@ export default function CounterClient({
             </button>
             <button
               type="button"
-              onClick={() => router.refresh()}
+              onClick={refreshCounter}
               disabled={isPending}
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
             >
               Actualizar
             </button>
+            <span className="hidden rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 sm:inline-flex">
+              {formatRefreshTime(lastAutoRefreshAt)}
+            </span>
             <Link
               href="/app"
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
@@ -1039,7 +1116,7 @@ export default function CounterClient({
             accounts={cashAccounts}
             activeBsRate={activeBsRate}
             isWorking={workingOrderId === -2}
-            onRefresh={() => router.refresh()}
+            onRefresh={refreshCounter}
             onCreateMovement={handleCreateCashMovement}
           />
         ) : null}

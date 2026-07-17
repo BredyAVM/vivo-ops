@@ -1238,6 +1238,9 @@ async function appendOrderEvent(
     const kitchenRequiresAction = (input.recipients ?? []).some(
       (recipient) => recipient.targetRole === 'kitchen' && recipient.requiresAction,
     );
+    const counterRequiresAction = (input.recipients ?? []).some(
+      (recipient) => recipient.targetRole === 'counter' && recipient.requiresAction,
+    );
     for (const recipient of input.recipients ?? []) {
       if (!recipient.requiresAction) continue;
       if (recipient.targetRole === 'admin') rolePushTargets.add('admin');
@@ -1284,6 +1287,27 @@ async function appendOrderEvent(
       } catch (pushError) {
         console.warn(
           'appendOrderEvent kitchen push skipped',
+          pushError instanceof Error ? pushError.message : 'unknown push error',
+        );
+      }
+    }
+
+    if (counterRequiresAction) {
+      try {
+        const orderLabel = formatOrderDisplayLabel(input.orderId);
+        const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
+        await sendPushToRoleDevices({
+          roles: ['counter'],
+          title: `${orderLabel}: pedido listo`,
+          body: `${clientLabel}${input.message || 'Hay un pedido listo para mostrador.'}`,
+          url: '/app/counter',
+          tag: `counter-order-${input.orderId}-${input.eventType}`,
+          tone: input.severity === 'critical' ? 'critical' : 'warning',
+          requireInteraction: true,
+        });
+      } catch (pushError) {
+        console.warn(
+          'appendOrderEvent counter push skipped',
           pushError instanceof Error ? pushError.message : 'unknown push error',
         );
       }
@@ -4375,12 +4399,14 @@ export async function markReadyAction(input: {
     severity: 'info',
     actorUserId: user.id,
     recipients: [
+      { targetRole: 'counter', requiresAction: true },
       { targetRole: 'master' },
       { targetUserId: eventContext?.advisorUserId },
     ],
   });
 
   revalidatePath('/app/kitchen');
+  revalidatePath('/app/counter');
   revalidatePath('/app/master/dashboard');
   revalidatePath('/app/advisor');
   revalidatePath('/app/advisor/inbox');
