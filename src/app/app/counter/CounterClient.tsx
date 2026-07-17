@@ -21,6 +21,7 @@ import {
 } from '../master/dashboard/actions';
 import {
   addCounterOrderItemsAction,
+  createCounterCashClosureAction,
   createCounterCashMovementAction,
   createCounterQuickSaleAction,
   searchCounterClientsAction,
@@ -184,6 +185,16 @@ type CounterCashMovementInput = {
   referenceCode: string | null;
   counterpartyName: string | null;
   description: string;
+  notes: string | null;
+};
+
+type CounterCashClosureInput = {
+  moneyAccountId: number;
+  closureDate: string;
+  closureTime: string;
+  countedAmount: number;
+  exchangeRateVesPerUsd: number | null;
+  reason: string;
   notes: string | null;
 };
 
@@ -390,6 +401,18 @@ function getTodayKey() {
   return new Date().toLocaleDateString('en-CA', {
     timeZone: 'America/Caracas',
   });
+}
+
+function getCurrentTimeKey() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Caracas',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+
+  return `${get('hour') || '00'}:${get('minute') || '00'}`;
 }
 
 function paymentAccountKey(account: CounterPaymentAccountOption) {
@@ -1235,6 +1258,30 @@ export default function CounterClient({
     });
   }
 
+  function handleCreateCashClosure(input: CounterCashClosureInput) {
+    setMessage(null);
+    setWorkingOrderId(-3);
+    startTransition(async () => {
+      try {
+        const result = await createCounterCashClosureAction(input);
+        setMessage({
+          tone: 'success',
+          text: `Cierre registrado: contado ${
+            result.currencyCode === 'VES' ? moneyBs(result.countedAmount) : moneyUsd(result.countedAmount)
+          }.`,
+        });
+        refreshCounter();
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo registrar el cierre.',
+        });
+      } finally {
+        setWorkingOrderId(null);
+      }
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <ModulePreference moduleKey="counter" />
@@ -1334,8 +1381,10 @@ export default function CounterClient({
             accounts={cashAccounts}
             activeBsRate={activeBsRate}
             isWorking={workingOrderId === -2}
+            isClosing={workingOrderId === -3}
             onRefresh={refreshCounter}
             onCreateMovement={handleCreateCashMovement}
+            onCreateClosure={handleCreateCashClosure}
           />
         ) : null}
 
@@ -1580,14 +1629,18 @@ function CounterCashPanel({
   accounts,
   activeBsRate,
   isWorking,
+  isClosing,
   onRefresh,
   onCreateMovement,
+  onCreateClosure,
 }: {
   accounts: CounterCashAccountSummary[];
   activeBsRate: number;
   isWorking: boolean;
+  isClosing: boolean;
   onRefresh: () => void;
   onCreateMovement: (input: CounterCashMovementInput) => void;
+  onCreateClosure: (input: CounterCashClosureInput) => void;
 }) {
   const firstAccount = accounts[0] ?? null;
   const [movementOpen, setMovementOpen] = useState(false);
@@ -1604,8 +1657,26 @@ function CounterCashPanel({
   const [movementDescription, setMovementDescription] = useState('');
   const [movementNotes, setMovementNotes] = useState('');
   const [movementError, setMovementError] = useState<string | null>(null);
+  const [closureOpen, setClosureOpen] = useState(false);
+  const [closureAccountId, setClosureAccountId] = useState(firstAccount ? String(firstAccount.accountId) : '');
+  const [closureAmount, setClosureAmount] = useState('');
+  const [closureDate, setClosureDate] = useState(getTodayKey());
+  const [closureTime, setClosureTime] = useState(getCurrentTimeKey());
+  const [closureExchangeRate, setClosureExchangeRate] = useState(
+    activeBsRate > 0 ? String(Number(activeBsRate.toFixed(2))) : ''
+  );
+  const [closureReason, setClosureReason] = useState('Cierre de turno');
+  const [closureNotes, setClosureNotes] = useState('');
+  const [closureError, setClosureError] = useState<string | null>(null);
   const selectedAccount =
     accounts.find((account) => String(account.accountId) === movementAccountId) ?? firstAccount;
+  const selectedClosureAccount =
+    accounts.find((account) => String(account.accountId) === closureAccountId) ?? firstAccount;
+  const closureCountedNumber = toDecimalInput(closureAmount);
+  const closureDifference =
+    selectedClosureAccount && Number.isFinite(closureCountedNumber)
+      ? Number((closureCountedNumber - selectedClosureAccount.balance).toFixed(2))
+      : 0;
   const totalInflowUsd = accounts.reduce((sum, account) => {
     if (account.currencyCode === 'USD') return sum + account.inflow;
     return sum + account.movements
@@ -1626,6 +1697,11 @@ function CounterCashPanel({
   useEffect(() => {
     if (!firstAccount) return;
     setMovementAccountId((current) =>
+      current && accounts.some((account) => String(account.accountId) === current)
+        ? current
+        : String(firstAccount.accountId)
+    );
+    setClosureAccountId((current) =>
       current && accounts.some((account) => String(account.accountId) === current)
         ? current
         : String(firstAccount.accountId)
@@ -1678,6 +1754,55 @@ function CounterCashPanel({
     setMovementNotes('');
   }
 
+  function submitClosure() {
+    const moneyAccountId = Number(closureAccountId || 0);
+    const countedAmount = toDecimalInput(closureAmount);
+    const exchangeRate =
+      selectedClosureAccount?.currencyCode === 'VES'
+        ? toDecimalInput(closureExchangeRate)
+        : null;
+    const reason = closureReason.trim();
+
+    if (!moneyAccountId) {
+      setClosureError('Selecciona una cuenta.');
+      return;
+    }
+    if (!Number.isFinite(countedAmount) || countedAmount < 0) {
+      setClosureError('Indica el monto contado.');
+      return;
+    }
+    if (!closureDate) {
+      setClosureError('Indica la fecha del cierre.');
+      return;
+    }
+    if (!/^\d{2}:\d{2}$/.test(closureTime)) {
+      setClosureError('Indica la hora del cierre.');
+      return;
+    }
+    if (selectedClosureAccount?.currencyCode === 'VES' && (!exchangeRate || exchangeRate <= 0)) {
+      setClosureError('Indica una tasa valida.');
+      return;
+    }
+    if (!reason) {
+      setClosureError('Indica el motivo del cierre.');
+      return;
+    }
+
+    setClosureError(null);
+    onCreateClosure({
+      moneyAccountId,
+      closureDate,
+      closureTime,
+      countedAmount,
+      exchangeRateVesPerUsd: exchangeRate,
+      reason,
+      notes: closureNotes.trim() || null,
+    });
+    setClosureAmount('');
+    setClosureNotes('');
+    setClosureTime(getCurrentTimeKey());
+  }
+
   return (
     <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1702,6 +1827,20 @@ function CounterCashPanel({
             className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-sm font-semibold text-[#FEEF00] hover:bg-[#FEEF00]/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {movementOpen ? 'Ocultar movimiento' : 'Registrar movimiento'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setClosureOpen((current) => !current);
+              setClosureTime(getCurrentTimeKey());
+              if (!closureAmount && selectedClosureAccount) {
+                setClosureAmount(String(selectedClosureAccount.balance));
+              }
+            }}
+            disabled={accounts.length === 0}
+            className="rounded-full border border-sky-300/50 bg-sky-300/10 px-3 py-1.5 text-sm font-semibold text-sky-100 hover:bg-sky-300/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {closureOpen ? 'Ocultar cierre' : 'Arqueo / cierre'}
           </button>
         </div>
       </div>
@@ -1877,6 +2016,151 @@ function CounterCashPanel({
               className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
             >
               {isWorking ? 'Guardando...' : 'Guardar movimiento'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {closureOpen ? (
+        <div className="mt-4 rounded-[8px] border border-sky-300/30 bg-sky-950/10 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-sky-100">Arqueo / cierre operativo</h3>
+              <p className="mt-1 text-xs text-sky-100/70">
+                Cuenta el dinero fisico o el lote del punto y registra la foto del cierre.
+              </p>
+            </div>
+            <span
+              className={[
+                'rounded-full border px-3 py-1 text-xs font-semibold',
+                Math.abs(closureDifference) <= 0.009
+                  ? 'border-emerald-300/40 bg-emerald-300/10 text-emerald-200'
+                  : 'border-orange-300/40 bg-orange-300/10 text-orange-200',
+              ].join(' ')}
+            >
+              Dif.{' '}
+              {selectedClosureAccount?.currencyCode === 'VES'
+                ? moneyBs(closureDifference)
+                : moneyUsd(closureDifference)}
+            </span>
+          </div>
+
+          {closureError ? (
+            <div className="mt-3 rounded-[8px] border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-200">
+              {closureError}
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr]">
+            <label className="text-sm text-[#9FA0AA]">
+              Cuenta
+              <select
+                value={closureAccountId}
+                onChange={(event) => {
+                  const nextAccount = accounts.find((account) => String(account.accountId) === event.target.value);
+                  setClosureAccountId(event.target.value);
+                  if (nextAccount) setClosureAmount(String(nextAccount.balance));
+                }}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-sky-300/70"
+              >
+                {accounts.map((account) => (
+                  <option key={account.accountId} value={account.accountId}>
+                    {account.accountName} - {accountKindLabel(account.accountKind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2">
+              <div className="text-xs text-[#9FA0AA]">Esperado sistema</div>
+              <div className="mt-1 text-base font-semibold text-[#F5F5F7]">
+                {selectedClosureAccount?.currencyCode === 'VES'
+                  ? moneyBs(selectedClosureAccount?.balance ?? 0)
+                  : moneyUsd(selectedClosureAccount?.balance ?? 0)}
+              </div>
+            </div>
+
+            <label className="text-sm text-[#9FA0AA]">
+              Contado {selectedClosureAccount?.currencyCode || ''}
+              <input
+                value={closureAmount}
+                onChange={(event) => setClosureAmount(event.target.value)}
+                inputMode="decimal"
+                placeholder={
+                  selectedClosureAccount
+                    ? selectedClosureAccount.currencyCode === 'VES'
+                      ? moneyBs(selectedClosureAccount.balance)
+                      : moneyUsd(selectedClosureAccount.balance)
+                    : '0'
+                }
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-sky-300/70"
+              />
+            </label>
+
+            {selectedClosureAccount?.currencyCode === 'VES' ? (
+              <label className="text-sm text-[#9FA0AA]">
+                Tasa
+                <input
+                  value={closureExchangeRate}
+                  onChange={(event) => setClosureExchangeRate(event.target.value)}
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-sky-300/70"
+                />
+              </label>
+            ) : (
+              <div className="hidden lg:block" />
+            )}
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-[0.8fr_0.65fr_1fr]">
+            <label className="text-sm text-[#9FA0AA]">
+              Fecha
+              <input
+                type="date"
+                value={closureDate}
+                onChange={(event) => setClosureDate(event.target.value)}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-sky-300/70"
+              />
+            </label>
+            <label className="text-sm text-[#9FA0AA]">
+              Hora
+              <input
+                type="time"
+                value={closureTime}
+                onChange={(event) => setClosureTime(event.target.value)}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-sky-300/70"
+              />
+            </label>
+            <label className="text-sm text-[#9FA0AA]">
+              Motivo
+              <input
+                value={closureReason}
+                onChange={(event) => setClosureReason(event.target.value)}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-sky-300/70"
+              />
+            </label>
+            <label className="text-sm text-[#9FA0AA] lg:col-span-3">
+              Nota
+              <input
+                value={closureNotes}
+                onChange={(event) => setClosureNotes(event.target.value)}
+                placeholder="Opcional"
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-sky-300/70"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-sky-100/70">
+              Cajas y puntos deben cerrar sin diferencia. Si hay diferencia, registra primero el movimiento que la explica.
+            </div>
+            <button
+              type="button"
+              onClick={submitClosure}
+              disabled={isClosing || accounts.length === 0}
+              className="rounded-[8px] border border-sky-300/60 bg-sky-300/15 px-5 py-3 text-sm font-bold text-sky-100 transition hover:bg-sky-300/20 disabled:cursor-wait disabled:opacity-60"
+            >
+              {isClosing ? 'Guardando...' : 'Guardar cierre'}
             </button>
           </div>
         </div>
