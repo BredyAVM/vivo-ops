@@ -1,6 +1,7 @@
 import { unstable_noStore as noStore } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
+import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import {
   getOrderMoneySnapshot,
@@ -408,6 +409,7 @@ export default async function CounterPage() {
     { data: advisorsData, error: advisorsError },
     { data: partnersData, error: partnersError },
     { data: counterMovementsData, error: counterMovementsError },
+    balanceSnapshots,
     { data: productComponentsData, error: productComponentsError },
   ] = await Promise.all(
     orderIds.length
@@ -458,6 +460,9 @@ export default async function CounterPage() {
                 .eq('status', 'confirmed')
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: [], error: null }),
+          counterAccountIds.length
+            ? loadMoneyAccountBalanceSnapshots(ctx.supabase, { moneyAccountIds: counterAccountIds })
+            : Promise.resolve([]),
           quickSaleProductIds.length
             ? ctx.supabase
                 .from('product_components')
@@ -514,6 +519,9 @@ export default async function CounterPage() {
                 .eq('status', 'confirmed')
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: [], error: null }),
+          counterAccountIds.length
+            ? loadMoneyAccountBalanceSnapshots(ctx.supabase, { moneyAccountIds: counterAccountIds })
+            : Promise.resolve([]),
           quickSaleProductIds.length
             ? ctx.supabase
                 .from('product_components')
@@ -564,20 +572,6 @@ export default async function CounterPage() {
     throw new Error(productComponentsError.message);
   }
 
-  const { data: counterBalanceMovementsData, error: counterBalanceMovementsError } =
-    counterAccountIds.length
-      ? await ctx.supabase
-          .from('money_movements')
-          .select('money_account_id, movement_date, direction, currency_code, amount, amount_usd_equivalent')
-          .in('money_account_id', counterAccountIds)
-          .eq('status', 'confirmed')
-          .lte('movement_date', todayKey)
-      : { data: [], error: null };
-
-  if (counterBalanceMovementsError) {
-    throw new Error(counterBalanceMovementsError.message);
-  }
-
   const movementCreatorIds = Array.from(
     new Set(
       ((counterMovementsData ?? []) as unknown as RawCounterMoneyMovement[])
@@ -603,23 +597,9 @@ export default async function CounterPage() {
     movementCreatorNameById.set(profile.id, profile.full_name?.trim() || 'Usuario');
   }
 
-  const counterBalanceByAccount = new Map<number, number>();
-  for (const movement of (counterBalanceMovementsData ?? []) as unknown as RawCounterMoneyMovement[]) {
-    const accountId = Number(movement.money_account_id || 0);
-    if (!accountId) continue;
-    const account = accountsById.get(accountId);
-    const accountCurrencyCode = String(account?.currency_code || '').toUpperCase();
-    const movementCurrencyCode = String(movement.currency_code || accountCurrencyCode).toUpperCase();
-    const amount =
-      accountCurrencyCode === movementCurrencyCode
-        ? roundOrderMoney(movement.amount)
-        : roundOrderMoney(movement.amount_usd_equivalent);
-    const signedAmount = movement.direction === 'outflow' ? -amount : amount;
-    counterBalanceByAccount.set(
-      accountId,
-      roundOrderMoney((counterBalanceByAccount.get(accountId) ?? 0) + signedAmount)
-    );
-  }
+  const balanceSnapshotByAccountId = new Map(
+    balanceSnapshots.map((snapshot) => [snapshot.moneyAccountId, snapshot.balanceNative])
+  );
 
   const counterMovementsByAccount = new Map<number, RawCounterMoneyMovement[]>();
   for (const movement of (counterMovementsData ?? []) as unknown as RawCounterMoneyMovement[]) {
@@ -679,7 +659,7 @@ export default async function CounterPage() {
         inflow: roundOrderMoney(inflow),
         outflow: roundOrderMoney(outflow),
         net: roundOrderMoney(inflow - outflow),
-        balance: roundOrderMoney(counterBalanceByAccount.get(accountId) ?? 0),
+        balance: roundOrderMoney(balanceSnapshotByAccountId.get(accountId) ?? 0),
         movements,
       };
     })

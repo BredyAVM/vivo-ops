@@ -417,6 +417,8 @@ function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
   if (status === 'in_kitchen') return 'En preparacion';
   if (status === 'ready') return 'Listo';
   if (status === 'out_for_delivery') return 'En camino';
+  if (status === 'delivered') return 'Entregada';
+  if (status === 'cancelled') return 'Cancelada';
   return status;
 }
 
@@ -426,6 +428,8 @@ function agendaSearchReason(result: CounterAgendaSearchResult) {
   if (result.status === 'in_kitchen') return 'Cocina lo esta preparando.';
   if (result.status === 'ready') return 'Ya esta listo para entrega.';
   if (result.status === 'out_for_delivery') return 'Ya fue entregado al motorizado.';
+  if (result.status === 'delivered') return 'Esta orden ya fue entregada.';
+  if (result.status === 'cancelled') return 'Esta orden fue cancelada.';
   return null;
 }
 
@@ -574,15 +578,21 @@ export default function CounterClient({
     );
   }
 
-  function handlePrimaryDeliveryAction(order: CounterOrder) {
+  function handlePrimaryDeliveryAction(order: CounterOrder, options?: { etaMinutes?: number | null }) {
     setMessage(null);
     setWorkingOrderId(order.id);
     startTransition(async () => {
       try {
         if (order.fulfillment === 'delivery' && order.status === 'ready') {
-          await outForDeliveryAction({ orderId: order.id });
+          await outForDeliveryAction({ orderId: order.id, etaMinutes: options?.etaMinutes ?? null });
           updateLocalOrderStatus(order.id, 'out_for_delivery');
-          setMessage({ tone: 'success', text: `Orden #${order.displayNumber} enviada a delivery.` });
+          setMessage({
+            tone: 'success',
+            text:
+              options?.etaMinutes != null && options.etaMinutes > 0
+                ? `Orden #${order.displayNumber} enviada a delivery con ETA ${options.etaMinutes} min.`
+                : `Orden #${order.displayNumber} enviada a delivery.`,
+          });
         } else {
           await markDeliveredAction({ orderId: order.id });
           completeLocalOrder(order.id);
@@ -990,7 +1000,7 @@ export default function CounterClient({
                   : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
               ].join(' ')}
             >
-              Consultar agenda
+              Buscar orden
             </button>
             <button
               type="button"
@@ -1094,7 +1104,7 @@ export default function CounterClient({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar orden, cliente, telefono o direccion"
+                placeholder="Filtrar pedidos visibles"
                 className="mt-4 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
               />
             </div>
@@ -1672,9 +1682,9 @@ function MasterAgendaSearchPanel({
     <section className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold">Consultar agenda master</h2>
+          <h2 className="text-sm font-semibold">Buscar orden</h2>
           <p className="mt-1 text-xs text-[#9FA0AA]">
-            Busca una orden puntual por numero, cliente o telefono cuando no aparezca en la cola del counter.
+            Consulta cualquier orden por numero, cliente o telefono cuando no aparezca en la cola del counter.
           </p>
         </div>
         {searched ? (
@@ -2905,7 +2915,7 @@ function OrderDetail({
   quickSaleProductComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
-  onPrimaryDeliveryAction: (order: CounterOrder) => void;
+  onPrimaryDeliveryAction: (order: CounterOrder, options?: { etaMinutes?: number | null }) => void;
   onCreatePaymentReport: (order: CounterOrder, input: CounterPaymentReportInput) => void;
   onAddItems: (
     order: CounterOrder,
@@ -2946,8 +2956,39 @@ function OrderDetail({
         : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
+  const [deliveryEtaOpen, setDeliveryEtaOpen] = useState(false);
+  const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState('20');
+  const [deliveryEtaError, setDeliveryEtaError] = useState<string | null>(null);
   const currentAction = getCounterCurrentAction(order);
   const canAddItems = order.status !== 'out_for_delivery';
+  const isReadyDeliveryAction = order.fulfillment === 'delivery' && order.status === 'ready';
+
+  useEffect(() => {
+    setDeliveryEtaOpen(false);
+    setDeliveryEtaMinutes('20');
+    setDeliveryEtaError(null);
+  }, [order.id]);
+
+  function handlePrimaryActionClick() {
+    if (isReadyDeliveryAction) {
+      setDeliveryEtaOpen(true);
+      setDeliveryEtaError(null);
+      return;
+    }
+
+    onPrimaryDeliveryAction(order);
+  }
+
+  function confirmOutForDeliveryWithEta() {
+    const etaMinutes = Math.round(toDecimalInput(deliveryEtaMinutes));
+    if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
+      setDeliveryEtaError('Indica cuantos minutos estima el motorizado.');
+      return;
+    }
+
+    setDeliveryEtaError(null);
+    onPrimaryDeliveryAction(order, { etaMinutes });
+  }
 
   return (
     <div>
@@ -3113,12 +3154,60 @@ function OrderDetail({
         <aside className="space-y-2">
           <button
             type="button"
-            onClick={() => onPrimaryDeliveryAction(order)}
+            onClick={handlePrimaryActionClick}
             disabled={isWorking || primaryActionBlocked}
             className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isWorking ? 'Guardando...' : primaryCounterActionLabel(order)}
           </button>
+          {deliveryEtaOpen && isReadyDeliveryAction && !primaryActionBlocked ? (
+            <div className="rounded-[8px] border border-sky-400/30 bg-sky-950/20 p-3">
+              <div className="text-xs font-semibold text-sky-100">Tiempo de entrega</div>
+              <p className="mt-1 text-xs leading-relaxed text-sky-100/70">
+                Pregunta al motorizado cuanto tiempo estima para llegar al cliente.
+              </p>
+              <input
+                value={deliveryEtaMinutes}
+                onChange={(event) => setDeliveryEtaMinutes(event.target.value)}
+                type="number"
+                min={1}
+                className="mt-2 w-full rounded-[8px] border border-sky-300/30 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
+              />
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {[15, 20, 25, 30].map((minutes) => (
+                  <button
+                    key={minutes}
+                    type="button"
+                    onClick={() => setDeliveryEtaMinutes(String(minutes))}
+                    className="rounded-[8px] border border-sky-300/30 bg-sky-300/10 px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-300/15"
+                  >
+                    {minutes}
+                  </button>
+                ))}
+              </div>
+              {deliveryEtaError ? <div className="mt-2 text-xs text-red-200">{deliveryEtaError}</div> : null}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeliveryEtaOpen(false);
+                    setDeliveryEtaError(null);
+                  }}
+                  className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmOutForDeliveryWithEta}
+                  disabled={isWorking}
+                  className="rounded-[8px] border border-sky-300/50 bg-sky-300/10 px-3 py-2 text-xs font-bold text-sky-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  Confirmar salida
+                </button>
+              </div>
+            </div>
+          ) : null}
           {primaryActionBlocked ? (
             <div className="rounded-[8px] border border-orange-400/30 bg-orange-950/20 p-3 text-xs leading-relaxed text-orange-100">
               {primaryActionBlockedMessage}

@@ -101,11 +101,20 @@ type CounterCashMovementInput = {
   notes?: string | null;
 };
 
+type CounterAgendaSearchStatus =
+  | 'created'
+  | 'confirmed'
+  | 'in_kitchen'
+  | 'ready'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'cancelled';
+
 export type CounterAgendaSearchResult = {
   id: number;
   displayNumber: string;
   orderNumber: string | null;
-  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  status: CounterAgendaSearchStatus;
   fulfillment: 'pickup' | 'delivery';
   clientName: string;
   clientPhone: string | null;
@@ -119,7 +128,7 @@ export type CounterAgendaSearchResult = {
 type CounterAgendaOrderRow = {
   id: number;
   order_number: string | null;
-  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  status: CounterAgendaSearchStatus;
   fulfillment: 'pickup' | 'delivery';
   total_usd: number | string | null;
   total_bs_snapshot: number | string | null;
@@ -324,7 +333,6 @@ async function searchAgendaOrdersBy(
   let query = supabase
     .from('orders')
     .select(selectColumns)
-    .in('status', ['created', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
     .order('created_at', { ascending: false })
     .limit(12);
 
