@@ -241,6 +241,12 @@ const QUICK_SALE_PAYMENT_METHODS = [
   { code: 'mixed', label: 'Mixto' },
 ];
 
+function getQuickSalePaymentCurrency(method: string): 'USD' | 'VES' | null {
+  if (method === 'mixed') return null;
+  if (method === 'cash_usd' || method === 'zelle') return 'USD';
+  return 'VES';
+}
+
 const PUSH_TIMEOUT_MS = 12000;
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -1104,6 +1110,9 @@ export default function CounterClient({
     clientType?: 'own' | 'assigned' | 'legacy';
     fulfillment: 'pickup' | 'delivery';
     deliveryAddress: string;
+    deliveryGpsUrl: string;
+    receiverName: string;
+    receiverPhone: string;
     note: string;
     scheduleAsap: boolean;
     scheduledDate: string;
@@ -1119,6 +1128,15 @@ export default function CounterClient({
     hasDeliveryNote?: boolean;
     hasInvoice?: boolean;
     invoiceTaxPct?: string | number | null;
+    invoiceDataNote?: string | null;
+    invoiceCompanyName?: string | null;
+    invoiceTaxId?: string | null;
+    invoiceAddress?: string | null;
+    invoicePhone?: string | null;
+    deliveryNoteName?: string | null;
+    deliveryNoteDocumentId?: string | null;
+    deliveryNoteAddress?: string | null;
+    deliveryNotePhone?: string | null;
     items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>;
   }) {
     setMessage(null);
@@ -2063,6 +2081,9 @@ function CounterQuickSalePanel({
     clientType?: 'own' | 'assigned' | 'legacy';
     fulfillment: 'pickup' | 'delivery';
     deliveryAddress: string;
+    deliveryGpsUrl: string;
+    receiverName: string;
+    receiverPhone: string;
     note: string;
     scheduleAsap: boolean;
     scheduledDate: string;
@@ -2078,6 +2099,15 @@ function CounterQuickSalePanel({
     hasDeliveryNote?: boolean;
     hasInvoice?: boolean;
     invoiceTaxPct?: string | number | null;
+    invoiceDataNote?: string | null;
+    invoiceCompanyName?: string | null;
+    invoiceTaxId?: string | null;
+    invoiceAddress?: string | null;
+    invoicePhone?: string | null;
+    deliveryNoteName?: string | null;
+    deliveryNoteDocumentId?: string | null;
+    deliveryNoteAddress?: string | null;
+    deliveryNotePhone?: string | null;
     items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>;
   }) => void;
 }) {
@@ -2091,6 +2121,10 @@ function CounterQuickSalePanel({
   const [clientType, setClientType] = useState<'own' | 'assigned' | 'legacy'>('own');
   const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryGpsUrl, setDeliveryGpsUrl] = useState('');
+  const [receiverIsDifferent, setReceiverIsDifferent] = useState(false);
+  const [receiverName, setReceiverName] = useState('');
+  const [receiverPhone, setReceiverPhone] = useState('');
   const [note, setNote] = useState('');
   const [scheduleMode, setScheduleMode] = useState<'now' | 'scheduled'>('now');
   const [scheduledDate, setScheduledDate] = useState(getTodayKey());
@@ -2106,6 +2140,15 @@ function CounterQuickSalePanel({
   const [hasDeliveryNote, setHasDeliveryNote] = useState(false);
   const [hasInvoice, setHasInvoice] = useState(false);
   const [invoiceTaxPct, setInvoiceTaxPct] = useState('16');
+  const [invoiceDataNote, setInvoiceDataNote] = useState('');
+  const [invoiceCompanyName, setInvoiceCompanyName] = useState('');
+  const [invoiceTaxId, setInvoiceTaxId] = useState('');
+  const [invoiceAddress, setInvoiceAddress] = useState('');
+  const [invoicePhone, setInvoicePhone] = useState('');
+  const [deliveryNoteName, setDeliveryNoteName] = useState('');
+  const [deliveryNoteDocumentId, setDeliveryNoteDocumentId] = useState('');
+  const [deliveryNoteAddress, setDeliveryNoteAddress] = useState('');
+  const [deliveryNotePhone, setDeliveryNotePhone] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [qty, setQty] = useState('1');
@@ -2120,6 +2163,11 @@ function CounterQuickSalePanel({
     qty: number;
   }>>([]);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextCurrency = getQuickSalePaymentCurrency(paymentMethod);
+    if (nextCurrency) setPaymentCurrency(nextCurrency);
+  }, [paymentMethod]);
 
   const productsById = useMemo(
     () => new Map(products.map((product) => [product.id, product])),
@@ -2410,6 +2458,9 @@ function CounterQuickSalePanel({
       clientType,
       fulfillment,
       deliveryAddress: deliveryAddress.trim(),
+      deliveryGpsUrl: deliveryGpsUrl.trim(),
+      receiverName: receiverIsDifferent ? receiverName.trim() : '',
+      receiverPhone: receiverIsDifferent ? receiverPhone.trim() : '',
       note: note.trim(),
       scheduleAsap: scheduleMode === 'now',
       scheduledDate,
@@ -2425,6 +2476,15 @@ function CounterQuickSalePanel({
       hasDeliveryNote,
       hasInvoice,
       invoiceTaxPct,
+      invoiceDataNote: invoiceDataNote.trim(),
+      invoiceCompanyName: invoiceCompanyName.trim(),
+      invoiceTaxId: invoiceTaxId.trim(),
+      invoiceAddress: invoiceAddress.trim(),
+      invoicePhone: invoicePhone.trim(),
+      deliveryNoteName: deliveryNoteName.trim(),
+      deliveryNoteDocumentId: deliveryNoteDocumentId.trim(),
+      deliveryNoteAddress: deliveryNoteAddress.trim(),
+      deliveryNotePhone: deliveryNotePhone.trim(),
       items: cartItems.map((item) => ({
         productId: item.productId,
         qty: toDecimalInput(item.qty),
@@ -2792,15 +2852,55 @@ function CounterQuickSalePanel({
             ))}
           </div>
           {fulfillment === 'delivery' ? (
-            <label className="text-sm text-[#9FA0AA]">
-              Direccion
-              <textarea
-                value={deliveryAddress}
-                onChange={(event) => setDeliveryAddress(event.target.value)}
-                rows={2}
-                className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-              />
-            </label>
+            <div className="space-y-2">
+              <label className="text-sm text-[#9FA0AA]">
+                Direccion
+                <textarea
+                  value={deliveryAddress}
+                  onChange={(event) => setDeliveryAddress(event.target.value)}
+                  rows={2}
+                  className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                />
+              </label>
+              <label className="text-sm text-[#9FA0AA]">
+                GPS
+                <input
+                  value={deliveryGpsUrl}
+                  onChange={(event) => setDeliveryGpsUrl(event.target.value)}
+                  placeholder="Link de ubicacion (opcional)"
+                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                />
+              </label>
+              <label className="flex items-center gap-2 rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-sm text-[#F5F5F7]">
+                <input
+                  type="checkbox"
+                  checked={receiverIsDifferent}
+                  onChange={(event) => setReceiverIsDifferent(event.target.checked)}
+                />
+                Recibe otra persona
+              </label>
+              {receiverIsDifferent ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs text-[#9FA0AA]">
+                    Nombre recibe
+                    <input
+                      value={receiverName}
+                      onChange={(event) => setReceiverName(event.target.value)}
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                  <label className="text-xs text-[#9FA0AA]">
+                    Telefono recibe
+                    <input
+                      value={receiverPhone}
+                      onChange={(event) => setReceiverPhone(event.target.value)}
+                      inputMode="tel"
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-2">
             <div className="grid grid-cols-2 gap-2">
@@ -2885,15 +2985,102 @@ function CounterQuickSalePanel({
               Factura
             </label>
             {hasInvoice ? (
-              <label className="text-xs text-[#9FA0AA] sm:col-span-2">
-                IVA %
-                <input
-                  value={invoiceTaxPct}
-                  onChange={(event) => setInvoiceTaxPct(event.target.value)}
-                  inputMode="decimal"
-                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                />
-              </label>
+              <div className="space-y-2 sm:col-span-2">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs text-[#9FA0AA]">
+                    Razon social
+                    <input
+                      value={invoiceCompanyName}
+                      onChange={(event) => setInvoiceCompanyName(event.target.value)}
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                  <label className="text-xs text-[#9FA0AA]">
+                    RIF / Cedula
+                    <input
+                      value={invoiceTaxId}
+                      onChange={(event) => setInvoiceTaxId(event.target.value)}
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                  <label className="text-xs text-[#9FA0AA]">
+                    Telefono fiscal
+                    <input
+                      value={invoicePhone}
+                      onChange={(event) => setInvoicePhone(event.target.value)}
+                      inputMode="tel"
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                  <label className="text-xs text-[#9FA0AA]">
+                    IVA %
+                    <input
+                      value={invoiceTaxPct}
+                      onChange={(event) => setInvoiceTaxPct(event.target.value)}
+                      inputMode="decimal"
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                </div>
+                <label className="text-xs text-[#9FA0AA]">
+                  Direccion fiscal
+                  <textarea
+                    value={invoiceAddress}
+                    onChange={(event) => setInvoiceAddress(event.target.value)}
+                    rows={2}
+                    className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+                <label className="text-xs text-[#9FA0AA]">
+                  Datos factura
+                  <input
+                    value={invoiceDataNote}
+                    onChange={(event) => setInvoiceDataNote(event.target.value)}
+                    placeholder="Observacion fiscal opcional"
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                  />
+                </label>
+              </div>
+            ) : null}
+            {hasDeliveryNote ? (
+              <div className="space-y-2 sm:col-span-2">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="text-xs text-[#9FA0AA]">
+                    Nombre nota
+                    <input
+                      value={deliveryNoteName}
+                      onChange={(event) => setDeliveryNoteName(event.target.value)}
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                  <label className="text-xs text-[#9FA0AA]">
+                    Documento
+                    <input
+                      value={deliveryNoteDocumentId}
+                      onChange={(event) => setDeliveryNoteDocumentId(event.target.value)}
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                  <label className="text-xs text-[#9FA0AA]">
+                    Telefono nota
+                    <input
+                      value={deliveryNotePhone}
+                      onChange={(event) => setDeliveryNotePhone(event.target.value)}
+                      inputMode="tel"
+                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                </div>
+                <label className="text-xs text-[#9FA0AA]">
+                  Direccion nota de entrega
+                  <textarea
+                    value={deliveryNoteAddress}
+                    onChange={(event) => setDeliveryNoteAddress(event.target.value)}
+                    rows={2}
+                    className="mt-1 w-full resize-none rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+              </div>
             ) : null}
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -2991,7 +3178,7 @@ function CounterQuickSalePanel({
             disabled={isWorking || activeBsRate <= 0 || cartItems.length === 0}
             className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-2.5 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isWorking ? 'Creando...' : 'Crear y enviar a cocina'}
+            {isWorking ? 'Creando...' : scheduleMode === 'scheduled' ? 'Crear agenda' : 'Crear y enviar a cocina'}
           </button>
         </div>
       </div>

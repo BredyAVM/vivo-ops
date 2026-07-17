@@ -15,6 +15,9 @@ type CounterQuickSaleInput = {
   clientType?: 'own' | 'assigned' | 'legacy';
   fulfillment: 'pickup' | 'delivery';
   deliveryAddress: string;
+  deliveryGpsUrl?: string | null;
+  receiverName?: string | null;
+  receiverPhone?: string | null;
   note: string;
   scheduleAsap: boolean;
   scheduledDate: string;
@@ -30,6 +33,15 @@ type CounterQuickSaleInput = {
   hasDeliveryNote?: boolean;
   hasInvoice?: boolean;
   invoiceTaxPct?: string | number | null;
+  invoiceDataNote?: string | null;
+  invoiceCompanyName?: string | null;
+  invoiceTaxId?: string | null;
+  invoiceAddress?: string | null;
+  invoicePhone?: string | null;
+  deliveryNoteName?: string | null;
+  deliveryNoteDocumentId?: string | null;
+  deliveryNoteAddress?: string | null;
+  deliveryNotePhone?: string | null;
   items: Array<{
     productId: number;
     qty: number;
@@ -52,6 +64,18 @@ type CounterClientRow = {
   phone: string | null;
   client_type: string | null;
   fund_balance_usd: number | string | null;
+};
+
+type CounterClientProfileRow = CounterClientRow & {
+  billing_company_name: string | null;
+  billing_tax_id: string | null;
+  billing_address: string | null;
+  billing_phone: string | null;
+  delivery_note_name: string | null;
+  delivery_note_document_id: string | null;
+  delivery_note_address: string | null;
+  delivery_note_phone: string | null;
+  recent_addresses: unknown;
 };
 
 type CounterProductRow = {
@@ -179,6 +203,32 @@ function buildOrderItemNotes(input: {
   ].filter(Boolean);
 
   return lines.length > 0 ? lines.join('\n') : null;
+}
+
+function normalizeRecentAddresses(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'
+  );
+}
+
+function mergeRecentAddresses(value: unknown, address: string, gpsUrl: string) {
+  const cleanAddress = String(address || '').trim();
+  if (!cleanAddress) return normalizeRecentAddresses(value);
+
+  const cleanGps = String(gpsUrl || '').trim();
+  const nextAddress = {
+    address: cleanAddress,
+    gps_url: cleanGps || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const previous = normalizeRecentAddresses(value).filter((item) => {
+    const itemAddress = String(item.address || '').trim().toLocaleLowerCase('es-VE');
+    return itemAddress !== cleanAddress.toLocaleLowerCase('es-VE');
+  });
+
+  return [nextAddress, ...previous].slice(0, 5);
 }
 
 function isCounterDirectAccount(account: { name?: string | null; account_kind?: string | null }) {
@@ -386,6 +436,18 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
   const phone = normalizePhone(input.clientPhone || '');
   const fulfillment = input.fulfillment === 'delivery' ? 'delivery' : 'pickup';
   const deliveryAddress = String(input.deliveryAddress || '').trim();
+  const deliveryGpsUrl = String(input.deliveryGpsUrl || '').trim();
+  const receiverName = String(input.receiverName || '').trim();
+  const receiverPhone = normalizePhone(input.receiverPhone || '');
+  const invoiceDataNote = String(input.invoiceDataNote || '').trim();
+  const invoiceCompanyName = String(input.invoiceCompanyName || '').trim();
+  const invoiceTaxId = String(input.invoiceTaxId || '').trim();
+  const invoiceAddress = String(input.invoiceAddress || '').trim();
+  const invoicePhone = normalizePhone(input.invoicePhone || '');
+  const deliveryNoteName = String(input.deliveryNoteName || '').trim();
+  const deliveryNoteDocumentId = String(input.deliveryNoteDocumentId || '').trim();
+  const deliveryNoteAddress = String(input.deliveryNoteAddress || '').trim();
+  const deliveryNotePhone = normalizePhone(input.deliveryNotePhone || '');
   const items = (input.items || [])
     .map((item) => ({
       productId: Number(item.productId || 0),
@@ -476,6 +538,79 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
     resolvedClientPhone = normalizePhone(client.phone || phone);
   }
 
+  const { data: clientProfileBefore, error: clientProfileBeforeError } = await supabase
+    .from('clients')
+    .select(`
+      id,
+      full_name,
+      phone,
+      client_type,
+      fund_balance_usd,
+      billing_company_name,
+      billing_tax_id,
+      billing_address,
+      billing_phone,
+      delivery_note_name,
+      delivery_note_document_id,
+      delivery_note_address,
+      delivery_note_phone,
+      recent_addresses
+    `)
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientProfileBeforeError) throw new Error(clientProfileBeforeError.message);
+  if (!clientProfileBefore) throw new Error('No se pudo confirmar el cliente.');
+
+  const clientUpdatePayload: Record<string, unknown> = {};
+  if (fulfillment === 'delivery') {
+    clientUpdatePayload.recent_addresses = mergeRecentAddresses(
+      (clientProfileBefore as CounterClientProfileRow).recent_addresses,
+      deliveryAddress,
+      deliveryGpsUrl
+    );
+  }
+  if (input.hasInvoice) {
+    clientUpdatePayload.billing_company_name = invoiceCompanyName || null;
+    clientUpdatePayload.billing_tax_id = invoiceTaxId || null;
+    clientUpdatePayload.billing_address = invoiceAddress || null;
+    clientUpdatePayload.billing_phone = invoicePhone || null;
+  }
+  if (input.hasDeliveryNote) {
+    clientUpdatePayload.delivery_note_name = deliveryNoteName || null;
+    clientUpdatePayload.delivery_note_document_id = deliveryNoteDocumentId || null;
+    clientUpdatePayload.delivery_note_address = deliveryNoteAddress || null;
+    clientUpdatePayload.delivery_note_phone = deliveryNotePhone || null;
+  }
+
+  let clientProfile = clientProfileBefore as CounterClientProfileRow;
+  if (Object.keys(clientUpdatePayload).length > 0) {
+    const { data: updatedClientProfile, error: updateClientProfileError } = await supabase
+      .from('clients')
+      .update(clientUpdatePayload)
+      .eq('id', clientId)
+      .select(`
+        id,
+        full_name,
+        phone,
+        client_type,
+        fund_balance_usd,
+        billing_company_name,
+        billing_tax_id,
+        billing_address,
+        billing_phone,
+        delivery_note_name,
+        delivery_note_document_id,
+        delivery_note_address,
+        delivery_note_phone,
+        recent_addresses
+      `)
+      .single();
+
+    if (updateClientProfileError) throw new Error(updateClientProfileError.message);
+    clientProfile = updatedClientProfile as CounterClientProfileRow;
+  }
+
   const itemSnapshots = items.map((item) => {
     const product = productsById.get(item.productId);
     if (!product) throw new Error('Producto no encontrado.');
@@ -522,12 +657,12 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       asap: schedule.asap,
     },
     receiver: {
-      name: null,
-      phone: null,
+      name: receiverName || null,
+      phone: receiverPhone || null,
     },
     delivery: {
       address: fulfillment === 'delivery' ? deliveryAddress : null,
-      gps_url: null,
+      gps_url: fulfillment === 'delivery' ? deliveryGpsUrl || null : null,
     },
     payment: {
       method: paymentMethod,
@@ -541,9 +676,23 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
     documents: {
       has_delivery_note: Boolean(input.hasDeliveryNote),
       has_invoice: Boolean(input.hasInvoice),
-      invoice_data_note: null,
-      invoice_snapshot: null,
-      delivery_note_snapshot: null,
+      invoice_data_note: invoiceDataNote || null,
+      invoice_snapshot: input.hasInvoice
+        ? {
+            company_name: clientProfile.billing_company_name ?? null,
+            tax_id: clientProfile.billing_tax_id ?? null,
+            address: clientProfile.billing_address ?? null,
+            phone: clientProfile.billing_phone ?? null,
+          }
+        : null,
+      delivery_note_snapshot: input.hasDeliveryNote
+        ? {
+            name: clientProfile.delivery_note_name ?? null,
+            document_id: clientProfile.delivery_note_document_id ?? null,
+            address: clientProfile.delivery_note_address ?? null,
+            phone: clientProfile.delivery_note_phone ?? null,
+          }
+        : null,
     },
     pricing: {
       fx_rate: fxRate,
@@ -589,8 +738,8 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
       total_bs_snapshot: totals.totalBs,
       is_price_locked: false,
       delivery_address: fulfillment === 'delivery' ? deliveryAddress : null,
-      receiver_name: null,
-      receiver_phone: null,
+      receiver_name: receiverName || null,
+      receiver_phone: receiverPhone || null,
       notes: note || null,
       extra_fields: extraFields,
     })
