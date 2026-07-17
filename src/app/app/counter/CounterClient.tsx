@@ -3456,47 +3456,49 @@ function OrderDetail({
 
   return (
     <div>
-      <div className="border-b border-[#242433] p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+      <div className="border-b border-[#242433] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-2xl font-semibold">Orden #{order.displayNumber}</h2>
-              <span className={['rounded-full border px-3 py-1 text-sm font-semibold', counterStatusClass(order)].join(' ')}>
+              <h2 className="text-xl font-semibold">Orden #{order.displayNumber}</h2>
+              <span className={['rounded-full border px-2.5 py-0.5 text-xs font-semibold', counterStatusClass(order)].join(' ')}>
                 {getOperationalStatusLabel(order)}
               </span>
-              <span className="rounded-full border border-[#303044] px-3 py-1 text-sm text-[#C7C8D1]">
+              <span className="rounded-full border border-[#303044] px-2.5 py-0.5 text-xs text-[#C7C8D1]">
                 {fulfillmentLabel(order.fulfillment)}
               </span>
             </div>
-            <div className="mt-2 text-sm text-[#9FA0AA]">
+            <div className="mt-1 truncate text-sm text-[#9FA0AA]">
               {order.clientName}
               {order.clientPhone ? ` · ${order.clientPhone}` : ''}
             </div>
-            <div className="mt-1 text-sm text-[#9FA0AA]">
+            <div className="mt-1 text-xs text-[#9FA0AA]">
               Asesor: <span className="font-semibold text-[#F5F5F7]">{order.advisorName || 'Sin asesor'}</span>
             </div>
-            <div className="mt-1 text-sm text-[#9FA0AA]">Lista: {formatDateTime(order.readyAt)}</div>
+            <div className="mt-1 text-xs text-[#9FA0AA]">Lista: {formatDateTime(order.readyAt)}</div>
           </div>
-          <span className={['rounded-full border px-3 py-1 text-sm font-semibold', paymentClass(order)].join(' ')}>
+          <span className={['rounded-full border px-3 py-1 text-xs font-semibold', paymentClass(order)].join(' ')}>
             {paymentLabel(order)}
           </span>
         </div>
       </div>
 
-      <div className="grid gap-4 p-4 xl:grid-cols-[1fr_220px]">
+      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3">
-          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold">Pedido</h3>
               <span className="text-sm font-semibold text-[#C7C8D1]">{order.items.length} item(s)</span>
             </div>
-            <div className="mt-3 divide-y divide-[#242433]">
+            <div className="mt-2 divide-y divide-[#242433]">
               {order.items.length === 0 ? (
                 <div className="py-3 text-sm text-[#9FA0AA]">Sin items cargados.</div>
               ) : (
                 order.items.map((item) => (
-                  <div key={item.id} className="grid gap-2 py-2.5 sm:grid-cols-[64px_1fr_92px]">
-                    <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(item.qty)}</div>
+                  <div key={item.id} className="grid gap-2 py-2 sm:grid-cols-[56px_1fr_84px]">
+                    <div className="rounded-[8px] border border-[#FEEF00]/35 bg-[#FEEF00]/10 px-2 py-1 text-center text-sm font-bold text-[#FEEF00]">
+                      x{qtyLabel(item.qty)}
+                    </div>
                     <div>
                       <div className="text-sm font-semibold">{item.name}</div>
                       {item.notes ? (
@@ -3514,21 +3516,18 @@ function OrderDetail({
             </div>
           </div>
 
-          <CurrentActionCard action={currentAction} />
-          <CounterWorkflowChecklist items={getCounterWorkflowChecks(order)} />
-
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric label="Total" value={moneyUsd(order.totalUsd)} note={moneyBs(order.totalBs)} />
             <Metric label="Confirmado" value={moneyUsd(order.confirmedPaidUsd)} tone="good" />
             <Metric label="Pendiente" value={moneyUsd(order.balanceUsd)} tone={paid ? 'good' : 'warn'} />
           </div>
 
-          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold">Pago esperado</h3>
               <span className="text-sm font-semibold text-[#F5F5F7]">{getPaymentMethodLabel(order.paymentMethod)}</span>
             </div>
-            <div className="mt-2 grid gap-2 text-sm text-[#9FA0AA] sm:grid-cols-2">
+            <div className="mt-2 grid gap-2 text-xs text-[#9FA0AA] sm:grid-cols-2">
               <div>Moneda: {order.paymentCurrency || 'Sin definir'}</div>
               <div>Tasa orden: {order.fxRate > 0 ? moneyBs(order.fxRate) : 'Sin tasa'}</div>
               {order.paymentRequiresChange ? (
@@ -3541,9 +3540,9 @@ function OrderDetail({
           </div>
 
           {order.fulfillment === 'delivery' || order.deliveryAddress ? (
-            <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+            <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
               <h3 className="font-semibold">Entrega</h3>
-              <div className="mt-2 grid gap-2 text-sm text-[#C7C8D1] sm:grid-cols-2">
+              <div className="mt-2 grid gap-2 text-xs text-[#C7C8D1] sm:grid-cols-2">
                 <div className="sm:col-span-2">{order.deliveryAddress || 'Sin direccion'}</div>
                 {order.fulfillment === 'delivery' ? (
                   <>
@@ -3561,7 +3560,7 @@ function OrderDetail({
           ) : null}
 
           {isDeliverySettlement ? (
-            <div className="rounded-[8px] border border-sky-400/30 bg-sky-950/20 p-4">
+            <div className="rounded-[8px] border border-sky-400/30 bg-sky-950/20 p-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-sky-100">Liquidacion de delivery</h3>
@@ -3608,14 +3607,16 @@ function OrderDetail({
           ) : null}
 
           {order.notes ? (
-            <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
+            <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
               <h3 className="font-semibold">Notas</h3>
-              <div className="mt-2 text-sm text-[#C7C8D1]">{order.notes}</div>
+              <div className="mt-2 text-xs text-[#C7C8D1]">{order.notes}</div>
             </div>
           ) : null}
         </div>
 
-        <aside className="space-y-2">
+        <aside className="space-y-2 xl:sticky xl:top-4 xl:self-start">
+          <CurrentActionCard action={currentAction} />
+          <CounterWorkflowChecklist items={getCounterWorkflowChecks(order)} />
           <button
             type="button"
             onClick={handlePrimaryActionClick}
@@ -3677,21 +3678,23 @@ function OrderDetail({
               {primaryActionBlockedMessage}
             </div>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setPaymentOpen((current) => !current)}
-            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
-          >
-            {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Registrar retorno / cobro' : 'Registrar pago'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setAddItemsOpen((current) => !current)}
-            disabled={!canAddItems || isWorking}
-            className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {addItemsOpen ? 'Ocultar agregar' : 'Agregar productos'}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setPaymentOpen((current) => !current)}
+              className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+            >
+              {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Retorno / cobro' : 'Pago'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddItemsOpen((current) => !current)}
+              disabled={!canAddItems || isWorking}
+              className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {addItemsOpen ? 'Ocultar agregar' : 'Agregar'}
+            </button>
+          </div>
           {order.paymentRequiresChange ? (
             <ActionHint
               title="Preparar cambio"
@@ -4798,14 +4801,19 @@ function CounterWorkflowChecklist({
   };
 
   return (
-    <div className="grid gap-2 sm:grid-cols-3">
+    <div className="grid gap-1.5">
       {items.map((item) => (
-        <div key={item.label} className={['rounded-[8px] border px-3 py-2', stateClass[item.state]].join(' ')}>
-          <div className="flex items-center gap-2">
-            <span className={['h-2 w-2 rounded-full', dotClass[item.state]].join(' ')} />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">{item.label}</span>
+        <div
+          key={item.label}
+          className={['rounded-[8px] border px-2.5 py-1.5', stateClass[item.state]].join(' ')}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className={['h-2 w-2 shrink-0 rounded-full', dotClass[item.state]].join(' ')} />
+              <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em]">{item.label}</span>
+            </span>
+            <span className="truncate text-xs font-semibold text-[#F5F5F7]">{item.detail}</span>
           </div>
-          <div className="mt-1 truncate text-xs font-semibold text-[#F5F5F7]">{item.detail}</div>
         </div>
       ))}
     </div>
@@ -4854,14 +4862,14 @@ function CurrentActionCard({
         : 'border-sky-300/30 bg-sky-300/10 text-sky-100';
 
   return (
-    <div className={['rounded-[8px] border px-3 py-2.5', toneClass].join(' ')}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9FA0AA]">Accion actual</div>
-          <h3 className="mt-1 text-sm font-semibold text-[#F5F5F7]">{action.title}</h3>
-          <p className="mt-1 text-xs leading-relaxed text-[#C7C8D1]">{action.description}</p>
+    <div className={['rounded-[8px] border px-3 py-2', toneClass].join(' ')}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9FA0AA]">Accion actual</div>
+          <h3 className="mt-1 text-sm font-semibold leading-tight text-[#F5F5F7]">{action.title}</h3>
+          <p className="mt-1 text-xs leading-snug text-[#C7C8D1]">{action.description}</p>
         </div>
-        <span className={['rounded-full border px-3 py-1 text-xs font-semibold', badgeClass].join(' ')}>
+        <span className={['shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold', badgeClass].join(' ')}>
           {action.tone === 'good' ? 'Listo' : action.tone === 'warn' ? 'Atencion' : 'Seguimiento'}
         </span>
       </div>
