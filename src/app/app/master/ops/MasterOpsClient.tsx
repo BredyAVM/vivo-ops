@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
@@ -17,6 +18,12 @@ import {
   type FulfillmentType,
   type OrderStatus,
 } from "@/lib/orders/order-labels";
+import {
+  approveOrderAction,
+  markDeliveredAction,
+  markReadyAction,
+  sendToKitchenAction,
+} from "../dashboard/actions";
 
 export type PaymentVerify = "none" | "pending" | "confirmed" | "rejected";
 
@@ -93,6 +100,7 @@ type Props = {
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
 type DetailTab = "detalle" | "entrega" | "pagos";
+type DirectActionKey = "approve" | "send-kitchen" | "mark-ready" | "complete";
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
   { key: "all", label: "Todos" },
@@ -102,6 +110,12 @@ const trayItems: Array<{ key: MasterTray; label: string }> = [
   { key: "kitchen", label: "Cocina" },
   { key: "delivery", label: "Delivery" },
   { key: "finalized", label: "Finalizadas" },
+];
+
+const detailTabs: Array<{ key: DetailTab; label: string }> = [
+  { key: "detalle", label: "Pedido" },
+  { key: "entrega", label: "Entrega" },
+  { key: "pagos", label: "Pagos" },
 ];
 
 const timeFormatter = new Intl.DateTimeFormat("es-VE", {
@@ -118,6 +132,14 @@ const dayFormatter = new Intl.DateTimeFormat("es-VE", {
   timeZone: "America/Caracas",
 });
 
+const detailDateFormatter = new Intl.DateTimeFormat("es-VE", {
+  weekday: "short",
+  day: "2-digit",
+  month: "2-digit",
+  year: "2-digit",
+  timeZone: "America/Caracas",
+});
+
 function fmtUSD(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -130,6 +152,18 @@ function fmtTimeAMPM(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "--";
   return timeFormatter.format(date);
+}
+
+function fmtDate(iso: string | null) {
+  if (!iso) return "--";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "--";
+  return detailDateFormatter.format(date);
+}
+
+function fmtDateTime(iso: string | null) {
+  if (!iso) return "--";
+  return `${fmtDate(iso)} - ${fmtTimeAMPM(iso)}`;
 }
 
 function fmtDayLabel(dateKey: string) {
@@ -257,6 +291,51 @@ function dashboardUrl(order: MasterOpsOrder, focusDate: string, tab: DetailTab =
   return `/app/master/dashboard?focusDate=${focusDate}&openOrder=${order.id}&tab=${tab}`;
 }
 
+function paymentVerifyLabel(order: MasterOpsOrder) {
+  if (order.balanceUsd <= 0.005) return "Pagado";
+  if (order.paymentVerify === "pending") return "Pago por revisar";
+  if (order.paymentVerify === "rejected") return "Pago rechazado";
+  if (order.paymentVerify === "confirmed") return "Pago parcial";
+  return "Pendiente";
+}
+
+function assignmentText(order: MasterOpsOrder) {
+  if (order.fulfillment !== "delivery") return "Retiro en local";
+  if (order.riderName) return `Interno: ${order.riderName}`;
+  if (order.externalPartner) return `Externo: ${order.externalPartner}`;
+  return "Sin driver";
+}
+
+function directActionsForOrder(order: MasterOpsOrder): Array<{
+  key: DirectActionKey;
+  label: string;
+  tone: "primary" | "green" | "neutral";
+}> {
+  const actions: Array<{ key: DirectActionKey; label: string; tone: "primary" | "green" | "neutral" }> = [];
+
+  if (order.status === "created" && !order.returnedToAdvisor) {
+    actions.push({ key: "approve", label: "Aprobar", tone: "primary" });
+  }
+
+  if (canSendOrderToKitchen(order)) {
+    actions.push({ key: "send-kitchen", label: "Enviar a cocina", tone: "primary" });
+  }
+
+  if (canMarkOrderReady(order)) {
+    actions.push({ key: "mark-ready", label: "Marcar lista", tone: "green" });
+  }
+
+  if (canCompleteOrder(order)) {
+    actions.push({
+      key: "complete",
+      label: order.fulfillment === "pickup" ? "Marcar retirada" : "Marcar entregada",
+      tone: "green",
+    });
+  }
+
+  return actions;
+}
+
 function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={`rounded-2xl border border-[#242433] bg-[#121218] p-3 ${className}`}>
@@ -363,6 +442,215 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
   );
 }
 
+function DetailMetric({
+  label,
+  value,
+  tone = "normal",
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: "normal" | "yellow" | "green" | "orange";
+}) {
+  const valueClass =
+    tone === "yellow"
+      ? "text-[#FEEF00]"
+      : tone === "green"
+        ? "text-[#7FE7C4]"
+        : tone === "orange"
+          ? "text-orange-300"
+          : "text-[#F5F5F7]";
+
+  return (
+    <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3">
+      <div className="text-[11px] text-[#8A8A96]">{label}</div>
+      <div className={`mt-1 text-[15px] font-semibold ${valueClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function OrderDetailPanel({
+  order,
+  focusDate,
+  activeTab,
+  actionError,
+  runningAction,
+  onTabChange,
+  onClose,
+  onDirectAction,
+}: {
+  order: MasterOpsOrder;
+  focusDate: string;
+  activeTab: DetailTab;
+  actionError: string | null;
+  runningAction: string | null;
+  onTabChange: (tab: DetailTab) => void;
+  onClose: () => void;
+  onDirectAction: (order: MasterOpsOrder, action: DirectActionKey) => void;
+}) {
+  const actionLabel = getNextPrimaryActionLabel(order);
+  const paymentLabel = paymentVerifyLabel(order);
+  const paidTone = order.balanceUsd <= 0.005 ? "green" : "orange";
+  const directActions = directActionsForOrder(order);
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/55">
+      <button className="absolute inset-0 cursor-default" type="button" aria-label="Cerrar detalle" onClick={onClose} />
+      <section className="absolute right-0 top-0 flex h-full w-full max-w-[760px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
+        <div className="border-b border-[#242433] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold text-[#F5F5F7]">Orden #{order.id}</h2>
+                <span className="rounded-full border border-[#242433] bg-[#121218] px-2 py-1 text-[11px] text-[#B7B7C2]">
+                  {ORDER_STATUS_LABELS[order.status]}
+                </span>
+                {order.isNewClient ? (
+                  <span className="rounded-full bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]">
+                    CLIENTE NUEVO
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1 truncate text-[13px] text-[#B7B7C2]">
+                {order.clientName} - {order.advisorName}
+              </div>
+            </div>
+            <button
+              className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
+              type="button"
+              onClick={onClose}
+            >
+              x
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {detailTabs.map((tab) => (
+              <button
+                key={tab.key}
+                className={[
+                  "rounded-full border px-3 py-1.5 text-[13px] transition",
+                  activeTab === tab.key
+                    ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                    : "border-[#242433] bg-[#121218] text-[#B7B7C2] hover:text-[#F5F5F7]",
+                ].join(" ")}
+                type="button"
+                onClick={() => onTabChange(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <DetailMetric label="Total" value={fmtUSD(order.totalUsd)} />
+            <DetailMetric label="Confirmado" value={fmtUSD(order.confirmedPaidUsd)} tone="green" />
+            <DetailMetric label="Pendiente" value={fmtUSD(order.balanceUsd)} tone={paidTone} />
+          </div>
+
+          <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-[13px] font-semibold text-[#F5F5F7]">Accion operativa</div>
+                <div className="mt-1 text-[12px] text-[#B7B7C2]">{actionLabel}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {directActions.length > 0 ? (
+                  directActions.map((action) => {
+                    const isRunning = runningAction === `${action.key}:${order.id}`;
+                    const className =
+                      action.tone === "green"
+                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+                        : action.tone === "primary"
+                          ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                          : "border-[#242433] bg-[#0B0B0D] text-[#F5F5F7]";
+
+                    return (
+                      <button
+                        key={action.key}
+                        className={`rounded-xl border px-3 py-2 text-sm font-semibold disabled:cursor-wait disabled:opacity-60 ${className}`}
+                        type="button"
+                        disabled={Boolean(runningAction)}
+                        onClick={() => onDirectAction(order, action.key)}
+                      >
+                        {isRunning ? "Procesando..." : action.label}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <Link
+                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
+                    href={dashboardUrl(order, focusDate, activeTab)}
+                  >
+                    Resolver en detalle
+                  </Link>
+                )}
+              </div>
+            </div>
+            {actionError ? (
+              <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                {actionError}
+              </div>
+            ) : null}
+          </div>
+
+          {activeTab === "detalle" ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <DetailMetric label="Cliente" value={order.clientName} />
+              <DetailMetric label="Asesor" value={order.advisorName} />
+              <DetailMetric label="Tipo" value={pillLabel(order.fulfillment)} />
+              <DetailMetric label="Entrega" value={order.isAsap ? `${fmtDate(order.deliveryAtISO)} - Lo antes posible` : fmtDateTime(order.deliveryAtISO)} />
+              <DetailMetric label="Creada" value={fmtDateTime(order.createdAtISO)} />
+              <DetailMetric label="Accion actual" value={actionLabel} tone="yellow" />
+            </div>
+          ) : null}
+
+          {activeTab === "entrega" ? (
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                <RowProcessTimeline order={order} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <DetailMetric label="Asignacion" value={assignmentText(order)} />
+                <DetailMetric label="Horario" value={order.isAsap ? "Lo antes posible" : fmtTimeAMPM(order.deliveryAtISO)} />
+                <DetailMetric label="Enviado a cocina" value={fmtDateTime(order.sentToKitchenAtISO)} />
+                <DetailMetric label="Tomado por cocina" value={fmtDateTime(order.kitchenStartedAtISO)} />
+                <DetailMetric label="Listo" value={fmtDateTime(order.readyAtISO)} />
+                <DetailMetric label="Accion actual" value={actionLabel} tone="yellow" />
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "pagos" ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <DetailMetric label="Estado de pago" value={paymentLabel} tone={paidTone} />
+              <DetailMetric label="Total Bs" value={order.totalBs != null ? fmtRateBs(order.totalBs) : "--"} />
+              <DetailMetric label="Total USD" value={fmtUSD(order.totalUsd)} />
+              <DetailMetric label="Confirmado USD" value={fmtUSD(order.confirmedPaidUsd)} tone="green" />
+              <DetailMetric label="Pendiente USD" value={fmtUSD(order.balanceUsd)} tone={paidTone} />
+              <DetailMetric label="Revision" value={order.paymentVerify === "pending" ? "Requiere revisar pago" : "Sin pago pendiente"} />
+            </div>
+          ) : null}
+
+          <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
+            <div className="text-[13px] font-semibold text-[#F5F5F7]">Detalle completo</div>
+            <div className="mt-1 text-[12px] leading-5 text-[#B7B7C2]">
+              Este panel ya permite revisar la orden sin salir del modulo operativo. Las acciones completas siguen disponibles en la dashboard actual mientras las migramos por bloques.
+            </div>
+            <Link
+              className="mt-3 inline-flex rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+              href={dashboardUrl(order, focusDate, activeTab)}
+            >
+              Abrir detalle actual
+            </Link>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function MasterOpsClient({
   currentUserName,
   roles,
@@ -374,8 +662,14 @@ export default function MasterOpsClient({
   orders,
   stats,
 }: Props) {
+  const router = useRouter();
   const [tray, setTray] = useState<MasterTray>("all");
   const [search, setSearch] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedDetailTab, setSelectedDetailTab] = useState<DetailTab>("detalle");
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
   const normalizedSearch = search.trim().toLocaleLowerCase("es-VE");
   const tableOrders = useMemo(() => {
@@ -391,6 +685,49 @@ export default function MasterOpsClient({
       .slice()
       .sort((a, b) => new Date(b.deliveryAtISO).getTime() - new Date(a.deliveryAtISO).getTime());
   }, [normalizedSearch, orders, tray]);
+  const selectedOrder = useMemo(
+    () => orders.find((order) => order.id === selectedOrderId) ?? null,
+    [orders, selectedOrderId]
+  );
+
+  function openOrder(order: MasterOpsOrder, tab: DetailTab = "detalle") {
+    setSelectedOrderId(order.id);
+    setSelectedDetailTab(tab);
+    setActionError(null);
+  }
+
+  async function runDirectOrderAction(order: MasterOpsOrder, action: DirectActionKey) {
+    const actionId = `${action}:${order.id}`;
+    setRunningAction(actionId);
+    setActionError(null);
+
+    try {
+      let result: unknown = null;
+
+      if (action === "approve") {
+        result = await approveOrderAction({ orderId: order.id });
+      } else if (action === "send-kitchen") {
+        result = await sendToKitchenAction({ orderId: order.id });
+      } else if (action === "mark-ready") {
+        result = await markReadyAction({ orderId: order.id });
+      } else if (action === "complete") {
+        result = await markDeliveredAction({ orderId: order.id });
+      }
+
+      if (result && typeof result === "object" && "ok" in result && result.ok === false) {
+        const message = "message" in result && typeof result.message === "string" ? result.message : "No se pudo procesar la accion.";
+        throw new Error(message);
+      }
+
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No se pudo procesar la accion.");
+    } finally {
+      setRunningAction(null);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
@@ -608,19 +945,20 @@ export default function MasterOpsClient({
                       <tr
                         key={order.id}
                         className={`${zebra} cursor-pointer border-b border-[#242433] hover:bg-[#191926]`}
+                        onClick={() => openOrder(order, focusTab)}
                       >
-                        <td className="px-2 py-2" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="px-2 py-2">
                           {fmtTimeAMPM(order.deliveryAtISO)}
                         </td>
-                        <td className="min-w-[104px] px-2 py-2" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="min-w-[104px] px-2 py-2">
                           <div className="font-semibold text-[#F5F5F7]">{order.id}</div>
                           <div className="mt-0.5 text-[10px] text-[#8A8A96]">{ORDER_STATUS_LABELS[order.status]}</div>
                         </td>
-                        <td className="min-w-[122px] px-2 py-2 leading-4" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="min-w-[122px] px-2 py-2 leading-4">
                           <div>{advisorName.line1}</div>
                           <div className="text-[#B7B7C2]">{advisorName.line2}</div>
                         </td>
-                        <td className="min-w-[122px] px-2 py-2 leading-4" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="min-w-[122px] px-2 py-2 leading-4">
                           <div>{clientName.line1}</div>
                           <div className="text-[#B7B7C2]">{clientName.line2}</div>
                           {order.isNewClient ? (
@@ -629,17 +967,17 @@ export default function MasterOpsClient({
                             </div>
                           ) : null}
                         </td>
-                        <td className="px-2 py-2" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="px-2 py-2">
                           <span className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[11px]">
                             {pillLabel(order.fulfillment)}
                           </span>
                         </td>
-                        <td className="px-2 py-2" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>{fmtUSD(order.totalUsd)}</td>
-                        <td className={["px-2 py-2 font-medium", paymentToneClass(order.balanceUsd)].join(" ")} onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="px-2 py-2">{fmtUSD(order.totalUsd)}</td>
+                        <td className={["px-2 py-2 font-medium", paymentToneClass(order.balanceUsd)].join(" ")}>
                           {fmtUSD(order.balanceUsd)}
                         </td>
                         <td className="min-w-[132px] px-2 py-2">
-                          <Link
+                          <button
                             className={[
                               "inline-flex rounded-lg border border-[#242433] bg-[#0B0B0D] px-2 py-1 text-[11px] font-medium transition hover:border-[#FEEF00]/40",
                               focusTab === "pagos"
@@ -648,12 +986,16 @@ export default function MasterOpsClient({
                                   ? "text-sky-200"
                                   : "text-[#F5F5F7]",
                             ].join(" ")}
-                            href={dashboardUrl(order, focusDate, focusTab)}
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openOrder(order, focusTab);
+                            }}
                           >
                             {actionLabel}
-                          </Link>
+                          </button>
                         </td>
-                        <td className="min-w-[400px] px-2 py-2" onClick={() => window.location.assign(dashboardUrl(order, focusDate))}>
+                        <td className="min-w-[400px] px-2 py-2">
                           <RowProcessTimeline order={order} />
                         </td>
                       </tr>
@@ -665,6 +1007,18 @@ export default function MasterOpsClient({
           </div>
         </div>
       </main>
+      {selectedOrder ? (
+        <OrderDetailPanel
+          order={selectedOrder}
+          focusDate={focusDate}
+          activeTab={selectedDetailTab}
+          actionError={actionError}
+          runningAction={runningAction}
+          onTabChange={setSelectedDetailTab}
+          onClose={() => setSelectedOrderId(null)}
+          onDirectAction={runDirectOrderAction}
+        />
+      ) : null}
     </div>
   );
 }
