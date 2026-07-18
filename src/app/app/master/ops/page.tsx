@@ -28,17 +28,23 @@ type SearchParams = Promise<{
 
 type RawOrderRow = {
   id: number;
+  order_number: string | null;
   client_id: number | string | null;
   attributed_advisor_id: string | null;
   source: "advisor" | "master" | "walk_in";
   status: OrderStatus;
   fulfillment: FulfillmentType;
+  delivery_address: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
   total_usd: number | string | null;
   total_bs_snapshot: number | string | null;
+  notes: string | null;
   created_at: string;
   sent_to_kitchen_at: string | null;
   kitchen_started_at: string | null;
   ready_at: string | null;
+  eta_minutes: number | string | null;
   extra_fields: any;
   queued_needs_reapproval: boolean | null;
   internal_driver_user_id: string | null;
@@ -51,6 +57,7 @@ type RawOrderRow = {
         phone: string | null;
         created_at: string | null;
         client_type: string | null;
+        fund_balance_usd: number | string | null;
       }[]
     | {
         id: number | string | null;
@@ -58,6 +65,7 @@ type RawOrderRow = {
         phone: string | null;
         created_at: string | null;
         client_type: string | null;
+        fund_balance_usd: number | string | null;
       }
     | null;
   advisor: { full_name: string | null }[] | { full_name: string | null } | null;
@@ -73,6 +81,80 @@ type RawFinancialStateRow = {
   pending_reports_count: number | string | null;
   confirmed_reports_count: number | string | null;
   rejected_reports_count: number | string | null;
+};
+
+type RawOrderItemRow = {
+  id: number;
+  order_id: number | string;
+  product_id: number | string | null;
+  qty: number | string | null;
+  unit_price_usd_snapshot: number | string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_usd: number | string | null;
+  product_name_snapshot: string | null;
+  notes: string | null;
+};
+
+type RawPaymentReportRow = {
+  id: number;
+  order_id: number | string;
+  status: "pending" | "confirmed" | "rejected";
+  created_at: string | null;
+  created_by_user_id: string | null;
+  reported_currency_code: string;
+  reported_amount: number | string | null;
+  reported_exchange_rate_ves_per_usd: number | string | null;
+  reported_amount_usd_equivalent: number | string | null;
+  reported_money_account_id: number | string | null;
+  reference_code: string | null;
+  payer_name: string | null;
+  notes: string | null;
+};
+
+type RawOrderEventRow = {
+  id: number | string;
+  order_id: number | string;
+  title: string | null;
+  message: string | null;
+  severity: "info" | "warning" | "critical" | null;
+  actor_user_id: string | null;
+  created_at: string;
+};
+
+type RawOrderAdjustmentRow = {
+  id: number;
+  order_id: number | string;
+  adjustment_type: string | null;
+  reason: string | null;
+  notes: string | null;
+  created_at: string;
+  created_by_user_id: string | null;
+};
+
+type RawMoneyAccountRow = {
+  id: number | string;
+  name: string | null;
+};
+
+type RawProfileNameRow = {
+  id: string;
+  full_name: string | null;
+};
+
+type RawProductDetailRow = {
+  id: number | string;
+  type: string | null;
+  units_per_service: number | string | null;
+};
+
+type MasterOpsOrderDetailMaps = {
+  itemsByOrder?: Map<number, RawOrderItemRow[]>;
+  reportsByOrder?: Map<number, RawPaymentReportRow[]>;
+  eventsByOrder?: Map<number, RawOrderEventRow[]>;
+  adjustmentsByOrder?: Map<number, RawOrderAdjustmentRow[]>;
+  moneyAccountNameById?: Map<number, string>;
+  profileNameById?: Map<string, string>;
+  productDetailById?: Map<number, RawProductDetailRow>;
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -189,6 +271,25 @@ function financialStateById(states: RawFinancialStateRow[]) {
   return map;
 }
 
+function extractUnitsPerServiceFromName(name: string | null | undefined) {
+  const match = String(name || "").match(/\((\d+(?:[.,]\d+)?)\s*(?:und|unidad|unidades|pzas?|piezas?)\)/i);
+  if (!match) return 0;
+  const units = Number(match[1].replace(",", "."));
+  return Number.isFinite(units) && units > 0 ? units : 0;
+}
+
+function groupByOrderId<T extends { order_id: number | string }>(rows: T[]) {
+  const map = new Map<number, T[]>();
+  for (const row of rows) {
+    const orderId = Number(row.order_id);
+    if (!Number.isFinite(orderId) || orderId <= 0) continue;
+    const bucket = map.get(orderId) ?? [];
+    bucket.push(row);
+    map.set(orderId, bucket);
+  }
+  return map;
+}
+
 function paymentVerifyFromState(status: OrderStatus, state: RawFinancialStateRow | null): PaymentVerify {
   if (status === "cancelled") return "none";
   const pendingCount = Math.trunc(toNumber(state?.pending_reports_count, 0));
@@ -220,12 +321,18 @@ function buildClientOrderStats(rows: Array<{ id: number | string; client_id: num
 function mapOrder(
   row: RawOrderRow,
   financialStates: Map<number, RawFinancialStateRow>,
-  clientStats: Map<number, { firstOrderId: number | null; orderCount: number }>
+  clientStats: Map<number, { firstOrderId: number | null; orderCount: number }>,
+  detail: MasterOpsOrderDetailMaps = {}
 ): MasterOpsOrder {
   const client = one(row.client);
   const advisor = one(row.advisor);
   const creator = one(row.creator);
   const state = financialStates.get(Number(row.id)) ?? null;
+  const orderId = Number(row.id);
+  const orderItems = detail.itemsByOrder?.get(orderId) ?? [];
+  const reports = detail.reportsByOrder?.get(orderId) ?? [];
+  const events = detail.eventsByOrder?.get(orderId) ?? [];
+  const adjustments = detail.adjustmentsByOrder?.get(orderId) ?? [];
   const totalUsd = roundMoney(
     state?.total_usd,
     roundMoney(row.extra_fields?.pricing?.total_usd, toNumber(row.total_usd, 0))
@@ -254,13 +361,121 @@ function mapOrder(
       : row.source === "walk_in"
         ? `Mostrador (${creatorName})`
         : cleanText(advisor?.full_name ?? creator?.full_name, "Sin asesor");
+  const subtotalUsd =
+    row.extra_fields?.pricing?.subtotal_usd != null
+      ? roundMoney(row.extra_fields.pricing.subtotal_usd, 0)
+      : null;
+  const subtotalBs =
+    row.extra_fields?.pricing?.subtotal_bs != null
+      ? roundMoney(row.extra_fields.pricing.subtotal_bs, 0)
+      : null;
+  const subtotalAfterDiscountUsd =
+    row.extra_fields?.pricing?.subtotal_after_discount_usd != null
+      ? roundMoney(row.extra_fields.pricing.subtotal_after_discount_usd, 0)
+      : null;
+  const subtotalAfterDiscountBs =
+    row.extra_fields?.pricing?.subtotal_after_discount_bs != null
+      ? roundMoney(row.extra_fields.pricing.subtotal_after_discount_bs, 0)
+      : null;
+  const invoiceTaxAmountUsd =
+    row.extra_fields?.pricing?.invoice_tax_amount_usd != null
+      ? roundMoney(row.extra_fields.pricing.invoice_tax_amount_usd, 0)
+      : 0;
+  const invoiceTaxAmountBs =
+    row.extra_fields?.pricing?.invoice_tax_amount_bs != null
+      ? roundMoney(row.extra_fields.pricing.invoice_tax_amount_bs, 0)
+      : 0;
+  const discountAmountUsd = Math.max(
+    0,
+    roundMoney((subtotalUsd ?? totalUsd) - (subtotalAfterDiscountUsd ?? totalUsd), 0)
+  );
+  const discountAmountBs = Math.max(
+    0,
+    roundMoney((subtotalBs ?? totalBs ?? 0) - (subtotalAfterDiscountBs ?? totalBs ?? 0), 0)
+  );
+  const lines = orderItems.map((item) => {
+    const productName = cleanText(item.product_name_snapshot, "Producto");
+    const productId = Number(item.product_id);
+    const product = Number.isFinite(productId) ? detail.productDetailById?.get(productId) : null;
+    const productUnits = toNumber(product?.units_per_service, 0);
+    const unitsPerService = productUnits > 0 ? productUnits : extractUnitsPerServiceFromName(productName);
+    const lowerName = productName.toLowerCase();
+
+    return {
+      name: productName,
+      qty: toNumber(item.qty, 0),
+      unitsPerService,
+      priceBs: roundMoney(item.unit_price_bs_snapshot, 0),
+      lineTotalUsd: roundMoney(item.line_total_usd, 0),
+      productType: product?.type ?? null,
+      isDelivery: lowerName.startsWith("delivery") || lowerName.includes("delivery"),
+      editableDetailLines: item.notes
+        ? item.notes
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+        : [],
+    };
+  });
+  const paymentReports = reports.map((report) => {
+    const accountId = Number(report.reported_money_account_id);
+    return {
+      id: Number(report.id),
+      status: report.status,
+      createdAt: report.created_at,
+      reporterName:
+        (report.created_by_user_id ? detail.profileNameById?.get(report.created_by_user_id) : null) ??
+        "Usuario",
+      currencyCode: cleanText(report.reported_currency_code, "--"),
+      amount: roundMoney(report.reported_amount, 0),
+      exchangeRate:
+        report.reported_exchange_rate_ves_per_usd == null
+          ? null
+          : roundMoney(report.reported_exchange_rate_ves_per_usd, 0),
+      usdEquivalent: roundMoney(report.reported_amount_usd_equivalent, 0),
+      moneyAccountName:
+        Number.isFinite(accountId) && accountId > 0
+          ? detail.moneyAccountNameById?.get(accountId) ?? `Cuenta #${accountId}`
+          : "Cuenta",
+      referenceCode: report.reference_code ?? null,
+      payerName: report.payer_name ?? null,
+      notes: report.notes ?? null,
+    };
+  });
+  const orderEvents = events.map((event) => ({
+    id: String(event.id),
+    title: cleanText(event.title, "Evento"),
+    message: event.message ?? null,
+    severity:
+      event.severity === "critical" || event.severity === "warning" || event.severity === "info"
+        ? event.severity
+        : "info",
+    actorName:
+      (event.actor_user_id ? detail.profileNameById?.get(event.actor_user_id) : null) ??
+      "Sistema",
+    createdAt: event.created_at,
+  }));
+  const adminAdjustments = adjustments.map((adjustment) => ({
+    id: Number(adjustment.id),
+    adjustmentType: cleanText(adjustment.adjustment_type, "Ajuste"),
+    reason: cleanText(adjustment.reason, "--"),
+    notes: adjustment.notes ?? null,
+    createdAt: adjustment.created_at,
+    createdByName:
+      (adjustment.created_by_user_id ? detail.profileNameById?.get(adjustment.created_by_user_id) : null) ??
+      "Admin",
+  }));
 
   return {
-    id: Number(row.id),
+    id: orderId,
+    orderNumber: cleanText(row.order_number, String(orderId)),
     status: row.status,
     fulfillment: row.fulfillment,
     advisorName,
     clientName: cleanText(client?.full_name ?? row.extra_fields?.receiver?.name, "Cliente sin nombre"),
+    clientPhone: client?.phone ?? null,
+    clientCreatedAtISO: client?.created_at ?? null,
+    clientOrderCount: clientStats.get(clientId)?.orderCount ?? 0,
     totalUsd,
     totalBs,
     balanceUsd: row.status === "cancelled" ? 0 : Math.max(0, roundMoney(state?.pending_usd, totalUsd)),
@@ -275,7 +490,80 @@ function mapOrder(
     returnedToAdvisor: Boolean(row.extra_fields?.review?.returned_to_advisor),
     isAsap: Boolean(row.extra_fields?.schedule?.asap ?? false),
     isNewClient,
-    riderName: row.internal_driver_user_id ? "Interno asignado" : null,
+    address: row.delivery_address ?? null,
+    notes: row.notes ?? null,
+    receiverName: row.extra_fields?.receiver?.name ?? row.receiver_name ?? null,
+    receiverPhone: row.extra_fields?.receiver?.phone ?? row.receiver_phone ?? null,
+    deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
+    deliveryDistanceKm:
+      row.extra_fields?.delivery?.distance_km != null
+        ? roundMoney(row.extra_fields.delivery.distance_km, 0)
+        : null,
+    deliveryCostUsd:
+      row.extra_fields?.delivery?.cost_usd != null
+        ? roundMoney(row.extra_fields.delivery.cost_usd, 0)
+        : null,
+    paymentMethod: row.extra_fields?.payment?.method ?? null,
+    paymentCurrency:
+      row.extra_fields?.payment?.currency === "VES" || row.extra_fields?.payment?.currency === "USD"
+        ? row.extra_fields.payment.currency
+        : null,
+    paymentRequiresChange: Boolean(row.extra_fields?.payment?.requires_change ?? false),
+    paymentChangeFor:
+      row.extra_fields?.payment?.change_for != null
+        ? String(row.extra_fields.payment.change_for)
+        : null,
+    paymentChangeCurrency:
+      row.extra_fields?.payment?.change_currency === "VES" || row.extra_fields?.payment?.change_currency === "USD"
+        ? row.extra_fields.payment.change_currency
+        : null,
+    paymentNote: row.extra_fields?.payment?.notes ?? null,
+    hasDeliveryNote: Boolean(row.extra_fields?.documents?.has_delivery_note ?? false),
+    hasInvoice: Boolean(row.extra_fields?.documents?.has_invoice ?? false),
+    invoiceDataNote: row.extra_fields?.documents?.invoice_data_note ?? null,
+    invoiceSnapshot: row.extra_fields?.documents?.invoice_snapshot
+      ? {
+          companyName: row.extra_fields.documents.invoice_snapshot.company_name ?? null,
+          taxId: row.extra_fields.documents.invoice_snapshot.tax_id ?? null,
+          address: row.extra_fields.documents.invoice_snapshot.address ?? null,
+          phone: row.extra_fields.documents.invoice_snapshot.phone ?? null,
+        }
+      : null,
+    deliveryNoteSnapshot: row.extra_fields?.documents?.delivery_note_snapshot
+      ? {
+          name: row.extra_fields.documents.delivery_note_snapshot.name ?? null,
+          documentId: row.extra_fields.documents.delivery_note_snapshot.document_id ?? null,
+          address: row.extra_fields.documents.delivery_note_snapshot.address ?? null,
+          phone: row.extra_fields.documents.delivery_note_snapshot.phone ?? null,
+        }
+      : null,
+    fxRate:
+      row.extra_fields?.pricing?.fx_rate != null
+        ? roundMoney(row.extra_fields.pricing.fx_rate, 0)
+        : null,
+    discountPct:
+      row.extra_fields?.pricing?.discount_pct != null
+        ? roundMoney(row.extra_fields.pricing.discount_pct, 0)
+        : null,
+    discountAmountUsd,
+    discountAmountBs,
+    invoiceTaxPct:
+      row.extra_fields?.pricing?.invoice_tax_pct != null
+        ? roundMoney(row.extra_fields.pricing.invoice_tax_pct, 0)
+        : null,
+    invoiceTaxAmountUsd,
+    invoiceTaxAmountBs,
+    subtotalUsd,
+    subtotalBs,
+    subtotalAfterDiscountUsd,
+    subtotalAfterDiscountBs,
+    lines,
+    paymentReports,
+    events: orderEvents,
+    adminAdjustments,
+    riderName:
+      (row.internal_driver_user_id ? detail.profileNameById?.get(row.internal_driver_user_id) : null) ??
+      (row.internal_driver_user_id ? "Interno asignado" : null),
     externalPartner: row.external_driver_name?.trim() || (row.external_partner_id ? "Externo asignado" : null),
   };
 }
@@ -343,17 +631,23 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const weekRange = getCaracasWeekRange(focusDate);
   const orderSelect = `
     id,
+    order_number,
     client_id,
     attributed_advisor_id,
     source,
     status,
     fulfillment,
+    delivery_address,
+    receiver_name,
+    receiver_phone,
     total_usd,
     total_bs_snapshot,
+    notes,
     created_at,
     sent_to_kitchen_at,
     kitchen_started_at,
     ready_at,
+    eta_minutes,
     extra_fields,
     queued_needs_reapproval,
     internal_driver_user_id,
@@ -364,7 +658,8 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       full_name,
       phone,
       created_at,
-      client_type
+      client_type,
+      fund_balance_usd
     ),
     advisor:profiles!orders_attributed_advisor_id_fkey (
       full_name
@@ -440,6 +735,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const dayRows = mergeRows(scheduledDayRows, createdDayRows);
   const weekRows = mergeRows(scheduledWeekRows, createdWeekRows);
   const allRows = mergeRows(dayRows, weekRows);
+  const dayOrderIds = dayRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
   const allOrderIds = allRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
   const activeRate = toNumber(activeRateResult.data?.rate_bs_per_usd, 0);
 
@@ -474,9 +770,143 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     throw new Error(clientHistoryResult.error.message);
   }
 
+  const detailOrderIds = dayOrderIds.length > 0 ? dayOrderIds : [-1];
+  const [
+    orderItemsResult,
+    paymentReportsResult,
+    orderEventsResult,
+    orderAdjustmentsResult,
+    moneyAccountsResult,
+  ] = await Promise.all([
+    ctx.supabase
+      .from("order_items")
+      .select(
+        `
+        id,
+        order_id,
+        product_id,
+        qty,
+        unit_price_usd_snapshot,
+        unit_price_bs_snapshot,
+        line_total_usd,
+        product_name_snapshot,
+        notes
+      `
+      )
+      .in("order_id", detailOrderIds),
+    ctx.supabase
+      .from("payment_reports")
+      .select(
+        `
+        id,
+        order_id,
+        status,
+        created_at,
+        created_by_user_id,
+        reported_currency_code,
+        reported_amount,
+        reported_exchange_rate_ves_per_usd,
+        reported_amount_usd_equivalent,
+        reported_money_account_id,
+        reference_code,
+        payer_name,
+        notes
+      `
+      )
+      .in("order_id", detailOrderIds)
+      .order("created_at", { ascending: false }),
+    ctx.supabase
+      .from("order_timeline_events")
+      .select("id, order_id, title, message, severity, actor_user_id, created_at")
+      .in("order_id", detailOrderIds)
+      .order("created_at", { ascending: false })
+      .limit(800),
+    ctx.supabase
+      .from("order_admin_adjustments")
+      .select("id, order_id, adjustment_type, reason, notes, created_at, created_by_user_id")
+      .in("order_id", detailOrderIds)
+      .order("created_at", { ascending: false }),
+    ctx.supabase.from("money_accounts").select("id, name"),
+  ]);
+
+  const detailError =
+    orderItemsResult.error ??
+    paymentReportsResult.error ??
+    orderEventsResult.error ??
+    orderAdjustmentsResult.error ??
+    moneyAccountsResult.error;
+
+  if (detailError) {
+    throw new Error(detailError.message);
+  }
+
+  const orderItems = (orderItemsResult.data ?? []) as RawOrderItemRow[];
+  const paymentReports = (paymentReportsResult.data ?? []) as RawPaymentReportRow[];
+  const orderEvents = (orderEventsResult.data ?? []) as RawOrderEventRow[];
+  const orderAdjustments = (orderAdjustmentsResult.data ?? []) as RawOrderAdjustmentRow[];
+  const moneyAccounts = (moneyAccountsResult.data ?? []) as RawMoneyAccountRow[];
+  const productIds = Array.from(
+    new Set(orderItems.map((item) => Number(item.product_id)).filter((id) => Number.isFinite(id) && id > 0))
+  );
+  const productsResult =
+    productIds.length > 0
+      ? await ctx.supabase.from("products").select("id, type, units_per_service").in("id", productIds)
+      : { data: [], error: null };
+
+  if (productsResult.error) {
+    throw new Error(productsResult.error.message);
+  }
+
+  const profileIds = Array.from(
+    new Set(
+      [
+        ...paymentReports.map((report) => report.created_by_user_id),
+        ...orderEvents.map((event) => event.actor_user_id),
+        ...orderAdjustments.map((adjustment) => adjustment.created_by_user_id),
+        ...allRows.map((row) => row.internal_driver_user_id),
+      ]
+        .map((id) => String(id ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+  const profileNamesResult =
+    profileIds.length > 0
+      ? await ctx.supabase.from("profiles").select("id, full_name").in("id", profileIds)
+      : { data: [], error: null };
+
+  if (profileNamesResult.error) {
+    throw new Error(profileNamesResult.error.message);
+  }
+
+  const moneyAccountNameById = new Map(
+    moneyAccounts
+      .map((account) => [Number(account.id), cleanText(account.name, `Cuenta #${account.id}`)] as const)
+      .filter(([id]) => Number.isFinite(id) && id > 0)
+  );
+  const profileNameById = new Map(
+    ((profileNamesResult.data ?? []) as RawProfileNameRow[]).map((profileRow) => [
+      profileRow.id,
+      cleanText(profileRow.full_name, "Usuario"),
+    ])
+  );
+  const productDetailById = new Map(
+    ((productsResult.data ?? []) as RawProductDetailRow[])
+      .map((product) => [Number(product.id), product] as const)
+      .filter(([id]) => Number.isFinite(id) && id > 0)
+  );
+  const detailMaps: MasterOpsOrderDetailMaps = {
+    itemsByOrder: groupByOrderId(orderItems),
+    reportsByOrder: groupByOrderId(paymentReports),
+    eventsByOrder: groupByOrderId(orderEvents),
+    adjustmentsByOrder: groupByOrderId(orderAdjustments),
+    moneyAccountNameById,
+    profileNameById,
+    productDetailById,
+  };
+
   const financialStates = financialStateById((financialStateData ?? []) as RawFinancialStateRow[]);
   const clientStats = buildClientOrderStats((clientHistoryResult.data ?? []) as Array<{ id: number | string; client_id: number | string | null }>);
-  const dayOrders = dayRows.map((row) => mapOrder(row, financialStates, clientStats));
+  const dayOrders = dayRows.map((row) => mapOrder(row, financialStates, clientStats, detailMaps));
   const weekOrders = weekRows.map((row) => mapOrder(row, financialStates, clientStats));
   const profile = profileResult.data as { full_name: string | null } | null;
 

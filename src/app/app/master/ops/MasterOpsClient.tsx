@@ -15,9 +15,16 @@ import {
 } from "@/lib/domain/order-domain";
 import {
   ORDER_STATUS_LABELS,
+  getPaymentMethodLabel,
   type FulfillmentType,
   type OrderStatus,
 } from "@/lib/orders/order-labels";
+import {
+  buildWhatsAppOrderSummaryText,
+  cleanWhatsAppUnitsFromName,
+  formatWhatsAppQuantity,
+  getWhatsAppLineUnits,
+} from "@/lib/orders/whatsapp-summary";
 import {
   approveOrderAction,
   markDeliveredAction,
@@ -27,12 +34,60 @@ import {
 
 export type PaymentVerify = "none" | "pending" | "confirmed" | "rejected";
 
+export type MasterOpsOrderLine = {
+  name: string;
+  qty: number;
+  unitsPerService: number;
+  priceBs: number;
+  lineTotalUsd: number;
+  productType?: string | null;
+  isDelivery?: boolean;
+  editableDetailLines?: string[];
+};
+
+export type MasterOpsPaymentReport = {
+  id: number;
+  status: "pending" | "confirmed" | "rejected";
+  createdAt: string | null;
+  reporterName: string;
+  currencyCode: string;
+  amount: number;
+  exchangeRate: number | null;
+  usdEquivalent: number;
+  moneyAccountName: string;
+  referenceCode: string | null;
+  payerName: string | null;
+  notes: string | null;
+};
+
+export type MasterOpsOrderEvent = {
+  id: string;
+  title: string;
+  message: string | null;
+  severity: "info" | "warning" | "critical";
+  actorName: string;
+  createdAt: string;
+};
+
+export type MasterOpsAdminAdjustment = {
+  id: number;
+  adjustmentType: string;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  createdByName: string;
+};
+
 export type MasterOpsOrder = {
   id: number;
+  orderNumber: string;
   status: OrderStatus;
   fulfillment: FulfillmentType;
   advisorName: string;
   clientName: string;
+  clientPhone: string | null;
+  clientCreatedAtISO: string | null;
+  clientOrderCount: number;
   totalUsd: number;
   totalBs: number | null;
   balanceUsd: number;
@@ -47,6 +102,49 @@ export type MasterOpsOrder = {
   returnedToAdvisor: boolean;
   isAsap: boolean;
   isNewClient: boolean;
+  address: string | null;
+  notes: string | null;
+  receiverName: string | null;
+  receiverPhone: string | null;
+  deliveryGpsUrl: string | null;
+  deliveryDistanceKm: number | null;
+  deliveryCostUsd: number | null;
+  paymentMethod: string | null;
+  paymentCurrency: "USD" | "VES" | null;
+  paymentRequiresChange: boolean;
+  paymentChangeFor: string | null;
+  paymentChangeCurrency: "USD" | "VES" | null;
+  paymentNote: string | null;
+  hasDeliveryNote: boolean;
+  hasInvoice: boolean;
+  invoiceDataNote: string | null;
+  invoiceSnapshot: {
+    companyName: string | null;
+    taxId: string | null;
+    address: string | null;
+    phone: string | null;
+  } | null;
+  deliveryNoteSnapshot: {
+    name: string | null;
+    documentId: string | null;
+    address: string | null;
+    phone: string | null;
+  } | null;
+  fxRate: number | null;
+  discountPct: number | null;
+  discountAmountUsd: number;
+  discountAmountBs: number;
+  invoiceTaxPct: number | null;
+  invoiceTaxAmountUsd: number;
+  invoiceTaxAmountBs: number;
+  subtotalUsd: number | null;
+  subtotalBs: number | null;
+  subtotalAfterDiscountUsd: number | null;
+  subtotalAfterDiscountBs: number | null;
+  lines: MasterOpsOrderLine[];
+  paymentReports: MasterOpsPaymentReport[];
+  events: MasterOpsOrderEvent[];
+  adminAdjustments: MasterOpsAdminAdjustment[];
   riderName: string | null;
   externalPartner: string | null;
 };
@@ -99,7 +197,7 @@ type Props = {
 };
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
-type DetailTab = "detalle" | "entrega" | "pagos";
+type DetailTab = "detalle" | "entrega" | "pagos" | "eventos" | "notas" | "ajustes";
 type DirectActionKey = "approve" | "send-kitchen" | "mark-ready" | "complete";
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
@@ -116,6 +214,9 @@ const detailTabs: Array<{ key: DetailTab; label: string }> = [
   { key: "detalle", label: "Pedido" },
   { key: "entrega", label: "Entrega" },
   { key: "pagos", label: "Pagos" },
+  { key: "eventos", label: "Eventos" },
+  { key: "notas", label: "Notas" },
+  { key: "ajustes", label: "Ajustes" },
 ];
 
 const timeFormatter = new Intl.DateTimeFormat("es-VE", {
@@ -142,6 +243,22 @@ const detailDateFormatter = new Intl.DateTimeFormat("es-VE", {
 
 function fmtUSD(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function fmtBs(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "Bs --";
+
+  const fixed = Math.abs(n).toFixed(2);
+  const [intPart, decPart] = fixed.split(".");
+  let out = "";
+  for (let index = 0; index < intPart.length; index += 1) {
+    const indexFromEnd = intPart.length - index;
+    out += intPart[index];
+    if (indexFromEnd > 1 && indexFromEnd % 3 === 1) out += ".";
+  }
+
+  return `Bs ${n < 0 ? "-" : ""}${out},${decPart}`;
 }
 
 function fmtRateBs(value: number) {
@@ -182,6 +299,130 @@ function pillLabel(value: string) {
   if (value === "pickup") return "Pickup";
   if (value === "delivery") return "Delivery";
   return value || "--";
+}
+
+function orderMainLinesForPreview(lines: MasterOpsOrderLine[]) {
+  const services: MasterOpsOrderLine[] = [];
+  const extras: MasterOpsOrderLine[] = [];
+  const delivery: MasterOpsOrderLine[] = [];
+
+  for (const line of lines) {
+    const lower = line.name.toLowerCase();
+    const isDelivery = Boolean(line.isDelivery) || lower.startsWith("delivery");
+    if (isDelivery) {
+      delivery.push(line);
+      continue;
+    }
+
+    const isExtra =
+      lower.includes("salsa") ||
+      lower.includes("aderezo") ||
+      lower.includes("crema") ||
+      lower.includes("pepsi") ||
+      lower.includes("coca") ||
+      lower.includes("malta") ||
+      lower.includes("jugo") ||
+      lower.includes("dondy");
+
+    if (isExtra) extras.push(line);
+    else services.push(line);
+  }
+
+  return [...services, ...extras, ...delivery];
+}
+
+function getLineUnits(line: MasterOpsOrderLine) {
+  return getWhatsAppLineUnits({
+    qty: line.qty,
+    name: line.name,
+    unitsPerService: line.unitsPerService,
+  });
+}
+
+function lineTextWhatsAppStyle(line: MasterOpsOrderLine) {
+  const units = getLineUnits(line);
+  const isDelivery = Boolean(line.isDelivery) || line.name.toLowerCase().startsWith("delivery");
+  const bs = fmtBs(line.qty * line.priceBs);
+
+  if (isDelivery) return `- ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
+
+  if (units !== null) {
+    const cleanName = cleanWhatsAppUnitsFromName(line.name);
+    if (line.productType === "service") {
+      return `- ${formatWhatsAppQuantity(line.qty)} Serv. ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
+    }
+    return `- ${formatWhatsAppQuantity(line.qty)} ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
+  }
+
+  return `- ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
+}
+
+function paymentChangeText(order: MasterOpsOrder) {
+  if (!order.paymentRequiresChange) return null;
+  if (!order.paymentChangeFor) return "Si";
+  return `${order.paymentChangeFor} ${order.paymentChangeCurrency || ""}`.trim();
+}
+
+function buildWhatsAppSummary(order: MasterOpsOrder) {
+  const deliveryDateText = fmtDate(order.deliveryAtISO);
+  const deliveryTimeText = order.isAsap ? "Lo antes posible" : fmtTimeAMPM(order.deliveryAtISO);
+  const subtotalBs = order.subtotalBs ?? order.totalBs ?? 0;
+  const subtotalUsd = order.subtotalUsd ?? order.totalUsd;
+
+  return buildWhatsAppOrderSummaryText({
+    title: "Resumen de Pedido",
+    orderLabel: String(order.id),
+    advisorName: order.advisorName,
+    clientName: order.clientName,
+    clientPhone: order.clientPhone,
+    receiverName: order.receiverName,
+    receiverPhone: order.receiverPhone,
+    lines: orderMainLinesForPreview(order.lines).map((line) => ({
+      text: lineTextWhatsAppStyle(line).replace(/^- /, ""),
+      detailLines: line.editableDetailLines ?? [],
+    })),
+    price: {
+      subtotalBs,
+      subtotalUsd,
+      discountPct: order.discountPct,
+      discountAmountBs: order.discountAmountBs,
+      discountAmountUsd: order.discountAmountUsd,
+      invoiceTaxPct: order.invoiceTaxPct,
+      invoiceTaxAmountBs: order.invoiceTaxAmountBs,
+      invoiceTaxAmountUsd: order.invoiceTaxAmountUsd,
+      totalBs: order.totalBs ?? 0,
+      totalUsd: order.totalUsd,
+    },
+    fulfillment: order.fulfillment,
+    deliveryText: `${deliveryDateText} - ${deliveryTimeText}`,
+    deliveryDateText,
+    deliveryTimeText,
+    address: order.address,
+    gpsUrl: order.deliveryGpsUrl,
+    paymentMethodLabel: getPaymentMethodLabel(order.paymentMethod || ""),
+    paymentChangeText: paymentChangeText(order),
+    paymentNote: order.paymentNote,
+    paymentStatus: paymentVerifyLabel(order),
+    invoice: order.hasInvoice
+      ? {
+          enabled: true,
+          companyName: order.invoiceSnapshot?.companyName,
+          taxId: order.invoiceSnapshot?.taxId,
+          address: order.invoiceSnapshot?.address,
+          phone: order.invoiceSnapshot?.phone,
+        }
+      : null,
+    deliveryNote: order.hasDeliveryNote
+      ? {
+          enabled: true,
+          name: order.deliveryNoteSnapshot?.name,
+          documentId: order.deliveryNoteSnapshot?.documentId,
+          address: order.deliveryNoteSnapshot?.address,
+          phone: order.deliveryNoteSnapshot?.phone,
+        }
+      : null,
+    notes: order.notes,
+  });
 }
 
 function paymentToneClass(balanceUsd: number) {
@@ -334,6 +575,32 @@ function directActionsForOrder(order: MasterOpsOrder): Array<{
   }
 
   return actions;
+}
+
+function advancedOperationalLinks(order: MasterOpsOrder): Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger" }> {
+  const links: Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger" }> = [];
+
+  if (!["delivered", "cancelled"].includes(order.status)) {
+    links.push({ label: "Devolver al asesor", tab: "detalle", tone: "neutral" });
+    links.push({ label: "Modificar", tab: "detalle", tone: "neutral" });
+  }
+
+  if (order.fulfillment === "delivery") {
+    links.push({
+      label: hasDeliveryAssignment(order) || order.status === "delivered" ? "Corregir delivery" : "Asignar delivery",
+      tab: "entrega",
+      tone: "neutral",
+    });
+  }
+
+  links.push({ label: "Reportar pago", tab: "pagos", tone: "neutral" });
+  links.push({ label: "Cambio / fondo", tab: "pagos", tone: "neutral" });
+
+  if (order.status !== "cancelled") {
+    links.push({ label: "Cancelar", tab: "ajustes", tone: "danger" });
+  }
+
+  return links;
 }
 
 function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
@@ -491,11 +758,21 @@ function OrderDetailPanel({
   const paymentLabel = paymentVerifyLabel(order);
   const paidTone = order.balanceUsd <= 0.005 ? "green" : "orange";
   const directActions = directActionsForOrder(order);
+  const advancedLinks = advancedOperationalLinks(order);
+  const deliveryText = order.isAsap ? `${fmtDate(order.deliveryAtISO)} - Lo antes posible` : fmtDateTime(order.deliveryAtISO);
+
+  async function handleCopyWhatsApp() {
+    try {
+      await navigator.clipboard.writeText(buildWhatsAppSummary(order));
+    } catch {
+      // Keep the operation panel usable even if clipboard permission is unavailable.
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/55">
       <button className="absolute inset-0 cursor-default" type="button" aria-label="Cerrar detalle" onClick={onClose} />
-      <section className="absolute right-0 top-0 flex h-full w-full max-w-[760px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
+      <section className="absolute right-0 top-0 flex h-full w-full max-w-[900px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
         <div className="border-b border-[#242433] p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -513,14 +790,26 @@ function OrderDetailPanel({
               <div className="mt-1 truncate text-[13px] text-[#B7B7C2]">
                 {order.clientName} - {order.advisorName}
               </div>
+              <div className="mt-1 text-[11px] text-[#8A8A96]">
+                Cliente registrado: {order.clientCreatedAtISO ? fmtDateTime(order.clientCreatedAtISO) : "sin fecha"} - Ordenes validas: {order.clientOrderCount}
+              </div>
             </div>
-            <button
-              className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
-              type="button"
-              onClick={onClose}
-            >
-              x
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
+                type="button"
+                onClick={handleCopyWhatsApp}
+              >
+                Copiar WS
+              </button>
+              <button
+                className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
+                type="button"
+                onClick={onClose}
+              >
+                x
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -586,8 +875,37 @@ function OrderDetailPanel({
                     Resolver en detalle
                   </Link>
                 )}
+                <Link
+                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm font-semibold text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]"
+                  href={dashboardUrl(order, focusDate, activeTab)}
+                >
+                  Detalle actual
+                </Link>
               </div>
             </div>
+            {advancedLinks.length > 0 ? (
+              <div className="mt-3 border-t border-[#242433] pt-3">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
+                  Acciones completas
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {advancedLinks.map((link) => (
+                    <Link
+                      key={link.label}
+                      className={[
+                        "rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition",
+                        link.tone === "danger"
+                          ? "border-red-500/45 bg-red-500/10 text-red-200 hover:border-red-400"
+                          : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]",
+                      ].join(" ")}
+                      href={dashboardUrl(order, focusDate, link.tab)}
+                    >
+                      {link.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {actionError ? (
               <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
                 {actionError}
@@ -596,13 +914,62 @@ function OrderDetailPanel({
           </div>
 
           {activeTab === "detalle" ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <DetailMetric label="Cliente" value={order.clientName} />
-              <DetailMetric label="Asesor" value={order.advisorName} />
-              <DetailMetric label="Tipo" value={pillLabel(order.fulfillment)} />
-              <DetailMetric label="Entrega" value={order.isAsap ? `${fmtDate(order.deliveryAtISO)} - Lo antes posible` : fmtDateTime(order.deliveryAtISO)} />
-              <DetailMetric label="Creada" value={fmtDateTime(order.createdAtISO)} />
-              <DetailMetric label="Accion actual" value={actionLabel} tone="yellow" />
+            <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Pedido</div>
+
+              <div className="mt-3 space-y-2 text-sm">
+                {orderMainLinesForPreview(order.lines).length === 0 ? (
+                  <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-[#B7B7C2]">
+                    Sin items cargados.
+                  </div>
+                ) : (
+                  orderMainLinesForPreview(order.lines).map((line, index) => (
+                    <div key={`${line.name}-${index}`} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
+                      <div className="font-medium text-[#F5F5F7]">{lineTextWhatsAppStyle(line)}</div>
+                      {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
+                        <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
+                          {line.editableDetailLines.slice(0, 12).map((text, detailIndex) => (
+                            <div key={`${line.name}-${detailIndex}`}>- {text}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-3 space-y-1 border-t border-[#242433] pt-3 text-xs">
+                <div className="flex items-center justify-between text-[#8A8A96]">
+                  <span>Tasa snapshot</span>
+                  <span>{order.fxRate != null && order.fxRate > 0 ? fmtRateBs(order.fxRate) : "--"}</span>
+                </div>
+                <div className="flex items-center justify-between text-[#B7B7C2]">
+                  <span>Subtotal</span>
+                  <span>{fmtBs(order.subtotalBs ?? order.totalBs ?? 0)} / {fmtUSD(order.subtotalUsd ?? order.totalUsd)}</span>
+                </div>
+                {order.discountAmountUsd > 0.005 || order.discountAmountBs > 0.5 ? (
+                  <div className="flex items-center justify-between text-orange-300">
+                    <span>Descuento{order.discountPct != null ? ` (${order.discountPct}%)` : ""}</span>
+                    <span>-{fmtBs(order.discountAmountBs)} / -{fmtUSD(order.discountAmountUsd)}</span>
+                  </div>
+                ) : null}
+                {order.invoiceTaxAmountUsd > 0.005 || order.invoiceTaxAmountBs > 0.5 ? (
+                  <div className="flex items-center justify-between text-sky-300">
+                    <span>IVA{order.invoiceTaxPct != null ? ` (${order.invoiceTaxPct}%)` : ""}</span>
+                    <span>+{fmtBs(order.invoiceTaxAmountBs)} / +{fmtUSD(order.invoiceTaxAmountUsd)}</span>
+                  </div>
+                ) : null}
+                <div className="flex items-center justify-between text-sm font-semibold text-[#F5F5F7]">
+                  <span>Total</span>
+                  <span>{fmtBs(order.totalBs ?? 0)} / {fmtUSD(order.totalUsd)}</span>
+                </div>
+              </div>
+
+              {order.notes?.trim() ? (
+                <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                  <span className="text-[#F5F5F7]">Nota del pedido:</span> {order.notes.trim()}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -613,38 +980,200 @@ function OrderDetailPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <DetailMetric label="Asignacion" value={assignmentText(order)} />
-                <DetailMetric label="Horario" value={order.isAsap ? "Lo antes posible" : fmtTimeAMPM(order.deliveryAtISO)} />
+                <DetailMetric label="Tipo" value={pillLabel(order.fulfillment)} />
+                <DetailMetric label="Entrega" value={deliveryText} />
                 <DetailMetric label="Enviado a cocina" value={fmtDateTime(order.sentToKitchenAtISO)} />
                 <DetailMetric label="Tomado por cocina" value={fmtDateTime(order.kitchenStartedAtISO)} />
                 <DetailMetric label="Listo" value={fmtDateTime(order.readyAtISO)} />
                 <DetailMetric label="Accion actual" value={actionLabel} tone="yellow" />
               </div>
+              {order.fulfillment === "delivery" ? (
+                <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Datos de entrega</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <DetailMetric label="Direccion" value={order.address || "--"} />
+                    <DetailMetric label="GPS" value={order.deliveryGpsUrl ? (
+                      <a className="break-all text-sky-300 hover:underline" href={order.deliveryGpsUrl} target="_blank" rel="noreferrer">
+                        {order.deliveryGpsUrl}
+                      </a>
+                    ) : "--"} />
+                    <DetailMetric label="Recibe" value={order.receiverName || "--"} />
+                    <DetailMetric label="Telefono recibe" value={order.receiverPhone || "--"} />
+                    <DetailMetric label="Distancia" value={order.deliveryDistanceKm != null ? `${order.deliveryDistanceKm} km` : "--"} />
+                    <DetailMetric label="Costo delivery" value={order.deliveryCostUsd != null ? fmtUSD(order.deliveryCostUsd) : "--"} />
+                  </div>
+                </div>
+              ) : null}
+              {order.hasInvoice || order.hasDeliveryNote ? (
+                <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Documentos</div>
+                  <div className="mt-3 grid gap-3">
+                    {order.hasInvoice ? (
+                      <DetailMetric
+                        label="Factura"
+                        value={[
+                          order.invoiceSnapshot?.companyName,
+                          order.invoiceSnapshot?.taxId,
+                          order.invoiceSnapshot?.address,
+                          order.invoiceSnapshot?.phone,
+                        ].filter(Boolean).join(" | ") || order.invoiceDataNote || "Solicitada sin datos guardados"}
+                      />
+                    ) : null}
+                    {order.hasDeliveryNote ? (
+                      <DetailMetric
+                        label="Nota de entrega"
+                        value={[
+                          order.deliveryNoteSnapshot?.name,
+                          order.deliveryNoteSnapshot?.documentId,
+                          order.deliveryNoteSnapshot?.address,
+                          order.deliveryNoteSnapshot?.phone,
+                        ].filter(Boolean).join(" | ") || "Solicitada sin datos guardados"}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           {activeTab === "pagos" ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <DetailMetric label="Estado de pago" value={paymentLabel} tone={paidTone} />
-              <DetailMetric label="Total Bs" value={order.totalBs != null ? fmtRateBs(order.totalBs) : "--"} />
-              <DetailMetric label="Total USD" value={fmtUSD(order.totalUsd)} />
-              <DetailMetric label="Confirmado USD" value={fmtUSD(order.confirmedPaidUsd)} tone="green" />
-              <DetailMetric label="Pendiente USD" value={fmtUSD(order.balanceUsd)} tone={paidTone} />
-              <DetailMetric label="Revision" value={order.paymentVerify === "pending" ? "Requiere revisar pago" : "Sin pago pendiente"} />
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <DetailMetric label="Estado de pago" value={paymentLabel} tone={paidTone} />
+                <DetailMetric label="Forma de pago" value={getPaymentMethodLabel(order.paymentMethod || "") || "--"} />
+                <DetailMetric label="Cambio" value={paymentChangeText(order) || "No"} />
+                <DetailMetric label="Nota de pago" value={order.paymentNote || "--"} />
+              </div>
+              <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Reportes</div>
+                  <div className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-[#B7B7C2]">
+                    {order.paymentReports.length}
+                  </div>
+                </div>
+                {order.paymentReports.length === 0 ? (
+                  <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                    Sin reportes de pago.
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {order.paymentReports.map((report) => (
+                      <div key={report.id} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-[#F5F5F7]">
+                              {report.currencyCode} {report.amount.toFixed(2)} - {fmtUSD(report.usdEquivalent)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-[#8A8A96]">
+                              {report.moneyAccountName} - {report.createdAt ? fmtDateTime(report.createdAt) : "--"}
+                            </div>
+                          </div>
+                          <span
+                            className={[
+                              "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              report.status === "pending"
+                                ? "bg-orange-500 text-[#0B0B0D]"
+                                : report.status === "confirmed"
+                                  ? "bg-emerald-500 text-[#0B0B0D]"
+                                  : "bg-red-500 text-[#0B0B0D]",
+                            ].join(" ")}
+                          >
+                            {report.status === "pending" ? "PENDIENTE" : report.status === "confirmed" ? "CONFIRMADO" : "RECHAZADO"}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid gap-1 text-[11px] text-[#B7B7C2] sm:grid-cols-2">
+                          <div>Reportado por: <span className="text-[#F5F5F7]">{report.reporterName}</span></div>
+                          <div>Referencia: <span className="text-[#F5F5F7]">{report.referenceCode || "--"}</span></div>
+                          <div>Pagador: <span className="text-[#F5F5F7]">{report.payerName || "--"}</span></div>
+                          <div>Tasa: <span className="text-[#F5F5F7]">{report.exchangeRate ?? "--"}</span></div>
+                        </div>
+                        {report.notes ? <div className="mt-2 text-[11px] text-[#B7B7C2]">Notas: <span className="text-[#F5F5F7]">{report.notes}</span></div> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : null}
 
-          <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
-            <div className="text-[13px] font-semibold text-[#F5F5F7]">Detalle completo</div>
-            <div className="mt-1 text-[12px] leading-5 text-[#B7B7C2]">
-              Este panel ya permite revisar la orden sin salir del modulo operativo. Las acciones completas siguen disponibles en la dashboard actual mientras las migramos por bloques.
+          {activeTab === "eventos" ? (
+            <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Historial</div>
+                <div className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-[#B7B7C2]">
+                  {order.events.length} evento{order.events.length === 1 ? "" : "s"}
+                </div>
+              </div>
+              {order.events.length === 0 ? (
+                <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                  Sin historial registrado.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {order.events.map((event) => (
+                    <div key={event.id} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-[#F5F5F7]">{event.title}</div>
+                          <div className="mt-1 text-[11px] text-[#8A8A96]">
+                            {event.actorName} - {fmtDateTime(event.createdAt)}
+                          </div>
+                        </div>
+                        <span className={["rounded-full px-2 py-0.5 text-[10px] font-semibold", event.severity === "critical" || event.severity === "warning" ? "bg-orange-500 text-[#0B0B0D]" : "bg-emerald-500 text-[#0B0B0D]"].join(" ")}>
+                          {event.severity === "critical" ? "CRITICA" : event.severity === "warning" ? "ATENCION" : "INFO"}
+                        </span>
+                      </div>
+                      {event.message ? <div className="mt-2 text-[12px] text-[#B7B7C2]">{event.message}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <Link
-              className="mt-3 inline-flex rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
-              href={dashboardUrl(order, focusDate, activeTab)}
-            >
-              Abrir detalle actual
-            </Link>
-          </div>
+          ) : null}
+
+          {activeTab === "notas" ? (
+            <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
+              <div className="text-sm font-semibold text-[#F5F5F7]">Notas</div>
+              <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                {order.notes?.trim() || "--"}
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "ajustes" ? (
+            <div className="mt-4 rounded-xl border border-[#242433] bg-[#121218] p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-[#F5F5F7]">Ajustes</div>
+                <div className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-[#B7B7C2]">
+                  {order.adminAdjustments.length}
+                </div>
+              </div>
+              {order.adminAdjustments.length === 0 ? (
+                <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                  Sin ajustes administrativos registrados.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {order.adminAdjustments.map((adjustment) => (
+                    <div key={adjustment.id} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-[#F5F5F7]">{adjustment.adjustmentType || "Ajuste"}</div>
+                          <div className="mt-1 text-[11px] text-[#8A8A96]">
+                            {adjustment.createdByName} - {fmtDateTime(adjustment.createdAt)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-[12px] text-[#B7B7C2]">
+                        Motivo: <span className="text-[#F5F5F7]">{adjustment.reason || "--"}</span>
+                      </div>
+                      {adjustment.notes ? <div className="mt-1 text-[12px] text-[#B7B7C2]">Notas: <span className="text-[#F5F5F7]">{adjustment.notes}</span></div> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </section>
     </div>
