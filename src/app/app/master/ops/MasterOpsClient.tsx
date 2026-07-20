@@ -26,6 +26,7 @@ import {
   assignInternalDriverAction,
   clearDeliveryAssignmentAction,
   confirmPaymentReportAction,
+  kitchenTakeAction,
   markDeliveredAction,
   markReadyAction,
   outForDeliveryAction,
@@ -119,6 +120,7 @@ type DirectActionKey =
   | "approve"
   | "reapprove"
   | "send-kitchen"
+  | "kitchen-take"
   | "mark-ready"
   | "out-delivery"
   | "complete"
@@ -525,6 +527,8 @@ function OrderDetailPanel({
   const [returnRecalculate, setReturnRecalculate] = useState(false);
   const [deliveryEtaBoxOpen, setDeliveryEtaBoxOpen] = useState(false);
   const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState("25");
+  const [kitchenTakeBoxOpen, setKitchenTakeBoxOpen] = useState(false);
+  const [kitchenEtaMinutes, setKitchenEtaMinutes] = useState("15");
   const [deliveryAssignMode, setDeliveryAssignMode] = useState<null | "internal" | "external">(null);
   const [deliveryAssignDriverId, setDeliveryAssignDriverId] = useState("");
   const [deliveryAssignPartnerId, setDeliveryAssignPartnerId] = useState("");
@@ -536,6 +540,7 @@ function OrderDetailPanel({
   const [paymentRejectReportId, setPaymentRejectReportId] = useState<number | null>(null);
   const [paymentRejectNotes, setPaymentRejectNotes] = useState("");
   const canReturn = canReturnOrderToAdvisor(order);
+  const canKitchenTake = canKitchenTakeOrder(order);
   const canAssign = canAssignDelivery(order);
   const canOutForDelivery = canStartOrderDelivery(order);
   const canClearDelivery =
@@ -571,6 +576,15 @@ function OrderDetailPanel({
       etaMinutes: Number.isFinite(etaMinutes) && etaMinutes > 0 ? etaMinutes : null,
     });
     if (ok) setDeliveryEtaBoxOpen(false);
+  }
+
+  async function handleKitchenTakeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const etaMinutes = Number(String(kitchenEtaMinutes || "").replace(",", "."));
+    const ok = await onDirectAction(order, "kitchen-take", {
+      etaMinutes: Number.isFinite(etaMinutes) && etaMinutes > 0 ? etaMinutes : null,
+    });
+    if (ok) setKitchenTakeBoxOpen(false);
   }
 
   async function handleClearDeliverySubmit(event: FormEvent<HTMLFormElement>) {
@@ -749,12 +763,22 @@ function OrderDetailPanel({
                 </Link>
               </div>
             </div>
-            {(canReturn || canAssign || canOutForDelivery || canClearDelivery) ? (
+            {(canReturn || canKitchenTake || canAssign || canOutForDelivery || canClearDelivery) ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
                   Acciones rapidas
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {canKitchenTake ? (
+                    <button
+                      className="rounded-xl border border-emerald-500/45 bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 transition hover:border-emerald-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setKitchenTakeBoxOpen((value) => !value)}
+                    >
+                      Tomar en cocina
+                    </button>
+                  ) : null}
                   {canOutForDelivery ? (
                     <button
                       className="rounded-xl border border-sky-500/45 bg-sky-500/10 px-3 py-1.5 text-[12px] font-semibold text-sky-200 transition hover:border-sky-400 disabled:cursor-wait disabled:opacity-60"
@@ -806,6 +830,47 @@ function OrderDetailPanel({
                     </button>
                   ) : null}
                 </div>
+
+                {kitchenTakeBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3" onSubmit={handleKitchenTakeSubmit}>
+                    <div className="text-[12px] font-semibold text-emerald-100">Tomar orden en cocina</div>
+                    <div className="mt-1 text-[11px] text-emerald-100/80">Indica el tiempo de preparacion que cocina esta comprometiendo.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {["10", "15", "20", "25", "30"].map((minutes) => (
+                        <button
+                          key={minutes}
+                          className={[
+                            "rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition",
+                            kitchenEtaMinutes === minutes
+                              ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                              : "border-emerald-500/30 bg-[#0B0B0D] text-emerald-100 hover:border-emerald-400",
+                          ].join(" ")}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setKitchenEtaMinutes(minutes)}
+                        >
+                          {minutes} min
+                        </button>
+                      ))}
+                      <input
+                        className="min-w-[110px] rounded-lg border border-emerald-500/30 bg-[#0B0B0D] px-3 py-1.5 text-[12px] text-[#F5F5F7]"
+                        value={kitchenEtaMinutes}
+                        onChange={(event) => setKitchenEtaMinutes(event.target.value)}
+                        inputMode="numeric"
+                        placeholder="ETA"
+                      />
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-emerald-400 bg-emerald-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `kitchen-take:${order.id}` ? "Confirmando..." : "Confirmar cocina"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
 
                 {deliveryEtaBoxOpen ? (
                   <form className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3" onSubmit={handleOutForDeliverySubmit}>
@@ -1199,6 +1264,13 @@ export default function MasterOpsClient({
         });
       } else if (action === "send-kitchen") {
         result = await sendToKitchenAction({ orderId: order.id });
+      } else if (action === "kitchen-take") {
+        const etaMinutes = Number(payload.etaMinutes);
+        if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) throw new Error("Debes indicar un ETA valido.");
+        result = await kitchenTakeAction({
+          orderId: order.id,
+          etaMinutes,
+        });
       } else if (action === "mark-ready") {
         result = await markReadyAction({ orderId: order.id });
       } else if (action === "out-delivery") {
