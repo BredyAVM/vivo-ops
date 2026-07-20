@@ -41,11 +41,8 @@ import {
 } from '@/lib/domain/finance-domain';
 import type { MoneyAccountBalanceSnapshot } from '@/lib/finance/account-balances';
 import {
-  buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
-  formatWhatsAppDateVE,
   formatWhatsAppQuantity,
-  formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
 } from '@/lib/orders/whatsapp-summary';
 import {
@@ -141,6 +138,11 @@ import {
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { getMasterDashboardPermissions } from './permissions';
 import MasterPushPanel from './MasterPushPanel';
+import {
+  MasterOrderDetailBody,
+  buildMasterOrderWhatsAppSummary,
+  type MasterOrderDetailOrder,
+} from '../_components/MasterOrderDetailCore';
 
 type OrderStatus =
   | 'created'
@@ -2808,79 +2810,120 @@ function lineTextWhatsAppStyle(line: OrderLine) {
   return `• ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 }
 
-function buildWhatsAppOrderSummary(order: Order) {
-  const lines = orderMainLinesForPreview(order.lines);
-  const paymentChangeText =
-    order.editMeta.paymentRequiresChange && order.editMeta.paymentChangeFor
-      ? `${order.editMeta.paymentChangeFor} ${order.editMeta.paymentChangeCurrency || ''}`.trim()
-      : null;
-  const paymentStatus =
-    order.paymentVerify === 'confirmed'
-      ? 'Confirmado'
-      : order.paymentVerify === 'rejected'
-        ? 'Rechazado'
-        : order.paymentVerify === 'pending'
-          ? 'Por confirmar'
-          : 'Pendiente';
+function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
+  const discountAmountUsd =
+    order.editMeta.discountEnabled &&
+    order.editMeta.subtotalUsd != null &&
+    order.editMeta.subtotalAfterDiscountUsd != null
+      ? Math.max(0, order.editMeta.subtotalUsd - order.editMeta.subtotalAfterDiscountUsd)
+      : 0;
+  const discountAmountBs =
+    order.editMeta.discountEnabled &&
+    order.editMeta.subtotalBs != null &&
+    order.editMeta.subtotalAfterDiscountBs != null
+      ? Math.max(0, order.editMeta.subtotalBs - order.editMeta.subtotalAfterDiscountBs)
+      : 0;
 
-  return buildWhatsAppOrderSummaryText({
-    title: 'Resumen de Pedido',
-    orderLabel: String(order.id),
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    fulfillment: order.fulfillment,
     advisorName: order.advisorName,
     clientName: order.clientName,
-    clientPhone: order.clientPhone,
+    clientPhone: order.clientPhone ?? null,
+    clientCreatedAtISO: order.clientCreatedAtISO ?? null,
+    clientOrderCount: order.clientOrderCount,
+    totalUsd: order.totalUsd,
+    totalBs: order.totalBs,
+    balanceUsd: order.balanceUsd,
+    confirmedPaidUsd: order.confirmedPaidUsd,
+    paymentVerify: order.paymentVerify,
+    deliveryAtISO: order.deliveryAtISO,
+    createdAtISO: order.createdAtISO,
+    sentToKitchenAtISO: order.sentToKitchenAtISO ?? null,
+    kitchenStartedAtISO: order.kitchenStartedAtISO ?? null,
+    readyAtISO: order.readyAtISO ?? null,
+    queuedNeedsReapproval: order.queuedNeedsReapproval,
+    returnedToAdvisor: order.returnedToAdvisor,
+    isAsap: order.editMeta.isAsap,
+    isNewClient: order.isNewClient,
+    address: order.address ?? null,
+    notes: order.notes ?? null,
     receiverName: order.editMeta.receiverName,
     receiverPhone: order.editMeta.receiverPhone,
-    lines: lines.map((line) => ({
-      text: lineTextWhatsAppStyle(line),
-      detailLines: getVisibleEditableDetailLines(line.editableDetailLines ?? []),
-    })),
-    price: {
-      subtotalBs: order.editMeta.subtotalBs,
-      subtotalUsd: order.editMeta.subtotalUsd,
-      discountPct: order.editMeta.discountPct,
-      discountAmountBs:
-        order.editMeta.discountEnabled && order.editMeta.subtotalBs != null && order.editMeta.subtotalAfterDiscountBs != null
-          ? Math.max(0, order.editMeta.subtotalBs - order.editMeta.subtotalAfterDiscountBs)
-          : 0,
-      discountAmountUsd:
-        order.editMeta.discountEnabled && order.editMeta.subtotalUsd != null && order.editMeta.subtotalAfterDiscountUsd != null
-          ? Math.max(0, order.editMeta.subtotalUsd - order.editMeta.subtotalAfterDiscountUsd)
-          : 0,
-      invoiceTaxPct: order.editMeta.invoiceTaxPct,
-      invoiceTaxAmountBs: order.editMeta.invoiceTaxAmountBs,
-      invoiceTaxAmountUsd: order.editMeta.invoiceTaxAmountUsd,
-      totalBs: order.totalBs,
-      totalUsd: order.totalUsd,
-    },
-    fulfillment: order.fulfillment,
-    deliveryText: order.editMeta.isAsap
-      ? `${formatWhatsAppDateVE(order.deliveryAtISO)} - Lo antes posible`
-      : fmtDeliveryTextES(order.deliveryAtISO),
-    deliveryDateText: formatWhatsAppDateVE(order.deliveryAtISO),
-    deliveryTimeText: order.editMeta.isAsap ? 'Lo antes posible' : formatWhatsAppTimeAmPm(order.deliveryAtISO),
-    address: order.address,
-    gpsUrl: order.editMeta.deliveryGpsUrl,
-    paymentMethodLabel: getSharedPaymentMethodLabel(order.editMeta.paymentMethod),
-    paymentChangeText,
+    deliveryGpsUrl: order.editMeta.deliveryGpsUrl,
+    deliveryDistanceKm: order.editMeta.deliveryDistanceKm,
+    deliveryCostUsd: order.editMeta.deliveryCostUsd,
+    paymentMethod: order.editMeta.paymentMethod,
+    paymentCurrency: order.editMeta.paymentCurrency,
+    paymentRequiresChange: order.editMeta.paymentRequiresChange,
+    paymentChangeFor: order.editMeta.paymentChangeFor,
+    paymentChangeCurrency: order.editMeta.paymentChangeCurrency,
     paymentNote: order.editMeta.paymentNote,
-    paymentStatus,
-    invoice: {
-      enabled: order.editMeta.hasInvoice,
-      companyName: order.editMeta.invoiceSnapshot?.companyName,
-      taxId: order.editMeta.invoiceSnapshot?.taxId,
-      address: order.editMeta.invoiceSnapshot?.address,
-      phone: order.editMeta.invoiceSnapshot?.phone,
-    },
-    deliveryNote: {
-      enabled: order.editMeta.hasDeliveryNote,
-      name: order.editMeta.deliveryNoteSnapshot?.name,
-      documentId: order.editMeta.deliveryNoteSnapshot?.documentId,
-      address: order.editMeta.deliveryNoteSnapshot?.address,
-      phone: order.editMeta.deliveryNoteSnapshot?.phone,
-    },
-    notes: order.notes,
-  });
+    hasDeliveryNote: order.editMeta.hasDeliveryNote,
+    hasInvoice: order.editMeta.hasInvoice,
+    invoiceDataNote: order.editMeta.invoiceDataNote,
+    invoiceSnapshot: order.editMeta.invoiceSnapshot,
+    deliveryNoteSnapshot: order.editMeta.deliveryNoteSnapshot,
+    fxRate: order.editMeta.fxRate,
+    discountPct: order.editMeta.discountEnabled ? order.editMeta.discountPct : null,
+    discountAmountUsd,
+    discountAmountBs,
+    invoiceTaxPct: order.editMeta.invoiceTaxPct,
+    invoiceTaxAmountUsd: order.editMeta.invoiceTaxAmountUsd ?? 0,
+    invoiceTaxAmountBs: order.editMeta.invoiceTaxAmountBs ?? 0,
+    subtotalUsd: order.editMeta.subtotalUsd,
+    subtotalBs: order.editMeta.subtotalBs,
+    subtotalAfterDiscountUsd: order.editMeta.subtotalAfterDiscountUsd,
+    subtotalAfterDiscountBs: order.editMeta.subtotalAfterDiscountBs,
+    lines: order.lines.map((line) => ({
+      name: line.name,
+      qty: line.qty,
+      unitsPerService: line.unitsPerService,
+      priceBs: line.priceBs,
+      lineTotalUsd: 0,
+      productType: line.productType ?? null,
+      isDelivery: line.isDelivery,
+      editableDetailLines: getVisibleEditableDetailLines(line.editableDetailLines ?? []),
+    })),
+    paymentReports: order.paymentReports.map((report) => ({
+      id: report.id,
+      status: report.status,
+      createdAt: report.createdAt,
+      reporterName: report.reporterName,
+      currencyCode: report.currencyCode,
+      amount: report.amount,
+      exchangeRate: report.exchangeRate,
+      usdEquivalent: report.usdEquivalent,
+      moneyAccountName: report.moneyAccountName,
+      referenceCode: report.referenceCode,
+      payerName: report.payerName,
+      notes: report.notes,
+    })),
+    events: order.events.map((event) => ({
+      id: event.id,
+      title: event.title,
+      message: event.message,
+      severity: event.severity,
+      actorName: event.actorName,
+      createdAt: event.createdAt,
+    })),
+    adminAdjustments: order.adminAdjustments.map((adjustment) => ({
+      id: adjustment.id,
+      adjustmentType: adjustment.adjustmentType,
+      reason: adjustment.reason,
+      notes: adjustment.notes,
+      createdAt: adjustment.createdAt,
+      createdByName: adjustment.createdByName,
+    })),
+    riderName: order.riderName ?? null,
+    externalPartner: order.externalPartner ?? null,
+  };
+}
+
+function buildWhatsAppOrderSummary(order: Order) {
+  return buildMasterOrderWhatsAppSummary(toMasterOrderDetailOrder(order));
 }
 
 function isCommittedStatus(s: OrderStatus) {
@@ -4973,6 +5016,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   const selectedOrder = useMemo(
     () => dashboardOrders.find((o) => o.id === selectedOrderId) ?? null,
     [dashboardOrders, selectedOrderId]
+  );
+  const selectedOrderDetailCore = useMemo(
+    () => (selectedOrder ? toMasterOrderDetailOrder(selectedOrder) : null),
+    [selectedOrder]
   );
 
   useEffect(() => {
@@ -19433,100 +19480,26 @@ onClose={() => {
 
 <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
   <div className="min-w-0">
-    {detailTab === 'detalle' ? (
-      <div className="rounded-xl border border-[#1D1D28] bg-[#101014] p-3">
-        <div className="text-sm font-semibold text-[#F5F5F7]">Pedido</div>
+    {detailTab === 'detalle' && selectedOrderDetailCore ? (
+      <div className="space-y-3">
+        <MasterOrderDetailBody
+          actionLabel={ORDER_STATUS_LABEL[selectedOrder.status]}
+          activeTab="detalle"
+          order={selectedOrderDetailCore}
+        />
 
-        <div className="mt-2 space-y-2 text-sm">
-          {orderMainLinesForPreview(selectedOrder.lines).length === 0 ? (
-            <div className="text-[#B7B7C2]">Sin ítems cargados.</div>
-          ) : (
-            orderMainLinesForPreview(selectedOrder.lines).map((line, idx) => (
-              <div key={idx} className="leading-5">
-                <div className="text-[#F5F5F7]">{lineTextWhatsAppStyle(line)}</div>
-                {line.editableDetailLines && getVisibleEditableDetailLines(line.editableDetailLines).length > 0 ? (
-                  <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
-                    {getVisibleEditableDetailLines(line.editableDetailLines).slice(0, 10).map((t, i) => (
-                      <div key={i}>• {t}</div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))
-          )}
-        </div>
+        {isOrderPriceProtected(selectedOrder) ? (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-[11px] text-emerald-200">
+            {selectedOrder.isPriceLocked
+              ? 'Precio protegido manualmente por administración.'
+              : `Precio protegido automáticamente: ${Math.floor(
+                  Math.min(1, getOrderPriceProtectionPaidRatio(selectedOrder)) * 100
+                )}% abonado.`}
+          </div>
+        ) : null}
 
-        {(() => {
-          const pricing = selectedOrder?.editMeta;
-          const discountEnabled = !!pricing?.discountEnabled;
-          const discountPct = Number(pricing?.discountPct || 0);
-          const subtotalUsd = pricing?.subtotalUsd ?? selectedOrder.totalUsd;
-          const subtotalBs = pricing?.subtotalBs ?? selectedOrder.totalBs;
-          const subtotalAfterDiscountUsd =
-            pricing?.subtotalAfterDiscountUsd ?? selectedOrder.totalUsd;
-          const subtotalAfterDiscountBs =
-            pricing?.subtotalAfterDiscountBs ?? selectedOrder.totalBs;
-          const discountUsd = Math.max(0, subtotalUsd - subtotalAfterDiscountUsd);
-          const discountBs = Math.max(0, subtotalBs - subtotalAfterDiscountBs);
-          const invoiceTaxPct = Number(pricing?.invoiceTaxPct || 0);
-          const invoiceTaxUsd = Number(pricing?.invoiceTaxAmountUsd || 0);
-          const invoiceTaxBs = Number(pricing?.invoiceTaxAmountBs || 0);
-          const showNetSubtotal =
-            (discountEnabled && discountPct > 0) ||
-            (pricing?.hasInvoice && invoiceTaxPct > 0);
-
-          return (
-            <div className="mt-3 space-y-1 border-t border-[#1D1D28] pt-3 text-xs">
-              <div className="flex items-center justify-between text-[#8A8A96]">
-                <span>Tasa snapshot</span>
-                <span>{pricing?.fxRate != null && pricing.fxRate > 0 ? fmtRateBs(pricing.fxRate) : '—'}</span>
-              </div>
-
-              <div className="flex items-center justify-between text-[#B7B7C2]">
-                <span>Subtotal</span>
-                <span>{fmtBs(subtotalBs)} / {fmtUSD(subtotalUsd)}</span>
-              </div>
-
-              {discountEnabled && discountPct > 0 ? (
-                <div className="flex items-center justify-between text-orange-400">
-                  <span>Descuento ({discountPct}%)</span>
-                  <span>-{fmtBs(discountBs)} / -{fmtUSD(discountUsd)}</span>
-                </div>
-              ) : null}
-
-              {showNetSubtotal ? (
-                <div className="flex items-center justify-between text-[#B7B7C2]">
-                  <span>Subtotal con descuento</span>
-                  <span>{fmtBs(subtotalAfterDiscountBs)} / {fmtUSD(subtotalAfterDiscountUsd)}</span>
-                </div>
-              ) : null}
-
-              {pricing?.hasInvoice && invoiceTaxPct > 0 ? (
-                <div className="flex items-center justify-between text-sky-300">
-                  <span>IVA ({invoiceTaxPct}%)</span>
-                  <span>+{fmtBs(invoiceTaxBs)} / +{fmtUSD(invoiceTaxUsd)}</span>
-                </div>
-              ) : null}
-
-              <div className="flex items-center justify-between text-sm font-semibold text-[#F5F5F7]">
-                <span>Total</span>
-                <span>{fmtBs(selectedOrder.totalBs)} / {fmtUSD(selectedOrder.totalUsd)}</span>
-              </div>
-
-              {isOrderPriceProtected(selectedOrder) ? (
-                <div className="mt-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-[11px] text-emerald-200">
-                  {selectedOrder.isPriceLocked
-                    ? 'Precio protegido manualmente por administración.'
-                    : `Precio protegido automáticamente: ${Math.floor(
-                        Math.min(1, getOrderPriceProtectionPaidRatio(selectedOrder)) * 100
-                      )}% abonado.`}
-                </div>
-              ) : null}
-            </div>
-          );
-        })()}
         {selectedOrderExpiredQuoteReview ? (
-          <div className="mt-3 rounded-xl border border-[#3A3212] bg-[#1D1A00] p-3 text-xs text-[#FEEF00]">
+          <div className="rounded-xl border border-[#3A3212] bg-[#1D1A00] p-3 text-xs text-[#FEEF00]">
             <div className="font-semibold text-[#F5F5F7]">Presupuesto vencido con precios actualizados</div>
             <div className="mt-1 text-[#D8C75A]">
               Tiene {selectedOrderExpiredQuoteReview.ageDays} días sin pago completo. Revisa si debe volver a creado para recalcular.
@@ -19541,11 +19514,6 @@ onClose={() => {
                 </span>
               ))}
             </div>
-          </div>
-        ) : null}
-        {selectedOrder.notes?.trim() ? (
-          <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
-            <span className="text-[#F5F5F7]">Nota del pedido:</span> {selectedOrder.notes.trim()}
           </div>
         ) : null}
       </div>

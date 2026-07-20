@@ -9,7 +9,9 @@ import {
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
+  formatWhatsAppDateVE,
   formatWhatsAppQuantity,
+  formatWhatsAppTimeAmPm,
   getWhatsAppLineUnits,
 } from "@/lib/orders/whatsapp-summary";
 
@@ -278,8 +280,8 @@ export function masterOrderLineText(line: MasterOrderDetailLine) {
 }
 
 export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
-  const deliveryDateText = formatMasterOrderDate(order.deliveryAtISO);
-  const deliveryTimeText = order.isAsap ? "Lo antes posible" : formatMasterOrderTime(order.deliveryAtISO);
+  const deliveryDateText = formatWhatsAppDateVE(order.deliveryAtISO);
+  const deliveryTimeText = order.isAsap ? "Lo antes posible" : formatWhatsAppTimeAmPm(order.deliveryAtISO);
   const subtotalBs = order.subtotalBs ?? order.totalBs ?? 0;
   const subtotalUsd = order.subtotalUsd ?? order.totalUsd;
 
@@ -292,7 +294,7 @@ export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
     receiverName: order.receiverName,
     receiverPhone: order.receiverPhone,
     lines: masterOrderMainLines(order.lines).map((line) => ({
-      text: masterOrderLineText(line).replace(/^- /, ""),
+      text: masterOrderLineText(line),
       detailLines: line.editableDetailLines ?? [],
     })),
     price: {
