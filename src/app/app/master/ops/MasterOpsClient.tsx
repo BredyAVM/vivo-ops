@@ -22,6 +22,8 @@ import {
 } from "@/lib/orders/order-labels";
 import {
   approveOrderAction,
+  assignExternalPartnerAction,
+  assignInternalDriverAction,
   clearDeliveryAssignmentAction,
   markDeliveredAction,
   markReadyAction,
@@ -47,6 +49,17 @@ import {
 
 export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder;
+export type DriverOption = {
+  id: string;
+  fullName: string;
+};
+export type DeliveryPartnerOption = {
+  id: number;
+  name: string;
+  partnerType: string;
+  whatsappPhone: string | null;
+  isActive: boolean;
+};
 
 export type OperationStatsSummary = {
   cierres: number;
@@ -93,6 +106,8 @@ type Props = {
   activeRate: number | null;
   orders: MasterOpsOrder[];
   stats: MasterOpsStats;
+  drivers: DriverOption[];
+  deliveryPartners: DeliveryPartnerOption[];
 };
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
@@ -104,6 +119,8 @@ type DirectActionKey =
   | "mark-ready"
   | "out-delivery"
   | "complete"
+  | "assign-internal"
+  | "assign-external"
   | "return-created"
   | "clear-delivery";
 type DirectActionPayload = {
@@ -111,6 +128,11 @@ type DirectActionPayload = {
   recalculatePricing?: boolean;
   etaMinutes?: number | null;
   notes?: string;
+  driverUserId?: string;
+  partnerId?: number | null;
+  reference?: string | null;
+  distanceKm?: number | null;
+  costUsd?: number | null;
 };
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
@@ -455,6 +477,8 @@ function OrderDetailPanel({
   onTabChange,
   onClose,
   onDirectAction,
+  drivers,
+  deliveryPartners,
 }: {
   order: MasterOpsOrder;
   focusDate: string;
@@ -464,6 +488,8 @@ function OrderDetailPanel({
   onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
+  drivers: DriverOption[];
+  deliveryPartners: DeliveryPartnerOption[];
 }) {
   const actionLabel = getNextPrimaryActionLabel(order);
   const paidTone = masterOrderPaymentTone(order);
@@ -474,9 +500,16 @@ function OrderDetailPanel({
   const [returnRecalculate, setReturnRecalculate] = useState(false);
   const [deliveryEtaBoxOpen, setDeliveryEtaBoxOpen] = useState(false);
   const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState("25");
+  const [deliveryAssignMode, setDeliveryAssignMode] = useState<null | "internal" | "external">(null);
+  const [deliveryAssignDriverId, setDeliveryAssignDriverId] = useState("");
+  const [deliveryAssignPartnerId, setDeliveryAssignPartnerId] = useState("");
+  const [deliveryAssignDistanceKm, setDeliveryAssignDistanceKm] = useState("");
+  const [deliveryAssignCostUsd, setDeliveryAssignCostUsd] = useState("");
+  const [deliveryAssignReference, setDeliveryAssignReference] = useState("");
   const [clearDeliveryBoxOpen, setClearDeliveryBoxOpen] = useState(false);
   const [clearDeliveryNotes, setClearDeliveryNotes] = useState("");
   const canReturn = canReturnOrderToAdvisor(order);
+  const canAssign = canAssignDelivery(order);
   const canOutForDelivery = canStartOrderDelivery(order);
   const canClearDelivery =
     order.fulfillment === "delivery" &&
@@ -484,6 +517,7 @@ function OrderDetailPanel({
     hasDeliveryAssignment(order) &&
     !["delivered", "cancelled"].includes(order.status);
   const busy = Boolean(runningAction);
+  const activeDeliveryPartners = deliveryPartners.filter((partner) => partner.isActive);
 
   async function handleCopyWhatsApp() {
     try {
@@ -517,6 +551,29 @@ function OrderDetailPanel({
       notes: clearDeliveryNotes,
     });
     if (ok) setClearDeliveryBoxOpen(false);
+  }
+
+  async function handleAssignInternalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const costUsd = Number(String(deliveryAssignCostUsd || "").replace(",", "."));
+    const ok = await onDirectAction(order, "assign-internal", {
+      driverUserId: deliveryAssignDriverId,
+      costUsd: Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : null,
+    });
+    if (ok) setDeliveryAssignMode(null);
+  }
+
+  async function handleAssignExternalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const distanceKm = Number(String(deliveryAssignDistanceKm || "").replace(",", "."));
+    const costUsd = Number(String(deliveryAssignCostUsd || "").replace(",", "."));
+    const ok = await onDirectAction(order, "assign-external", {
+      partnerId: Number(deliveryAssignPartnerId || 0),
+      reference: deliveryAssignReference.trim() || null,
+      distanceKm,
+      costUsd,
+    });
+    if (ok) setDeliveryAssignMode(null);
   }
 
   return (
@@ -635,7 +692,7 @@ function OrderDetailPanel({
                 </Link>
               </div>
             </div>
-            {(canReturn || canOutForDelivery || canClearDelivery) ? (
+            {(canReturn || canAssign || canOutForDelivery || canClearDelivery) ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
                   Acciones rapidas
@@ -650,6 +707,26 @@ function OrderDetailPanel({
                     >
                       Enviar a delivery
                     </button>
+                  ) : null}
+                  {canAssign ? (
+                    <>
+                      <button
+                        className="rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] transition hover:border-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setDeliveryAssignMode((value) => value === "internal" ? null : "internal")}
+                      >
+                        Asignar interno
+                      </button>
+                      <button
+                        className="rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] transition hover:border-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setDeliveryAssignMode((value) => value === "external" ? null : "external")}
+                      >
+                        Asignar externo
+                      </button>
+                    </>
                   ) : null}
                   {canReturn ? (
                     <button
@@ -709,6 +786,89 @@ function OrderDetailPanel({
                         disabled={busy}
                       >
                         {runningAction === `out-delivery:${order.id}` ? "Confirmando..." : "Confirmar salida"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {deliveryAssignMode === "internal" ? (
+                  <form className="mt-3 rounded-xl border border-[#FEEF00]/30 bg-[#FEEF00]/10 p-3" onSubmit={handleAssignInternalSubmit}>
+                    <div className="text-[12px] font-semibold text-[#FEEF00]">Asignar motorizado interno</div>
+                    <select
+                      className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                      value={deliveryAssignDriverId}
+                      onChange={(event) => setDeliveryAssignDriverId(event.target.value)}
+                    >
+                      <option value="">Seleccionar motorizado</option>
+                      {drivers.map((driver) => (
+                        <option key={driver.id} value={driver.id}>
+                          {driver.fullName}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                      value={deliveryAssignCostUsd}
+                      onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
+                      inputMode="decimal"
+                      placeholder="Pago interno USD opcional"
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `assign-internal:${order.id}` ? "Asignando..." : "Guardar interno"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {deliveryAssignMode === "external" ? (
+                  <form className="mt-3 rounded-xl border border-[#FEEF00]/30 bg-[#FEEF00]/10 p-3" onSubmit={handleAssignExternalSubmit}>
+                    <div className="text-[12px] font-semibold text-[#FEEF00]">Asignar partner externo</div>
+                    <select
+                      className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                      value={deliveryAssignPartnerId}
+                      onChange={(event) => setDeliveryAssignPartnerId(event.target.value)}
+                    >
+                      <option value="">Seleccionar partner</option>
+                      {activeDeliveryPartners.map((partner) => (
+                        <option key={partner.id} value={partner.id}>
+                          {partner.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <input
+                        className="rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                        value={deliveryAssignDistanceKm}
+                        onChange={(event) => setDeliveryAssignDistanceKm(event.target.value)}
+                        inputMode="decimal"
+                        placeholder="Distancia km"
+                      />
+                      <input
+                        className="rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                        value={deliveryAssignCostUsd}
+                        onChange={(event) => setDeliveryAssignCostUsd(event.target.value)}
+                        inputMode="decimal"
+                        placeholder="Costo USD"
+                      />
+                    </div>
+                    <input
+                      className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                      value={deliveryAssignReference}
+                      onChange={(event) => setDeliveryAssignReference(event.target.value)}
+                      placeholder="Referencia externa opcional"
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `assign-external:${order.id}` ? "Asignando..." : "Guardar externo"}
                       </button>
                     </div>
                   </form>
@@ -814,6 +974,8 @@ export default function MasterOpsClient({
   activeRate,
   orders,
   stats,
+  drivers,
+  deliveryPartners,
 }: Props) {
   const router = useRouter();
   const [tray, setTray] = useState<MasterTray>("all");
@@ -891,6 +1053,28 @@ export default function MasterOpsClient({
         });
       } else if (action === "complete") {
         result = await markDeliveredAction({ orderId: order.id });
+      } else if (action === "assign-internal") {
+        const driverUserId = String(payload.driverUserId || "").trim();
+        if (!driverUserId) throw new Error("Debes seleccionar un motorizado interno.");
+        result = await assignInternalDriverAction({
+          orderId: order.id,
+          driverUserId,
+          costUsd: payload.costUsd != null ? Math.max(0, Number(payload.costUsd || 0)) : null,
+        });
+      } else if (action === "assign-external") {
+        const partnerId = Number(payload.partnerId || 0);
+        const distanceKm = Number(payload.distanceKm);
+        const costUsd = Number(payload.costUsd);
+        if (!Number.isFinite(partnerId) || partnerId <= 0) throw new Error("Debes seleccionar un partner externo.");
+        if (!Number.isFinite(distanceKm) || distanceKm <= 0) throw new Error("Debes indicar la distancia en km.");
+        if (!Number.isFinite(costUsd) || costUsd < 0) throw new Error("Debes indicar el costo del delivery.");
+        result = await assignExternalPartnerAction({
+          orderId: order.id,
+          partnerId,
+          reference: payload.reference ?? null,
+          distanceKm,
+          costUsd,
+        });
       } else if (action === "return-created") {
         result = await returnToCreatedAction({
           orderId: order.id,
@@ -1213,6 +1397,8 @@ export default function MasterOpsClient({
           onTabChange={setSelectedDetailTab}
           onClose={() => setSelectedOrderId(null)}
           onDirectAction={runDirectOrderAction}
+          drivers={drivers}
+          deliveryPartners={deliveryPartners}
         />
       ) : null}
     </div>

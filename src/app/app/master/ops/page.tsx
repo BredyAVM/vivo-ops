@@ -11,6 +11,8 @@ import {
 import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth";
 import MasterOpsClient, {
+  type DeliveryPartnerOption,
+  type DriverOption,
   type MasterOpsOrder,
   type MasterOpsStats,
   type OperationStatsSummary,
@@ -146,6 +148,20 @@ type RawProductDetailRow = {
   id: number | string;
   type: string | null;
   units_per_service: number | string | null;
+};
+
+type RawDeliveryPartnerRow = {
+  id: number | string;
+  name: string | null;
+  partner_type: string | null;
+  whatsapp_phone: string | null;
+  is_active: boolean | null;
+};
+
+type RawDriverProfileRow = {
+  user_id: string;
+  full_name: string | null;
+  is_active: boolean | null;
 };
 
 type MasterOpsOrderDetailMaps = {
@@ -677,6 +693,8 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     createdDayResult,
     scheduledWeekResult,
     createdWeekResult,
+    deliveryPartnersResult,
+    driversResult,
   ] = await Promise.all([
     ctx.supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
     ctx.supabase
@@ -713,6 +731,11 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       .lt("created_at", weekRange.endISO)
       .order("created_at", { ascending: false })
       .limit(900),
+    ctx.supabase
+      .from("delivery_partners")
+      .select("id, name, partner_type, whatsapp_phone, is_active")
+      .order("name", { ascending: true }),
+    ctx.supabase.rpc("get_driver_profiles"),
   ]);
 
   const firstError =
@@ -721,9 +744,31 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     scheduledDayResult.error ??
     createdDayResult.error ??
     scheduledWeekResult.error ??
-    createdWeekResult.error;
+    createdWeekResult.error ??
+    deliveryPartnersResult.error ??
+    driversResult.error;
 
   if (firstError) throw new Error(firstError.message);
+
+  const deliveryPartners: DeliveryPartnerOption[] = ((deliveryPartnersResult.data ?? []) as RawDeliveryPartnerRow[])
+    .map((row) => ({
+      id: Number(row.id),
+      name: cleanText(row.name, `Partner #${row.id}`),
+      partnerType: cleanText(row.partner_type, "company_dispatch"),
+      whatsappPhone: row.whatsapp_phone ?? null,
+      isActive: row.is_active !== false,
+    }))
+    .filter((partner) => Number.isFinite(partner.id) && partner.id > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, "es-VE"));
+
+  const drivers: DriverOption[] = ((driversResult.data ?? []) as RawDriverProfileRow[])
+    .filter((row) => row.is_active !== false)
+    .map((row) => ({
+      id: String(row.user_id),
+      fullName: cleanText(row.full_name, "Sin nombre"),
+    }))
+    .filter((driver) => driver.id.trim())
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, "es-VE"));
 
   const scheduledDayRows = (scheduledDayResult.data ?? []) as RawOrderRow[];
   const createdDayRows = ((createdDayResult.data ?? []) as RawOrderRow[]).filter(
@@ -922,6 +967,8 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       roles={ctx.roles}
       stats={buildStats(dayOrders, weekOrders)}
       weekLabel={getWeekLabel(focusDate)}
+      drivers={drivers}
+      deliveryPartners={deliveryPartners}
     />
   );
 }
