@@ -8,6 +8,7 @@ import {
   type FulfillmentType,
   type OrderStatus,
 } from "@/lib/domain/order-domain";
+import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth";
 import MasterOpsClient, {
   type MasterOpsOrder,
@@ -468,7 +469,7 @@ function mapOrder(
 
   return {
     id: orderId,
-    orderNumber: cleanText(row.order_number, String(orderId)),
+    orderNumber: formatOrderDisplayNumber(orderId),
     status: row.status,
     fulfillment: row.fulfillment,
     advisorName,

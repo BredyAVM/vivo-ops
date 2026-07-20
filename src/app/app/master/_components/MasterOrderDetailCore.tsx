@@ -287,7 +287,7 @@ export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
 
   return buildWhatsAppOrderSummaryText({
     title: "Resumen de Pedido",
-    orderLabel: String(order.id),
+    orderLabel: order.orderNumber || String(order.id),
     advisorName: order.advisorName,
     clientName: order.clientName,
     clientPhone: order.clientPhone,

@@ -15,6 +15,7 @@ import {
 } from "@/lib/domain/order-domain";
 import {
   ORDER_STATUS_LABELS,
+  formatOrderDisplayNumber,
   type FulfillmentType,
   type OrderStatus,
 } from "@/lib/orders/order-labels";
@@ -22,6 +23,7 @@ import {
   approveOrderAction,
   markDeliveredAction,
   markReadyAction,
+  reapproveQueuedOrderAction,
   sendToKitchenAction,
 } from "../dashboard/actions";
 import {
@@ -91,7 +93,7 @@ type Props = {
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
 type DetailTab = MasterOrderDetailTab;
-type DirectActionKey = "approve" | "send-kitchen" | "mark-ready" | "complete";
+type DirectActionKey = "approve" | "reapprove" | "send-kitchen" | "mark-ready" | "complete";
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
   { key: "all", label: "Todos" },
@@ -126,6 +128,19 @@ function fmtDayLabel(dateKey: string) {
   const date = new Date(`${dateKey}T12:00:00-04:00`);
   if (Number.isNaN(date.getTime())) return dateKey;
   return dayFormatter.format(date);
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es-VE")
+    .trim();
+}
+
+function orderDisplayNumber(order: Pick<MasterOpsOrder, "id" | "orderNumber">) {
+  const value = String(order.orderNumber || "").trim();
+  return value || formatOrderDisplayNumber(order.id);
 }
 
 function splitTwoWordsCompact(value: string) {
@@ -211,6 +226,7 @@ function canAssignDelivery(order: MasterOpsOrder) {
 function getNextPrimaryActionLabel(order: MasterOpsOrder) {
   if (order.paymentVerify === "pending") return "Confirmar pago";
   if (canAssignDelivery(order)) return "Asignar delivery";
+  if (order.status === "queued" && order.queuedNeedsReapproval) return "Re-aprobar orden";
   if (canSendOrderToKitchen(order)) return "Enviar a cocina";
   if (canKitchenTakeOrder(order)) return "Tomar en cocina";
   if (canMarkOrderReady(order)) return "Marcar preparada";
@@ -256,6 +272,10 @@ function directActionsForOrder(order: MasterOpsOrder): Array<{
 
   if (order.status === "created" && !order.returnedToAdvisor) {
     actions.push({ key: "approve", label: "Aprobar", tone: "primary" });
+  }
+
+  if (order.status === "queued" && order.queuedNeedsReapproval) {
+    actions.push({ key: "reapprove", label: "Re-aprobar", tone: "primary" });
   }
 
   if (canSendOrderToKitchen(order)) {
@@ -449,7 +469,7 @@ function OrderDetailPanel({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold text-[#F5F5F7]">Orden #{order.id}</h2>
+                <h2 className="text-lg font-semibold text-[#F5F5F7]">Orden #{orderDisplayNumber(order)}</h2>
                 <span className="rounded-full border border-[#242433] bg-[#121218] px-2 py-1 text-[11px] text-[#B7B7C2]">
                   {ORDER_STATUS_LABELS[order.status]}
                 </span>
@@ -613,14 +633,30 @@ export default function MasterOpsClient({
   const [actionError, setActionError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  const normalizedSearch = search.trim().toLocaleLowerCase("es-VE");
+  const normalizedSearch = normalizeSearchText(search);
+  const trayCounts = useMemo(() => {
+    return new Map(trayItems.map((item) => [item.key, orders.filter((order) => matchesTray(order, item.key)).length]));
+  }, [orders]);
   const tableOrders = useMemo(() => {
     return orders
       .filter((order) => matchesTray(order, tray))
       .filter((order) => {
         if (!normalizedSearch) return true;
-        const haystack = [order.id, order.clientName, order.advisorName, order.status]
+        const haystack = [
+          order.id,
+          orderDisplayNumber(order),
+          order.clientName,
+          order.clientPhone,
+          order.receiverName,
+          order.receiverPhone,
+          order.advisorName,
+          order.address,
+          order.status,
+          ORDER_STATUS_LABELS[order.status],
+        ]
           .join(" ")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
           .toLocaleLowerCase("es-VE");
         return haystack.includes(normalizedSearch);
       })
@@ -648,6 +684,11 @@ export default function MasterOpsClient({
 
       if (action === "approve") {
         result = await approveOrderAction({ orderId: order.id });
+      } else if (action === "reapprove") {
+        result = await reapproveQueuedOrderAction({
+          orderId: order.id,
+          notes: "Re-aprobado desde modulo operativo.",
+        });
       } else if (action === "send-kitchen") {
         result = await sendToKitchenAction({ orderId: order.id });
       } else if (action === "mark-ready") {
@@ -846,7 +887,10 @@ export default function MasterOpsClient({
               onClick={() => setTray(item.key)}
               type="button"
             >
-              {item.label}
+              <span>{item.label}</span>
+              <span className="ml-1 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold">
+                {trayCounts.get(item.key) ?? 0}
+              </span>
             </button>
           ))}
         </div>
@@ -893,7 +937,7 @@ export default function MasterOpsClient({
                           {fmtTimeAMPM(order.deliveryAtISO)}
                         </td>
                         <td className="min-w-[104px] px-2 py-2">
-                          <div className="font-semibold text-[#F5F5F7]">{order.id}</div>
+                          <div className="font-semibold text-[#F5F5F7]">{orderDisplayNumber(order)}</div>
                           <div className="mt-0.5 text-[10px] text-[#8A8A96]">{ORDER_STATUS_LABELS[order.status]}</div>
                         </td>
                         <td className="min-w-[122px] px-2 py-2 leading-4">
