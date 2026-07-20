@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type FormEvent } from "react";
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
   canManageOrderDeliveryAssignment,
   canMarkOrderReady,
+  canReturnOrderToAdvisor,
   canSendOrderToKitchen,
   canStartOrderDelivery,
   isRecognizedBillingOrder,
@@ -21,9 +22,12 @@ import {
 } from "@/lib/orders/order-labels";
 import {
   approveOrderAction,
+  clearDeliveryAssignmentAction,
   markDeliveredAction,
   markReadyAction,
+  outForDeliveryAction,
   reapproveQueuedOrderAction,
+  returnToCreatedAction,
   sendToKitchenAction,
 } from "../dashboard/actions";
 import {
@@ -93,7 +97,21 @@ type Props = {
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
 type DetailTab = MasterOrderDetailTab;
-type DirectActionKey = "approve" | "reapprove" | "send-kitchen" | "mark-ready" | "complete";
+type DirectActionKey =
+  | "approve"
+  | "reapprove"
+  | "send-kitchen"
+  | "mark-ready"
+  | "out-delivery"
+  | "complete"
+  | "return-created"
+  | "clear-delivery";
+type DirectActionPayload = {
+  reason?: string;
+  recalculatePricing?: boolean;
+  etaMinutes?: number | null;
+  notes?: string;
+};
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
   { key: "all", label: "Todos" },
@@ -301,7 +319,6 @@ function advancedOperationalLinks(order: MasterOpsOrder): Array<{ label: string;
   const links: Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger" }> = [];
 
   if (!["delivered", "cancelled"].includes(order.status)) {
-    links.push({ label: "Devolver al asesor", tab: "detalle", tone: "neutral" });
     links.push({ label: "Modificar", tab: "detalle", tone: "neutral" });
   }
 
@@ -446,12 +463,27 @@ function OrderDetailPanel({
   runningAction: string | null;
   onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
-  onDirectAction: (order: MasterOpsOrder, action: DirectActionKey) => void;
+  onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
 }) {
   const actionLabel = getNextPrimaryActionLabel(order);
   const paidTone = masterOrderPaymentTone(order);
   const directActions = directActionsForOrder(order);
   const advancedLinks = advancedOperationalLinks(order);
+  const [returnBoxOpen, setReturnBoxOpen] = useState(false);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnRecalculate, setReturnRecalculate] = useState(false);
+  const [deliveryEtaBoxOpen, setDeliveryEtaBoxOpen] = useState(false);
+  const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState("25");
+  const [clearDeliveryBoxOpen, setClearDeliveryBoxOpen] = useState(false);
+  const [clearDeliveryNotes, setClearDeliveryNotes] = useState("");
+  const canReturn = canReturnOrderToAdvisor(order);
+  const canOutForDelivery = canStartOrderDelivery(order);
+  const canClearDelivery =
+    order.fulfillment === "delivery" &&
+    canManageOrderDeliveryAssignment(order) &&
+    hasDeliveryAssignment(order) &&
+    !["delivered", "cancelled"].includes(order.status);
+  const busy = Boolean(runningAction);
 
   async function handleCopyWhatsApp() {
     try {
@@ -459,6 +491,32 @@ function OrderDetailPanel({
     } catch {
       // Keep the operation panel usable even if clipboard permission is unavailable.
     }
+  }
+
+  async function handleReturnSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "return-created", {
+      reason: returnReason,
+      recalculatePricing: returnRecalculate,
+    });
+    if (ok) setReturnBoxOpen(false);
+  }
+
+  async function handleOutForDeliverySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const etaMinutes = Number(String(deliveryEtaMinutes || "").replace(",", "."));
+    const ok = await onDirectAction(order, "out-delivery", {
+      etaMinutes: Number.isFinite(etaMinutes) && etaMinutes > 0 ? etaMinutes : null,
+    });
+    if (ok) setDeliveryEtaBoxOpen(false);
+  }
+
+  async function handleClearDeliverySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "clear-delivery", {
+      notes: clearDeliveryNotes,
+    });
+    if (ok) setClearDeliveryBoxOpen(false);
   }
 
   return (
@@ -552,8 +610,10 @@ function OrderDetailPanel({
                         key={action.key}
                         className={`rounded-xl border px-3 py-2 text-sm font-semibold disabled:cursor-wait disabled:opacity-60 ${className}`}
                         type="button"
-                        disabled={Boolean(runningAction)}
-                        onClick={() => onDirectAction(order, action.key)}
+                        disabled={busy}
+                        onClick={() => {
+                          void onDirectAction(order, action.key);
+                        }}
                       >
                         {isRunning ? "Procesando..." : action.label}
                       </button>
@@ -575,6 +635,137 @@ function OrderDetailPanel({
                 </Link>
               </div>
             </div>
+            {(canReturn || canOutForDelivery || canClearDelivery) ? (
+              <div className="mt-3 border-t border-[#242433] pt-3">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
+                  Acciones rapidas
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {canOutForDelivery ? (
+                    <button
+                      className="rounded-xl border border-sky-500/45 bg-sky-500/10 px-3 py-1.5 text-[12px] font-semibold text-sky-200 transition hover:border-sky-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setDeliveryEtaBoxOpen((value) => !value)}
+                    >
+                      Enviar a delivery
+                    </button>
+                  ) : null}
+                  {canReturn ? (
+                    <button
+                      className="rounded-xl border border-orange-500/45 bg-orange-500/10 px-3 py-1.5 text-[12px] font-semibold text-orange-200 transition hover:border-orange-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setReturnBoxOpen((value) => !value)}
+                    >
+                      Devolver al asesor
+                    </button>
+                  ) : null}
+                  {canClearDelivery ? (
+                    <button
+                      className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 transition hover:border-red-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setClearDeliveryBoxOpen((value) => !value)}
+                    >
+                      Quitar asignacion
+                    </button>
+                  ) : null}
+                </div>
+
+                {deliveryEtaBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3" onSubmit={handleOutForDeliverySubmit}>
+                    <div className="text-[12px] font-semibold text-sky-100">Salida a delivery</div>
+                    <div className="mt-1 text-[11px] text-sky-100/80">Indica el ETA que se le informara al asesor y al cliente.</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {["15", "20", "25", "30"].map((minutes) => (
+                        <button
+                          key={minutes}
+                          className={[
+                            "rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition",
+                            deliveryEtaMinutes === minutes
+                              ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                              : "border-sky-500/30 bg-[#0B0B0D] text-sky-100 hover:border-sky-400",
+                          ].join(" ")}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setDeliveryEtaMinutes(minutes)}
+                        >
+                          {minutes} min
+                        </button>
+                      ))}
+                      <input
+                        className="min-w-[110px] rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-1.5 text-[12px] text-[#F5F5F7]"
+                        value={deliveryEtaMinutes}
+                        onChange={(event) => setDeliveryEtaMinutes(event.target.value)}
+                        inputMode="numeric"
+                        placeholder="ETA"
+                      />
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-sky-400 bg-sky-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `out-delivery:${order.id}` ? "Confirmando..." : "Confirmar salida"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {returnBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-orange-500/30 bg-orange-500/10 p-3" onSubmit={handleReturnSubmit}>
+                    <div className="text-[12px] font-semibold text-orange-100">Devolver al asesor</div>
+                    <textarea
+                      className="mt-3 min-h-[86px] w-full rounded-lg border border-orange-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                      value={returnReason}
+                      onChange={(event) => setReturnReason(event.target.value)}
+                      placeholder="Motivo claro para que el asesor pueda corregir."
+                    />
+                    <label className="mt-3 flex items-start gap-2 text-[12px] text-orange-100/85">
+                      <input
+                        className="mt-0.5 accent-[#FEEF00]"
+                        type="checkbox"
+                        checked={returnRecalculate}
+                        onChange={(event) => setReturnRecalculate(event.target.checked)}
+                      />
+                      <span>Solicitar recalculo de precios y tasa.</span>
+                    </label>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-orange-400 bg-orange-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `return-created:${order.id}` ? "Devolviendo..." : "Confirmar devolucion"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {clearDeliveryBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3" onSubmit={handleClearDeliverySubmit}>
+                    <div className="text-[12px] font-semibold text-red-100">Quitar asignacion de delivery</div>
+                    <textarea
+                      className="mt-3 min-h-[74px] w-full rounded-lg border border-red-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                      value={clearDeliveryNotes}
+                      onChange={(event) => setClearDeliveryNotes(event.target.value)}
+                      placeholder="Motivo de la correccion."
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-red-400 bg-red-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `clear-delivery:${order.id}` ? "Quitando..." : "Quitar asignacion"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
             {advancedLinks.length > 0 ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
@@ -674,7 +865,7 @@ export default function MasterOpsClient({
     setActionError(null);
   }
 
-  async function runDirectOrderAction(order: MasterOpsOrder, action: DirectActionKey) {
+  async function runDirectOrderAction(order: MasterOpsOrder, action: DirectActionKey, payload: DirectActionPayload = {}) {
     const actionId = `${action}:${order.id}`;
     setRunningAction(actionId);
     setActionError(null);
@@ -693,8 +884,24 @@ export default function MasterOpsClient({
         result = await sendToKitchenAction({ orderId: order.id });
       } else if (action === "mark-ready") {
         result = await markReadyAction({ orderId: order.id });
+      } else if (action === "out-delivery") {
+        result = await outForDeliveryAction({
+          orderId: order.id,
+          etaMinutes: payload.etaMinutes ?? null,
+        });
       } else if (action === "complete") {
         result = await markDeliveredAction({ orderId: order.id });
+      } else if (action === "return-created") {
+        result = await returnToCreatedAction({
+          orderId: order.id,
+          reason: payload.reason ?? "",
+          recalculatePricing: Boolean(payload.recalculatePricing),
+        });
+      } else if (action === "clear-delivery") {
+        result = await clearDeliveryAssignmentAction({
+          orderId: order.id,
+          notes: payload.notes?.trim() || "Asignacion removida desde modulo operativo.",
+        });
       }
 
       if (result && typeof result === "object" && "ok" in result && result.ok === false) {
@@ -705,8 +912,10 @@ export default function MasterOpsClient({
       startTransition(() => {
         router.refresh();
       });
+      return true;
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "No se pudo procesar la accion.");
+      return false;
     } finally {
       setRunningAction(null);
     }
@@ -995,6 +1204,7 @@ export default function MasterOpsClient({
       </main>
       {selectedOrder ? (
         <OrderDetailPanel
+          key={selectedOrder.id}
           order={selectedOrder}
           focusDate={focusDate}
           activeTab={selectedDetailTab}
