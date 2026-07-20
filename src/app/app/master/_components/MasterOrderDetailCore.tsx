@@ -34,15 +34,18 @@ export type MasterOrderPaymentReport = {
   id: number;
   status: "pending" | "confirmed" | "rejected";
   createdAt: string | null;
+  operationDate: string | null;
   reporterName: string;
   currencyCode: string;
   amount: number;
   exchangeRate: number | null;
   usdEquivalent: number;
+  moneyAccountId: number | null;
   moneyAccountName: string;
   referenceCode: string | null;
   payerName: string | null;
   notes: string | null;
+  isRetention?: boolean;
 };
 
 export type MasterOrderEvent = {

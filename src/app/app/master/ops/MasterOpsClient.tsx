@@ -25,10 +25,12 @@ import {
   assignExternalPartnerAction,
   assignInternalDriverAction,
   clearDeliveryAssignmentAction,
+  confirmPaymentReportAction,
   markDeliveredAction,
   markReadyAction,
   outForDeliveryAction,
   reapproveQueuedOrderAction,
+  rejectPaymentReportAction,
   returnToCreatedAction,
   sendToKitchenAction,
 } from "../dashboard/actions";
@@ -44,6 +46,7 @@ import {
   masterOrderPaymentTone,
   type MasterOrderDetailOrder,
   type MasterOrderDetailTab,
+  type MasterOrderPaymentReport,
   type MasterOrderPaymentVerify,
 } from "../_components/MasterOrderDetailCore";
 
@@ -122,7 +125,9 @@ type DirectActionKey =
   | "assign-internal"
   | "assign-external"
   | "return-created"
-  | "clear-delivery";
+  | "clear-delivery"
+  | "confirm-payment"
+  | "reject-payment";
 type DirectActionPayload = {
   reason?: string;
   recalculatePricing?: boolean;
@@ -133,6 +138,15 @@ type DirectActionPayload = {
   reference?: string | null;
   distanceKm?: number | null;
   costUsd?: number | null;
+  reportId?: number;
+  moneyAccountId?: number | null;
+  currencyCode?: string | null;
+  amount?: number | null;
+  movementDate?: string | null;
+  exchangeRate?: number | null;
+  payerName?: string | null;
+  description?: string | null;
+  isRetention?: boolean;
 };
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
@@ -168,6 +182,17 @@ function fmtDayLabel(dateKey: string) {
   const date = new Date(`${dateKey}T12:00:00-04:00`);
   if (Number.isNaN(date.getTime())) return dateKey;
   return dayFormatter.format(date);
+}
+
+function caracasDateKeyFromISO(iso: string | null | undefined) {
+  if (!iso) return new Date().toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return new Date().toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+  return date.toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+}
+
+function paymentReportMovementDate(report: MasterOrderPaymentReport) {
+  return report.operationDate || caracasDateKeyFromISO(report.createdAt);
 }
 
 function normalizeSearchText(value: unknown) {
@@ -508,6 +533,8 @@ function OrderDetailPanel({
   const [deliveryAssignReference, setDeliveryAssignReference] = useState("");
   const [clearDeliveryBoxOpen, setClearDeliveryBoxOpen] = useState(false);
   const [clearDeliveryNotes, setClearDeliveryNotes] = useState("");
+  const [paymentRejectReportId, setPaymentRejectReportId] = useState<number | null>(null);
+  const [paymentRejectNotes, setPaymentRejectNotes] = useState("");
   const canReturn = canReturnOrderToAdvisor(order);
   const canAssign = canAssignDelivery(order);
   const canOutForDelivery = canStartOrderDelivery(order);
@@ -518,6 +545,7 @@ function OrderDetailPanel({
     !["delivered", "cancelled"].includes(order.status);
   const busy = Boolean(runningAction);
   const activeDeliveryPartners = deliveryPartners.filter((partner) => partner.isActive);
+  const pendingPaymentReports = order.paymentReports.filter((report) => report.status === "pending");
 
   async function handleCopyWhatsApp() {
     try {
@@ -574,6 +602,35 @@ function OrderDetailPanel({
       costUsd,
     });
     if (ok) setDeliveryAssignMode(null);
+  }
+
+  async function handleConfirmPayment(report: MasterOrderPaymentReport) {
+    const ok = await onDirectAction(order, "confirm-payment", {
+      reportId: report.id,
+      moneyAccountId: report.moneyAccountId,
+      currencyCode: report.currencyCode,
+      amount: report.amount,
+      movementDate: paymentReportMovementDate(report),
+      exchangeRate: report.exchangeRate,
+      reference: report.referenceCode,
+      payerName: report.payerName,
+      description: `Pago confirmado desde Master Ops - orden ${order.id} - reporte ${report.id}`,
+      isRetention: Boolean(report.isRetention),
+    });
+    if (ok) setPaymentRejectReportId(null);
+  }
+
+  async function handleRejectPaymentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!paymentRejectReportId) return;
+    const ok = await onDirectAction(order, "reject-payment", {
+      reportId: paymentRejectReportId,
+      notes: paymentRejectNotes,
+    });
+    if (ok) {
+      setPaymentRejectReportId(null);
+      setPaymentRejectNotes("");
+    }
   }
 
   return (
@@ -926,6 +983,104 @@ function OrderDetailPanel({
                 ) : null}
               </div>
             ) : null}
+            {activeTab === "pagos" && pendingPaymentReports.length > 0 ? (
+              <div className="mt-3 border-t border-[#242433] pt-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
+                    Pagos por revisar
+                  </div>
+                  <div className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2 py-0.5 text-[10px] font-semibold text-orange-200">
+                    {pendingPaymentReports.length}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {pendingPaymentReports.map((report) => {
+                    const predictedExcessUsd = Number(
+                      Math.max(0, order.confirmedPaidUsd + report.usdEquivalent - order.totalUsd).toFixed(2)
+                    );
+                    const requiresFullDashboard = predictedExcessUsd > 0.005;
+                    const isRunningConfirm = runningAction === `confirm-payment:${order.id}`;
+                    const isRunningReject = runningAction === `reject-payment:${order.id}`;
+
+                    return (
+                      <div key={report.id} className="rounded-xl border border-orange-500/25 bg-orange-500/10 p-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-[#F5F5F7]">
+                              {report.currencyCode} {report.amount.toFixed(2)} - {formatMasterOrderUSD(report.usdEquivalent)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-orange-100/80">
+                              {report.moneyAccountName} - Operacion {paymentReportMovementDate(report)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-[#B7B7C2]">
+                              Ref. <span className="text-[#F5F5F7]">{report.referenceCode || "--"}</span>
+                              {" - "}
+                              Reporta <span className="text-[#F5F5F7]">{report.reporterName}</span>
+                            </div>
+                            {requiresFullDashboard ? (
+                              <div className="mt-2 text-[11px] text-[#FEEF00]">
+                                Hay excedente de {formatMasterOrderUSD(predictedExcessUsd)}. Resuelve cambio, fondo o diferencia en el detalle completo.
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 flex-wrap gap-2">
+                            {requiresFullDashboard ? (
+                              <Link
+                                className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-1.5 text-[12px] font-semibold text-[#0B0B0D]"
+                                href={dashboardUrl(order, focusDate, "pagos")}
+                              >
+                                Resolver
+                              </Link>
+                            ) : (
+                              <button
+                                className="rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 disabled:cursor-wait disabled:opacity-60"
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  void handleConfirmPayment(report);
+                                }}
+                              >
+                                {isRunningConfirm ? "Confirmando..." : "Confirmar"}
+                              </button>
+                            )}
+                            <button
+                              className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setPaymentRejectReportId((current) => (current === report.id ? null : report.id));
+                                setPaymentRejectNotes("");
+                              }}
+                            >
+                              Rechazar
+                            </button>
+                          </div>
+                        </div>
+                        {paymentRejectReportId === report.id ? (
+                          <form className="mt-3 rounded-xl border border-red-500/30 bg-[#0B0B0D] p-3" onSubmit={handleRejectPaymentSubmit}>
+                            <textarea
+                              className="min-h-[74px] w-full rounded-lg border border-red-500/30 bg-[#121218] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                              value={paymentRejectNotes}
+                              onChange={(event) => setPaymentRejectNotes(event.target.value)}
+                              placeholder="Motivo obligatorio para que el asesor entienda que corregir."
+                            />
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                className="rounded-xl border border-red-400 bg-red-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                                type="submit"
+                                disabled={busy}
+                              >
+                                {isRunningReject ? "Rechazando..." : "Confirmar rechazo"}
+                              </button>
+                            </div>
+                          </form>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
             {advancedLinks.length > 0 ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
@@ -1085,6 +1240,42 @@ export default function MasterOpsClient({
         result = await clearDeliveryAssignmentAction({
           orderId: order.id,
           notes: payload.notes?.trim() || "Asignacion removida desde modulo operativo.",
+        });
+      } else if (action === "confirm-payment") {
+        const reportId = Number(payload.reportId || 0);
+        const moneyAccountId = Number(payload.moneyAccountId || 0);
+        const currencyCode = String(payload.currencyCode || "").trim().toUpperCase();
+        const amount = Number(payload.amount);
+        const movementDate = String(payload.movementDate || "").trim();
+        if (!Number.isFinite(reportId) || reportId <= 0) throw new Error("No se pudo identificar el reporte de pago.");
+        if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) throw new Error("El reporte no tiene cuenta asociada.");
+        if (!currencyCode) throw new Error("El reporte no tiene moneda valida.");
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error("El reporte no tiene monto valido.");
+        if (!movementDate) throw new Error("El reporte no tiene fecha de operacion.");
+        result = await confirmPaymentReportAction({
+          reportId,
+          orderId: order.id,
+          clientId: null,
+          confirmedMoneyAccountId: moneyAccountId,
+          confirmedCurrency: currencyCode,
+          confirmedAmount: amount,
+          movementDate,
+          confirmedExchangeRateVesPerUsd: payload.exchangeRate ?? null,
+          reviewNotes: "Confirmado desde modulo operativo.",
+          referenceCode: payload.reference ?? null,
+          counterpartyName: payload.payerName ?? null,
+          description: payload.description ?? `Pago confirmado desde Master Ops - orden ${order.id} - reporte ${reportId}`,
+          paymentKind: payload.isRetention ? "retention" : null,
+          overpaymentHandling: null,
+        });
+      } else if (action === "reject-payment") {
+        const reportId = Number(payload.reportId || 0);
+        const reviewNotes = String(payload.notes || "").trim();
+        if (!Number.isFinite(reportId) || reportId <= 0) throw new Error("No se pudo identificar el reporte de pago.");
+        if (!reviewNotes) throw new Error("Debes indicar un motivo de rechazo.");
+        result = await rejectPaymentReportAction({
+          reportId,
+          reviewNotes,
         });
       }
 

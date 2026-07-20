@@ -103,6 +103,7 @@ type RawPaymentReportRow = {
   order_id: number | string;
   status: "pending" | "confirmed" | "rejected";
   created_at: string | null;
+  operation_date: string | null;
   created_by_user_id: string | null;
   reported_currency_code: string;
   reported_amount: number | string | null;
@@ -436,10 +437,19 @@ function mapOrder(
   });
   const paymentReports = reports.map((report) => {
     const accountId = Number(report.reported_money_account_id);
+    const accountName =
+      Number.isFinite(accountId) && accountId > 0
+        ? detail.moneyAccountNameById?.get(accountId) ?? `Cuenta #${accountId}`
+        : "Cuenta";
+    const normalizedRetentionText = `${accountName} ${report.notes ?? ""}`
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
     return {
       id: Number(report.id),
       status: report.status,
       createdAt: report.created_at,
+      operationDate: report.operation_date ?? null,
       reporterName:
         (report.created_by_user_id ? detail.profileNameById?.get(report.created_by_user_id) : null) ??
         "Usuario",
@@ -450,13 +460,14 @@ function mapOrder(
           ? null
           : roundMoney(report.reported_exchange_rate_ves_per_usd, 0),
       usdEquivalent: roundMoney(report.reported_amount_usd_equivalent, 0),
-      moneyAccountName:
-        Number.isFinite(accountId) && accountId > 0
-          ? detail.moneyAccountNameById?.get(accountId) ?? `Cuenta #${accountId}`
-          : "Cuenta",
+      moneyAccountId: Number.isFinite(accountId) && accountId > 0 ? accountId : null,
+      moneyAccountName: accountName,
       referenceCode: report.reference_code ?? null,
       payerName: report.payer_name ?? null,
       notes: report.notes ?? null,
+      isRetention:
+        normalizedRetentionText.includes("retencion") ||
+        normalizedRetentionText.includes("comprobante retencion"),
     };
   });
   const orderEvents = events.map((event) => ({
@@ -848,6 +859,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
         order_id,
         status,
         created_at,
+        operation_date,
         created_by_user_id,
         reported_currency_code,
         reported_amount,

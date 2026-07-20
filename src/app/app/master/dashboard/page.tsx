@@ -144,6 +144,7 @@ type RawPaymentReportRow = {
   order_id: number;
   status: 'pending' | 'confirmed' | 'rejected';
   created_at: string | null;
+  operation_date: string | null;
   created_by_user_id: string | null;
   reported_currency_code: string;
   reported_amount: number | string;
@@ -166,6 +167,7 @@ type PaymentReportDetail = {
   id: number;
   status: 'pending' | 'confirmed' | 'rejected';
   createdAt: string | null;
+  operationDate: string | null;
   reporterUserId: string | null;
   reporterName: string;
   currencyCode: string;
@@ -2025,6 +2027,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       order_id,
       status,
       created_at,
+      operation_date,
       created_by_user_id,
       reported_currency_code,
       reported_amount,
@@ -2610,6 +2613,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       id: reportId,
       status: effectiveStatus,
       createdAt: rp.created_at ?? null,
+      operationDate: rp.operation_date ?? null,
       reporterUserId: rp.created_by_user_id ?? null,
       reporterName: rp.created_by_user_id
         ? reporterNameById.get(rp.created_by_user_id) ?? 'Usuario'

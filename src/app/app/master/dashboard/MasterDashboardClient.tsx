@@ -774,6 +774,7 @@ type PaymentReportItem = {
   id: number;
   status: 'pending' | 'confirmed' | 'rejected';
   createdAt: string | null;
+  operationDate: string | null;
   reporterUserId: string | null;
   reporterName: string;
   currencyCode: string;
@@ -2891,15 +2892,18 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
       id: report.id,
       status: report.status,
       createdAt: report.createdAt,
+      operationDate: report.operationDate ?? null,
       reporterName: report.reporterName,
       currencyCode: report.currencyCode,
       amount: report.amount,
       exchangeRate: report.exchangeRate,
       usdEquivalent: report.usdEquivalent,
+      moneyAccountId: report.moneyAccountId,
       moneyAccountName: report.moneyAccountName,
       referenceCode: report.referenceCode,
       payerName: report.payerName,
       notes: report.notes,
+      isRetention: report.isRetention,
     })),
     events: order.events.map((event) => ({
       id: event.id,
