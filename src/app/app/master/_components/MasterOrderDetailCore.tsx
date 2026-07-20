@@ -490,13 +490,13 @@ export function MasterOrderDetailBody({
 
         <div className="mt-3 space-y-2 text-sm">
           {lines.length === 0 ? (
-            <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-[#B7B7C2]">
+            <div className="text-[#B7B7C2]">
               Sin items cargados.
             </div>
           ) : (
             lines.map((line, index) => (
-              <div key={`${line.name}-${index}`} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
-                <div className="font-medium text-[#F5F5F7]">{masterOrderLineText(line)}</div>
+              <div key={`${line.name}-${index}`} className="leading-5">
+                <div className="text-[#F5F5F7]">{masterOrderLineText(line)}</div>
                 {line.editableDetailLines && line.editableDetailLines.length > 0 ? (
                   <div className="mt-1 space-y-1 pl-4 text-xs text-[#B7B7C2]">
                     {line.editableDetailLines.slice(0, 12).map((text, detailIndex) => (
