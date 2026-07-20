@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import {
+  formatOrderDisplayNumber,
   getPaymentMethodLabel,
   type FulfillmentType,
   type OrderStatus,
@@ -290,7 +291,7 @@ export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
 
   return buildWhatsAppOrderSummaryText({
     title: "Resumen de Pedido",
-    orderLabel: order.orderNumber || String(order.id),
+    orderLabel: formatOrderDisplayNumber(order.id),
     advisorName: order.advisorName,
     clientName: order.clientName,
     clientPhone: order.clientPhone,
