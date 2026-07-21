@@ -9,6 +9,7 @@ import {
   type OrderStatus,
 } from "@/lib/domain/order-domain";
 import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
+import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth";
 import MasterOpsClient, {
   type DeliveryPartnerOption,
@@ -505,10 +506,7 @@ function mapOrder(
       productType: product?.type ?? null,
       isDelivery: lowerName.startsWith("delivery") || lowerName.includes("delivery"),
       editableDetailLines: item.notes
-        ? item.notes
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean)
+        ? getVisibleEditableDetailLines(item.notes.split("\n").map((line) => line.trim()).filter(Boolean))
         : [],
     };
   });

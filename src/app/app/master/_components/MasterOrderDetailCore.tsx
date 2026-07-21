@@ -270,17 +270,17 @@ export function masterOrderLineText(line: MasterOrderDetailLine) {
   const isDelivery = Boolean(line.isDelivery) || line.name.toLowerCase().startsWith("delivery");
   const bs = formatMasterOrderBs(line.qty * line.priceBs);
 
-  if (isDelivery) return `- ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
+  if (isDelivery) return `${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 
   if (units !== null) {
     const cleanName = cleanWhatsAppUnitsFromName(line.name);
     if (line.productType === "service") {
-      return `- ${formatWhatsAppQuantity(line.qty)} Serv. ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
+      return `${formatWhatsAppQuantity(line.qty)} Serv. ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
     }
-    return `- ${formatWhatsAppQuantity(line.qty)} ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
+    return `${formatWhatsAppQuantity(line.qty)} ${cleanName} (${formatWhatsAppQuantity(units)} und): ${bs}`;
   }
 
-  return `- ${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
+  return `${formatWhatsAppQuantity(line.qty)} ${line.name}: ${bs}`;
 }
 
 export function buildMasterOrderWhatsAppSummary(order: MasterOrderDetailOrder) {
