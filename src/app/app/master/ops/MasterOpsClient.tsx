@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
@@ -46,6 +46,7 @@ import {
   rejectPaymentReportAction,
   returnFromKitchenToQueueAction,
   returnToCreatedAction,
+  searchMasterOrdersAction,
   sendToKitchenAction,
   settleClientFundPayoutAction,
 } from "../dashboard/actions";
@@ -84,6 +85,28 @@ export type MasterOpsPaymentAccountOption = {
   accountName: string;
   currencyCode: "USD" | "VES";
   paymentMethodCode: string;
+};
+type MasterOpsOrderSearchResult = {
+  id: number;
+  orderNumber: string;
+  matchPriority: number;
+  status: string;
+  fulfillment: string;
+  clientName: string;
+  clientPhone: string | null;
+  advisorName: string;
+  totalUsd: number;
+  totalBs: number;
+  createdAt: string;
+  operationalDate: string;
+};
+type MasterOpsMergedSearchResult = {
+  id: number;
+  matchPriority: number;
+  label: string;
+  sub: string;
+  operationalDate: string;
+  source: "local" | "remote";
 };
 
 export type OperationStatsSummary = {
@@ -476,8 +499,23 @@ function matchesTray(order: MasterOpsOrder, tray: MasterTray) {
   return true;
 }
 
-function dashboardUrl(order: MasterOpsOrder, focusDate: string, tab: DetailTab = "detalle") {
-  return `/app/master/dashboard?focusDate=${focusDate}&openOrder=${order.id}&tab=${tab}`;
+function dashboardUrl(
+  order: MasterOpsOrder,
+  focusDate: string,
+  tab: DetailTab = "detalle",
+  options?: { edit?: boolean }
+) {
+  const params = new URLSearchParams({
+    focusDate,
+    openOrder: String(order.id),
+    tab,
+  });
+
+  if (options?.edit) {
+    params.set("editOrder", "1");
+  }
+
+  return `/app/master/dashboard?${params.toString()}`;
 }
 
 function directActionsForOrder(order: MasterOpsOrder): Array<{
@@ -514,11 +552,16 @@ function directActionsForOrder(order: MasterOpsOrder): Array<{
   return actions;
 }
 
-function advancedOperationalLinks(order: MasterOpsOrder): Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger" }> {
-  const links: Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger" }> = [];
+function advancedOperationalLinks(order: MasterOpsOrder): Array<{
+  label: string;
+  tab: DetailTab;
+  tone: "neutral" | "danger";
+  edit?: boolean;
+}> {
+  const links: Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger"; edit?: boolean }> = [];
 
   if (!["delivered", "cancelled"].includes(order.status)) {
-    links.push({ label: "Modificar orden", tab: "detalle", tone: "neutral" });
+    links.push({ label: "Modificar orden", tab: "detalle", tone: "neutral", edit: true });
   }
 
   return links;
@@ -2164,7 +2207,7 @@ function OrderDetailPanel({
                           ? "border-red-500/45 bg-red-500/10 text-red-200 hover:border-red-400"
                           : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]",
                       ].join(" ")}
-                      href={dashboardUrl(order, focusDate, link.tab)}
+                      href={dashboardUrl(order, focusDate, link.tab, { edit: link.edit })}
                     >
                       {link.label}
                     </Link>
@@ -2201,8 +2244,15 @@ export default function MasterOpsClient({
   paymentAccounts,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [tray, setTray] = useState<MasterTray>("all");
   const [search, setSearch] = useState("");
+  const [submittedOrderSearch, setSubmittedOrderSearch] = useState("");
+  const [isOrderSearchSubmitted, setIsOrderSearchSubmitted] = useState(false);
+  const [orderSearchSubmissionVersion, setOrderSearchSubmissionVersion] = useState(0);
+  const [remoteOrderSearchResults, setRemoteOrderSearchResults] = useState<MasterOpsOrderSearchResult[]>([]);
+  const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
+  const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [selectedDetailTab, setSelectedDetailTab] = useState<DetailTab>("detalle");
   const [runningAction, setRunningAction] = useState<string | null>(null);
@@ -2243,12 +2293,139 @@ export default function MasterOpsClient({
     () => orders.find((order) => order.id === selectedOrderId) ?? null,
     [orders, selectedOrderId]
   );
+  const shouldSearchOrders =
+    isOrderSearchSubmitted &&
+    (submittedOrderSearch.trim().length >= 2 || /^\d+$/.test(submittedOrderSearch.trim()));
+  const localOrderSearchResults = useMemo<MasterOpsMergedSearchResult[]>(() => {
+    const query = normalizeSearchText(submittedOrderSearch);
+    if (!query) return [];
+
+    const results: MasterOpsMergedSearchResult[] = [];
+
+    orders.forEach((order) => {
+      const values = [
+        order.id,
+        orderDisplayNumber(order),
+        order.clientName,
+        order.clientPhone,
+        order.receiverName,
+        order.receiverPhone,
+        order.advisorName,
+        order.address,
+      ].map(normalizeSearchText);
+      const matched = values.some((value) => value.includes(query));
+      if (!matched) return;
+
+      results.push({
+        id: order.id,
+        matchPriority: values[1] === query || String(order.id) === query ? 0 : 5,
+        label: `${orderDisplayNumber(order)} - ${order.clientName}`,
+        sub: `${ORDER_STATUS_LABELS[order.status]} - ${caracasDateKeyFromISO(order.deliveryAtISO)} - ${fmtUSD(order.totalUsd)}`,
+        operationalDate: caracasDateKeyFromISO(order.deliveryAtISO),
+        source: "local",
+      });
+    });
+
+    return results
+      .sort((a, b) => a.matchPriority - b.matchPriority || b.id - a.id)
+      .slice(0, 10);
+  }, [orders, submittedOrderSearch]);
+  const mergedOrderSearchResults = useMemo<MasterOpsMergedSearchResult[]>(() => {
+    const localIds = new Set(localOrderSearchResults.map((result) => result.id));
+    const remote = remoteOrderSearchResults
+      .filter((result) => !localIds.has(result.id))
+      .map((result) => ({
+        id: result.id,
+        matchPriority: result.matchPriority,
+        label: `${formatOrderDisplayNumber(result.orderNumber || result.id)} - ${result.clientName}`,
+        sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} - ${result.operationalDate} - ${fmtUSD(result.totalUsd)}`,
+        operationalDate: result.operationalDate,
+        source: "remote" as const,
+      }));
+
+    return [...localOrderSearchResults, ...remote]
+      .sort((a, b) => a.matchPriority - b.matchPriority || b.id - a.id)
+      .slice(0, 12);
+  }, [localOrderSearchResults, remoteOrderSearchResults]);
 
   function openOrder(order: MasterOpsOrder, tab: DetailTab = "detalle") {
     setSelectedOrderId(order.id);
     setSelectedDetailTab(tab);
     setActionError(null);
   }
+
+  function openSearchOrderResult(result: MasterOpsMergedSearchResult) {
+    setSearch("");
+    setSubmittedOrderSearch("");
+    setIsOrderSearchSubmitted(false);
+    setRemoteOrderSearchResults([]);
+    setRemoteOrderSearchError(null);
+
+    const localOrder = orders.find((order) => order.id === result.id);
+    if (localOrder) {
+      openOrder(localOrder, "detalle");
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("focusDate", result.operationalDate);
+    params.set("openOrder", String(result.id));
+    router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }
+
+  useEffect(() => {
+    const query = submittedOrderSearch.trim();
+
+    if (!shouldSearchOrders) {
+      setRemoteOrderSearchResults([]);
+      setRemoteOrderSearchLoading(false);
+      setRemoteOrderSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRemoteOrderSearchLoading(true);
+    setRemoteOrderSearchError(null);
+
+    const timer = window.setTimeout(() => {
+      searchMasterOrdersAction({ query, limit: 10 })
+        .then((results) => {
+          if (cancelled) return;
+          setRemoteOrderSearchResults(results as MasterOpsOrderSearchResult[]);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setRemoteOrderSearchResults([]);
+          setRemoteOrderSearchError(error instanceof Error ? error.message : "No se pudo buscar en el historial.");
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setRemoteOrderSearchLoading(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [submittedOrderSearch, orderSearchSubmissionVersion, shouldSearchOrders]);
+
+  useEffect(() => {
+    const openOrderValue = searchParams.get("openOrder");
+    if (!openOrderValue) return;
+
+    const openOrderId = Number(openOrderValue);
+    if (!Number.isFinite(openOrderId) || openOrderId <= 0) return;
+
+    const order = orders.find((item) => item.id === openOrderId);
+    if (!order) return;
+
+    openOrder(order, "detalle");
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openOrder");
+    router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }, [orders, router, searchParams]);
 
   async function runCreatePaymentReport(order: MasterOpsOrder, payload: PaymentReportDraft) {
     const actionId = `${payload.isRetention ? "report-retention" : "report-payment"}:${order.id}`;
@@ -2669,15 +2846,70 @@ export default function MasterOpsClient({
             className="relative w-full md:max-w-md"
             onSubmit={(event) => {
               event.preventDefault();
+              const query = search.trim();
+              setSubmittedOrderSearch(query);
+              setIsOrderSearchSubmitted(true);
+              setOrderSearchSubmissionVersion((version) => version + 1);
+              setRemoteOrderSearchResults([]);
+              setRemoteOrderSearchError(null);
             }}
           >
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar orden o cliente"
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setIsOrderSearchSubmitted(false);
+              }}
+              placeholder="Buscar orden o cliente y presiona Enter"
               aria-label="Buscar orden o cliente"
-              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] py-1.5 pl-3.5 pr-3 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+              className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] py-1.5 pl-3.5 pr-24 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
             />
+            <button
+              type="submit"
+              className="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-1.5 rounded-lg border border-[#3A3A4A] bg-[#121218] px-2.5 py-1 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/50 hover:text-[#FEEF00]"
+              title="Buscar"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                <circle cx="11" cy="11" r="6" />
+                <path d="m16 16 4 4" />
+              </svg>
+              Buscar
+            </button>
+            {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError || isOrderSearchSubmitted) ? (
+              <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D] shadow-2xl">
+                {mergedOrderSearchResults.map((result) => (
+                  <button
+                    key={`${result.source}-${result.id}`}
+                    className="w-full px-4 py-3 text-left hover:bg-[#121218]"
+                    type="button"
+                    onClick={() => openSearchOrderResult(result)}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 truncate text-sm font-medium text-[#F5F5F7]">{result.label}</div>
+                      <span className="shrink-0 rounded-full border border-[#2C3142] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-[#8A8A96]">
+                        {result.source === "local" ? "Dia" : "Historial"}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-[#B7B7C2]">{result.sub}</div>
+                  </button>
+                ))}
+                {remoteOrderSearchLoading ? (
+                  <div className="border-t border-[#242433] px-4 py-2 text-xs text-[#8A8A96]">
+                    Buscando en historial...
+                  </div>
+                ) : null}
+                {!remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 ? (
+                  <div className="border-t border-[#242433] px-4 py-3 text-xs text-[#8A8A96]">
+                    Sin resultados para esta busqueda.
+                  </div>
+                ) : null}
+                {remoteOrderSearchError ? (
+                  <div className="border-t border-[#3A1F25] px-4 py-2 text-xs text-[#F0A6AE]">
+                    {remoteOrderSearchError}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </form>
 
           <div className="flex flex-wrap gap-2">

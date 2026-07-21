@@ -933,6 +933,21 @@ type MasterOrderSearchResult = {
 
 type OrderDetailTab = 'detalle' | 'entrega' | 'pagos' | 'eventos' | 'notas' | 'ajustes';
 
+function normalizeOrderDetailTab(value: string | null): OrderDetailTab {
+  if (
+    value === 'detalle' ||
+    value === 'entrega' ||
+    value === 'pagos' ||
+    value === 'eventos' ||
+    value === 'notas' ||
+    value === 'ajustes'
+  ) {
+    return value;
+  }
+
+  return 'detalle';
+}
+
 type MasterTray =
   | 'pending_created'
   | 'reapproval'
@@ -6146,10 +6161,15 @@ useEffect(() => {
   const order = dashboardOrders.find((item) => item.id === openOrderId);
   if (!order) return;
 
-  openOrderPanel(openOrderId, 'detalle');
+  if (searchParams.get('editOrder') === '1') {
+    openEditOrderDrawer(order);
+  } else {
+    openOrderPanel(openOrderId, normalizeOrderDetailTab(searchParams.get('tab')));
+  }
 
   const params = new URLSearchParams(searchParams.toString());
   params.delete('openOrder');
+  params.delete('editOrder');
   router.replace(`/app/master/dashboard?${params.toString()}`, { scroll: false });
 }, [dashboardOrders, router, searchParams]);
 
@@ -6239,7 +6259,7 @@ const loadOrderIntoCreateForm = (order: Order) => {
   setCreateOrderDeliveryHour12(deliveryFields.hour12);
   setCreateOrderDeliveryMinute(deliveryFields.minute);
   setCreateOrderDeliveryAmPm(deliveryFields.ampm);
-  setCreateOrderIsAsap(Boolean(selectedOrder?.editMeta?.isAsap));
+  setCreateOrderIsAsap(Boolean(order.editMeta?.isAsap));
 
   const receiverName = order.editMeta?.receiverName?.trim() ?? '';
   const receiverPhone = order.editMeta?.receiverPhone?.trim() ?? '';
