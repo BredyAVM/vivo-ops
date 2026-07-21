@@ -11860,6 +11860,7 @@ export async function updateOrderAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
 
   return { ok: true as const, id: orderId };
 }

@@ -65,6 +65,7 @@ import {
   type MasterOrderPaymentReport,
   type MasterOrderPaymentVerify,
 } from "../_components/MasterOrderDetailCore";
+import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
 
 export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder;
@@ -683,6 +684,7 @@ function OrderDetailPanel({
   runningAction,
   onTabChange,
   onClose,
+  onEditOrder,
   onDirectAction,
   onCreatePaymentReport,
   drivers,
@@ -698,6 +700,7 @@ function OrderDetailPanel({
   runningAction: string | null;
   onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
+  onEditOrder: (order: MasterOpsOrder) => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
   onCreatePaymentReport: (order: MasterOpsOrder, payload: PaymentReportDraft) => Promise<boolean>;
   drivers: DriverOption[];
@@ -2199,6 +2202,22 @@ function OrderDetailPanel({
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="flex flex-wrap gap-2">
                   {advancedLinks.map((link) => (
+                    link.edit ? (
+                    <button
+                      key={link.label}
+                      className={[
+                        "rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition",
+                        link.tone === "danger"
+                          ? "border-red-500/45 bg-red-500/10 text-red-200 hover:border-red-400"
+                          : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]",
+                      ].join(" ")}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onEditOrder(order)}
+                    >
+                      {link.label}
+                    </button>
+                    ) : (
                     <Link
                       key={link.label}
                       className={[
@@ -2207,10 +2226,11 @@ function OrderDetailPanel({
                           ? "border-red-500/45 bg-red-500/10 text-red-200 hover:border-red-400"
                           : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]",
                       ].join(" ")}
-                      href={dashboardUrl(order, focusDate, link.tab, { edit: link.edit })}
+                      href={dashboardUrl(order, focusDate, link.tab)}
                     >
                       {link.label}
                     </Link>
+                    )
                   ))}
                 </div>
               </div>
@@ -2254,6 +2274,7 @@ export default function MasterOpsClient({
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [selectedDetailTab, setSelectedDetailTab] = useState<DetailTab>("detalle");
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -3059,6 +3080,7 @@ export default function MasterOpsClient({
           runningAction={runningAction}
           onTabChange={setSelectedDetailTab}
           onClose={() => setSelectedOrderId(null)}
+          onEditOrder={(order) => setEditingOrderId(order.id)}
           onDirectAction={runDirectOrderAction}
           onCreatePaymentReport={runCreatePaymentReport}
           drivers={drivers}
@@ -3066,6 +3088,18 @@ export default function MasterOpsClient({
           paymentAccounts={paymentAccounts}
         />
       ) : null}
+      <MasterOpsOrderEditor
+        orderId={editingOrderId}
+        roles={roles}
+        fallbackActiveRate={activeRate}
+        onClose={() => setEditingOrderId(null)}
+        onSaved={() => {
+          setEditingOrderId(null);
+          startTransition(() => {
+            router.refresh();
+          });
+        }}
+      />
     </div>
   );
 }
