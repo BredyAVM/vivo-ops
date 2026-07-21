@@ -8,6 +8,7 @@ import {
   canKitchenTakeOrder,
   canManageOrderDeliveryAssignment,
   canMarkOrderReady,
+  canReturnOrderFromKitchenToQueue,
   canReturnOrderToAdvisor,
   canSendOrderToKitchen,
   canStartOrderDelivery,
@@ -27,19 +28,26 @@ import {
 } from "@/lib/payments/payment-report-rules";
 import {
   approveOrderAction,
+  applyClientFundPaymentAction,
   assignExternalPartnerAction,
   assignInternalDriverAction,
   clearDeliveryAssignmentAction,
+  closeOrderRoundingBalanceAction,
+  correctDeliveredDeliveryAssignmentAction,
   createPaymentReportAction,
   confirmPaymentReportAction,
+  cancelOrderAction,
   kitchenTakeAction,
   markDeliveredAction,
   markReadyAction,
   outForDeliveryAction,
+  protectOrderPriceAction,
   reapproveQueuedOrderAction,
   rejectPaymentReportAction,
+  returnFromKitchenToQueueAction,
   returnToCreatedAction,
   sendToKitchenAction,
+  settleClientFundPayoutAction,
 } from "../dashboard/actions";
 import {
   MASTER_ORDER_DETAIL_TABS,
@@ -140,10 +148,25 @@ type DirectActionKey =
   | "complete"
   | "assign-internal"
   | "assign-external"
+  | "correct-delivered-internal"
+  | "correct-delivered-external"
   | "return-created"
+  | "return-queue"
   | "clear-delivery"
   | "confirm-payment"
-  | "reject-payment";
+  | "reject-payment"
+  | "protect-price"
+  | "apply-fund"
+  | "deliver-fund-change"
+  | "close-rounding"
+  | "cancel-order";
+type MoneyLinePayload = {
+  moneyAccountId: number;
+  currencyCode: string;
+  amount: number;
+  exchangeRate?: number | null;
+  notes?: string | null;
+};
 type DirectActionPayload = {
   reason?: string;
   recalculatePricing?: boolean;
@@ -154,6 +177,7 @@ type DirectActionPayload = {
   reference?: string | null;
   distanceKm?: number | null;
   costUsd?: number | null;
+  correctionNotes?: string | null;
   reportId?: number;
   moneyAccountId?: number | null;
   currencyCode?: string | null;
@@ -163,6 +187,9 @@ type DirectActionPayload = {
   payerName?: string | null;
   description?: string | null;
   isRetention?: boolean;
+  fundAmountUsd?: number | null;
+  paidHandling?: "store_fund" | "refund" | null;
+  moneyLines?: MoneyLinePayload[];
 };
 type PaymentReportDraft = {
   accountKey: string;
@@ -174,6 +201,13 @@ type PaymentReportDraft = {
   payerName: string;
   notes: string;
   isRetention: boolean;
+};
+type MoneyLineDraft = {
+  localId: string;
+  accountKey: string;
+  amount: string;
+  exchangeRate: string;
+  notes: string;
 };
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
@@ -270,6 +304,60 @@ function getSuggestedPaymentAmount(
 function getSuggestedPaymentExchangeRate(order: MasterOpsOrder, activeRate: number | null) {
   const rate = order.fxRate && order.fxRate > 0 ? order.fxRate : activeRate;
   return rate && rate > 0 ? compactDecimal(rate, 4) : "";
+}
+
+const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
+
+function getPaymentAccountLabel(option: MasterOpsPaymentAccountOption) {
+  const methodLabel = getPaymentMethodLabel(option.paymentMethodCode);
+  return `${option.accountName} - ${methodLabel || option.paymentMethodCode}`;
+}
+
+function getSuggestedNativeAmountFromUsd(
+  amountUsd: number,
+  account: MasterOpsPaymentAccountOption | null,
+  activeRate: number | null,
+  order?: MasterOpsOrder
+) {
+  if (!account || !Number.isFinite(amountUsd) || amountUsd <= 0) return "";
+  if (account.currencyCode === "VES") {
+    const rate = order?.fxRate && order.fxRate > 0 ? order.fxRate : activeRate;
+    return rate && rate > 0 ? compactDecimal(amountUsd * rate, 2) : "";
+  }
+  return compactDecimal(amountUsd, 2);
+}
+
+function getMoneyLineUsd(
+  line: MoneyLineDraft,
+  account: MasterOpsPaymentAccountOption | null
+) {
+  const amount = parseDecimal(line.amount);
+  if (!account || !Number.isFinite(amount) || amount <= 0) return 0;
+  if (account.currencyCode === "VES") {
+    const exchangeRate = parseDecimal(line.exchangeRate);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) return 0;
+    return Number((amount / exchangeRate).toFixed(2));
+  }
+  return Number(amount.toFixed(2));
+}
+
+function newMoneyLineDraft(
+  account: MasterOpsPaymentAccountOption | null,
+  amountUsd: number,
+  activeRate: number | null,
+  order?: MasterOpsOrder
+): MoneyLineDraft {
+  const exchangeRate = order?.fxRate && order.fxRate > 0 ? order.fxRate : activeRate;
+  return {
+    localId: crypto.randomUUID(),
+    accountKey: account?.key ?? "",
+    amount: getSuggestedNativeAmountFromUsd(amountUsd, account, activeRate, order),
+    exchangeRate:
+      account?.currencyCode === "VES" && exchangeRate && exchangeRate > 0
+        ? compactDecimal(exchangeRate, 4)
+        : "",
+    notes: "",
+  };
 }
 
 function splitTwoWordsCompact(value: string) {
@@ -430,21 +518,7 @@ function advancedOperationalLinks(order: MasterOpsOrder): Array<{ label: string;
   const links: Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger" }> = [];
 
   if (!["delivered", "cancelled"].includes(order.status)) {
-    links.push({ label: "Modificar", tab: "detalle", tone: "neutral" });
-  }
-
-  if (order.fulfillment === "delivery") {
-    links.push({
-      label: hasDeliveryAssignment(order) || order.status === "delivered" ? "Corregir delivery" : "Asignar delivery",
-      tab: "entrega",
-      tone: "neutral",
-    });
-  }
-
-  links.push({ label: "Cambio / fondo", tab: "pagos", tone: "neutral" });
-
-  if (order.status !== "cancelled") {
-    links.push({ label: "Cancelar", tab: "ajustes", tone: "danger" });
+    links.push({ label: "Modificar orden", tab: "detalle", tone: "neutral" });
   }
 
   return links;
@@ -560,6 +634,7 @@ function OrderDetailPanel({
   order,
   focusDate,
   activeRate,
+  roles,
   activeTab,
   actionError,
   runningAction,
@@ -574,6 +649,7 @@ function OrderDetailPanel({
   order: MasterOpsOrder;
   focusDate: string;
   activeRate: number | null;
+  roles: string[];
   activeTab: DetailTab;
   actionError: string | null;
   runningAction: string | null;
@@ -585,6 +661,7 @@ function OrderDetailPanel({
   deliveryPartners: DeliveryPartnerOption[];
   paymentAccounts: MasterOpsPaymentAccountOption[];
 }) {
+  const isAdmin = roles.includes("admin");
   const actionLabel = getNextPrimaryActionLabel(order);
   const paidTone = masterOrderPaymentTone(order);
   const paymentLabel = masterOrderPaymentLabel(order);
@@ -604,6 +681,7 @@ function OrderDetailPanel({
   const [deliveryAssignDistanceKm, setDeliveryAssignDistanceKm] = useState("");
   const [deliveryAssignCostUsd, setDeliveryAssignCostUsd] = useState("");
   const [deliveryAssignReference, setDeliveryAssignReference] = useState("");
+  const [deliveryCorrectionNotes, setDeliveryCorrectionNotes] = useState("");
   const [clearDeliveryBoxOpen, setClearDeliveryBoxOpen] = useState(false);
   const [clearDeliveryNotes, setClearDeliveryNotes] = useState("");
   const [paymentRejectReportId, setPaymentRejectReportId] = useState<number | null>(null);
@@ -618,9 +696,25 @@ function OrderDetailPanel({
   const [paymentReportBankName, setPaymentReportBankName] = useState("");
   const [paymentReportPayerName, setPaymentReportPayerName] = useState("");
   const [paymentReportNotes, setPaymentReportNotes] = useState("");
+  const [fundApplyBoxOpen, setFundApplyBoxOpen] = useState(false);
+  const [fundApplyAmountUsd, setFundApplyAmountUsd] = useState("");
+  const [fundApplyNotes, setFundApplyNotes] = useState("");
+  const [fundPayoutBoxOpen, setFundPayoutBoxOpen] = useState(false);
+  const [fundPayoutLines, setFundPayoutLines] = useState<MoneyLineDraft[]>([]);
+  const [fundPayoutNotes, setFundPayoutNotes] = useState("");
+  const [returnQueueBoxOpen, setReturnQueueBoxOpen] = useState(false);
+  const [returnQueueReason, setReturnQueueReason] = useState("");
+  const [roundingBoxOpen, setRoundingBoxOpen] = useState(false);
+  const [roundingNotes, setRoundingNotes] = useState("Ajuste por redondeo");
+  const [cancelBoxOpen, setCancelBoxOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelPaidHandling, setCancelPaidHandling] = useState<"store_fund" | "refund">("store_fund");
+  const [cancelRefundLines, setCancelRefundLines] = useState<MoneyLineDraft[]>([]);
   const canReturn = canReturnOrderToAdvisor(order);
   const canKitchenTake = canKitchenTakeOrder(order);
-  const canAssign = canAssignDelivery(order);
+  const canCorrectDeliveredDelivery =
+    isAdmin && order.fulfillment === "delivery" && order.status === "delivered";
+  const canAssign = canAssignDelivery(order) || canCorrectDeliveredDelivery;
   const canOutForDelivery = canStartOrderDelivery(order);
   const canClearDelivery =
     order.fulfillment === "delivery" &&
@@ -635,6 +729,51 @@ function OrderDetailPanel({
   );
   const normalPaymentOptions = paymentAccounts.filter((option) => !isRetentionPaymentAccount(option));
   const retentionPaymentOptions = paymentAccounts.filter(isRetentionPaymentAccount);
+  const moneyAccountByKey = useMemo(
+    () => new Map(paymentAccounts.map((option) => [option.key, option] as const)),
+    [paymentAccounts]
+  );
+  const moneyPayoutOptions = normalPaymentOptions;
+  const defaultPayoutAccount =
+    moneyPayoutOptions.find((option) => option.currencyCode === "USD") ?? moneyPayoutOptions[0] ?? null;
+  const clientFundAvailableUsd = Math.max(0, Number(order.clientFundBalanceUsd || 0));
+  const suggestedFundApplyUsd = Math.min(order.balanceUsd, clientFundAvailableUsd);
+  const canProtectPrice =
+    isAdmin && !order.isPriceLocked && !["delivered", "cancelled"].includes(order.status);
+  const canReturnQueue = canReturnOrderFromKitchenToQueue(order);
+  const canApplyClientFund =
+    activeTab === "pagos" &&
+    order.clientId != null &&
+    order.balanceUsd > 0.005 &&
+    clientFundAvailableUsd > 0.005;
+  const canPayoutClientFund =
+    activeTab === "pagos" &&
+    order.clientId != null &&
+    clientFundAvailableUsd > 0.005 &&
+    moneyPayoutOptions.length > 0;
+  const canCloseRounding =
+    activeTab === "pagos" &&
+    order.balanceUsd > 0.005 &&
+    order.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD;
+  const canCancelOrder = order.status !== "cancelled";
+  const fundPayoutTotalUsd = useMemo(
+    () =>
+      Number(
+        fundPayoutLines
+          .reduce((sum, line) => sum + getMoneyLineUsd(line, moneyAccountByKey.get(line.accountKey) ?? null), 0)
+          .toFixed(2)
+      ),
+    [fundPayoutLines, moneyAccountByKey]
+  );
+  const cancelRefundTotalUsd = useMemo(
+    () =>
+      Number(
+        cancelRefundLines
+          .reduce((sum, line) => sum + getMoneyLineUsd(line, moneyAccountByKey.get(line.accountKey) ?? null), 0)
+          .toFixed(2)
+      ),
+    [cancelRefundLines, moneyAccountByKey]
+  );
   const selectedPaymentAccount = paymentReportOptions.find((option) => option.key === paymentReportAccountKey) ?? null;
   const paymentReportRequirements = getPaymentReportRequirements(selectedPaymentAccount?.paymentMethodCode ?? "");
   const canOpenPaymentReport = activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
@@ -645,6 +784,134 @@ function OrderDetailPanel({
       await navigator.clipboard.writeText(buildMasterOrderWhatsAppSummary(order));
     } catch {
       // Keep the operation panel usable even if clipboard permission is unavailable.
+    }
+  }
+
+  function buildMoneyPayloads(lines: MoneyLineDraft[], fallbackNotes = "") {
+    return lines.map((line) => {
+      const account = moneyAccountByKey.get(line.accountKey) ?? null;
+      const amount = parseDecimal(line.amount);
+      const exchangeRate = account?.currencyCode === "VES" ? parseDecimal(line.exchangeRate) : null;
+
+      return {
+        moneyAccountId: account?.accountId ?? 0,
+        currencyCode: account?.currencyCode ?? "",
+        amount,
+        exchangeRate: account?.currencyCode === "VES" ? exchangeRate : null,
+        notes: line.notes.trim() || fallbackNotes.trim() || null,
+      };
+    });
+  }
+
+  function recalculateLineForAccount(line: MoneyLineDraft, nextAccountKey: string) {
+    const previousAccount = moneyAccountByKey.get(line.accountKey) ?? null;
+    const nextAccount = moneyAccountByKey.get(nextAccountKey) ?? null;
+    const amountUsd = getMoneyLineUsd(line, previousAccount) || 0;
+    return {
+      ...line,
+      accountKey: nextAccountKey,
+      amount: getSuggestedNativeAmountFromUsd(amountUsd, nextAccount, activeRate, order),
+      exchangeRate: nextAccount?.currencyCode === "VES" ? getSuggestedPaymentExchangeRate(order, activeRate) : "",
+    };
+  }
+
+  function ensureFundPayoutLine() {
+    if (fundPayoutLines.length > 0) return;
+    setFundPayoutLines([
+      newMoneyLineDraft(defaultPayoutAccount, clientFundAvailableUsd, activeRate, order),
+    ]);
+  }
+
+  function ensureCancelRefundLine() {
+    if (cancelRefundLines.length > 0) return;
+    setCancelRefundLines([
+      newMoneyLineDraft(defaultPayoutAccount, Math.max(0, order.confirmedPaidUsd), activeRate, order),
+    ]);
+  }
+
+  function updateFundPayoutLine(localId: string, patch: Partial<MoneyLineDraft>) {
+    setFundPayoutLines((lines) =>
+      lines.map((line) => (line.localId === localId ? { ...line, ...patch } : line))
+    );
+  }
+
+  function updateCancelRefundLine(localId: string, patch: Partial<MoneyLineDraft>) {
+    setCancelRefundLines((lines) =>
+      lines.map((line) => (line.localId === localId ? { ...line, ...patch } : line))
+    );
+  }
+
+  function openFundApplyBox() {
+    setFundApplyBoxOpen((value) => {
+      const nextValue = !value;
+      if (nextValue && !fundApplyAmountUsd) {
+        setFundApplyAmountUsd(compactDecimal(suggestedFundApplyUsd, 2));
+      }
+      return nextValue;
+    });
+  }
+
+  async function handleProtectPriceClick() {
+    await onDirectAction(order, "protect-price");
+  }
+
+  async function handleReturnQueueSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "return-queue", {
+      reason: returnQueueReason,
+    });
+    if (ok) {
+      setReturnQueueBoxOpen(false);
+      setReturnQueueReason("");
+    }
+  }
+
+  async function handleFundApplySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "apply-fund", {
+      fundAmountUsd: parseDecimal(fundApplyAmountUsd),
+      notes: fundApplyNotes,
+    });
+    if (ok) {
+      setFundApplyBoxOpen(false);
+      setFundApplyAmountUsd("");
+      setFundApplyNotes("");
+    }
+  }
+
+  async function handleFundPayoutSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "deliver-fund-change", {
+      notes: fundPayoutNotes,
+      moneyLines: buildMoneyPayloads(fundPayoutLines, fundPayoutNotes),
+    });
+    if (ok) {
+      setFundPayoutBoxOpen(false);
+      setFundPayoutLines([]);
+      setFundPayoutNotes("");
+    }
+  }
+
+  async function handleCloseRoundingSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "close-rounding", {
+      notes: roundingNotes,
+    });
+    if (ok) setRoundingBoxOpen(false);
+  }
+
+  async function handleCancelSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const ok = await onDirectAction(order, "cancel-order", {
+      reason: cancelReason,
+      paidHandling: order.confirmedPaidUsd > 0.005 ? cancelPaidHandling : null,
+      moneyLines: cancelPaidHandling === "refund" ? buildMoneyPayloads(cancelRefundLines, cancelReason) : [],
+    });
+    if (ok) {
+      setCancelBoxOpen(false);
+      setCancelReason("");
+      setCancelPaidHandling("store_fund");
+      setCancelRefundLines([]);
     }
   }
 
@@ -686,24 +953,32 @@ function OrderDetailPanel({
   async function handleAssignInternalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const costUsd = Number(String(deliveryAssignCostUsd || "").replace(",", "."));
-    const ok = await onDirectAction(order, "assign-internal", {
+    const ok = await onDirectAction(order, canCorrectDeliveredDelivery ? "correct-delivered-internal" : "assign-internal", {
       driverUserId: deliveryAssignDriverId,
       costUsd: Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : null,
+      correctionNotes: deliveryCorrectionNotes,
     });
-    if (ok) setDeliveryAssignMode(null);
+    if (ok) {
+      setDeliveryAssignMode(null);
+      setDeliveryCorrectionNotes("");
+    }
   }
 
   async function handleAssignExternalSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const distanceKm = Number(String(deliveryAssignDistanceKm || "").replace(",", "."));
     const costUsd = Number(String(deliveryAssignCostUsd || "").replace(",", "."));
-    const ok = await onDirectAction(order, "assign-external", {
+    const ok = await onDirectAction(order, canCorrectDeliveredDelivery ? "correct-delivered-external" : "assign-external", {
       partnerId: Number(deliveryAssignPartnerId || 0),
       reference: deliveryAssignReference.trim() || null,
       distanceKm,
       costUsd,
+      correctionNotes: deliveryCorrectionNotes,
     });
-    if (ok) setDeliveryAssignMode(null);
+    if (ok) {
+      setDeliveryAssignMode(null);
+      setDeliveryCorrectionNotes("");
+    }
   }
 
   async function handleConfirmPayment(report: MasterOrderPaymentReport) {
@@ -922,12 +1197,9 @@ function OrderDetailPanel({
                     );
                   })
                 ) : (
-                  <Link
-                    className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-center text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50"
-                    href={dashboardUrl(order, focusDate, activeTab)}
-                  >
-                    Resolver en detalle
-                  </Link>
+                  <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-center text-sm font-semibold text-[#8A8A96]">
+                    Sin accion principal
+                  </div>
                 )}
               </div>
             </div>
@@ -937,9 +1209,27 @@ function OrderDetailPanel({
               canOutForDelivery ||
               canClearDelivery ||
               canOpenPaymentReport ||
-              canOpenRetentionReport) ? (
+              canOpenRetentionReport ||
+              canProtectPrice ||
+              canReturnQueue ||
+              canApplyClientFund ||
+              canPayoutClientFund ||
+              canCloseRounding ||
+              canCancelOrder) ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="flex flex-wrap gap-2">
+                  {canProtectPrice ? (
+                    <button
+                      className="rounded-xl border border-emerald-500/45 bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 transition hover:border-emerald-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        void handleProtectPriceClick();
+                      }}
+                    >
+                      {runningAction === `protect-price:${order.id}` ? "Protegiendo..." : "Proteger precio"}
+                    </button>
+                  ) : null}
                   {canOpenPaymentReport ? (
                     <button
                       className="rounded-xl border border-sky-500/45 bg-sky-500/10 px-3 py-1.5 text-[12px] font-semibold text-sky-200 transition hover:border-sky-400 disabled:cursor-wait disabled:opacity-60"
@@ -988,7 +1278,7 @@ function OrderDetailPanel({
                         disabled={busy}
                         onClick={() => setDeliveryAssignMode((value) => value === "internal" ? null : "internal")}
                       >
-                        Asignar interno
+                        {canCorrectDeliveredDelivery ? "Corregir interno" : "Asignar interno"}
                       </button>
                       <button
                         className="rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] transition hover:border-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
@@ -996,9 +1286,19 @@ function OrderDetailPanel({
                         disabled={busy}
                         onClick={() => setDeliveryAssignMode((value) => value === "external" ? null : "external")}
                       >
-                        Asignar externo
+                        {canCorrectDeliveredDelivery ? "Corregir externo" : "Asignar externo"}
                       </button>
                     </>
+                  ) : null}
+                  {canReturnQueue ? (
+                    <button
+                      className="rounded-xl border border-orange-500/45 bg-orange-500/10 px-3 py-1.5 text-[12px] font-semibold text-orange-200 transition hover:border-orange-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setReturnQueueBoxOpen((value) => !value)}
+                    >
+                      Regresar a cola
+                    </button>
                   ) : null}
                   {canReturn ? (
                     <button
@@ -1018,6 +1318,50 @@ function OrderDetailPanel({
                       onClick={() => setClearDeliveryBoxOpen((value) => !value)}
                     >
                       Quitar asignacion
+                    </button>
+                  ) : null}
+                  {canApplyClientFund ? (
+                    <button
+                      className="rounded-xl border border-emerald-500/45 bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 transition hover:border-emerald-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={openFundApplyBox}
+                    >
+                      Aplicar fondo
+                    </button>
+                  ) : null}
+                  {canPayoutClientFund ? (
+                    <button
+                      className="rounded-xl border border-sky-500/45 bg-sky-500/10 px-3 py-1.5 text-[12px] font-semibold text-sky-200 transition hover:border-sky-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        const opening = !fundPayoutBoxOpen;
+                        setFundPayoutBoxOpen(opening);
+                        if (opening) ensureFundPayoutLine();
+                      }}
+                    >
+                      Devolver fondo
+                    </button>
+                  ) : null}
+                  {canCloseRounding ? (
+                    <button
+                      className="rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] transition hover:border-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setRoundingBoxOpen((value) => !value)}
+                    >
+                      Cerrar diferencia
+                    </button>
+                  ) : null}
+                  {canCancelOrder ? (
+                    <button
+                      className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 transition hover:border-red-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setCancelBoxOpen((value) => !value)}
+                    >
+                      Cancelar
                     </button>
                   ) : null}
                 </div>
@@ -1126,13 +1470,23 @@ function OrderDetailPanel({
                       inputMode="decimal"
                       placeholder="Pago interno USD opcional"
                     />
+                    {canCorrectDeliveredDelivery ? (
+                      <textarea
+                        className="mt-3 min-h-[70px] w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                        value={deliveryCorrectionNotes}
+                        onChange={(event) => setDeliveryCorrectionNotes(event.target.value)}
+                        placeholder="Motivo de correccion administrativa."
+                      />
+                    ) : null}
                     <div className="mt-3 flex justify-end">
                       <button
                         className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
                         type="submit"
                         disabled={busy}
                       >
-                        {runningAction === `assign-internal:${order.id}` ? "Asignando..." : "Guardar interno"}
+                        {runningAction === `${canCorrectDeliveredDelivery ? "correct-delivered-internal" : "assign-internal"}:${order.id}`
+                          ? "Guardando..."
+                          : "Guardar interno"}
                       </button>
                     </div>
                   </form>
@@ -1175,13 +1529,47 @@ function OrderDetailPanel({
                       onChange={(event) => setDeliveryAssignReference(event.target.value)}
                       placeholder="Referencia externa opcional"
                     />
+                    {canCorrectDeliveredDelivery ? (
+                      <textarea
+                        className="mt-3 min-h-[70px] w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                        value={deliveryCorrectionNotes}
+                        onChange={(event) => setDeliveryCorrectionNotes(event.target.value)}
+                        placeholder="Motivo de correccion administrativa."
+                      />
+                    ) : null}
                     <div className="mt-3 flex justify-end">
                       <button
                         className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
                         type="submit"
                         disabled={busy}
                       >
-                        {runningAction === `assign-external:${order.id}` ? "Asignando..." : "Guardar externo"}
+                        {runningAction === `${canCorrectDeliveredDelivery ? "correct-delivered-external" : "assign-external"}:${order.id}`
+                          ? "Guardando..."
+                          : "Guardar externo"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {returnQueueBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-orange-500/30 bg-orange-500/10 p-3" onSubmit={handleReturnQueueSubmit}>
+                    <div className="text-[12px] font-semibold text-orange-100">Regresar a cola</div>
+                    <div className="mt-1 text-[11px] text-orange-100/80">
+                      Saca la orden de cocina y la deja esperando una nueva revision operativa.
+                    </div>
+                    <textarea
+                      className="mt-3 min-h-[74px] w-full rounded-lg border border-orange-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                      value={returnQueueReason}
+                      onChange={(event) => setReturnQueueReason(event.target.value)}
+                      placeholder="Motivo del regreso a cola."
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-orange-400 bg-orange-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `return-queue:${order.id}` ? "Regresando..." : "Confirmar regreso"}
                       </button>
                     </div>
                   </form>
@@ -1367,6 +1755,313 @@ function OrderDetailPanel({
                     </div>
                   </form>
                 ) : null}
+
+                {fundApplyBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3" onSubmit={handleFundApplySubmit}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-emerald-100">Aplicar fondo del cliente</div>
+                        <div className="mt-1 text-[11px] text-emerald-100/80">
+                          Disponible {formatMasterOrderUSD(clientFundAvailableUsd)} · sugerido {formatMasterOrderUSD(suggestedFundApplyUsd)}
+                        </div>
+                      </div>
+                      <button
+                        className="rounded-lg border border-emerald-500/30 bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-emerald-100 hover:border-emerald-400"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setFundApplyBoxOpen(false)}
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <label className="text-[11px] text-[#B7B7C2]">
+                        Monto USD
+                        <input
+                          className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                          value={fundApplyAmountUsd}
+                          onChange={(event) => setFundApplyAmountUsd(event.target.value)}
+                          inputMode="decimal"
+                          placeholder="Monto a aplicar"
+                        />
+                      </label>
+                      <label className="text-[11px] text-[#B7B7C2]">
+                        Nota
+                        <input
+                          className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                          value={fundApplyNotes}
+                          onChange={(event) => setFundApplyNotes(event.target.value)}
+                          placeholder="Opcional"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-emerald-400 bg-emerald-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `apply-fund:${order.id}` ? "Aplicando..." : "Aplicar fondo"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {fundPayoutBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3" onSubmit={handleFundPayoutSubmit}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-sky-100">Devolver fondo al cliente</div>
+                        <div className="mt-1 text-[11px] text-sky-100/80">
+                          Disponible {formatMasterOrderUSD(clientFundAvailableUsd)} · cargado {formatMasterOrderUSD(fundPayoutTotalUsd)}
+                        </div>
+                      </div>
+                      <button
+                        className="rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-sky-100 hover:border-sky-400"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setFundPayoutBoxOpen(false)}
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {fundPayoutLines.map((line) => {
+                        const account = moneyAccountByKey.get(line.accountKey) ?? null;
+                        return (
+                          <div key={line.localId} className="rounded-xl border border-sky-500/25 bg-[#0B0B0D] p-2">
+                            <div className="grid gap-2 sm:grid-cols-[1.2fr_0.8fr]">
+                              <select
+                                className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                value={line.accountKey}
+                                onChange={(event) =>
+                                  setFundPayoutLines((lines) =>
+                                    lines.map((row) =>
+                                      row.localId === line.localId ? recalculateLineForAccount(row, event.target.value) : row
+                                    )
+                                  )
+                                }
+                              >
+                                {moneyPayoutOptions.map((option) => (
+                                  <option key={option.key} value={option.key}>
+                                    {getPaymentAccountLabel(option)}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                value={line.amount}
+                                onChange={(event) => updateFundPayoutLine(line.localId, { amount: event.target.value })}
+                                inputMode="decimal"
+                                placeholder={`Monto ${account?.currencyCode ?? ""}`}
+                              />
+                              {account?.currencyCode === "VES" ? (
+                                <input
+                                  className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                  value={line.exchangeRate}
+                                  onChange={(event) => updateFundPayoutLine(line.localId, { exchangeRate: event.target.value })}
+                                  inputMode="decimal"
+                                  placeholder="Tasa"
+                                />
+                              ) : null}
+                              <input
+                                className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                value={line.notes}
+                                onChange={(event) => updateFundPayoutLine(line.localId, { notes: event.target.value })}
+                                placeholder="Nota opcional"
+                              />
+                            </div>
+                            <div className="mt-2 flex justify-between gap-2 text-[11px] text-sky-100/75">
+                              <span>Equiv. {formatMasterOrderUSD(getMoneyLineUsd(line, account))}</span>
+                              {fundPayoutLines.length > 1 ? (
+                                <button
+                                  className="text-red-200 hover:text-red-100"
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => setFundPayoutLines((lines) => lines.filter((row) => row.localId !== line.localId))}
+                                >
+                                  Quitar
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        className="rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-1.5 text-[12px] font-semibold text-sky-100 hover:border-sky-400"
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          setFundPayoutLines((lines) => [
+                            ...lines,
+                            newMoneyLineDraft(defaultPayoutAccount, 0, activeRate, order),
+                          ])
+                        }
+                      >
+                        Agregar linea
+                      </button>
+                      <input
+                        className="min-w-[180px] rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-1.5 text-[12px] text-[#F5F5F7]"
+                        value={fundPayoutNotes}
+                        onChange={(event) => setFundPayoutNotes(event.target.value)}
+                        placeholder="Nota general"
+                      />
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-sky-400 bg-sky-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `deliver-fund-change:${order.id}` ? "Devolviendo..." : "Guardar devolucion"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {roundingBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-[#FEEF00]/30 bg-[#FEEF00]/10 p-3" onSubmit={handleCloseRoundingSubmit}>
+                    <div className="text-[12px] font-semibold text-[#FEEF00]">
+                      Cerrar diferencia de {formatMasterOrderUSD(order.balanceUsd)}
+                    </div>
+                    <input
+                      className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                      value={roundingNotes}
+                      onChange={(event) => setRoundingNotes(event.target.value)}
+                      placeholder="Motivo"
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `close-rounding:${order.id}` ? "Cerrando..." : "Cerrar diferencia"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+
+                {cancelBoxOpen ? (
+                  <form className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3" onSubmit={handleCancelSubmit}>
+                    <div className="text-[12px] font-semibold text-red-100">Cancelar orden</div>
+                    <textarea
+                      className="mt-3 min-h-[74px] w-full rounded-lg border border-red-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                      value={cancelReason}
+                      onChange={(event) => setCancelReason(event.target.value)}
+                      placeholder="Motivo obligatorio."
+                    />
+                    {order.confirmedPaidUsd > 0.005 ? (
+                      <div className="mt-3 rounded-xl border border-red-500/25 bg-[#0B0B0D] p-2">
+                        <div className="text-[11px] text-red-100/80">
+                          Esta orden tiene {formatMasterOrderUSD(order.confirmedPaidUsd)} confirmado.
+                        </div>
+                        <div className="mt-2 grid gap-2">
+                          <label className="flex items-center gap-2 text-[12px] text-[#F5F5F7]">
+                            <input
+                              type="radio"
+                              className="accent-[#FEEF00]"
+                              checked={cancelPaidHandling === "store_fund"}
+                              onChange={() => setCancelPaidHandling("store_fund")}
+                            />
+                            Enviar el pago confirmado al fondo del cliente
+                          </label>
+                          <label className="flex items-center gap-2 text-[12px] text-[#F5F5F7]">
+                            <input
+                              type="radio"
+                              className="accent-[#FEEF00]"
+                              checked={cancelPaidHandling === "refund"}
+                              onChange={() => {
+                                setCancelPaidHandling("refund");
+                                ensureCancelRefundLine();
+                              }}
+                            />
+                            Registrar devolucion inmediata
+                          </label>
+                        </div>
+                        {cancelPaidHandling === "refund" ? (
+                          <div className="mt-3 space-y-2">
+                            <div className="text-[11px] text-red-100/75">
+                              Devuelto {formatMasterOrderUSD(cancelRefundTotalUsd)}
+                            </div>
+                            {cancelRefundLines.map((line) => {
+                              const account = moneyAccountByKey.get(line.accountKey) ?? null;
+                              return (
+                                <div key={line.localId} className="rounded-xl border border-red-500/25 bg-[#121218] p-2">
+                                  <div className="grid gap-2 sm:grid-cols-[1.2fr_0.8fr]">
+                                    <select
+                                      className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                      value={line.accountKey}
+                                      onChange={(event) =>
+                                        setCancelRefundLines((lines) =>
+                                          lines.map((row) =>
+                                            row.localId === line.localId ? recalculateLineForAccount(row, event.target.value) : row
+                                          )
+                                        )
+                                      }
+                                    >
+                                      {moneyPayoutOptions.map((option) => (
+                                        <option key={option.key} value={option.key}>
+                                          {getPaymentAccountLabel(option)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                      value={line.amount}
+                                      onChange={(event) => updateCancelRefundLine(line.localId, { amount: event.target.value })}
+                                      inputMode="decimal"
+                                      placeholder={`Monto ${account?.currencyCode ?? ""}`}
+                                    />
+                                    {account?.currencyCode === "VES" ? (
+                                      <input
+                                        className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                        value={line.exchangeRate}
+                                        onChange={(event) => updateCancelRefundLine(line.localId, { exchangeRate: event.target.value })}
+                                        inputMode="decimal"
+                                        placeholder="Tasa"
+                                      />
+                                    ) : null}
+                                    <input
+                                      className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                      value={line.notes}
+                                      onChange={(event) => updateCancelRefundLine(line.localId, { notes: event.target.value })}
+                                      placeholder="Nota opcional"
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            <button
+                              className="rounded-lg border border-red-500/30 bg-[#0B0B0D] px-3 py-1.5 text-[12px] font-semibold text-red-100 hover:border-red-400"
+                              type="button"
+                              disabled={busy}
+                              onClick={() =>
+                                setCancelRefundLines((lines) => [
+                                  ...lines,
+                                  newMoneyLineDraft(defaultPayoutAccount, 0, activeRate, order),
+                                ])
+                              }
+                            >
+                              Agregar linea
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-red-400 bg-red-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `cancel-order:${order.id}` ? "Cancelando..." : "Confirmar cancelacion"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
               </div>
             ) : null}
             {activeTab === "pagos" && pendingPaymentReports.length > 0 ? (
@@ -1384,7 +2079,6 @@ function OrderDetailPanel({
                     const predictedExcessUsd = Number(
                       Math.max(0, order.confirmedPaidUsd + report.usdEquivalent - order.totalUsd).toFixed(2)
                     );
-                    const requiresFullDashboard = predictedExcessUsd > 0.005;
                     const isRunningConfirm = runningAction === `confirm-payment:${order.id}`;
                     const isRunningReject = runningAction === `reject-payment:${order.id}`;
 
@@ -1403,32 +2097,23 @@ function OrderDetailPanel({
                               {" - "}
                               Reporta <span className="text-[#F5F5F7]">{report.reporterName}</span>
                             </div>
-                            {requiresFullDashboard ? (
+                            {predictedExcessUsd > 0.005 ? (
                               <div className="mt-2 text-[11px] text-[#FEEF00]">
-                                Hay excedente de {formatMasterOrderUSD(predictedExcessUsd)}. Resuelve cambio, fondo o diferencia en el detalle completo.
+                                Excedente estimado {formatMasterOrderUSD(predictedExcessUsd)}. Al confirmar se guarda en fondo del cliente.
                               </div>
                             ) : null}
                           </div>
                           <div className="flex shrink-0 flex-wrap gap-2">
-                            {requiresFullDashboard ? (
-                              <Link
-                                className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-1.5 text-[12px] font-semibold text-[#0B0B0D]"
-                                href={dashboardUrl(order, focusDate, "pagos")}
-                              >
-                                Resolver
-                              </Link>
-                            ) : (
-                              <button
-                                className="rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 disabled:cursor-wait disabled:opacity-60"
-                                type="button"
-                                disabled={busy}
-                                onClick={() => {
-                                  void handleConfirmPayment(report);
-                                }}
-                              >
-                                {isRunningConfirm ? "Confirmando..." : "Confirmar"}
-                              </button>
-                            )}
+                            <button
+                              className="rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 disabled:cursor-wait disabled:opacity-60"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                void handleConfirmPayment(report);
+                              }}
+                            >
+                              {isRunningConfirm ? "Confirmando..." : "Confirmar"}
+                            </button>
                             <button
                               className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
                               type="button"
@@ -1694,11 +2379,49 @@ export default function MasterOpsClient({
           distanceKm,
           costUsd,
         });
+      } else if (action === "correct-delivered-internal") {
+        const driverUserId = String(payload.driverUserId || "").trim();
+        const notes = String(payload.correctionNotes || "").trim();
+        const costUsd = payload.costUsd == null ? null : Number(payload.costUsd);
+        if (!driverUserId) throw new Error("Debes seleccionar un motorizado interno.");
+        if (notes.length < 6) throw new Error("Debes indicar un motivo claro para la correccion.");
+        result = await correctDeliveredDeliveryAssignmentAction({
+          orderId: order.id,
+          assignmentKind: "internal",
+          driverUserId,
+          costUsd: costUsd != null && Number.isFinite(costUsd) ? Math.max(0, costUsd) : null,
+          notes,
+        });
+      } else if (action === "correct-delivered-external") {
+        const partnerId = Number(payload.partnerId || 0);
+        const distanceKm = Number(payload.distanceKm);
+        const costUsd = Number(payload.costUsd);
+        const notes = String(payload.correctionNotes || "").trim();
+        if (!Number.isFinite(partnerId) || partnerId <= 0) throw new Error("Debes seleccionar un partner externo.");
+        if (!Number.isFinite(distanceKm) || distanceKm <= 0) throw new Error("Debes indicar la distancia en km.");
+        if (!Number.isFinite(costUsd) || costUsd < 0) throw new Error("Debes indicar el costo del delivery.");
+        if (notes.length < 6) throw new Error("Debes indicar un motivo claro para la correccion.");
+        result = await correctDeliveredDeliveryAssignmentAction({
+          orderId: order.id,
+          assignmentKind: "external",
+          partnerId,
+          reference: payload.reference ?? null,
+          distanceKm,
+          costUsd,
+          notes,
+        });
       } else if (action === "return-created") {
         result = await returnToCreatedAction({
           orderId: order.id,
           reason: payload.reason ?? "",
           recalculatePricing: Boolean(payload.recalculatePricing),
+        });
+      } else if (action === "return-queue") {
+        const reason = String(payload.reason || "").trim();
+        if (!reason) throw new Error("Debes indicar un motivo.");
+        result = await returnFromKitchenToQueueAction({
+          orderId: order.id,
+          reason,
         });
       } else if (action === "clear-delivery") {
         result = await clearDeliveryAssignmentAction({
@@ -1740,6 +2463,57 @@ export default function MasterOpsClient({
         result = await rejectPaymentReportAction({
           reportId,
           reviewNotes,
+        });
+      } else if (action === "protect-price") {
+        result = await protectOrderPriceAction({ orderId: order.id });
+      } else if (action === "apply-fund") {
+        const amountUsd = Number(payload.fundAmountUsd);
+        if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("Debes indicar un monto valido.");
+        result = await applyClientFundPaymentAction({
+          orderId: order.id,
+          amountUsd,
+          notes: payload.notes?.trim() || null,
+        });
+      } else if (action === "deliver-fund-change") {
+        const lines = (payload.moneyLines ?? []).map((line) => ({
+          moneyAccountId: Number(line.moneyAccountId || 0),
+          currencyCode: String(line.currencyCode || "").trim().toUpperCase(),
+          amount: Number(line.amount),
+          exchangeRateVesPerUsd:
+            line.exchangeRate == null || !Number.isFinite(Number(line.exchangeRate))
+              ? null
+              : Number(line.exchangeRate),
+          notes: line.notes ?? null,
+        }));
+        if (lines.length === 0) throw new Error("Debes agregar al menos una linea.");
+        result = await settleClientFundPayoutAction({
+          orderId: order.id,
+          lines,
+          notes: payload.notes?.trim() || null,
+        });
+      } else if (action === "close-rounding") {
+        result = await closeOrderRoundingBalanceAction({
+          orderId: order.id,
+          notes: payload.notes?.trim() || null,
+        });
+      } else if (action === "cancel-order") {
+        const reason = String(payload.reason || "").trim();
+        if (!reason) throw new Error("Debes indicar un motivo de cancelacion.");
+        const refundLines = (payload.moneyLines ?? []).map((line) => ({
+          moneyAccountId: Number(line.moneyAccountId || 0),
+          currencyCode: String(line.currencyCode || "").trim().toUpperCase(),
+          amount: Number(line.amount),
+          exchangeRateVesPerUsd:
+            line.exchangeRate == null || !Number.isFinite(Number(line.exchangeRate))
+              ? null
+              : Number(line.exchangeRate),
+          notes: line.notes ?? null,
+        }));
+        result = await cancelOrderAction({
+          orderId: order.id,
+          reason,
+          paidHandling: payload.paidHandling ?? null,
+          refundLines,
         });
       }
 
@@ -2047,6 +2821,7 @@ export default function MasterOpsClient({
           order={selectedOrder}
           focusDate={focusDate}
           activeRate={activeRate}
+          roles={roles}
           activeTab={selectedDetailTab}
           actionError={actionError}
           runningAction={runningAction}

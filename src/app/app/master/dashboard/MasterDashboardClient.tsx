@@ -2830,6 +2830,9 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
     orderNumber: order.orderNumber,
     status: order.status,
     fulfillment: order.fulfillment,
+    clientId: order.clientId,
+    clientFundBalanceUsd: order.clientFundBalanceUsd,
+    clientType: order.clientType ?? null,
     advisorName: order.advisorName,
     clientName: order.clientName,
     clientPhone: order.clientPhone ?? null,
@@ -2849,6 +2852,7 @@ function toMasterOrderDetailOrder(order: Order): MasterOrderDetailOrder {
     returnedToAdvisor: order.returnedToAdvisor,
     isAsap: order.editMeta.isAsap,
     isNewClient: order.isNewClient,
+    isPriceLocked: order.isPriceLocked,
     address: order.address ?? null,
     notes: order.notes ?? null,
     receiverName: order.editMeta.receiverName,
@@ -5200,7 +5204,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .map((o) => ({
         id: o.order.id,
         matchPriority: o.rank,
-        label: `${fmtShortOrderLabel(o.order.id)} · ${o.order.clientName}`,
+        label: `${fmtShortOrderLabel(o.order.orderNumber || o.order.id)} · ${o.order.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
         operationalDate: toDateInputValue(new Date(o.order.deliveryAtISO)),
         source: 'local' as const,
@@ -5214,7 +5218,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .map((result) => ({
         id: result.id,
         matchPriority: result.matchPriority,
-        label: `${fmtShortOrderLabel(result.id)} · ${result.clientName}`,
+        label: `${fmtShortOrderLabel(result.orderNumber || result.id)} · ${result.clientName}`,
         sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} · ${result.operationalDate} · ${fmtUSD(result.totalUsd)}`,
         operationalDate: result.operationalDate,
         source: 'remote' as const,
@@ -14821,7 +14825,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </svg>
                 Buscar
               </button>
-              {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError) ? (
+              {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError || isOrderSearchSubmitted) ? (
                 <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D]">
                   {mergedOrderSearchResults.map((r) => (
                     <button
@@ -14843,6 +14847,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   {remoteOrderSearchLoading ? (
                     <div className="border-t border-[#242433] px-4 py-2 text-xs text-[#8A8A96]">
                       Buscando en historial...
+                    </div>
+                  ) : null}
+                  {!remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 ? (
+                    <div className="border-t border-[#242433] px-4 py-3 text-xs text-[#8A8A96]">
+                      Sin resultados para esta busqueda.
                     </div>
                   ) : null}
                   {remoteOrderSearchError ? (

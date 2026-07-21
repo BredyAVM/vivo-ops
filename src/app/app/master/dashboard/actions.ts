@@ -29,6 +29,7 @@ const STALE_ORDER_EDIT_MESSAGE =
 function revalidateMasterDashboardFinancialReferences() {
   updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
 }
 
 async function requireMasterOrAdmin() {
@@ -7960,20 +7961,102 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
 
   if (error) throw new Error(error.message);
 
-  return (data ?? []).map((order: Record<string, unknown>) => ({
-    id: Number(order.id),
-    orderNumber: String(order.order_number || order.id),
-    matchPriority: Number(order.match_priority ?? Number.MAX_SAFE_INTEGER),
-    status: String(order.status || ''),
-    fulfillment: String(order.fulfillment || ''),
-    clientName: String(order.client_name || 'Sin cliente'),
-    clientPhone: order.client_phone ? String(order.client_phone) : null,
-    advisorName: String(order.advisor_name || ''),
-    totalUsd: getEffectiveOrderTotalUsd(order),
-    totalBs: getEffectiveOrderTotalBs(order),
-    createdAt: String(order.created_at || ''),
-    operationalDate: getOrderOperationalDate(order),
-  }));
+  let matchedRows = (data ?? []) as Array<Record<string, unknown>>;
+
+  if (matchedRows.length === 0 && /^\d+$/.test(query)) {
+    const numericQuery = Number(query);
+    const { data: directRows, error: directError } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        status,
+        fulfillment,
+        total_usd,
+        total_bs_snapshot,
+        created_at,
+        extra_fields,
+        client:clients!orders_client_id_fkey (
+          full_name,
+          phone
+        ),
+        advisor:profiles!orders_attributed_advisor_id_fkey (
+          full_name
+        ),
+        creator:profiles!orders_created_by_user_id_fkey (
+          full_name
+        )
+      `)
+      .or(`id.eq.${numericQuery},order_number.eq.${query}`)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (directError) throw new Error(directError.message);
+    matchedRows = (directRows ?? []).map((row) => ({ ...(row as Record<string, unknown>), match_priority: 0 }));
+  }
+
+  const ids = matchedRows
+    .map((order) => Number(order.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const hydratedById = new Map<number, Record<string, unknown>>();
+
+  if (ids.length > 0) {
+    const { data: hydratedRows, error: hydratedError } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        order_number,
+        status,
+        fulfillment,
+        total_usd,
+        total_bs_snapshot,
+        created_at,
+        extra_fields,
+        client:clients!orders_client_id_fkey (
+          full_name,
+          phone
+        ),
+        advisor:profiles!orders_attributed_advisor_id_fkey (
+          full_name
+        ),
+        creator:profiles!orders_created_by_user_id_fkey (
+          full_name
+        )
+      `)
+      .in('id', ids);
+
+    if (hydratedError) throw new Error(hydratedError.message);
+    for (const row of hydratedRows ?? []) {
+      hydratedById.set(Number(row.id), row as Record<string, unknown>);
+    }
+  }
+
+  return matchedRows.map((order: Record<string, unknown>) => {
+    const id = Number(order.id);
+    const hydrated = hydratedById.get(id);
+    const source = hydrated ? { ...order, ...hydrated } : order;
+    const clientRaw = (source as any).client;
+    const advisorRaw = (source as any).advisor;
+    const creatorRaw = (source as any).creator;
+    const client = Array.isArray(clientRaw) ? clientRaw[0] : clientRaw;
+    const advisor = Array.isArray(advisorRaw) ? advisorRaw[0] : advisorRaw;
+    const creator = Array.isArray(creatorRaw) ? creatorRaw[0] : creatorRaw;
+
+    return {
+      id,
+      orderNumber: String(source.order_number || order.order_number || id),
+      matchPriority: Number(order.match_priority ?? Number.MAX_SAFE_INTEGER),
+      status: String(source.status || ''),
+      fulfillment: String(source.fulfillment || ''),
+      clientName: String(client?.full_name || order.client_name || 'Sin cliente'),
+      clientPhone: client?.phone ? String(client.phone) : order.client_phone ? String(order.client_phone) : null,
+      advisorName: String(advisor?.full_name || creator?.full_name || order.advisor_name || ''),
+      totalUsd: getEffectiveOrderTotalUsd(source),
+      totalBs: getEffectiveOrderTotalBs(source),
+      createdAt: String(source.created_at || ''),
+      operationalDate: getOrderOperationalDate(source),
+    };
+  });
 }
 
 export async function loadClientStatsAction() {

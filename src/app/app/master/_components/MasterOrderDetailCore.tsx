@@ -72,6 +72,9 @@ export type MasterOrderDetailOrder = {
   orderNumber: string;
   status: OrderStatus;
   fulfillment: FulfillmentType;
+  clientId: number | null;
+  clientFundBalanceUsd: number;
+  clientType?: string | null;
   advisorName: string;
   clientName: string;
   clientPhone: string | null;
@@ -91,6 +94,7 @@ export type MasterOrderDetailOrder = {
   returnedToAdvisor: boolean;
   isAsap: boolean;
   isNewClient: boolean;
+  isPriceLocked: boolean;
   address: string | null;
   notes: string | null;
   receiverName: string | null;

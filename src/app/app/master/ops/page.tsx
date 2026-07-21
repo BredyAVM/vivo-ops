@@ -50,6 +50,7 @@ type RawOrderRow = {
   kitchen_started_at: string | null;
   ready_at: string | null;
   eta_minutes: number | string | null;
+  is_price_locked: boolean | null;
   extra_fields: any;
   queued_needs_reapproval: boolean | null;
   internal_driver_user_id: string | null;
@@ -574,6 +575,9 @@ function mapOrder(
     orderNumber: formatOrderDisplayNumber(orderId),
     status: row.status,
     fulfillment: row.fulfillment,
+    clientId,
+    clientFundBalanceUsd: roundMoney(client?.fund_balance_usd, 0),
+    clientType: client?.client_type ?? null,
     advisorName,
     clientName: cleanText(client?.full_name ?? row.extra_fields?.receiver?.name, "Cliente sin nombre"),
     clientPhone: client?.phone ?? null,
@@ -593,6 +597,7 @@ function mapOrder(
     returnedToAdvisor: Boolean(row.extra_fields?.review?.returned_to_advisor),
     isAsap: Boolean(row.extra_fields?.schedule?.asap ?? false),
     isNewClient,
+    isPriceLocked: Boolean(row.is_price_locked),
     address: row.delivery_address ?? null,
     notes: row.notes ?? null,
     receiverName: row.extra_fields?.receiver?.name ?? row.receiver_name ?? null,
@@ -751,6 +756,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     kitchen_started_at,
     ready_at,
     eta_minutes,
+    is_price_locked,
     extra_fields,
     queued_needs_reapproval,
     internal_driver_user_id,
