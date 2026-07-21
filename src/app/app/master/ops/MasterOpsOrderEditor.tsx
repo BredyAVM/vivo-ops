@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import {
   buildComponentDetailLines,
@@ -99,6 +99,14 @@ function bs(value: number) {
 function compact(value: number, decimals = 2) {
   if (!Number.isFinite(value)) return "";
   return String(Number(value.toFixed(decimals)));
+}
+
+function normalizeSearchValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function normalizeClientType(value: unknown): "assigned" | "own" | "legacy" {
@@ -242,6 +250,7 @@ export default function MasterOpsOrderEditor({
   const [selectedProductId, setSelectedProductId] = useState<number | "">("");
   const [productQty, setProductQty] = useState("1");
   const [configState, setConfigState] = useState<ConfigState | null>(null);
+  const productQtyRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -345,19 +354,18 @@ export default function MasterOpsOrderEditor({
   );
 
   const filteredProducts = useMemo(() => {
-    const q = productSearch.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const q = normalizeSearchValue(productSearch);
     return (data?.catalogItems ?? [])
       .filter((item) => item.isActive)
       .filter((item) => {
         if (!q) return true;
-        const haystack = `${item.name} ${item.sku ?? ""}`
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase();
+        const haystack = normalizeSearchValue(`${item.name} ${item.sku ?? ""}`);
         return haystack.includes(q);
       })
       .slice(0, 18);
   }, [data?.catalogItems, productSearch]);
+
+  const selectedProduct = selectedProductId ? catalogById.get(Number(selectedProductId)) ?? null : null;
 
   const calculatedItems = useMemo(
     () => (form?.items ?? []).map((item) => recalculateItem(item, fxRate)),
@@ -443,6 +451,30 @@ export default function MasterOpsOrderEditor({
     patchForm({ selectedClientId: null, client: null });
     setClientSearch("");
     setClientResults([]);
+  }
+
+  function selectProduct(product: MasterOpsEditCatalogItem) {
+    setSelectedProductId(product.id);
+    setProductSearch(product.name);
+    setError(null);
+    window.setTimeout(() => {
+      productQtyRef.current?.focus();
+      productQtyRef.current?.select();
+    }, 0);
+  }
+
+  function updateProductSearch(value: string) {
+    setProductSearch(value);
+    const query = normalizeSearchValue(value);
+    if (!query) {
+      setSelectedProductId("");
+      return;
+    }
+    const firstMatch =
+      (data?.catalogItems ?? [])
+        .filter((item) => item.isActive)
+        .find((item) => normalizeSearchValue(`${item.name} ${item.sku ?? ""}`).includes(query)) ?? null;
+    setSelectedProductId(firstMatch?.id ?? "");
   }
 
   function openConfig(product: MasterOpsEditCatalogItem, editingItem?: MasterOpsEditOrderItem | null) {
@@ -1157,27 +1189,62 @@ export default function MasterOpsOrderEditor({
                     }
                   >
                     <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_84px_92px]">
-                      <div>
+                      <div className="relative">
                         <input
                           className={fieldClass()}
                           value={productSearch}
-                          onChange={(event) => setProductSearch(event.target.value)}
+                          onChange={(event) => updateProductSearch(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            const product = filteredProducts[0];
+                            if (!product) return;
+                            event.preventDefault();
+                            selectProduct(product);
+                          }}
                           placeholder="Buscar producto"
                         />
-                        <select
-                          className={`${fieldClass()} mt-2`}
-                          value={selectedProductId}
-                          onChange={(event) => setSelectedProductId(event.target.value ? Number(event.target.value) : "")}
-                        >
-                          <option value="">Selecciona producto</option>
-                          {filteredProducts.map((product) => (
-                            <option key={product.id} value={product.id}>
-                              {product.name}
-                            </option>
-                          ))}
-                        </select>
+                        {productSearch.trim() ? (
+                          <div className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-y-auto rounded-xl border border-[#242433] bg-[#0B0B0D] shadow-2xl">
+                            {filteredProducts.length > 0 ? (
+                              filteredProducts.map((product) => {
+                                const isSelected = selectedProductId === product.id;
+                                return (
+                                  <button
+                                    key={product.id}
+                                    className={[
+                                      "block w-full border-b border-[#181824] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-[#121218]",
+                                      isSelected ? "bg-[#FEEF00]/10 text-[#FEEF00]" : "text-[#F5F5F7]",
+                                    ].join(" ")}
+                                    type="button"
+                                    onClick={() => selectProduct(product)}
+                                  >
+                                    <span className="font-semibold">{product.name}</span>
+                                    <span className="ml-2 text-xs text-[#8A8A96]">{product.sku || "Sin SKU"}</span>
+                                    <span className="float-right text-xs text-[#B7B7C2]">
+                                      {product.sourcePriceCurrency === "VES"
+                                        ? bs(product.sourcePriceAmount)
+                                        : money(product.sourcePriceAmount)}
+                                    </span>
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <div className="px-3 py-2 text-xs text-[#8A8A96]">Sin productos activos para esa busqueda.</div>
+                            )}
+                          </div>
+                        ) : null}
+                        {selectedProduct ? (
+                          <div className="mt-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+                            Seleccionado: <span className="font-semibold">{selectedProduct.name}</span>
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-xs text-[#8A8A96]">
+                            Busca por nombre o SKU. Solo aparecen productos activos.
+                          </div>
+                        )}
                       </div>
                       <input
+                        ref={productQtyRef}
                         className={fieldClass()}
                         value={productQty}
                         onChange={(event) => setProductQty(event.target.value)}
