@@ -9,8 +9,9 @@ import {
 } from "@/lib/orders/order-composer";
 import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import { formatOrderDisplayNumber, getPaymentMethodLabel } from "@/lib/orders/order-labels";
-import { searchClientsAction, updateOrderAction } from "../dashboard/actions";
+import { createOrderAction, searchClientsAction, updateOrderAction } from "../dashboard/actions";
 import {
+  loadMasterOpsOrderCreateDataAction,
   loadMasterOpsOrderEditDataAction,
   type MasterOpsEditAdvisor,
   type MasterOpsEditCatalogItem,
@@ -23,7 +24,10 @@ import {
 } from "./actions";
 
 type Props = {
-  orderId: number | null;
+  mode?: "create" | "edit";
+  orderId?: number | null;
+  open?: boolean;
+  focusDate?: string;
   roles: string[];
   fallbackActiveRate: number | null;
   onClose: () => void;
@@ -209,12 +213,17 @@ function initialNewClientFromOrder(order: MasterOpsEditOrder | null) {
 }
 
 export default function MasterOpsOrderEditor({
-  orderId,
+  mode = "edit",
+  orderId = null,
+  open = false,
+  focusDate,
   roles,
   fallbackActiveRate,
   onClose,
   onSaved,
 }: Props) {
+  const isCreateMode = mode === "create";
+  const isOpen = isCreateMode ? open : Boolean(orderId);
   const isAdmin = roles.includes("admin");
   const [data, setData] = useState<MasterOpsEditData | null>(null);
   const [form, setForm] = useState<MasterOpsEditOrder | null>(null);
@@ -235,7 +244,12 @@ export default function MasterOpsOrderEditor({
   const [configState, setConfigState] = useState<ConfigState | null>(null);
 
   useEffect(() => {
-    if (!orderId) {
+    if (!isOpen) {
+      setData(null);
+      setForm(null);
+      return;
+    }
+    if (!isCreateMode && !orderId) {
       setData(null);
       setForm(null);
       return;
@@ -246,7 +260,11 @@ export default function MasterOpsOrderEditor({
     setError(null);
     setSuccess(null);
 
-    loadMasterOpsOrderEditDataAction(orderId)
+    const loadData = isCreateMode
+      ? loadMasterOpsOrderCreateDataAction(focusDate)
+      : loadMasterOpsOrderEditDataAction(Number(orderId));
+
+    loadData
       .then((result) => {
         if (cancelled) return;
         setData(result);
@@ -274,7 +292,7 @@ export default function MasterOpsOrderEditor({
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [focusDate, isCreateMode, isOpen, orderId]);
 
   useEffect(() => {
     const query = clientSearch.trim();
@@ -372,7 +390,7 @@ export default function MasterOpsOrderEditor({
     });
   }, [calculatedItems, form?.discountEnabled, form?.discountPct, form?.hasInvoice, form?.invoiceTaxPct, fxRate]);
 
-  const isAdvancedOrderEdit = form ? !["created", "queued"].includes(form.status) : false;
+  const isAdvancedOrderEdit = form && !isCreateMode ? !["created", "queued"].includes(form.status) : false;
   const canSave =
     Boolean(form) &&
     (Boolean(form?.selectedClientId) || (newClientName.trim().length > 1 && newClientPhone.trim().length > 4)) &&
@@ -687,9 +705,7 @@ export default function MasterOpsOrderEditor({
 
     try {
       const itemsPayload = orderedItems.map((item) => recalculateItem(item, fxRate));
-      const result = await updateOrderAction({
-        orderId: form.id,
-        expectedLastModifiedAt: form.lastModifiedAtISO,
+      const orderPayload = {
         source: form.source,
         attributedAdvisorUserId: form.source === "advisor" ? form.attributedAdvisorUserId : null,
         fulfillment: form.fulfillment,
@@ -751,15 +767,22 @@ export default function MasterOpsOrderEditor({
           adminPriceOverrideCurrency: item.adminPriceOverrideCurrency,
           adminPriceOverrideReason: item.adminPriceOverrideReason,
         })),
-        adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
-      });
+      };
+      const result = isCreateMode
+        ? await createOrderAction(orderPayload)
+        : await updateOrderAction({
+            orderId: form.id,
+            expectedLastModifiedAt: form.lastModifiedAtISO,
+            ...orderPayload,
+            adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
+          });
 
       if (result && "ok" in result && !result.ok) {
         setError(result.message);
         return;
       }
 
-      setSuccess("Orden actualizada.");
+      setSuccess(isCreateMode ? "Orden creada." : "Orden actualizada.");
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar la orden.");
@@ -768,7 +791,7 @@ export default function MasterOpsOrderEditor({
     }
   }
 
-  if (!orderId) return null;
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/70">
@@ -776,10 +799,16 @@ export default function MasterOpsOrderEditor({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#242433] px-5 py-3">
           <div>
             <div className="text-lg font-semibold">
-              {form ? `Modificar orden #${formatOrderDisplayNumber(form.orderNumber || form.id)}` : "Modificar orden"}
+              {isCreateMode
+                ? "Nuevo pedido"
+                : form
+                  ? `Modificar orden #${formatOrderDisplayNumber(form.orderNumber || form.id)}`
+                  : "Modificar orden"}
             </div>
             <div className="mt-0.5 text-xs text-[#8A8A96]">
-              Editor operativo del modulo master. Carga datos solo para esta orden.
+              {isCreateMode
+                ? "Crea una orden desde el modulo master con la logica canonica."
+                : "Editor operativo del modulo master. Carga datos solo para esta orden."}
             </div>
           </div>
           <button
@@ -1351,7 +1380,7 @@ export default function MasterOpsOrderEditor({
                 <div className="min-h-5 text-sm">
                   {error ? <span className="text-red-300">{error}</span> : null}
                   {success ? <span className="text-emerald-300">{success}</span> : null}
-                  {!error && !success ? <span className="text-[#8A8A96]">Los cambios se guardan con la logica canonica de ordenes.</span> : null}
+                  {!error && !success ? <span className="text-[#8A8A96]">Se guarda con la logica canonica de ordenes.</span> : null}
                 </div>
                 <div className="flex justify-end gap-2">
                   <button
@@ -1367,7 +1396,7 @@ export default function MasterOpsOrderEditor({
                     type="submit"
                     disabled={!canSave || saving}
                   >
-                    {saving ? "Guardando..." : "Guardar modificacion"}
+                    {saving ? "Guardando..." : isCreateMode ? "Crear pedido" : "Guardar modificacion"}
                   </button>
                 </div>
               </div>

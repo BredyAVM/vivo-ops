@@ -5035,6 +5035,7 @@ export async function updateExchangeRateAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
 }
 
 export async function updateCatalogPricesQuickAction(input: {
@@ -11026,6 +11027,7 @@ export async function createOrderAction(input: {
   });
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
 
   return { id: orderId, orderNumber };
 }

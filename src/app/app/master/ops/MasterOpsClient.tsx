@@ -49,6 +49,7 @@ import {
   searchMasterOrdersAction,
   sendToKitchenAction,
   settleClientFundPayoutAction,
+  updateExchangeRateAction,
 } from "../dashboard/actions";
 import {
   MASTER_ORDER_DETAIL_TABS,
@@ -2275,10 +2276,22 @@ export default function MasterOpsClient({
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [rateEditorOpen, setRateEditorOpen] = useState(false);
+  const [exchangeRateInput, setExchangeRateInput] = useState(activeRate ? String(activeRate) : "");
+  const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
+  const [exchangeRateError, setExchangeRateError] = useState<string | null>(null);
   const [selectedDetailTab, setSelectedDetailTab] = useState<DetailTab>("detalle");
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (!rateEditorOpen) {
+      setExchangeRateInput(activeRate ? String(activeRate) : "");
+      setExchangeRateError(null);
+    }
+  }, [activeRate, rateEditorOpen]);
 
   const normalizedSearch = normalizeSearchText(search);
   const trayCounts = useMemo(() => {
@@ -2392,6 +2405,29 @@ export default function MasterOpsClient({
     params.set("focusDate", result.operationalDate);
     params.set("openOrder", String(result.id));
     router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }
+
+  async function saveExchangeRate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const rate = Number(exchangeRateInput.replace(",", "."));
+    if (!Number.isFinite(rate) || rate <= 0) {
+      setExchangeRateError("La tasa debe ser mayor a 0.");
+      return;
+    }
+
+    setExchangeRateSaving(true);
+    setExchangeRateError(null);
+    try {
+      await updateExchangeRateAction({ rateBsPerUsd: rate });
+      setRateEditorOpen(false);
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (error) {
+      setExchangeRateError(error instanceof Error ? error.message : "No se pudo guardar la tasa.");
+    } finally {
+      setExchangeRateSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -2762,12 +2798,21 @@ export default function MasterOpsClient({
                   </Link>
                 </div>
 
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left">
+                <button
+                  className="rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left transition hover:border-[#FEEF00]/50"
+                  type="button"
+                  onClick={() => {
+                    setExchangeRateInput(activeRate ? String(activeRate) : "");
+                    setExchangeRateError(null);
+                    setRateEditorOpen(true);
+                  }}
+                  title="Actualizar tasa"
+                >
                   <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Tasa</div>
                   <div className="mt-0.5 text-[13px] font-medium leading-none text-[#F5F5F7]">
                     {activeRate ? fmtRateBs(activeRate) : "--"}
                   </div>
-                </div>
+                </button>
               </div>
 
               <div className="flex items-center gap-2.5">
@@ -2934,12 +2979,13 @@ export default function MasterOpsClient({
           </form>
 
           <div className="flex flex-wrap gap-2">
-            <Link
+            <button
               className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
-              href="/app/master/dashboard"
+              type="button"
+              onClick={() => setCreateOrderOpen(true)}
             >
               Nuevo pedido
-            </Link>
+            </button>
             <Link
               className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
               href="/app/master/dashboard"
@@ -3089,6 +3135,21 @@ export default function MasterOpsClient({
         />
       ) : null}
       <MasterOpsOrderEditor
+        mode="create"
+        open={createOrderOpen}
+        focusDate={focusDate}
+        roles={roles}
+        fallbackActiveRate={activeRate}
+        onClose={() => setCreateOrderOpen(false)}
+        onSaved={() => {
+          setCreateOrderOpen(false);
+          startTransition(() => {
+            router.refresh();
+          });
+        }}
+      />
+      <MasterOpsOrderEditor
+        mode="edit"
         orderId={editingOrderId}
         roles={roles}
         fallbackActiveRate={activeRate}
@@ -3100,6 +3161,61 @@ export default function MasterOpsClient({
           });
         }}
       />
+      {rateEditorOpen ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 px-4">
+          <form
+            className="w-full max-w-sm rounded-2xl border border-[#242433] bg-[#121218] p-4 text-[#F5F5F7] shadow-2xl"
+            onSubmit={saveExchangeRate}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold">Actualizar tasa</div>
+                <div className="mt-1 text-xs text-[#8A8A96]">VES por USD. Actualiza catalogo y ordenes nuevas.</div>
+              </div>
+              <button
+                className="rounded-xl border border-[#242433] px-3 py-2 text-sm text-[#F5F5F7]"
+                type="button"
+                onClick={() => setRateEditorOpen(false)}
+                disabled={exchangeRateSaving}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <label className="mt-4 block text-[11px] text-[#B7B7C2]">
+              <span className="mb-1 block">Nueva tasa</span>
+              <input
+                className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] placeholder:text-[#6F6F7C] focus:border-[#FEEF00]/60 focus:outline-none"
+                value={exchangeRateInput}
+                onChange={(event) => setExchangeRateInput(event.target.value)}
+                inputMode="decimal"
+                placeholder={activeRate ? String(activeRate) : "Ej. 737.23"}
+                autoFocus
+              />
+            </label>
+
+            {exchangeRateError ? <div className="mt-3 text-sm text-red-300">{exchangeRateError}</div> : null}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded-xl border border-[#242433] px-4 py-2 text-sm font-semibold text-[#F5F5F7]"
+                type="button"
+                onClick={() => setRateEditorOpen(false)}
+                disabled={exchangeRateSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-5 py-2 text-sm font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                type="submit"
+                disabled={exchangeRateSaving}
+              >
+                {exchangeRateSaving ? "Guardando..." : "Guardar tasa"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }

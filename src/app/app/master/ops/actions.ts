@@ -372,6 +372,218 @@ function getRelatedProduct(value: RawRelatedProduct) {
   return one(value);
 }
 
+function getDefaultScheduleFields(focusDateInput?: string | null) {
+  const now = new Date();
+  const date = isDateKey(focusDateInput)
+    ? String(focusDateInput)
+    : now.toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Caracas",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(now);
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "12";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  const dayPeriod = (parts.find((part) => part.type === "dayPeriod")?.value ?? "PM").toUpperCase();
+
+  return {
+    deliveryDate: date,
+    deliveryHour12: hour.padStart(2, "0"),
+    deliveryMinute: minute.padStart(2, "0"),
+    deliveryAmPm: dayPeriod === "AM" ? ("AM" as const) : ("PM" as const),
+    isAsap: false,
+  };
+}
+
+async function loadMasterOpsOrderComposerLookups(
+  ctx: Awaited<ReturnType<typeof requireMasterOrAdminContext>>
+) {
+  const [productsResult, productComponentsResult, advisorsResult, activeRateResult] = await Promise.all([
+    ctx.supabase
+      .from("products")
+      .select(
+        `
+        id,
+        sku,
+        name,
+        type,
+        is_active,
+        source_price_amount,
+        source_price_currency,
+        base_price_usd,
+        base_price_bs,
+        units_per_service,
+        is_detail_editable,
+        detail_units_limit,
+        internal_rider_pay_usd
+      `
+      )
+      .eq("is_active", true)
+      .order("name", { ascending: true })
+      .limit(700),
+    ctx.supabase
+      .from("product_components")
+      .select(
+        `
+        id,
+        parent_product_id,
+        component_product_id,
+        component_mode,
+        quantity,
+        counts_toward_detail_limit,
+        is_required,
+        sort_order,
+        notes,
+        component_product:products!product_components_component_product_id_fkey (
+          id,
+          sku,
+          name,
+          type
+        )
+      `
+      )
+      .order("parent_product_id", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .limit(2000),
+    ctx.supabase.rpc("get_advisor_profiles"),
+    ctx.supabase
+      .from("exchange_rates")
+      .select("rate_bs_per_usd")
+      .eq("is_active", true)
+      .order("effective_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const error =
+    productsResult.error ??
+    productComponentsResult.error ??
+    advisorsResult.error ??
+    activeRateResult.error;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const catalogItems = ((productsResult.data ?? []) as RawCatalogEditRow[])
+    .map((product) => ({
+      id: Number(product.id),
+      sku: product.sku ?? null,
+      name: cleanText(product.name, `Producto #${product.id}`),
+      type: normalizeProductType(product.type),
+      isActive: product.is_active !== false,
+      sourcePriceAmount: toNumber(product.source_price_amount, 0),
+      sourcePriceCurrency: asCurrency(product.source_price_currency, "USD"),
+      basePriceUsd: toNumber(product.base_price_usd, 0),
+      basePriceBs: toNumber(product.base_price_bs, 0),
+      unitsPerService: toNumber(product.units_per_service, 0),
+      isDetailEditable: Boolean(product.is_detail_editable),
+      detailUnitsLimit: toNumber(product.detail_units_limit, 0),
+      internalRiderPayUsd:
+        product.internal_rider_pay_usd == null ? null : toNumber(product.internal_rider_pay_usd, 0),
+    }))
+    .filter((product) => Number.isFinite(product.id) && product.id > 0);
+
+  const productComponents = ((productComponentsResult.data ?? []) as RawProductComponentEditRow[])
+    .map((component) => {
+      const related = getRelatedProduct(component.component_product);
+      return {
+        id: Number(component.id),
+        parentProductId: Number(component.parent_product_id),
+        componentProductId: Number(component.component_product_id),
+        componentMode: component.component_mode === "selectable" ? ("selectable" as const) : ("fixed" as const),
+        quantity: toNumber(component.quantity, 0),
+        countsTowardDetailLimit: component.counts_toward_detail_limit !== false,
+        isRequired: component.is_required !== false,
+        sortOrder: toNumber(component.sort_order, 0),
+        notes: component.notes ?? null,
+        componentSku: related?.sku ?? null,
+        componentName: cleanText(related?.name, `Componente #${component.component_product_id}`),
+        componentType: normalizeProductType(related?.type),
+      };
+    })
+    .filter(
+      (component) =>
+        Number.isFinite(component.id) &&
+        Number.isFinite(component.parentProductId) &&
+        Number.isFinite(component.componentProductId)
+    );
+
+  const advisors = ((advisorsResult.data ?? []) as Array<{ user_id: string | null; full_name: string | null; is_active: boolean | null }>)
+    .filter((advisor) => advisor.is_active !== false)
+    .map((advisor) => ({
+      id: String(advisor.user_id || ""),
+      fullName: cleanText(advisor.full_name, "Asesor"),
+    }))
+    .filter((advisor) => advisor.id.trim())
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, "es-VE"));
+
+  const activeRate =
+    toNumber(activeRateResult.data?.rate_bs_per_usd, 0) > 0
+      ? toNumber(activeRateResult.data?.rate_bs_per_usd, 0)
+      : null;
+
+  return {
+    catalogItems,
+    productComponents,
+    advisors,
+    activeRate,
+  };
+}
+
+export async function loadMasterOpsOrderCreateDataAction(
+  focusDateInput?: string | null
+): Promise<MasterOpsEditData> {
+  const ctx = await requireMasterOrAdminContext();
+  const lookups = await loadMasterOpsOrderComposerLookups(ctx);
+  const schedule = getDefaultScheduleFields(focusDateInput);
+
+  return {
+    order: {
+      id: 0,
+      orderNumber: "",
+      status: "created",
+      source: "master",
+      attributedAdvisorUserId: null,
+      fulfillment: "pickup",
+      selectedClientId: null,
+      client: null,
+      ...schedule,
+      receiverName: "",
+      receiverPhone: "",
+      deliveryAddress: "",
+      deliveryGpsUrl: "",
+      note: "",
+      discountEnabled: false,
+      discountPct: "0",
+      invoiceTaxPct: "16",
+      fxRate: lookups.activeRate ? String(lookups.activeRate) : "",
+      paymentMethod: "",
+      paymentCurrency: "USD",
+      paymentRequiresChange: false,
+      paymentChangeFor: "",
+      paymentChangeCurrency: "USD",
+      paymentNote: "",
+      useClientFund: false,
+      clientFundAmountUsd: "",
+      hasDeliveryNote: false,
+      hasInvoice: false,
+      invoiceCompanyName: "",
+      invoiceTaxId: "",
+      invoiceAddress: "",
+      invoicePhone: "",
+      deliveryNoteName: "",
+      deliveryNoteDocumentId: "",
+      deliveryNoteAddress: "",
+      deliveryNotePhone: "",
+      lastModifiedAtISO: null,
+      items: [],
+    },
+    ...lookups,
+  };
+}
+
 export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Promise<MasterOpsEditData> {
   const ctx = await requireMasterOrAdminContext();
   const orderId = Number(orderIdInput);
