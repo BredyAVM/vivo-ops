@@ -13,6 +13,7 @@ import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth
 import MasterOpsClient, {
   type DeliveryPartnerOption,
   type DriverOption,
+  type MasterOpsPaymentAccountOption,
   type MasterOpsOrder,
   type MasterOpsStats,
   type OperationStatsSummary,
@@ -138,6 +139,17 @@ type RawOrderAdjustmentRow = {
 type RawMoneyAccountRow = {
   id: number | string;
   name: string | null;
+  currency_code?: string | null;
+  account_kind?: string | null;
+  is_active?: boolean | null;
+};
+
+type RawPaymentRuleRow = {
+  money_account_id: number | string | null;
+  role: string | null;
+  payment_method_code: string | null;
+  can_report_payment: boolean | null;
+  is_active: boolean | null;
 };
 
 type RawProfileNameRow = {
@@ -193,6 +205,71 @@ function one<T>(value: T[] | T | null | undefined): T | null {
 function cleanText(value: string | null | undefined, fallback: string) {
   const text = String(value ?? "").trim();
   return text || fallback;
+}
+
+function normalizeCurrencyCode(value: string | null | undefined): "USD" | "VES" | null {
+  const currency = String(value || "").trim().toUpperCase();
+  return currency === "USD" || currency === "VES" ? currency : null;
+}
+
+function buildPaymentAccountOptions({
+  accounts,
+  rules,
+  roles,
+}: {
+  accounts: RawMoneyAccountRow[];
+  rules: RawPaymentRuleRow[];
+  roles: string[];
+}): MasterOpsPaymentAccountOption[] {
+  const activeRoles = new Set(roles.map((role) => String(role || "").trim()).filter(Boolean));
+  const accountById = new Map(
+    accounts
+      .filter((account) => account.is_active !== false)
+      .map((account) => [Number(account.id), account] as const)
+      .filter(([id]) => Number.isFinite(id) && id > 0)
+  );
+  const options = new Map<string, MasterOpsPaymentAccountOption>();
+  const methodOrder = new Map([
+    ["payment_mobile", 10],
+    ["transfer", 20],
+    ["zelle", 30],
+    ["wallet_usd", 35],
+    ["cash_usd", 40],
+    ["cash_ves", 50],
+    ["pos", 60],
+    ["retention", 70],
+  ]);
+
+  for (const rule of rules) {
+    if (!rule.is_active || !rule.can_report_payment) continue;
+    const role = String(rule.role || "").trim();
+    if (!activeRoles.has(role)) continue;
+    const method = String(rule.payment_method_code || "").trim();
+    if (!method) continue;
+    const accountId = Number(rule.money_account_id);
+    const account = accountById.get(accountId);
+    if (!account) continue;
+    const currencyCode = normalizeCurrencyCode(account.currency_code);
+    if (!currencyCode) continue;
+    const key = `${accountId}:${method}`;
+    if (options.has(key)) continue;
+
+    options.set(key, {
+      key,
+      accountId,
+      accountName: cleanText(account.name, `Cuenta #${accountId}`),
+      currencyCode,
+      paymentMethodCode: method,
+    });
+  }
+
+  return Array.from(options.values()).sort((a, b) => {
+    const byCurrency = a.currencyCode.localeCompare(b.currencyCode);
+    if (byCurrency !== 0) return byCurrency;
+    const byAccount = a.accountName.localeCompare(b.accountName, "es-VE");
+    if (byAccount !== 0) return byAccount;
+    return (methodOrder.get(a.paymentMethodCode) ?? 999) - (methodOrder.get(b.paymentMethodCode) ?? 999);
+  });
 }
 
 function getCaracasTodayKey() {
@@ -828,12 +905,14 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   }
 
   const detailOrderIds = dayOrderIds.length > 0 ? dayOrderIds : [-1];
+  const paymentReportRoles = ctx.roles.filter((role) => role === "admin" || role === "master");
   const [
     orderItemsResult,
     paymentReportsResult,
     orderEventsResult,
     orderAdjustmentsResult,
     moneyAccountsResult,
+    paymentRulesResult,
   ] = await Promise.all([
     ctx.supabase
       .from("order_items")
@@ -884,7 +963,13 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       .select("id, order_id, adjustment_type, reason, notes, created_at, created_by_user_id")
       .in("order_id", detailOrderIds)
       .order("created_at", { ascending: false }),
-    ctx.supabase.from("money_accounts").select("id, name"),
+    ctx.supabase.from("money_accounts").select("id, name, currency_code, account_kind, is_active"),
+    ctx.supabase
+      .from("money_account_payment_rules")
+      .select("money_account_id, role, payment_method_code, can_report_payment, is_active")
+      .eq("is_active", true)
+      .eq("can_report_payment", true)
+      .in("role", paymentReportRoles.length > 0 ? paymentReportRoles : ["master"]),
   ]);
 
   const detailError =
@@ -892,7 +977,8 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     paymentReportsResult.error ??
     orderEventsResult.error ??
     orderAdjustmentsResult.error ??
-    moneyAccountsResult.error;
+    moneyAccountsResult.error ??
+    paymentRulesResult.error;
 
   if (detailError) {
     throw new Error(detailError.message);
@@ -903,6 +989,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const orderEvents = (orderEventsResult.data ?? []) as RawOrderEventRow[];
   const orderAdjustments = (orderAdjustmentsResult.data ?? []) as RawOrderAdjustmentRow[];
   const moneyAccounts = (moneyAccountsResult.data ?? []) as RawMoneyAccountRow[];
+  const paymentRules = (paymentRulesResult.data ?? []) as RawPaymentRuleRow[];
   const productIds = Array.from(
     new Set(orderItems.map((item) => Number(item.product_id)).filter((id) => Number.isFinite(id) && id > 0))
   );
@@ -966,6 +1053,11 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const clientStats = buildClientOrderStats((clientHistoryResult.data ?? []) as Array<{ id: number | string; client_id: number | string | null }>);
   const dayOrders = dayRows.map((row) => mapOrder(row, financialStates, clientStats, detailMaps));
   const weekOrders = weekRows.map((row) => mapOrder(row, financialStates, clientStats));
+  const paymentAccounts = buildPaymentAccountOptions({
+    accounts: moneyAccounts,
+    rules: paymentRules,
+    roles: paymentReportRoles,
+  });
   const profile = profileResult.data as { full_name: string | null } | null;
 
   return (
@@ -981,6 +1073,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       weekLabel={getWeekLabel(focusDate)}
       drivers={drivers}
       deliveryPartners={deliveryPartners}
+      paymentAccounts={paymentAccounts}
     />
   );
 }

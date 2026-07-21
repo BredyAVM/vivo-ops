@@ -1974,6 +1974,7 @@ export async function createPaymentReportAction(input: {
     ],
   });
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
   revalidatePath('/app/counter');
 
   return {

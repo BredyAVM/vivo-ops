@@ -17,14 +17,20 @@ import {
 import {
   ORDER_STATUS_LABELS,
   formatOrderDisplayNumber,
+  getPaymentMethodLabel,
   type FulfillmentType,
   type OrderStatus,
 } from "@/lib/orders/order-labels";
+import {
+  getPaymentReportRequirements,
+  validatePaymentReportDetails,
+} from "@/lib/payments/payment-report-rules";
 import {
   approveOrderAction,
   assignExternalPartnerAction,
   assignInternalDriverAction,
   clearDeliveryAssignmentAction,
+  createPaymentReportAction,
   confirmPaymentReportAction,
   kitchenTakeAction,
   markDeliveredAction,
@@ -63,6 +69,13 @@ export type DeliveryPartnerOption = {
   partnerType: string;
   whatsappPhone: string | null;
   isActive: boolean;
+};
+export type MasterOpsPaymentAccountOption = {
+  key: string;
+  accountId: number;
+  accountName: string;
+  currencyCode: "USD" | "VES";
+  paymentMethodCode: string;
 };
 
 export type OperationStatsSummary = {
@@ -112,6 +125,7 @@ type Props = {
   stats: MasterOpsStats;
   drivers: DriverOption[];
   deliveryPartners: DeliveryPartnerOption[];
+  paymentAccounts: MasterOpsPaymentAccountOption[];
 };
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
@@ -149,6 +163,17 @@ type DirectActionPayload = {
   payerName?: string | null;
   description?: string | null;
   isRetention?: boolean;
+};
+type PaymentReportDraft = {
+  accountKey: string;
+  amount: string;
+  exchangeRate: string;
+  operationDate: string;
+  referenceCode: string;
+  bankName: string;
+  payerName: string;
+  notes: string;
+  isRetention: boolean;
 };
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
@@ -193,6 +218,10 @@ function caracasDateKeyFromISO(iso: string | null | undefined) {
   return date.toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
 }
 
+function getCaracasTodayKey() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+}
+
 function paymentReportMovementDate(report: MasterOrderPaymentReport) {
   return report.operationDate || caracasDateKeyFromISO(report.createdAt);
 }
@@ -208,6 +237,39 @@ function normalizeSearchText(value: unknown) {
 function orderDisplayNumber(order: Pick<MasterOpsOrder, "id" | "orderNumber">) {
   const value = String(order.orderNumber || "").trim();
   return value || formatOrderDisplayNumber(order.id);
+}
+
+function parseDecimal(value: string) {
+  const normalized = String(value || "").replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function compactDecimal(value: number, decimals = 2) {
+  if (!Number.isFinite(value)) return "";
+  return String(Number(value.toFixed(decimals)));
+}
+
+function isRetentionPaymentAccount(option: MasterOpsPaymentAccountOption) {
+  return option.paymentMethodCode === "retention";
+}
+
+function getSuggestedPaymentAmount(
+  order: MasterOpsOrder,
+  option: MasterOpsPaymentAccountOption | null,
+  activeRate: number | null
+) {
+  if (!option || order.balanceUsd <= 0.005) return "";
+  if (option.currencyCode === "VES") {
+    const rate = order.fxRate && order.fxRate > 0 ? order.fxRate : activeRate;
+    return rate && rate > 0 ? compactDecimal(order.balanceUsd * rate, 2) : "";
+  }
+  return compactDecimal(order.balanceUsd, 2);
+}
+
+function getSuggestedPaymentExchangeRate(order: MasterOpsOrder, activeRate: number | null) {
+  const rate = order.fxRate && order.fxRate > 0 ? order.fxRate : activeRate;
+  return rate && rate > 0 ? compactDecimal(rate, 4) : "";
 }
 
 function splitTwoWordsCompact(value: string) {
@@ -379,7 +441,6 @@ function advancedOperationalLinks(order: MasterOpsOrder): Array<{ label: string;
     });
   }
 
-  links.push({ label: "Reportar pago", tab: "pagos", tone: "neutral" });
   links.push({ label: "Cambio / fondo", tab: "pagos", tone: "neutral" });
 
   if (order.status !== "cancelled") {
@@ -498,25 +559,31 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
 function OrderDetailPanel({
   order,
   focusDate,
+  activeRate,
   activeTab,
   actionError,
   runningAction,
   onTabChange,
   onClose,
   onDirectAction,
+  onCreatePaymentReport,
   drivers,
   deliveryPartners,
+  paymentAccounts,
 }: {
   order: MasterOpsOrder;
   focusDate: string;
+  activeRate: number | null;
   activeTab: DetailTab;
   actionError: string | null;
   runningAction: string | null;
   onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
+  onCreatePaymentReport: (order: MasterOpsOrder, payload: PaymentReportDraft) => Promise<boolean>;
   drivers: DriverOption[];
   deliveryPartners: DeliveryPartnerOption[];
+  paymentAccounts: MasterOpsPaymentAccountOption[];
 }) {
   const actionLabel = getNextPrimaryActionLabel(order);
   const paidTone = masterOrderPaymentTone(order);
@@ -539,6 +606,16 @@ function OrderDetailPanel({
   const [clearDeliveryNotes, setClearDeliveryNotes] = useState("");
   const [paymentRejectReportId, setPaymentRejectReportId] = useState<number | null>(null);
   const [paymentRejectNotes, setPaymentRejectNotes] = useState("");
+  const [paymentReportOpen, setPaymentReportOpen] = useState(false);
+  const [paymentReportIsRetention, setPaymentReportIsRetention] = useState(false);
+  const [paymentReportAccountKey, setPaymentReportAccountKey] = useState("");
+  const [paymentReportAmount, setPaymentReportAmount] = useState("");
+  const [paymentReportExchangeRate, setPaymentReportExchangeRate] = useState("");
+  const [paymentReportOperationDate, setPaymentReportOperationDate] = useState(getCaracasTodayKey());
+  const [paymentReportReferenceCode, setPaymentReportReferenceCode] = useState("");
+  const [paymentReportBankName, setPaymentReportBankName] = useState("");
+  const [paymentReportPayerName, setPaymentReportPayerName] = useState("");
+  const [paymentReportNotes, setPaymentReportNotes] = useState("");
   const canReturn = canReturnOrderToAdvisor(order);
   const canKitchenTake = canKitchenTakeOrder(order);
   const canAssign = canAssignDelivery(order);
@@ -551,6 +628,15 @@ function OrderDetailPanel({
   const busy = Boolean(runningAction);
   const activeDeliveryPartners = deliveryPartners.filter((partner) => partner.isActive);
   const pendingPaymentReports = order.paymentReports.filter((report) => report.status === "pending");
+  const paymentReportOptions = paymentAccounts.filter((option) =>
+    paymentReportIsRetention ? isRetentionPaymentAccount(option) : !isRetentionPaymentAccount(option)
+  );
+  const normalPaymentOptions = paymentAccounts.filter((option) => !isRetentionPaymentAccount(option));
+  const retentionPaymentOptions = paymentAccounts.filter(isRetentionPaymentAccount);
+  const selectedPaymentAccount = paymentReportOptions.find((option) => option.key === paymentReportAccountKey) ?? null;
+  const paymentReportRequirements = getPaymentReportRequirements(selectedPaymentAccount?.paymentMethodCode ?? "");
+  const canOpenPaymentReport = activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
+  const canOpenRetentionReport = activeTab === "pagos" && retentionPaymentOptions.length > 0;
 
   async function handleCopyWhatsApp() {
     try {
@@ -632,6 +718,79 @@ function OrderDetailPanel({
       isRetention: Boolean(report.isRetention),
     });
     if (ok) setPaymentRejectReportId(null);
+  }
+
+  function openPaymentReport(isRetention: boolean) {
+    const nextOptions = paymentAccounts.filter((option) =>
+      isRetention ? isRetentionPaymentAccount(option) : !isRetentionPaymentAccount(option)
+    );
+    const preferred =
+      nextOptions.find((option) => option.currencyCode === order.paymentCurrency) ??
+      nextOptions.find((option) => option.currencyCode === "VES") ??
+      nextOptions[0] ??
+      null;
+
+    setPaymentReportIsRetention(isRetention);
+    setPaymentReportOpen(true);
+    setPaymentReportAccountKey(preferred?.key ?? "");
+    setPaymentReportAmount(isRetention ? "" : getSuggestedPaymentAmount(order, preferred, activeRate));
+    setPaymentReportExchangeRate(
+      preferred?.currencyCode === "VES" ? getSuggestedPaymentExchangeRate(order, activeRate) : ""
+    );
+    setPaymentReportOperationDate(getCaracasTodayKey());
+    setPaymentReportReferenceCode("");
+    setPaymentReportBankName("");
+    setPaymentReportPayerName("");
+    setPaymentReportNotes("");
+  }
+
+  function handlePaymentAccountChange(accountKey: string) {
+    const nextAccount = paymentReportOptions.find((option) => option.key === accountKey) ?? null;
+    setPaymentReportAccountKey(accountKey);
+    setPaymentReportAmount(paymentReportIsRetention ? "" : getSuggestedPaymentAmount(order, nextAccount, activeRate));
+    setPaymentReportExchangeRate(
+      nextAccount?.currencyCode === "VES" ? getSuggestedPaymentExchangeRate(order, activeRate) : ""
+    );
+  }
+
+  async function handlePaymentReportSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedPaymentAccount) {
+      await onCreatePaymentReport(order, {
+        accountKey: "",
+        amount: "",
+        exchangeRate: "",
+        operationDate: "",
+        referenceCode: "",
+        bankName: "",
+        payerName: "",
+        notes: "",
+        isRetention: paymentReportIsRetention,
+      });
+      return;
+    }
+
+    const ok = await onCreatePaymentReport(order, {
+      accountKey: selectedPaymentAccount.key,
+      amount: paymentReportAmount,
+      exchangeRate: paymentReportExchangeRate,
+      operationDate: paymentReportOperationDate,
+      referenceCode: paymentReportReferenceCode,
+      bankName: paymentReportBankName,
+      payerName: paymentReportPayerName,
+      notes: paymentReportNotes,
+      isRetention: paymentReportIsRetention,
+    });
+
+    if (ok) {
+      setPaymentReportOpen(false);
+      setPaymentReportAmount("");
+      setPaymentReportReferenceCode("");
+      setPaymentReportBankName("");
+      setPaymentReportPayerName("");
+      setPaymentReportNotes("");
+    }
   }
 
   async function handleRejectPaymentSubmit(event: FormEvent<HTMLFormElement>) {
@@ -763,12 +922,38 @@ function OrderDetailPanel({
                 </Link>
               </div>
             </div>
-            {(canReturn || canKitchenTake || canAssign || canOutForDelivery || canClearDelivery) ? (
+            {(canReturn ||
+              canKitchenTake ||
+              canAssign ||
+              canOutForDelivery ||
+              canClearDelivery ||
+              canOpenPaymentReport ||
+              canOpenRetentionReport) ? (
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8A8A96]">
                   Acciones rapidas
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {canOpenPaymentReport ? (
+                    <button
+                      className="rounded-xl border border-sky-500/45 bg-sky-500/10 px-3 py-1.5 text-[12px] font-semibold text-sky-200 transition hover:border-sky-400 disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => openPaymentReport(false)}
+                    >
+                      Reportar pago
+                    </button>
+                  ) : null}
+                  {canOpenRetentionReport ? (
+                    <button
+                      className="rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FEEF00] transition hover:border-[#FEEF00] disabled:cursor-wait disabled:opacity-60"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => openPaymentReport(true)}
+                    >
+                      Reportar retencion
+                    </button>
+                  ) : null}
                   {canKitchenTake ? (
                     <button
                       className="rounded-xl border border-emerald-500/45 bg-emerald-500/10 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 transition hover:border-emerald-400 disabled:cursor-wait disabled:opacity-60"
@@ -1046,6 +1231,136 @@ function OrderDetailPanel({
                     </div>
                   </form>
                 ) : null}
+
+                {paymentReportOpen ? (
+                  <form className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3" onSubmit={handlePaymentReportSubmit}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[12px] font-semibold text-sky-100">
+                          {paymentReportIsRetention ? "Registrar retencion" : "Registrar pago"}
+                        </div>
+                        <div className="mt-1 text-[11px] text-sky-100/80">
+                          El reporte queda en la misma cadena de pagos de la orden.
+                        </div>
+                      </div>
+                      <button
+                        className="rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-2.5 py-1 text-[11px] text-sky-100 hover:border-sky-400"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setPaymentReportOpen(false)}
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <label className="text-[11px] text-[#B7B7C2]">
+                        Cuenta
+                        <select
+                          className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                          value={paymentReportAccountKey}
+                          onChange={(event) => handlePaymentAccountChange(event.target.value)}
+                        >
+                          {paymentReportOptions.map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {option.accountName} - {getPaymentMethodLabel(option.paymentMethodCode)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="text-[11px] text-[#B7B7C2]">
+                        Fecha de operacion
+                        <input
+                          className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
+                          type="date"
+                          value={paymentReportOperationDate}
+                          onChange={(event) => setPaymentReportOperationDate(event.target.value)}
+                        />
+                      </label>
+
+                      <label className="text-[11px] text-[#B7B7C2]">
+                        Monto {selectedPaymentAccount?.currencyCode ?? ""}
+                        <input
+                          className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                          value={paymentReportAmount}
+                          onChange={(event) => setPaymentReportAmount(event.target.value)}
+                          inputMode="decimal"
+                          placeholder={paymentReportIsRetention ? "Monto" : `Pendiente ${formatMasterOrderUSD(order.balanceUsd)}`}
+                        />
+                      </label>
+
+                      {selectedPaymentAccount?.currencyCode === "VES" ? (
+                        <label className="text-[11px] text-[#B7B7C2]">
+                          Tasa Bs/USD
+                          <input
+                            className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                            value={paymentReportExchangeRate}
+                            onChange={(event) => setPaymentReportExchangeRate(event.target.value)}
+                            inputMode="decimal"
+                            placeholder="Tasa"
+                          />
+                        </label>
+                      ) : null}
+
+                      <label className="text-[11px] text-[#B7B7C2]">
+                        Referencia{paymentReportRequirements.requiresReference ? "" : " (opcional)"}
+                        <input
+                          className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                          value={paymentReportReferenceCode}
+                          onChange={(event) => setPaymentReportReferenceCode(event.target.value)}
+                          placeholder={paymentReportIsRetention ? "Comprobante" : "Referencia"}
+                        />
+                      </label>
+
+                      {paymentReportRequirements.requiresBank ? (
+                        <label className="text-[11px] text-[#B7B7C2]">
+                          Banco
+                          <input
+                            className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                            value={paymentReportBankName}
+                            onChange={(event) => setPaymentReportBankName(event.target.value)}
+                            placeholder="Banco emisor"
+                          />
+                        </label>
+                      ) : null}
+
+                      {(paymentReportRequirements.requiresHolderName || paymentReportRequirements.requiresInvoiceNumber) ? (
+                        <label className="text-[11px] text-[#B7B7C2]">
+                          {paymentReportRequirements.requiresInvoiceNumber ? "Factura" : "Titular"}
+                          <input
+                            className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                            value={paymentReportPayerName}
+                            onChange={(event) => setPaymentReportPayerName(event.target.value)}
+                            placeholder={paymentReportRequirements.requiresInvoiceNumber ? "Numero de factura" : "Nombre del titular"}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+
+                    <label className="mt-2 block text-[11px] text-[#B7B7C2]">
+                      Notas
+                      <textarea
+                        className="mt-1 min-h-[64px] w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                        value={paymentReportNotes}
+                        onChange={(event) => setPaymentReportNotes(event.target.value)}
+                        placeholder="Nota opcional"
+                      />
+                    </label>
+
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        className="rounded-xl border border-sky-400 bg-sky-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                        type="submit"
+                        disabled={busy}
+                      >
+                        {runningAction === `${paymentReportIsRetention ? "report-retention" : "report-payment"}:${order.id}`
+                          ? "Guardando..."
+                          : "Guardar reporte"}
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
               </div>
             ) : null}
             {activeTab === "pagos" && pendingPaymentReports.length > 0 ? (
@@ -1196,6 +1511,7 @@ export default function MasterOpsClient({
   stats,
   drivers,
   deliveryPartners,
+  paymentAccounts,
 }: Props) {
   const router = useRouter();
   const [tray, setTray] = useState<MasterTray>("all");
@@ -1245,6 +1561,80 @@ export default function MasterOpsClient({
     setSelectedOrderId(order.id);
     setSelectedDetailTab(tab);
     setActionError(null);
+  }
+
+  async function runCreatePaymentReport(order: MasterOpsOrder, payload: PaymentReportDraft) {
+    const actionId = `${payload.isRetention ? "report-retention" : "report-payment"}:${order.id}`;
+    setRunningAction(actionId);
+    setActionError(null);
+
+    try {
+      if (!payload.isRetention && order.balanceUsd <= 0.005) {
+        throw new Error("Esta orden ya no tiene saldo pendiente.");
+      }
+
+      const account = paymentAccounts.find((option) => option.key === payload.accountKey) ?? null;
+      if (!account) {
+        throw new Error("Debes seleccionar una cuenta.");
+      }
+
+      const amount = parseDecimal(payload.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error("Debes indicar un monto valido.");
+      }
+
+      const operationDate = payload.operationDate.trim();
+      const referenceCode = payload.referenceCode.trim();
+      const bankName = payload.bankName.trim();
+      const payerName = payload.payerName.trim();
+
+      if (!operationDate) {
+        throw new Error("Debes indicar la fecha de la operacion.");
+      }
+
+      const validationError = validatePaymentReportDetails({
+        method: account.paymentMethodCode,
+        operationDate,
+        referenceCode,
+        bankName,
+        holderName: payerName,
+      });
+      if (validationError) {
+        throw new Error(validationError);
+      }
+
+      let exchangeRate: number | null = null;
+      if (account.currencyCode === "VES") {
+        exchangeRate = parseDecimal(payload.exchangeRate);
+        if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+          throw new Error("Debes indicar una tasa valida para pagos en VES.");
+        }
+      }
+
+      await createPaymentReportAction({
+        orderId: order.id,
+        reportedMoneyAccountId: account.accountId,
+        reportedCurrency: account.currencyCode,
+        reportedAmount: amount,
+        reportedExchangeRateVesPerUsd: exchangeRate,
+        paymentMethod: account.paymentMethodCode,
+        operationDate,
+        referenceCode: referenceCode || null,
+        bankName: bankName || null,
+        payerName: payerName || null,
+        notes: payload.notes.trim() || null,
+      });
+
+      startTransition(() => {
+        router.refresh();
+      });
+      return true;
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "No se pudo reportar el pago.");
+      return false;
+    } finally {
+      setRunningAction(null);
+    }
   }
 
   async function runDirectOrderAction(order: MasterOpsOrder, action: DirectActionKey, payload: DirectActionPayload = {}) {
@@ -1654,14 +2044,17 @@ export default function MasterOpsClient({
           key={selectedOrder.id}
           order={selectedOrder}
           focusDate={focusDate}
+          activeRate={activeRate}
           activeTab={selectedDetailTab}
           actionError={actionError}
           runningAction={runningAction}
           onTabChange={setSelectedDetailTab}
           onClose={() => setSelectedOrderId(null)}
           onDirectAction={runDirectOrderAction}
+          onCreatePaymentReport={runCreatePaymentReport}
           drivers={drivers}
           deliveryPartners={deliveryPartners}
+          paymentAccounts={paymentAccounts}
         />
       ) : null}
     </div>
