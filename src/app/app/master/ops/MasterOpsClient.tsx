@@ -1280,7 +1280,7 @@ function OrderDetailPanel({
       <section className="absolute right-0 top-0 flex h-full w-full max-w-[900px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
         <div className="border-b border-[#242433] p-4">
           <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold text-[#F5F5F7]">
@@ -1308,11 +1308,8 @@ function OrderDetailPanel({
                 <div className="mt-1 truncate text-[13px] text-[#B7B7C2]">
                   {order.advisorName} - {formatMasterOrderDateTime(order.deliveryAtISO)}
                 </div>
-                <div className="mt-1 text-[11px] text-[#8A8A96]">
-                  Cliente registrado: {order.clientCreatedAtISO ? formatMasterOrderDateTime(order.clientCreatedAtISO) : "sin fecha"} - Ordenes validas: {order.clientOrderCount}
-                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                 <button
                   className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
                   type="button"
@@ -1335,17 +1332,18 @@ function OrderDetailPanel({
             <RowProcessTimeline order={order} />
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
             {MASTER_ORDER_DETAIL_TABS.map((tab) => (
               <button
                 key={tab.key}
                 className={[
-                  "rounded-full border px-3 py-1.5 text-[13px] transition",
+                  "shrink-0 rounded-full border px-3 py-1.5 text-[13px] transition",
                   activeTab === tab.key
                     ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
                     : "border-[#242433] bg-[#121218] text-[#B7B7C2] hover:text-[#F5F5F7]",
                 ].join(" ")}
                 type="button"
+                aria-pressed={activeTab === tab.key}
                 onClick={() => onTabChange(tab.key)}
               >
                 {tab.label}
@@ -1357,7 +1355,12 @@ function OrderDetailPanel({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
             <div className="min-w-0">
-              <MasterOrderDetailBody actionLabel={actionLabel} activeTab={activeTab} order={order} />
+              <MasterOrderDetailBody
+                actionLabel={actionLabel}
+                activeTab={activeTab}
+                order={order}
+                showDeliveryProcessDetails={false}
+              />
             </div>
 
             <aside className="space-y-3 lg:sticky lg:top-4">
@@ -2837,6 +2840,16 @@ export default function MasterOpsClient({
     setActionError(null);
   }
 
+  function navigateToFocusDate(nextFocusDate: string) {
+    if (nextFocusDate === focusDate || !/^\d{4}-\d{2}-\d{2}$/.test(nextFocusDate)) return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("focusDate", nextFocusDate);
+    params.delete("openOrder");
+    params.delete("tab");
+    router.push(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }
+
   function openInboxOrder(item: MasterOpsInboxItem) {
     setInboxMode(null);
     const localOrder = orders.find((order) => order.id === item.orderId);
@@ -3324,29 +3337,45 @@ export default function MasterOpsClient({
       <div className="sticky top-0 z-50 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
         <div className="mx-auto max-w-[1400px] px-5 py-2.5">
           <div className="flex flex-col gap-2.5">
-            <div className="flex items-center justify-between gap-2.5">
-              <div className="flex items-center gap-2.5">
+            <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-base font-semibold leading-none">B. Master 3.0</h1>
 
                 <div className="flex overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
-                  <Link className="px-2.5 py-1.5 text-[#B7B7C2] hover:text-[#F5F5F7]" href={`/app/master/ops?focusDate=${previousDate}`}>
+                  <button
+                    aria-label={`Ir al dia anterior, ${fmtDayLabel(previousDate)}`}
+                    className="px-2.5 py-1.5 text-[#B7B7C2] transition hover:bg-[#1A1A22] hover:text-[#F5F5F7]"
+                    type="button"
+                    onClick={() => navigateToFocusDate(previousDate)}
+                  >
                     {"<"}
-                  </Link>
-                  <div className="min-w-[190px] border-x border-[#242433] px-2.5 py-1.5">
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div>
-                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Hoy</div>
-                        <div className="mt-0.5 text-[12px] font-medium leading-none">{fmtDayLabel(focusDate)}</div>
-                      </div>
+                  </button>
+                  <div className="min-w-[220px] border-x border-[#242433] px-2.5 py-1.5">
+                    <div className="grid grid-cols-[minmax(125px,1fr)_minmax(76px,auto)] gap-2">
+                      <label className="min-w-0">
+                        <span className="block text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Fecha</span>
+                        <input
+                          aria-label={`Fecha operativa, ${fmtDayLabel(focusDate)}`}
+                          className="mt-0.5 block w-full cursor-pointer bg-transparent text-[12px] font-medium leading-none text-[#F5F5F7] outline-none [color-scheme:dark] focus:text-[#FEEF00]"
+                          type="date"
+                          value={focusDate}
+                          onChange={(event) => navigateToFocusDate(event.target.value)}
+                        />
+                      </label>
                       <div>
                         <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Semana</div>
                         <div className="mt-0.5 text-[10px] leading-tight text-[#B7B7C2]">{weekLabel}</div>
                       </div>
                     </div>
                   </div>
-                  <Link className="px-2.5 py-1.5 text-[#B7B7C2] hover:text-[#F5F5F7]" href={`/app/master/ops?focusDate=${nextDate}`}>
+                  <button
+                    aria-label={`Ir al dia siguiente, ${fmtDayLabel(nextDate)}`}
+                    className="px-2.5 py-1.5 text-[#B7B7C2] transition hover:bg-[#1A1A22] hover:text-[#F5F5F7]"
+                    type="button"
+                    onClick={() => navigateToFocusDate(nextDate)}
+                  >
                     {">"}
-                  </Link>
+                  </button>
                 </div>
 
                 <button
@@ -3366,8 +3395,8 @@ export default function MasterOpsClient({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2.5">
-                <div className="flex items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
                   <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
                   <TopNavButton label="Dashboard actual" href="/app/master/dashboard" />
                   <TopNavButton

@@ -479,10 +479,12 @@ export function MasterOrderDetailBody({
   order,
   activeTab,
   actionLabel,
+  showDeliveryProcessDetails = true,
 }: {
   order: MasterOrderDetailOrder;
   activeTab: MasterOrderDetailTab;
   actionLabel: string;
+  showDeliveryProcessDetails?: boolean;
 }) {
   const paymentLabel = masterOrderPaymentLabel(order);
   const paidTone = masterOrderPaymentTone(order);
@@ -556,16 +558,22 @@ export function MasterOrderDetailBody({
   if (activeTab === "entrega") {
     return (
       <div className="mt-4 space-y-3">
-        <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
-          <MasterOrderProcessTimeline order={order} />
-        </div>
+        {showDeliveryProcessDetails ? (
+          <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+            <MasterOrderProcessTimeline order={order} />
+          </div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <MasterOrderDetailMetric label="Asignacion" value={masterOrderAssignmentText(order)} />
           <MasterOrderDetailMetric label="Tipo" value={order.fulfillment === "delivery" ? "Delivery" : "Pickup"} />
           <MasterOrderDetailMetric label="Entrega" value={deliveryText} />
-          <MasterOrderDetailMetric label="Enviado a cocina" value={formatMasterOrderDateTime(order.sentToKitchenAtISO)} />
-          <MasterOrderDetailMetric label="Tomado por cocina" value={formatMasterOrderDateTime(order.kitchenStartedAtISO)} />
-          <MasterOrderDetailMetric label="Listo" value={formatMasterOrderDateTime(order.readyAtISO)} />
+          {showDeliveryProcessDetails ? (
+            <>
+              <MasterOrderDetailMetric label="Enviado a cocina" value={formatMasterOrderDateTime(order.sentToKitchenAtISO)} />
+              <MasterOrderDetailMetric label="Tomado por cocina" value={formatMasterOrderDateTime(order.kitchenStartedAtISO)} />
+              <MasterOrderDetailMetric label="Listo" value={formatMasterOrderDateTime(order.readyAtISO)} />
+            </>
+          ) : null}
           <MasterOrderDetailMetric label="Accion actual" value={actionLabel} tone="yellow" />
         </div>
         {order.fulfillment === "delivery" ? (
