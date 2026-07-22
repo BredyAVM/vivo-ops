@@ -34,6 +34,69 @@ export type MasterOpsOrderSearchResult = {
   operationalDate: string;
 };
 
+export async function addMasterOpsOrderNoteAction(input: {
+  orderId: number;
+  note: string;
+}) {
+  try {
+    const { supabase, user } = await requireMasterOrAdminContext();
+    const orderId = Number(input.orderId || 0);
+    const note = String(input.note || "").trim();
+
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      throw new Error("Orden invalida.");
+    }
+    if (note.length < 3) {
+      throw new Error("La nota debe tener al menos 3 caracteres.");
+    }
+    if (note.length > 1200) {
+      throw new Error("La nota no puede superar 1200 caracteres.");
+    }
+
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .select("id, order_number, status")
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (orderError) throw new Error(orderError.message);
+    if (!order) throw new Error("No se pudo cargar la orden.");
+
+    const { data: event, error: eventError } = await supabase
+      .from("order_timeline_events")
+      .insert({
+        order_id: orderId,
+        order_number: order.order_number == null ? null : String(order.order_number),
+        event_type: "master_operational_note",
+        event_group: "modification",
+        title: "Nota operativa",
+        message: note,
+        severity: "info",
+        actor_user_id: user.id,
+        payload: {
+          source: "master_ops",
+          order_status: String(order.status || ""),
+        },
+      })
+      .select("id, created_at")
+      .single();
+
+    if (eventError) throw new Error(eventError.message);
+
+    revalidatePath("/app/master/ops");
+    return {
+      ok: true as const,
+      eventId: Number(event.id),
+      createdAt: String(event.created_at),
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : "No se pudo guardar la nota operativa.",
+    };
+  }
+}
+
 function getMasterOpsSearchPricing(order: Record<string, unknown>) {
   const extraFields =
     order.extra_fields && typeof order.extra_fields === "object" && !Array.isArray(order.extra_fields)

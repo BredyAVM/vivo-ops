@@ -209,6 +209,18 @@ function cleanText(value: string | null | undefined, fallback: string) {
   return text || fallback;
 }
 
+function masterOpsAdjustmentLabel(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "item_price_override") return "Precio ajustado";
+  if (normalized === "other") return "Ajuste administrativo";
+  if (!normalized) return "Ajuste";
+  return normalized
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function normalizeCurrencyCode(value: string | null | undefined): "USD" | "VES" | null {
   const currency = String(value || "").trim().toUpperCase();
   return currency === "USD" || currency === "VES" ? currency : null;
@@ -546,7 +558,7 @@ function mapOrder(
   }));
   const adminAdjustments = adjustments.map((adjustment) => ({
     id: Number(adjustment.id),
-    adjustmentType: cleanText(adjustment.adjustment_type, "Ajuste"),
+    adjustmentType: masterOpsAdjustmentLabel(adjustment.adjustment_type),
     reason: cleanText(adjustment.reason, "--"),
     notes: adjustment.notes ?? null,
     createdAt: adjustment.created_at,

@@ -59,6 +59,7 @@ import {
   type MasterOrderPaymentVerify,
 } from "../_components/MasterOrderDetailCore";
 import {
+  addMasterOpsOrderNoteAction,
   cancelMasterOpsOrderAction,
   closeMasterOpsRoundingBalanceAction,
   confirmMasterOpsPaymentReportAction,
@@ -180,6 +181,7 @@ type DirectActionKey =
   | "apply-fund"
   | "deliver-fund-change"
   | "close-rounding"
+  | "add-note"
   | "cancel-order";
 type MoneyLinePayload = {
   moneyAccountId: number;
@@ -742,6 +744,8 @@ function OrderDetailPanel({
   const [cancelReason, setCancelReason] = useState("");
   const [cancelPaidHandling, setCancelPaidHandling] = useState<"store_fund" | "refund">("store_fund");
   const [cancelRefundLines, setCancelRefundLines] = useState<MoneyLineDraft[]>([]);
+  const [operationalNote, setOperationalNote] = useState("");
+  const [whatsAppCopyStatus, setWhatsAppCopyStatus] = useState<"copied" | "error" | null>(null);
   const canReturn = canReturnMasterOpsOrderToAdvisor(order);
   const canKitchenTake = canKitchenTakeOrder(order);
   const canCorrectDeliveredDelivery =
@@ -815,13 +819,24 @@ function OrderDetailPanel({
   const paymentReportRequirements = getPaymentReportRequirements(selectedPaymentAccount?.paymentMethodCode ?? "");
   const canOpenPaymentReport = activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
   const canOpenRetentionReport = activeTab === "pagos" && retentionPaymentOptions.length > 0;
+  const operationalNotes = order.events.filter((event) => event.title.trim().toLowerCase() === "nota operativa");
 
   async function handleCopyWhatsApp() {
     try {
       await navigator.clipboard.writeText(buildMasterOrderWhatsAppSummary(order));
+      setWhatsAppCopyStatus("copied");
     } catch {
-      // Keep the operation panel usable even if clipboard permission is unavailable.
+      setWhatsAppCopyStatus("error");
     }
+  }
+
+  async function handleOperationalNoteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const note = operationalNote.trim();
+    if (note.length < 3) return;
+
+    const ok = await onDirectAction(order, "add-note", { notes: note });
+    if (ok) setOperationalNote("");
   }
 
   function buildMoneyPayloads(lines: MoneyLineDraft[], fallbackNotes = "") {
@@ -1289,11 +1304,23 @@ function OrderDetailPanel({
               </div>
               <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                 <button
-                  className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
+                  className={[
+                    "rounded-xl border bg-[#0B0B0D] px-3 py-2 text-sm hover:border-[#FEEF00]/50",
+                    whatsAppCopyStatus === "copied"
+                      ? "border-emerald-500/50 text-emerald-300"
+                      : whatsAppCopyStatus === "error"
+                        ? "border-red-500/50 text-red-300"
+                        : "border-[#242433] text-[#F5F5F7]",
+                  ].join(" ")}
                   type="button"
                   onClick={handleCopyWhatsApp}
+                  title={whatsAppCopyStatus === "error" ? "El navegador no permitio copiar el resumen" : undefined}
                 >
-                  Copiar WS
+                  {whatsAppCopyStatus === "copied"
+                    ? "WS copiado"
+                    : whatsAppCopyStatus === "error"
+                      ? "No se copio"
+                      : "Copiar WS"}
                 </button>
                 <button
                   className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
@@ -1333,12 +1360,75 @@ function OrderDetailPanel({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
             <div className="min-w-0">
-              <MasterOrderDetailBody
-                actionLabel={actionLabel}
-                activeTab={activeTab}
-                order={order}
-                showDeliveryProcessDetails={false}
-              />
+              {activeTab === "notas" ? (
+                <div className="mt-4 space-y-3">
+                  <form
+                    className="rounded-xl border border-[#242433] bg-[#121218] p-3"
+                    onSubmit={handleOperationalNoteSubmit}
+                  >
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Agregar nota operativa</div>
+                    <div className="mt-1 text-[12px] text-[#8A8A96]">
+                      Queda en el historial de la orden sin cambiar la nota comercial ni los montos.
+                    </div>
+                    <textarea
+                      className="mt-3 min-h-24 w-full resize-y rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none transition placeholder:text-[#666672] focus:border-[#FEEF00]/60"
+                      maxLength={1200}
+                      placeholder="Ej.: Cliente confirma que recibira personalmente."
+                      value={operationalNote}
+                      onChange={(event) => setOperationalNote(event.target.value)}
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <span className="text-[11px] text-[#8A8A96]">{operationalNote.length}/1200</span>
+                      <button
+                        className="rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-sm font-semibold text-[#0B0B0D] disabled:cursor-not-allowed disabled:opacity-50"
+                        type="submit"
+                        disabled={busy || operationalNote.trim().length < 3}
+                      >
+                        {runningAction === `add-note:${order.id}` ? "Guardando..." : "Guardar nota"}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">Nota original del pedido</div>
+                    <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                      {order.notes?.trim() || "Sin nota original."}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Seguimiento operativo</div>
+                      <div className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-[#B7B7C2]">
+                        {operationalNotes.length}
+                      </div>
+                    </div>
+                    {operationalNotes.length === 0 ? (
+                      <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+                        Sin notas operativas registradas.
+                      </div>
+                    ) : (
+                      <div className="mt-3 space-y-2">
+                        {operationalNotes.map((event) => (
+                          <div key={event.id} className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3">
+                            <div className="text-sm text-[#F5F5F7]">{event.message || "Nota sin detalle."}</div>
+                            <div className="mt-2 text-[11px] text-[#8A8A96]">
+                              {event.actorName} - {formatMasterOrderDateTime(event.createdAt)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <MasterOrderDetailBody
+                  actionLabel={actionLabel}
+                  activeTab={activeTab}
+                  order={order}
+                  showDeliveryProcessDetails={false}
+                />
+              )}
             </div>
 
             <aside className="space-y-3 lg:sticky lg:top-4">
@@ -3285,6 +3375,13 @@ export default function MasterOpsClient({
         result = await closeMasterOpsRoundingBalanceAction({
           orderId: order.id,
           notes: payload.notes?.trim() || null,
+        });
+      } else if (action === "add-note") {
+        const note = String(payload.notes || "").trim();
+        if (note.length < 3) throw new Error("La nota debe tener al menos 3 caracteres.");
+        result = await addMasterOpsOrderNoteAction({
+          orderId: order.id,
+          note,
         });
       } else if (action === "cancel-order") {
         const reason = String(payload.reason || "").trim();
