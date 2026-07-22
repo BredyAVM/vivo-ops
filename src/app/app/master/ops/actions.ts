@@ -97,6 +97,96 @@ export async function addMasterOpsOrderNoteAction(input: {
   }
 }
 
+export type MasterOpsPaymentSuggestion = {
+  pendingUsd: number;
+  pendingBs: number | null;
+  exchangeRate: number | null;
+  activeRate: number | null;
+  collectionMode: string | null;
+  operationDate: string;
+};
+
+type MasterOpsPaymentSuggestionRow = {
+  pending_usd: number | string | null;
+  pending_bs: number | string | null;
+  snapshot_rate_bs_per_usd: number | string | null;
+  collection_mode: string | null;
+  effective_operation_date: string | null;
+};
+
+export async function loadMasterOpsPaymentSuggestionAction(input: {
+  orderId: number;
+  operationDate: string;
+}) {
+  try {
+    const { supabase } = await requireMasterOrAdminContext();
+    const orderId = Number(input.orderId || 0);
+    const operationDate = String(input.operationDate || "").trim();
+
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      throw new Error("Orden invalida.");
+    }
+    if (!isDateKey(operationDate)) {
+      throw new Error("Fecha de operacion invalida.");
+    }
+
+    const { data: activeRateRow, error: activeRateError } = await supabase
+      .from("exchange_rates")
+      .select("rate_bs_per_usd")
+      .eq("is_active", true)
+      .order("effective_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeRateError) throw new Error(activeRateError.message);
+
+    const activeRateValue = Number(activeRateRow?.rate_bs_per_usd ?? 0);
+    const activeRate = Number.isFinite(activeRateValue) && activeRateValue > 0
+      ? Number(activeRateValue.toFixed(4))
+      : null;
+    const { data, error } = await supabase.rpc("get_order_financial_state", {
+      p_order_id: orderId,
+      p_operation_date: operationDate,
+      p_active_bs_rate: activeRate,
+    });
+
+    if (error) throw new Error(error.message);
+
+    const state = ((Array.isArray(data) ? data : []) as MasterOpsPaymentSuggestionRow[])[0] ?? null;
+    if (!state) throw new Error("No se pudo calcular el saldo financiero de la orden.");
+
+    const pendingUsd = Math.max(0, roundOpsMoney(state.pending_usd));
+    const pendingBsValue = Number(state.pending_bs);
+    const pendingBs = state.pending_bs != null && Number.isFinite(pendingBsValue)
+      ? Math.max(0, roundOpsMoney(pendingBsValue))
+      : null;
+    const snapshotRateValue = Number(state.snapshot_rate_bs_per_usd);
+    const exchangeRate =
+      pendingBs != null && pendingBs > 0.005 && pendingUsd > 0.005
+        ? Number((pendingBs / pendingUsd).toFixed(4))
+        : state.snapshot_rate_bs_per_usd != null && Number.isFinite(snapshotRateValue) && snapshotRateValue > 0
+          ? Number(snapshotRateValue.toFixed(4))
+          : activeRate;
+
+    return {
+      ok: true as const,
+      suggestion: {
+        pendingUsd,
+        pendingBs,
+        exchangeRate,
+        activeRate,
+        collectionMode: state.collection_mode ?? null,
+        operationDate: state.effective_operation_date ?? operationDate,
+      } satisfies MasterOpsPaymentSuggestion,
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : "No se pudo actualizar el saldo del pago.",
+    };
+  }
+}
+
 function getMasterOpsSearchPricing(order: Record<string, unknown>) {
   const extraFields =
     order.extra_fields && typeof order.extra_fields === "object" && !Array.isArray(order.extra_fields)
