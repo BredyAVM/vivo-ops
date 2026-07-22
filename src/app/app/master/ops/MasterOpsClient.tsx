@@ -1,8 +1,9 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
@@ -69,7 +70,10 @@ import {
   type MasterOpsOrderSearchResult,
   updateMasterOpsExchangeRateAction,
 } from "./actions";
+import type { MasterOpsInboxItem, MasterOpsInboxKind } from "./inbox-actions";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
+
+const MasterOpsInboxDrawer = dynamic(() => import("./MasterOpsInboxDrawer"), { ssr: false });
 
 export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder & {
@@ -581,11 +585,13 @@ function TopNavButton({
   active = false,
   href,
   count,
+  onClick,
 }: {
   label: string;
   active?: boolean;
   href?: string;
   count?: number;
+  onClick?: () => void;
 }) {
   const className = [
     "inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-[13px] font-semibold transition",
@@ -605,7 +611,7 @@ function TopNavButton({
   );
 
   if (href) return <Link className={className} href={href}>{content}</Link>;
-  return <button className={className} type="button">{content}</button>;
+  return <button className={className} onClick={onClick} type="button">{content}</button>;
 }
 
 function StatRow({
@@ -2715,6 +2721,8 @@ export default function MasterOpsClient({
   const [selectedDetailTab, setSelectedDetailTab] = useState<DetailTab>("detalle");
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [inboxMode, setInboxMode] = useState<MasterOpsInboxKind | null>(null);
+  const [inboxCounts, setInboxCounts] = useState({ actions: stats.actions, updates: stats.updates });
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -2723,6 +2731,16 @@ export default function MasterOpsClient({
       setExchangeRateError(null);
     }
   }, [activeRate, rateEditorOpen]);
+
+  useEffect(() => {
+    setInboxCounts({ actions: stats.actions, updates: stats.updates });
+  }, [stats.actions, stats.updates]);
+
+  const handleInboxCountChange = useCallback((kind: MasterOpsInboxKind, count: number) => {
+    setInboxCounts((current) => current[kind] === count ? current : { ...current, [kind]: count });
+  }, []);
+
+  const closeInbox = useCallback(() => setInboxMode(null), []);
 
   const normalizedSearch = normalizeSearchText(search);
   const trayCounts = useMemo(() => {
@@ -2819,6 +2837,21 @@ export default function MasterOpsClient({
     setActionError(null);
   }
 
+  function openInboxOrder(item: MasterOpsInboxItem) {
+    setInboxMode(null);
+    const localOrder = orders.find((order) => order.id === item.orderId);
+    if (localOrder) {
+      openOrder(localOrder, item.openTab);
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("focusDate", item.operationalDate);
+    params.set("openOrder", String(item.orderId));
+    params.set("tab", item.openTab);
+    router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }
+
   function openSearchOrderResult(result: MasterOpsMergedSearchResult) {
     setSearch("");
     setSubmittedOrderSearch("");
@@ -2908,10 +2941,15 @@ export default function MasterOpsClient({
     const order = orders.find((item) => item.id === openOrderId);
     if (!order) return;
 
-    openOrder(order, "detalle");
+    const requestedTab = searchParams.get("tab");
+    const openTab = MASTER_ORDER_DETAIL_TABS.some((tab) => tab.key === requestedTab)
+      ? requestedTab as DetailTab
+      : "detalle";
+    openOrder(order, openTab);
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete("openOrder");
+    params.delete("tab");
     router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
   }, [orders, router, searchParams]);
 
@@ -3330,10 +3368,20 @@ export default function MasterOpsClient({
 
               <div className="flex items-center gap-2.5">
                 <div className="flex items-center gap-1.5 rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
-                  <TopNavButton label="Operacion" active />
+                  <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
                   <TopNavButton label="Dashboard actual" href="/app/master/dashboard" />
-                  <TopNavButton label="Acciones" count={stats.actions} />
-                  <TopNavButton label="Seguimiento" count={stats.updates} />
+                  <TopNavButton
+                    label="Acciones"
+                    active={inboxMode === "actions"}
+                    count={inboxCounts.actions}
+                    onClick={() => setInboxMode("actions")}
+                  />
+                  <TopNavButton
+                    label="Seguimiento"
+                    active={inboxMode === "updates"}
+                    count={inboxCounts.updates}
+                    onClick={() => setInboxMode("updates")}
+                  />
                 </div>
 
                 <div className="w-[240px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
@@ -3636,6 +3684,15 @@ export default function MasterOpsClient({
           </div>
         </div>
       </main>
+      {inboxMode ? (
+        <MasterOpsInboxDrawer
+          key={inboxMode}
+          kind={inboxMode}
+          onClose={closeInbox}
+          onOpenOrder={openInboxOrder}
+          onCountChange={handleInboxCountChange}
+        />
+      ) : null}
       {selectedOrder ? (
         <OrderDetailPanel
           key={selectedOrder.id}
