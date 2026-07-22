@@ -20,7 +20,6 @@ import {
   ORDER_STATUS_LABELS,
   formatOrderDisplayNumber,
   getPaymentMethodLabel,
-  type FulfillmentType,
   type OrderStatus,
 } from "@/lib/orders/order-labels";
 import {
@@ -44,7 +43,6 @@ import {
   rejectPaymentReportAction,
   returnFromKitchenToQueueAction,
   returnToCreatedAction,
-  searchMasterOrdersAction,
   sendToKitchenAction,
 } from "../dashboard/actions";
 import {
@@ -67,6 +65,8 @@ import {
   closeMasterOpsRoundingBalanceAction,
   confirmMasterOpsPaymentReportAction,
   settleMasterOpsClientFundPayoutAction,
+  searchMasterOpsOrdersAction,
+  type MasterOpsOrderSearchResult,
   updateMasterOpsExchangeRateAction,
 } from "./actions";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
@@ -92,20 +92,6 @@ export type MasterOpsPaymentAccountOption = {
   accountName: string;
   currencyCode: "USD" | "VES";
   paymentMethodCode: string;
-};
-type MasterOpsOrderSearchResult = {
-  id: number;
-  orderNumber: string;
-  matchPriority: number;
-  status: string;
-  fulfillment: string;
-  clientName: string;
-  clientPhone: string | null;
-  advisorName: string;
-  totalUsd: number;
-  totalBs: number;
-  createdAt: string;
-  operationalDate: string;
 };
 type MasterOpsMergedSearchResult = {
   id: number;
@@ -312,9 +298,8 @@ function normalizeSearchText(value: unknown) {
     .trim();
 }
 
-function orderDisplayNumber(order: Pick<MasterOpsOrder, "id" | "orderNumber">) {
-  const value = String(order.orderNumber || "").trim();
-  return value || formatOrderDisplayNumber(order.id);
+function orderDisplayNumber(order: Pick<MasterOpsOrder, "id">) {
+  return formatOrderDisplayNumber(order.id);
 }
 
 function parseDecimal(value: string) {
@@ -535,25 +520,6 @@ function matchesTray(order: MasterOpsOrder, tray: MasterTray) {
   return true;
 }
 
-function dashboardUrl(
-  order: MasterOpsOrder,
-  focusDate: string,
-  tab: DetailTab = "detalle",
-  options?: { edit?: boolean }
-) {
-  const params = new URLSearchParams({
-    focusDate,
-    openOrder: String(order.id),
-    tab,
-  });
-
-  if (options?.edit) {
-    params.set("editOrder", "1");
-  }
-
-  return `/app/master/dashboard?${params.toString()}`;
-}
-
 function directActionsForOrder(order: MasterOpsOrder): Array<{
   key: DirectActionKey;
   label: string;
@@ -590,14 +556,12 @@ function directActionsForOrder(order: MasterOpsOrder): Array<{
 
 function advancedOperationalLinks(order: MasterOpsOrder): Array<{
   label: string;
-  tab: DetailTab;
   tone: "neutral" | "danger";
-  edit?: boolean;
 }> {
-  const links: Array<{ label: string; tab: DetailTab; tone: "neutral" | "danger"; edit?: boolean }> = [];
+  const links: Array<{ label: string; tone: "neutral" | "danger" }> = [];
 
   if (!["delivered", "cancelled"].includes(order.status)) {
-    links.push({ label: "Modificar orden", tab: "detalle", tone: "neutral", edit: true });
+    links.push({ label: "Modificar orden", tone: "neutral" });
   }
 
   return links;
@@ -711,7 +675,6 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
 
 function OrderDetailPanel({
   order,
-  focusDate,
   activeRate,
   roles,
   activeTab,
@@ -727,7 +690,6 @@ function OrderDetailPanel({
   paymentAccounts,
 }: {
   order: MasterOpsOrder;
-  focusDate: string;
   activeRate: number | null;
   roles: string[];
   activeTab: DetailTab;
@@ -2687,7 +2649,6 @@ function OrderDetailPanel({
               <div className="mt-3 border-t border-[#242433] pt-3">
                 <div className="flex flex-wrap gap-2">
                   {advancedLinks.map((link) => (
-                    link.edit ? (
                     <button
                       key={link.label}
                       className={[
@@ -2702,20 +2663,6 @@ function OrderDetailPanel({
                     >
                       {link.label}
                     </button>
-                    ) : (
-                    <Link
-                      key={link.label}
-                      className={[
-                        "rounded-xl border px-3 py-1.5 text-[12px] font-semibold transition",
-                        link.tone === "danger"
-                          ? "border-red-500/45 bg-red-500/10 text-red-200 hover:border-red-400"
-                          : "border-[#242433] bg-[#0B0B0D] text-[#B7B7C2] hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]",
-                      ].join(" ")}
-                      href={dashboardUrl(order, focusDate, link.tab)}
-                    >
-                      {link.label}
-                    </Link>
-                    )
                   ))}
                 </div>
               </div>
@@ -2855,7 +2802,7 @@ export default function MasterOpsClient({
       .map((result) => ({
         id: result.id,
         matchPriority: result.matchPriority,
-        label: `${formatOrderDisplayNumber(result.orderNumber || result.id)} - ${result.clientName}`,
+        label: `${formatOrderDisplayNumber(result.id)} - ${result.clientName}`,
         sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} - ${result.operationalDate} - ${fmtUSD(result.totalUsd)}`,
         operationalDate: result.operationalDate,
         source: "remote" as const,
@@ -2929,7 +2876,7 @@ export default function MasterOpsClient({
     setRemoteOrderSearchError(null);
 
     const timer = window.setTimeout(() => {
-      searchMasterOrdersAction({ query, limit: 10 })
+      searchMasterOpsOrdersAction({ query, limit: 10 })
         .then((results) => {
           if (cancelled) return;
           setRemoteOrderSearchResults(results as MasterOpsOrderSearchResult[]);
@@ -3492,8 +3439,8 @@ export default function MasterOpsClient({
                 setSearch(event.target.value);
                 setIsOrderSearchSubmitted(false);
               }}
-              placeholder="Buscar orden o cliente y presiona Enter"
-              aria-label="Buscar orden o cliente"
+              placeholder="N.º corto, cliente, telefono o ubicador"
+              aria-label="Buscar por numero corto, cliente, telefono o ubicador"
               className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] py-1.5 pl-3.5 pr-24 text-[13px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
             />
             <button
@@ -3507,9 +3454,9 @@ export default function MasterOpsClient({
               </svg>
               Buscar
             </button>
-            {shouldSearchOrders && (mergedOrderSearchResults.length > 0 || remoteOrderSearchLoading || remoteOrderSearchError || isOrderSearchSubmitted) ? (
+            {isOrderSearchSubmitted ? (
               <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[#242433] bg-[#0B0B0D] shadow-2xl">
-                {mergedOrderSearchResults.map((result) => (
+                {shouldSearchOrders ? mergedOrderSearchResults.map((result) => (
                   <button
                     key={`${result.source}-${result.id}`}
                     className="w-full px-4 py-3 text-left hover:bg-[#121218]"
@@ -3524,20 +3471,25 @@ export default function MasterOpsClient({
                     </div>
                     <div className="mt-0.5 text-xs text-[#B7B7C2]">{result.sub}</div>
                   </button>
-                ))}
-                {remoteOrderSearchLoading ? (
+                )) : null}
+                {!shouldSearchOrders ? (
+                  <div className="px-4 py-3 text-xs text-[#8A8A96]">
+                    Escribe al menos 2 caracteres o un numero corto de orden.
+                  </div>
+                ) : null}
+                {shouldSearchOrders && remoteOrderSearchLoading ? (
                   <div className="border-t border-[#242433] px-4 py-2 text-xs text-[#8A8A96]">
                     Buscando en historial...
                   </div>
                 ) : null}
-                {!remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 ? (
+                {shouldSearchOrders && !remoteOrderSearchLoading && !remoteOrderSearchError && mergedOrderSearchResults.length === 0 ? (
                   <div className="border-t border-[#242433] px-4 py-3 text-xs text-[#8A8A96]">
-                    Sin resultados para esta busqueda.
+                    No encontramos pedidos por numero corto, cliente, telefono ni ubicador.
                   </div>
                 ) : null}
-                {remoteOrderSearchError ? (
+                {shouldSearchOrders && remoteOrderSearchError ? (
                   <div className="border-t border-[#3A1F25] px-4 py-2 text-xs text-[#F0A6AE]">
-                    {remoteOrderSearchError}
+                    No se pudo consultar el historial. Puedes volver a presionar Buscar para reintentar.
                   </div>
                 ) : null}
               </div>
@@ -3556,7 +3508,7 @@ export default function MasterOpsClient({
               className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
               href="/app/master/dashboard"
             >
-              Ingreso / Egreso
+              Ingreso / Egreso (consola)
             </Link>
           </div>
         </div>
@@ -3603,7 +3555,11 @@ export default function MasterOpsClient({
                 {tableOrders.length === 0 ? (
                   <tr>
                     <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={9}>
-                      Sin pedidos para este filtro.
+                      {search.trim()
+                        ? `No hay pedidos del dia que coincidan con "${search.trim()}". Presiona Buscar para consultar el historial.`
+                        : tray === "all"
+                          ? "No hay pedidos para este dia."
+                          : "No hay pedidos en esta bandeja para el dia seleccionado."}
                     </td>
                   </tr>
                 ) : (
@@ -3684,7 +3640,6 @@ export default function MasterOpsClient({
         <OrderDetailPanel
           key={selectedOrder.id}
           order={selectedOrder}
-          focusDate={focusDate}
           activeRate={activeRate}
           roles={roles}
           activeTab={selectedDetailTab}

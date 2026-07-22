@@ -2,15 +2,202 @@
 
 import { revalidatePath } from "next/cache";
 import { requireMasterOrAdminContext } from "@/lib/auth";
+import { getPhoneSearchTerms } from "@/lib/phone/normalize-phone";
+import { normalizeRemoteSearchValue } from "@/lib/search/normalize-search";
 import {
   cancelOrderAction,
   confirmPaymentReportAction,
+  searchMasterOrdersAction,
   settleClientFundPayoutAction,
   updateExchangeRateAction,
 } from "../dashboard/actions";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
 const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
+
+export type MasterOpsOrderSearchResult = {
+  id: number;
+  orderNumber: string;
+  matchPriority: number;
+  status: string;
+  fulfillment: string;
+  clientName: string;
+  clientPhone: string | null;
+  advisorName: string;
+  totalUsd: number;
+  totalBs: number;
+  createdAt: string;
+  operationalDate: string;
+};
+
+function getMasterOpsSearchPricing(order: Record<string, unknown>) {
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === "object" && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as Record<string, unknown>)
+      : {};
+
+  return extraFields.pricing && typeof extraFields.pricing === "object" && !Array.isArray(extraFields.pricing)
+    ? (extraFields.pricing as Record<string, unknown>)
+    : {};
+}
+
+function getMasterOpsSearchTotal(order: Record<string, unknown>, currency: "usd" | "bs") {
+  const pricing = getMasterOpsSearchPricing(order);
+  const snapshot = Number(pricing[`total_${currency}`]);
+  const fallback = Number(order[currency === "usd" ? "total_usd" : "total_bs_snapshot"]);
+  const value = Number.isFinite(snapshot) ? snapshot : Number.isFinite(fallback) ? fallback : 0;
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function getMasterOpsSearchOperationalDate(order: Record<string, unknown>) {
+  const extraFields =
+    order.extra_fields && typeof order.extra_fields === "object" && !Array.isArray(order.extra_fields)
+      ? (order.extra_fields as Record<string, unknown>)
+      : {};
+  const schedule =
+    extraFields.schedule && typeof extraFields.schedule === "object" && !Array.isArray(extraFields.schedule)
+      ? (extraFields.schedule as Record<string, unknown>)
+      : {};
+
+  if (isDateKey(schedule.date)) return String(schedule.date);
+  return getCaracasDateKey(String(order.created_at || ""));
+}
+
+export async function searchMasterOpsOrdersAction(input: {
+  query: string;
+  limit?: number;
+}): Promise<MasterOpsOrderSearchResult[]> {
+  const query = normalizeRemoteSearchValue(input.query);
+  const isNumericQuery = /^\d+$/.test(query);
+
+  if (query.length < 2 && !isNumericQuery) return [];
+
+  const limit = Math.max(1, Math.min(20, Math.floor(Number(input.limit ?? 10) || 10)));
+  const baseSearchPromise =
+    query.length >= 2
+      ? searchMasterOrdersAction({ query, limit })
+      : Promise.resolve([]);
+  const [{ supabase }, baseResults] = await Promise.all([
+    requireMasterOrAdminContext(),
+    baseSearchPromise,
+  ]);
+  const phoneTerms = getPhoneSearchTerms(query)
+    .map((term) => term.replace(/[,%()]/g, " ").trim())
+    .filter((term) => term.replace(/\D/g, "").length >= 2)
+    .slice(0, 5);
+  let phoneClientIds: number[] = [];
+
+  if (phoneTerms.length > 0) {
+    const { data: phoneClients, error: phoneClientsError } = await supabase
+      .from("clients")
+      .select("id")
+      .or(phoneTerms.map((term) => `phone.ilike.%${term}%`).join(","))
+      .limit(Math.min(60, limit * 4));
+
+    if (phoneClientsError) throw new Error(phoneClientsError.message);
+    phoneClientIds = (phoneClients ?? [])
+      .map((client) => Number(client.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+
+  const directOrderId = isNumericQuery ? Number(query) : null;
+  const supplementalFilters: string[] = [];
+  if (directOrderId && Number.isSafeInteger(directOrderId) && directOrderId > 0) {
+    supplementalFilters.push(`id.eq.${directOrderId}`);
+  }
+  if (phoneClientIds.length > 0) {
+    supplementalFilters.push(`client_id.in.(${phoneClientIds.join(",")})`);
+  }
+  supplementalFilters.push(...phoneTerms.map((term) => `receiver_phone.ilike.%${term}%`));
+
+  let supplementalRows: Array<Record<string, unknown>> = [];
+  if (supplementalFilters.length > 0) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(`
+        id,
+        status,
+        fulfillment,
+        total_usd,
+        total_bs_snapshot,
+        created_at,
+        extra_fields,
+        client:clients!orders_client_id_fkey (
+          full_name,
+          phone
+        ),
+        advisor:profiles!orders_attributed_advisor_id_fkey (
+          full_name
+        ),
+        creator:profiles!orders_created_by_user_id_fkey (
+          full_name
+        )
+      `)
+      .or(supplementalFilters.join(","))
+      .order("created_at", { ascending: false })
+      .limit(Math.min(60, Math.max(12, limit * 3)));
+
+    if (error) throw new Error(error.message);
+    supplementalRows = (data ?? []) as Array<Record<string, unknown>>;
+  }
+
+  const byId = new Map<number, MasterOpsOrderSearchResult>();
+  for (const result of baseResults as MasterOpsOrderSearchResult[]) {
+    const id = Number(result.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    byId.set(id, { ...result, id, orderNumber: String(id) });
+  }
+
+  const normalizedPhoneDigits = query.replace(/\D/g, "");
+  for (const row of supplementalRows) {
+    const id = Number(row.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const client = one(
+      row.client as Record<string, unknown>[] | Record<string, unknown> | null
+    );
+    const advisor = one(
+      row.advisor as Record<string, unknown>[] | Record<string, unknown> | null
+    );
+    const creator = one(
+      row.creator as Record<string, unknown>[] | Record<string, unknown> | null
+    );
+    const clientPhone = cleanText(client?.phone) || null;
+    const clientPhoneDigits = String(clientPhone || "").replace(/\D/g, "");
+    const isExactPhone =
+      normalizedPhoneDigits.length >= 2 &&
+      (clientPhoneDigits === normalizedPhoneDigits || clientPhoneDigits.endsWith(normalizedPhoneDigits));
+    const matchPriority = directOrderId === id ? 0 : isExactPhone ? 4 : 6;
+    const current = byId.get(id);
+
+    if (current) {
+      byId.set(id, {
+        ...current,
+        orderNumber: String(id),
+        matchPriority: Math.min(current.matchPriority, matchPriority),
+      });
+      continue;
+    }
+
+    byId.set(id, {
+      id,
+      orderNumber: String(id),
+      matchPriority,
+      status: cleanText(row.status),
+      fulfillment: cleanText(row.fulfillment),
+      clientName: cleanText(client?.full_name, "Sin cliente"),
+      clientPhone,
+      advisorName: cleanText(advisor?.full_name, cleanText(creator?.full_name)),
+      totalUsd: getMasterOpsSearchTotal(row, "usd"),
+      totalBs: getMasterOpsSearchTotal(row, "bs"),
+      createdAt: cleanText(row.created_at),
+      operationalDate: getMasterOpsSearchOperationalDate(row),
+    });
+  }
+
+  return Array.from(byId.values())
+    .sort((a, b) => a.matchPriority - b.matchPriority || b.id - a.id)
+    .slice(0, limit);
+}
 
 export type MasterOpsPaymentConfirmationInput = {
   reportId: number;
@@ -726,7 +913,6 @@ type RawRelatedProduct =
 
 type RawOrderEditRow = {
   id: number | string;
-  order_number: string | null;
   client_id: number | string | null;
   attributed_advisor_id: string | null;
   source: "advisor" | "master" | "walk_in";
@@ -1311,7 +1497,6 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       .select(
         `
         id,
-        order_number,
         client_id,
         attributed_advisor_id,
         source,
@@ -1537,7 +1722,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
   return {
     order: {
       id: Number(orderRow.id),
-      orderNumber: cleanText(orderRow.order_number, String(orderRow.id)),
+      orderNumber: String(orderRow.id),
       status: orderRow.status,
       source: orderRow.source,
       attributedAdvisorUserId: orderRow.attributed_advisor_id ?? null,

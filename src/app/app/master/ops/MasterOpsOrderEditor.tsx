@@ -834,7 +834,7 @@ export default function MasterOpsOrderEditor({
               {isCreateMode
                 ? "Nuevo pedido"
                 : form
-                  ? `Modificar orden #${formatOrderDisplayNumber(form.orderNumber || form.id)}`
+                  ? `Modificar orden #${formatOrderDisplayNumber(form.id)}`
                   : "Modificar orden"}
             </div>
             <div className="mt-0.5 text-xs text-[#8A8A96]">

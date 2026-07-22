@@ -33,7 +33,6 @@ type SearchParams = Promise<{
 
 type RawOrderRow = {
   id: number;
-  order_number: string | null;
   client_id: number | string | null;
   attributed_advisor_id: string | null;
   source: "advisor" | "master" | "walk_in";
@@ -741,7 +740,6 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const weekRange = getCaracasWeekRange(focusDate);
   const orderSelect = `
     id,
-    order_number,
     client_id,
     attributed_advisor_id,
     source,
