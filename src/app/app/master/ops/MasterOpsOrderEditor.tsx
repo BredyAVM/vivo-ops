@@ -9,10 +9,12 @@ import {
 } from "@/lib/orders/order-composer";
 import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import { formatOrderDisplayNumber, getPaymentMethodLabel } from "@/lib/orders/order-labels";
-import { createOrderAction, searchClientsAction, updateOrderAction } from "../dashboard/actions";
+import { searchClientsAction } from "../dashboard/actions";
 import {
+  createMasterOpsOrderAction,
   loadMasterOpsOrderCreateDataAction,
   loadMasterOpsOrderEditDataAction,
+  updateMasterOpsOrderAction,
   type MasterOpsEditAdvisor,
   type MasterOpsEditCatalogItem,
   type MasterOpsEditClient,
@@ -22,6 +24,7 @@ import {
   type MasterOpsEditOrderItem,
   type MasterOpsEditProductComponent,
 } from "./actions";
+import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
 
 type Props = {
   mode?: "create" | "edit";
@@ -99,6 +102,62 @@ function bs(value: number) {
 function compact(value: number, decimals = 2) {
   if (!Number.isFinite(value)) return "";
   return String(Number(value.toFixed(decimals)));
+}
+
+function closeNumber(left: unknown, right: unknown, tolerance = 0.000001) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  return Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
+    ? Math.abs(leftNumber - rightNumber) <= tolerance
+    : false;
+}
+
+function sameDetailLines(left: string[] | undefined, right: string[] | undefined) {
+  const normalize = (lines: string[] | undefined) =>
+    (lines ?? []).map((line) => String(line || "").trim()).filter(Boolean);
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
+
+function isExistingLinePricingChanged(
+  original: MasterOpsEditOrderItem | null | undefined,
+  current: MasterOpsEditOrderItem
+) {
+  if (!original) return true;
+  return (
+    original.productId !== current.productId ||
+    !closeNumber(original.qty, current.qty) ||
+    original.sourcePriceCurrency !== current.sourcePriceCurrency ||
+    !closeNumber(original.sourcePriceAmount, current.sourcePriceAmount) ||
+    original.adminPriceOverrideUsd !== current.adminPriceOverrideUsd ||
+    String(original.adminPriceOverrideReason || "").trim() !==
+      String(current.adminPriceOverrideReason || "").trim()
+  );
+}
+
+function isMasterOpsOrderPricingChanged(
+  original: MasterOpsEditOrder | null | undefined,
+  current: MasterOpsEditOrder | null | undefined
+) {
+  if (!original || !current) return true;
+  if (
+    Boolean(original.discountEnabled) !== Boolean(current.discountEnabled) ||
+    !closeNumber(original.discountEnabled ? original.discountPct : 0, current.discountEnabled ? current.discountPct : 0) ||
+    Boolean(original.hasInvoice) !== Boolean(current.hasInvoice) ||
+    !closeNumber(original.hasInvoice ? original.invoiceTaxPct : 0, current.hasInvoice ? current.invoiceTaxPct : 0) ||
+    !closeNumber(original.fxRate, current.fxRate) ||
+    original.items.length !== current.items.length
+  ) {
+    return true;
+  }
+
+  const originalById = new Map(
+    original.items
+      .filter((item) => item.orderItemId != null)
+      .map((item) => [Number(item.orderItemId), item] as const)
+  );
+  return current.items.some(
+    (item) => item.orderItemId == null || isExistingLinePricingChanged(originalById.get(Number(item.orderItemId)), item)
+  );
 }
 
 function normalizeSearchValue(value: unknown) {
@@ -336,7 +395,11 @@ export default function MasterOpsOrderEditor({
   }, [clientSearch]);
 
   const activeRate = data?.activeRate ?? fallbackActiveRate ?? null;
-  const fxRate = Math.max(0, toNumber(form?.fxRate, activeRate ?? 0));
+  const pricingChanged = isCreateMode || isMasterOpsOrderPricingChanged(data?.order, form);
+  const requestedFxRate = Math.max(0, toNumber(form?.fxRate, 0));
+  const fxRate = pricingChanged
+    ? Math.max(0, toNumber(activeRate, 0))
+    : requestedFxRate;
 
   const componentsByParentId = useMemo(() => {
     const map = new Map<number, MasterOpsEditProductComponent[]>();
@@ -399,12 +462,74 @@ export default function MasterOpsOrderEditor({
   }, [calculatedItems, form?.discountEnabled, form?.discountPct, form?.hasInvoice, form?.invoiceTaxPct, fxRate]);
 
   const isAdvancedOrderEdit = form && !isCreateMode ? !["created", "queued"].includes(form.status) : false;
-  const canSave =
-    Boolean(form) &&
-    (Boolean(form?.selectedClientId) || (newClientName.trim().length > 1 && newClientPhone.trim().length > 4)) &&
-    calculatedItems.length > 0 &&
-    fxRate > 0 &&
-    (!isAdvancedOrderEdit || adminEditReason.trim().length >= 4);
+  const requiresEditReason = Boolean(
+    isAdvancedOrderEdit ||
+    (!isCreateMode && form?.isPriceProtected && pricingChanged)
+  );
+  const originalItemsById = new Map(
+    (data?.order.items ?? [])
+      .filter((item) => item.orderItemId != null)
+      .map((item) => [Number(item.orderItemId), item] as const)
+  );
+  const restorableClientFundUsd =
+    !isCreateMode &&
+    data?.order.selectedClientId != null &&
+    data.order.selectedClientId === form?.selectedClientId
+      ? Math.max(0, toNumber(data.order.clientFundAmountUsd, 0))
+      : 0;
+  const validationIssues = form
+    ? getMasterOpsOrderEditorValidationIssues({
+        source: form.source,
+        attributedAdvisorUserId: form.attributedAdvisorUserId,
+        selectedClientId: form.selectedClientId,
+        newClientName,
+        newClientPhone,
+        fulfillment: form.fulfillment,
+        deliveryDate: form.deliveryDate,
+        deliveryHour12: form.deliveryHour12,
+        deliveryMinute: form.deliveryMinute,
+        deliveryAmPm: form.deliveryAmPm,
+        deliveryAddress: form.deliveryAddress,
+        items: calculatedItems.map((item) => {
+          const original = item.orderItemId == null
+            ? null
+            : originalItemsById.get(Number(item.orderItemId)) ?? null;
+          const linePricingChanged = isExistingLinePricingChanged(original, item);
+          const detailsChanged = Boolean(original) &&
+            !sameDetailLines(original?.editableDetailLines, item.editableDetailLines);
+          const validateOverride = !original ||
+            original.adminPriceOverrideUsd !== item.adminPriceOverrideUsd ||
+            String(original.adminPriceOverrideReason || "").trim() !==
+              String(item.adminPriceOverrideReason || "").trim();
+          return {
+            ...item,
+            adminPriceOverrideUsd: validateOverride ? item.adminPriceOverrideUsd : null,
+            validateConfiguration:
+              !original || original.productId !== item.productId || detailsChanged,
+            allowInactiveCatalog: Boolean(original) && !linePricingChanged,
+          };
+        }),
+        catalogItems: data?.catalogItems ?? [],
+        productComponents: data?.productComponents ?? [],
+        fxRate,
+        discountEnabled: form.discountEnabled,
+        discountPct: form.discountPct,
+        hasInvoice: form.hasInvoice,
+        invoiceTaxPct: form.invoiceTaxPct,
+        paymentRequiresChange: form.paymentRequiresChange,
+        paymentChangeFor: form.paymentChangeFor,
+        useClientFund: form.useClientFund,
+        clientFundAmountUsd: form.clientFundAmountUsd,
+        clientFundAvailableUsd: (form.client?.fundBalanceUsd ?? 0) + restorableClientFundUsd,
+        orderTotalUsd: totals.totalUsd,
+        isAdmin,
+        isPriceProtected: form.isPriceProtected,
+        pricingChanged,
+        isAdvancedEdit: requiresEditReason,
+        adminEditReason,
+      })
+    : [];
+  const canSave = Boolean(form) && validationIssues.length === 0;
 
   function patchForm(patch: Partial<MasterOpsEditOrder>) {
     setForm((current) => (current ? { ...current, ...patch } : current));
@@ -419,6 +544,26 @@ export default function MasterOpsOrderEditor({
           }
         : current
     );
+  }
+
+  function updateItemQuantity(item: MasterOpsEditOrderItem, rawValue: string) {
+    const qty = toNumber(rawValue, Number.NaN);
+    const catalogItem = catalogById.get(item.productId) ?? null;
+    const shouldRefreshCatalogPrice =
+      item.adminPriceOverrideUsd == null &&
+      catalogItem != null &&
+      Number.isFinite(qty) &&
+      qty > 0;
+    patchItem(item.localId, {
+      qty,
+      ...(shouldRefreshCatalogPrice
+        ? {
+            sourcePriceCurrency: catalogItem.sourcePriceCurrency,
+            sourcePriceAmount: catalogItem.sourcePriceAmount,
+            unitPriceUsdSnapshot: catalogItem.basePriceUsd,
+          }
+        : {}),
+    });
   }
 
   function removeItem(localId: string) {
@@ -574,6 +719,7 @@ export default function MasterOpsOrderEditor({
       items: [
         ...form.items,
         {
+          orderItemId: null,
           localId: `${Date.now()}-${Math.random()}`,
           productId: product.id,
           skuSnapshot: product.sku,
@@ -667,6 +813,7 @@ export default function MasterOpsOrderEditor({
       ? form.items.find((item) => item.localId === configState.editingLocalId) ?? null
       : null;
     const nextItem: MasterOpsEditOrderItem = {
+      orderItemId: existingItem?.orderItemId ?? null,
       localId: configState.editingLocalId ?? `${Date.now()}-${Math.random()}`,
       productId: configState.productId,
       skuSnapshot: configState.sku,
@@ -727,7 +874,7 @@ export default function MasterOpsOrderEditor({
     event.preventDefault();
     if (!form) return;
     if (!canSave) {
-      setError("Faltan datos obligatorios para guardar.");
+      setError(validationIssues[0]?.message ?? "Faltan datos obligatorios para guardar.");
       return;
     }
 
@@ -758,7 +905,7 @@ export default function MasterOpsOrderEditor({
         discountEnabled: form.discountEnabled,
         discountPct: form.discountPct,
         invoiceTaxPct: form.invoiceTaxPct,
-        fxRate: form.fxRate,
+        fxRate: String(fxRate),
         paymentMethod: form.paymentMethod,
         paymentCurrency: form.paymentCurrency,
         paymentRequiresChange: form.paymentRequiresChange,
@@ -786,6 +933,7 @@ export default function MasterOpsOrderEditor({
         deliveryNoteAddress: form.deliveryNoteAddress,
         deliveryNotePhone: form.deliveryNotePhone,
         items: itemsPayload.map((item) => ({
+          orderItemId: item.orderItemId,
           productId: item.productId,
           skuSnapshot: item.skuSnapshot,
           productNameSnapshot: item.productNameSnapshot,
@@ -801,12 +949,12 @@ export default function MasterOpsOrderEditor({
         })),
       };
       const result = isCreateMode
-        ? await createOrderAction(orderPayload)
-        : await updateOrderAction({
+        ? await createMasterOpsOrderAction(orderPayload)
+        : await updateMasterOpsOrderAction({
             orderId: form.id,
             expectedLastModifiedAt: form.lastModifiedAtISO,
             ...orderPayload,
-            adminEditReason: isAdvancedOrderEdit ? adminEditReason.trim() : null,
+            adminEditReason: requiresEditReason ? adminEditReason.trim() : null,
           });
 
       if (result && "ok" in result && !result.ok) {
@@ -1286,8 +1434,10 @@ export default function MasterOpsOrderEditor({
                               <input
                                 className={fieldClass()}
                                 value={String(item.qty)}
-                                onChange={(event) => patchItem(item.localId, { qty: toNumber(event.target.value, item.qty) })}
+                                onChange={(event) => updateItemQuantity(item, event.target.value)}
                                 inputMode="decimal"
+                                readOnly={Boolean(product?.isDetailEditable)}
+                                title={product?.isDetailEditable ? "Los productos configurables se cargan una unidad a la vez." : undefined}
                               />
                               <div className="text-sm font-semibold text-[#F5F5F7]">
                                 {money(item.lineTotalUsd)}
@@ -1376,13 +1526,19 @@ export default function MasterOpsOrderEditor({
 
                   <Section title="Totales">
                     <div className="grid gap-3 sm:grid-cols-3">
-                      <Field label="Tasa snapshot">
+                      <Field label={pricingChanged ? "Tasa vigente para recalcular" : "Tasa snapshot"}>
                         <input
                           className={fieldClass()}
-                          value={form.fxRate}
+                          value={pricingChanged ? compact(fxRate, 6) : form.fxRate}
                           onChange={(event) => patchForm({ fxRate: event.target.value })}
                           inputMode="decimal"
+                          readOnly={pricingChanged}
                         />
+                        {pricingChanged ? (
+                          <span className="mt-1 block text-[10px] text-emerald-300">
+                            Los cambios comerciales usan automáticamente la tasa activa.
+                          </span>
+                        ) : null}
                       </Field>
                       <label className="flex items-end gap-2 pb-2 text-sm text-[#F5F5F7]">
                         <input
@@ -1428,8 +1584,37 @@ export default function MasterOpsOrderEditor({
                     </div>
                   </Section>
 
-                  {isAdvancedOrderEdit ? (
+                  <Section
+                    title="Validación"
+                    aside={
+                      <span className={validationIssues.length === 0 ? "text-xs text-emerald-300" : "text-xs text-orange-200"}>
+                        {validationIssues.length === 0 ? "Lista para guardar" : `${validationIssues.length} pendiente(s)`}
+                      </span>
+                    }
+                  >
+                    {validationIssues.length === 0 ? (
+                      <div className="text-xs text-emerald-200">
+                        Cliente, entrega, pedido, tasa y condiciones de pago están completos.
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-xs text-orange-100">
+                        {validationIssues.slice(0, 5).map((issue) => (
+                          <div key={`${issue.code}:${issue.message}`}>- {issue.message}</div>
+                        ))}
+                        {validationIssues.length > 5 ? (
+                          <div className="text-[#8A8A96]">Y {validationIssues.length - 5} pendiente(s) más.</div>
+                        ) : null}
+                      </div>
+                    )}
+                  </Section>
+
+                  {requiresEditReason ? (
                     <Section title="Motivo de modificacion">
+                      <div className="mb-2 text-xs text-orange-200">
+                        {form.isPriceProtected && pricingChanged
+                          ? "La orden tiene el precio protegido; el cambio comercial debe quedar justificado."
+                          : "La orden ya avanzó en operación; el cambio debe quedar auditado."}
+                      </div>
                       <textarea
                         className={`${fieldClass()} min-h-[74px] border-orange-500/30`}
                         value={adminEditReason}

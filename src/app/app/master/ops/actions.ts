@@ -3,14 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { requireMasterOrAdminContext } from "@/lib/auth";
 import { getPhoneSearchTerms } from "@/lib/phone/normalize-phone";
+import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { normalizeRemoteSearchValue } from "@/lib/search/normalize-search";
 import {
   cancelOrderAction,
   confirmPaymentReportAction,
+  createOrderAction,
   searchMasterOrdersAction,
   settleClientFundPayoutAction,
   updateExchangeRateAction,
+  updateOrderAction,
 } from "../dashboard/actions";
+import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
 const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
@@ -923,6 +927,7 @@ type RawOrderEditRow = {
   receiver_phone: string | null;
   total_usd: number | string | null;
   total_bs_snapshot: number | string | null;
+  is_price_locked: boolean | null;
   notes: string | null;
   created_at: string;
   last_modified_at: string | null;
@@ -1083,6 +1088,7 @@ export type MasterOpsEditAdvisor = {
 };
 
 export type MasterOpsEditOrderItem = {
+  orderItemId: number | null;
   localId: string;
   productId: number;
   skuSnapshot: string | null;
@@ -1104,6 +1110,7 @@ export type MasterOpsEditOrder = {
   id: number;
   orderNumber: string;
   status: string;
+  isPriceProtected: boolean;
   source: "advisor" | "master" | "walk_in";
   attributedAdvisorUserId: string | null;
   fulfillment: "pickup" | "delivery";
@@ -1151,6 +1158,21 @@ export type MasterOpsEditData = {
   productComponents: MasterOpsEditProductComponent[];
   advisors: MasterOpsEditAdvisor[];
   activeRate: number | null;
+};
+
+type DashboardCreateOrderInput = Parameters<typeof createOrderAction>[0];
+type DashboardUpdateOrderInput = Parameters<typeof updateOrderAction>[0];
+
+export type MasterOpsOrderSaveItem = DashboardCreateOrderInput["items"][number] & {
+  orderItemId?: number | null;
+};
+
+export type MasterOpsOrderCreateInput = Omit<DashboardCreateOrderInput, "items"> & {
+  items: MasterOpsOrderSaveItem[];
+};
+
+export type MasterOpsOrderUpdateInput = Omit<DashboardUpdateOrderInput, "items"> & {
+  items: MasterOpsOrderSaveItem[];
 };
 
 function toNumber(value: unknown, fallback = 0) {
@@ -1287,6 +1309,545 @@ function getDefaultScheduleFields(focusDateInput?: string | null) {
     deliveryAmPm: dayPeriod === "AM" ? ("AM" as const) : ("PM" as const),
     isAsap: false,
   };
+}
+
+type MasterOpsSaveCatalogRow = {
+  id: number | string;
+  sku: string | null;
+  name: string | null;
+  is_active: boolean | null;
+  source_price_amount: number | string | null;
+  source_price_currency: string | null;
+  base_price_usd: number | string | null;
+  is_detail_editable: boolean | null;
+  detail_units_limit: number | string | null;
+  internal_rider_pay_usd: number | string | null;
+};
+
+type MasterOpsSaveComponentRow = {
+  parent_product_id: number | string;
+  component_product_id: number | string;
+  component_mode: string | null;
+  is_required: boolean | null;
+  counts_toward_detail_limit: boolean | null;
+  component_product:
+    | { name: string | null }
+    | Array<{ name: string | null }>
+    | null;
+};
+
+type MasterOpsExistingSaveItemRow = {
+  id: number | string;
+  product_id: number | string | null;
+  qty: number | string | null;
+  pricing_origin_currency: string | null;
+  pricing_origin_amount: number | string | null;
+  unit_price_usd_snapshot: number | string | null;
+  line_total_usd: number | string | null;
+  admin_price_override_usd: number | string | null;
+  admin_price_override_reason: string | null;
+  product_name_snapshot: string | null;
+  sku_snapshot: string | null;
+  notes: string | null;
+};
+
+const MASTER_OPS_PAYMENT_METHODS = new Set([
+  "",
+  "cash_usd",
+  "cash_ves",
+  "payment_mobile",
+  "transfer",
+  "pos",
+  "zelle",
+  "wallet_usd",
+  "retention",
+]);
+
+function closeNumber(left: unknown, right: unknown, tolerance = 0.000001) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  return Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
+    ? Math.abs(leftNumber - rightNumber) <= tolerance
+    : false;
+}
+
+function normalizedDetailLines(value: unknown) {
+  const lines = Array.isArray(value) ? value : String(value || "").split("\n");
+  return lines.map((line) => String(line || "").trim()).filter(Boolean);
+}
+
+function sameDetailLines(left: unknown, right: unknown) {
+  return JSON.stringify(normalizedDetailLines(left)) === JSON.stringify(normalizedDetailLines(right));
+}
+
+function readPricingRecord(extraFields: unknown) {
+  const record = asOpsRecord(extraFields);
+  return asOpsRecord(record.pricing);
+}
+
+function readDocumentsRecord(extraFields: unknown) {
+  const record = asOpsRecord(extraFields);
+  return asOpsRecord(record.documents);
+}
+
+async function loadMasterOpsOrderFinancialStateForValidation(
+  supabase: unknown,
+  orderId: number,
+  activeRate: number
+) {
+  const rpcClient = supabase as {
+    rpc: (
+      name: "get_order_financial_state",
+      args: {
+        p_order_id: number;
+        p_operation_date: null;
+        p_active_bs_rate: number | null;
+      }
+    ) => Promise<{
+      data: Array<Record<string, unknown>> | null;
+      error: { message: string } | null;
+    }>;
+  };
+  return rpcClient.rpc("get_order_financial_state", {
+    p_order_id: orderId,
+    p_operation_date: null,
+    p_active_bs_rate: activeRate > 0 ? activeRate : null,
+  });
+}
+
+function stripMasterOpsOrderItem(item: MasterOpsOrderSaveItem): DashboardCreateOrderInput["items"][number] {
+  return {
+    productId: item.productId,
+    skuSnapshot: item.skuSnapshot,
+    productNameSnapshot: item.productNameSnapshot,
+    qty: item.qty,
+    sourcePriceCurrency: item.sourcePriceCurrency,
+    sourcePriceAmount: item.sourcePriceAmount,
+    unitPriceUsdSnapshot: item.unitPriceUsdSnapshot,
+    lineTotalUsd: item.lineTotalUsd,
+    adminPriceOverrideUsd: item.adminPriceOverrideUsd,
+    adminPriceOverrideCurrency: item.adminPriceOverrideCurrency ?? null,
+    adminPriceOverrideReason: item.adminPriceOverrideReason,
+    editableDetailLines: item.editableDetailLines,
+  };
+}
+
+async function prepareMasterOpsOrderSave(
+  mode: "create" | "edit",
+  input: MasterOpsOrderCreateInput | MasterOpsOrderUpdateInput
+) {
+  const ctx = await requireMasterOrAdminContext();
+  const isAdmin = ctx.roles.includes("admin");
+
+  if (!["advisor", "master", "walk_in"].includes(String(input.source || ""))) {
+    throw new Error("El origen de la orden no es válido.");
+  }
+  if (!["pickup", "delivery"].includes(String(input.fulfillment || ""))) {
+    throw new Error("El tipo de entrega no es válido.");
+  }
+  if (!["USD", "VES"].includes(String(input.paymentCurrency || ""))) {
+    throw new Error("La moneda de pago no es válida.");
+  }
+  if (!["USD", "VES"].includes(String(input.paymentChangeCurrency || ""))) {
+    throw new Error("La moneda del cambio no es válida.");
+  }
+  if (!MASTER_OPS_PAYMENT_METHODS.has(String(input.paymentMethod || ""))) {
+    throw new Error("El método de pago no es válido.");
+  }
+  if (!["assigned", "own", "legacy"].includes(String(input.newClientType || ""))) {
+    throw new Error("El tipo de cliente no es válido.");
+  }
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    throw new Error("Agrega al menos un producto al pedido.");
+  }
+
+  const productIds = Array.from(
+    new Set(
+      input.items
+        .map((item) => Number(item.productId))
+        .filter((id) => Number.isSafeInteger(id) && id > 0)
+    )
+  );
+  if (productIds.length !== new Set(input.items.map((item) => Number(item.productId))).size) {
+    throw new Error("Uno de los productos de la orden no es válido.");
+  }
+
+  const orderId = mode === "edit" ? Number((input as MasterOpsOrderUpdateInput).orderId) : null;
+  if (mode === "edit" && (!Number.isSafeInteger(orderId) || Number(orderId) <= 0)) {
+    throw new Error("La orden no es válida.");
+  }
+
+  const [productsResult, componentsResult, activeRateResult, advisorsResult, selectedClientResult, orderResult, orderItemsResult] =
+    await Promise.all([
+      ctx.supabase
+        .from("products")
+        .select(
+          "id, sku, name, is_active, source_price_amount, source_price_currency, base_price_usd, is_detail_editable, detail_units_limit, internal_rider_pay_usd"
+        )
+        .in("id", productIds),
+      ctx.supabase
+        .from("product_components")
+        .select(
+          "parent_product_id, component_product_id, component_mode, is_required, counts_toward_detail_limit, component_product:products!product_components_component_product_id_fkey(name)"
+        )
+        .in("parent_product_id", productIds),
+      ctx.supabase
+        .from("exchange_rates")
+        .select("rate_bs_per_usd")
+        .eq("is_active", true)
+        .order("effective_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      input.source === "advisor"
+        ? ctx.supabase.rpc("get_advisor_profiles")
+        : Promise.resolve({ data: [], error: null }),
+      Number(input.selectedClientId || 0) > 0
+        ? ctx.supabase
+            .from("clients")
+            .select("id, fund_balance_usd")
+            .eq("id", Number(input.selectedClientId))
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      mode === "edit"
+        ? ctx.supabase
+            .from("orders")
+            .select("id, status, client_id, total_usd, is_price_locked, last_modified_at, extra_fields")
+            .eq("id", Number(orderId))
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      mode === "edit"
+        ? ctx.supabase
+            .from("order_items")
+            .select(
+              "id, product_id, qty, pricing_origin_currency, pricing_origin_amount, unit_price_usd_snapshot, line_total_usd, admin_price_override_usd, admin_price_override_reason, product_name_snapshot, sku_snapshot, notes"
+            )
+            .eq("order_id", Number(orderId))
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+  const queryError =
+    productsResult.error ??
+    componentsResult.error ??
+    activeRateResult.error ??
+    advisorsResult.error ??
+    selectedClientResult.error ??
+    orderResult.error ??
+    orderItemsResult.error;
+  if (queryError) throw new Error(queryError.message);
+
+  const currentOrder = orderResult.data as {
+    id: number | string;
+    status: string;
+    client_id: number | string | null;
+    total_usd: number | string | null;
+    is_price_locked: boolean | null;
+    last_modified_at: string | null;
+    extra_fields: unknown;
+  } | null;
+
+  if (mode === "edit" && !currentOrder) {
+    throw new Error("La orden ya no está disponible.");
+  }
+  if (currentOrder && ["delivered", "cancelled"].includes(String(currentOrder.status || ""))) {
+    throw new Error("Una orden entregada o cancelada no se modifica desde Master Ops.");
+  }
+  if (currentOrder && !["created", "queued"].includes(String(currentOrder.status || ""))) {
+    throw new Error("Después de entrar en cocina, la orden se corrige con acciones operativas, no con edición completa.");
+  }
+
+  if (currentOrder) {
+    const expectedLastModifiedAt = String(
+      (input as MasterOpsOrderUpdateInput).expectedLastModifiedAt || ""
+    ).trim() || null;
+    const currentLastModifiedAt = String(currentOrder.last_modified_at || "").trim() || null;
+    if (expectedLastModifiedAt !== currentLastModifiedAt) {
+      throw new Error("La orden cambió mientras la editabas. Ciérrala y vuelve a abrirla antes de guardar.");
+    }
+  }
+
+  if (input.source === "advisor") {
+    const attributedAdvisorUserId = String(input.attributedAdvisorUserId || "").trim();
+    const advisorIsActive = ((advisorsResult.data ?? []) as Array<{
+      user_id: string | null;
+      is_active: boolean | null;
+    }>).some(
+      (advisor) => String(advisor.user_id || "") === attributedAdvisorUserId && advisor.is_active !== false
+    );
+    if (!advisorIsActive) {
+      throw new Error("El asesor seleccionado ya no está activo.");
+    }
+  }
+
+  if (Number(input.selectedClientId || 0) > 0 && !selectedClientResult.data) {
+    throw new Error("El cliente seleccionado ya no está disponible.");
+  }
+
+  const liveProducts = new Map(
+    ((productsResult.data ?? []) as MasterOpsSaveCatalogRow[]).map((product) => [Number(product.id), product] as const)
+  );
+  const existingItems = (orderItemsResult.data ?? []) as MasterOpsExistingSaveItemRow[];
+  const existingItemsById = new Map(existingItems.map((item) => [Number(item.id), item] as const));
+  const submittedExistingIds = new Set<number>();
+  let itemPricingChanged = mode === "create";
+
+  const preparedItems = input.items.map((item) => {
+    const productId = Number(item.productId);
+    const liveProduct = liveProducts.get(productId) ?? null;
+    const orderItemId = Number(item.orderItemId || 0) > 0 ? Number(item.orderItemId) : null;
+    const existingItem = orderItemId ? existingItemsById.get(orderItemId) ?? null : null;
+
+    if (mode === "create" && orderItemId) {
+      throw new Error("Un pedido nuevo no puede reutilizar líneas de otra orden.");
+    }
+    if (mode === "edit" && orderItemId && !existingItem) {
+      throw new Error("Una línea de la orden cambió mientras la editabas. Vuelve a abrir el editor.");
+    }
+    if (orderItemId) {
+      if (submittedExistingIds.has(orderItemId)) {
+        throw new Error("La orden contiene una línea duplicada.");
+      }
+      submittedExistingIds.add(orderItemId);
+    }
+
+    const productChanged = Boolean(existingItem) && Number(existingItem?.product_id || 0) !== productId;
+    const quantityChanged = Boolean(existingItem) && !closeNumber(existingItem?.qty, item.qty);
+    const detailsChanged = Boolean(existingItem) && !sameDetailLines(existingItem?.notes, item.editableDetailLines);
+    const existingOverride = existingItem?.admin_price_override_usd == null
+      ? null
+      : Number(existingItem.admin_price_override_usd);
+    const nextOverride = item.adminPriceOverrideUsd == null ? null : Number(item.adminPriceOverrideUsd);
+    const overrideChanged = Boolean(existingItem) &&
+      (existingOverride !== nextOverride ||
+        String(existingItem?.admin_price_override_reason || "").trim() !==
+          String(item.adminPriceOverrideReason || "").trim());
+    const isNewLine = !existingItem;
+    const linePricingChanged = isNewLine || productChanged || quantityChanged || overrideChanged;
+    if (linePricingChanged) itemPricingChanged = true;
+
+    if (!liveProduct) {
+      throw new Error(`${String(item.productNameSnapshot || "El producto")} ya no existe en el catálogo.`);
+    }
+    if (linePricingChanged && liveProduct.is_active === false) {
+      throw new Error(`${String(liveProduct.name || item.productNameSnapshot)} ya no está activo en el catálogo.`);
+    }
+
+    if (nextOverride != null && (isNewLine || overrideChanged)) {
+      if (!isAdmin) throw new Error("Solo admin puede crear o cambiar ajustes de precio.");
+      if (!Number.isFinite(nextOverride) || nextOverride < 0) {
+        throw new Error(`El ajuste de precio de ${String(liveProduct.name || "el producto")} es inválido.`);
+      }
+      if (String(item.adminPriceOverrideReason || "").trim().length < 4) {
+        throw new Error(`Indica el motivo del ajuste de precio de ${String(liveProduct.name || "el producto")}.`);
+      }
+    }
+
+    let sourcePriceCurrency: "USD" | "VES";
+    let sourcePriceAmount: number;
+    let unitPriceUsdSnapshot: number;
+    let adminPriceOverrideUsd: number | null;
+    let adminPriceOverrideReason: string | null;
+
+    if (existingItem && !linePricingChanged) {
+      sourcePriceCurrency = existingItem.pricing_origin_currency === "VES" ? "VES" : "USD";
+      sourcePriceAmount = toNumber(existingItem.pricing_origin_amount, 0);
+      unitPriceUsdSnapshot = toNumber(existingItem.unit_price_usd_snapshot, 0);
+      adminPriceOverrideUsd = existingOverride;
+      adminPriceOverrideReason = existingItem.admin_price_override_reason ?? null;
+    } else if (nextOverride != null) {
+      sourcePriceCurrency = item.sourcePriceCurrency === "VES" ? "VES" : "USD";
+      sourcePriceAmount = Number(item.sourcePriceAmount);
+      unitPriceUsdSnapshot = existingItem && !productChanged
+        ? toNumber(existingItem.unit_price_usd_snapshot, 0)
+        : toNumber(liveProduct.base_price_usd, 0);
+      adminPriceOverrideUsd = nextOverride;
+      adminPriceOverrideReason = String(item.adminPriceOverrideReason || "").trim();
+      if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
+        throw new Error(`El precio de ${String(liveProduct.name || "el producto")} es inválido.`);
+      }
+    } else {
+      const liveCurrency = liveProduct.source_price_currency === "VES" ? "VES" : "USD";
+      const liveAmount = toNumber(liveProduct.source_price_amount, 0);
+      if (
+        item.sourcePriceCurrency !== liveCurrency ||
+        !closeNumber(item.sourcePriceAmount, liveAmount)
+      ) {
+        throw new Error("El catálogo cambió mientras editabas. Cierra el editor y vuelve a abrirlo.");
+      }
+      sourcePriceCurrency = liveCurrency;
+      sourcePriceAmount = liveAmount;
+      unitPriceUsdSnapshot = toNumber(liveProduct.base_price_usd, 0);
+      adminPriceOverrideUsd = null;
+      adminPriceOverrideReason = null;
+    }
+
+    return {
+      orderItemId,
+      productId,
+      skuSnapshot: existingItem && !productChanged
+        ? existingItem.sku_snapshot
+        : liveProduct.sku,
+      productNameSnapshot: existingItem && !productChanged
+        ? cleanText(existingItem.product_name_snapshot, cleanText(liveProduct.name, "Producto"))
+        : cleanText(liveProduct.name, "Producto"),
+      qty: Number(item.qty),
+      sourcePriceCurrency,
+      sourcePriceAmount,
+      unitPriceUsdSnapshot,
+      lineTotalUsd: Number(item.lineTotalUsd || 0),
+      adminPriceOverrideUsd,
+      adminPriceOverrideCurrency: adminPriceOverrideUsd == null ? null : sourcePriceCurrency,
+      adminPriceOverrideReason,
+      editableDetailLines: normalizedDetailLines(item.editableDetailLines),
+      validateConfiguration: isNewLine || productChanged || detailsChanged,
+      allowInactiveCatalog: Boolean(existingItem) && !linePricingChanged,
+      validateOverride: isNewLine || overrideChanged,
+    };
+  });
+
+  if (mode === "edit" && submittedExistingIds.size !== existingItems.length) {
+    itemPricingChanged = true;
+  }
+
+  const activeRate = toNumber(activeRateResult.data?.rate_bs_per_usd, 0);
+  if (activeRate <= 0) {
+    throw new Error("No hay una tasa activa válida para guardar la orden.");
+  }
+
+  const currentPricing = readPricingRecord(currentOrder?.extra_fields);
+  const currentDocuments = readDocumentsRecord(currentOrder?.extra_fields);
+  const currentPayment = asOpsRecord(asOpsRecord(currentOrder?.extra_fields).payment);
+  const currentFxRate = toNumber(currentPricing.fx_rate, activeRate);
+  const requestedDiscountPct = input.discountEnabled ? toNumber(input.discountPct, 0) : 0;
+  const currentDiscountPct = currentPricing.discount_enabled ? toNumber(currentPricing.discount_pct, 0) : 0;
+  const requestedTaxPct = input.hasInvoice ? toNumber(input.invoiceTaxPct, 0) : 0;
+  const currentTaxPct = currentDocuments.has_invoice ? toNumber(currentPricing.invoice_tax_pct, 0) : 0;
+  const totalsConfigurationChanged = mode === "create" ||
+    Boolean(input.discountEnabled) !== Boolean(currentPricing.discount_enabled) ||
+    !closeNumber(requestedDiscountPct, currentDiscountPct) ||
+    Boolean(input.hasInvoice) !== Boolean(currentDocuments.has_invoice) ||
+    !closeNumber(requestedTaxPct, currentTaxPct);
+  const requestedFxRate = toNumber(input.fxRate, 0);
+  const requestedRateChanged = mode === "edit" && !closeNumber(requestedFxRate, currentFxRate);
+  const pricingChanged = itemPricingChanged || totalsConfigurationChanged || requestedRateChanged;
+  const effectiveFxRate = pricingChanged ? activeRate : currentFxRate;
+
+  if (!closeNumber(requestedFxRate, effectiveFxRate)) {
+    throw new Error("La tasa cambió mientras editabas. Cierra el editor y vuelve a abrirlo.");
+  }
+
+  let isPriceProtected = Boolean(currentOrder?.is_price_locked);
+  if (currentOrder && !isPriceProtected) {
+    const { data: financialStateData, error: financialStateError } = await loadMasterOpsOrderFinancialStateForValidation(
+      ctx.supabase,
+      Number(currentOrder.id),
+      activeRate
+    );
+    if (!financialStateError) {
+      const financialState = ((financialStateData ?? []) as Array<Record<string, unknown>>)[0] ?? {};
+      const financialTotal = toNumber(financialState.total_usd, toNumber(currentOrder.total_usd, 0));
+      const confirmedPaid = toNumber(financialState.confirmed_paid_usd, 0);
+      isPriceProtected = financialTotal > 0.005 && confirmedPaid / financialTotal + 0.000001 >= 0.9;
+    }
+  }
+
+  if (currentOrder && isPriceProtected && pricingChanged) {
+    if (!isAdmin) {
+      throw new Error("El precio de esta orden está protegido. Solo admin puede cambiar sus totales.");
+    }
+    if (String((input as MasterOpsOrderUpdateInput).adminEditReason || "").trim().length < 4) {
+      throw new Error("Indica el motivo para modificar una orden con precio protegido.");
+    }
+  }
+
+  const recalculatedItems = preparedItems.map((item) => {
+    const snapshot = calculateOrderLineSnapshot({
+      sourceCurrency: item.sourcePriceCurrency,
+      sourceAmount: item.sourcePriceAmount,
+      quantity: item.qty,
+      fxRate: effectiveFxRate,
+      overrideUnitUsd: item.adminPriceOverrideCurrency ? null : item.adminPriceOverrideUsd,
+      fallbackUnitUsd: item.unitPriceUsdSnapshot,
+    });
+    return {
+      ...item,
+      unitPriceUsdSnapshot:
+        item.adminPriceOverrideUsd == null ? snapshot.unitUsd : item.unitPriceUsdSnapshot,
+      lineTotalUsd: snapshot.lineUsd,
+    };
+  });
+  const subtotalUsd = recalculatedItems.reduce((sum, item) => sum + item.lineTotalUsd, 0);
+  const subtotalBs = recalculatedItems.reduce((sum, item) => sum + item.lineTotalUsd * effectiveFxRate, 0);
+  const totals = calculateOrderTotalsSnapshot({
+    subtotalUsd,
+    subtotalBs,
+    discountPct: requestedDiscountPct,
+    invoiceTaxPct: requestedTaxPct,
+  });
+
+  const catalogItems = ((productsResult.data ?? []) as MasterOpsSaveCatalogRow[]).map((product) => ({
+    id: Number(product.id),
+    name: cleanText(product.name, `Producto #${product.id}`),
+    isActive: product.is_active !== false,
+    isDetailEditable: Boolean(product.is_detail_editable),
+    detailUnitsLimit: toNumber(product.detail_units_limit, 0),
+    internalRiderPayUsd: product.internal_rider_pay_usd == null
+      ? null
+      : toNumber(product.internal_rider_pay_usd, 0),
+  }));
+  const validationComponents = ((componentsResult.data ?? []) as MasterOpsSaveComponentRow[]).map((component) => ({
+    parentProductId: Number(component.parent_product_id),
+    componentProductId: Number(component.component_product_id),
+    componentName: cleanText(one(component.component_product)?.name, `Componente #${component.component_product_id}`),
+    componentMode: component.component_mode === "selectable" ? ("selectable" as const) : ("fixed" as const),
+    isRequired: component.is_required !== false,
+    countsTowardDetailLimit: component.counts_toward_detail_limit !== false,
+  }));
+  const validationIssues = getMasterOpsOrderEditorValidationIssues({
+    ...input,
+    items: recalculatedItems.map((item) => ({
+      ...item,
+      adminPriceOverrideUsd: item.validateOverride ? item.adminPriceOverrideUsd : null,
+      validateConfiguration: item.validateConfiguration,
+      allowInactiveCatalog: item.allowInactiveCatalog,
+    })),
+    catalogItems,
+    productComponents: validationComponents,
+    fxRate: effectiveFxRate,
+    clientFundAvailableUsd:
+      toNumber(selectedClientResult.data?.fund_balance_usd, 0) +
+      (currentOrder && Number(currentOrder.client_id || 0) === Number(input.selectedClientId || 0)
+        ? Math.max(0, toNumber(currentPayment.client_fund_used_usd, 0))
+        : 0),
+    orderTotalUsd: totals.totalUsd,
+    isAdmin,
+    isPriceProtected,
+    pricingChanged,
+    isAdvancedEdit:
+      mode === "edit" &&
+      (Boolean(currentOrder && !["created", "queued"].includes(currentOrder.status)) ||
+        Boolean(isPriceProtected && pricingChanged)),
+    adminEditReason:
+      mode === "edit" ? (input as MasterOpsOrderUpdateInput).adminEditReason ?? null : null,
+  });
+  if (validationIssues.length > 0) {
+    throw new Error(validationIssues[0].message);
+  }
+
+  return {
+    ...input,
+    fxRate: String(effectiveFxRate),
+    items: recalculatedItems.map(stripMasterOpsOrderItem),
+  };
+}
+
+export async function createMasterOpsOrderAction(input: MasterOpsOrderCreateInput) {
+  const prepared = await prepareMasterOpsOrderSave("create", input);
+  return createOrderAction(prepared as DashboardCreateOrderInput);
+}
+
+export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInput) {
+  const prepared = await prepareMasterOpsOrderSave("edit", input);
+  return updateOrderAction(prepared as DashboardUpdateOrderInput);
 }
 
 async function loadMasterOpsOrderComposerLookups(
@@ -1437,6 +1998,7 @@ export async function loadMasterOpsOrderCreateDataAction(
       id: 0,
       orderNumber: "",
       status: "created",
+      isPriceProtected: false,
       source: "master",
       attributedAdvisorUserId: null,
       fulfillment: "pickup",
@@ -1507,6 +2069,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         receiver_phone,
         total_usd,
         total_bs_snapshot,
+        is_price_locked,
         notes,
         created_at,
         last_modified_at,
@@ -1688,6 +2251,21 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
 
   const fxRate = toNumber(pricing.fx_rate, toNumber(activeRateResult.data?.rate_bs_per_usd, 0));
 
+  let isPriceProtected = Boolean(orderRow.is_price_locked);
+  if (!isPriceProtected) {
+    const { data: financialStateData, error: financialStateError } = await loadMasterOpsOrderFinancialStateForValidation(
+      ctx.supabase,
+      orderId,
+      toNumber(activeRateResult.data?.rate_bs_per_usd, 0)
+    );
+    if (!financialStateError) {
+      const financialState = ((financialStateData ?? []) as Array<Record<string, unknown>>)[0] ?? {};
+      const financialTotal = toNumber(financialState.total_usd, toNumber(orderRow.total_usd, 0));
+      const confirmedPaid = toNumber(financialState.confirmed_paid_usd, 0);
+      isPriceProtected = financialTotal > 0.005 && confirmedPaid / financialTotal + 0.000001 >= 0.9;
+    }
+  }
+
   const items = ((orderItemsResult.data ?? []) as RawOrderItemEditRow[]).map((item) => {
     const sourcePriceCurrency = asCurrency(item.pricing_origin_currency, "USD");
     const sourcePriceAmount = toNumber(
@@ -1698,6 +2276,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       item.admin_price_override_usd == null ? null : toNumber(item.admin_price_override_usd, 0);
 
     return {
+      orderItemId: Number(item.id),
       localId: `db-${item.id}`,
       productId: Number(item.product_id || 0),
       skuSnapshot: item.sku_snapshot ?? null,
@@ -1724,6 +2303,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       id: Number(orderRow.id),
       orderNumber: String(orderRow.id),
       status: orderRow.status,
+      isPriceProtected,
       source: orderRow.source,
       attributedAdvisorUserId: orderRow.attributed_advisor_id ?? null,
       fulfillment: orderRow.fulfillment,

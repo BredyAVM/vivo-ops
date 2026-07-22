@@ -549,7 +549,7 @@ function advancedOperationalLinks(order: MasterOpsOrder): Array<{
 }> {
   const links: Array<{ label: string; tone: "neutral" | "danger" }> = [];
 
-  if (!["delivered", "cancelled"].includes(order.status)) {
+  if (["created", "queued"].includes(order.status)) {
     links.push({ label: "Modificar orden", tone: "neutral" });
   }
 
