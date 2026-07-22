@@ -1,6 +1,231 @@
 "use server";
 
 import { requireMasterOrAdminContext } from "@/lib/auth";
+import { confirmPaymentReportAction } from "../dashboard/actions";
+
+const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
+
+export type MasterOpsPaymentConfirmationInput = {
+  reportId: number;
+  orderId: number;
+  confirmedMoneyAccountId: number;
+  confirmedCurrency: string;
+  confirmedAmount: number;
+  movementDate: string;
+  confirmedExchangeRateVesPerUsd: number | null;
+  reviewNotes: string;
+  referenceCode: string | null;
+  counterpartyName: string | null;
+  description: string | null;
+  paymentKind?: "retention" | null;
+  overpaymentHandling?: "change_given" | "store_fund" | "close_difference" | null;
+  overpaymentNotes?: string | null;
+  changeLines?: Array<{
+    moneyAccountId: number;
+    currencyCode: string;
+    amount: number;
+    exchangeRateVesPerUsd?: number | null;
+    notes?: string | null;
+  }>;
+};
+
+export async function confirmMasterOpsPaymentReportAction(
+  input: MasterOpsPaymentConfirmationInput
+) {
+  const reportId = Number(input.reportId || 0);
+  const orderId = Number(input.orderId || 0);
+  const movementDate = String(input.movementDate || "").trim();
+
+  if (!Number.isFinite(reportId) || reportId <= 0) {
+    throw new Error("No se pudo identificar el reporte de pago.");
+  }
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error("No se pudo identificar la orden.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(movementDate)) {
+    throw new Error("Debes indicar una fecha de operacion valida.");
+  }
+
+  const { supabase, roles } = await requireMasterOrAdminContext();
+  const confirmedMoneyAccountId = Number(input.confirmedMoneyAccountId || 0);
+  const confirmedCurrency = String(input.confirmedCurrency || "").trim().toUpperCase();
+  const confirmedAmount = Number(input.confirmedAmount);
+  const confirmedExchangeRate =
+    input.confirmedExchangeRateVesPerUsd == null
+      ? null
+      : Number(input.confirmedExchangeRateVesPerUsd);
+
+  if (!Number.isFinite(confirmedMoneyAccountId) || confirmedMoneyAccountId <= 0) {
+    throw new Error("Debes seleccionar una cuenta valida.");
+  }
+  if (confirmedCurrency !== "USD" && confirmedCurrency !== "VES") {
+    throw new Error("La moneda confirmada no es valida.");
+  }
+  if (!Number.isFinite(confirmedAmount) || confirmedAmount <= 0) {
+    throw new Error("Debes indicar un monto valido.");
+  }
+  if (confirmedCurrency === "VES" && (!confirmedExchangeRate || confirmedExchangeRate <= 0)) {
+    throw new Error("Debes indicar una tasa valida para el pago en VES.");
+  }
+
+  const { data: moneyAccount, error: moneyAccountError } = await supabase
+    .from("money_accounts")
+    .select("id, currency_code, is_active")
+    .eq("id", confirmedMoneyAccountId)
+    .maybeSingle();
+
+  if (moneyAccountError) throw new Error(moneyAccountError.message);
+  if (
+    !moneyAccount ||
+    moneyAccount.is_active === false ||
+    String(moneyAccount.currency_code || "").trim().toUpperCase() !== confirmedCurrency
+  ) {
+    throw new Error("La cuenta seleccionada no coincide con la moneda confirmada.");
+  }
+
+  const { data: report, error: reportError } = await supabase
+    .from("payment_reports")
+    .select("id, order_id, status, operation_date")
+    .eq("id", reportId)
+    .maybeSingle();
+
+  if (reportError) throw new Error(reportError.message);
+  if (!report) throw new Error("No se encontro el reporte de pago.");
+  if (Number(report.order_id || 0) !== orderId) {
+    throw new Error("El reporte no pertenece a esta orden.");
+  }
+  if (report.status !== "pending") {
+    throw new Error("Este reporte ya fue revisado.");
+  }
+
+  const { data: financialStateData, error: financialStateError } = await (supabase as any).rpc(
+    "get_orders_financial_state",
+    {
+      p_order_ids: [orderId],
+      p_operation_date: null,
+      p_active_bs_rate: confirmedCurrency === "VES" ? confirmedExchangeRate : null,
+    }
+  );
+
+  if (financialStateError) throw new Error(financialStateError.message);
+  const financialState = Array.isArray(financialStateData)
+    ? financialStateData.find((row) => Number(row?.order_id || 0) === orderId)
+    : null;
+  if (!financialState) {
+    throw new Error("No se pudo cargar el estado financiero actual de la orden.");
+  }
+
+  const pendingUsd = Math.max(0, Number(financialState.pending_usd || 0));
+  const confirmedUsd = Number(
+    (confirmedCurrency === "VES"
+      ? confirmedAmount / Number(confirmedExchangeRate)
+      : confirmedAmount
+    ).toFixed(2)
+  );
+  const excessUsd = Number(Math.max(0, confirmedUsd - pendingUsd).toFixed(2));
+  const overpaymentHandling = input.overpaymentHandling ?? null;
+
+  if (
+    overpaymentHandling &&
+    !["change_given", "store_fund", "close_difference"].includes(overpaymentHandling)
+  ) {
+    throw new Error("La decision sobre el excedente no es valida.");
+  }
+
+  if (excessUsd > 0.005 && !overpaymentHandling) {
+    throw new Error("Debes decidir que hacer con el excedente antes de confirmar.");
+  }
+  if (overpaymentHandling === "close_difference") {
+    if (!roles.includes("admin")) {
+      throw new Error("Solo admin puede cerrar excedentes por redondeo.");
+    }
+    if (excessUsd > MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD) {
+      throw new Error(
+        `Solo se pueden cerrar excedentes de hasta ${MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD.toFixed(2)} USD.`
+      );
+    }
+  }
+  if (excessUsd > 0.005 && overpaymentHandling === "change_given") {
+    const changeLines = Array.isArray(input.changeLines) ? input.changeLines : [];
+    if (changeLines.length === 0) {
+      throw new Error("Debes agregar al menos una linea de cambio.");
+    }
+
+    const changeAccountIds = Array.from(
+      new Set(changeLines.map((line) => Number(line.moneyAccountId || 0)).filter((id) => id > 0))
+    );
+    if (changeAccountIds.length === 0) {
+      throw new Error("Las lineas de cambio no tienen cuentas validas.");
+    }
+    const { data: changeAccounts, error: changeAccountsError } = await supabase
+      .from("money_accounts")
+      .select("id, currency_code, is_active")
+      .in("id", changeAccountIds);
+
+    if (changeAccountsError) throw new Error(changeAccountsError.message);
+    const changeAccountById = new Map(
+      (changeAccounts ?? []).map((account) => [Number(account.id), account] as const)
+    );
+
+    const totalChangeUsd = Number(
+      changeLines
+        .reduce((sum, line) => {
+          const amount = Number(line.amount);
+          const currencyCode = String(line.currencyCode || "").trim().toUpperCase();
+          const changeAccount = changeAccountById.get(Number(line.moneyAccountId || 0));
+          const exchangeRate =
+            line.exchangeRateVesPerUsd == null ? null : Number(line.exchangeRateVesPerUsd);
+          if (
+            !changeAccount ||
+            changeAccount.is_active === false ||
+            String(changeAccount.currency_code || "").trim().toUpperCase() !== currencyCode
+          ) {
+            throw new Error("Una linea de cambio no coincide con una cuenta activa.");
+          }
+          if (!Number.isFinite(amount) || amount <= 0 || (currencyCode !== "USD" && currencyCode !== "VES")) {
+            throw new Error("Una linea de cambio tiene monto o moneda invalida.");
+          }
+          if (currencyCode === "VES" && (!exchangeRate || exchangeRate <= 0)) {
+            throw new Error("Debes indicar una tasa valida para cada linea de cambio en VES.");
+          }
+          return sum + (currencyCode === "VES" ? amount / Number(exchangeRate) : amount);
+        }, 0)
+        .toFixed(2)
+    );
+
+    if (Math.abs(totalChangeUsd - excessUsd) > 0.01) {
+      throw new Error("El cambio debe coincidir con el excedente calculado.");
+    }
+  }
+
+  if (report.operation_date !== movementDate) {
+    const { data: updatedReport, error: updateDateError } = await supabase
+      .from("payment_reports")
+      .update({ operation_date: movementDate })
+      .eq("id", reportId)
+      .eq("order_id", orderId)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+
+    if (updateDateError) throw new Error(updateDateError.message);
+    if (!updatedReport) {
+      throw new Error("No se pudo actualizar la fecha del reporte pendiente.");
+    }
+  }
+
+  return confirmPaymentReportAction({
+    ...input,
+    clientId: null,
+    confirmedMoneyAccountId,
+    confirmedCurrency,
+    confirmedAmount,
+    confirmedExchangeRateVesPerUsd:
+      confirmedCurrency === "VES" ? confirmedExchangeRate : null,
+    movementDate,
+    overpaymentHandling: excessUsd > 0.005 ? overpaymentHandling : null,
+  });
+}
 
 type RawRelatedProduct =
   | {

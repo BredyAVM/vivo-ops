@@ -12,6 +12,7 @@ import {
   canReturnOrderToAdvisor,
   canSendOrderToKitchen,
   canStartOrderDelivery,
+  isOrderPriceProtected,
   isRecognizedBillingOrder,
   isScheduledClosingOrder,
 } from "@/lib/domain/order-domain";
@@ -35,7 +36,6 @@ import {
   closeOrderRoundingBalanceAction,
   correctDeliveredDeliveryAssignmentAction,
   createPaymentReportAction,
-  confirmPaymentReportAction,
   cancelOrderAction,
   kitchenTakeAction,
   markDeliveredAction,
@@ -66,6 +66,7 @@ import {
   type MasterOrderPaymentReport,
   type MasterOrderPaymentVerify,
 } from "../_components/MasterOrderDetailCore";
+import { confirmMasterOpsPaymentReportAction } from "./actions";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
 
 export type PaymentVerify = MasterOrderPaymentVerify;
@@ -214,7 +215,10 @@ type DirectActionPayload = {
   isRetention?: boolean;
   fundAmountUsd?: number | null;
   paidHandling?: "store_fund" | "refund" | null;
+  overpaymentHandling?: "change_given" | "store_fund" | "close_difference" | null;
+  overpaymentNotes?: string | null;
   moneyLines?: MoneyLinePayload[];
+  changeLines?: MoneyLinePayload[];
 };
 type PaymentReportDraft = {
   accountKey: string;
@@ -233,6 +237,17 @@ type MoneyLineDraft = {
   amount: string;
   exchangeRate: string;
   notes: string;
+};
+type PaymentConfirmationDraft = {
+  reportId: number;
+  accountKey: string;
+  amount: string;
+  exchangeRate: string;
+  movementDate: string;
+  reviewNotes: string;
+  overpaymentHandling: "" | "change_given" | "store_fund" | "close_difference";
+  overpaymentNotes: string;
+  changeLines: MoneyLineDraft[];
 };
 
 const trayItems: Array<{ key: MasterTray; label: string }> = [
@@ -332,6 +347,7 @@ function getSuggestedPaymentExchangeRate(order: MasterOpsOrder, activeRate: numb
 }
 
 const ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD = 0.09;
+const ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD = 1;
 
 function getPaymentAccountLabel(option: MasterOpsPaymentAccountOption) {
   const methodLabel = getPaymentMethodLabel(option.paymentMethodCode);
@@ -360,6 +376,20 @@ function getMoneyLineUsd(
   if (!account || !Number.isFinite(amount) || amount <= 0) return 0;
   if (account.currencyCode === "VES") {
     const exchangeRate = parseDecimal(line.exchangeRate);
+    if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) return 0;
+    return Number((amount / exchangeRate).toFixed(2));
+  }
+  return Number(amount.toFixed(2));
+}
+
+function getPaymentConfirmationUsd(
+  draft: Pick<PaymentConfirmationDraft, "amount" | "exchangeRate">,
+  account: MasterOpsPaymentAccountOption | null
+) {
+  const amount = parseDecimal(draft.amount);
+  if (!account || !Number.isFinite(amount) || amount <= 0) return 0;
+  if (account.currencyCode === "VES") {
+    const exchangeRate = parseDecimal(draft.exchangeRate);
     if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) return 0;
     return Number((amount / exchangeRate).toFixed(2));
   }
@@ -733,6 +763,7 @@ function OrderDetailPanel({
   const [clearDeliveryNotes, setClearDeliveryNotes] = useState("");
   const [paymentRejectReportId, setPaymentRejectReportId] = useState<number | null>(null);
   const [paymentRejectNotes, setPaymentRejectNotes] = useState("");
+  const [paymentConfirmationDraft, setPaymentConfirmationDraft] = useState<PaymentConfirmationDraft | null>(null);
   const [paymentReportOpen, setPaymentReportOpen] = useState(false);
   const [paymentReportIsRetention, setPaymentReportIsRetention] = useState(false);
   const [paymentReportAccountKey, setPaymentReportAccountKey] = useState("");
@@ -785,8 +816,9 @@ function OrderDetailPanel({
     moneyPayoutOptions.find((option) => option.currencyCode === "USD") ?? moneyPayoutOptions[0] ?? null;
   const clientFundAvailableUsd = Math.max(0, Number(order.clientFundBalanceUsd || 0));
   const suggestedFundApplyUsd = Math.min(order.balanceUsd, clientFundAvailableUsd);
+  const priceProtected = isOrderPriceProtected(order);
   const canProtectPrice =
-    isAdmin && !order.isPriceLocked && !["delivered", "cancelled"].includes(order.status);
+    isAdmin && !priceProtected && !["delivered", "cancelled"].includes(order.status);
   const canReturnQueue = canReturnOrderFromKitchenToQueue(order);
   const canApplyClientFund =
     activeTab === "pagos" &&
@@ -799,6 +831,7 @@ function OrderDetailPanel({
     clientFundAvailableUsd > 0.005 &&
     moneyPayoutOptions.length > 0;
   const canCloseRounding =
+    isAdmin &&
     activeTab === "pagos" &&
     order.balanceUsd > 0.005 &&
     order.balanceUsd <= ORDER_ROUNDING_SHORTFALL_CLOSE_MAX_USD;
@@ -812,6 +845,7 @@ function OrderDetailPanel({
       ),
     [fundPayoutLines, moneyAccountByKey]
   );
+  const fundPayoutExceedsAvailable = fundPayoutTotalUsd > clientFundAvailableUsd + 0.005;
   const cancelRefundTotalUsd = useMemo(
     () =>
       Number(
@@ -886,6 +920,118 @@ function OrderDetailPanel({
     setCancelRefundLines((lines) =>
       lines.map((line) => (line.localId === localId ? { ...line, ...patch } : line))
     );
+  }
+
+  function getConfirmationOptions(report: MasterOrderPaymentReport) {
+    return report.isRetention ? retentionPaymentOptions : normalPaymentOptions;
+  }
+
+  function getConfirmationExcessUsd(
+    draft: PaymentConfirmationDraft,
+    account: MasterOpsPaymentAccountOption | null
+  ) {
+    return Number(Math.max(0, getPaymentConfirmationUsd(draft, account) - order.balanceUsd).toFixed(2));
+  }
+
+  function openPaymentConfirmation(report: MasterOrderPaymentReport) {
+    if (paymentConfirmationDraft?.reportId === report.id) {
+      setPaymentConfirmationDraft(null);
+      return;
+    }
+
+    const options = getConfirmationOptions(report);
+    const account =
+      options.find((option) => option.accountId === report.moneyAccountId) ?? options[0] ?? null;
+    const exchangeRate =
+      account?.currencyCode === "VES"
+        ? report.exchangeRate && report.exchangeRate > 0
+          ? compactDecimal(report.exchangeRate, 4)
+          : getSuggestedPaymentExchangeRate(order, activeRate)
+        : "";
+
+    setPaymentRejectReportId(null);
+    setPaymentConfirmationDraft({
+      reportId: report.id,
+      accountKey: account?.key ?? "",
+      amount: compactDecimal(report.amount, 2),
+      exchangeRate,
+      movementDate: paymentReportMovementDate(report),
+      reviewNotes: "",
+      overpaymentHandling: "",
+      overpaymentNotes: "",
+      changeLines: [],
+    });
+  }
+
+  function handlePaymentConfirmationAccountChange(
+    report: MasterOrderPaymentReport,
+    nextAccountKey: string
+  ) {
+    setPaymentConfirmationDraft((draft) => {
+      if (!draft || draft.reportId !== report.id) return draft;
+      const previousAccount = moneyAccountByKey.get(draft.accountKey) ?? null;
+      const nextAccount = moneyAccountByKey.get(nextAccountKey) ?? null;
+      const amountUsd = getPaymentConfirmationUsd(draft, previousAccount) || report.usdEquivalent;
+      const exchangeRate =
+        nextAccount?.currencyCode === "VES" ? getSuggestedPaymentExchangeRate(order, activeRate) : "";
+
+      return {
+        ...draft,
+        accountKey: nextAccountKey,
+        amount: getSuggestedNativeAmountFromUsd(amountUsd, nextAccount, activeRate, order),
+        exchangeRate,
+        overpaymentHandling: "",
+        changeLines: [],
+      };
+    });
+  }
+
+  function updatePaymentConfirmationDraft(
+    reportId: number,
+    patch: Partial<PaymentConfirmationDraft>,
+    resetOverpayment = false
+  ) {
+    setPaymentConfirmationDraft((draft) =>
+      draft && draft.reportId === reportId
+        ? {
+            ...draft,
+            ...patch,
+            ...(resetOverpayment ? { overpaymentHandling: "" as const, changeLines: [] } : {}),
+          }
+        : draft
+    );
+  }
+
+  function updatePaymentChangeLine(localId: string, patch: Partial<MoneyLineDraft>) {
+    setPaymentConfirmationDraft((draft) =>
+      draft
+        ? {
+            ...draft,
+            changeLines: draft.changeLines.map((line) =>
+              line.localId === localId ? { ...line, ...patch } : line
+            ),
+          }
+        : draft
+    );
+  }
+
+  function handlePaymentOverpaymentChange(
+    report: MasterOrderPaymentReport,
+    handling: PaymentConfirmationDraft["overpaymentHandling"]
+  ) {
+    setPaymentConfirmationDraft((draft) => {
+      if (!draft || draft.reportId !== report.id) return draft;
+      const account = moneyAccountByKey.get(draft.accountKey) ?? null;
+      const excessUsd = getConfirmationExcessUsd(draft, account);
+      return {
+        ...draft,
+        overpaymentHandling: handling,
+        changeLines:
+          handling === "change_given"
+            ? [newMoneyLineDraft(defaultPayoutAccount, excessUsd, activeRate, order)]
+            : [],
+      };
+    });
   }
 
   function openFundApplyBox() {
@@ -1028,20 +1174,40 @@ function OrderDetailPanel({
     }
   }
 
-  async function handleConfirmPayment(report: MasterOrderPaymentReport) {
+  async function handleConfirmPaymentSubmit(
+    event: FormEvent<HTMLFormElement>,
+    report: MasterOrderPaymentReport
+  ) {
+    event.preventDefault();
+    const draft = paymentConfirmationDraft;
+    if (!draft || draft.reportId !== report.id) return;
+    const account = moneyAccountByKey.get(draft.accountKey) ?? null;
+    const predictedExcessUsd = getConfirmationExcessUsd(draft, account);
     const ok = await onDirectAction(order, "confirm-payment", {
       reportId: report.id,
-      moneyAccountId: report.moneyAccountId,
-      currencyCode: report.currencyCode,
-      amount: report.amount,
-      movementDate: paymentReportMovementDate(report),
-      exchangeRate: report.exchangeRate,
+      moneyAccountId: account?.accountId ?? null,
+      currencyCode: account?.currencyCode ?? null,
+      amount: parseDecimal(draft.amount),
+      movementDate: draft.movementDate,
+      exchangeRate:
+        account?.currencyCode === "VES" ? parseDecimal(draft.exchangeRate) : null,
       reference: report.referenceCode,
       payerName: report.payerName,
       description: `Pago confirmado desde Master Ops - orden ${order.id} - reporte ${report.id}`,
       isRetention: Boolean(report.isRetention),
+      notes: draft.reviewNotes,
+      overpaymentHandling:
+        predictedExcessUsd > 0.005 ? draft.overpaymentHandling || null : null,
+      overpaymentNotes: draft.overpaymentNotes.trim() || null,
+      changeLines:
+        predictedExcessUsd > 0.005 && draft.overpaymentHandling === "change_given"
+          ? buildMoneyPayloads(draft.changeLines, draft.overpaymentNotes)
+          : [],
     });
-    if (ok) setPaymentRejectReportId(null);
+    if (ok) {
+      setPaymentConfirmationDraft(null);
+      setPaymentRejectReportId(null);
+    }
   }
 
   function openPaymentReport(isRetention: boolean) {
@@ -1153,6 +1319,11 @@ function OrderDetailPanel({
                   {order.isNewClient ? (
                     <span className="rounded-full bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]">
                       CLIENTE NUEVO
+                    </span>
+                  ) : null}
+                  {priceProtected ? (
+                    <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
+                      {order.isPriceLocked ? "PRECIO PROTEGIDO" : "PRECIO PROTEGIDO 90%"}
                     </span>
                   ) : null}
                 </div>
@@ -1956,11 +2127,16 @@ function OrderDetailPanel({
                         placeholder="Nota general"
                       />
                     </div>
+                    {fundPayoutExceedsAvailable ? (
+                      <div className="mt-2 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+                        El total cargado supera el fondo disponible por {formatMasterOrderUSD(fundPayoutTotalUsd - clientFundAvailableUsd)}.
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex justify-end">
                       <button
                         className="rounded-xl border border-sky-400 bg-sky-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
                         type="submit"
-                        disabled={busy}
+                        disabled={busy || fundPayoutTotalUsd <= 0.005 || fundPayoutExceedsAvailable}
                       >
                         {runningAction === `deliver-fund-change:${order.id}` ? "Devolviendo..." : "Guardar devolucion"}
                       </button>
@@ -2123,9 +2299,50 @@ function OrderDetailPanel({
                 </div>
                 <div className="space-y-2">
                   {pendingPaymentReports.map((report) => {
-                    const predictedExcessUsd = Number(
-                      Math.max(0, order.confirmedPaidUsd + report.usdEquivalent - order.totalUsd).toFixed(2)
+                    const confirmationDraft =
+                      paymentConfirmationDraft?.reportId === report.id ? paymentConfirmationDraft : null;
+                    const confirmationOptions = getConfirmationOptions(report);
+                    const confirmationAccount = confirmationDraft
+                      ? moneyAccountByKey.get(confirmationDraft.accountKey) ?? null
+                      : null;
+                    const confirmationUsd = confirmationDraft
+                      ? getPaymentConfirmationUsd(confirmationDraft, confirmationAccount)
+                      : report.usdEquivalent;
+                    const predictedExcessUsd = confirmationDraft
+                      ? getConfirmationExcessUsd(confirmationDraft, confirmationAccount)
+                      : Number(Math.max(0, report.usdEquivalent - order.balanceUsd).toFixed(2));
+                    const confirmationChangeTotalUsd = confirmationDraft
+                      ? Number(
+                          confirmationDraft.changeLines
+                            .reduce(
+                              (sum, line) =>
+                                sum + getMoneyLineUsd(line, moneyAccountByKey.get(line.accountKey) ?? null),
+                              0
+                            )
+                            .toFixed(2)
+                        )
+                      : 0;
+                    const changeMatchesExcess =
+                      Math.abs(confirmationChangeTotalUsd - predictedExcessUsd) <= 0.01;
+                    const confirmationAmount = confirmationDraft ? parseDecimal(confirmationDraft.amount) : 0;
+                    const confirmationRate = confirmationDraft ? parseDecimal(confirmationDraft.exchangeRate) : 0;
+                    const confirmationFieldsValid = Boolean(
+                      confirmationDraft &&
+                        confirmationAccount &&
+                        Number.isFinite(confirmationAmount) &&
+                        confirmationAmount > 0 &&
+                        confirmationDraft.movementDate &&
+                        (confirmationAccount.currencyCode !== "VES" ||
+                          (Number.isFinite(confirmationRate) && confirmationRate > 0))
                     );
+                    const overpaymentDecisionValid =
+                      predictedExcessUsd <= 0.005 ||
+                      Boolean(
+                        confirmationDraft?.overpaymentHandling &&
+                          (confirmationDraft.overpaymentHandling !== "change_given" || changeMatchesExcess) &&
+                          (confirmationDraft.overpaymentHandling !== "close_difference" ||
+                            (isAdmin && predictedExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD))
+                      );
                     const isRunningConfirm = runningAction === `confirm-payment:${order.id}`;
                     const isRunningReject = runningAction === `reject-payment:${order.id}`;
 
@@ -2146,7 +2363,7 @@ function OrderDetailPanel({
                             </div>
                             {predictedExcessUsd > 0.005 ? (
                               <div className="mt-2 text-[11px] text-[#FEEF00]">
-                                Excedente estimado {formatMasterOrderUSD(predictedExcessUsd)}. Al confirmar se guarda en fondo del cliente.
+                                Excedente estimado {formatMasterOrderUSD(predictedExcessUsd)}. Requiere una decision explicita antes de confirmar.
                               </div>
                             ) : null}
                           </div>
@@ -2155,17 +2372,16 @@ function OrderDetailPanel({
                               className="rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-3 py-1.5 text-[12px] font-semibold text-emerald-200 disabled:cursor-wait disabled:opacity-60"
                               type="button"
                               disabled={busy}
-                              onClick={() => {
-                                void handleConfirmPayment(report);
-                              }}
+                              onClick={() => openPaymentConfirmation(report)}
                             >
-                              {isRunningConfirm ? "Confirmando..." : "Confirmar"}
+                              {confirmationDraft ? "Cerrar revision" : "Revisar y confirmar"}
                             </button>
                             <button
                               className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-1.5 text-[12px] font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
                               type="button"
                               disabled={busy}
                               onClick={() => {
+                                setPaymentConfirmationDraft(null);
                                 setPaymentRejectReportId((current) => (current === report.id ? null : report.id));
                                 setPaymentRejectNotes("");
                               }}
@@ -2174,6 +2390,248 @@ function OrderDetailPanel({
                             </button>
                           </div>
                         </div>
+                        {confirmationDraft ? (
+                          <form
+                            className="mt-3 rounded-xl border border-emerald-500/30 bg-[#0B0B0D] p-3"
+                            onSubmit={(event) => handleConfirmPaymentSubmit(event, report)}
+                          >
+                            <div className="text-[12px] font-semibold text-emerald-100">
+                              Datos que se registraran al confirmar
+                            </div>
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              <label className="text-[11px] text-[#B7B7C2]">
+                                Cuenta
+                                <select
+                                  className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
+                                  value={confirmationDraft.accountKey}
+                                  onChange={(event) => handlePaymentConfirmationAccountChange(report, event.target.value)}
+                                >
+                                  {confirmationOptions.length === 0 ? <option value="">Sin cuentas disponibles</option> : null}
+                                  {confirmationOptions.map((option) => (
+                                    <option key={option.key} value={option.key}>
+                                      {getPaymentAccountLabel(option)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="text-[11px] text-[#B7B7C2]">
+                                Monto {confirmationAccount?.currencyCode ?? report.currencyCode}
+                                <input
+                                  className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
+                                  value={confirmationDraft.amount}
+                                  onChange={(event) =>
+                                    updatePaymentConfirmationDraft(
+                                      report.id,
+                                      { amount: event.target.value },
+                                      true
+                                    )
+                                  }
+                                  inputMode="decimal"
+                                />
+                              </label>
+                              {confirmationAccount?.currencyCode === "VES" ? (
+                                <label className="text-[11px] text-[#B7B7C2]">
+                                  Tasa Bs/USD
+                                  <input
+                                    className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
+                                    value={confirmationDraft.exchangeRate}
+                                    onChange={(event) =>
+                                      updatePaymentConfirmationDraft(
+                                        report.id,
+                                        { exchangeRate: event.target.value },
+                                        true
+                                      )
+                                    }
+                                    inputMode="decimal"
+                                  />
+                                </label>
+                              ) : null}
+                              <label className="text-[11px] text-[#B7B7C2]">
+                                Fecha de operacion
+                                <input
+                                  className="mt-1 w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7]"
+                                  type="date"
+                                  value={confirmationDraft.movementDate}
+                                  onChange={(event) =>
+                                    updatePaymentConfirmationDraft(report.id, { movementDate: event.target.value })
+                                  }
+                                />
+                              </label>
+                            </div>
+                            <div className="mt-2 rounded-lg border border-[#242433] bg-[#121218] px-3 py-2 text-[11px] text-[#B7B7C2]">
+                              Equivalente confirmado {formatMasterOrderUSD(confirmationUsd)} - saldo actual {formatMasterOrderUSD(order.balanceUsd)}
+                            </div>
+
+                            {predictedExcessUsd > 0.005 ? (
+                              <div className="mt-3 rounded-xl border border-[#FEEF00]/30 bg-[#FEEF00]/10 p-3">
+                                <div className="text-[12px] font-semibold text-[#FEEF00]">
+                                  Decide que hacer con {formatMasterOrderUSD(predictedExcessUsd)} de excedente
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button
+                                    className={[
+                                      "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition",
+                                      confirmationDraft.overpaymentHandling === "store_fund"
+                                        ? "border-emerald-400 bg-emerald-400 text-[#0B0B0D]"
+                                        : "border-emerald-500/35 bg-[#0B0B0D] text-emerald-100",
+                                    ].join(" ")}
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => handlePaymentOverpaymentChange(report, "store_fund")}
+                                  >
+                                    Guardar en fondo
+                                  </button>
+                                  <button
+                                    className={[
+                                      "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition",
+                                      confirmationDraft.overpaymentHandling === "change_given"
+                                        ? "border-sky-400 bg-sky-400 text-[#0B0B0D]"
+                                        : "border-sky-500/35 bg-[#0B0B0D] text-sky-100",
+                                    ].join(" ")}
+                                    type="button"
+                                    disabled={busy || !defaultPayoutAccount}
+                                    onClick={() => handlePaymentOverpaymentChange(report, "change_given")}
+                                  >
+                                    Entregar cambio
+                                  </button>
+                                  {isAdmin && predictedExcessUsd <= ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD ? (
+                                    <button
+                                      className={[
+                                        "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition",
+                                        confirmationDraft.overpaymentHandling === "close_difference"
+                                          ? "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]"
+                                          : "border-[#FEEF00]/35 bg-[#0B0B0D] text-[#FEEF00]",
+                                      ].join(" ")}
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => handlePaymentOverpaymentChange(report, "close_difference")}
+                                    >
+                                      Cerrar por redondeo
+                                    </button>
+                                  ) : null}
+                                </div>
+
+                                {confirmationDraft.overpaymentHandling === "change_given" ? (
+                                  <div className="mt-3 space-y-2">
+                                    {confirmationDraft.changeLines.map((line) => {
+                                      const account = moneyAccountByKey.get(line.accountKey) ?? null;
+                                      return (
+                                        <div key={line.localId} className="rounded-xl border border-sky-500/25 bg-[#0B0B0D] p-2">
+                                          <div className="grid gap-2 sm:grid-cols-[1.2fr_0.8fr]">
+                                            <select
+                                              className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                              value={line.accountKey}
+                                              onChange={(event) =>
+                                                updatePaymentChangeLine(
+                                                  line.localId,
+                                                  recalculateLineForAccount(line, event.target.value)
+                                                )
+                                              }
+                                            >
+                                              {moneyPayoutOptions.map((option) => (
+                                                <option key={option.key} value={option.key}>
+                                                  {getPaymentAccountLabel(option)}
+                                                </option>
+                                              ))}
+                                            </select>
+                                            <input
+                                              className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                              value={line.amount}
+                                              onChange={(event) => updatePaymentChangeLine(line.localId, { amount: event.target.value })}
+                                              inputMode="decimal"
+                                              placeholder={`Monto ${account?.currencyCode ?? ""}`}
+                                            />
+                                            {account?.currencyCode === "VES" ? (
+                                              <input
+                                                className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                                value={line.exchangeRate}
+                                                onChange={(event) => updatePaymentChangeLine(line.localId, { exchangeRate: event.target.value })}
+                                                inputMode="decimal"
+                                                placeholder="Tasa"
+                                              />
+                                            ) : null}
+                                            <input
+                                              className="rounded-lg border border-sky-500/30 bg-[#121218] px-2 py-2 text-[12px] text-[#F5F5F7]"
+                                              value={line.notes}
+                                              onChange={(event) => updatePaymentChangeLine(line.localId, { notes: event.target.value })}
+                                              placeholder="Nota opcional"
+                                            />
+                                          </div>
+                                          <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-sky-100/75">
+                                            <span>Equiv. {formatMasterOrderUSD(getMoneyLineUsd(line, account))}</span>
+                                            {confirmationDraft.changeLines.length > 1 ? (
+                                              <button
+                                                className="text-red-200 hover:text-red-100"
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() =>
+                                                  updatePaymentConfirmationDraft(report.id, {
+                                                    changeLines: confirmationDraft.changeLines.filter(
+                                                      (row) => row.localId !== line.localId
+                                                    ),
+                                                  })
+                                                }
+                                              >
+                                                Quitar
+                                              </button>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <button
+                                        className="rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-1.5 text-[11px] font-semibold text-sky-100 hover:border-sky-400"
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          updatePaymentConfirmationDraft(report.id, {
+                                            changeLines: [
+                                              ...confirmationDraft.changeLines,
+                                              newMoneyLineDraft(defaultPayoutAccount, 0, activeRate, order),
+                                            ],
+                                          })
+                                        }
+                                      >
+                                        Agregar linea
+                                      </button>
+                                      <span className={changeMatchesExcess ? "text-[11px] text-emerald-300" : "text-[11px] text-red-200"}>
+                                        Cambio {formatMasterOrderUSD(confirmationChangeTotalUsd)} / {formatMasterOrderUSD(predictedExcessUsd)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                <input
+                                  className="mt-3 w-full rounded-lg border border-[#FEEF00]/30 bg-[#0B0B0D] px-3 py-2 text-[12px] text-[#F5F5F7]"
+                                  value={confirmationDraft.overpaymentNotes}
+                                  onChange={(event) =>
+                                    updatePaymentConfirmationDraft(report.id, { overpaymentNotes: event.target.value })
+                                  }
+                                  placeholder="Nota sobre fondo, cambio o redondeo (opcional)"
+                                />
+                              </div>
+                            ) : null}
+
+                            <textarea
+                              className="mt-3 min-h-[64px] w-full rounded-lg border border-emerald-500/30 bg-[#121218] px-3 py-2 text-[12px] text-[#F5F5F7] placeholder:text-[#8A8A96]"
+                              value={confirmationDraft.reviewNotes}
+                              onChange={(event) =>
+                                updatePaymentConfirmationDraft(report.id, { reviewNotes: event.target.value })
+                              }
+                              placeholder="Nota de revision (opcional)"
+                            />
+                            <div className="mt-3 flex justify-end">
+                              <button
+                                className="rounded-xl border border-emerald-400 bg-emerald-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
+                                type="submit"
+                                disabled={busy || !confirmationFieldsValid || !overpaymentDecisionValid}
+                              >
+                                {isRunningConfirm ? "Confirmando..." : "Confirmar pago revisado"}
+                              </button>
+                            </div>
+                          </form>
+                        ) : null}
                         {paymentRejectReportId === report.id ? (
                           <form className="mt-3 rounded-xl border border-red-500/30 bg-[#0B0B0D] p-3" onSubmit={handleRejectPaymentSubmit}>
                             <textarea
@@ -2668,26 +3126,89 @@ export default function MasterOpsClient({
         const currencyCode = String(payload.currencyCode || "").trim().toUpperCase();
         const amount = Number(payload.amount);
         const movementDate = String(payload.movementDate || "").trim();
+        const exchangeRate =
+          payload.exchangeRate == null || !Number.isFinite(Number(payload.exchangeRate))
+            ? null
+            : Number(payload.exchangeRate);
+        const confirmationAccount = paymentAccounts.find(
+          (option) =>
+            option.accountId === moneyAccountId &&
+            option.currencyCode === currencyCode &&
+            isRetentionPaymentAccount(option) === Boolean(payload.isRetention)
+        );
         if (!Number.isFinite(reportId) || reportId <= 0) throw new Error("No se pudo identificar el reporte de pago.");
-        if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) throw new Error("El reporte no tiene cuenta asociada.");
-        if (!currencyCode) throw new Error("El reporte no tiene moneda valida.");
-        if (!Number.isFinite(amount) || amount <= 0) throw new Error("El reporte no tiene monto valido.");
-        if (!movementDate) throw new Error("El reporte no tiene fecha de operacion.");
-        result = await confirmPaymentReportAction({
+        if (!confirmationAccount) throw new Error("Debes seleccionar una cuenta valida para este pago.");
+        if (!Number.isFinite(amount) || amount <= 0) throw new Error("Debes indicar un monto valido.");
+        if (!movementDate) throw new Error("Debes indicar la fecha de operacion.");
+        if (currencyCode === "VES" && (!exchangeRate || exchangeRate <= 0)) {
+          throw new Error("Debes indicar una tasa valida para el pago en VES.");
+        }
+
+        const confirmedUsd = Number((currencyCode === "VES" ? amount / Number(exchangeRate) : amount).toFixed(2));
+        const predictedExcessUsd = Number(Math.max(0, confirmedUsd - order.balanceUsd).toFixed(2));
+        const overpaymentHandling = payload.overpaymentHandling ?? null;
+        if (predictedExcessUsd > 0.005 && !overpaymentHandling) {
+          throw new Error("Debes decidir que hacer con el excedente antes de confirmar.");
+        }
+        if (overpaymentHandling === "close_difference") {
+          if (!roles.includes("admin")) throw new Error("Solo admin puede cerrar excedentes por redondeo.");
+          if (predictedExcessUsd > ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD) {
+            throw new Error(
+              `Solo se pueden cerrar excedentes de hasta ${ORDER_ROUNDING_OVERPAYMENT_CLOSE_MAX_USD.toFixed(2)} USD.`
+            );
+          }
+        }
+
+        const changeLines = (payload.changeLines ?? []).map((line) => ({
+          moneyAccountId: Number(line.moneyAccountId || 0),
+          currencyCode: String(line.currencyCode || "").trim().toUpperCase(),
+          amount: Number(line.amount),
+          exchangeRateVesPerUsd:
+            line.exchangeRate == null || !Number.isFinite(Number(line.exchangeRate))
+              ? null
+              : Number(line.exchangeRate),
+          notes: line.notes ?? null,
+        }));
+        if (predictedExcessUsd > 0.005 && overpaymentHandling === "change_given") {
+          if (changeLines.length === 0) throw new Error("Debes agregar al menos una linea de cambio.");
+          const totalChangeUsd = Number(
+            changeLines
+              .reduce((sum, line) => {
+                const account = paymentAccounts.find(
+                  (option) => option.accountId === line.moneyAccountId && option.currencyCode === line.currencyCode
+                );
+                if (!account || !Number.isFinite(line.amount) || line.amount <= 0) {
+                  throw new Error("Una linea de cambio tiene cuenta o monto invalido.");
+                }
+                if (line.currencyCode === "VES" && (!line.exchangeRateVesPerUsd || line.exchangeRateVesPerUsd <= 0)) {
+                  throw new Error("Debes indicar una tasa valida para cada linea de cambio en VES.");
+                }
+                return sum + (line.currencyCode === "VES" ? line.amount / Number(line.exchangeRateVesPerUsd) : line.amount);
+              }, 0)
+              .toFixed(2)
+          );
+          if (Math.abs(totalChangeUsd - predictedExcessUsd) > 0.01) {
+            throw new Error("El cambio debe coincidir con el excedente calculado.");
+          }
+        }
+
+        result = await confirmMasterOpsPaymentReportAction({
           reportId,
           orderId: order.id,
-          clientId: null,
           confirmedMoneyAccountId: moneyAccountId,
           confirmedCurrency: currencyCode,
           confirmedAmount: amount,
           movementDate,
-          confirmedExchangeRateVesPerUsd: payload.exchangeRate ?? null,
-          reviewNotes: "Confirmado desde modulo operativo.",
+          confirmedExchangeRateVesPerUsd: currencyCode === "VES" ? exchangeRate : null,
+          reviewNotes: payload.notes?.trim() || "Confirmado desde modulo operativo.",
           referenceCode: payload.reference ?? null,
           counterpartyName: payload.payerName ?? null,
           description: payload.description ?? `Pago confirmado desde Master Ops - orden ${order.id} - reporte ${reportId}`,
           paymentKind: payload.isRetention ? "retention" : null,
-          overpaymentHandling: null,
+          overpaymentHandling: predictedExcessUsd > 0.005 ? overpaymentHandling : null,
+          overpaymentNotes: payload.overpaymentNotes?.trim() || null,
+          changeLines:
+            predictedExcessUsd > 0.005 && overpaymentHandling === "change_given" ? changeLines : [],
         });
       } else if (action === "reject-payment") {
         const reportId = Number(payload.reportId || 0);
@@ -2720,6 +3241,25 @@ export default function MasterOpsClient({
           notes: line.notes ?? null,
         }));
         if (lines.length === 0) throw new Error("Debes agregar al menos una linea.");
+        const payoutTotalUsd = Number(
+          lines
+            .reduce((sum, line) => {
+              const account = paymentAccounts.find(
+                (option) => option.accountId === line.moneyAccountId && option.currencyCode === line.currencyCode
+              );
+              if (!account || !Number.isFinite(line.amount) || line.amount <= 0) {
+                throw new Error("Una linea de devolucion tiene cuenta o monto invalido.");
+              }
+              if (line.currencyCode === "VES" && (!line.exchangeRateVesPerUsd || line.exchangeRateVesPerUsd <= 0)) {
+                throw new Error("Debes indicar una tasa valida para cada devolucion en VES.");
+              }
+              return sum + (line.currencyCode === "VES" ? line.amount / Number(line.exchangeRateVesPerUsd) : line.amount);
+            }, 0)
+            .toFixed(2)
+        );
+        if (payoutTotalUsd > Math.max(0, Number(order.clientFundBalanceUsd || 0)) + 0.005) {
+          throw new Error("La devolucion no puede superar el fondo disponible del cliente.");
+        }
         result = await settleClientFundPayoutAction({
           orderId: order.id,
           lines,
