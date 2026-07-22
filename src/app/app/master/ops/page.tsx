@@ -296,10 +296,6 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function addDaysKey(dayKey: string, days: number) {
-  return toCaracasDateKey(addDays(new Date(`${dayKey}T12:00:00-04:00`), days));
-}
-
 function getCaracasDayRange(dayKey: string) {
   const start = new Date(`${dayKey}T00:00:00-04:00`);
   const end = addDays(start, 1);
@@ -320,17 +316,6 @@ function getCaracasWeekRange(dayKey: string) {
     startISO: new Date(`${startKey}T00:00:00-04:00`).toISOString(),
     endISO: new Date(`${endExclusiveKey}T00:00:00-04:00`).toISOString(),
   };
-}
-
-function getWeekLabel(dayKey: string) {
-  const range = getCaracasWeekRange(dayKey);
-  const start = new Date(`${range.startKey}T12:00:00-04:00`);
-  const end = addDays(new Date(`${range.endExclusiveKey}T12:00:00-04:00`), -1);
-  const dd1 = String(start.getDate()).padStart(2, "0");
-  const mm1 = String(start.getMonth() + 1).padStart(2, "0");
-  const dd2 = String(end.getDate()).padStart(2, "0");
-  const mm2 = String(end.getMonth() + 1).padStart(2, "0");
-  return `Lun ${dd1}/${mm1} - Dom ${dd2}/${mm2}`;
 }
 
 function getScheduleDate(extraFields: any): string | null {
@@ -1069,12 +1054,9 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       activeRate={activeRate > 0 ? activeRate : null}
       currentUserName={cleanText(profile?.full_name ?? ctx.user.email, "Usuario")}
       focusDate={focusDate}
-      nextDate={addDaysKey(focusDate, 1)}
       orders={dayOrders}
-      previousDate={addDaysKey(focusDate, -1)}
       roles={ctx.roles}
       stats={buildStats(dayOrders, weekOrders)}
-      weekLabel={getWeekLabel(focusDate)}
       drivers={drivers}
       deliveryPartners={deliveryPartners}
       paymentAccounts={paymentAccounts}

@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
@@ -145,9 +145,6 @@ type Props = {
   currentUserName: string;
   roles: string[];
   focusDate: string;
-  previousDate: string;
-  nextDate: string;
-  weekLabel: string;
   activeRate: number | null;
   orders: MasterOpsOrder[];
   stats: MasterOpsStats;
@@ -254,13 +251,6 @@ const trayItems: Array<{ key: MasterTray; label: string }> = [
   { key: "finalized", label: "Finalizadas" },
 ];
 
-const dayFormatter = new Intl.DateTimeFormat("es-VE", {
-  weekday: "short",
-  day: "2-digit",
-  month: "2-digit",
-  timeZone: "America/Caracas",
-});
-
 function fmtUSD(value: number) {
   return formatMasterOrderUSD(value);
 }
@@ -273,10 +263,9 @@ function fmtTimeAMPM(iso: string) {
   return formatMasterOrderTime(iso);
 }
 
-function fmtDayLabel(dateKey: string) {
-  const date = new Date(`${dateKey}T12:00:00-04:00`);
-  if (Number.isNaN(date.getTime())) return dateKey;
-  return dayFormatter.format(date);
+function fmtDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : dateKey;
 }
 
 function caracasDateKeyFromISO(iso: string | null | undefined) {
@@ -2694,9 +2683,6 @@ export default function MasterOpsClient({
   currentUserName,
   roles,
   focusDate,
-  previousDate,
-  nextDate,
-  weekLabel,
   activeRate,
   orders,
   stats,
@@ -2706,6 +2692,7 @@ export default function MasterOpsClient({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const focusDateInputRef = useRef<HTMLInputElement>(null);
   const [tray, setTray] = useState<MasterTray>("all");
   const [search, setSearch] = useState("");
   const [submittedOrderSearch, setSubmittedOrderSearch] = useState("");
@@ -2848,6 +2835,22 @@ export default function MasterOpsClient({
     params.delete("openOrder");
     params.delete("tab");
     router.push(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }
+
+  function openFocusDatePicker() {
+    const input = focusDateInputRef.current;
+    if (!input) return;
+
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch {
+        input.focus();
+      }
+    }
+
+    input.click();
   }
 
   function openInboxOrder(item: MasterOpsInboxItem) {
@@ -3341,41 +3344,32 @@ export default function MasterOpsClient({
               <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-base font-semibold leading-none">B. Master 3.0</h1>
 
-                <div className="flex overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+                <div className="relative">
                   <button
-                    aria-label={`Ir al dia anterior, ${fmtDayLabel(previousDate)}`}
-                    className="px-2.5 py-1.5 text-[#B7B7C2] transition hover:bg-[#1A1A22] hover:text-[#F5F5F7]"
+                    aria-label={`Seleccionar fecha operativa. Fecha actual ${fmtDateKey(focusDate)}`}
+                    className="flex min-w-[145px] items-center justify-between gap-3 rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-left transition hover:border-[#FEEF00]/50"
                     type="button"
-                    onClick={() => navigateToFocusDate(previousDate)}
+                    onClick={openFocusDatePicker}
                   >
-                    {"<"}
+                    <span>
+                      <span className="block text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Fecha</span>
+                      <span className="mt-0.5 block text-[13px] font-medium leading-none text-[#F5F5F7]">
+                        {fmtDateKey(focusDate)}
+                      </span>
+                    </span>
+                    <svg aria-hidden="true" className="h-4 w-4 shrink-0 text-[#B7B7C2]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 2v3m12-3v3M3.75 9h16.5m-15-5h13.5A1.5 1.5 0 0 1 20.25 5.5v14a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-14A1.5 1.5 0 0 1 5.25 4Z" />
+                    </svg>
                   </button>
-                  <div className="min-w-[220px] border-x border-[#242433] px-2.5 py-1.5">
-                    <div className="grid grid-cols-[minmax(125px,1fr)_minmax(76px,auto)] gap-2">
-                      <label className="min-w-0">
-                        <span className="block text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Fecha</span>
-                        <input
-                          aria-label={`Fecha operativa, ${fmtDayLabel(focusDate)}`}
-                          className="mt-0.5 block w-full cursor-pointer bg-transparent text-[12px] font-medium leading-none text-[#F5F5F7] outline-none [color-scheme:dark] focus:text-[#FEEF00]"
-                          type="date"
-                          value={focusDate}
-                          onChange={(event) => navigateToFocusDate(event.target.value)}
-                        />
-                      </label>
-                      <div>
-                        <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">Semana</div>
-                        <div className="mt-0.5 text-[10px] leading-tight text-[#B7B7C2]">{weekLabel}</div>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    aria-label={`Ir al dia siguiente, ${fmtDayLabel(nextDate)}`}
-                    className="px-2.5 py-1.5 text-[#B7B7C2] transition hover:bg-[#1A1A22] hover:text-[#F5F5F7]"
-                    type="button"
-                    onClick={() => navigateToFocusDate(nextDate)}
-                  >
-                    {">"}
-                  </button>
+                  <input
+                    ref={focusDateInputRef}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-0 top-full h-px w-px opacity-0"
+                    tabIndex={-1}
+                    type="date"
+                    value={focusDate}
+                    onChange={(event) => navigateToFocusDate(event.target.value)}
+                  />
                 </div>
 
                 <button
