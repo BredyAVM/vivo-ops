@@ -7,12 +7,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type 
 import {
   canCompleteOrder,
   canKitchenTakeOrder,
-  canManageOrderDeliveryAssignment,
   canMarkOrderReady,
   canReturnOrderFromKitchenToQueue,
-  canReturnOrderToAdvisor,
   canSendOrderToKitchen,
-  canStartOrderDelivery,
   isOrderPriceProtected,
   isRecognizedBillingOrder,
   isScheduledClosingOrder,
@@ -72,6 +69,13 @@ import {
 } from "./actions";
 import type { MasterOpsInboxItem, MasterOpsInboxKind } from "./inbox-actions";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
+import {
+  canAssignMasterOpsDelivery,
+  canClearMasterOpsDeliveryAssignment,
+  canReturnMasterOpsOrderToAdvisor,
+  canStartMasterOpsDelivery,
+  hasMasterOpsDeliveryAssignment,
+} from "./operational-rules";
 
 const MasterOpsInboxDrawer = dynamic(() => import("./MasterOpsInboxDrawer"), { ssr: false });
 
@@ -469,22 +473,14 @@ function visualClasses(tone: string) {
   };
 }
 
-function hasDeliveryAssignment(order: MasterOpsOrder) {
-  return Boolean(order.riderName?.trim() || order.externalPartner?.trim());
-}
-
-function canAssignDelivery(order: MasterOpsOrder) {
-  return canManageOrderDeliveryAssignment(order) && !hasDeliveryAssignment(order);
-}
-
 function getNextPrimaryActionLabel(order: MasterOpsOrder) {
   if (order.paymentVerify === "pending") return "Confirmar pago";
-  if (canAssignDelivery(order)) return "Asignar delivery";
   if (order.status === "queued" && order.queuedNeedsReapproval) return "Re-aprobar orden";
   if (canSendOrderToKitchen(order)) return "Enviar a cocina";
+  if (canAssignMasterOpsDelivery(order)) return "Asignar delivery";
   if (canKitchenTakeOrder(order)) return "Tomar en cocina";
   if (canMarkOrderReady(order)) return "Marcar preparada";
-  if (canStartOrderDelivery(order)) return order.fulfillment === "pickup" ? "Lista para retiro" : "En camino";
+  if (canStartMasterOpsDelivery(order)) return "En camino";
   if (canCompleteOrder(order)) return order.fulfillment === "pickup" ? "Marcar retirado" : "Marcar entregado";
   if (order.status === "cancelled") return "Orden cancelada";
   if (order.status === "delivered") return "Ciclo completado";
@@ -496,7 +492,7 @@ function getNextPrimaryActionLabel(order: MasterOpsOrder) {
 
 function getOrderFocusTab(order: MasterOpsOrder): DetailTab {
   if (order.paymentVerify === "pending") return "pagos";
-  if (order.fulfillment === "delivery" && (!hasDeliveryAssignment(order) || order.status === "ready" || order.status === "out_for_delivery")) {
+  if (order.fulfillment === "delivery" && (!hasMasterOpsDeliveryAssignment(order) || order.status === "ready" || order.status === "out_for_delivery")) {
     return "entrega";
   }
   return "detalle";
@@ -625,10 +621,7 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
   const currentKey = processCurrentKey(order);
   const orderedKeys = steps.map((step) => step.key);
   const cancelled = order.status === "cancelled";
-  const needsDriverUrgent =
-    order.fulfillment === "delivery" &&
-    !hasDeliveryAssignment(order) &&
-    ["confirmed", "in_kitchen", "ready", "out_for_delivery"].includes(order.status);
+  const needsDriverUrgent = canAssignMasterOpsDelivery(order);
   const assignmentLabel =
     order.fulfillment !== "delivery"
       ? "Retiro en local"
@@ -749,17 +742,13 @@ function OrderDetailPanel({
   const [cancelReason, setCancelReason] = useState("");
   const [cancelPaidHandling, setCancelPaidHandling] = useState<"store_fund" | "refund">("store_fund");
   const [cancelRefundLines, setCancelRefundLines] = useState<MoneyLineDraft[]>([]);
-  const canReturn = canReturnOrderToAdvisor(order);
+  const canReturn = canReturnMasterOpsOrderToAdvisor(order);
   const canKitchenTake = canKitchenTakeOrder(order);
   const canCorrectDeliveredDelivery =
     isAdmin && order.fulfillment === "delivery" && order.status === "delivered";
-  const canAssign = canAssignDelivery(order) || canCorrectDeliveredDelivery;
-  const canOutForDelivery = canStartOrderDelivery(order);
-  const canClearDelivery =
-    order.fulfillment === "delivery" &&
-    canManageOrderDeliveryAssignment(order) &&
-    hasDeliveryAssignment(order) &&
-    !["delivered", "cancelled"].includes(order.status);
+  const canAssign = canAssignMasterOpsDelivery(order) || canCorrectDeliveredDelivery;
+  const canOutForDelivery = canStartMasterOpsDelivery(order);
+  const canClearDelivery = canClearMasterOpsDeliveryAssignment(order);
   const busy = Boolean(runningAction);
   const activeDeliveryPartners = deliveryPartners.filter((partner) => partner.isActive);
   const pendingPaymentReports = order.paymentReports.filter((report) => report.status === "pending");

@@ -1,7 +1,6 @@
 import { unstable_noStore as noStore } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  canManageOrderDeliveryAssignment,
   isRecognizedBillingOrder,
   isScheduledClosingOrder,
   needsInitialOrderApproval,
@@ -20,6 +19,7 @@ import MasterOpsClient, {
   type OperationStatsSummary,
   type PaymentVerify,
 } from "./MasterOpsClient";
+import { canAssignMasterOpsDelivery } from "./operational-rules";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -677,7 +677,7 @@ function buildStats(dayOrders: MasterOpsOrder[], weekOrders: MasterOpsOrder[]): 
   const activeDeliveryOrders = dayOrders.filter(
     (order) => order.fulfillment === "delivery" && !["delivered", "cancelled"].includes(order.status)
   );
-  const driverTasks = weekOrders.filter((order) => canManageOrderDeliveryAssignment(order) && !order.riderName && !order.externalPartner);
+  const driverTasks = weekOrders.filter((order) => canAssignMasterOpsDelivery(order));
 
   return {
     day: buildOperationStats(dayOrders),

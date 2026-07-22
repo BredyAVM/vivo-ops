@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  canManageOrderDeliveryAssignment,
   needsInitialOrderApproval,
   needsOrderReapproval,
 } from "@/lib/domain/order-domain";
@@ -12,6 +11,7 @@ import {
   markMasterInboxItemsReviewedAction,
   reopenMasterInboxItemsAction,
 } from "../dashboard/actions";
+import { canAssignMasterOpsDelivery } from "./operational-rules";
 
 export type MasterOpsInboxKind = "actions" | "updates";
 export type MasterOpsInboxStatus = "reviewed" | "resolved" | null;
@@ -384,12 +384,13 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
       }));
     }
 
-    if (
-      canManageOrderDeliveryAssignment({ status: order.status, fulfillment: order.fulfillment }) &&
-      !order.internal_driver_user_id &&
-      !text(order.external_driver_name) &&
-      !validId(order.external_partner_id)
-    ) {
+    if (canAssignMasterOpsDelivery({
+      status: order.status,
+      fulfillment: order.fulfillment,
+      internalDriverUserId: order.internal_driver_user_id,
+      externalPartner: text(order.external_driver_name),
+      externalPartnerId: order.external_partner_id,
+    })) {
       items.push(makeActionItem({
         id: `n-driver-${orderId}`,
         order,
