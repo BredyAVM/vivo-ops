@@ -5219,7 +5219,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .map((o) => ({
         id: o.order.id,
         matchPriority: o.rank,
-        label: `${fmtShortOrderLabel(o.order.orderNumber || o.order.id)} · ${o.order.clientName}`,
+        label: `${fmtShortOrderLabel(o.order.id)} · ${o.order.clientName}`,
         sub: `Entrega: ${fmtDeliveryTextES(o.order.deliveryAtISO)}`,
         operationalDate: toDateInputValue(new Date(o.order.deliveryAtISO)),
         source: 'local' as const,
@@ -5233,7 +5233,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
       .map((result) => ({
         id: result.id,
         matchPriority: result.matchPriority,
-        label: `${fmtShortOrderLabel(result.orderNumber || result.id)} · ${result.clientName}`,
+        label: `${fmtShortOrderLabel(result.id)} · ${result.clientName}`,
         sub: `${ORDER_STATUS_LABELS[result.status as OrderStatus] ?? result.status} · ${result.operationalDate} · ${fmtUSD(result.totalUsd)}`,
         operationalDate: result.operationalDate,
         source: 'remote' as const,

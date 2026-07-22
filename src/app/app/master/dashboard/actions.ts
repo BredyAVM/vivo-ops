@@ -7964,7 +7964,7 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
 
   let matchedRows = (data ?? []) as Array<Record<string, unknown>>;
 
-  if (matchedRows.length === 0 && /^\d+$/.test(query)) {
+  if (/^\d+$/.test(query)) {
     const numericQuery = Number(query);
     const { data: directRows, error: directError } = await supabase
       .from('orders')
@@ -7993,7 +7993,17 @@ export async function searchMasterOrdersAction(input: { query: string; limit?: n
       .limit(limit);
 
     if (directError) throw new Error(directError.message);
-    matchedRows = (directRows ?? []).map((row) => ({ ...(row as Record<string, unknown>), match_priority: 0 }));
+
+    const directMatches: Array<Record<string, unknown>> = ((directRows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      ...row,
+      match_priority: Number(row.id) === numericQuery ? 0 : 1,
+    }));
+    const directIds = new Set(directMatches.map((row) => Number(row.id)));
+
+    matchedRows = [
+      ...directMatches,
+      ...matchedRows.filter((row) => !directIds.has(Number(row.id))),
+    ];
   }
 
   const ids = matchedRows
