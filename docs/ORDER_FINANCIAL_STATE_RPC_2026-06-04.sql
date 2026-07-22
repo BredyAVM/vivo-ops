@@ -7,6 +7,13 @@
 -- - Usar tasa activa solo cuando la cobranza ya esta dolarizada.
 -- - Contar solo dinero real confirmado desde money_movements.
 --
+-- Precondicion canonica de pricing:
+-- - total_bs_snapshot ya debe estar construido por linea respetando
+--   pricing_origin_currency/pricing_origin_amount.
+-- - Las lineas nacidas en VES conservan su monto Bs exacto.
+-- - Las lineas nacidas en USD se convierten con la tasa snapshot del pedido.
+-- - Esta funcion no debe reconstruir total_bs desde total_usd * tasa.
+--
 -- Uso:
 --   select * from public.get_order_financial_state(28);
 --   select * from public.get_order_financial_state(28, '2026-06-02', 540.00);

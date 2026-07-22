@@ -68,6 +68,16 @@ total_orden_usd
 = saldo_pendiente_usd
 ```
 
+### Construccion del snapshot por moneda de origen
+
+El snapshot Bs de la orden se construye por linea y debe conservar la moneda en la que nacio el precio del producto (`pricing_origin_currency` y `pricing_origin_amount`):
+
+- Producto nacido en `VES`: el precio Bs de origen es la verdad comercial. `unit_price_bs_snapshot` y `line_total_bs_snapshot` se calculan directamente desde ese monto Bs. El equivalente USD se deriva dividiendo entre la tasa snapshot solo para contabilidad, pagos en otras monedas y cobranza posterior a la entrega. Antes o durante el dia de entrega nunca se reconstruye el precio Bs multiplicando otra vez ese USD redondeado por una tasa.
+- Producto nacido en `USD`: el precio USD de origen es la verdad comercial. Su snapshot Bs se obtiene multiplicando el USD por la tasa snapshot aplicable al generar o recalcular el pedido.
+- Orden mixta: `snapshot_total_bs` se obtiene sumando los snapshots Bs de las lineas y aplicando en Bs descuentos e impuestos. No debe reconstruirse como `snapshot_total_usd * tasa`, porque esa operacion pierde el origen y puede introducir diferencias de redondeo.
+
+Ejemplo canonico: si las lineas nacidas en VES suman exactamente `Bs 15.000`, pero su equivalente contable redondeado suma `$20,34`, el monto a cobrar antes o durante el dia de entrega sigue siendo `Bs 15.000`; no `20,34 * tasa`.
+
 Para bolivares antes de entrega:
 
 ```text
@@ -83,6 +93,8 @@ Para cobranza posterior a entrega y fuera del dia de entrega:
 saldo_pendiente_usd * tasa_de_cobranza_aplicable
 = monto_bs_a_cobrar
 ```
+
+Esta dolarizacion posterior usa el saldo USD congelado de la orden y la tasa activa correspondiente a la fecha de operacion del pago. Aplica aunque el producto haya nacido en VES: la proteccion del monto Bs de origen termina despues del dia de entrega.
 
 Regla critica: ninguna pantalla debe inventar su propio calculo de saldo. Master, asesor, pagos y detalle deben consumir el mismo resultado canonico.
 
