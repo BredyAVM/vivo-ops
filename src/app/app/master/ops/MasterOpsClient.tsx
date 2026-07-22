@@ -33,10 +33,8 @@ import {
   assignExternalPartnerAction,
   assignInternalDriverAction,
   clearDeliveryAssignmentAction,
-  closeOrderRoundingBalanceAction,
   correctDeliveredDeliveryAssignmentAction,
   createPaymentReportAction,
-  cancelOrderAction,
   kitchenTakeAction,
   markDeliveredAction,
   markReadyAction,
@@ -48,8 +46,6 @@ import {
   returnToCreatedAction,
   searchMasterOrdersAction,
   sendToKitchenAction,
-  settleClientFundPayoutAction,
-  updateExchangeRateAction,
 } from "../dashboard/actions";
 import {
   MASTER_ORDER_DETAIL_TABS,
@@ -66,11 +62,19 @@ import {
   type MasterOrderPaymentReport,
   type MasterOrderPaymentVerify,
 } from "../_components/MasterOrderDetailCore";
-import { confirmMasterOpsPaymentReportAction } from "./actions";
+import {
+  cancelMasterOpsOrderAction,
+  closeMasterOpsRoundingBalanceAction,
+  confirmMasterOpsPaymentReportAction,
+  settleMasterOpsClientFundPayoutAction,
+  updateMasterOpsExchangeRateAction,
+} from "./actions";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
 
 export type PaymentVerify = MasterOrderPaymentVerify;
-export type MasterOpsOrder = MasterOrderDetailOrder;
+export type MasterOpsOrder = MasterOrderDetailOrder & {
+  clientFundUsedUsd: number;
+};
 export type DriverOption = {
   id: string;
   fullName: string;
@@ -855,6 +859,12 @@ function OrderDetailPanel({
       ),
     [cancelRefundLines, moneyAccountByKey]
   );
+  const confirmedMoneyPaidUsd = Math.max(
+    0,
+    Number((order.confirmedPaidUsd - order.clientFundUsedUsd).toFixed(2))
+  );
+  const cancelRefundMatchesConfirmedMoney =
+    Math.abs(cancelRefundTotalUsd - confirmedMoneyPaidUsd) <= 0.01;
   const selectedPaymentAccount = paymentReportOptions.find((option) => option.key === paymentReportAccountKey) ?? null;
   const paymentReportRequirements = getPaymentReportRequirements(selectedPaymentAccount?.paymentMethodCode ?? "");
   const canOpenPaymentReport = activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
@@ -906,7 +916,7 @@ function OrderDetailPanel({
   function ensureCancelRefundLine() {
     if (cancelRefundLines.length > 0) return;
     setCancelRefundLines([
-      newMoneyLineDraft(defaultPayoutAccount, Math.max(0, order.confirmedPaidUsd), activeRate, order),
+      newMoneyLineDraft(defaultPayoutAccount, confirmedMoneyPaidUsd, activeRate, order),
     ]);
   }
 
@@ -1097,7 +1107,7 @@ function OrderDetailPanel({
     event.preventDefault();
     const ok = await onDirectAction(order, "cancel-order", {
       reason: cancelReason,
-      paidHandling: order.confirmedPaidUsd > 0.005 ? cancelPaidHandling : null,
+      paidHandling: confirmedMoneyPaidUsd > 0.005 ? cancelPaidHandling : null,
       moneyLines: cancelPaidHandling === "refund" ? buildMoneyPayloads(cancelRefundLines, cancelReason) : [],
     });
     if (ok) {
@@ -2176,10 +2186,15 @@ function OrderDetailPanel({
                       onChange={(event) => setCancelReason(event.target.value)}
                       placeholder="Motivo obligatorio."
                     />
-                    {order.confirmedPaidUsd > 0.005 ? (
+                    {order.clientFundUsedUsd > 0.005 ? (
+                      <div className="mt-3 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-2 text-[11px] text-emerald-100/85">
+                        Al cancelar se restauraran {formatMasterOrderUSD(order.clientFundUsedUsd)} de fondo aplicado al cliente.
+                      </div>
+                    ) : null}
+                    {confirmedMoneyPaidUsd > 0.005 ? (
                       <div className="mt-3 rounded-xl border border-red-500/25 bg-[#0B0B0D] p-2">
                         <div className="text-[11px] text-red-100/80">
-                          Esta orden tiene {formatMasterOrderUSD(order.confirmedPaidUsd)} confirmado.
+                          Esta orden tiene {formatMasterOrderUSD(confirmedMoneyPaidUsd)} en pagos confirmados.
                         </div>
                         <div className="mt-2 grid gap-2">
                           <label className="flex items-center gap-2 text-[12px] text-[#F5F5F7]">
@@ -2207,7 +2222,7 @@ function OrderDetailPanel({
                         {cancelPaidHandling === "refund" ? (
                           <div className="mt-3 space-y-2">
                             <div className="text-[11px] text-red-100/75">
-                              Devuelto {formatMasterOrderUSD(cancelRefundTotalUsd)}
+                              Devuelto {formatMasterOrderUSD(cancelRefundTotalUsd)} / {formatMasterOrderUSD(confirmedMoneyPaidUsd)}
                             </div>
                             {cancelRefundLines.map((line) => {
                               const account = moneyAccountByKey.get(line.accountKey) ?? null;
@@ -2270,6 +2285,11 @@ function OrderDetailPanel({
                             >
                               Agregar linea
                             </button>
+                            {!cancelRefundMatchesConfirmedMoney ? (
+                              <div className="text-[11px] text-red-200">
+                                La devolucion debe coincidir exactamente con el pago confirmado.
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -2278,7 +2298,13 @@ function OrderDetailPanel({
                       <button
                         className="rounded-xl border border-red-400 bg-red-400 px-3 py-2 text-[12px] font-semibold text-[#0B0B0D] disabled:cursor-wait disabled:opacity-60"
                         type="submit"
-                        disabled={busy}
+                        disabled={
+                          busy ||
+                          !cancelReason.trim() ||
+                          (confirmedMoneyPaidUsd > 0.005 &&
+                            cancelPaidHandling === "refund" &&
+                            !cancelRefundMatchesConfirmedMoney)
+                        }
                       >
                         {runningAction === `cancel-order:${order.id}` ? "Cancelando..." : "Confirmar cancelacion"}
                       </button>
@@ -2876,7 +2902,7 @@ export default function MasterOpsClient({
     setExchangeRateSaving(true);
     setExchangeRateError(null);
     try {
-      await updateExchangeRateAction({ rateBsPerUsd: rate });
+      await updateMasterOpsExchangeRateAction({ rateBsPerUsd: rate });
       setRateEditorOpen(false);
       startTransition(() => {
         router.refresh();
@@ -3260,13 +3286,13 @@ export default function MasterOpsClient({
         if (payoutTotalUsd > Math.max(0, Number(order.clientFundBalanceUsd || 0)) + 0.005) {
           throw new Error("La devolucion no puede superar el fondo disponible del cliente.");
         }
-        result = await settleClientFundPayoutAction({
+        result = await settleMasterOpsClientFundPayoutAction({
           orderId: order.id,
           lines,
           notes: payload.notes?.trim() || null,
         });
       } else if (action === "close-rounding") {
-        result = await closeOrderRoundingBalanceAction({
+        result = await closeMasterOpsRoundingBalanceAction({
           orderId: order.id,
           notes: payload.notes?.trim() || null,
         });
@@ -3283,7 +3309,7 @@ export default function MasterOpsClient({
               : Number(line.exchangeRate),
           notes: line.notes ?? null,
         }));
-        result = await cancelOrderAction({
+        result = await cancelMasterOpsOrderAction({
           orderId: order.id,
           reason,
           paidHandling: payload.paidHandling ?? null,

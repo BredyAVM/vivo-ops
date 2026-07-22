@@ -1,9 +1,16 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { requireMasterOrAdminContext } from "@/lib/auth";
-import { confirmPaymentReportAction } from "../dashboard/actions";
+import {
+  cancelOrderAction,
+  confirmPaymentReportAction,
+  settleClientFundPayoutAction,
+  updateExchangeRateAction,
+} from "../dashboard/actions";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
+const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
 
 export type MasterOpsPaymentConfirmationInput = {
   reportId: number;
@@ -225,6 +232,481 @@ export async function confirmMasterOpsPaymentReportAction(
     movementDate,
     overpaymentHandling: excessUsd > 0.005 ? overpaymentHandling : null,
   });
+}
+
+export type MasterOpsMoneyLineInput = {
+  moneyAccountId: number;
+  currencyCode: string;
+  amount: number;
+  exchangeRateVesPerUsd?: number | null;
+  notes?: string | null;
+};
+
+type MasterOpsValidatedMoneyLine = {
+  moneyAccountId: number;
+  currencyCode: "USD" | "VES";
+  amount: number;
+  exchangeRateVesPerUsd: number | null;
+  amountUsd: number;
+  notes: string | null;
+};
+
+type MasterOpsServerClient = Awaited<
+  ReturnType<typeof requireMasterOrAdminContext>
+>["supabase"];
+
+type MasterOpsFinancialState = {
+  totalUsd: number;
+  totalBs: number;
+  appliedPaidUsd: number;
+  clientFundUsedUsd: number;
+  pendingUsd: number;
+};
+
+function roundOpsMoney(value: unknown) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Number(amount.toFixed(2)) : 0;
+}
+
+function asOpsRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, any>) }
+    : {};
+}
+
+async function loadMasterOpsFinancialState(
+  supabase: MasterOpsServerClient,
+  orderId: number,
+  activeBsRate: number | null = null
+): Promise<MasterOpsFinancialState> {
+  const { data, error } = await (supabase as any).rpc("get_orders_financial_state", {
+    p_order_ids: [orderId],
+    p_operation_date: null,
+    p_active_bs_rate: activeBsRate,
+  });
+
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data)
+    ? data.find((item) => Number(item?.order_id || 0) === orderId)
+    : null;
+  if (!row) throw new Error("No se pudo cargar el estado financiero actual de la orden.");
+
+  return {
+    totalUsd: roundOpsMoney(row.total_usd),
+    totalBs: roundOpsMoney(row.total_bs),
+    appliedPaidUsd: roundOpsMoney(row.confirmed_paid_usd),
+    clientFundUsedUsd: roundOpsMoney(row.client_fund_used_usd),
+    pendingUsd: Math.max(0, roundOpsMoney(row.pending_usd)),
+  };
+}
+
+async function validateMasterOpsMoneyLines(
+  supabase: MasterOpsServerClient,
+  linesInput: MasterOpsMoneyLineInput[],
+  fallbackNotes: string | null,
+  operationLabel: string
+): Promise<MasterOpsValidatedMoneyLine[]> {
+  const lines = Array.isArray(linesInput) ? linesInput : [];
+  if (lines.length === 0) {
+    throw new Error(`Debes agregar al menos una linea de ${operationLabel}.`);
+  }
+  if (lines.length > 20) {
+    throw new Error(`No puedes registrar mas de 20 lineas de ${operationLabel}.`);
+  }
+
+  const normalized = lines.map((line) => {
+    const moneyAccountId = Number(line.moneyAccountId || 0);
+    const currencyText = String(line.currencyCode || "").trim().toUpperCase();
+    const currencyCode = currencyText === "USD" || currencyText === "VES" ? currencyText : null;
+    const amount = roundOpsMoney(line.amount);
+    const exchangeRate =
+      line.exchangeRateVesPerUsd == null
+        ? null
+        : Number(Number(line.exchangeRateVesPerUsd).toFixed(6));
+
+    if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+      throw new Error(`Una linea de ${operationLabel} no tiene cuenta valida.`);
+    }
+    if (!currencyCode || amount <= 0) {
+      throw new Error(`Una linea de ${operationLabel} tiene monto o moneda invalida.`);
+    }
+    if (currencyCode === "VES" && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      throw new Error(`Debes indicar una tasa valida para cada linea de ${operationLabel} en VES.`);
+    }
+
+    const amountUsd = roundOpsMoney(
+      currencyCode === "VES" ? amount / Number(exchangeRate) : amount
+    );
+    if (amountUsd <= 0) {
+      throw new Error(`Una linea de ${operationLabel} tiene equivalente USD invalido.`);
+    }
+
+    return {
+      moneyAccountId,
+      currencyCode,
+      amount,
+      exchangeRateVesPerUsd: currencyCode === "VES" ? exchangeRate : null,
+      amountUsd,
+      notes: String(line.notes || fallbackNotes || "").trim() || null,
+    } satisfies MasterOpsValidatedMoneyLine;
+  });
+
+  const accountIds = Array.from(new Set(normalized.map((line) => line.moneyAccountId)));
+  const { data: accounts, error: accountsError } = await supabase
+    .from("money_accounts")
+    .select("id, currency_code, is_active")
+    .in("id", accountIds);
+
+  if (accountsError) throw new Error(accountsError.message);
+  const accountById = new Map((accounts ?? []).map((account) => [Number(account.id), account] as const));
+
+  for (const line of normalized) {
+    const account = accountById.get(line.moneyAccountId);
+    if (
+      !account ||
+      account.is_active === false ||
+      String(account.currency_code || "").trim().toUpperCase() !== line.currencyCode
+    ) {
+      throw new Error(`Una linea de ${operationLabel} no coincide con una cuenta activa.`);
+    }
+  }
+
+  return normalized;
+}
+
+export async function settleMasterOpsClientFundPayoutAction(input: {
+  orderId: number;
+  lines: MasterOpsMoneyLineInput[];
+  notes?: string | null;
+}) {
+  const { supabase } = await requireMasterOrAdminContext();
+  const orderId = Number(input.orderId || 0);
+  const notes = String(input.notes || "").trim() || null;
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error("Orden invalida.");
+  }
+
+  const cleanLines = await validateMasterOpsMoneyLines(
+    supabase,
+    input.lines,
+    notes,
+    "devolucion"
+  );
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id, client_id")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (orderError) throw new Error(orderError.message);
+  if (!order) throw new Error("No se pudo cargar la orden.");
+
+  const clientId = Number(order.client_id || 0);
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error("La orden no tiene cliente asociado.");
+  }
+
+  const { data: client, error: clientError } = await supabase
+    .from("clients")
+    .select("id, fund_balance_usd")
+    .eq("id", clientId)
+    .maybeSingle();
+
+  if (clientError) throw new Error(clientError.message);
+  if (!client) throw new Error("No se pudo cargar el fondo del cliente.");
+
+  const availableFundUsd = Math.max(0, roundOpsMoney(client.fund_balance_usd));
+  const requestedPayoutUsd = roundOpsMoney(
+    cleanLines.reduce((sum, line) => sum + line.amountUsd, 0)
+  );
+  if (requestedPayoutUsd > availableFundUsd + 0.005) {
+    throw new Error(
+      `La devolucion de ${requestedPayoutUsd.toFixed(2)} USD supera el fondo disponible de ${availableFundUsd.toFixed(2)} USD.`
+    );
+  }
+
+  return settleClientFundPayoutAction({
+    orderId,
+    lines: cleanLines.map((line) => ({
+      moneyAccountId: line.moneyAccountId,
+      currencyCode: line.currencyCode,
+      amount: line.amount,
+      exchangeRateVesPerUsd: line.exchangeRateVesPerUsd,
+      notes: line.notes,
+    })),
+    notes,
+  });
+}
+
+export async function closeMasterOpsRoundingBalanceAction(input: {
+  orderId: number;
+  notes?: string | null;
+}) {
+  try {
+    const { supabase, user, roles } = await requireMasterOrAdminContext();
+    if (!roles.includes("admin")) {
+      throw new Error("Solo admin puede cerrar diferencias de redondeo.");
+    }
+
+    const orderId = Number(input.orderId || 0);
+    if (!Number.isFinite(orderId) || orderId <= 0) throw new Error("Orden invalida.");
+
+    const { data: order, error: orderError } = await supabase
+      .from("orders")
+      .select("id, status, total_usd, total_bs_snapshot, extra_fields")
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (orderError) throw new Error(orderError.message);
+    if (!order) throw new Error("No se pudo cargar la orden.");
+    if (order.status === "cancelled") {
+      throw new Error("No puedes cerrar diferencias en una orden cancelada.");
+    }
+
+    const extraFields = asOpsRecord(order.extra_fields);
+    const pricing = asOpsRecord(extraFields.pricing);
+    const payment = asOpsRecord(extraFields.payment);
+    const fxRate = Number(pricing.fx_rate || 0);
+    const financialState = await loadMasterOpsFinancialState(
+      supabase,
+      orderId,
+      Number.isFinite(fxRate) && fxRate > 0 ? fxRate : null
+    );
+    const pendingUsd = financialState.pendingUsd;
+
+    if (pendingUsd <= 0.005) {
+      throw new Error("Esta orden ya no tiene una diferencia pendiente por cerrar.");
+    }
+    if (pendingUsd > MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD) {
+      throw new Error(
+        `Solo se pueden cerrar diferencias de hasta ${MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD.toFixed(2)} USD.`
+      );
+    }
+
+    const currentTotalUsd = financialState.totalUsd || roundOpsMoney(order.total_usd);
+    const currentTotalBs = financialState.totalBs || roundOpsMoney(order.total_bs_snapshot);
+    const nextTotalUsd = roundOpsMoney(currentTotalUsd - pendingUsd);
+    const nextTotalBs =
+      Number.isFinite(fxRate) && fxRate > 0
+        ? roundOpsMoney(nextTotalUsd * fxRate)
+        : currentTotalUsd > 0
+          ? roundOpsMoney((currentTotalBs / currentTotalUsd) * nextTotalUsd)
+          : currentTotalBs;
+    const nowIso = new Date().toISOString();
+    const notes = String(input.notes || "").trim() || null;
+
+    pricing.total_usd = nextTotalUsd;
+    pricing.total_bs = nextTotalBs;
+    pricing.rounding_closed_usd = pendingUsd;
+    pricing.rounding_close_applied_at = nowIso;
+    pricing.rounding_close_applied_by = user.id;
+    payment.rounding_close = {
+      closed_balance_usd: pendingUsd,
+      previous_total_usd: currentTotalUsd,
+      next_total_usd: nextTotalUsd,
+      applied_at: nowIso,
+      applied_by: user.id,
+      notes,
+    };
+    extraFields.pricing = pricing;
+    extraFields.payment = payment;
+
+    const { data: updatedOrder, error: updateOrderError } = await supabase
+      .from("orders")
+      .update({
+        total_usd: nextTotalUsd,
+        total_bs_snapshot: nextTotalBs,
+        extra_fields: extraFields,
+        last_modified_at: nowIso,
+        last_modified_by: user.id,
+      })
+      .eq("id", orderId)
+      .neq("status", "cancelled")
+      .select("id")
+      .maybeSingle();
+
+    if (updateOrderError) throw new Error(updateOrderError.message);
+    if (!updatedOrder) throw new Error("La orden cambio antes de cerrar la diferencia.");
+
+    const { error: adjustmentError } = await supabase
+      .from("order_admin_adjustments")
+      .insert({
+        order_id: orderId,
+        order_item_id: null,
+        adjustment_type: "other",
+        reason: "Cierre de diferencia por redondeo",
+        notes,
+        payload: {
+          kind: "rounding_writeoff",
+          delta_usd: -pendingUsd,
+          original_unit_price_usd: currentTotalUsd,
+          override_unit_price_usd: nextTotalUsd,
+          product_name: "Cierre por redondeo",
+          qty: 1,
+          closed_balance_usd: pendingUsd,
+          previous_total_usd: currentTotalUsd,
+          previous_total_bs: currentTotalBs,
+          applied_paid_usd: financialState.appliedPaidUsd,
+          client_fund_used_usd: financialState.clientFundUsedUsd,
+          next_total_usd: nextTotalUsd,
+          next_total_bs: nextTotalBs,
+        },
+        created_by_user_id: user.id,
+      });
+
+    revalidatePath("/app/master/ops");
+    return {
+      ok: true as const,
+      id: orderId,
+      auditWarning: adjustmentError?.message ?? null,
+    };
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: error instanceof Error ? error.message : "Error cerrando la diferencia por redondeo.",
+    };
+  }
+}
+
+export async function cancelMasterOpsOrderAction(input: {
+  orderId: number;
+  reason: string;
+  paidHandling?: "store_fund" | "refund" | null;
+  refundLines?: MasterOpsMoneyLineInput[];
+}) {
+  const { supabase } = await requireMasterOrAdminContext();
+  const orderId = Number(input.orderId || 0);
+  const reason = String(input.reason || "").trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) throw new Error("Orden invalida.");
+  if (!reason) throw new Error("Debes indicar un motivo de cancelacion.");
+
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("id, client_id, status, extra_fields")
+    .eq("id", orderId)
+    .maybeSingle();
+
+  if (orderError) throw new Error(orderError.message);
+  if (!order) throw new Error("No se pudo cargar la orden.");
+  if (order.status === "cancelled") throw new Error("La orden ya esta cancelada.");
+
+  const { data: movements, error: movementsError } = await supabase
+    .from("money_movements")
+    .select("id, direction, amount_usd_equivalent, status, confirmed_at")
+    .eq("order_id", orderId);
+
+  if (movementsError) throw new Error(movementsError.message);
+  const inconsistentMovements = (movements ?? []).filter(
+    (movement) => movement.status !== "confirmed" && Boolean(movement.confirmed_at)
+  );
+  if (inconsistentMovements.length > 0) {
+    throw new Error(
+      "La cancelacion fue bloqueada porque existen movimientos anulados o no confirmados con marca de confirmacion. Requiere revision financiera."
+    );
+  }
+
+  const { data: fundMovements, error: fundMovementsError } = await supabase
+    .from("client_fund_movements")
+    .select("movement_type, amount_usd, reason_code")
+    .eq("order_id", orderId);
+
+  if (fundMovementsError) throw new Error(fundMovementsError.message);
+  const storedOverpaymentUsd = roundOpsMoney(
+    (fundMovements ?? []).reduce((sum, movement) => {
+      const reasonCode = String(movement.reason_code || "");
+      const amountUsd = roundOpsMoney(movement.amount_usd);
+      if (
+        movement.movement_type === "credit" &&
+        (reasonCode === "payment_overage_stored" || reasonCode === "retention_overage_stored")
+      ) {
+        return sum + amountUsd;
+      }
+      if (movement.movement_type === "debit" && reasonCode === "payment_void_fund_reversal") {
+        return sum - amountUsd;
+      }
+      return sum;
+    }, 0)
+  );
+  if (storedOverpaymentUsd > 0.005) {
+    throw new Error(
+      "La cancelacion fue bloqueada porque la orden tiene excedentes ya guardados en fondo. Requiere conciliacion financiera antes de cancelar."
+    );
+  }
+  if (storedOverpaymentUsd < -0.005) {
+    throw new Error("La orden tiene un ledger de fondo inconsistente y no puede cancelarse desde Ops.");
+  }
+
+  const confirmedMoneyUsd = roundOpsMoney(
+    (movements ?? []).reduce((sum, movement) => {
+      if (movement.status !== "confirmed") return sum;
+      const amountUsd = roundOpsMoney(movement.amount_usd_equivalent);
+      return sum + (movement.direction === "outflow" ? -amountUsd : amountUsd);
+    }, 0)
+  );
+  if (confirmedMoneyUsd < -0.005) {
+    throw new Error("La orden tiene un saldo de movimientos confirmado inconsistente.");
+  }
+
+  const extraFields = asOpsRecord(order.extra_fields);
+  const payment = asOpsRecord(extraFields.payment);
+  const clientFundUsedUsd = Math.max(0, roundOpsMoney(payment.client_fund_used_usd));
+  const hasConfirmedMoney = confirmedMoneyUsd > 0.005;
+  const hasClientFund = clientFundUsedUsd > 0.005;
+  const clientId = Number(order.client_id || 0);
+
+  if ((hasConfirmedMoney || hasClientFund) && (!Number.isFinite(clientId) || clientId <= 0)) {
+    throw new Error("La orden tiene dinero involucrado, pero no tiene cliente asociado.");
+  }
+  if (
+    hasConfirmedMoney &&
+    input.paidHandling !== "store_fund" &&
+    input.paidHandling !== "refund"
+  ) {
+    throw new Error("Debes decidir si el pago confirmado se guarda en fondo o se devuelve.");
+  }
+
+  let refundLines: MasterOpsValidatedMoneyLine[] = [];
+  if (hasConfirmedMoney && input.paidHandling === "refund") {
+    refundLines = await validateMasterOpsMoneyLines(
+      supabase,
+      input.refundLines ?? [],
+      reason,
+      "devolucion"
+    );
+    const refundUsd = roundOpsMoney(refundLines.reduce((sum, line) => sum + line.amountUsd, 0));
+    if (Math.abs(refundUsd - confirmedMoneyUsd) > 0.01) {
+      throw new Error(
+        `La devolucion debe coincidir con el pago confirmado de ${confirmedMoneyUsd.toFixed(2)} USD.`
+      );
+    }
+  }
+
+  return cancelOrderAction({
+    orderId,
+    reason,
+    paidHandling: hasConfirmedMoney ? input.paidHandling ?? null : null,
+    refundLines: refundLines.map((line) => ({
+      moneyAccountId: line.moneyAccountId,
+      currencyCode: line.currencyCode,
+      amount: line.amount,
+      exchangeRateVesPerUsd: line.exchangeRateVesPerUsd,
+      notes: line.notes,
+    })),
+  });
+}
+
+export async function updateMasterOpsExchangeRateAction(input: {
+  rateBsPerUsd: number;
+}) {
+  await requireMasterOrAdminContext();
+  const rateBsPerUsd = Number(input.rateBsPerUsd);
+  if (!Number.isFinite(rateBsPerUsd) || rateBsPerUsd <= 0) {
+    throw new Error("La tasa debe ser mayor a 0.");
+  }
+
+  return updateExchangeRateAction({ rateBsPerUsd });
 }
 
 type RawRelatedProduct =

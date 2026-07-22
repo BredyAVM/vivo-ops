@@ -83,6 +83,7 @@ type RawFinancialStateRow = {
   total_usd: number | string | null;
   total_bs: number | string | null;
   confirmed_paid_usd: number | string | null;
+  client_fund_used_usd: number | string | null;
   pending_usd: number | string | null;
   pending_reports_count: number | string | null;
   confirmed_reports_count: number | string | null;
@@ -587,6 +588,7 @@ function mapOrder(
     totalBs,
     balanceUsd: row.status === "cancelled" ? 0 : Math.max(0, roundMoney(state?.pending_usd, totalUsd)),
     confirmedPaidUsd: row.status === "cancelled" ? 0 : roundMoney(state?.confirmed_paid_usd, 0),
+    clientFundUsedUsd: row.status === "cancelled" ? 0 : roundMoney(state?.client_fund_used_usd, 0),
     paymentVerify: paymentVerifyFromState(row.status, state),
     deliveryAtISO: buildDeliveryISO(row.extra_fields, row.created_at),
     createdAtISO: row.created_at,
