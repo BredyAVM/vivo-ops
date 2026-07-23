@@ -163,6 +163,7 @@ type Props = {
   snapshotAt: string;
   activeRate: number | null;
   orders: MasterOpsOrder[];
+  openedOrder: MasterOpsOrder | null;
   stats: MasterOpsStats;
   drivers: DriverOption[];
   deliveryPartners: DeliveryPartnerOption[];
@@ -3040,6 +3041,7 @@ export default function MasterOpsClient({
   snapshotAt,
   activeRate,
   orders,
+  openedOrder,
   stats,
   drivers,
   deliveryPartners,
@@ -3218,13 +3220,15 @@ export default function MasterOpsClient({
       ? "No hay pedidos para este dia."
       : "No hay pedidos en esta bandeja para el dia seleccionado.";
   const selectedOrder = useMemo(() => {
-    const order = orders.find((item) => item.id === selectedOrderId) ?? null;
+    const order =
+      orders.find((item) => item.id === selectedOrderId) ??
+      (openedOrder?.id === selectedOrderId ? openedOrder : null);
     if (!order) return null;
     const cached = orderDetails[order.id];
     return cached?.snapshotAt === snapshotAt
       ? { ...order, ...cached.detail }
       : order;
-  }, [orderDetails, orders, selectedOrderId, snapshotAt]);
+  }, [openedOrder, orderDetails, orders, selectedOrderId, snapshotAt]);
   const selectedOrderDetailReady = Boolean(
     selectedOrderId && orderDetails[selectedOrderId]?.snapshotAt === snapshotAt
   );
@@ -3345,9 +3349,20 @@ export default function MasterOpsClient({
     }
 
     const params = new URLSearchParams(searchParams.toString());
-    params.set("focusDate", result.operationalDate);
     params.set("openOrder", String(result.id));
+    params.set("tab", "detalle");
     router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
+  }
+
+  function closeOrderDetail() {
+    setSelectedOrderId(null);
+
+    if (!searchParams.has("openOrder")) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("openOrder");
+    params.delete("tab");
+    const query = params.toString();
+    router.replace(query ? `/app/master/ops?${query}` : "/app/master/ops", { scroll: false });
   }
 
   async function saveExchangeRate(event: FormEvent<HTMLFormElement>) {
@@ -3415,20 +3430,24 @@ export default function MasterOpsClient({
     const openOrderId = Number(openOrderValue);
     if (!Number.isFinite(openOrderId) || openOrderId <= 0) return;
 
-    const order = orders.find((item) => item.id === openOrderId);
+    const order =
+      orders.find((item) => item.id === openOrderId) ??
+      (openedOrder?.id === openOrderId ? openedOrder : null);
     if (!order) return;
 
     const requestedTab = searchParams.get("tab");
     const openTab = MASTER_ORDER_DETAIL_TABS.some((tab) => tab.key === requestedTab)
       ? requestedTab as DetailTab
       : "detalle";
-    openOrder(order, openTab);
-
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("openOrder");
-    params.delete("tab");
-    router.replace(`/app/master/ops?${params.toString()}`, { scroll: false });
-  }, [orders, router, searchParams]);
+    if (selectedOrderId !== openOrderId) {
+      setSelectedOrderId(order.id);
+      setSelectedDetailTab(openTab);
+      setActionError(null);
+      setDetailError(null);
+      return;
+    }
+    if (selectedDetailTab !== openTab) setSelectedDetailTab(openTab);
+  }, [openedOrder, orders, searchParams, selectedDetailTab, selectedOrderId]);
 
   async function runCreatePaymentReport(order: MasterOpsOrder, payload: PaymentReportDraft) {
     const actionId = `${payload.isRetention ? "report-retention" : "report-payment"}:${order.id}`;
@@ -4282,7 +4301,7 @@ export default function MasterOpsClient({
           runningAction={runningAction}
           onTabChange={setSelectedDetailTab}
           onRetryDetail={() => setDetailRequestVersion((version) => version + 1)}
-          onClose={() => setSelectedOrderId(null)}
+          onClose={closeOrderDetail}
           onEditOrder={(order) => setEditingOrderId(order.id)}
           onDirectAction={runDirectOrderAction}
           onCreatePaymentReport={runCreatePaymentReport}

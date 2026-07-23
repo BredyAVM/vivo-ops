@@ -30,6 +30,8 @@ const CLIENT_IMPORT_CUTOFF_MS = Date.parse(CLIENT_IMPORT_CUTOFF_ISO);
 
 type SearchParams = Promise<{
   focusDate?: string;
+  openOrder?: string;
+  tab?: string;
 }>;
 
 type RawOrderRow = {
@@ -728,6 +730,11 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
 
   const params = (await searchParams) ?? {};
   const focusDate = normalizeFocusDate(params.focusDate);
+  const requestedOpenOrderId = Number(params.openOrder);
+  const openOrderId =
+    Number.isSafeInteger(requestedOpenOrderId) && requestedOpenOrderId > 0
+      ? requestedOpenOrderId
+      : null;
   const dayRange = getCaracasDayRange(focusDate);
   const weekRange = getCaracasWeekRange(focusDate);
   const orderSelect = `
@@ -781,6 +788,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     driversResult,
     moneyAccountsResult,
     paymentRulesResult,
+    openedOrderResult,
   ] = await Promise.all([
     ctx.supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
     ctx.supabase
@@ -834,6 +842,13 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
           ? ctx.roles.filter((role) => role === "admin" || role === "master")
           : ["master"]
       ),
+    openOrderId
+      ? ctx.supabase
+          .from("orders")
+          .select(orderSelect)
+          .eq("id", openOrderId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   const firstError =
@@ -846,7 +861,8 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     deliveryPartnersResult.error ??
     driversResult.error ??
     moneyAccountsResult.error ??
-    paymentRulesResult.error;
+    paymentRulesResult.error ??
+    openedOrderResult.error;
 
   if (firstError) throw new Error(firstError.message);
 
@@ -878,13 +894,20 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const createdWeekRows = ((createdWeekResult.data ?? []) as RawOrderRow[]).filter(
     (row) => !getScheduleDate(row.extra_fields)
   );
+  const openedRows = openedOrderResult.data
+    ? [openedOrderResult.data as RawOrderRow]
+    : [];
   const dayRows = mergeRows(scheduledDayRows, createdDayRows);
   const weekRows = mergeRows(scheduledWeekRows, createdWeekRows);
-  const allRows = mergeRows(dayRows, weekRows);
+  const allRows = mergeRows(dayRows, weekRows, openedRows);
   const allOrderIds = allRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
   const activeRate = toNumber(activeRateResult.data?.rate_bs_per_usd, 0);
   const clientIds = Array.from(
-    new Set(dayRows.map((row) => Number(row.client_id)).filter((id) => Number.isFinite(id) && id > 0))
+    new Set(
+      [...dayRows, ...openedRows]
+        .map((row) => Number(row.client_id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
   );
   const paymentReportRoles = ctx.roles.filter((role) => role === "admin" || role === "master");
   const [financialStateResult, clientHistoryResult] = await Promise.all([
@@ -924,6 +947,9 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const clientStats = buildClientOrderStats((clientHistoryResult.data ?? []) as Array<{ id: number | string; client_id: number | string | null }>);
   const dayOrders = dayRows.map((row) => mapOrder(row, financialStates, clientStats, detailMaps));
   const weekOrders = weekRows.map((row) => mapOrder(row, financialStates, new Map(), detailMaps));
+  const openedOrder = openedRows[0]
+    ? mapOrder(openedRows[0], financialStates, clientStats, detailMaps)
+    : null;
   const paymentAccounts = buildPaymentAccountOptions({
     accounts: moneyAccounts,
     rules: paymentRules,
@@ -939,6 +965,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       focusDate={focusDate}
       snapshotAt={new Date().toISOString()}
       orders={dayOrders}
+      openedOrder={openedOrder}
       roles={ctx.roles}
       stats={buildStats(dayOrders, weekOrders)}
       drivers={drivers}
