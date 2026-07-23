@@ -29,7 +29,7 @@ export const APP_MODULES: AppModuleDefinition[] = [
     label: 'Master',
     shortLabel: 'Master',
     description: 'Operacion general, revision de pedidos, pagos, entregas y seguimiento.',
-    href: '/app/master/dashboard',
+    href: '/app/master/ops',
     status: 'available',
     roles: ['master'],
     recommendedDevice: 'Computadora o tablet',
@@ -98,11 +98,11 @@ export function getModuleByKey(key: string | null | undefined) {
 }
 
 export function isModuleAvailableForRoles(moduleKey: string | null | undefined, roles: readonly string[]) {
-  const module = getModuleByKey(moduleKey);
-  if (!module || module.status !== 'available') return false;
+  const moduleDefinition = getModuleByKey(moduleKey);
+  if (!moduleDefinition || moduleDefinition.status !== 'available') return false;
 
   const roleSet = new Set(roles);
-  return module.roles.some((role) => roleSet.has(role));
+  return moduleDefinition.roles.some((role) => roleSet.has(role));
 }
 
 export function resolveHomePathForRoles(roles: readonly string[], preferredModuleKey?: string | null) {

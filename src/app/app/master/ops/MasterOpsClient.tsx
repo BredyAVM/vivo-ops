@@ -620,13 +620,11 @@ function Card({ title, children, className = "" }: { title: string; children: Re
 function TopNavButton({
   label,
   active = false,
-  href,
   count,
   onClick,
 }: {
   label: string;
   active?: boolean;
-  href?: string;
   count?: number;
   onClick?: () => void;
 }) {
@@ -647,7 +645,6 @@ function TopNavButton({
     </>
   );
 
-  if (href) return <Link className={className} href={href}>{content}</Link>;
   return <button className={className} onClick={onClick} type="button">{content}</button>;
 }
 
@@ -3871,7 +3868,6 @@ export default function MasterOpsClient({
               <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                 <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
                   <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
-                  <TopNavButton label="Dashboard actual" href="/app/master/dashboard" />
                   <TopNavButton
                     label="Acciones"
                     active={inboxMode === "actions"}
@@ -4054,12 +4050,6 @@ export default function MasterOpsClient({
             >
               Nuevo pedido
             </button>
-            <Link
-              className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3.5 py-1.5 text-[13px] font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/40"
-              href="/app/master/dashboard"
-            >
-              Ingreso / Egreso (consola)
-            </Link>
           </div>
         </div>
 
