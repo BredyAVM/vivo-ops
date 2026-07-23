@@ -64,9 +64,11 @@ import {
   cancelMasterOpsOrderAction,
   closeMasterOpsRoundingBalanceAction,
   confirmMasterOpsPaymentReportAction,
+  loadMasterOpsOrderDetailAction,
   loadMasterOpsPaymentSuggestionAction,
   settleMasterOpsClientFundPayoutAction,
   searchMasterOpsOrdersAction,
+  type MasterOpsOrderDetailPayload,
   type MasterOpsPaymentSuggestion,
   type MasterOpsOrderSearchResult,
   updateMasterOpsExchangeRateAction,
@@ -156,6 +158,7 @@ type Props = {
   currentUserName: string;
   roles: string[];
   focusDate: string;
+  snapshotAt: string;
   activeRate: number | null;
   orders: MasterOpsOrder[];
   stats: MasterOpsStats;
@@ -715,9 +718,12 @@ function OrderDetailPanel({
   activeRate,
   roles,
   activeTab,
+  detailLoading,
+  detailError,
   actionError,
   runningAction,
   onTabChange,
+  onRetryDetail,
   onClose,
   onEditOrder,
   onDirectAction,
@@ -730,9 +736,12 @@ function OrderDetailPanel({
   activeRate: number | null;
   roles: string[];
   activeTab: DetailTab;
+  detailLoading: boolean;
+  detailError: string | null;
   actionError: string | null;
   runningAction: string | null;
   onTabChange: (tab: DetailTab) => void;
+  onRetryDetail: () => void;
   onClose: () => void;
   onEditOrder: (order: MasterOpsOrder) => void;
   onDirectAction: (order: MasterOpsOrder, action: DirectActionKey, payload?: DirectActionPayload) => Promise<boolean>;
@@ -1445,7 +1454,7 @@ function OrderDetailPanel({
     <div className="fixed inset-0 z-[70] bg-black/55">
       <button className="absolute inset-0 cursor-default" type="button" aria-label="Cerrar detalle" onClick={onClose} />
       <section className="absolute right-0 top-0 flex h-full w-full max-w-[1180px] flex-col border-l border-[#242433] bg-[#0B0B0D] shadow-2xl">
-        <div className="border-b border-[#242433] p-4">
+        <div className="border-b border-[#242433] p-3 sm:p-4">
           <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
@@ -1531,7 +1540,32 @@ function OrderDetailPanel({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+          {detailLoading ? (
+            <div className="grid min-h-64 place-items-center rounded-2xl border border-[#242433] bg-[#121218] p-6 text-center">
+              <div>
+                <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#343442] border-t-[#FEEF00]" />
+                <div className="mt-4 text-sm font-semibold text-[#F5F5F7]">Cargando detalle de la orden...</div>
+                <div className="mt-1 text-xs text-[#8A8A96]">
+                  Consultando pedido, pagos, eventos y ajustes.
+                </div>
+              </div>
+            </div>
+          ) : detailError ? (
+            <div className="grid min-h-64 place-items-center rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center">
+              <div>
+                <div className="text-sm font-semibold text-red-200">No se pudo cargar el detalle</div>
+                <div className="mt-2 max-w-md text-xs text-[#B7B7C2]">{detailError}</div>
+                <button
+                  className="mt-4 rounded-xl border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+                  type="button"
+                  onClick={onRetryDetail}
+                >
+                  Reintentar
+                </button>
+              </div>
+            </div>
+          ) : (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
             <div className="min-w-0">
               {activeTab === "notas" ? (
@@ -2992,6 +3026,7 @@ function OrderDetailPanel({
               </div>
             </aside>
           </div>
+          )}
         </div>
       </section>
     </div>
@@ -3002,6 +3037,7 @@ export default function MasterOpsClient({
   currentUserName,
   roles,
   focusDate,
+  snapshotAt,
   activeRate,
   orders,
   stats,
@@ -3021,6 +3057,13 @@ export default function MasterOpsClient({
   const [remoteOrderSearchLoading, setRemoteOrderSearchLoading] = useState(false);
   const [remoteOrderSearchError, setRemoteOrderSearchError] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [orderDetails, setOrderDetails] = useState<
+    Record<number, { snapshotAt: string; detail: MasterOpsOrderDetailPayload }>
+  >({});
+  const [detailLoadingOrderId, setDetailLoadingOrderId] = useState<number | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
+  const detailRequestTokenRef = useRef(0);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [rateEditorOpen, setRateEditorOpen] = useState(false);
@@ -3032,7 +3075,8 @@ export default function MasterOpsClient({
   const [actionError, setActionError] = useState<string | null>(null);
   const [inboxMode, setInboxMode] = useState<MasterOpsInboxKind | null>(null);
   const [inboxCounts, setInboxCounts] = useState({ actions: stats.actions, updates: stats.updates });
-  const [, startTransition] = useTransition();
+  const lastRefreshRequestAtRef = useRef(Date.now());
+  const [isRefreshing, startTransition] = useTransition();
 
   useEffect(() => {
     if (!rateEditorOpen) {
@@ -3044,6 +3088,93 @@ export default function MasterOpsClient({
   useEffect(() => {
     setInboxCounts({ actions: stats.actions, updates: stats.updates });
   }, [stats.actions, stats.updates]);
+
+  const requestOpsRefresh = useCallback(() => {
+    lastRefreshRequestAtRef.current = Date.now();
+    startTransition(() => {
+      router.refresh();
+    });
+  }, [router]);
+
+  useEffect(() => {
+    lastRefreshRequestAtRef.current = Date.now();
+  }, [snapshotAt]);
+
+  useEffect(() => {
+    const refreshIfStale = () => {
+      if (document.visibilityState !== "visible") return;
+      if (selectedOrderId || editingOrderId || createOrderOpen || rateEditorOpen || inboxMode) return;
+      if (Date.now() - lastRefreshRequestAtRef.current < 120_000) return;
+      requestOpsRefresh();
+    };
+
+    const intervalId = window.setInterval(refreshIfStale, 120_000);
+    window.addEventListener("focus", refreshIfStale);
+    document.addEventListener("visibilitychange", refreshIfStale);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshIfStale);
+      document.removeEventListener("visibilitychange", refreshIfStale);
+    };
+  }, [
+    createOrderOpen,
+    editingOrderId,
+    inboxMode,
+    rateEditorOpen,
+    requestOpsRefresh,
+    selectedOrderId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedOrderId) {
+      detailRequestTokenRef.current += 1;
+      setDetailLoadingOrderId(null);
+      setDetailError(null);
+      return;
+    }
+
+    const cached = orderDetails[selectedOrderId];
+    if (cached?.snapshotAt === snapshotAt) {
+      setDetailLoadingOrderId(null);
+      setDetailError(null);
+      return;
+    }
+
+    const requestToken = detailRequestTokenRef.current + 1;
+    detailRequestTokenRef.current = requestToken;
+    let cancelled = false;
+    setDetailLoadingOrderId(selectedOrderId);
+    setDetailError(null);
+
+    loadMasterOpsOrderDetailAction({ orderId: selectedOrderId })
+      .then((result) => {
+        if (cancelled || detailRequestTokenRef.current !== requestToken) return;
+        if (!result.ok) {
+          setDetailError(result.message);
+          return;
+        }
+        setOrderDetails((current) => ({
+          ...current,
+          [selectedOrderId]: {
+            snapshotAt,
+            detail: result.detail,
+          },
+        }));
+      })
+      .catch((error) => {
+        if (cancelled || detailRequestTokenRef.current !== requestToken) return;
+        setDetailError(error instanceof Error ? error.message : "No se pudo cargar el detalle de la orden.");
+      })
+      .finally(() => {
+        if (cancelled || detailRequestTokenRef.current !== requestToken) return;
+        setDetailLoadingOrderId(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailRequestVersion, orderDetails, selectedOrderId, snapshotAt]);
 
   const handleInboxCountChange = useCallback((kind: MasterOpsInboxKind, count: number) => {
     setInboxCounts((current) => current[kind] === count ? current : { ...current, [kind]: count });
@@ -3081,9 +3212,21 @@ export default function MasterOpsClient({
       .slice()
       .sort((a, b) => new Date(b.deliveryAtISO).getTime() - new Date(a.deliveryAtISO).getTime());
   }, [normalizedSearch, orders, tray]);
-  const selectedOrder = useMemo(
-    () => orders.find((order) => order.id === selectedOrderId) ?? null,
-    [orders, selectedOrderId]
+  const emptyOrdersMessage = search.trim()
+    ? `No hay pedidos del dia que coincidan con "${search.trim()}". Presiona Buscar para consultar el historial.`
+    : tray === "all"
+      ? "No hay pedidos para este dia."
+      : "No hay pedidos en esta bandeja para el dia seleccionado.";
+  const selectedOrder = useMemo(() => {
+    const order = orders.find((item) => item.id === selectedOrderId) ?? null;
+    if (!order) return null;
+    const cached = orderDetails[order.id];
+    return cached?.snapshotAt === snapshotAt
+      ? { ...order, ...cached.detail }
+      : order;
+  }, [orderDetails, orders, selectedOrderId, snapshotAt]);
+  const selectedOrderDetailReady = Boolean(
+    selectedOrderId && orderDetails[selectedOrderId]?.snapshotAt === snapshotAt
   );
   const shouldSearchOrders =
     isOrderSearchSubmitted &&
@@ -3144,6 +3287,7 @@ export default function MasterOpsClient({
     setSelectedOrderId(order.id);
     setSelectedDetailTab(tab);
     setActionError(null);
+    setDetailError(null);
   }
 
   function navigateToFocusDate(nextFocusDate: string) {
@@ -3219,9 +3363,7 @@ export default function MasterOpsClient({
     try {
       await updateMasterOpsExchangeRateAction({ rateBsPerUsd: rate });
       setRateEditorOpen(false);
-      startTransition(() => {
-        router.refresh();
-      });
+      requestOpsRefresh();
     } catch (error) {
       setExchangeRateError(error instanceof Error ? error.message : "No se pudo guardar la tasa.");
     } finally {
@@ -3350,9 +3492,7 @@ export default function MasterOpsClient({
         notes: payload.notes.trim() || null,
       });
 
-      startTransition(() => {
-        router.refresh();
-      });
+      requestOpsRefresh();
       return true;
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "No se pudo reportar el pago.");
@@ -3649,9 +3789,7 @@ export default function MasterOpsClient({
         throw new Error(message);
       }
 
-      startTransition(() => {
-        router.refresh();
-      });
+      requestOpsRefresh();
       return true;
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "No se pudo procesar la accion.");
@@ -3664,7 +3802,7 @@ export default function MasterOpsClient({
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <div className="sticky top-0 z-50 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
-        <div className="mx-auto max-w-[1400px] px-5 py-2.5">
+        <div className="mx-auto max-w-[1400px] px-3 py-2.5 sm:px-5">
           <div className="flex flex-col gap-2.5">
             <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex flex-wrap items-center gap-2.5">
@@ -3713,6 +3851,21 @@ export default function MasterOpsClient({
                     {activeRate ? fmtRateBs(activeRate) : "--"}
                   </div>
                 </button>
+
+                <button
+                  className="rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left transition hover:border-[#FEEF00]/50 disabled:cursor-wait disabled:opacity-60"
+                  type="button"
+                  disabled={isRefreshing}
+                  onClick={requestOpsRefresh}
+                  title="Volver a consultar la operacion en el servidor"
+                >
+                  <div className="text-[9px] uppercase tracking-[0.14em] text-[#8A8A96]">
+                    {isRefreshing ? "Actualizando" : "Actualizar"}
+                  </div>
+                  <div className="mt-0.5 text-[11px] font-medium leading-none text-[#F5F5F7]">
+                    {isRefreshing ? "Consultando..." : fmtTimeAMPM(snapshotAt)}
+                  </div>
+                </button>
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center gap-2.5">
@@ -3733,7 +3886,7 @@ export default function MasterOpsClient({
                   />
                 </div>
 
-                <div className="w-[240px] rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5">
+                <div className="w-full rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5 sm:w-[240px]">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-[13px] font-semibold leading-none text-[#F5F5F7]">
@@ -3757,7 +3910,7 @@ export default function MasterOpsClient({
         </div>
       </div>
 
-      <main className="mx-auto max-w-[1400px] px-5 py-4">
+      <main className="mx-auto max-w-[1400px] px-3 py-4 sm:px-5">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1.35fr_0.9fr_0.9fr_0.9fr_0.9fr]">
           <Card title="Estado">
             <div className="grid grid-cols-[1fr_0.55fr_0.55fr] gap-x-2 gap-y-1 text-[11px]">
@@ -3931,7 +4084,87 @@ export default function MasterOpsClient({
           ))}
         </div>
 
-        <div className="mt-4 overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]">
+        <div className="mt-4 space-y-2 lg:hidden">
+          {tableOrders.length === 0 ? (
+            <div className="rounded-2xl border border-[#242433] bg-[#121218] px-4 py-8 text-center text-sm text-[#B7B7C2]">
+              {emptyOrdersMessage}
+            </div>
+          ) : (
+            tableOrders.map((order) => {
+              const focusTab = getOrderFocusTab(order);
+              const actionLabel = getNextPrimaryActionLabel(order);
+
+              return (
+                <article
+                  key={order.id}
+                  className="overflow-hidden rounded-2xl border border-[#242433] bg-[#121218]"
+                >
+                  <button
+                    className="w-full p-3 text-left transition hover:bg-[#171720]"
+                    type="button"
+                    onClick={() => openOrder(order, focusTab)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-[#F5F5F7]">
+                            {orderDisplayNumber(order)}
+                          </span>
+                          <span className="text-xs text-[#B7B7C2]">
+                            {fmtTimeAMPM(order.deliveryAtISO)}
+                          </span>
+                          <span className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-0.5 text-[10px] text-[#B7B7C2]">
+                            {pillLabel(order.fulfillment)}
+                          </span>
+                        </div>
+                        <div className="mt-1 truncate text-sm font-medium text-[#F5F5F7]">
+                          {order.clientName}
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-[#8A8A96]">
+                          {order.advisorName} · {ORDER_STATUS_LABELS[order.status]}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="text-sm font-semibold text-[#F5F5F7]">
+                          {fmtUSD(order.totalUsd)}
+                        </div>
+                        <div className={`mt-1 text-xs font-semibold ${paymentToneClass(order.balanceUsd)}`}>
+                          Pend. {fmtUSD(order.balanceUsd)}
+                        </div>
+                      </div>
+                    </div>
+                    {order.isNewClient ? (
+                      <div className="mt-2 inline-flex rounded-full bg-[#FEEF00] px-2 py-0.5 text-[9px] font-semibold leading-none text-[#0B0B0D]">
+                        CLIENTE NUEVO
+                      </div>
+                    ) : null}
+                    <div className="mt-3 border-t border-[#242433] pt-3">
+                      <RowProcessTimeline order={order} />
+                    </div>
+                  </button>
+                  <div className="flex items-center justify-end border-t border-[#242433] px-3 py-2">
+                    <button
+                      className={[
+                        "rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-xs font-medium transition hover:border-[#FEEF00]/40",
+                        focusTab === "pagos"
+                          ? "text-orange-200"
+                          : focusTab === "entrega"
+                            ? "text-sky-200"
+                            : "text-[#F5F5F7]",
+                      ].join(" ")}
+                      type="button"
+                      onClick={() => openOrder(order, focusTab)}
+                    >
+                      {actionLabel}
+                    </button>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+
+        <div className="mt-4 hidden overflow-hidden rounded-2xl border border-[#242433] bg-[#121218] lg:block">
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
               <thead className="sticky top-0 z-10 border-b border-[#242433] bg-[#0B0B0D] text-[#B7B7C2]">
@@ -3952,11 +4185,7 @@ export default function MasterOpsClient({
                 {tableOrders.length === 0 ? (
                   <tr>
                     <td className="px-2 py-6 text-center text-[#B7B7C2]" colSpan={9}>
-                      {search.trim()
-                        ? `No hay pedidos del dia que coincidan con "${search.trim()}". Presiona Buscar para consultar el historial.`
-                        : tray === "all"
-                          ? "No hay pedidos para este dia."
-                          : "No hay pedidos en esta bandeja para el dia seleccionado."}
+                      {emptyOrdersMessage}
                     </td>
                   </tr>
                 ) : (
@@ -4049,9 +4278,15 @@ export default function MasterOpsClient({
           activeRate={activeRate}
           roles={roles}
           activeTab={selectedDetailTab}
+          detailLoading={
+            !selectedOrderDetailReady &&
+            (detailLoadingOrderId === selectedOrder.id || !detailError)
+          }
+          detailError={!selectedOrderDetailReady ? detailError : null}
           actionError={actionError}
           runningAction={runningAction}
           onTabChange={setSelectedDetailTab}
+          onRetryDetail={() => setDetailRequestVersion((version) => version + 1)}
           onClose={() => setSelectedOrderId(null)}
           onEditOrder={(order) => setEditingOrderId(order.id)}
           onDirectAction={runDirectOrderAction}
@@ -4070,9 +4305,7 @@ export default function MasterOpsClient({
         onClose={() => setCreateOrderOpen(false)}
         onSaved={() => {
           setCreateOrderOpen(false);
-          startTransition(() => {
-            router.refresh();
-          });
+          requestOpsRefresh();
         }}
       />
       <MasterOpsOrderEditor
@@ -4083,9 +4316,7 @@ export default function MasterOpsClient({
         onClose={() => setEditingOrderId(null)}
         onSaved={() => {
           setEditingOrderId(null);
-          startTransition(() => {
-            router.refresh();
-          });
+          requestOpsRefresh();
         }}
       />
       {rateEditorOpen ? (

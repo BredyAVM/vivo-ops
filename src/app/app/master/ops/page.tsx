@@ -157,11 +157,6 @@ type RawPaymentRuleRow = {
   is_active: boolean | null;
 };
 
-type RawProfileNameRow = {
-  id: string;
-  full_name: string | null;
-};
-
 type RawProductDetailRow = {
   id: number | string;
   type: string | null;
@@ -373,18 +368,6 @@ function extractUnitsPerServiceFromName(name: string | null | undefined) {
   if (!match) return 0;
   const units = Number(match[1].replace(",", "."));
   return Number.isFinite(units) && units > 0 ? units : 0;
-}
-
-function groupByOrderId<T extends { order_id: number | string }>(rows: T[]) {
-  const map = new Map<number, T[]>();
-  for (const row of rows) {
-    const orderId = Number(row.order_id);
-    if (!Number.isFinite(orderId) || orderId <= 0) continue;
-    const bucket = map.get(orderId) ?? [];
-    bucket.push(row);
-    map.set(orderId, bucket);
-  }
-  return map;
 }
 
 function paymentVerifyFromState(status: OrderStatus, state: RawFinancialStateRow | null): PaymentVerify {
@@ -795,6 +778,8 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     createdWeekResult,
     deliveryPartnersResult,
     driversResult,
+    moneyAccountsResult,
+    paymentRulesResult,
   ] = await Promise.all([
     ctx.supabase.from("profiles").select("full_name").eq("id", ctx.user.id).maybeSingle(),
     ctx.supabase
@@ -836,6 +821,18 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       .select("id, name, partner_type, whatsapp_phone, is_active")
       .order("name", { ascending: true }),
     ctx.supabase.rpc("get_driver_profiles"),
+    ctx.supabase.from("money_accounts").select("id, name, currency_code, account_kind, is_active"),
+    ctx.supabase
+      .from("money_account_payment_rules")
+      .select("money_account_id, role, payment_method_code, can_report_payment, is_active")
+      .eq("is_active", true)
+      .eq("can_report_payment", true)
+      .in(
+        "role",
+        ctx.roles.some((role) => role === "admin" || role === "master")
+          ? ctx.roles.filter((role) => role === "admin" || role === "master")
+          : ["master"]
+      ),
   ]);
 
   const firstError =
@@ -846,7 +843,9 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     scheduledWeekResult.error ??
     createdWeekResult.error ??
     deliveryPartnersResult.error ??
-    driversResult.error;
+    driversResult.error ??
+    moneyAccountsResult.error ??
+    paymentRulesResult.error;
 
   if (firstError) throw new Error(firstError.message);
 
@@ -881,190 +880,49 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
   const dayRows = mergeRows(scheduledDayRows, createdDayRows);
   const weekRows = mergeRows(scheduledWeekRows, createdWeekRows);
   const allRows = mergeRows(dayRows, weekRows);
-  const dayOrderIds = dayRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
   const allOrderIds = allRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
   const activeRate = toNumber(activeRateResult.data?.rate_bs_per_usd, 0);
-
-  const { data: financialStateData, error: financialStateError } =
+  const clientIds = Array.from(
+    new Set(dayRows.map((row) => Number(row.client_id)).filter((id) => Number.isFinite(id) && id > 0))
+  );
+  const paymentReportRoles = ctx.roles.filter((role) => role === "admin" || role === "master");
+  const [financialStateResult, clientHistoryResult] = await Promise.all([
     allOrderIds.length > 0
-      ? await (ctx.supabase as any).rpc("get_orders_financial_state", {
+      ? (ctx.supabase as any).rpc("get_orders_financial_state", {
           p_order_ids: allOrderIds,
           p_operation_date: null,
           p_active_bs_rate: activeRate > 0 ? activeRate : null,
         })
-      : { data: [], error: null };
-
-  if (financialStateError) {
-    throw new Error(financialStateError.message);
-  }
-
-  const clientIds = Array.from(
-    new Set(allRows.map((row) => Number(row.client_id)).filter((id) => Number.isFinite(id) && id > 0))
-  );
-  const clientHistoryResult =
+      : Promise.resolve({ data: [], error: null }),
     clientIds.length > 0
-      ? await ctx.supabase
+      ? ctx.supabase
           .from("orders")
           .select("id, client_id")
           .in("client_id", clientIds)
           .neq("status", "cancelled")
           .order("id", { ascending: true })
           .limit(2000)
-      : { data: [], error: null };
-
-  if (clientHistoryResult.error) {
-    throw new Error(clientHistoryResult.error.message);
-  }
-
-  const detailOrderIds = dayOrderIds.length > 0 ? dayOrderIds : [-1];
-  const paymentReportRoles = ctx.roles.filter((role) => role === "admin" || role === "master");
-  const [
-    orderItemsResult,
-    paymentReportsResult,
-    orderEventsResult,
-    orderAdjustmentsResult,
-    moneyAccountsResult,
-    paymentRulesResult,
-  ] = await Promise.all([
-    ctx.supabase
-      .from("order_items")
-      .select(
-        `
-        id,
-        order_id,
-        product_id,
-        qty,
-        unit_price_usd_snapshot,
-        unit_price_bs_snapshot,
-        line_total_usd,
-        product_name_snapshot,
-        notes
-      `
-      )
-      .in("order_id", detailOrderIds),
-    ctx.supabase
-      .from("payment_reports")
-      .select(
-        `
-        id,
-        order_id,
-        status,
-        created_at,
-        operation_date,
-        created_by_user_id,
-        reported_currency_code,
-        reported_amount,
-        reported_exchange_rate_ves_per_usd,
-        reported_amount_usd_equivalent,
-        reported_money_account_id,
-        reference_code,
-        payer_name,
-        notes
-      `
-      )
-      .in("order_id", detailOrderIds)
-      .order("created_at", { ascending: false }),
-    ctx.supabase
-      .from("order_timeline_events")
-      .select("id, order_id, title, message, severity, actor_user_id, created_at")
-      .in("order_id", detailOrderIds)
-      .order("created_at", { ascending: false })
-      .limit(800),
-    ctx.supabase
-      .from("order_admin_adjustments")
-      .select("id, order_id, adjustment_type, reason, notes, created_at, created_by_user_id")
-      .in("order_id", detailOrderIds)
-      .order("created_at", { ascending: false }),
-    ctx.supabase.from("money_accounts").select("id, name, currency_code, account_kind, is_active"),
-    ctx.supabase
-      .from("money_account_payment_rules")
-      .select("money_account_id, role, payment_method_code, can_report_payment, is_active")
-      .eq("is_active", true)
-      .eq("can_report_payment", true)
-      .in("role", paymentReportRoles.length > 0 ? paymentReportRoles : ["master"]),
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
-  const detailError =
-    orderItemsResult.error ??
-    paymentReportsResult.error ??
-    orderEventsResult.error ??
-    orderAdjustmentsResult.error ??
-    moneyAccountsResult.error ??
-    paymentRulesResult.error;
-
-  if (detailError) {
-    throw new Error(detailError.message);
+  const liveDataError = financialStateResult.error ?? clientHistoryResult.error;
+  if (liveDataError) {
+    throw new Error(liveDataError.message);
   }
 
-  const orderItems = (orderItemsResult.data ?? []) as RawOrderItemRow[];
-  const paymentReports = (paymentReportsResult.data ?? []) as RawPaymentReportRow[];
-  const orderEvents = (orderEventsResult.data ?? []) as RawOrderEventRow[];
-  const orderAdjustments = (orderAdjustmentsResult.data ?? []) as RawOrderAdjustmentRow[];
   const moneyAccounts = (moneyAccountsResult.data ?? []) as RawMoneyAccountRow[];
   const paymentRules = (paymentRulesResult.data ?? []) as RawPaymentRuleRow[];
-  const productIds = Array.from(
-    new Set(orderItems.map((item) => Number(item.product_id)).filter((id) => Number.isFinite(id) && id > 0))
-  );
-  const productsResult =
-    productIds.length > 0
-      ? await ctx.supabase.from("products").select("id, type, units_per_service").in("id", productIds)
-      : { data: [], error: null };
-
-  if (productsResult.error) {
-    throw new Error(productsResult.error.message);
-  }
-
-  const profileIds = Array.from(
-    new Set(
-      [
-        ...paymentReports.map((report) => report.created_by_user_id),
-        ...orderEvents.map((event) => event.actor_user_id),
-        ...orderAdjustments.map((adjustment) => adjustment.created_by_user_id),
-        ...allRows.map((row) => row.internal_driver_user_id),
-      ]
-        .map((id) => String(id ?? "").trim())
-        .filter(Boolean)
-    )
-  );
-  const profileNamesResult =
-    profileIds.length > 0
-      ? await ctx.supabase.from("profiles").select("id, full_name").in("id", profileIds)
-      : { data: [], error: null };
-
-  if (profileNamesResult.error) {
-    throw new Error(profileNamesResult.error.message);
-  }
-
-  const moneyAccountNameById = new Map(
-    moneyAccounts
-      .map((account) => [Number(account.id), cleanText(account.name, `Cuenta #${account.id}`)] as const)
-      .filter(([id]) => Number.isFinite(id) && id > 0)
-  );
   const profileNameById = new Map(
-    ((profileNamesResult.data ?? []) as RawProfileNameRow[]).map((profileRow) => [
-      profileRow.id,
-      cleanText(profileRow.full_name, "Usuario"),
-    ])
-  );
-  const productDetailById = new Map(
-    ((productsResult.data ?? []) as RawProductDetailRow[])
-      .map((product) => [Number(product.id), product] as const)
-      .filter(([id]) => Number.isFinite(id) && id > 0)
+    drivers.map((driver) => [driver.id, driver.fullName] as const)
   );
   const detailMaps: MasterOpsOrderDetailMaps = {
-    itemsByOrder: groupByOrderId(orderItems),
-    reportsByOrder: groupByOrderId(paymentReports),
-    eventsByOrder: groupByOrderId(orderEvents),
-    adjustmentsByOrder: groupByOrderId(orderAdjustments),
-    moneyAccountNameById,
     profileNameById,
-    productDetailById,
   };
 
-  const financialStates = financialStateById((financialStateData ?? []) as RawFinancialStateRow[]);
+  const financialStates = financialStateById((financialStateResult.data ?? []) as RawFinancialStateRow[]);
   const clientStats = buildClientOrderStats((clientHistoryResult.data ?? []) as Array<{ id: number | string; client_id: number | string | null }>);
   const dayOrders = dayRows.map((row) => mapOrder(row, financialStates, clientStats, detailMaps));
-  const weekOrders = weekRows.map((row) => mapOrder(row, financialStates, clientStats));
+  const weekOrders = weekRows.map((row) => mapOrder(row, financialStates, new Map(), detailMaps));
   const paymentAccounts = buildPaymentAccountOptions({
     accounts: moneyAccounts,
     rules: paymentRules,
@@ -1077,6 +935,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
       activeRate={activeRate > 0 ? activeRate : null}
       currentUserName={cleanText(profile?.full_name ?? ctx.user.email, "Usuario")}
       focusDate={focusDate}
+      snapshotAt={new Date().toISOString()}
       orders={dayOrders}
       roles={ctx.roles}
       stats={buildStats(dayOrders, weekOrders)}

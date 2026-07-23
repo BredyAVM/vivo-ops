@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireMasterOrAdminContext } from "@/lib/auth";
+import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getPhoneSearchTerms } from "@/lib/phone/normalize-phone";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { normalizeRemoteSearchValue } from "@/lib/search/normalize-search";
@@ -14,6 +15,12 @@ import {
   updateExchangeRateAction,
   updateOrderAction,
 } from "../dashboard/actions";
+import type {
+  MasterOrderAdminAdjustment,
+  MasterOrderDetailLine,
+  MasterOrderEvent,
+  MasterOrderPaymentReport,
+} from "../_components/MasterOrderDetailCore";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
@@ -33,6 +40,316 @@ export type MasterOpsOrderSearchResult = {
   createdAt: string;
   operationalDate: string;
 };
+
+export type MasterOpsOrderDetailPayload = {
+  lines: MasterOrderDetailLine[];
+  paymentReports: MasterOrderPaymentReport[];
+  events: MasterOrderEvent[];
+  adminAdjustments: MasterOrderAdminAdjustment[];
+};
+
+type MasterOpsDetailItemRow = {
+  id: number;
+  product_id: number | string | null;
+  qty: number | string | null;
+  unit_price_bs_snapshot: number | string | null;
+  line_total_usd: number | string | null;
+  product_name_snapshot: string | null;
+  notes: string | null;
+};
+
+type MasterOpsDetailPaymentRow = {
+  id: number;
+  status: "pending" | "confirmed" | "rejected";
+  created_at: string | null;
+  operation_date: string | null;
+  created_by_user_id: string | null;
+  reported_currency_code: string;
+  reported_amount: number | string | null;
+  reported_exchange_rate_ves_per_usd: number | string | null;
+  reported_amount_usd_equivalent: number | string | null;
+  reported_money_account_id: number | string | null;
+  reference_code: string | null;
+  payer_name: string | null;
+  notes: string | null;
+};
+
+type MasterOpsDetailEventRow = {
+  id: number | string;
+  title: string | null;
+  message: string | null;
+  severity: "info" | "warning" | "critical" | null;
+  actor_user_id: string | null;
+  created_at: string;
+};
+
+type MasterOpsDetailAdjustmentRow = {
+  id: number;
+  adjustment_type: string | null;
+  reason: string | null;
+  notes: string | null;
+  created_at: string;
+  created_by_user_id: string | null;
+};
+
+function extractMasterOpsUnitsPerService(name: string) {
+  const match = name.match(/\((\d+(?:[.,]\d+)?)\s*(?:und|unidad|unidades|pzas?|piezas?)\)/i);
+  if (!match) return 0;
+  const units = Number(match[1].replace(",", "."));
+  return Number.isFinite(units) && units > 0 ? units : 0;
+}
+
+function masterOpsAdjustmentLabel(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "item_price_override") return "Precio ajustado";
+  if (normalized === "other") return "Ajuste administrativo";
+  if (!normalized) return "Ajuste";
+  return normalized
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export async function loadMasterOpsOrderDetailAction(input: {
+  orderId: number;
+}): Promise<
+  | { ok: true; detail: MasterOpsOrderDetailPayload }
+  | { ok: false; message: string }
+> {
+  try {
+    const { supabase } = await requireMasterOrAdminContext();
+    const orderId = Number(input.orderId || 0);
+
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      throw new Error("Orden invalida.");
+    }
+
+    const [
+      orderResult,
+      orderItemsResult,
+      paymentReportsResult,
+      orderEventsResult,
+      orderAdjustmentsResult,
+    ] = await Promise.all([
+      supabase.from("orders").select("id").eq("id", orderId).maybeSingle(),
+      supabase
+        .from("order_items")
+        .select(`
+          id,
+          product_id,
+          qty,
+          unit_price_bs_snapshot,
+          line_total_usd,
+          product_name_snapshot,
+          notes
+        `)
+        .eq("order_id", orderId)
+        .order("id", { ascending: true }),
+      supabase
+        .from("payment_reports")
+        .select(`
+          id,
+          status,
+          created_at,
+          operation_date,
+          created_by_user_id,
+          reported_currency_code,
+          reported_amount,
+          reported_exchange_rate_ves_per_usd,
+          reported_amount_usd_equivalent,
+          reported_money_account_id,
+          reference_code,
+          payer_name,
+          notes
+        `)
+        .eq("order_id", orderId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("order_timeline_events")
+        .select("id, title, message, severity, actor_user_id, created_at")
+        .eq("order_id", orderId)
+        .order("created_at", { ascending: false })
+        .limit(250),
+      supabase
+        .from("order_admin_adjustments")
+        .select("id, adjustment_type, reason, notes, created_at, created_by_user_id")
+        .eq("order_id", orderId)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    const firstError =
+      orderResult.error ??
+      orderItemsResult.error ??
+      paymentReportsResult.error ??
+      orderEventsResult.error ??
+      orderAdjustmentsResult.error;
+    if (firstError) throw new Error(firstError.message);
+    if (!orderResult.data) throw new Error("No se pudo cargar la orden.");
+
+    const orderItems = (orderItemsResult.data ?? []) as MasterOpsDetailItemRow[];
+    const paymentReports = (paymentReportsResult.data ?? []) as MasterOpsDetailPaymentRow[];
+    const orderEvents = (orderEventsResult.data ?? []) as MasterOpsDetailEventRow[];
+    const orderAdjustments = (orderAdjustmentsResult.data ?? []) as MasterOpsDetailAdjustmentRow[];
+    const productIds = Array.from(
+      new Set(orderItems.map((item) => Number(item.product_id)).filter((id) => Number.isFinite(id) && id > 0))
+    );
+    const moneyAccountIds = Array.from(
+      new Set(
+        paymentReports
+          .map((report) => Number(report.reported_money_account_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    );
+    const profileIds = Array.from(
+      new Set(
+        [
+          ...paymentReports.map((report) => report.created_by_user_id),
+          ...orderEvents.map((event) => event.actor_user_id),
+          ...orderAdjustments.map((adjustment) => adjustment.created_by_user_id),
+        ]
+          .map((id) => String(id ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    const [productsResult, moneyAccountsResult, profilesResult] = await Promise.all([
+      productIds.length > 0
+        ? supabase.from("products").select("id, type, units_per_service").in("id", productIds)
+        : Promise.resolve({ data: [], error: null }),
+      moneyAccountIds.length > 0
+        ? supabase.from("money_accounts").select("id, name").in("id", moneyAccountIds)
+        : Promise.resolve({ data: [], error: null }),
+      profileIds.length > 0
+        ? supabase.from("profiles").select("id, full_name").in("id", profileIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    const relatedError = productsResult.error ?? moneyAccountsResult.error ?? profilesResult.error;
+    if (relatedError) throw new Error(relatedError.message);
+
+    const productById = new Map(
+      (productsResult.data ?? [])
+        .map((product) => [Number(product.id), product] as const)
+        .filter(([id]) => Number.isFinite(id) && id > 0)
+    );
+    const moneyAccountNameById = new Map(
+      (moneyAccountsResult.data ?? [])
+        .map((account) => [Number(account.id), cleanText(account.name, `Cuenta #${account.id}`)] as const)
+        .filter(([id]) => Number.isFinite(id) && id > 0)
+    );
+    const profileNameById = new Map(
+      (profilesResult.data ?? []).map((profile) => [
+        String(profile.id),
+        cleanText(profile.full_name, "Usuario"),
+      ] as const)
+    );
+
+    const lines: MasterOrderDetailLine[] = orderItems.map((item) => {
+      const productName = cleanText(item.product_name_snapshot, "Producto");
+      const productId = Number(item.product_id);
+      const product = Number.isFinite(productId) ? productById.get(productId) : null;
+      const productUnits = Number(product?.units_per_service ?? 0);
+      const lowerName = productName.toLowerCase();
+
+      return {
+        name: productName,
+        qty: Number(item.qty ?? 0),
+        unitsPerService:
+          Number.isFinite(productUnits) && productUnits > 0
+            ? productUnits
+            : extractMasterOpsUnitsPerService(productName),
+        priceBs: roundOpsMoney(item.unit_price_bs_snapshot),
+        lineTotalUsd: roundOpsMoney(item.line_total_usd),
+        productType: product?.type ?? null,
+        isDelivery: lowerName.startsWith("delivery") || lowerName.includes("delivery"),
+        editableDetailLines: item.notes
+          ? getVisibleEditableDetailLines(
+              item.notes
+                .split("\n")
+                .map((line) => line.trim())
+                .filter(Boolean)
+            )
+          : [],
+      };
+    });
+    const mappedPaymentReports: MasterOrderPaymentReport[] = paymentReports.map((report) => {
+      const accountId = Number(report.reported_money_account_id);
+      const accountName =
+        Number.isFinite(accountId) && accountId > 0
+          ? moneyAccountNameById.get(accountId) ?? `Cuenta #${accountId}`
+          : "Cuenta";
+      const retentionText = `${accountName} ${report.notes ?? ""}`
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+
+      return {
+        id: Number(report.id),
+        status: report.status,
+        createdAt: report.created_at,
+        operationDate: report.operation_date ?? null,
+        reporterName:
+          (report.created_by_user_id ? profileNameById.get(report.created_by_user_id) : null) ??
+          "Usuario",
+        currencyCode: cleanText(report.reported_currency_code, "--"),
+        amount: roundOpsMoney(report.reported_amount),
+        exchangeRate:
+          report.reported_exchange_rate_ves_per_usd == null
+            ? null
+            : roundOpsMoney(report.reported_exchange_rate_ves_per_usd),
+        usdEquivalent: roundOpsMoney(report.reported_amount_usd_equivalent),
+        moneyAccountId: Number.isFinite(accountId) && accountId > 0 ? accountId : null,
+        moneyAccountName: accountName,
+        referenceCode: report.reference_code ?? null,
+        payerName: report.payer_name ?? null,
+        notes: report.notes ?? null,
+        isRetention:
+          retentionText.includes("retencion") ||
+          retentionText.includes("comprobante retencion"),
+      };
+    });
+    const events: MasterOrderEvent[] = orderEvents.map((event) => ({
+      id: String(event.id),
+      title: cleanText(event.title, "Evento"),
+      message: event.message ?? null,
+      severity:
+        event.severity === "critical" || event.severity === "warning" || event.severity === "info"
+          ? event.severity
+          : "info",
+      actorName:
+        (event.actor_user_id ? profileNameById.get(event.actor_user_id) : null) ??
+        "Sistema",
+      createdAt: event.created_at,
+    }));
+    const adminAdjustments: MasterOrderAdminAdjustment[] = orderAdjustments.map((adjustment) => ({
+      id: Number(adjustment.id),
+      adjustmentType: masterOpsAdjustmentLabel(adjustment.adjustment_type),
+      reason: cleanText(adjustment.reason, "--"),
+      notes: adjustment.notes ?? null,
+      createdAt: adjustment.created_at,
+      createdByName:
+        (adjustment.created_by_user_id
+          ? profileNameById.get(adjustment.created_by_user_id)
+          : null) ?? "Admin",
+    }));
+
+    return {
+      ok: true,
+      detail: {
+        lines,
+        paymentReports: mappedPaymentReports,
+        events,
+        adminAdjustments,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "No se pudo cargar el detalle de la orden.",
+    };
+  }
+}
 
 export async function addMasterOpsOrderNoteAction(input: {
   orderId: number;
