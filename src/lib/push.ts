@@ -39,6 +39,12 @@ function safeText(value: unknown, fallback = '') {
   return text || fallback;
 }
 
+function pushUrlForSubscription(url: string, scope: unknown) {
+  if (safeText(scope) !== 'master_ops') return url;
+  if (!url.startsWith('/app/master/dashboard')) return url;
+  return url.replace('/app/master/dashboard', '/app/master/ops');
+}
+
 function webPushTopicFromTag(value: unknown) {
   const source = safeText(value, 'vivo-notification');
   const normalized = source.replace(/[^A-Za-z0-9_-]/g, '-');
@@ -249,7 +255,7 @@ export async function sendPushToUserDevices(input: {
   const supa = getServiceSupabase();
   const { data: rows, error } = await supa
     .from('user_push_subscriptions')
-    .select('endpoint, p256dh, auth')
+    .select('endpoint, p256dh, auth, scope')
     .eq('user_id', userId)
     .eq('is_active', true);
 
@@ -267,18 +273,20 @@ export async function sendPushToUserDevices(input: {
 
   const tone = input.tone ?? 'info';
   const webPush = configureWebPush();
-  const payload = JSON.stringify({
-    title: safeText(input.title, 'VIVO OPS'),
-    body: safeText(input.body, 'Tienes una actualizacion nueva.'),
-    url: safeText(input.url, '/app/master/dashboard'),
-    tag: safeText(input.tag, 'vivo-notification'),
-    tone,
-    requireInteraction: Boolean(input.requireInteraction || tone === 'critical'),
-  });
+  const requestedUrl = safeText(input.url, '/app/master/dashboard');
 
   const results = await Promise.allSettled(
-    rows.map((row) =>
-      webPush.sendNotification(
+    rows.map((row) => {
+      const payload = JSON.stringify({
+        title: safeText(input.title, 'VIVO OPS'),
+        body: safeText(input.body, 'Tienes una actualizacion nueva.'),
+        url: pushUrlForSubscription(requestedUrl, row.scope),
+        tag: safeText(input.tag, 'vivo-notification'),
+        tone,
+        requireInteraction: Boolean(input.requireInteraction || tone === 'critical'),
+      });
+
+      return webPush.sendNotification(
         {
           endpoint: String(row.endpoint),
           keys: {
@@ -292,8 +300,8 @@ export async function sendPushToUserDevices(input: {
           urgency: tone === 'critical' ? 'high' : tone === 'warning' ? 'normal' : 'low',
           topic: webPushTopicFromTag(input.tag),
         },
-      ),
-    ),
+      );
+    }),
   );
 
   const invalidEndpoints = rows

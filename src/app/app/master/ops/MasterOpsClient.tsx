@@ -74,6 +74,7 @@ import {
   updateMasterOpsExchangeRateAction,
 } from "./actions";
 import type { MasterOpsInboxItem, MasterOpsInboxKind } from "./inbox-actions";
+import MasterOpsAlerts from "./MasterOpsAlerts";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
 import {
   canAssignMasterOpsDelivery,
@@ -157,6 +158,7 @@ export type MasterOpsStats = {
 type Props = {
   currentUserName: string;
   roles: string[];
+  publicVapidKey: string;
   focusDate: string;
   snapshotAt: string;
   activeRate: number | null;
@@ -3033,6 +3035,7 @@ function OrderDetailPanel({
 export default function MasterOpsClient({
   currentUserName,
   roles,
+  publicVapidKey,
   focusDate,
   snapshotAt,
   activeRate,
@@ -3863,6 +3866,8 @@ export default function MasterOpsClient({
                     {isRefreshing ? "Consultando..." : fmtTimeAMPM(snapshotAt)}
                   </div>
                 </button>
+
+                <MasterOpsAlerts publicVapidKey={publicVapidKey} onRefresh={requestOpsRefresh} />
               </div>
 
               <div className="flex min-w-0 flex-wrap items-center gap-2.5">

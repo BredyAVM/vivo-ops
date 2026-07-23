@@ -34,7 +34,16 @@ function isMissingTableError(message: string) {
 
 function normalizeScope(value: unknown) {
   const scope = String(value || '').trim().toLowerCase();
-  if (scope === 'master' || scope === 'advisor' || scope === 'kitchen' || scope === 'counter' || scope === 'driver') return scope;
+  if (
+    scope === 'master' ||
+    scope === 'master_ops' ||
+    scope === 'advisor' ||
+    scope === 'kitchen' ||
+    scope === 'counter' ||
+    scope === 'driver'
+  ) {
+    return scope;
+  }
   return 'app';
 }
 

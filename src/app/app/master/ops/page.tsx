@@ -10,6 +10,7 @@ import {
 import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth";
+import { getPublicVapidKey } from "@/lib/push";
 import MasterOpsClient, {
   type DeliveryPartnerOption,
   type DriverOption,
@@ -934,6 +935,7 @@ export default async function MasterOpsPage({ searchParams }: { searchParams?: S
     <MasterOpsClient
       activeRate={activeRate > 0 ? activeRate : null}
       currentUserName={cleanText(profile?.full_name ?? ctx.user.email, "Usuario")}
+      publicVapidKey={getPublicVapidKey()}
       focusDate={focusDate}
       snapshotAt={new Date().toISOString()}
       orders={dayOrders}
