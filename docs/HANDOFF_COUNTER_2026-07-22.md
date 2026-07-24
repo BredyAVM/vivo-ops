@@ -30,11 +30,21 @@ Este documento es para abrir un chat nuevo enfocado exclusivamente en terminar e
 
 Antes de tocar el modulo, leer:
 
+- `docs/COUNTER_CANONICAL_CONTRACT_2026-07-24.md`
 - `docs/HANDOFF_2026-07-22.md`
 - `docs/OPERATIONAL_DATA_FRESHNESS_POLICY_2026-07-17.md`
 - `docs/FINANCIAL_CANONICAL_FLOW_2026-06-04.md`
 - `docs/FINANCIAL_GOVERNANCE_POLICY_2026-06-16.md`
 - `docs/MASTER_ADMIN_SEPARATION_AUDIT_2026-07-17.md`
+
+El contrato canónico de Counter aprobado el 2026-07-24 prevalece ante cualquier
+descripción operativa anterior de este handoff que resulte incompatible. El
+handoff describe el estado técnico encontrado; el contrato define el
+comportamiento objetivo.
+
+Hoja de ruta de implementación:
+
+- `docs/COUNTER_IMPLEMENTATION_ROADMAP_2026-07-24.md`
 
 Regla importante:
 
@@ -412,12 +422,25 @@ Probar antes de dar por cerrado:
 
 ## Siguiente bloque recomendado para el chat nuevo
 
-1. Revisar visualmente `/app/counter` contra estas reglas.
-2. Ajustar filtros y layout para que la pantalla sea mas operativa.
-3. Validar `OrderDetail`: pedido primero, acciones compactas.
-4. Revisar caja/punto: saldo completo, movimientos de todos los roles, cierre claro.
-5. Probar flujo de cobro/liquidacion completo.
-6. Solo despues, afinar push/sonido y busqueda agenda.
+La secuencia anterior que comenzaba por refinamiento visual queda reemplazada por
+la hoja de ruta del 2026-07-24.
+
+El siguiente trabajo es:
+
+```text
+Bloque 1 - Autoridad y perimetro de seguridad
+```
+
+Estado al 2026-07-24:
+
+- auditoría e implementación local preparadas;
+- evidencia en `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`;
+- migración remota y pruebas con Counter puro pendientes de autorización;
+- Bloque 1 todavía no está cerrado.
+
+No se debe comenzar el Bloque 2 ni hacer ajustes visuales antes de validar que
+un usuario con rol Counter puro pueda ejecutar exactamente las acciones
+autorizadas por el contrato canónico y ninguna más.
 
 ## Prompt sugerido para abrir el chat nuevo
 
@@ -430,4 +453,3 @@ Antes de tocar codigo, lee docs/HANDOFF_COUNTER_2026-07-22.md y los documentos c
 
 Objetivo: terminar /app/counter como caja registradora operativa: pedidos listos, entrega pickup, entrega a motorizado, liquidacion de delivery, cobros mixtos, cambios, caja/puntos y venta directa, sin convertirlo en dashboard financiero ni tocar /app/master/dashboard.
 ```
-
