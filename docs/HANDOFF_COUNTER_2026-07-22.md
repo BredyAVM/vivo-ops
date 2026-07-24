@@ -428,19 +428,21 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 1 - Autoridad y perimetro de seguridad
+Bloque 2 - Persistencia y comandos atomicos
 ```
 
 Estado al 2026-07-24:
 
-- auditoría e implementación local preparadas;
+- Bloque 1 cerrado en su alcance de autoridad y perímetro de seguridad;
 - evidencia en `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`;
-- migración remota y pruebas con Counter puro pendientes de autorización;
-- Bloque 1 todavía no está cerrado.
+- migración remota `20260724230435_counter_block1_authority_boundary` aplicada;
+- pruebas controladas de Counter puro y advisors revisados;
+- la prueba positiva con un delivery real listo y asignado se repetirá antes de
+  certificar el Bloque 6.
 
-No se debe comenzar el Bloque 2 ni hacer ajustes visuales antes de validar que
-un usuario con rol Counter puro pueda ejecutar exactamente las acciones
-autorizadas por el contrato canónico y ninguna más.
+No se deben adelantar cobros, pickup, delivery ni ajustes visuales durante el
+Bloque 2. Primero se debe construir la persistencia y los comandos atómicos que
+evitarán operaciones parciales en los bloques funcionales siguientes.
 
 ## Prompt sugerido para abrir el chat nuevo
 

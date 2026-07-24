@@ -10,11 +10,12 @@ Documentos rectores:
 Estado:
 
 - auditoría focalizada: completada;
-- implementación local: preparada;
+- implementación local: completada;
 - build de producción: aprobado;
-- migración remota: no aplicada;
-- prueba con Counter puro sobre la base migrada: pendiente;
-- Bloque 1: en curso, no cerrado.
+- migración remota: aplicada;
+- prueba de autoridad con Counter puro: aprobada;
+- advisors de seguridad y rendimiento: revisados;
+- Bloque 1: cerrado en su alcance.
 
 ## 1. Alcance aplicado
 
@@ -180,7 +181,7 @@ C:\Users\bredy\Desktop\vivo-suite\supabase\migrations\
 20260724220209_counter_block1_authority_boundary.sql
 ```
 
-## 8. Matriz de prueba para aplicar la migración
+## 8. Matriz de prueba de la migración
 
 ### Positivas
 
@@ -219,22 +220,41 @@ C:\Users\bredy\Desktop\vivo-suite\supabase\migrations\
 4. El dashboard de Master no tiene diff.
 5. El build de toda la aplicación continúa aprobando.
 
-## 9. Evidencia local
+## 9. Evidencia de verificación
 
 - `npm.cmd run build`: aprobado.
 - `git diff --check`: aprobado; solo advertencias de final de línea de Windows.
 - `npm.cmd run lint`: no aprobado por deuda previa del repositorio:
   132 errores y 72 advertencias distribuidos en múltiples módulos.
 - Supabase local: no disponible porque Docker no está iniciado.
-- Migración remota: no aplicada por la regla de autorización expresa.
+- Migración remota aplicada:
+  `20260724230435_counter_block1_authority_boundary`.
+- El archivo aplicado conservó el SHA-256 revisado:
+  `E5154F1E64454DEB3578DD991AA069A0CB4E5CD33D15DFD88D7A84B464353ED8`.
+- La simulación transaccional con rol exclusivamente `counter` confirmó
+  `is_master_or_admin() = false`.
+- Counter pudo crear su propio reporte bancario pendiente.
+- Counter no pudo confirmar ese reporte bancario.
+- Counter no pudo despachar una orden pickup ni ejecutar el cierre heredado de
+  delivery.
+- Los roles originales y todos los datos usados en la prueba fueron restaurados;
+  no quedaron reportes ni movimientos de prueba.
+- Los advisors no mostraron un bloqueo nuevo causado por la migración. Conservan
+  advertencias genéricas sobre RPC `SECURITY DEFINER` protegidos y deuda previa
+  de grants, índices y políticas fuera del alcance de este bloque.
 
-## 10. Condición para cerrar el bloque
+## 10. Resultado de cierre
 
-El Bloque 1 solo se cierra después de:
+El Bloque 1 queda cerrado en autoridad y perímetro de seguridad:
 
-1. autorizar la aplicación remota de la migración;
-2. aplicar la migración versionada;
-3. ejecutar la matriz positiva y negativa con Counter puro;
-4. revisar los advisors de seguridad y rendimiento;
-5. corregir cualquier regresión encontrada;
-6. recibir aceptación para iniciar el Bloque 2.
+- la migración versionada está aplicada;
+- Counter no hereda autoridad de Master/Admin;
+- los rechazos sensibles probados funcionan;
+- el build está aprobado;
+- `/app/master/dashboard` no fue modificado.
+
+No existía una orden delivery activa que estuviera simultáneamente `ready` y
+asignada al momento de la verificación. Por ello, el despacho positivo completo
+se repetirá con una orden elegible antes de certificar el flujo de delivery del
+Bloque 6. Esta salvedad no amplía permisos ni deja pendiente la frontera de
+seguridad del Bloque 1.

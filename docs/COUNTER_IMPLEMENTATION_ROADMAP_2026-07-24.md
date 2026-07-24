@@ -9,7 +9,7 @@ Documento rector:
 Estado:
 
 - Bloque 0 funcional: cerrado.
-- Bloque 1: implementación local preparada; migración y pruebas remotas pendientes.
+- Bloque 1: cerrado en su alcance de autoridad y perímetro de seguridad.
 - Bloques 2 a 12: no iniciados.
 
 Evidencia del Bloque 1:
@@ -152,6 +152,14 @@ No se reabre durante la programación salvo que aparezca una contradicción de
 negocio que requiera decisión expresa.
 
 ## 7. Bloque 1 - Autoridad y perímetro de seguridad
+
+Estado: **cerrado el 2026-07-24**.
+
+La migración remota `20260724230435_counter_block1_authority_boundary` fue
+aplicada y la frontera de autoridad se verificó con una sesión controlada de
+Counter puro. La prueba positiva de despacho sobre un delivery real `ready` y
+asignado se repetirá antes de certificar el Bloque 6, porque al cerrar este
+bloque no existía una orden elegible en la base.
 
 ### Objetivo
 
