@@ -17,13 +17,13 @@ import {
   confirmPaymentReportAction,
   createPaymentReportAction,
   markDeliveredAction,
-  outForDeliveryAction,
 } from '../master/dashboard/actions';
 import {
   addCounterOrderItemsAction,
   createCounterCashClosureAction,
   createCounterCashMovementAction,
   createCounterQuickSaleAction,
+  dispatchCounterDeliveryAction,
   searchCounterClientsAction,
   searchCounterAgendaAction,
   type CounterAgendaSearchResult,
@@ -872,7 +872,10 @@ export default function CounterClient({
     startTransition(async () => {
       try {
         if (order.fulfillment === 'delivery' && order.status === 'ready') {
-          await outForDeliveryAction({ orderId: order.id, etaMinutes: options?.etaMinutes ?? null });
+          await dispatchCounterDeliveryAction({
+            orderId: order.id,
+            etaMinutes: options?.etaMinutes ?? null,
+          });
           updateLocalOrderStatus(order.id, 'out_for_delivery');
           setMessage({
             tone: 'success',

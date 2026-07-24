@@ -1,6 +1,6 @@
 import { unstable_noStore as noStore } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
+import { getAuthContext, isCounterOperatorRole, resolveHomePath } from '@/lib/auth';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getPublicVapidKey } from '@/lib/push';
@@ -93,11 +93,9 @@ type RawOrderFinancialState = {
   order_id: number | null;
   confirmed_paid_usd: number | string | null;
   pending_usd: number | string | null;
-};
-
-type RawPaymentReport = {
-  order_id: number | null;
-  status: string | null;
+  pending_reports_count: number | string | null;
+  confirmed_reports_count: number | string | null;
+  rejected_reports_count: number | string | null;
 };
 
 type RawMoneyAccount = {
@@ -205,11 +203,7 @@ function getCaracasTodayKey() {
 function isCounterDirectAccount(account: RawMoneyAccount | undefined) {
   if (!account) return false;
   const kind = String(account.account_kind || '');
-  if (kind === 'pos') return true;
-  if (kind !== 'cash') return false;
-
-  const name = String(account.name || '').toLocaleLowerCase('es-VE');
-  return name.includes('dark') || name.includes('dar');
+  return kind === 'pos' || kind === 'cash';
 }
 
 export default async function CounterPage() {
@@ -221,7 +215,7 @@ export default async function CounterPage() {
     redirect('/login');
   }
 
-  const canAccessCounter = isMasterOrAdminRole(ctx.roles) || ctx.roles.includes('counter');
+  const canAccessCounter = isCounterOperatorRole(ctx.roles);
   if (!canAccessCounter) {
     redirect(resolveHomePath(ctx.roles));
   }
@@ -405,7 +399,6 @@ export default async function CounterPage() {
   const [
     { data: itemsData, error: itemsError },
     { data: financialStateData, error: financialStateError },
-    { data: reportsData, error: reportsError },
     { data: driversData, error: driversError },
     { data: advisorsData, error: advisorsError },
     { data: partnersData, error: partnersError },
@@ -425,7 +418,6 @@ export default async function CounterPage() {
             p_operation_date: null,
             p_active_bs_rate: activeBsRate > 0 ? activeBsRate : null,
           }),
-          ctx.supabase.from('payment_reports').select('order_id, status').in('order_id', orderIds),
           internalDriverIds.length
             ? ctx.supabase.from('profiles').select('id, full_name').in('id', internalDriverIds)
             : Promise.resolve({ data: [], error: null }),
@@ -493,7 +485,6 @@ export default async function CounterPage() {
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
           Promise.resolve({ data: [], error: null }),
-          Promise.resolve({ data: [], error: null }),
           counterAccountIds.length
             ? ctx.supabase
                 .from('money_movements')
@@ -553,9 +544,6 @@ export default async function CounterPage() {
   }
   if (financialStateError) {
     throw new Error(financialStateError.message);
-  }
-  if (reportsError) {
-    throw new Error(reportsError.message);
   }
   if (driversError) {
     throw new Error(driversError.message);
@@ -711,16 +699,6 @@ export default async function CounterPage() {
     if (orderId > 0) financialStateByOrder.set(orderId, state);
   }
 
-  const reportsByOrder = new Map<number, { pending: number; confirmed: number; rejected: number }>();
-  for (const report of (reportsData ?? []) as RawPaymentReport[]) {
-    if (!report.order_id) continue;
-    const current = reportsByOrder.get(report.order_id) ?? { pending: 0, confirmed: 0, rejected: 0 };
-    if (report.status === 'pending') current.pending += 1;
-    if (report.status === 'confirmed') current.confirmed += 1;
-    if (report.status === 'rejected') current.rejected += 1;
-    reportsByOrder.set(report.order_id, current);
-  }
-
   const orders: CounterOrder[] = rawOrders.map((order) => {
     const client = normalizeClient(order);
     const moneySnapshot = getOrderMoneySnapshot(order);
@@ -780,7 +758,11 @@ export default async function CounterPage() {
       fxRate: moneySnapshot.fxRate,
       confirmedPaidUsd,
       balanceUsd,
-      reports: reportsByOrder.get(order.id) ?? { pending: 0, confirmed: 0, rejected: 0 },
+      reports: {
+        pending: Math.max(0, Math.trunc(toNumber(financialState?.pending_reports_count, 0))),
+        confirmed: Math.max(0, Math.trunc(toNumber(financialState?.confirmed_reports_count, 0))),
+        rejected: Math.max(0, Math.trunc(toNumber(financialState?.rejected_reports_count, 0))),
+      },
       items: itemsByOrder.get(order.id) ?? [],
     };
   });

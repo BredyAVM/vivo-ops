@@ -50,10 +50,23 @@ export const OFFICIAL_DELIVERY_DATES: Array<{
 ];
 
 export const DELIVERY_ACTIONS_BY_ROLE: Record<AppRole, DeliveryActionKey[]> = {
-  admin: ['assign_internal', 'assign_external', 'clear_assignment', 'correct_assignment'],
-  master: ['assign_internal', 'assign_external', 'clear_assignment'],
+  admin: [
+    'assign_internal',
+    'assign_external',
+    'clear_assignment',
+    'mark_out_for_delivery',
+    'mark_delivered',
+    'correct_assignment',
+  ],
+  master: [
+    'assign_internal',
+    'assign_external',
+    'clear_assignment',
+    'mark_out_for_delivery',
+    'mark_delivered',
+  ],
   advisor: [],
   kitchen: [],
-  counter: ['mark_delivered'],
-  driver: ['mark_out_for_delivery', 'mark_delivered'],
+  counter: ['mark_out_for_delivery'],
+  driver: [],
 };

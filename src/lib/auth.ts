@@ -18,6 +18,10 @@ export function isAdvisorRole(roles: readonly string[]) {
   return roles.includes('advisor');
 }
 
+export function isCounterOperatorRole(roles: readonly string[]) {
+  return isMasterOrAdminRole(roles) || roles.includes('counter');
+}
+
 export function resolveHomePath(roles: readonly string[]) {
   return resolveHomePathForRoles(roles);
 }
@@ -59,6 +63,15 @@ export async function requireMasterOrAdminContext() {
   const ctx = await requireAuthContext();
   if (!isMasterOrAdminRole(ctx.roles)) {
     throw new Error('No autorizado.');
+  }
+
+  return ctx;
+}
+
+export async function requireCounterOperatorContext() {
+  const ctx = await requireAuthContext();
+  if (!isCounterOperatorRole(ctx.roles)) {
+    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
   }
 
   return ctx;

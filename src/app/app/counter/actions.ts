@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { requireAuthContext } from '@/lib/auth';
+import { requireCounterOperatorContext } from '@/lib/auth';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
@@ -464,12 +464,44 @@ async function generateUniqueOrderNumber(supabase: ReturnType<typeof createSupab
   throw new Error('No se pudo generar un numero de orden unico.');
 }
 
-export async function createCounterQuickSaleAction(input: CounterQuickSaleInput) {
-  const ctx = await requireAuthContext();
-  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
-  if (!allowed) {
-    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
+export async function dispatchCounterDeliveryAction(input: {
+  orderId: number;
+  etaMinutes?: number | null;
+}) {
+  const ctx = await requireCounterOperatorContext();
+  const orderId = Number(input.orderId || 0);
+  const etaMinutes =
+    input.etaMinutes == null
+      ? null
+      : Math.round(Number(input.etaMinutes));
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
   }
+
+  if (etaMinutes != null && (!Number.isFinite(etaMinutes) || etaMinutes < 1 || etaMinutes > 1440)) {
+    throw new Error('El tiempo estimado debe estar entre 1 y 1440 minutos.');
+  }
+
+  const dispatchRpc = ctx.supabase.rpc.bind(ctx.supabase) as unknown as (
+    functionName: string,
+    args: Record<string, unknown>
+  ) => Promise<{ error: { message: string } | null }>;
+  const { error } = await dispatchRpc('counter_dispatch_order', {
+    p_order_id: orderId,
+    p_eta_minutes: etaMinutes,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
+}
+
+export async function createCounterQuickSaleAction(input: CounterQuickSaleInput) {
+  const ctx = await requireCounterOperatorContext();
 
   const requestedClientId = Number(input.clientId || 0);
   const clientName = String(input.clientName || '').trim();
@@ -846,11 +878,7 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
 }
 
 export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
-  const ctx = await requireAuthContext();
-  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
-  if (!allowed) {
-    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
-  }
+  const ctx = await requireCounterOperatorContext();
 
   const orderId = Number(input.orderId || 0);
   const items = (input.items || [])
@@ -1046,11 +1074,7 @@ export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
 }
 
 export async function createCounterCashMovementAction(input: CounterCashMovementInput) {
-  const ctx = await requireAuthContext();
-  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
-  if (!allowed) {
-    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
-  }
+  const ctx = await requireCounterOperatorContext();
 
   const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
   const outflowPurpose = input.outflowPurpose === 'change' ? 'change' : 'expense';
@@ -1175,11 +1199,7 @@ export async function createCounterCashMovementAction(input: CounterCashMovement
 }
 
 export async function createCounterCashClosureAction(input: CounterCashClosureInput) {
-  const ctx = await requireAuthContext();
-  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
-  if (!allowed) {
-    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
-  }
+  const ctx = await requireCounterOperatorContext();
 
   const moneyAccountId = Number(input.moneyAccountId || 0);
   const closureDate = String(input.closureDate || '').trim();
@@ -1451,11 +1471,7 @@ export async function createCounterCashClosureAction(input: CounterCashClosureIn
 }
 
 export async function searchCounterClientsAction(input: { query: string }): Promise<CounterClientSearchResult[]> {
-  const ctx = await requireAuthContext();
-  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
-  if (!allowed) {
-    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
-  }
+  await requireCounterOperatorContext();
 
   const query = String(input.query || '').trim();
   if (query.length < 2) return [];
@@ -1482,11 +1498,7 @@ export async function searchCounterClientsAction(input: { query: string }): Prom
 }
 
 export async function searchCounterAgendaAction(input: { query: string }) {
-  const ctx = await requireAuthContext();
-  const allowed = ctx.roles.includes('admin') || ctx.roles.includes('master') || ctx.roles.includes('counter');
-  if (!allowed) {
-    throw new Error('Esta accion requiere permisos de mostrador, master o administrador.');
-  }
+  await requireCounterOperatorContext();
 
   const query = String(input.query || '').trim();
   if (query.length < 2) return [];

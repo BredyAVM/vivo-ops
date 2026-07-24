@@ -89,12 +89,29 @@ export const OFFICIAL_ORDER_DATES: Array<{
 ];
 
 export const ORDER_ACTIONS_BY_ROLE: Record<AppRole, OrderActionKey[]> = {
-  admin: ['approve', 'return_to_advisor', 'send_to_kitchen', 'assign_delivery', 'cancel', 'admin_edit'],
-  master: ['approve', 'return_to_advisor', 'send_to_kitchen', 'assign_delivery', 'cancel'],
+  admin: [
+    'approve',
+    'return_to_advisor',
+    'send_to_kitchen',
+    'assign_delivery',
+    'out_for_delivery',
+    'mark_delivered',
+    'cancel',
+    'admin_edit',
+  ],
+  master: [
+    'approve',
+    'return_to_advisor',
+    'send_to_kitchen',
+    'assign_delivery',
+    'out_for_delivery',
+    'mark_delivered',
+    'cancel',
+  ],
   advisor: [],
   kitchen: ['take_in_kitchen', 'mark_ready'],
-  counter: ['mark_delivered'],
-  driver: ['out_for_delivery', 'mark_delivered'],
+  counter: ['out_for_delivery', 'mark_delivered'],
+  driver: [],
 };
 
 export function getCanonicalOrderStatusLabel(status: string | null | undefined, fulfillment?: FulfillmentType | null) {
