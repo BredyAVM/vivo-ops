@@ -79,6 +79,7 @@ import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
 import {
   canAssignMasterOpsDelivery,
   canClearMasterOpsDeliveryAssignment,
+  canEditMasterOpsOrder,
   canReturnMasterOpsOrderToAdvisor,
   canStartMasterOpsDelivery,
   hasMasterOpsDeliveryAssignment,
@@ -612,7 +613,7 @@ function advancedOperationalLinks(order: MasterOpsOrder): Array<{
 }> {
   const links: Array<{ label: string; tone: "neutral" | "danger" }> = [];
 
-  if (["created", "queued"].includes(order.status)) {
+  if (canEditMasterOpsOrder(order)) {
     links.push({ label: "Modificar orden", tone: "neutral" });
   }
 

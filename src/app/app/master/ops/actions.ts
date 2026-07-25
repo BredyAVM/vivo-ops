@@ -23,6 +23,7 @@ import type {
   MasterOrderPaymentReport,
 } from "../_components/MasterOrderDetailCore";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
+import { canEditMasterOpsOrder } from "./operational-rules";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
 const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
@@ -2026,8 +2027,8 @@ async function prepareMasterOpsOrderSave(
   if (currentOrder && ["delivered", "cancelled"].includes(String(currentOrder.status || ""))) {
     throw new Error("Una orden entregada o cancelada no se modifica desde Master Ops.");
   }
-  if (currentOrder && !["created", "queued"].includes(String(currentOrder.status || ""))) {
-    throw new Error("Después de entrar en cocina, la orden se corrige con acciones operativas, no con edición completa.");
+  if (currentOrder && !canEditMasterOpsOrder(currentOrder)) {
+    throw new Error("Una orden que ya salió del local no se modifica desde Master Ops.");
   }
 
   if (currentOrder) {

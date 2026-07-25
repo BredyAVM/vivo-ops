@@ -16,6 +16,7 @@ type MasterOpsOperationalOrder = {
 };
 
 const DELIVERY_ASSIGNMENT_STATUSES = ["confirmed", "in_kitchen", "ready"];
+const ORDER_EDIT_STATUSES = ["created", "queued", "confirmed", "in_kitchen", "ready"];
 
 export function hasMasterOpsDeliveryAssignment(order: MasterOpsOperationalOrder) {
   return Boolean(
@@ -48,4 +49,8 @@ export function canStartMasterOpsDelivery(order: MasterOpsOperationalOrder) {
 
 export function canReturnMasterOpsOrderToAdvisor(order: MasterOpsOperationalOrder) {
   return canReturnOrderToAdvisor(order) && !(order.status === "created" && order.returnedToAdvisor);
+}
+
+export function canEditMasterOpsOrder(order: Pick<MasterOpsOperationalOrder, "status">) {
+  return ORDER_EDIT_STATUSES.includes(String(order.status || ""));
 }
