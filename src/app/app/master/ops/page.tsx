@@ -11,6 +11,7 @@ import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth";
 import { getPublicVapidKey } from "@/lib/push";
+import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import MasterOpsClient, {
   type DeliveryPartnerOption,
   type DriverOption,
@@ -266,6 +267,8 @@ function buildPaymentAccountOptions({
     if (!account) continue;
     const currencyCode = normalizeCurrencyCode(account.currency_code);
     if (!currencyCode) continue;
+    const requiredCurrency = getPaymentReportCurrency(method);
+    if (requiredCurrency && currencyCode !== requiredCurrency) continue;
     const key = `${accountId}:${method}`;
     if (options.has(key)) continue;
 
@@ -279,11 +282,13 @@ function buildPaymentAccountOptions({
   }
 
   return Array.from(options.values()).sort((a, b) => {
-    const byCurrency = a.currencyCode.localeCompare(b.currencyCode);
-    if (byCurrency !== 0) return byCurrency;
+    const byMethod =
+      (methodOrder.get(a.paymentMethodCode) ?? 999) -
+      (methodOrder.get(b.paymentMethodCode) ?? 999);
+    if (byMethod !== 0) return byMethod;
     const byAccount = a.accountName.localeCompare(b.accountName, "es-VE");
     if (byAccount !== 0) return byAccount;
-    return (methodOrder.get(a.paymentMethodCode) ?? 999) - (methodOrder.get(b.paymentMethodCode) ?? 999);
+    return a.currencyCode.localeCompare(b.currencyCode);
   });
 }
 

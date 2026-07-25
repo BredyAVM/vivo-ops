@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireMasterOrAdminContext } from "@/lib/auth";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
+import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { getPhoneSearchTerms } from "@/lib/phone/normalize-phone";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import { normalizeRemoteSearchValue } from "@/lib/search/normalize-search";
@@ -1923,6 +1924,10 @@ async function prepareMasterOpsOrderSave(
   }
   if (!MASTER_OPS_PAYMENT_METHODS.has(String(input.paymentMethod || ""))) {
     throw new Error("El método de pago no es válido.");
+  }
+  const requiredPaymentCurrency = getPaymentReportCurrency(input.paymentMethod);
+  if (requiredPaymentCurrency && input.paymentCurrency !== requiredPaymentCurrency) {
+    throw new Error("La moneda no coincide con el método de pago.");
   }
   if (!["assigned", "own", "legacy"].includes(String(input.newClientType || ""))) {
     throw new Error("El tipo de cliente no es válido.");

@@ -480,11 +480,13 @@ export function MasterOrderDetailBody({
   activeTab,
   actionLabel,
   showDeliveryProcessDetails = true,
+  showPaymentExchangeRate = true,
 }: {
   order: MasterOrderDetailOrder;
   activeTab: MasterOrderDetailTab;
   actionLabel: string;
   showDeliveryProcessDetails?: boolean;
+  showPaymentExchangeRate?: boolean;
 }) {
   const paymentLabel = masterOrderPaymentLabel(order);
   const paidTone = masterOrderPaymentTone(order);
@@ -689,7 +691,9 @@ export function MasterOrderDetailBody({
                     <div>Reportado por: <span className="text-[#F5F5F7]">{report.reporterName}</span></div>
                     <div>Referencia: <span className="text-[#F5F5F7]">{report.referenceCode || "--"}</span></div>
                     <div>Pagador: <span className="text-[#F5F5F7]">{report.payerName || "--"}</span></div>
-                    <div>Tasa: <span className="text-[#F5F5F7]">{report.exchangeRate ?? "--"}</span></div>
+                    {showPaymentExchangeRate ? (
+                      <div>Tasa: <span className="text-[#F5F5F7]">{report.exchangeRate ?? "--"}</span></div>
+                    ) : null}
                   </div>
                   {report.notes ? <div className="mt-2 text-[11px] text-[#B7B7C2]">Notas: <span className="text-[#F5F5F7]">{report.notes}</span></div> : null}
                 </div>

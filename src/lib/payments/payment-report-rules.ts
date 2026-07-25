@@ -18,6 +18,8 @@ export type PaymentReportRequirements = {
   requiresInvoiceNumber: boolean;
 };
 
+export type PaymentReportCurrency = 'USD' | 'VES';
+
 export type PaymentReportDetailsInput = {
   method?: string | null;
   operationDate?: string | null;
@@ -33,6 +35,26 @@ export const EMPTY_PAYMENT_REPORT_REQUIREMENTS: PaymentReportRequirements = {
   requiresHolderName: false,
   requiresInvoiceNumber: false,
 };
+
+export function getPaymentReportCurrency(
+  method: string | null | undefined
+): PaymentReportCurrency | null {
+  if (
+    method === 'payment_mobile' ||
+    method === 'transfer' ||
+    method === 'cash_ves' ||
+    method === 'pos' ||
+    method === 'retention'
+  ) {
+    return 'VES';
+  }
+
+  if (method === 'zelle' || method === 'wallet_usd' || method === 'cash_usd') {
+    return 'USD';
+  }
+
+  return null;
+}
 
 export function getPaymentReportRequirements(method: string | null | undefined): PaymentReportRequirements {
   if (method === 'retention') {

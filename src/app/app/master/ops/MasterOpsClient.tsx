@@ -1316,46 +1316,38 @@ function OrderDetailPanel({
   }
 
   function openPaymentReport(isRetention: boolean) {
-    const nextOptions = paymentAccounts.filter((option) =>
-      isRetention ? isRetentionPaymentAccount(option) : !isRetentionPaymentAccount(option)
-    );
-    const preferred =
-      nextOptions.find((option) => option.currencyCode === order.paymentCurrency) ??
-      nextOptions.find((option) => option.currencyCode === "VES") ??
-      nextOptions[0] ??
-      null;
     const operationDate = getCaracasTodayKey();
     const initialSuggestion = getLoadedMasterOpsPaymentSuggestion(order, activeRate, operationDate);
 
+    paymentSuggestionRequestRef.current += 1;
     setPaymentReportIsRetention(isRetention);
     setPaymentReportOpen(true);
-    setPaymentReportAccountKey(preferred?.key ?? "");
+    setPaymentReportAccountKey("");
     setPaymentSuggestion(initialSuggestion);
+    setPaymentSuggestionLoading(false);
     setPaymentSuggestionError(null);
-    setPaymentReportAmount(
-      isRetention ? "" : getSuggestedPaymentAmount(order, preferred, initialSuggestion)
-    );
-    setPaymentReportExchangeRate(
-      preferred?.currencyCode === "VES"
-        ? isRetention
-          ? activeRate && activeRate > 0
-            ? compactDecimal(activeRate, 4)
-            : ""
-          : getSuggestedPaymentExchangeRate(order, activeRate, initialSuggestion)
-        : ""
-    );
+    setPaymentReportAmount("");
+    setPaymentReportExchangeRate("");
     setPaymentReportOperationDate(operationDate);
     setPaymentReportReferenceCode("");
     setPaymentReportBankName("");
     setPaymentReportPayerName("");
     setPaymentReportNotes("");
-
-    void refreshPaymentSuggestion(operationDate, preferred, isRetention);
   }
 
   function handlePaymentAccountChange(accountKey: string) {
     const nextAccount = paymentReportOptions.find((option) => option.key === accountKey) ?? null;
     setPaymentReportAccountKey(accountKey);
+
+    if (!nextAccount) {
+      paymentSuggestionRequestRef.current += 1;
+      setPaymentSuggestionLoading(false);
+      setPaymentSuggestionError(null);
+      setPaymentReportAmount("");
+      setPaymentReportExchangeRate("");
+      return;
+    }
+
     setPaymentReportAmount(
       paymentReportIsRetention
         ? ""
@@ -1382,6 +1374,14 @@ function OrderDetailPanel({
     setPaymentReportOperationDate(operationDate);
     setPaymentSuggestion(null);
     setPaymentSuggestionError(null);
+
+    if (!selectedPaymentAccount) {
+      paymentSuggestionRequestRef.current += 1;
+      setPaymentSuggestionLoading(false);
+      setPaymentReportAmount("");
+      setPaymentReportExchangeRate("");
+      return;
+    }
 
     if (paymentReportIsRetention) {
       setPaymentReportExchangeRate(
@@ -1649,6 +1649,7 @@ function OrderDetailPanel({
                   activeTab={activeTab}
                   order={order}
                   showDeliveryProcessDetails={false}
+                  showPaymentExchangeRate={false}
                 />
               )}
             </div>
@@ -2174,15 +2175,16 @@ function OrderDetailPanel({
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       <label className="text-[11px] text-[#B7B7C2]">
-                        Cuenta
+                        Cuenta y metodo
                         <select
                           className="mt-1 w-full rounded-lg border border-sky-500/30 bg-[#0B0B0D] px-3 py-2 text-[13px] text-[#F5F5F7]"
                           value={paymentReportAccountKey}
                           onChange={(event) => handlePaymentAccountChange(event.target.value)}
                         >
+                          <option value="">Selecciona una cuenta</option>
                           {paymentReportOptions.map((option) => (
                             <option key={option.key} value={option.key}>
-                              {option.accountName} - {getPaymentMethodLabel(option.paymentMethodCode)}
+                              {option.accountName} - {getPaymentMethodLabel(option.paymentMethodCode)} ({option.currencyCode})
                             </option>
                           ))}
                         </select>
@@ -2274,6 +2276,7 @@ function OrderDetailPanel({
                         type="submit"
                         disabled={
                           busy ||
+                          !selectedPaymentAccount ||
                           paymentSuggestionLoading ||
                           (!paymentReportIsRetention &&
                             selectedPaymentAccount?.currencyCode === "VES" &&

@@ -9,6 +9,7 @@ import {
 } from "@/lib/orders/order-composer";
 import { sortOrderItemsByPriority } from "@/lib/orders/order-item-priority";
 import { formatOrderDisplayNumber, getPaymentMethodLabel } from "@/lib/orders/order-labels";
+import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { searchClientsAction } from "../dashboard/actions";
 import {
   createMasterOpsOrderAction,
@@ -335,8 +336,14 @@ export default function MasterOpsOrderEditor({
     loadData
       .then((result) => {
         if (cancelled) return;
+        const paymentCurrency =
+          getPaymentReportCurrency(result.order.paymentMethod) ?? result.order.paymentCurrency;
         setData(result);
-        setForm({ ...result.order, items: result.order.items.map((item) => ({ ...item })) });
+        setForm({
+          ...result.order,
+          paymentCurrency,
+          items: result.order.items.map((item) => ({ ...item })),
+        });
         const initialClient = initialNewClientFromOrder(result.order);
         setNewClientName(initialClient.name);
         setNewClientPhone(initialClient.phone);
@@ -530,6 +537,7 @@ export default function MasterOpsOrderEditor({
       })
     : [];
   const canSave = Boolean(form) && validationIssues.length === 0;
+  const requiredPaymentCurrency = getPaymentReportCurrency(form?.paymentMethod);
 
   function patchForm(patch: Partial<MasterOpsEditOrder>) {
     setForm((current) => (current ? { ...current, ...patch } : current));
@@ -1229,7 +1237,14 @@ export default function MasterOpsOrderEditor({
                         <select
                           className={fieldClass()}
                           value={form.paymentMethod}
-                          onChange={(event) => patchForm({ paymentMethod: event.target.value })}
+                          onChange={(event) => {
+                            const paymentMethod = event.target.value;
+                            const paymentCurrency = getPaymentReportCurrency(paymentMethod);
+                            patchForm({
+                              paymentMethod,
+                              ...(paymentCurrency ? { paymentCurrency } : {}),
+                            });
+                          }}
                         >
                           <option value="">Sin definir</option>
                           {PAYMENT_METHODS.map((method) => (
@@ -1239,10 +1254,11 @@ export default function MasterOpsOrderEditor({
                           ))}
                         </select>
                       </Field>
-                      <Field label="Moneda">
+                      <Field label={requiredPaymentCurrency ? "Moneda automatica" : "Moneda"}>
                         <select
                           className={fieldClass()}
                           value={form.paymentCurrency}
+                          disabled={Boolean(requiredPaymentCurrency)}
                           onChange={(event) => patchForm({ paymentCurrency: event.target.value as MasterOpsEditCurrency })}
                         >
                           <option value="USD">USD</option>
