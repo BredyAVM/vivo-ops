@@ -10,11 +10,19 @@ Estado:
 
 - Bloque 0 funcional: cerrado.
 - Bloque 1: cerrado en su alcance de autoridad y perímetro de seguridad.
-- Bloques 2 a 12: no iniciados.
+- Bloque 2: cerrado en su alcance de persistencia y comandos atómicos.
+- Bloques 3 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
 - `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`
+
+Evidencia del Bloque 2:
+
+- `docs/COUNTER_BLOCK_2_PERSISTENCE_AUDIT_2026-07-24.md`
+- `docs/COUNTER_BLOCK_2_ATOMIC_PERSISTENCE_2026-07-24.sql`
+- `docs/COUNTER_BLOCK_2_TRANSACTION_TESTS_2026-07-24.sql`
+- `docs/COUNTER_BLOCK_2_ROLLBACK_2026-07-24.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -216,6 +224,18 @@ Si se necesita una función privilegiada:
 - optimización general de consultas.
 
 ## 8. Bloque 2 - Persistencia y comandos atómicos
+
+Estado: **cerrado el 2026-07-25**.
+
+Se aplicaron las migraciones
+`20260725204313_counter_block2_atomic_persistence`,
+`20260725204543_counter_block2_closure_diagnostics` y
+`20260725204741_counter_block2_exact_confirmation_timestamps`.
+
+La auditoría final redujo el diseño a tres tablas nuevas. Las autorizaciones
+reutilizan `money_movements`; no se creó una tabla ni una columna financiera
+paralela. Las pruebas transaccionales, de rollback, reintento, cierre consecutivo
+y concurrencia pasaron.
 
 ### Objetivo
 
@@ -808,9 +828,10 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 1 - Autoridad y perímetro de seguridad
+Bloque 3 - Capa de lectura ligera y exacta
 ```
 
-Antes de programarlo se hará una auditoría focalizada de RLS, RPC, grants,
-Server Actions y helpers de rol. Esa auditoría producirá el diff técnico exacto
-del bloque; no incluirá cambios visuales ni funciones de bloques posteriores.
+Antes de programarlo se auditarán las lecturas actuales de `/app/counter`, sus
+consultas, payloads y frecuencia. El objetivo será separar bandeja activa,
+detalle bajo demanda, búsqueda profunda paginada y resúmenes exactos sin volver
+a cargar históricos completos.

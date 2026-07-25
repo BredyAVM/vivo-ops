@@ -428,21 +428,30 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 2 - Persistencia y comandos atomicos
+Bloque 3 - Capa de lectura ligera y exacta
 ```
 
-Estado al 2026-07-24:
+Estado al 2026-07-25:
 
 - Bloque 1 cerrado en su alcance de autoridad y perímetro de seguridad;
 - evidencia en `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`;
 - migración remota `20260724230435_counter_block1_authority_boundary` aplicada;
 - pruebas controladas de Counter puro y advisors revisados;
+- Bloque 2 cerrado en su alcance de persistencia y comandos atómicos;
+- evidencia en `docs/COUNTER_BLOCK_2_PERSISTENCE_AUDIT_2026-07-24.md`;
+- migraciones remotas `20260725204313_counter_block2_atomic_persistence`,
+  `20260725204543_counter_block2_closure_diagnostics` y
+  `20260725204741_counter_block2_exact_confirmation_timestamps` aplicadas;
+- exactamente tres tablas nuevas, sin tabla de autorización duplicada;
+- pruebas transaccionales, rollback, cierres consecutivos, reintentos y
+  concurrencia completadas;
 - la prueba positiva con un delivery real listo y asignado se repetirá antes de
   certificar el Bloque 6.
 
-No se deben adelantar cobros, pickup, delivery ni ajustes visuales durante el
-Bloque 2. Primero se debe construir la persistencia y los comandos atómicos que
-evitarán operaciones parciales en los bloques funcionales siguientes.
+El Bloque 3 debe construir lecturas pequeñas y especializadas para bandeja
+activa, detalle bajo demanda y búsqueda profunda paginada. No debe integrar aún
+la experiencia funcional de cobros, pickup, delivery ni ajustes visuales de los
+bloques posteriores.
 
 ## Prompt sugerido para abrir el chat nuevo
 
