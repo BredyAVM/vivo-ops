@@ -309,6 +309,14 @@ function normalizeSearchText(value: unknown) {
     .trim();
 }
 
+function masterOpsClientPortfolioLabel(value: string | null | undefined) {
+  const normalized = normalizeSearchText(value);
+  if (normalized === "own" || normalized === "propio") return "PROPIO";
+  if (normalized === "assigned" || normalized === "asignado") return "ASIGNADO";
+  if (normalized === "legacy" || normalized === "antiguo") return "ANTIGUO";
+  return null;
+}
+
 function orderDisplayNumber(order: Pick<MasterOpsOrder, "id">) {
   return formatOrderDisplayNumber(order.id);
 }
@@ -755,6 +763,7 @@ function OrderDetailPanel({
   const paidTone = masterOrderPaymentTone(order);
   const paymentLabel = masterOrderPaymentLabel(order);
   const paymentToneClass = paidTone === "green" ? "text-emerald-400" : "text-orange-400";
+  const clientPortfolioLabel = masterOpsClientPortfolioLabel(order.clientType);
   const directActions = directActionsForOrder(order);
   const advancedLinks = advancedOperationalLinks(order);
   const [returnBoxOpen, setReturnBoxOpen] = useState(false);
@@ -1473,6 +1482,11 @@ function OrderDetailPanel({
                   {order.isNewClient ? (
                     <span className="rounded-full bg-[#FEEF00] px-2 py-1 text-[10px] font-semibold text-[#0B0B0D]">
                       CLIENTE NUEVO
+                    </span>
+                  ) : null}
+                  {clientPortfolioLabel ? (
+                    <span className="rounded-full border border-[#242433] bg-[#0B0B0D] px-2 py-1 text-[10px] font-semibold text-[#B7B7C2]">
+                      {clientPortfolioLabel}
                     </span>
                   ) : null}
                   {priceProtected ? (
