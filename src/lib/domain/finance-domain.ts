@@ -190,10 +190,10 @@ export function getFinanceClosureVocabulary(input: {
         operationTitle: 'Cierre de punto',
         primaryActionLabel: 'Cerrar punto',
         historyTitle: 'Cierres de punto',
-        expectedLabel: 'Esperado sistema',
-        countedLabel: 'Monto del cierre',
-        differenceLabel: 'Diferencia',
-        zeroDifferenceMessage: 'El punto cierra sin diferencia.',
+        expectedLabel: 'Lote esperado',
+        countedLabel: 'Monto del lote',
+        differenceLabel: 'Diferencia del lote',
+        zeroDifferenceMessage: 'El lote del punto cierra sin diferencia.',
         transferMessage: 'Luego registra el traspaso cuando el dinero llegue al banco.',
       };
     case 'cash':

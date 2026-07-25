@@ -174,6 +174,10 @@ function accountUsesDailyBalanceCutoff(accountKind: string | null | undefined, c
   return true;
 }
 
+function isPosClosureAccount(accountKind: string | null | undefined, closureKind: string | null | undefined) {
+  return accountKind === 'pos' || closureKind === 'pos';
+}
+
 function getDefaultMoneyAccountClosureProfile(input: {
   accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
   currencyCode: 'USD' | 'VES';
@@ -9419,6 +9423,7 @@ export async function createMoneyAccountClosureAction(input: {
   if (profileError) throw new Error(profileError.message);
 
   const usesDailyCutoff = accountUsesDailyBalanceCutoff(account.account_kind, profile?.closure_kind);
+  const isPosClosure = isPosClosureAccount(account.account_kind, profile?.closure_kind);
 
   let existingActiveClosuresQuery = supabase
     .from('money_account_closures')
@@ -9491,16 +9496,20 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (movementsError) throw new Error(movementsError.message);
 
-  let expectedAmount = previousClosure
-    ? toSafeNumber(previousClosure.counted_amount, 0)
-    : activeBaseline
-      ? toSafeNumber(activeBaseline.counted_amount, 0)
-      : 0;
-  let expectedAmountUsd = previousClosure
-    ? toSafeNumber(previousClosure.counted_amount_usd, 0)
-    : activeBaseline
-      ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
-      : 0;
+  let expectedAmount = isPosClosure
+    ? 0
+    : previousClosure
+      ? toSafeNumber(previousClosure.counted_amount, 0)
+      : activeBaseline
+        ? toSafeNumber(activeBaseline.counted_amount, 0)
+        : 0;
+  let expectedAmountUsd = isPosClosure
+    ? 0
+    : previousClosure
+      ? toSafeNumber(previousClosure.counted_amount_usd, 0)
+      : activeBaseline
+        ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
+        : 0;
   const previousClosureDate = previousClosure?.closure_date ? String(previousClosure.closure_date) : null;
   const previousClosureAtMs = previousClosure?.closure_at ? new Date(previousClosure.closure_at).getTime() : null;
 
@@ -9647,6 +9656,7 @@ export async function previewMoneyAccountClosureAction(input: {
   if (profileError) throw new Error(profileError.message);
 
   const usesDailyCutoff = accountUsesDailyBalanceCutoff(account.account_kind, profile?.closure_kind);
+  const isPosClosure = isPosClosureAccount(account.account_kind, profile?.closure_kind);
 
   const { data: activeBaseline, error: baselineError } = await supabase
     .from('money_account_closure_baselines')
@@ -9697,16 +9707,20 @@ export async function previewMoneyAccountClosureAction(input: {
 
   if (movementsError) throw new Error(movementsError.message);
 
-  let expectedAmount = previousClosure
-    ? toSafeNumber(previousClosure.counted_amount, 0)
-    : activeBaseline
-      ? toSafeNumber(activeBaseline.counted_amount, 0)
-      : 0;
-  let expectedAmountUsd = previousClosure
-    ? toSafeNumber(previousClosure.counted_amount_usd, 0)
-    : activeBaseline
-      ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
-      : 0;
+  let expectedAmount = isPosClosure
+    ? 0
+    : previousClosure
+      ? toSafeNumber(previousClosure.counted_amount, 0)
+      : activeBaseline
+        ? toSafeNumber(activeBaseline.counted_amount, 0)
+        : 0;
+  let expectedAmountUsd = isPosClosure
+    ? 0
+    : previousClosure
+      ? toSafeNumber(previousClosure.counted_amount_usd, 0)
+      : activeBaseline
+        ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
+        : 0;
   const previousClosureDate = previousClosure?.closure_date ? String(previousClosure.closure_date) : null;
   const previousClosureAtMs = previousClosure?.closure_at ? new Date(previousClosure.closure_at).getTime() : null;
 

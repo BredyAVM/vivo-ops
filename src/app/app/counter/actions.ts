@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireCounterOperatorContext } from '@/lib/auth';
-import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
@@ -137,6 +136,7 @@ type CounterCashClosureInput = {
 
 type CounterAgendaSearchStatus =
   | 'created'
+  | 'queued'
   | 'confirmed'
   | 'in_kitchen'
   | 'ready'
@@ -157,29 +157,17 @@ export type CounterAgendaSearchResult = {
   totalUsd: number;
   totalBs: number;
   note: string | null;
+  createdAt: string;
 };
 
-type CounterAgendaOrderRow = {
+export type CounterAgendaSearchCursor = {
+  createdAt: string;
   id: number;
-  order_number: string | null;
-  status: CounterAgendaSearchStatus;
-  fulfillment: 'pickup' | 'delivery';
-  total_usd: number | string | null;
-  total_bs_snapshot: number | string | null;
-  notes: string | null;
-  created_at: string;
-  extra_fields: {
-    schedule?: {
-      date?: string | null;
-      time_12?: string | null;
-      time_24?: string | null;
-      asap?: boolean | null;
-    } | null;
-  } | null;
-  client:
-    | { full_name: string | null; phone: string | null }[]
-    | { full_name: string | null; phone: string | null }
-    | null;
+};
+
+export type CounterAgendaSearchPage = {
+  results: CounterAgendaSearchResult[];
+  nextCursor: CounterAgendaSearchCursor | null;
 };
 
 function createSupabaseServiceRoleServer() {
@@ -280,6 +268,10 @@ function accountUsesDailyBalanceCutoff(accountKind: string | null | undefined, c
   return true;
 }
 
+function isPosClosureAccount(accountKind: string | null | undefined, closureKind: string | null | undefined) {
+  return accountKind === 'pos' || closureKind === 'pos';
+}
+
 function pad2(value: number) {
   return String(value).padStart(2, '0');
 }
@@ -359,80 +351,6 @@ function buildClientPhoneOrFilters(phone: string) {
       .slice(0, 5)
       .map((term) => `phone.ilike.%${term}%`),
   ];
-}
-
-function buildClientSearchOrFilters(term: string) {
-  const safeTerm = term.replace(/[,%]/g, ' ').trim();
-  const normalizedPhone = normalizePhone(term);
-  const filters = new Set<string>();
-
-  if (safeTerm) {
-    filters.add(`full_name.ilike.%${safeTerm}%`);
-    filters.add(`phone.ilike.%${safeTerm}%`);
-  }
-
-  for (const phoneTerm of getPhoneSearchTerms(normalizedPhone || term)) {
-    const safePhoneTerm = phoneTerm.replace(/[,%]/g, ' ').trim();
-    if (safePhoneTerm) filters.add(`phone.ilike.%${safePhoneTerm}%`);
-  }
-
-  return Array.from(filters);
-}
-
-function normalizeAgendaClient(order: CounterAgendaOrderRow) {
-  return Array.isArray(order.client) ? order.client[0] ?? null : order.client;
-}
-
-function mapAgendaOrder(order: CounterAgendaOrderRow): CounterAgendaSearchResult {
-  const client = normalizeAgendaClient(order);
-  const schedule = order.extra_fields?.schedule;
-
-  return {
-    id: order.id,
-    displayNumber: formatOrderDisplayNumber(order.id),
-    orderNumber: order.order_number,
-    status: order.status,
-    fulfillment: order.fulfillment,
-    clientName: client?.full_name || 'Cliente',
-    clientPhone: client?.phone || null,
-    scheduledDate: schedule?.date || null,
-    scheduledTime: schedule?.asap ? 'Lo antes posible' : schedule?.time_12 || schedule?.time_24 || null,
-    totalUsd: toSafeNumber(order.total_usd, 0),
-    totalBs: toSafeNumber(order.total_bs_snapshot, 0),
-    note: order.notes || null,
-  };
-}
-
-async function searchAgendaOrdersBy(
-  supabase: ReturnType<typeof createSupabaseServiceRoleServer>,
-  mode: 'id' | 'order_number' | 'client_ids',
-  value: number | string | number[]
-) {
-  const selectColumns = [
-    'id',
-    'order_number',
-    'status',
-    'fulfillment',
-    'total_usd',
-    'total_bs_snapshot',
-    'notes',
-    'created_at',
-    'extra_fields',
-    'client:clients(full_name, phone)',
-  ].join(', ');
-  let query = supabase
-    .from('orders')
-    .select(selectColumns)
-    .order('created_at', { ascending: false })
-    .limit(12);
-
-  if (mode === 'id') query = query.eq('id', value as number);
-  if (mode === 'order_number') query = query.ilike('order_number', `%${String(value).replace(/[,%]/g, ' ')}%`);
-  if (mode === 'client_ids') query = query.in('client_id', value as number[]);
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as CounterAgendaOrderRow[];
 }
 
 async function loadActiveExchangeRate(supabase: ReturnType<typeof createSupabaseServiceRoleServer>) {
@@ -1282,6 +1200,7 @@ export async function createCounterCashClosureAction(input: CounterCashClosureIn
   if (profileError) throw new Error(profileError.message);
 
   const usesDailyCutoff = accountUsesDailyBalanceCutoff(account.account_kind, profile?.closure_kind);
+  const isPosClosure = isPosClosureAccount(account.account_kind, profile?.closure_kind);
   const requiresZeroDifference =
     profile?.requires_zero_difference == null ? true : Boolean(profile.requires_zero_difference);
   const allowsClassifiedDifference = Boolean(profile?.allows_classified_difference);
@@ -1354,16 +1273,20 @@ export async function createCounterCashClosureAction(input: CounterCashClosureIn
   const { data: movements, error: movementsError } = await movementsQuery;
   if (movementsError) throw new Error(movementsError.message);
 
-  let expectedAmount = previousClosure
-    ? toSafeNumber(previousClosure.counted_amount, 0)
-    : activeBaseline
-      ? toSafeNumber(activeBaseline.counted_amount, 0)
-      : 0;
-  let expectedAmountUsd = previousClosure
-    ? toSafeNumber(previousClosure.counted_amount_usd, 0)
-    : activeBaseline
-      ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
-      : 0;
+  let expectedAmount = isPosClosure
+    ? 0
+    : previousClosure
+      ? toSafeNumber(previousClosure.counted_amount, 0)
+      : activeBaseline
+        ? toSafeNumber(activeBaseline.counted_amount, 0)
+        : 0;
+  let expectedAmountUsd = isPosClosure
+    ? 0
+    : previousClosure
+      ? toSafeNumber(previousClosure.counted_amount_usd, 0)
+      : activeBaseline
+        ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
+        : 0;
   const previousClosureDate = previousClosure?.closure_date ? String(previousClosure.closure_date) : null;
   const previousClosureAtMs = previousClosure?.closure_at ? new Date(previousClosure.closure_at).getTime() : null;
 
@@ -1471,75 +1394,55 @@ export async function createCounterCashClosureAction(input: CounterCashClosureIn
 }
 
 export async function searchCounterClientsAction(input: { query: string }): Promise<CounterClientSearchResult[]> {
-  await requireCounterOperatorContext();
+  const ctx = await requireCounterOperatorContext();
 
   const query = String(input.query || '').trim();
   if (query.length < 2) return [];
 
-  const filters = buildClientSearchOrFilters(query);
-  if (filters.length === 0) return [];
-
-  const supabase = createSupabaseServiceRoleServer();
-  const { data, error } = await supabase
-    .from('clients')
-    .select('id, full_name, phone, client_type, fund_balance_usd')
-    .or(filters.join(','))
-    .limit(10);
+  const { data, error } = await ctx.supabase.rpc('counter_search_clients', {
+    p_query: query,
+    p_cursor_id: null,
+    p_limit: 10,
+  });
 
   if (error) throw new Error(error.message);
 
-  return ((data ?? []) as CounterClientRow[]).map((client) => ({
-    id: Number(client.id),
-    fullName: String(client.full_name || 'Cliente'),
-    phone: client.phone ? String(client.phone) : null,
-    clientType: client.client_type ? String(client.client_type) : null,
-    fundBalanceUsd: toSafeNumber(client.fund_balance_usd, 0),
-  }));
+  const payload = data && typeof data === 'object' && !Array.isArray(data)
+    ? data as { results?: CounterClientSearchResult[] }
+    : {};
+  return Array.isArray(payload.results) ? payload.results : [];
 }
 
-export async function searchCounterAgendaAction(input: { query: string }) {
-  await requireCounterOperatorContext();
+export async function searchCounterAgendaAction(input: {
+  query: string;
+  cursor?: CounterAgendaSearchCursor | null;
+}): Promise<CounterAgendaSearchPage> {
+  const ctx = await requireCounterOperatorContext();
 
   const query = String(input.query || '').trim();
-  if (query.length < 2) return [];
+  if (query.length < 2) return { results: [], nextCursor: null };
 
-  const supabase = createSupabaseServiceRoleServer();
-  const safeTerm = query.replace(/[,%]/g, ' ').trim();
-  const digitTerm = query.replace(/\D/g, '');
-  const rows: CounterAgendaOrderRow[] = [];
+  const { data, error } = await ctx.supabase.rpc('counter_search_orders', {
+    p_query: query,
+    p_cursor_created_at: input.cursor?.createdAt || null,
+    p_cursor_id: input.cursor?.id || null,
+    p_limit: 10,
+  });
+  if (error) throw new Error(error.message);
 
-  if (digitTerm && digitTerm.length <= 8) {
-    rows.push(...(await searchAgendaOrdersBy(supabase, 'id', Number(digitTerm))));
-  }
-
-  rows.push(...(await searchAgendaOrdersBy(supabase, 'order_number', safeTerm)));
-
-  const clientFilters = buildClientSearchOrFilters(query);
-  if (clientFilters.length > 0) {
-    const { data: clientsData, error: clientsError } = await supabase
-      .from('clients')
-      .select('id')
-      .or(clientFilters.join(','))
-      .limit(20);
-
-    if (clientsError) throw new Error(clientsError.message);
-
-    const clientIds = (clientsData ?? [])
-      .map((client) => Number(client.id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-
-    if (clientIds.length > 0) {
-      rows.push(...(await searchAgendaOrdersBy(supabase, 'client_ids', clientIds)));
-    }
-  }
-
-  const unique = new Map<number, CounterAgendaOrderRow>();
-  for (const row of rows) {
-    unique.set(row.id, row);
-  }
-
-  return Array.from(unique.values())
-    .sort((a, b) => Number(b.id) - Number(a.id))
-    .slice(0, 10)
-    .map(mapAgendaOrder);
+  const payload = data && typeof data === 'object' && !Array.isArray(data)
+    ? data as Partial<CounterAgendaSearchPage>
+    : {};
+  return {
+    results: Array.isArray(payload.results) ? payload.results : [],
+    nextCursor:
+      payload.nextCursor &&
+      typeof payload.nextCursor.createdAt === 'string' &&
+      Number.isFinite(Number(payload.nextCursor.id))
+        ? {
+            createdAt: payload.nextCursor.createdAt,
+            id: Number(payload.nextCursor.id),
+          }
+        : null,
+  };
 }

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { getOperationalStatusLabel, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
@@ -26,9 +25,16 @@ import {
   dispatchCounterDeliveryAction,
   searchCounterClientsAction,
   searchCounterAgendaAction,
+  type CounterAgendaSearchCursor,
   type CounterAgendaSearchResult,
   type CounterClientSearchResult,
 } from './actions';
+import {
+  loadCounterCashSnapshotAction,
+  loadCounterCatalogAction,
+  loadCounterOrderDetailAction,
+  refreshCounterQueueAction,
+} from './read-actions';
 
 export type CounterPaymentAccountOption = {
   accountId: number;
@@ -143,6 +149,7 @@ export type CounterOrder = {
     rejected: number;
   };
   items: CounterOrderItem[];
+  detailLoaded: boolean;
 };
 
 type CounterClientProps = {
@@ -150,9 +157,6 @@ type CounterClientProps = {
   fullName: string;
   orders: CounterOrder[];
   paymentAccounts: CounterPaymentAccountOption[];
-  cashAccounts: CounterCashAccountSummary[];
-  quickSaleProducts: CounterQuickSaleProductOption[];
-  quickSaleProductComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
 };
 
@@ -546,6 +550,7 @@ function sortCounterOrders(orders: CounterOrder[]) {
 
 function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
   if (status === 'created') return 'Agendado / pendiente master';
+  if (status === 'queued') return 'En cola de cocina';
   if (status === 'confirmed') return 'En cola de cocina';
   if (status === 'in_kitchen') return 'En preparacion';
   if (status === 'ready') return 'Listo';
@@ -557,6 +562,7 @@ function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
 
 function agendaSearchReason(result: CounterAgendaSearchResult) {
   if (result.status === 'created') return 'Master aun no lo ha enviado a cocina.';
+  if (result.status === 'queued') return 'Ya esta en la cola operativa de cocina.';
   if (result.status === 'confirmed') return 'Ya esta enviado a cocina; falta que lo tomen.';
   if (result.status === 'in_kitchen') return 'Cocina lo esta preparando.';
   if (result.status === 'ready') return 'Ya esta listo para entrega.';
@@ -571,18 +577,18 @@ export default function CounterClient({
   fullName,
   orders,
   paymentAccounts,
-  cashAccounts,
-  quickSaleProducts,
-  quickSaleProductComponents,
   activeBsRate,
 }: CounterClientProps) {
-  const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [localOrders, setLocalOrders] = useState(orders);
   const previousOrderIdsRef = useRef<Set<number> | null>(null);
+  const queueRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const detailRequestIdRef = useRef(0);
+  const [queueRefreshing, setQueueRefreshing] = useState(false);
+  const [detailLoadingOrderId, setDetailLoadingOrderId] = useState<number | null>(null);
   const [lastAutoRefreshAt, setLastAutoRefreshAt] = useState<string | null>(null);
   const [pushState, setPushState] = useState<PushState>('checking');
   const [pushBusy, setPushBusy] = useState(false);
@@ -591,15 +597,126 @@ export default function CounterClient({
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
   const [cashPanelOpen, setCashPanelOpen] = useState(false);
+  const [cashAccounts, setCashAccounts] = useState<CounterCashAccountSummary[]>([]);
+  const [cashLoading, setCashLoading] = useState(false);
+  const [quickSaleProducts, setQuickSaleProducts] = useState<CounterQuickSaleProductOption[]>([]);
+  const [quickSaleProductComponents, setQuickSaleProductComponents] = useState<CounterQuickSaleProductComponent[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const catalogLoadedRef = useRef(false);
   const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
   const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
+  const [masterAgendaNextCursor, setMasterAgendaNextCursor] = useState<CounterAgendaSearchCursor | null>(null);
   const [masterAgendaSearched, setMasterAgendaSearched] = useState(false);
   const [masterAgendaOpen, setMasterAgendaOpen] = useState(false);
 
-  const refreshCounter = useCallback(() => {
-    setLastAutoRefreshAt(new Date().toISOString());
-    router.refresh();
-  }, [router]);
+  const refreshCounter = useCallback(async () => {
+    if (queueRefreshInFlightRef.current) return queueRefreshInFlightRef.current;
+
+    const request = (async () => {
+      setQueueRefreshing(true);
+      try {
+        const nextOrders = await refreshCounterQueueAction();
+        const previousIds = previousOrderIdsRef.current ?? new Set<number>();
+        const newOrders = nextOrders.filter((order) => !previousIds.has(order.id));
+
+        previousOrderIdsRef.current = new Set(nextOrders.map((order) => order.id));
+        setLocalOrders((current) => {
+          const currentById = new Map(current.map((order) => [order.id, order]));
+          return nextOrders.map((summary) => {
+            const previous = currentById.get(summary.id);
+            return previous?.detailLoaded
+              ? { ...summary, items: previous.items, detailLoaded: true }
+              : summary;
+          });
+        });
+        setSelectedOrderId((current) =>
+          current != null && nextOrders.some((order) => order.id === current) ? current : null
+        );
+        setLastAutoRefreshAt(new Date().toISOString());
+
+        if (newOrders.length > 0) {
+          const firstOrder = newOrders[0];
+          setMessage({
+            tone: 'success',
+            text:
+              newOrders.length === 1
+                ? `Nuevo pedido visible: #${firstOrder.displayNumber} - ${firstOrder.clientName}.`
+                : `${newOrders.length} pedidos nuevos visibles en mostrador.`,
+          });
+        }
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo actualizar la cola del mostrador.',
+        });
+      } finally {
+        setQueueRefreshing(false);
+        queueRefreshInFlightRef.current = null;
+      }
+    })();
+
+    queueRefreshInFlightRef.current = request;
+    return request;
+  }, []);
+
+  const refreshCounterOrder = useCallback(async (orderId: number) => {
+    const requestId = ++detailRequestIdRef.current;
+    setDetailLoadingOrderId(orderId);
+    try {
+      const detail = await loadCounterOrderDetailAction({ orderId });
+      if (requestId !== detailRequestIdRef.current) return null;
+      setLocalOrders((current) =>
+        current.map((order) => (order.id === detail.id ? detail : order))
+      );
+      return detail;
+    } catch (error) {
+      if (requestId === detailRequestIdRef.current) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo cargar el detalle de la orden.',
+        });
+      }
+      return null;
+    } finally {
+      if (requestId === detailRequestIdRef.current) setDetailLoadingOrderId(null);
+    }
+  }, []);
+
+  const ensureCounterCatalog = useCallback(async () => {
+    if (catalogLoadedRef.current) return true;
+    setCatalogLoading(true);
+    try {
+      const catalog = await loadCounterCatalogAction();
+      setQuickSaleProducts(catalog.products);
+      setQuickSaleProductComponents(catalog.components);
+      catalogLoadedRef.current = true;
+      return true;
+    } catch (error) {
+      setMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'No se pudo cargar el catalogo.',
+      });
+      return false;
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
+  const refreshCounterCash = useCallback(async () => {
+    setCashLoading(true);
+    try {
+      setCashAccounts(await loadCounterCashSnapshotAction());
+      return true;
+    } catch (error) {
+      setMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'No se pudo cargar la caja.',
+      });
+      return false;
+    } finally {
+      setCashLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     async function bootPushState() {
@@ -658,12 +775,12 @@ export default function CounterClient({
   useEffect(() => {
     const refreshIfVisible = () => {
       if (document.visibilityState === 'hidden') return;
-      refreshCounter();
+      void refreshCounter();
     };
 
     const intervalId = window.setInterval(refreshIfVisible, 30000);
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshCounter();
+      if (document.visibilityState === 'visible') void refreshCounter();
     };
 
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -689,7 +806,7 @@ export default function CounterClient({
         text: data.payload?.title || data.payload?.body || 'Hay novedades en mostrador.',
       });
       playCounterAlert();
-      refreshCounter();
+      void refreshCounter();
     };
 
     navigator.serviceWorker.addEventListener('message', onMessage);
@@ -798,6 +915,31 @@ export default function CounterClient({
   const selectedOrder = selectedOrderId == null
     ? null
     : localOrders.find((order) => order.id === selectedOrderId) ?? null;
+
+  function handleSelectCounterOrder(order: CounterOrder) {
+    setQuickSaleOpen(false);
+    setSelectedOrderId(order.id);
+    if (!order.detailLoaded) void refreshCounterOrder(order.id);
+  }
+
+  async function handleOpenQuickSale() {
+    setSelectedOrderId(null);
+    if (quickSaleOpen) {
+      setQuickSaleOpen(false);
+      return;
+    }
+    if (await ensureCounterCatalog()) setQuickSaleOpen(true);
+  }
+
+  function handleToggleCashPanel() {
+    if (cashPanelOpen) {
+      setCashPanelOpen(false);
+      return;
+    }
+    setCashPanelOpen(true);
+    void refreshCounterCash();
+  }
+
   const orderSections = useMemo(() => {
     const actionableSections = [
       {
@@ -895,7 +1037,7 @@ export default function CounterClient({
                 : `Orden #${order.displayNumber} marcada como entregada.`,
           });
         }
-        refreshCounter();
+        await refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1117,7 +1259,11 @@ export default function CounterClient({
               ? `${preparedPayments.length} pago(s) registrados en orden #${order.displayNumber}. ${pendingCount} quedan por revision.`
               : `${preparedPayments.length} pago(s) registrados y confirmados en orden #${order.displayNumber}.`,
         });
-        refreshCounter();
+        await Promise.all([
+          refreshCounter(),
+          refreshCounterOrder(order.id),
+          cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+        ]);
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1177,7 +1323,7 @@ export default function CounterClient({
             : `Pedido agendado para master. Orden #${result.id}.`,
         });
         setQuickSaleOpen(false);
-        refreshCounter();
+        await refreshCounter();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1204,7 +1350,10 @@ export default function CounterClient({
             ? `Se agregaron ${result.addedLines} linea(s). La orden #${order.displayNumber} regreso a cocina.`
             : `Se agregaron ${result.addedLines} linea(s) a la orden #${order.displayNumber}.`,
         });
-        refreshCounter();
+        await Promise.all([
+          refreshCounter(),
+          refreshCounterOrder(order.id),
+        ]);
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1216,7 +1365,7 @@ export default function CounterClient({
     });
   }
 
-  function handleMasterAgendaSearch() {
+  function handleMasterAgendaSearch(cursor: CounterAgendaSearchCursor | null = null) {
     const query = masterAgendaSearch.trim();
     if (query.length < 2) {
       setMessage({ tone: 'error', text: 'Escribe al menos 2 caracteres para buscar en agenda.' });
@@ -1225,12 +1374,14 @@ export default function CounterClient({
 
     setMessage(null);
     setMasterAgendaSearched(true);
+    if (!cursor) setMasterAgendaNextCursor(null);
     startTransition(async () => {
       try {
-        const results = await searchCounterAgendaAction({ query });
-        setMasterAgendaResults(results);
+        const page = await searchCounterAgendaAction({ query, cursor });
+        setMasterAgendaResults((current) => cursor ? [...current, ...page.results] : page.results);
+        setMasterAgendaNextCursor(page.nextCursor);
       } catch (error) {
-        setMasterAgendaResults([]);
+        if (!cursor) setMasterAgendaResults([]);
         setMessage({
           tone: 'error',
           text: error instanceof Error ? error.message : 'No se pudo consultar la agenda.',
@@ -1249,7 +1400,7 @@ export default function CounterClient({
           tone: 'success',
           text: `Movimiento registrado: ${result.currencyCode === 'VES' ? moneyBs(result.amount) : moneyUsd(result.amount)}.`,
         });
-        refreshCounter();
+        await refreshCounterCash();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1273,7 +1424,7 @@ export default function CounterClient({
             result.currencyCode === 'VES' ? moneyBs(result.countedAmount) : moneyUsd(result.countedAmount)
           }.`,
         });
-        refreshCounter();
+        await refreshCounterCash();
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1297,17 +1448,15 @@ export default function CounterClient({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                setSelectedOrderId(null);
-                setQuickSaleOpen((current) => !current);
-              }}
+              onClick={() => void handleOpenQuickSale()}
+              disabled={catalogLoading}
               className="rounded-full border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black hover:bg-[#fff45c]"
             >
-              Nueva venta
+              {catalogLoading ? 'Cargando...' : 'Nueva venta'}
             </button>
             <button
               type="button"
-              onClick={() => setCashPanelOpen((current) => !current)}
+              onClick={handleToggleCashPanel}
               className={[
                 'rounded-full border px-4 py-2 text-sm font-semibold hover:border-[#FEEF00]/60',
                 cashPanelOpen
@@ -1346,11 +1495,11 @@ export default function CounterClient({
             </button>
             <button
               type="button"
-              onClick={refreshCounter}
-              disabled={isPending}
+              onClick={() => void refreshCounter()}
+              disabled={queueRefreshing}
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
             >
-              Actualizar
+              {queueRefreshing ? 'Actualizando...' : 'Actualizar'}
             </button>
             <span className="hidden rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 sm:inline-flex">
               {formatRefreshTime(lastAutoRefreshAt)}
@@ -1379,13 +1528,17 @@ export default function CounterClient({
           </div>
         ) : null}
 
-        {cashPanelOpen ? (
+        {cashPanelOpen && cashLoading && cashAccounts.length === 0 ? (
+          <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-6 text-sm text-[#9FA0AA]">
+            Cargando saldos exactos y movimientos de caja...
+          </section>
+        ) : cashPanelOpen ? (
           <CounterCashPanel
             accounts={cashAccounts}
             activeBsRate={activeBsRate}
             isWorking={workingOrderId === -2}
             isClosing={workingOrderId === -3}
-            onRefresh={refreshCounter}
+            onRefresh={() => void refreshCounterCash()}
             onCreateMovement={handleCreateCashMovement}
             onCreateClosure={handleCreateCashClosure}
           />
@@ -1395,13 +1548,18 @@ export default function CounterClient({
           <MasterAgendaSearchPanel
             query={masterAgendaSearch}
             results={masterAgendaResults}
+            nextCursor={masterAgendaNextCursor}
             searched={masterAgendaSearched}
             isPending={isPending}
             onQueryChange={setMasterAgendaSearch}
-            onSearch={handleMasterAgendaSearch}
+            onSearch={() => handleMasterAgendaSearch()}
+            onLoadMore={() => {
+              if (masterAgendaNextCursor) handleMasterAgendaSearch(masterAgendaNextCursor);
+            }}
             onClear={() => {
               setMasterAgendaSearch('');
               setMasterAgendaResults([]);
+              setMasterAgendaNextCursor(null);
               setMasterAgendaSearched(false);
             }}
           />
@@ -1480,10 +1638,7 @@ export default function CounterClient({
                             key={order.id}
                             order={order}
                             selected={selectedOrder?.id === order.id}
-                            onSelect={() => {
-                              setQuickSaleOpen(false);
-                              setSelectedOrderId(order.id);
-                            }}
+                            onSelect={() => handleSelectCounterOrder(order)}
                           />
                         ))}
                       </div>
@@ -1504,8 +1659,13 @@ export default function CounterClient({
                 onCancel={() => setQuickSaleOpen(false)}
                 onSubmit={handleCreateQuickSale}
               />
+            ) : selectedOrder && detailLoadingOrderId === selectedOrder.id && !selectedOrder.detailLoaded ? (
+              <div className="flex min-h-[520px] items-center justify-center p-8 text-sm text-[#9FA0AA]">
+                Cargando detalle exacto de la orden...
+              </div>
             ) : selectedOrder ? (
               <OrderDetail
+                key={selectedOrder.id}
                 order={selectedOrder}
                 paymentAccounts={paymentAccounts}
                 quickSaleProducts={quickSaleProducts}
@@ -1515,14 +1675,13 @@ export default function CounterClient({
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
                 onCreatePaymentReport={handleCreatePaymentReport}
                 onAddItems={handleAddItemsToOrder}
+                onRequestCatalog={ensureCounterCatalog}
+                catalogLoading={catalogLoading}
               />
             ) : (
               <CounterEmptyWorkSurface
                 hasOrders={filteredOrders.length > 0}
-                onNewSale={() => {
-                  setSelectedOrderId(null);
-                  setQuickSaleOpen(true);
-                }}
+                onNewSale={() => void handleOpenQuickSale()}
               />
             )}
           </section>
@@ -1675,10 +1834,16 @@ function CounterCashPanel({
     accounts.find((account) => String(account.accountId) === movementAccountId) ?? firstAccount;
   const selectedClosureAccount =
     accounts.find((account) => String(account.accountId) === closureAccountId) ?? firstAccount;
+  const selectedClosureIsPos = selectedClosureAccount?.accountKind === 'pos';
+  const selectedClosureExpectedAmount = selectedClosureAccount
+    ? selectedClosureIsPos
+      ? selectedClosureAccount.net
+      : selectedClosureAccount.balance
+    : 0;
   const closureCountedNumber = toDecimalInput(closureAmount);
   const closureDifference =
     selectedClosureAccount && Number.isFinite(closureCountedNumber)
-      ? Number((closureCountedNumber - selectedClosureAccount.balance).toFixed(2))
+      ? Number((closureCountedNumber - selectedClosureExpectedAmount).toFixed(2))
       : 0;
   const totalInflowUsd = accounts.reduce((sum, account) => {
     if (account.currencyCode === 'USD') return sum + account.inflow;
@@ -1696,20 +1861,6 @@ function CounterCashPanel({
     if (account.currencyCode === 'USD') return sum + account.balance;
     return activeBsRate > 0 ? sum + account.balance / activeBsRate : sum;
   }, 0);
-
-  useEffect(() => {
-    if (!firstAccount) return;
-    setMovementAccountId((current) =>
-      current && accounts.some((account) => String(account.accountId) === current)
-        ? current
-        : String(firstAccount.accountId)
-    );
-    setClosureAccountId((current) =>
-      current && accounts.some((account) => String(account.accountId) === current)
-        ? current
-        : String(firstAccount.accountId)
-    );
-  }, [accounts, firstAccount?.accountId]);
 
   function submitMovement() {
     const moneyAccountId = Number(movementAccountId || 0);
@@ -1837,7 +1988,7 @@ function CounterCashPanel({
               setClosureOpen((current) => !current);
               setClosureTime(getCurrentTimeKey());
               if (!closureAmount && selectedClosureAccount) {
-                setClosureAmount(String(selectedClosureAccount.balance));
+                setClosureAmount(String(selectedClosureExpectedAmount));
               }
             }}
             disabled={accounts.length === 0}
@@ -1905,7 +2056,7 @@ function CounterCashPanel({
             <label className="text-sm text-[#9FA0AA]">
               Cuenta
               <select
-                value={movementAccountId}
+                value={selectedAccount ? String(selectedAccount.accountId) : ''}
                 onChange={(event) => setMovementAccountId(event.target.value)}
                 className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
               >
@@ -2058,11 +2209,13 @@ function CounterCashPanel({
             <label className="text-sm text-[#9FA0AA]">
               Cuenta
               <select
-                value={closureAccountId}
+                value={selectedClosureAccount ? String(selectedClosureAccount.accountId) : ''}
                 onChange={(event) => {
                   const nextAccount = accounts.find((account) => String(account.accountId) === event.target.value);
                   setClosureAccountId(event.target.value);
-                  if (nextAccount) setClosureAmount(String(nextAccount.balance));
+                  if (nextAccount) {
+                    setClosureAmount(String(nextAccount.accountKind === 'pos' ? nextAccount.net : nextAccount.balance));
+                  }
                 }}
                 className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-sky-300/70"
               >
@@ -2075,12 +2228,21 @@ function CounterCashPanel({
             </label>
 
             <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2">
-              <div className="text-xs text-[#9FA0AA]">Esperado sistema</div>
+              <div className="text-xs text-[#9FA0AA]">
+                {selectedClosureIsPos ? 'Lote visible' : 'Esperado sistema'}
+              </div>
               <div className="mt-1 text-base font-semibold text-[#F5F5F7]">
                 {selectedClosureAccount?.currencyCode === 'VES'
-                  ? moneyBs(selectedClosureAccount?.balance ?? 0)
-                  : moneyUsd(selectedClosureAccount?.balance ?? 0)}
+                  ? moneyBs(selectedClosureExpectedAmount)
+                  : moneyUsd(selectedClosureExpectedAmount)}
               </div>
+              {selectedClosureIsPos ? (
+                <div className="mt-1 text-[11px] text-[#9FA0AA]">
+                  Pendiente total: {selectedClosureAccount?.currencyCode === 'VES'
+                    ? moneyBs(selectedClosureAccount?.balance ?? 0)
+                    : moneyUsd(selectedClosureAccount?.balance ?? 0)}
+                </div>
+              ) : null}
             </div>
 
             <label className="text-sm text-[#9FA0AA]">
@@ -2092,8 +2254,8 @@ function CounterCashPanel({
                 placeholder={
                   selectedClosureAccount
                     ? selectedClosureAccount.currencyCode === 'VES'
-                      ? moneyBs(selectedClosureAccount.balance)
-                      : moneyUsd(selectedClosureAccount.balance)
+                      ? moneyBs(selectedClosureExpectedAmount)
+                      : moneyUsd(selectedClosureExpectedAmount)
                     : '0'
                 }
                 className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-sky-300/70"
@@ -2246,18 +2408,22 @@ function CounterCashPanel({
 function MasterAgendaSearchPanel({
   query,
   results,
+  nextCursor,
   searched,
   isPending,
   onQueryChange,
   onSearch,
+  onLoadMore,
   onClear,
 }: {
   query: string;
   results: CounterAgendaSearchResult[];
+  nextCursor: CounterAgendaSearchCursor | null;
   searched: boolean;
   isPending: boolean;
   onQueryChange: (value: string) => void;
   onSearch: () => void;
+  onLoadMore: () => void;
   onClear: () => void;
 }) {
   return (
@@ -2342,6 +2508,18 @@ function MasterAgendaSearchPanel({
               })}
             </div>
           )}
+          {nextCursor ? (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={isPending}
+                className="rounded-full border border-[#303044] bg-[#0B0B0D] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isPending ? 'Cargando...' : 'Cargar resultados anteriores'}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -3659,6 +3837,8 @@ function OrderDetail({
   onPrimaryDeliveryAction,
   onCreatePaymentReport,
   onAddItems,
+  onRequestCatalog,
+  catalogLoading,
 }: {
   order: CounterOrder;
   paymentAccounts: CounterPaymentAccountOption[];
@@ -3672,6 +3852,8 @@ function OrderDetail({
     order: CounterOrder,
     items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>
   ) => void;
+  onRequestCatalog: () => Promise<boolean>;
+  catalogLoading: boolean;
 }) {
   const paid = order.balanceUsd <= 0.005;
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
@@ -3714,12 +3896,6 @@ function OrderDetail({
   const canAddItems = order.status !== 'out_for_delivery';
   const isReadyDeliveryAction = order.fulfillment === 'delivery' && order.status === 'ready';
 
-  useEffect(() => {
-    setDeliveryEtaOpen(false);
-    setDeliveryEtaMinutes('20');
-    setDeliveryEtaError(null);
-  }, [order.id]);
-
   function handlePrimaryActionClick() {
     if (isReadyDeliveryAction) {
       setDeliveryEtaOpen(true);
@@ -3739,6 +3915,14 @@ function OrderDetail({
 
     setDeliveryEtaError(null);
     onPrimaryDeliveryAction(order, { etaMinutes });
+  }
+
+  async function handleToggleAddItems() {
+    if (addItemsOpen) {
+      setAddItemsOpen(false);
+      return;
+    }
+    if (await onRequestCatalog()) setAddItemsOpen(true);
   }
 
   return (
@@ -3975,11 +4159,11 @@ function OrderDetail({
             </button>
             <button
               type="button"
-              onClick={() => setAddItemsOpen((current) => !current)}
-              disabled={!canAddItems || isWorking}
+              onClick={() => void handleToggleAddItems()}
+              disabled={!canAddItems || isWorking || catalogLoading}
               className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {addItemsOpen ? 'Ocultar agregar' : 'Agregar'}
+              {catalogLoading ? 'Cargando...' : addItemsOpen ? 'Ocultar agregar' : 'Agregar'}
             </button>
           </div>
           {order.paymentRequiresChange ? (

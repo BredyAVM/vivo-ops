@@ -451,6 +451,14 @@ function accountUsesDailyBalanceCutoff(
   return true;
 }
 
+function accountUsesClosureAsBalanceAnchor(
+  account: MoneyAccountOption | null | undefined,
+  profile: MoneyAccountClosureProfile | null | undefined
+) {
+  if (account?.accountKind === 'pos' || profile?.closureKind === 'pos') return false;
+  return true;
+}
+
 function movementAffectsBalanceAfterAnchor(movement: MoneyMovementItem, anchor: AccountBalanceAnchor) {
   if (!anchor.date) return true;
 
@@ -8158,10 +8166,12 @@ const handleSaveQuickCatalog = async () => {
       const account = moneyAccounts.find((item) => item.id === accountId) ?? null;
       const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
       const usesDailyCutoff = accountUsesDailyBalanceCutoff(account, profile);
-      const latestClosure =
-        moneyAccountClosures
-          .filter((closure) => closure.moneyAccountId === accountId && closure.status !== 'rejected')
-          .sort(compareAccountClosuresDesc)[0] ?? null;
+      const usesClosureAnchor = accountUsesClosureAsBalanceAnchor(account, profile);
+      const latestClosure = usesClosureAnchor
+        ? moneyAccountClosures
+            .filter((closure) => closure.moneyAccountId === accountId && closure.status !== 'rejected')
+            .sort(compareAccountClosuresDesc)[0] ?? null
+        : null;
 
       if (latestClosure) {
         return {
@@ -8232,6 +8242,7 @@ const handleSaveQuickCatalog = async () => {
       const account = moneyAccounts.find((item) => item.id === accountId) ?? null;
       const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
       const usesDailyCutoff = accountUsesDailyBalanceCutoff(account, profile);
+      const isPosClosure = account?.accountKind === 'pos' || profile?.closureKind === 'pos';
       const latestClosure =
         moneyAccountClosures
           .filter((closure) => {
@@ -8254,7 +8265,7 @@ const handleSaveQuickCatalog = async () => {
             kind: 'closure',
             date: latestClosure.closureDate,
             at: latestClosure.closureAt || latestClosure.createdAt,
-            amount: Number(latestClosure.countedAmount || 0),
+            amount: isPosClosure ? 0 : Number(latestClosure.countedAmount || 0),
             usesDailyCutoff,
             closure: latestClosure,
             baseline: null,
@@ -8264,7 +8275,7 @@ const handleSaveQuickCatalog = async () => {
               kind: 'baseline',
               date: activeBaseline.baselineDate,
               at: activeBaseline.baselineAt,
-              amount: Number(activeBaseline.countedAmount || 0),
+              amount: isPosClosure ? 0 : Number(activeBaseline.countedAmount || 0),
               usesDailyCutoff: true,
               closure: null,
               baseline: activeBaseline,

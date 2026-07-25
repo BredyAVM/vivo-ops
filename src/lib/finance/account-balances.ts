@@ -81,6 +81,14 @@ function accountUsesDailyBalanceCutoff(accountKind: string | null | undefined, c
   return true;
 }
 
+function accountUsesClosureAsBalanceAnchor(
+  accountKind: string | null | undefined,
+  closureKind: string | null | undefined
+) {
+  if (accountKind === 'pos' || closureKind === 'pos') return false;
+  return true;
+}
+
 function movementRecordedAtMs(movement: MoneyAccountBalanceMovementRow) {
   const timestamp = movement.confirmed_at || movement.created_at;
   if (!timestamp) return null;
@@ -199,7 +207,11 @@ export async function loadMoneyAccountBalanceSnapshots(
       String(account.account_kind || ''),
       profile?.closure_kind == null ? null : String(profile.closure_kind)
     );
-    const closure = latestClosureByAccountId.get(accountId) ?? null;
+    const usesClosureAnchor = accountUsesClosureAsBalanceAnchor(
+      String(account.account_kind || ''),
+      profile?.closure_kind == null ? null : String(profile.closure_kind)
+    );
+    const closure = usesClosureAnchor ? latestClosureByAccountId.get(accountId) ?? null : null;
 
     if (closure) {
       const anchor: MoneyAccountBalanceAnchor = {
