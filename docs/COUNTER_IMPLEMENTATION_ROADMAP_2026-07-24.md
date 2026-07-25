@@ -11,7 +11,8 @@ Estado:
 - Bloque 0 funcional: cerrado.
 - Bloque 1: cerrado en su alcance de autoridad y perímetro de seguridad.
 - Bloque 2: cerrado en su alcance de persistencia y comandos atómicos.
-- Bloques 3 a 12: no iniciados.
+- Bloque 3: cerrado en su alcance de lecturas ligeras y exactas.
+- Bloques 4 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -23,6 +24,12 @@ Evidencia del Bloque 2:
 - `docs/COUNTER_BLOCK_2_ATOMIC_PERSISTENCE_2026-07-24.sql`
 - `docs/COUNTER_BLOCK_2_TRANSACTION_TESTS_2026-07-24.sql`
 - `docs/COUNTER_BLOCK_2_ROLLBACK_2026-07-24.sql`
+
+Evidencia del Bloque 3:
+
+- `docs/COUNTER_BLOCK_3_READ_MODEL_AUDIT_2026-07-25.md`
+- `docs/COUNTER_BLOCK_3_LIGHT_READ_MODEL_2026-07-25.sql`
+- `docs/COUNTER_BLOCK_3_ROLLBACK_2026-07-25.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -292,6 +299,14 @@ Cada comando se expone al rol correspondiente en el bloque funcional que lo use.
 - no se rompe la verdad de `money_movements`.
 
 ## 9. Bloque 3 - Capa de lectura ligera y exacta
+
+Estado: **cerrado el 2026-07-25**.
+
+Se aplicaron las migraciones
+`20260725221330_counter_block3_light_read_model` y
+`20260725223121_counter_block3_pending_settlement_read`, más el ajuste
+`20260725224226_counter_block3_normalized_search`. No se crearon tablas ni
+índices nuevos; la apertura quedó reducida a configuración y cola en paralelo.
 
 ### Objetivo
 
@@ -828,10 +843,9 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 3 - Capa de lectura ligera y exacta
+Bloque 4 - Motor de caja registradora
 ```
 
-Antes de programarlo se auditarán las lecturas actuales de `/app/counter`, sus
-consultas, payloads y frecuencia. El objetivo será separar bandeja activa,
-detalle bajo demanda, búsqueda profunda paginada y resúmenes exactos sin volver
-a cargar históricos completos.
+Antes de programarlo se auditará el motor actual de cobros, pagos mixtos,
+cambio y devoluciones de `/app/counter`. Debe consumir la capa ligera del Bloque
+3 y mantener la verdad financiera en las funciones y ledger canónicos.

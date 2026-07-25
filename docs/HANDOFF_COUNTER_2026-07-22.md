@@ -428,7 +428,7 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 3 - Capa de lectura ligera y exacta
+Bloque 4 - Motor de caja registradora
 ```
 
 Estado al 2026-07-25:
@@ -445,13 +445,21 @@ Estado al 2026-07-25:
 - exactamente tres tablas nuevas, sin tabla de autorización duplicada;
 - pruebas transaccionales, rollback, cierres consecutivos, reintentos y
   concurrencia completadas;
+- Bloque 3 cerrado en su alcance de lecturas ligeras y exactas;
+- evidencia en `docs/COUNTER_BLOCK_3_READ_MODEL_AUDIT_2026-07-25.md`;
+- migraciones remotas `20260725221330_counter_block3_light_read_model`,
+  `20260725223121_counter_block3_pending_settlement_read` y
+  `20260725224226_counter_block3_normalized_search` aplicadas;
+- apertura reducida a configuración y cola en paralelo;
+- detalle, caja, catálogo, búsqueda y liquidaciones cargan bajo demanda;
+- no se crearon tablas ni índices nuevos;
+- `router.refresh()` eliminado del flujo de Counter;
 - la prueba positiva con un delivery real listo y asignado se repetirá antes de
   certificar el Bloque 6.
 
-El Bloque 3 debe construir lecturas pequeñas y especializadas para bandeja
-activa, detalle bajo demanda y búsqueda profunda paginada. No debe integrar aún
-la experiencia funcional de cobros, pickup, delivery ni ajustes visuales de los
-bloques posteriores.
+El Bloque 4 debe construir el motor único de cobro para pagos simples y mixtos,
+cambio y devoluciones autorizadas. Debe consumir las lecturas del Bloque 3 y no
+convertir Counter en un dashboard financiero.
 
 ## Prompt sugerido para abrir el chat nuevo
 
