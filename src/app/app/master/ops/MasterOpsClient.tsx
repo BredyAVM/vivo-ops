@@ -3066,6 +3066,7 @@ export default function MasterOpsClient({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const detailRequestTokenRef = useRef(0);
+  const appliedOpenOrderRouteRef = useRef<string | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [rateEditorOpen, setRateEditorOpen] = useState(false);
@@ -3425,7 +3426,10 @@ export default function MasterOpsClient({
 
   useEffect(() => {
     const openOrderValue = searchParams.get("openOrder");
-    if (!openOrderValue) return;
+    if (!openOrderValue) {
+      appliedOpenOrderRouteRef.current = null;
+      return;
+    }
 
     const openOrderId = Number(openOrderValue);
     if (!Number.isFinite(openOrderId) || openOrderId <= 0) return;
@@ -3439,15 +3443,15 @@ export default function MasterOpsClient({
     const openTab = MASTER_ORDER_DETAIL_TABS.some((tab) => tab.key === requestedTab)
       ? requestedTab as DetailTab
       : "detalle";
-    if (selectedOrderId !== openOrderId) {
-      setSelectedOrderId(order.id);
-      setSelectedDetailTab(openTab);
-      setActionError(null);
-      setDetailError(null);
-      return;
-    }
-    if (selectedDetailTab !== openTab) setSelectedDetailTab(openTab);
-  }, [openedOrder, orders, searchParams, selectedDetailTab, selectedOrderId]);
+    const routeKey = `${openOrderId}:${openTab}`;
+    if (appliedOpenOrderRouteRef.current === routeKey) return;
+
+    appliedOpenOrderRouteRef.current = routeKey;
+    setSelectedOrderId(order.id);
+    setSelectedDetailTab(openTab);
+    setActionError(null);
+    setDetailError(null);
+  }, [openedOrder, orders, searchParams]);
 
   async function runCreatePaymentReport(order: MasterOpsOrder, payload: PaymentReportDraft) {
     const actionId = `${payload.isRetention ? "report-retention" : "report-payment"}:${order.id}`;
