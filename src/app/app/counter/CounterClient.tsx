@@ -9,26 +9,35 @@ import {
   getVisibleEditableDetailLines,
   type OrderComposerProductComponent,
 } from '@/lib/orders/order-composer';
-import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../ModulePreference';
-import {
-  confirmPaymentReportAction,
-  createPaymentReportAction,
-  markDeliveredAction,
-} from '../master/dashboard/actions';
+import { markDeliveredAction } from '../master/dashboard/actions';
 import {
   addCounterOrderItemsAction,
+  applyCounterPaymentAction,
   createCounterCashClosureAction,
   createCounterCashMovementAction,
   createCounterQuickSaleAction,
   dispatchCounterDeliveryAction,
+  executeCounterRefundAction,
+  requestCounterRefundAction,
   searchCounterClientsAction,
   searchCounterAgendaAction,
   type CounterAgendaSearchCursor,
   type CounterAgendaSearchResult,
   type CounterClientSearchResult,
 } from './actions';
+import { CounterPaymentEngine } from './CounterPaymentEngine';
+import { CounterRefundPanel } from './CounterRefundPanel';
+import type {
+  CounterPaymentIntent,
+  CounterPaymentOperationResult,
+  CounterRefundAuthorization,
+  CounterRefundExecutionIntent,
+  CounterRefundExecutionResult,
+  CounterRefundRequestIntent,
+  CounterRefundRequestResult,
+} from './payment-contract';
 import {
   loadCounterCashSnapshotAction,
   loadCounterCatalogAction,
@@ -122,6 +131,7 @@ export type CounterOrder = {
   clientName: string;
   clientPhone: string | null;
   advisorName: string | null;
+  hasAdvisor: boolean;
   deliveryAddress: string | null;
   deliveryMode: string | null;
   deliveryAssigneeKind: 'internal' | 'external' | null;
@@ -143,6 +153,11 @@ export type CounterOrder = {
   fxRate: number;
   confirmedPaidUsd: number;
   balanceUsd: number;
+  paymentStatus: string;
+  pendingReportsUsd: number;
+  overpaidUsd: number;
+  pendingDigitalChangeUsd: number;
+  refundAuthorizations: CounterRefundAuthorization[];
   reports: {
     pending: number;
     confirmed: number;
@@ -158,25 +173,6 @@ type CounterClientProps = {
   orders: CounterOrder[];
   paymentAccounts: CounterPaymentAccountOption[];
   activeBsRate: number;
-};
-
-type CounterPaymentReportInput = {
-  paymentLines: Array<{
-    accountKey: string;
-    amount: string;
-    exchangeRate: string;
-    operationDate: string;
-    referenceCode: string;
-    bankName: string;
-    payerName: string;
-    notes: string;
-  }>;
-  overpaymentHandling: 'store_fund' | 'change_given';
-  changeLines: Array<{
-    accountKey: string;
-    amount: string;
-    exchangeRate: string;
-  }>;
 };
 
 type CounterCashMovementInput = {
@@ -200,25 +196,6 @@ type CounterCashClosureInput = {
   exchangeRateVesPerUsd: number | null;
   reason: string;
   notes: string | null;
-};
-
-type CounterPaymentLineDraft = {
-  id: string;
-  accountKey: string;
-  amount: string;
-  exchangeRate: string;
-  operationDate: string;
-  referenceCode: string;
-  bankName: string;
-  payerName: string;
-  notes: string;
-};
-
-type CounterChangeLineDraft = {
-  id: string;
-  accountKey: string;
-  amount: string;
-  exchangeRate: string;
 };
 
 type CounterQuickSaleCartItem = {
@@ -419,32 +396,22 @@ function getCurrentTimeKey() {
   return `${get('hour') || '00'}:${get('minute') || '00'}`;
 }
 
-function paymentAccountKey(account: CounterPaymentAccountOption) {
-  return `${account.accountId}|${account.paymentMethodCode}`;
-}
-
 function toDecimalInput(value: string) {
   return Number(String(value || '').replace(',', '.'));
 }
 
-function getPaymentAmountUsd(amount: number, account: CounterPaymentAccountOption, exchangeRate: number | null) {
-  return account.currencyCode === 'VES' ? amount / Number(exchangeRate || 0) : amount;
-}
-
-function canUseAccountForChange(account: CounterPaymentAccountOption) {
-  return account.canConfirmPayment || account.autoConfirmsReport;
-}
-
 function paymentLabel(order: CounterOrder) {
+  if (order.overpaidUsd > 0.005) return 'Saldo a favor';
+  if (order.reports.pending > 0) return 'Pago por revisar';
   if (order.balanceUsd <= 0.005) return 'Pagado';
   if (order.confirmedPaidUsd > 0.005) return 'Abonado';
-  if (order.reports.pending > 0) return 'Pago por revisar';
   return 'Pendiente';
 }
 
 function paymentClass(order: CounterOrder) {
-  if (order.balanceUsd <= 0.005) return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
+  if (order.overpaidUsd > 0.005) return 'border-violet-400/40 bg-violet-400/10 text-violet-200';
   if (order.reports.pending > 0) return 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]';
+  if (order.balanceUsd <= 0.005) return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
   if (order.confirmedPaidUsd > 0.005) return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
   return 'border-orange-400/40 bg-orange-400/10 text-orange-200';
 }
@@ -455,7 +422,11 @@ function isCounterImmediatePaymentMethod(method: string | null | undefined) {
 }
 
 function mustSettleBeforeCounterDelivery(order: CounterOrder) {
-  return isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005;
+  const hasUnconfirmedPayment = order.reports.pending > 0;
+  if (order.balanceUsd <= 0.005 && !hasUnconfirmedPayment) return false;
+  if (order.hasAdvisor && hasUnconfirmedPayment) return false;
+  if (isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005) return true;
+  return !order.hasAdvisor && (order.balanceUsd > 0.005 || hasUnconfirmedPayment);
 }
 
 function fulfillmentLabel(value: CounterOrder['fulfillment']) {
@@ -1049,230 +1020,87 @@ export default function CounterClient({
     });
   }
 
-  function handleCreatePaymentReport(order: CounterOrder, input: CounterPaymentReportInput) {
-    const preparedPayments = input.paymentLines
-      .map((line) => {
-        const account = paymentAccounts.find((item) => paymentAccountKey(item) === line.accountKey) ?? null;
-        const amount = toDecimalInput(line.amount);
-        const exchangeRate =
-          account?.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-        const amountUsd =
-          account && Number.isFinite(amount) && amount > 0
-            ? getPaymentAmountUsd(amount, account, exchangeRate)
-            : 0;
-
-        return {
-          account,
-          amount,
-          exchangeRate,
-          amountUsd,
-          operationDate: line.operationDate || getTodayKey(),
-          referenceCode: line.referenceCode.trim(),
-          bankName: line.bankName.trim(),
-          payerName: line.payerName.trim(),
-          notes: line.notes.trim(),
-        };
-      })
-      .filter((line) => line.account && Number.isFinite(line.amount) && line.amount > 0) as Array<{
-        account: CounterPaymentAccountOption;
-        amount: number;
-        exchangeRate: number | null;
-        amountUsd: number;
-        operationDate: string;
-        referenceCode: string;
-        bankName: string;
-        payerName: string;
-        notes: string;
-      }>;
-
-    if (preparedPayments.length === 0) {
-      setMessage({ tone: 'error', text: 'Agrega al menos una linea de pago valida.' });
-      return;
-    }
-
-    if (preparedPayments.some((line) => !line.account.canReportPayment)) {
-      setMessage({ tone: 'error', text: 'Una de las cuentas no esta autorizada para reportar pagos.' });
-      return;
-    }
-
-    if (
-      preparedPayments.some(
-        (line) =>
-          line.account.currencyCode === 'VES' &&
-          (!line.exchangeRate || !Number.isFinite(line.exchangeRate) || line.exchangeRate <= 0)
-      )
-    ) {
-      setMessage({ tone: 'error', text: 'Indica una tasa valida para cada pago en bolivares.' });
-      return;
-    }
-
-    for (const payment of preparedPayments) {
-      const validationError = validatePaymentReportDetails({
-        method: payment.account.paymentMethodCode,
-        operationDate: payment.operationDate,
-        referenceCode: payment.referenceCode,
-        bankName: payment.bankName,
-        holderName: payment.payerName,
-      });
-
-      if (validationError) {
-        setMessage({ tone: 'error', text: validationError });
-        return;
-      }
-    }
-
-    const autoConfirmedUsd = preparedPayments.reduce(
-      (sum, line) => sum + (line.account.autoConfirmsReport ? line.amountUsd : 0),
-      0
-    );
-    const hasOverpayment = autoConfirmedUsd > order.balanceUsd + 0.005;
-    const preparedChangeLines: Array<{
-      account: CounterPaymentAccountOption;
-      amount: number;
-      exchangeRate: number | null;
-    }> = [];
-
-    if (hasOverpayment && input.overpaymentHandling === 'change_given') {
-      const inputChangeLines = input.changeLines
-        .map((line) => {
-          const changeAccount =
-            paymentAccounts.find((item) => paymentAccountKey(item) === line.accountKey) ?? null;
-          const changeAmount = toDecimalInput(line.amount);
-          const changeExchangeRate =
-            changeAccount?.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-
-          return {
-            account: changeAccount,
-            amount: changeAmount,
-            exchangeRate: changeExchangeRate,
-          };
-        })
-        .filter((line) => line.account && Number.isFinite(line.amount) && line.amount > 0) as Array<{
-          account: CounterPaymentAccountOption;
-          amount: number;
-          exchangeRate: number | null;
-        }>;
-
-      if (inputChangeLines.length === 0) {
-        setMessage({ tone: 'error', text: 'Agrega al menos una linea para entregar cambio.' });
-        return;
-      }
-
-      if (inputChangeLines.some((line) => !canUseAccountForChange(line.account))) {
-        setMessage({ tone: 'error', text: 'Una de las cuentas no esta autorizada para entregar cambio.' });
-        return;
-      }
-
-      if (
-        inputChangeLines.some(
-          (line) =>
-            line.account.currencyCode === 'VES' &&
-            (!line.exchangeRate || !Number.isFinite(line.exchangeRate) || line.exchangeRate <= 0)
-        )
-      ) {
-        setMessage({ tone: 'error', text: 'Indica una tasa valida para cada cambio en bolivares.' });
-        return;
-      }
-
-      preparedChangeLines.push(...inputChangeLines);
-    }
-
+  async function handleCreatePaymentReport(
+    order: CounterOrder,
+    input: CounterPaymentIntent
+  ): Promise<CounterPaymentOperationResult> {
     setMessage(null);
     setWorkingOrderId(order.id);
-    startTransition(async () => {
-      try {
-        let runningAutoUsd = 0;
-        let changeWasApplied = false;
-        let confirmedCount = 0;
+    try {
+      const result = await applyCounterPaymentAction(input);
+      const pendingText =
+        result.pendingReportCount > 0
+          ? ` ${result.pendingReportCount} pago(s) quedan por revision.`
+          : '';
+      const digitalChangeText =
+        result.digitalChangePendingUsd > 0.005
+          ? ` Cambio digital pendiente: ${moneyUsd(result.digitalChangePendingUsd)}.`
+          : '';
+      setMessage({
+        tone: 'success',
+        text: `Cobro registrado en orden #${order.displayNumber}.${pendingText}${digitalChangeText}`,
+      });
+      await Promise.all([
+        refreshCounter(),
+        refreshCounterOrder(order.id),
+        cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+      ]);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo registrar el cobro.';
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
+  }
 
-        for (const payment of preparedPayments) {
-          const result = await createPaymentReportAction({
-            orderId: order.id,
-            reportedMoneyAccountId: payment.account.accountId,
-            reportedCurrency: payment.account.currencyCode,
-            reportedAmount: payment.amount,
-            reportedExchangeRateVesPerUsd: payment.exchangeRate,
-            paymentMethod: payment.account.paymentMethodCode,
-            operationDate: payment.operationDate,
-            referenceCode: payment.referenceCode || null,
-            bankName: payment.bankName || null,
-            payerName: payment.payerName || null,
-            notes: payment.notes || null,
-          });
+  async function handleRequestRefund(
+    order: CounterOrder,
+    input: CounterRefundRequestIntent
+  ): Promise<CounterRefundRequestResult> {
+    setWorkingOrderId(order.id);
+    try {
+      const result = await requestCounterRefundAction(input);
+      setMessage({
+        tone: 'success',
+        text: `Devolucion solicitada para orden #${order.displayNumber}. Espera autorizacion.`,
+      });
+      await refreshCounterOrder(order.id);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo solicitar la devolucion.';
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
+  }
 
-          if (!payment.account.autoConfirmsReport) continue;
-
-          const reportId = Number(result?.reportId || 0);
-          if (!Number.isFinite(reportId) || reportId <= 0) {
-            throw new Error('No se pudo identificar el reporte para confirmar.');
-          }
-
-          const nextAutoUsd = runningAutoUsd + payment.amountUsd;
-          const lineCreatesOverpayment = nextAutoUsd > order.balanceUsd + 0.005;
-          const shouldApplyChange =
-            lineCreatesOverpayment &&
-            input.overpaymentHandling === 'change_given' &&
-            !changeWasApplied;
-          const overpaymentHandling =
-            lineCreatesOverpayment
-              ? shouldApplyChange
-                ? 'change_given'
-                : 'store_fund'
-              : null;
-
-          await confirmPaymentReportAction({
-            reportId,
-            orderId: order.id,
-            confirmedMoneyAccountId: payment.account.accountId,
-            confirmedCurrency: payment.account.currencyCode,
-            confirmedAmount: payment.amount,
-            movementDate: payment.operationDate,
-            confirmedExchangeRateVesPerUsd: payment.exchangeRate,
-            reviewNotes: 'Auto confirmado por mostrador.',
-            referenceCode: payment.referenceCode || null,
-            counterpartyName: order.clientName,
-            description: `Pago mostrador orden ${order.displayNumber}`,
-            overpaymentHandling,
-            overpaymentNotes: payment.notes || null,
-            changeLines:
-              shouldApplyChange
-                ? preparedChangeLines.map((line) => ({
-                    moneyAccountId: line.account.accountId,
-                    currencyCode: line.account.currencyCode,
-                    amount: line.amount,
-                    exchangeRateVesPerUsd: line.exchangeRate,
-                    notes: payment.notes || null,
-                  }))
-                : undefined,
-          });
-
-          if (shouldApplyChange) changeWasApplied = true;
-          runningAutoUsd = nextAutoUsd;
-          confirmedCount += 1;
-        }
-
-        const pendingCount = preparedPayments.length - confirmedCount;
-        setMessage({
-          tone: 'success',
-          text:
-            pendingCount > 0
-              ? `${preparedPayments.length} pago(s) registrados en orden #${order.displayNumber}. ${pendingCount} quedan por revision.`
-              : `${preparedPayments.length} pago(s) registrados y confirmados en orden #${order.displayNumber}.`,
-        });
-        await Promise.all([
-          refreshCounter(),
-          refreshCounterOrder(order.id),
-          cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
-        ]);
-      } catch (error) {
-        setMessage({
-          tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo reportar el pago.',
-        });
-      } finally {
-        setWorkingOrderId(null);
-      }
-    });
+  async function handleExecuteRefund(
+    order: CounterOrder,
+    input: CounterRefundExecutionIntent
+  ): Promise<CounterRefundExecutionResult> {
+    setWorkingOrderId(order.id);
+    try {
+      const result = await executeCounterRefundAction(input);
+      setMessage({
+        tone: 'success',
+        text: `Devolucion entregada en orden #${order.displayNumber}.`,
+      });
+      await Promise.all([
+        refreshCounter(),
+        refreshCounterOrder(order.id),
+        cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+      ]);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo ejecutar la devolucion.';
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
   }
 
   function handleCreateQuickSale(input: {
@@ -1674,6 +1502,8 @@ export default function CounterClient({
                 isWorking={workingOrderId === selectedOrder.id}
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
                 onCreatePaymentReport={handleCreatePaymentReport}
+                onRequestRefund={handleRequestRefund}
+                onExecuteRefund={handleExecuteRefund}
                 onAddItems={handleAddItemsToOrder}
                 onRequestCatalog={ensureCounterCatalog}
                 catalogLoading={catalogLoading}
@@ -3653,8 +3483,6 @@ function CounterQuickSalePanel({
 
 function getCounterCurrentAction(order: CounterOrder) {
   const paid = order.balanceUsd <= 0.005;
-  const hasPendingReports = order.reports.pending > 0;
-  const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
 
   if (order.status === 'created') {
@@ -3681,13 +3509,17 @@ function getCounterCurrentAction(order: CounterOrder) {
       description: paid
         ? 'El pedido esta listo y pagado. Solo falta entregarlo al cliente.'
         : mustCollectNow
-          ? 'El metodo esperado es efectivo o punto. Registra el cobro antes de entregar.'
+          ? order.hasAdvisor
+            ? 'El metodo esperado es efectivo o punto. Registra el cobro antes de entregar.'
+            : 'El cliente no tiene asesor. El pago debe quedar confirmado por Master antes de entregar.'
           : 'El pedido puede entregarse pendiente; el asesor queda responsable del cobro.',
       tone: paid ? ('good' as const) : mustCollectNow ? ('warn' as const) : ('neutral' as const),
       steps: paid
         ? ['Validar cliente', 'Entregar pedido', 'Marcar retirado']
         : mustCollectNow
-          ? ['Registrar pago', 'Validar cliente', 'Entregar pedido y marcar retirado']
+          ? order.hasAdvisor
+            ? ['Registrar pago', 'Validar cliente', 'Entregar pedido y marcar retirado']
+            : ['Registrar pago', 'Esperar confirmacion de Master', 'Entregar pedido']
           : ['Validar cliente', 'Entregar pedido', 'Marcar retirado como pendiente'],
     };
   }
@@ -3715,7 +3547,7 @@ function getCounterCurrentAction(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
-    const needsSettlement = mustCollectNow || (immediatePaymentExpected && hasPendingReports);
+    const needsSettlement = mustCollectNow;
 
     return {
       title: needsSettlement ? 'Liquidar delivery' : 'Cerrar entrega',
@@ -3773,7 +3605,9 @@ function getCounterWorkflowChecks(order: CounterOrder) {
           : hasPendingReports && immediatePaymentExpected
             ? 'Pago por revisar'
             : mustCollectNow
-              ? `Cobrar ${moneyUsd(order.balanceUsd)}`
+              ? !order.hasAdvisor && hasPendingReports
+                ? 'Esperar confirmacion de Master'
+                : `Cobrar ${moneyUsd(order.balanceUsd)}`
               : `Pendiente asesor ${moneyUsd(order.balanceUsd)}`,
         state: paymentOk ? ('done' as const) : mustCollectNow ? ('current' as const) : ('pending' as const),
       },
@@ -3802,7 +3636,7 @@ function getCounterWorkflowChecks(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
-    const settlementBlocked = mustCollectNow || (immediatePaymentExpected && hasPendingReports);
+    const settlementBlocked = mustCollectNow;
     return [
       { label: 'Salida', detail: 'En camino', state: 'done' as const },
       {
@@ -3836,6 +3670,8 @@ function OrderDetail({
   isWorking,
   onPrimaryDeliveryAction,
   onCreatePaymentReport,
+  onRequestRefund,
+  onExecuteRefund,
   onAddItems,
   onRequestCatalog,
   catalogLoading,
@@ -3847,7 +3683,18 @@ function OrderDetail({
   activeBsRate: number;
   isWorking: boolean;
   onPrimaryDeliveryAction: (order: CounterOrder, options?: { etaMinutes?: number | null }) => void;
-  onCreatePaymentReport: (order: CounterOrder, input: CounterPaymentReportInput) => void;
+  onCreatePaymentReport: (
+    order: CounterOrder,
+    input: CounterPaymentIntent
+  ) => Promise<CounterPaymentOperationResult>;
+  onRequestRefund: (
+    order: CounterOrder,
+    input: CounterRefundRequestIntent
+  ) => Promise<CounterRefundRequestResult>;
+  onExecuteRefund: (
+    order: CounterOrder,
+    input: CounterRefundExecutionIntent
+  ) => Promise<CounterRefundExecutionResult>;
   onAddItems: (
     order: CounterOrder,
     items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>
@@ -3863,29 +3710,32 @@ function OrderDetail({
   const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
-  const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
   const pickupReadyNeedsPayment =
     order.fulfillment === 'pickup' &&
     order.status === 'ready' &&
-    (mustCollectNow || (immediatePaymentExpected && hasPendingReports));
+    mustCollectNow;
   const primaryActionBlocked =
     notReadyForCounter ||
     pickupReadyNeedsPayment ||
     deliveryReadyWithoutAssignee ||
-    (isDeliverySettlement && (mustCollectNow || (immediatePaymentExpected && hasPendingReports)));
+    (isDeliverySettlement && mustCollectNow);
   const primaryActionBlockedMessage = waitingForMaster
     ? 'Esta orden quedo agendada. Master debe enviarla a cocina cuando corresponda.'
     : notReadyForCounter
       ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
     : pickupReadyNeedsPayment
       ? hasPendingReports
-        ? 'Hay pagos pendientes de revision. No marques retirado hasta que queden confirmados.'
+        ? !order.hasAdvisor
+          ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de que Counter entregue el pedido.'
+          : 'Hay pagos pendientes de revision. No marques retirado hasta que queden confirmados.'
         : 'El metodo esperado es efectivo o punto. Primero registra el cobro antes de marcar el pickup como retirado.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
       : mustCollectNow
-        ? 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
+        ? !order.hasAdvisor && hasPendingReports
+          ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de cerrar la entrega.'
+          : 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
         : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
@@ -3895,6 +3745,18 @@ function OrderDetail({
   const currentAction = getCounterCurrentAction(order);
   const canAddItems = order.status !== 'out_for_delivery';
   const isReadyDeliveryAction = order.fulfillment === 'delivery' && order.status === 'ready';
+  const reservedRefundUsd = order.refundAuthorizations.reduce(
+    (sum, authorization) =>
+      authorization.status === 'pending' || authorization.status === 'approved'
+        ? sum + authorization.amountUsdEquivalent
+        : sum,
+    0
+  );
+  const showRefundPanel =
+    order.overpaidUsd - order.pendingDigitalChangeUsd - reservedRefundUsd > 0.005 ||
+    order.refundAuthorizations.some(
+      (authorization) => authorization.status === 'pending' || authorization.status === 'approved'
+    );
 
   function handlePrimaryActionClick() {
     if (isReadyDeliveryAction) {
@@ -3992,6 +3854,36 @@ function OrderDetail({
             <Metric label="Confirmado" value={moneyUsd(order.confirmedPaidUsd)} tone="good" />
             <Metric label="Pendiente" value={moneyUsd(order.balanceUsd)} tone={paid ? 'good' : 'warn'} />
           </div>
+
+          {order.pendingReportsUsd > 0.005 ||
+          order.pendingDigitalChangeUsd > 0.005 ||
+          order.overpaidUsd > 0.005 ? (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {order.pendingReportsUsd > 0.005 ? (
+                <Metric
+                  label="Pago por revisar"
+                  value={moneyUsd(order.pendingReportsUsd)}
+                  note={order.hasAdvisor ? 'Seguimiento del asesor' : 'Master debe confirmar'}
+                  tone="warn"
+                />
+              ) : null}
+              {order.pendingDigitalChangeUsd > 0.005 ? (
+                <Metric
+                  label="Cambio digital pendiente"
+                  value={moneyUsd(order.pendingDigitalChangeUsd)}
+                  note={order.hasAdvisor ? 'Responsable: asesor' : 'Responsable: Master'}
+                  tone="warn"
+                />
+              ) : null}
+              {order.overpaidUsd > 0.005 ? (
+                <Metric
+                  label="Saldo a favor"
+                  value={moneyUsd(order.overpaidUsd)}
+                  note="Puede ir a fondo o devolucion autorizada"
+                />
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4191,11 +4083,25 @@ function OrderDetail({
 
       {paymentOpen ? (
         <div className="border-t border-[#242433] p-5">
-          <CounterPaymentBox
+          <CounterPaymentEngine
+            key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.reports.pending}`}
             order={order}
             paymentAccounts={paymentAccounts}
             isWorking={isWorking}
             onSubmit={(input) => onCreatePaymentReport(order, input)}
+          />
+        </div>
+      ) : null}
+
+      {showRefundPanel ? (
+        <div className="border-t border-[#242433] p-5">
+          <CounterRefundPanel
+            key={`${order.id}-${order.overpaidUsd}-${order.refundAuthorizations.map((item) => `${item.movementGroupId}:${item.status}`).join('|')}`}
+            order={order}
+            paymentAccounts={paymentAccounts}
+            isWorking={isWorking}
+            onRequest={(input) => onRequestRefund(order, input)}
+            onExecute={(input) => onExecuteRefund(order, input)}
           />
         </div>
       ) : null}
@@ -4622,627 +4528,6 @@ function CounterAddItemsBox({
           className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
         >
           {isWorking ? 'Guardando...' : 'Aplicar agregado'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CounterPaymentBox({
-  order,
-  paymentAccounts,
-  isWorking,
-  onSubmit,
-}: {
-  order: CounterOrder;
-  paymentAccounts: CounterPaymentAccountOption[];
-  isWorking: boolean;
-  onSubmit: (input: CounterPaymentReportInput) => void;
-}) {
-  const reportAccounts = paymentAccounts.filter((account) => account.canReportPayment);
-  const firstAccount = reportAccounts[0] ?? null;
-  const [overpaymentHandling, setOverpaymentHandling] = useState<'store_fund' | 'change_given'>('store_fund');
-  const changeAccounts = paymentAccounts.filter(canUseAccountForChange);
-  const firstChangeAccount = changeAccounts[0] ?? null;
-  const [paymentLines, setPaymentLines] = useState<CounterPaymentLineDraft[]>([]);
-  const [changeLines, setChangeLines] = useState<CounterChangeLineDraft[]>([]);
-
-  const reportedUsd = paymentLines.reduce((sum, line) => {
-    const lineAccount = reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
-    const lineAmount = toDecimalInput(line.amount);
-    if (!lineAccount || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
-    const lineExchangeRate =
-      lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-    return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
-  }, 0);
-  const autoReportedUsd = paymentLines.reduce((sum, line) => {
-    const lineAccount = reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
-    const lineAmount = toDecimalInput(line.amount);
-    if (!lineAccount || !lineAccount.autoConfirmsReport || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
-    const lineExchangeRate =
-      lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-    return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
-  }, 0);
-  const excessUsd = Math.max(0, Number((autoReportedUsd - order.balanceUsd).toFixed(2)));
-  const changeUsd = changeLines.reduce((sum, line) => {
-    const lineAccount = changeAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
-    const lineAmount = toDecimalInput(line.amount);
-    if (!lineAccount || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
-    const lineExchangeRate =
-      lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-    return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
-  }, 0);
-  const remainingAfterChangeUsd =
-    excessUsd > 0 && overpaymentHandling === 'change_given'
-      ? Number((excessUsd - changeUsd).toFixed(2))
-      : 0;
-  const pendingReviewUsd = Math.max(0, Number((reportedUsd - autoReportedUsd).toFixed(2)));
-  const immediateBalanceUsd =
-    overpaymentHandling === 'change_given'
-      ? Number((order.balanceUsd - autoReportedUsd + changeUsd).toFixed(2))
-      : Math.max(0, Number((order.balanceUsd - autoReportedUsd).toFixed(2)));
-  const immediatePendingUsd = Math.max(0, immediateBalanceUsd);
-  const immediateFundUsd =
-    overpaymentHandling === 'store_fund'
-      ? excessUsd
-      : Math.max(0, Number((-immediateBalanceUsd).toFixed(2)));
-  const submitLabel =
-    pendingReviewUsd > 0.005
-      ? 'Registrar pagos'
-      : immediatePendingUsd > 0.005
-        ? 'Registrar abono'
-        : 'Cerrar cobro';
-
-  function nativePaymentAmount(account: CounterPaymentAccountOption | null, usdAmount: number) {
-    if (!account) return '';
-    return account.currencyCode === 'VES'
-      ? (Math.max(0, usdAmount) * Math.max(order.fxRate, 0)).toFixed(2)
-      : Math.max(0, usdAmount).toFixed(2);
-  }
-
-  function makePaymentLine(usdAmount: number): CounterPaymentLineDraft {
-    return {
-      id: `payment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      accountKey: firstAccount ? paymentAccountKey(firstAccount) : '',
-      amount: nativePaymentAmount(firstAccount, usdAmount),
-      exchangeRate: order.fxRate > 0 ? String(Number(order.fxRate.toFixed(2))) : '',
-      operationDate: getTodayKey(),
-      referenceCode: '',
-      bankName: '',
-      payerName: '',
-      notes: '',
-    };
-  }
-
-  function updatePaymentLine(id: string, patch: Partial<CounterPaymentLineDraft>) {
-    setPaymentLines((current) =>
-      current.map((line) => {
-        if (line.id !== id) return line;
-        const next = { ...line, ...patch };
-        if (patch.accountKey) {
-          const nextAccount = reportAccounts.find((account) => paymentAccountKey(account) === patch.accountKey) ?? null;
-          next.exchangeRate =
-            nextAccount?.currencyCode === 'VES' && order.fxRate > 0
-              ? String(Number(order.fxRate.toFixed(2)))
-              : next.exchangeRate;
-        }
-        return next;
-      })
-    );
-  }
-
-  function addPaymentLine() {
-    const pendingUsd = Math.max(0, order.balanceUsd - reportedUsd);
-    setPaymentLines((current) => [...current, makePaymentLine(pendingUsd > 0 ? pendingUsd : 0)]);
-  }
-
-  function fillPaymentLineWithPending(id: string) {
-    setPaymentLines((current) => {
-      const otherReportedUsd = current.reduce((sum, line) => {
-        if (line.id === id) return sum;
-        const lineAccount = reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
-        const lineAmount = toDecimalInput(line.amount);
-        if (!lineAccount || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
-        const lineExchangeRate =
-          lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-        return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
-      }, 0);
-      const pendingUsd = Math.max(0, order.balanceUsd - otherReportedUsd);
-
-      return current.map((line) => {
-        if (line.id !== id) return line;
-        const lineAccount = reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? null;
-        return {
-          ...line,
-          amount: nativePaymentAmount(lineAccount, pendingUsd),
-          exchangeRate:
-            lineAccount?.currencyCode === 'VES' && order.fxRate > 0
-              ? String(Number(order.fxRate.toFixed(2)))
-              : line.exchangeRate,
-        };
-      });
-    });
-  }
-
-  function nativeChangeAmount(account: CounterPaymentAccountOption | null, usdAmount: number) {
-    if (!account) return '';
-    return account.currencyCode === 'VES'
-      ? (Math.max(0, usdAmount) * Math.max(order.fxRate, 0)).toFixed(2)
-      : Math.max(0, usdAmount).toFixed(2);
-  }
-
-  function makeChangeLine(usdAmount: number): CounterChangeLineDraft {
-    return {
-      id: `change-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      accountKey: firstChangeAccount ? paymentAccountKey(firstChangeAccount) : '',
-      amount: nativeChangeAmount(firstChangeAccount, usdAmount),
-      exchangeRate: order.fxRate > 0 ? String(Number(order.fxRate.toFixed(2))) : '',
-    };
-  }
-
-  function updateChangeLine(id: string, patch: Partial<CounterChangeLineDraft>) {
-    setChangeLines((current) =>
-      current.map((line) => {
-        if (line.id !== id) return line;
-        const next = { ...line, ...patch };
-        if (patch.accountKey) {
-          const nextAccount = changeAccounts.find((account) => paymentAccountKey(account) === patch.accountKey) ?? null;
-          next.exchangeRate =
-            nextAccount?.currencyCode === 'VES' && order.fxRate > 0
-              ? String(Number(order.fxRate.toFixed(2)))
-              : next.exchangeRate;
-        }
-        return next;
-      })
-    );
-  }
-
-  function addChangeLine() {
-    const pendingUsd = Math.max(0, remainingAfterChangeUsd);
-    setChangeLines((current) => [...current, makeChangeLine(pendingUsd > 0 ? pendingUsd : 0)]);
-  }
-
-  function fillChangeLineWithExcess(id: string) {
-    setChangeLines((current) => {
-      const otherChangeUsd = current.reduce((sum, line) => {
-        if (line.id === id) return sum;
-        const lineAccount = changeAccounts.find((account) => paymentAccountKey(account) === line.accountKey);
-        const lineAmount = toDecimalInput(line.amount);
-        if (!lineAccount || !Number.isFinite(lineAmount) || lineAmount <= 0) return sum;
-        const lineExchangeRate =
-          lineAccount.currencyCode === 'VES' ? toDecimalInput(line.exchangeRate) : null;
-        return sum + getPaymentAmountUsd(lineAmount, lineAccount, lineExchangeRate);
-      }, 0);
-      const pendingChangeUsd = Math.max(0, excessUsd - otherChangeUsd);
-
-      return current.map((line) => {
-        if (line.id !== id) return line;
-        const lineAccount = changeAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? null;
-        return {
-          ...line,
-          amount: nativeChangeAmount(lineAccount, pendingChangeUsd),
-          exchangeRate:
-            lineAccount?.currencyCode === 'VES' && order.fxRate > 0
-              ? String(Number(order.fxRate.toFixed(2)))
-              : line.exchangeRate,
-        };
-      });
-    });
-  }
-
-  useEffect(() => {
-    setPaymentLines(firstAccount ? [makePaymentLine(order.balanceUsd)] : []);
-    setChangeLines([]);
-    setOverpaymentHandling('store_fund');
-  }, [firstAccount?.accountId, firstAccount?.paymentMethodCode, order.balanceUsd, order.id]);
-
-  useEffect(() => {
-    if (excessUsd <= 0 || overpaymentHandling !== 'change_given' || !firstChangeAccount) return;
-    if (changeLines.length > 0) return;
-    setChangeLines([makeChangeLine(excessUsd)]);
-  }, [changeLines.length, excessUsd, firstChangeAccount?.accountId, overpaymentHandling]);
-
-  useEffect(() => {
-    if (excessUsd > 0 || changeLines.length === 0) return;
-    setChangeLines([]);
-  }, [changeLines.length, excessUsd]);
-
-  if (reportAccounts.length === 0) {
-    return (
-      <div className="rounded-[8px] border border-orange-400/40 bg-orange-400/10 p-4 text-sm text-orange-200">
-        No hay cuentas habilitadas para que mostrador reporte pagos.
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="font-semibold">
-            {order.fulfillment === 'delivery' && order.status === 'out_for_delivery'
-              ? 'Registrar retorno de delivery'
-              : 'Registrar cobro'}
-          </h3>
-          <p className="mt-1 text-sm text-[#9FA0AA]">
-            Puedes dividir el pago en varias cuentas y entregar cambio desde una o varias cajas.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full border border-[#303044] px-3 py-1 text-[#C7C8D1]">
-            Reportado {moneyUsd(reportedUsd)}
-          </span>
-          <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-emerald-200">
-            Auto {moneyUsd(autoReportedUsd)}
-          </span>
-          <span
-            className={[
-              'rounded-full border px-3 py-1',
-              reportedUsd >= order.balanceUsd - 0.005
-                ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
-                : 'border-orange-400/40 bg-orange-400/10 text-orange-200',
-            ].join(' ')}
-          >
-            Falta {moneyUsd(Math.max(0, order.balanceUsd - reportedUsd))}
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
-          <div className="text-xs text-[#9FA0AA]">Pendiente orden</div>
-          <div className="mt-1 text-lg font-semibold text-orange-200">{moneyUsd(order.balanceUsd)}</div>
-          <div className="text-xs text-[#9FA0AA]">{moneyBs(order.balanceUsd * Math.max(order.fxRate, 0))}</div>
-        </div>
-        <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
-          <div className="text-xs text-[#9FA0AA]">Recibido ahora</div>
-          <div className="mt-1 text-lg font-semibold text-[#F5F5F7]">{moneyUsd(reportedUsd)}</div>
-          <div className="text-xs text-[#9FA0AA]">
-            {pendingReviewUsd > 0.005 ? `${moneyUsd(pendingReviewUsd)} por revisar` : 'Todo inmediato'}
-          </div>
-        </div>
-        <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
-          <div className="text-xs text-[#9FA0AA]">Cambio / fondo</div>
-          <div className="mt-1 text-lg font-semibold text-sky-100">
-            {overpaymentHandling === 'change_given' ? moneyUsd(changeUsd) : moneyUsd(immediateFundUsd)}
-          </div>
-          <div className="text-xs text-[#9FA0AA]">
-            {overpaymentHandling === 'change_given' ? 'Cambio entregado' : 'Fondo cliente'}
-          </div>
-        </div>
-        <div
-          className={[
-            'rounded-[8px] border p-3',
-            immediatePendingUsd > 0.005
-              ? 'border-orange-400/40 bg-orange-400/10'
-              : 'border-emerald-400/30 bg-emerald-400/10',
-          ].join(' ')}
-        >
-          <div className="text-xs text-[#9FA0AA]">Resultado inmediato</div>
-          <div
-            className={[
-              'mt-1 text-lg font-semibold',
-              immediatePendingUsd > 0.005 ? 'text-orange-200' : 'text-emerald-200',
-            ].join(' ')}
-          >
-            {immediatePendingUsd > 0.005 ? `Pendiente ${moneyUsd(immediatePendingUsd)}` : 'Orden cubierta'}
-          </div>
-          <div className="text-xs text-[#9FA0AA]">
-            {immediateFundUsd > 0.005 ? `Fondo ${moneyUsd(immediateFundUsd)}` : 'Sin excedente'}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9FA0AA]">
-            Lineas de pago
-          </div>
-          <button
-            type="button"
-            onClick={addPaymentLine}
-            className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-xs font-semibold text-[#FEEF00] transition hover:bg-[#FEEF00]/20"
-          >
-            Agregar pago
-          </button>
-        </div>
-
-        {paymentLines.map((line, index) => {
-          const lineAccount =
-            reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? firstAccount;
-          const requirements = getPaymentReportRequirements(lineAccount?.paymentMethodCode);
-
-          return (
-            <div key={line.id} className="rounded-[8px] border border-[#242433] bg-[#111118] p-3">
-              <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.25fr)_minmax(120px,0.65fr)_minmax(115px,0.55fr)_minmax(135px,0.65fr)_auto]">
-                <label className="text-sm text-[#9FA0AA]">
-                  Cuenta
-                  <select
-                    value={line.accountKey}
-                    onChange={(event) => updatePaymentLine(line.id, { accountKey: event.target.value })}
-                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                  >
-                    {reportAccounts.map((account) => (
-                      <option key={paymentAccountKey(account)} value={paymentAccountKey(account)}>
-                        {account.accountName} - {getPaymentMethodLabel(account.paymentMethodCode)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="text-sm text-[#9FA0AA]">
-                  Monto {lineAccount?.currencyCode || ''}
-                  <input
-                    value={line.amount}
-                    onChange={(event) => updatePaymentLine(line.id, { amount: event.target.value })}
-                    inputMode="decimal"
-                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fillPaymentLineWithPending(line.id)}
-                    className="mt-2 w-full rounded-full border border-[#303044] px-3 py-1.5 text-xs font-semibold text-[#C7C8D1] transition hover:border-[#FEEF00]/60 hover:text-[#FEEF00]"
-                  >
-                    Completar pendiente
-                  </button>
-                </label>
-
-                {lineAccount?.currencyCode === 'VES' ? (
-                  <label className="text-sm text-[#9FA0AA]">
-                    Tasa
-                    <input
-                      value={line.exchangeRate}
-                      onChange={(event) => updatePaymentLine(line.id, { exchangeRate: event.target.value })}
-                      inputMode="decimal"
-                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                    />
-                  </label>
-                ) : (
-                  <div className="hidden lg:block" />
-                )}
-
-                <label className="text-sm text-[#9FA0AA]">
-                  Fecha
-                  <input
-                    type="date"
-                    value={line.operationDate}
-                    onChange={(event) => updatePaymentLine(line.id, { operationDate: event.target.value })}
-                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                  />
-                </label>
-
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentLines((current) => current.filter((item) => item.id !== line.id))}
-                    disabled={paymentLines.length === 1}
-                    className="w-full rounded-[8px] border border-red-400/40 px-3 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-400/10 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {index === 0 && paymentLines.length === 1 ? 'Linea unica' : 'Quitar'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                {requirements.requiresReference ? (
-                  <label className="text-sm text-[#9FA0AA]">
-                    Referencia
-                    <input
-                      value={line.referenceCode}
-                      onChange={(event) => updatePaymentLine(line.id, { referenceCode: event.target.value })}
-                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                    />
-                  </label>
-                ) : null}
-
-                {requirements.requiresBank ? (
-                  <label className="text-sm text-[#9FA0AA]">
-                    Banco
-                    <input
-                      value={line.bankName}
-                      onChange={(event) => updatePaymentLine(line.id, { bankName: event.target.value })}
-                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                    />
-                  </label>
-                ) : null}
-
-                {requirements.requiresHolderName || requirements.requiresInvoiceNumber ? (
-                  <label className="text-sm text-[#9FA0AA]">
-                    {requirements.requiresInvoiceNumber ? 'Factura' : 'Titular'}
-                    <input
-                      value={line.payerName}
-                      onChange={(event) => updatePaymentLine(line.id, { payerName: event.target.value })}
-                      className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                    />
-                  </label>
-                ) : null}
-
-                <label className="text-sm text-[#9FA0AA] lg:col-span-3">
-                  Nota
-                  <input
-                    value={line.notes}
-                    onChange={(event) => updatePaymentLine(line.id, { notes: event.target.value })}
-                    placeholder="Opcional"
-                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-                  />
-                </label>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {excessUsd > 0.005 ? (
-        <div className="mt-4 rounded-[8px] border border-sky-400/30 bg-sky-400/10 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold text-sky-100">Excedente detectado: {moneyUsd(excessUsd)}</div>
-              <div className="mt-1 text-xs text-[#B9C4D6]">
-                Decide si queda en fondo del cliente o si se entrega cambio desde caja.
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setOverpaymentHandling('store_fund')}
-              className={[
-                'rounded-full border px-3 py-1.5 text-sm font-semibold',
-                overpaymentHandling === 'store_fund'
-                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                  : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
-              ].join(' ')}
-            >
-              Guardar en fondo
-            </button>
-            <button
-              type="button"
-              onClick={() => setOverpaymentHandling('change_given')}
-              className={[
-                'rounded-full border px-3 py-1.5 text-sm font-semibold',
-                overpaymentHandling === 'change_given'
-                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                  : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
-              ].join(' ')}
-            >
-              Entregar cambio
-            </button>
-          </div>
-
-          {overpaymentHandling === 'change_given' ? (
-            <div className="mt-3 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B9C4D6]">
-                  Lineas de cambio
-                </div>
-                <button
-                  type="button"
-                  onClick={addChangeLine}
-                  disabled={changeAccounts.length === 0}
-                  className="rounded-full border border-sky-300/50 bg-sky-400/10 px-3 py-1.5 text-xs font-semibold text-sky-100 transition hover:bg-sky-400/20 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Agregar linea
-                </button>
-              </div>
-
-              {changeAccounts.length === 0 ? (
-                <div className="rounded-[8px] border border-orange-400/40 bg-orange-400/10 px-3 py-2 text-sm text-orange-200">
-                  No hay cuentas habilitadas para entregar cambio.
-                </div>
-              ) : null}
-
-              {changeLines.map((line, index) => {
-                const lineAccount =
-                  changeAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? firstChangeAccount;
-
-                return (
-                  <div
-                    key={line.id}
-                    className="grid gap-2 rounded-[8px] border border-sky-300/20 bg-[#0B0B0D]/70 p-3 lg:grid-cols-[minmax(210px,1.4fr)_minmax(130px,0.7fr)_minmax(120px,0.6fr)_auto]"
-                  >
-                    <label className="text-sm text-[#9FA0AA]">
-                      Cuenta
-                      <select
-                        value={line.accountKey}
-                        onChange={(event) => updateChangeLine(line.id, { accountKey: event.target.value })}
-                        className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                      >
-                        {changeAccounts.map((account) => (
-                          <option key={paymentAccountKey(account)} value={paymentAccountKey(account)}>
-                            {account.accountName} - {getPaymentMethodLabel(account.paymentMethodCode)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="text-sm text-[#9FA0AA]">
-                      Monto {lineAccount?.currencyCode || ''}
-                      <input
-                        value={line.amount}
-                        onChange={(event) => updateChangeLine(line.id, { amount: event.target.value })}
-                        inputMode="decimal"
-                        className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => fillChangeLineWithExcess(line.id)}
-                        className="mt-2 w-full rounded-full border border-sky-300/30 px-3 py-1.5 text-xs font-semibold text-sky-100 transition hover:bg-sky-400/10"
-                      >
-                        Cambio exacto
-                      </button>
-                    </label>
-
-                    {lineAccount?.currencyCode === 'VES' ? (
-                      <label className="text-sm text-[#9FA0AA]">
-                        Tasa
-                        <input
-                          value={line.exchangeRate}
-                          onChange={(event) => updateChangeLine(line.id, { exchangeRate: event.target.value })}
-                          inputMode="decimal"
-                          className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                        />
-                      </label>
-                    ) : (
-                      <div className="hidden lg:block" />
-                    )}
-
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={() => setChangeLines((current) => current.filter((item) => item.id !== line.id))}
-                        disabled={changeLines.length === 1}
-                        className="w-full rounded-[8px] border border-red-400/40 px-3 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-400/10 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {index === 0 && changeLines.length === 1 ? 'Linea unica' : 'Quitar'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {Math.abs(remainingAfterChangeUsd) > 0.005 ? (
-                <div
-                  className={[
-                    'rounded-[8px] border px-3 py-2 text-sm',
-                    remainingAfterChangeUsd > 0
-                      ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
-                      : 'border-orange-400/40 bg-orange-400/10 text-orange-200',
-                  ].join(' ')}
-                >
-                  {remainingAfterChangeUsd > 0
-                    ? `Quedaran ${moneyUsd(remainingAfterChangeUsd)} en fondo del cliente.`
-                    : `Se entrega ${moneyUsd(Math.abs(remainingAfterChangeUsd))} mas de lo debido; la orden quedara pendiente por ese monto.`}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-4 flex justify-end">
-        <button
-          type="button"
-          disabled={isWorking || paymentLines.length === 0}
-          onClick={() =>
-            onSubmit({
-              paymentLines: paymentLines.map((line) => ({
-                accountKey: line.accountKey,
-                amount: line.amount,
-                exchangeRate: line.exchangeRate,
-                operationDate: line.operationDate,
-                referenceCode: line.referenceCode,
-                bankName: line.bankName,
-                payerName: line.payerName,
-                notes: line.notes,
-              })),
-              overpaymentHandling,
-              changeLines: overpaymentHandling === 'change_given' ? changeLines : [],
-            })
-          }
-          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
-        >
-          {isWorking ? 'Guardando...' : submitLabel}
         </button>
       </div>
     </div>

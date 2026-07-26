@@ -12,7 +12,8 @@ Estado:
 - Bloque 1: cerrado en su alcance de autoridad y perímetro de seguridad.
 - Bloque 2: cerrado en su alcance de persistencia y comandos atómicos.
 - Bloque 3: cerrado en su alcance de lecturas ligeras y exactas.
-- Bloques 4 a 12: no iniciados.
+- Bloque 4: cerrado en su alcance de motor de caja registradora.
+- Bloques 5 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -30,6 +31,15 @@ Evidencia del Bloque 3:
 - `docs/COUNTER_BLOCK_3_READ_MODEL_AUDIT_2026-07-25.md`
 - `docs/COUNTER_BLOCK_3_LIGHT_READ_MODEL_2026-07-25.sql`
 - `docs/COUNTER_BLOCK_3_ROLLBACK_2026-07-25.sql`
+
+Evidencia del Bloque 4:
+
+- `docs/COUNTER_BLOCK_4_REGISTER_AUDIT_2026-07-25.md`
+- `docs/COUNTER_BLOCK_4_REGISTER_ENGINE_2026-07-25.sql`
+- `docs/COUNTER_BLOCK_4_HARDENING_2026-07-25.sql`
+- `docs/COUNTER_BLOCK_4_REFUND_GUARD_2026-07-25.sql`
+- `docs/COUNTER_BLOCK_4_ADVISOR_FIXES_2026-07-25.sql`
+- `docs/COUNTER_BLOCK_4_ROLLBACK_2026-07-25.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -369,6 +379,21 @@ No se permite un `router.refresh()` periódico que vuelva a ejecutar toda la rut
 - el costo no crece linealmente con todo el histórico.
 
 ## 10. Bloque 4 - Motor de caja registradora
+
+Estado: **cerrado el 2026-07-25**.
+
+Se aplicaron las migraciones remotas:
+
+- `20260725234348_counter_block4_register_engine`;
+- `20260725234507_counter_block4_hardening`;
+- `20260725234706_counter_block4_refund_guard`;
+- `20260726202857_counter_block4_financial_search_path`.
+
+El motor procesa pagos, cambio, fondo y obligaciones digitales mediante una
+sola intención idempotente. Los pagos pendientes siguen en `payment_reports`,
+el dinero confirmado en `money_movements` y el fondo en
+`client_fund_movements`. Solo se agregó una estructura específica para cambio
+digital todavía no entregado.
 
 ### Objetivo
 
@@ -843,9 +868,9 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 4 - Motor de caja registradora
+Bloque 5 - Pickup operativo
 ```
 
-Antes de programarlo se auditará el motor actual de cobros, pagos mixtos,
-cambio y devoluciones de `/app/counter`. Debe consumir la capa ligera del Bloque
-3 y mantener la verdad financiera en las funciones y ledger canónicos.
+Debe consumir el motor de caja ya cerrado y concentrarse en las reglas de
+modificación, autorización y entrega física de pickup sin ampliar el alcance a
+delivery ni a `/app/master/dashboard`.

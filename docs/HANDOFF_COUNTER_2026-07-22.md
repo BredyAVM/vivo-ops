@@ -428,7 +428,7 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 4 - Motor de caja registradora
+Bloque 5 - Pickup operativo
 ```
 
 Estado al 2026-07-25:
@@ -456,10 +456,21 @@ Estado al 2026-07-25:
 - `router.refresh()` eliminado del flujo de Counter;
 - la prueba positiva con un delivery real listo y asignado se repetirá antes de
   certificar el Bloque 6.
+- Bloque 4 cerrado en su alcance de motor de caja registradora;
+- evidencia en `docs/COUNTER_BLOCK_4_REGISTER_AUDIT_2026-07-25.md`;
+- migraciones remotas `20260725234348_counter_block4_register_engine`,
+  `20260725234507_counter_block4_hardening`,
+  `20260725234706_counter_block4_refund_guard` y
+  `20260726202857_counter_block4_financial_search_path` aplicadas;
+- pagos mixtos, cambio parcial, cambio digital pendiente, fondo, reintento y
+  devolución autorizada aprobados en transacciones con rollback;
+- una sola tabla nueva para la obligación digital todavía no entregada;
+- cola activa observada en 26,953 ms y detalle en 12,928 ms;
+- build de producción aprobado.
 
-El Bloque 4 debe construir el motor único de cobro para pagos simples y mixtos,
-cambio y devoluciones autorizadas. Debe consumir las lecturas del Bloque 3 y no
-convertir Counter en un dashboard financiero.
+El Bloque 5 debe completar pickup por estado: modificación permitida antes de
+preparar, motivo en reducciones, autorización de Master para un pedido listo,
+integración con el motor de caja y entrega física sin permitir cancelación.
 
 ## Prompt sugerido para abrir el chat nuevo
 

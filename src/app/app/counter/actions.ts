@@ -6,6 +6,14 @@ import { requireCounterOperatorContext } from '@/lib/auth';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
+import type {
+  CounterPaymentIntent,
+  CounterPaymentOperationResult,
+  CounterRefundExecutionIntent,
+  CounterRefundExecutionResult,
+  CounterRefundRequestIntent,
+  CounterRefundRequestResult,
+} from './payment-contract';
 
 type CounterQuickSaleInput = {
   clientId?: number | null;
@@ -189,6 +197,20 @@ function createSupabaseServiceRoleServer() {
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function roundCounterMoney(value: unknown) {
+  return Number(toSafeNumber(value, 0).toFixed(2));
 }
 
 function buildOrderItemNotes(input: {
@@ -380,6 +402,247 @@ async function generateUniqueOrderNumber(supabase: ReturnType<typeof createSupab
   }
 
   throw new Error('No se pudo generar un numero de orden unico.');
+}
+
+export async function applyCounterPaymentAction(
+  input: CounterPaymentIntent
+): Promise<CounterPaymentOperationResult> {
+  const ctx = await requireCounterOperatorContext();
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
+  }
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('La operacion de cobro no tiene una clave valida.');
+  }
+  if (!Array.isArray(input.paymentLines) || input.paymentLines.length < 1 || input.paymentLines.length > 12) {
+    throw new Error('El cobro debe tener entre una y doce lineas de pago.');
+  }
+  if (!Array.isArray(input.changeLines) || input.changeLines.length > 12) {
+    throw new Error('El cambio no puede tener mas de doce lineas.');
+  }
+
+  const paymentLines = input.paymentLines.map((line) => {
+    const lineKey = String(line.lineKey || '').trim();
+    const moneyAccountId = Math.trunc(Number(line.moneyAccountId || 0));
+    const paymentMethod = String(line.paymentMethod || '').trim().toLowerCase();
+    const currencyCode = line.currencyCode === 'VES' ? 'VES' : 'USD';
+    const amount = roundCounterMoney(line.amount);
+    const exchangeRate =
+      currencyCode === 'VES' ? Number(line.exchangeRateVesPerUsd || 0) : null;
+    const operationDate = String(line.operationDate || '').trim();
+
+    if (!lineKey || !Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+      throw new Error('Una linea de pago no tiene cuenta o identificador valido.');
+    }
+    if (!paymentMethod || amount <= 0) {
+      throw new Error('Una linea de pago no tiene metodo o monto valido.');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) {
+      throw new Error('Indica una fecha de operacion valida en cada pago.');
+    }
+    if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
+      throw new Error('Cada pago en bolivares requiere una tasa valida.');
+    }
+
+    return {
+      line_key: lineKey,
+      money_account_id: moneyAccountId,
+      payment_method: paymentMethod,
+      currency_code: currencyCode,
+      amount,
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? Number(exchangeRate) : null,
+      operation_date: operationDate,
+      reference_code: String(line.referenceCode || '').trim() || null,
+      bank_name: String(line.bankName || '').trim() || null,
+      payer_name: String(line.payerName || '').trim() || null,
+      notes: String(line.notes || '').trim() || null,
+    };
+  });
+
+  const changeLines = input.changeLines.map((line) => {
+    const lineKey = String(line.lineKey || '').trim();
+    const changeMode = line.changeMode === 'digital_pending' ? 'digital_pending' : 'cash';
+    const moneyAccountId =
+      line.moneyAccountId == null ? null : Math.trunc(Number(line.moneyAccountId || 0));
+    const paymentMethod = String(line.paymentMethod || '').trim().toLowerCase() || null;
+    const currencyCode = line.currencyCode === 'VES' ? 'VES' : 'USD';
+    const amount = roundCounterMoney(line.amount);
+    const exchangeRate =
+      currencyCode === 'VES' ? Number(line.exchangeRateVesPerUsd || 0) : null;
+
+    if (!lineKey || amount <= 0) {
+      throw new Error('Una linea de cambio no tiene identificador o monto valido.');
+    }
+    if (changeMode === 'cash' && (!moneyAccountId || moneyAccountId <= 0)) {
+      throw new Error('Cada cambio en efectivo requiere una caja valida.');
+    }
+    if (changeMode === 'digital_pending' && !paymentMethod) {
+      throw new Error('Cada cambio digital requiere indicar el metodo solicitado.');
+    }
+    if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
+      throw new Error('Cada cambio en bolivares requiere una tasa valida.');
+    }
+
+    return {
+      line_key: lineKey,
+      change_mode: changeMode,
+      money_account_id: changeMode === 'cash' ? moneyAccountId : null,
+      payment_method: changeMode === 'digital_pending' ? paymentMethod : null,
+      currency_code: currencyCode,
+      amount,
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? Number(exchangeRate) : null,
+      notes: String(line.notes || '').trim() || null,
+    };
+  });
+
+  const overpaymentHandling =
+    input.overpaymentHandling === 'store_fund' || input.overpaymentHandling === 'change_given'
+      ? input.overpaymentHandling
+      : null;
+
+  const { data, error } = await ctx.supabase.rpc('counter_apply_order_payments', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_payment_lines: paymentLines,
+    p_overpayment_handling: overpaymentHandling,
+    p_change_lines: changeLines,
+    p_notes: String(input.notes || '').trim() || null,
+  });
+
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+  const reports = Array.isArray(result.reports) ? result.reports.map(asRecord) : [];
+  const confirmedReportCount = reports.filter((report) => report.status === 'confirmed').length;
+  const pendingReportCount = reports.filter((report) => report.status === 'pending').length;
+
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+
+  return {
+    ok: true,
+    idempotencyKey,
+    orderId,
+    reportCount: reports.length,
+    confirmedReportCount,
+    pendingReportCount,
+    confirmedPaymentUsd: roundCounterMoney(result.confirmed_payment_usd),
+    pendingPaymentUsd: roundCounterMoney(result.pending_payment_usd),
+    cashChangeUsd: roundCounterMoney(result.cash_change_usd),
+    digitalChangePendingUsd: roundCounterMoney(result.digital_change_pending_usd),
+    fundCreditUsd: roundCounterMoney(result.fund_credit_usd),
+    pendingUsd: roundCounterMoney(result.pending_usd),
+    overpaidUsd: roundCounterMoney(result.overpaid_usd),
+  };
+}
+
+export async function requestCounterRefundAction(
+  input: CounterRefundRequestIntent
+): Promise<CounterRefundRequestResult> {
+  const ctx = await requireCounterOperatorContext();
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const reason = String(input.reason || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
+  }
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('La solicitud de devolucion no tiene una clave valida.');
+  }
+  if (!reason) {
+    throw new Error('La devolucion requiere un motivo.');
+  }
+  if (!Array.isArray(input.refundLines) || input.refundLines.length < 1 || input.refundLines.length > 12) {
+    throw new Error('La devolucion debe tener entre una y doce lineas.');
+  }
+
+  const refundLines = input.refundLines.map((line) => {
+    const lineKey = String(line.lineKey || '').trim();
+    const moneyAccountId = Math.trunc(Number(line.moneyAccountId || 0));
+    const currencyCode = line.currencyCode === 'VES' ? 'VES' : 'USD';
+    const amount = roundCounterMoney(line.amount);
+    const exchangeRate =
+      currencyCode === 'VES' ? Number(line.exchangeRateVesPerUsd || 0) : null;
+
+    if (!lineKey || !Number.isFinite(moneyAccountId) || moneyAccountId <= 0 || amount <= 0) {
+      throw new Error('Revisa la cuenta y el monto de cada devolucion.');
+    }
+    if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
+      throw new Error('Cada devolucion en bolivares requiere una tasa valida.');
+    }
+
+    return {
+      line_key: lineKey,
+      money_account_id: moneyAccountId,
+      currency_code: currencyCode,
+      amount,
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? Number(exchangeRate) : null,
+      reference_code: String(line.referenceCode || '').trim() || null,
+      notes: String(line.notes || '').trim() || null,
+    };
+  });
+
+  const { data, error } = await ctx.supabase.rpc('counter_request_refund', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_refund_lines: refundLines,
+    p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+  const movementGroupId = String(result.movement_group_id || idempotencyKey);
+
+  revalidatePath('/app/master/ops');
+
+  return {
+    ok: true,
+    idempotencyKey,
+    movementGroupId,
+    status: 'pending',
+    amountUsdEquivalent: roundCounterMoney(result.amount_usd_equivalent),
+  };
+}
+
+export async function executeCounterRefundAction(
+  input: CounterRefundExecutionIntent
+): Promise<CounterRefundExecutionResult> {
+  const ctx = await requireCounterOperatorContext();
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const refundGroupId = String(input.refundGroupId || '').trim();
+  const operationDate = String(input.operationDate || '').trim();
+
+  if (!isUuid(idempotencyKey) || !isUuid(refundGroupId)) {
+    throw new Error('La devolucion no tiene identificadores validos.');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) {
+    throw new Error('Indica una fecha valida para ejecutar la devolucion.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('counter_execute_refund', {
+    p_idempotency_key: idempotencyKey,
+    p_refund_group_id: refundGroupId,
+    p_operation_date: operationDate,
+    p_execution_notes: String(input.notes || '').trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+
+  return {
+    ok: true,
+    idempotencyKey,
+    movementGroupId: String(result.movement_group_id || refundGroupId),
+    status: 'executed',
+    amountUsdEquivalent: roundCounterMoney(result.amount_usd_equivalent),
+  };
 }
 
 export async function dispatchCounterDeliveryAction(input: {

@@ -14,6 +14,7 @@ import type {
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
+import type { CounterRefundAuthorization } from './payment-contract';
 
 type CounterReadClient = {
   rpc: (
@@ -72,13 +73,19 @@ type CounterReadOrderRow = {
   client_name: string | null;
   client_phone: string | null;
   advisor_name: string | null;
+  has_advisor?: boolean | null;
   delivery_assignee_kind: 'internal' | 'external' | null;
   delivery_assignee_name: string | null;
   confirmed_paid_usd: number | string | null;
   pending_usd: number | string | null;
+  payment_status?: string | null;
+  pending_reports_usd?: number | string | null;
+  overpaid_usd?: number | string | null;
+  pending_digital_change_usd?: number | string | null;
   pending_reports_count: number | string | null;
   confirmed_reports_count: number | string | null;
   rejected_reports_count: number | string | null;
+  refund_authorizations?: unknown[] | null;
   items?: CounterOrderItem[] | null;
 };
 
@@ -155,6 +162,33 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
   const orderId = Math.trunc(toNumber(row.id, 0));
   const schedule = row.extra_fields?.schedule;
   const payment = row.extra_fields?.payment;
+  const refundAuthorizations: CounterRefundAuthorization[] = asArray(row.refund_authorizations).map((authorizationValue) => {
+    const authorization = asRecord(authorizationValue);
+    const rawStatus = String(authorization.status || '');
+    const status: CounterRefundAuthorization['status'] =
+      rawStatus === 'approved' || rawStatus === 'rejected' || rawStatus === 'executed'
+        ? rawStatus
+        : 'pending';
+
+    return {
+      movementGroupId: String(authorization.movementGroupId || ''),
+      status,
+      amountUsdEquivalent: roundOrderMoney(authorization.amountUsdEquivalent),
+      createdAt: String(authorization.createdAt || ''),
+      reviewedAt: authorization.reviewedAt == null ? null : String(authorization.reviewedAt),
+      lines: asArray(authorization.lines).map((lineValue) => {
+        const line = asRecord(lineValue);
+        return {
+          movementId: Math.trunc(toNumber(line.movementId, 0)),
+          moneyAccountId: Math.trunc(toNumber(line.moneyAccountId, 0)),
+          accountName: String(line.accountName || 'Caja'),
+          currencyCode: line.currencyCode === 'VES' ? 'VES' as const : 'USD' as const,
+          amount: roundOrderMoney(line.amount),
+          amountUsdEquivalent: roundOrderMoney(line.amountUsdEquivalent),
+        };
+      }).filter((line) => line.movementId > 0 && line.moneyAccountId > 0),
+    };
+  }).filter((authorization) => authorization.movementGroupId.length > 0);
 
   return {
     id: orderId,
@@ -168,6 +202,7 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     clientName: row.client_name?.trim() || 'Cliente',
     clientPhone: row.client_phone || null,
     advisorName: row.advisor_name?.trim() || null,
+    hasAdvisor: Boolean(row.has_advisor ?? row.advisor_name),
     deliveryAddress: row.delivery_address || null,
     deliveryMode: row.delivery_mode || null,
     deliveryAssigneeKind: row.delivery_assignee_kind || null,
@@ -191,6 +226,11 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     fxRate: moneySnapshot.fxRate,
     confirmedPaidUsd,
     balanceUsd: roundingClosure.isClosed ? 0 : pendingUsd,
+    paymentStatus: String(row.payment_status || (pendingUsd <= 0.005 ? 'paid' : 'unpaid')),
+    pendingReportsUsd: roundOrderMoney(row.pending_reports_usd),
+    overpaidUsd: roundOrderMoney(row.overpaid_usd),
+    pendingDigitalChangeUsd: roundOrderMoney(row.pending_digital_change_usd),
+    refundAuthorizations,
     reports: {
       pending: Math.max(0, Math.trunc(toNumber(row.pending_reports_count, 0))),
       confirmed: Math.max(0, Math.trunc(toNumber(row.confirmed_reports_count, 0))),
