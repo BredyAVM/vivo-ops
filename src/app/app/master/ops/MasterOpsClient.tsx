@@ -64,6 +64,7 @@ import {
   cancelMasterOpsOrderAction,
   closeMasterOpsRoundingBalanceAction,
   confirmMasterOpsPaymentReportAction,
+  decideCounterPickupChangeAction,
   loadMasterOpsOrderDetailAction,
   loadMasterOpsPaymentSuggestionAction,
   settleMasterOpsClientFundPayoutAction,
@@ -73,6 +74,7 @@ import {
   type MasterOpsOrderSearchResult,
   updateMasterOpsExchangeRateAction,
 } from "./actions";
+import type { CounterPickupChangeRequest } from "../../counter/pickup-contract";
 import type { MasterOpsInboxItem, MasterOpsInboxKind } from "./inbox-actions";
 import MasterOpsAlerts from "./MasterOpsAlerts";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
@@ -93,6 +95,7 @@ export type MasterOpsOrder = MasterOrderDetailOrder & {
   pendingBs: number | null;
   paymentCollectionMode: string | null;
   paymentStateOperationDate: string | null;
+  pickupChangeRequests?: CounterPickupChangeRequest[];
 };
 export type DriverOption = {
   id: string;
@@ -195,7 +198,9 @@ type DirectActionKey =
   | "deliver-fund-change"
   | "close-rounding"
   | "add-note"
-  | "cancel-order";
+  | "cancel-order"
+  | "approve-pickup-change"
+  | "reject-pickup-change";
 type MoneyLinePayload = {
   moneyAccountId: number;
   currencyCode: string;
@@ -229,6 +234,7 @@ type DirectActionPayload = {
   overpaymentNotes?: string | null;
   moneyLines?: MoneyLinePayload[];
   changeLines?: MoneyLinePayload[];
+  pickupChangeRequestId?: number;
 };
 type PaymentReportDraft = {
   accountKey: string;
@@ -815,6 +821,7 @@ function OrderDetailPanel({
   const [cancelPaidHandling, setCancelPaidHandling] = useState<"store_fund" | "refund">("store_fund");
   const [cancelRefundLines, setCancelRefundLines] = useState<MoneyLineDraft[]>([]);
   const [operationalNote, setOperationalNote] = useState("");
+  const [pickupChangeReviewNotes, setPickupChangeReviewNotes] = useState("");
   const [whatsAppCopyStatus, setWhatsAppCopyStatus] = useState<"copied" | "error" | null>(null);
   const canReturn = canReturnMasterOpsOrderToAdvisor(order);
   const canKitchenTake = canKitchenTakeOrder(order);
@@ -824,6 +831,8 @@ function OrderDetailPanel({
   const canOutForDelivery = canStartMasterOpsDelivery(order);
   const canClearDelivery = canClearMasterOpsDeliveryAssignment(order);
   const busy = Boolean(runningAction);
+  const pendingPickupChange =
+    order.pickupChangeRequests?.find((request) => request.status === "pending") ?? null;
   const activeDeliveryPartners = deliveryPartners.filter((partner) => partner.isActive);
   const pendingPaymentReports = order.paymentReports.filter((report) => report.status === "pending");
   const paymentReportOptions = paymentAccounts.filter((option) =>
@@ -1656,6 +1665,92 @@ function OrderDetailPanel({
             </div>
 
             <aside className="min-w-0 space-y-3 xl:sticky xl:top-4">
+              {pendingPickupChange ? (
+                <div className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-violet-100">
+                        Cambio solicitado por Mostrador
+                      </div>
+                      <div className="mt-1 text-xs leading-relaxed text-violet-100/75">
+                        {pendingPickupChange.reason}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-violet-300/40 bg-violet-300/10 px-2 py-1 text-[10px] font-semibold text-violet-100">
+                      REQUIERE DECISION
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-1.5">
+                    {pendingPickupChange.preview.existingItems
+                      .filter(
+                        (item) =>
+                          item.previousQty != null &&
+                          Math.abs(item.qty - item.previousQty) > 0.0001
+                      )
+                      .map((item) => (
+                        <div
+                          key={`pickup-existing-${item.itemId}`}
+                          className="flex items-center justify-between gap-3 rounded-lg border border-violet-300/20 bg-[#0B0B0D] px-3 py-2 text-xs"
+                        >
+                          <span className="font-semibold text-[#F5F5F7]">{item.name}</span>
+                          <span className="text-violet-100">
+                            x{item.previousQty} → x{item.qty}
+                          </span>
+                        </div>
+                      ))}
+                    {pendingPickupChange.preview.addedItems.map((item, index) => (
+                      <div
+                        key={`pickup-added-${item.productId}-${index}`}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-violet-300/20 bg-[#0B0B0D] px-3 py-2 text-xs"
+                      >
+                        <span className="font-semibold text-[#F5F5F7]">{item.name}</span>
+                        <span className="text-emerald-200">+x{item.qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 rounded-lg border border-violet-300/20 bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+                    Nuevo total: {formatMasterOrderUSD(pendingPickupChange.preview.totalUsd)}
+                    {pendingPickupChange.preview.needsKitchen
+                      ? " · Al aprobar, vuelve a cocina."
+                      : " · Puede permanecer listo."}
+                  </div>
+                  <textarea
+                    className="mt-3 min-h-16 w-full resize-y rounded-xl border border-violet-300/25 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666672] focus:border-violet-300"
+                    maxLength={1200}
+                    placeholder="Nota de la decision (opcional)"
+                    value={pickupChangeReviewNotes}
+                    onChange={(event) => setPickupChangeReviewNotes(event.target.value)}
+                  />
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        void onDirectAction(order, "reject-pickup-change", {
+                          pickupChangeRequestId: pendingPickupChange.id,
+                          notes: pickupChangeReviewNotes,
+                        });
+                      }}
+                      className="rounded-xl border border-red-500/45 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {runningAction === `reject-pickup-change:${order.id}` ? "Rechazando..." : "Rechazar"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        void onDirectAction(order, "approve-pickup-change", {
+                          pickupChangeRequestId: pendingPickupChange.id,
+                          notes: pickupChangeReviewNotes,
+                        });
+                      }}
+                      className="rounded-xl border border-violet-300/50 bg-violet-300/15 px-3 py-2 text-sm font-semibold text-violet-100 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {runningAction === `approve-pickup-change:${order.id}` ? "Aprobando..." : "Aprobar"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
                 <div className="flex flex-col gap-3">
               <div>
@@ -3803,6 +3898,20 @@ export default function MasterOpsClient({
         result = await addMasterOpsOrderNoteAction({
           orderId: order.id,
           note,
+        });
+      } else if (
+        action === "approve-pickup-change" ||
+        action === "reject-pickup-change"
+      ) {
+        const requestId = Math.trunc(Number(payload.pickupChangeRequestId || 0));
+        if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+          throw new Error("No se pudo identificar la solicitud de cambio.");
+        }
+        result = await decideCounterPickupChangeAction({
+          idempotencyKey: crypto.randomUUID(),
+          requestId,
+          decision: action === "approve-pickup-change" ? "approve" : "reject",
+          notes: payload.notes?.trim() || null,
         });
       } else if (action === "cancel-order") {
         const reason = String(payload.reason || "").trim();

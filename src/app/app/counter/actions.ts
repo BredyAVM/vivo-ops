@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireCounterOperatorContext } from '@/lib/auth';
-import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import type {
@@ -14,6 +13,13 @@ import type {
   CounterRefundRequestIntent,
   CounterRefundRequestResult,
 } from './payment-contract';
+import type {
+  CounterPickupCompletionResult,
+  CounterPickupItemChangeIntent,
+  CounterPickupItemChangeResult,
+  CounterPickupScheduleIntent,
+  CounterPickupScheduleResult,
+} from './pickup-contract';
 
 type CounterQuickSaleInput = {
   clientId?: number | null;
@@ -93,30 +99,6 @@ type CounterProductRow = {
   source_price_amount: number | string | null;
   base_price_usd: number | string | null;
   base_price_bs: number | string | null;
-};
-
-type CounterOrderForItemsRow = {
-  id: number;
-  order_number: string | null;
-  status: string | null;
-  total_usd: number | string | null;
-  total_bs_snapshot: number | string | null;
-  extra_fields: Record<string, any> | null;
-};
-
-type CounterExistingItemRow = {
-  line_total_usd: number | string | null;
-  line_total_bs_snapshot: number | string | null;
-};
-
-type CounterAddItemsInput = {
-  orderId: number;
-  items: Array<{
-    productId: number;
-    qty: number;
-    notes?: string | null;
-    editableDetailLines?: string[] | null;
-  }>;
 };
 
 type CounterCashMovementInput = {
@@ -1053,204 +1035,145 @@ export async function createCounterQuickSaleAction(input: CounterQuickSaleInput)
 
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');
-  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
 
   return { id: orderId, orderNumber, sentToKitchen: sendNowToKitchen, scheduled: !sendNowToKitchen };
 }
 
-export async function addCounterOrderItemsAction(input: CounterAddItemsInput) {
+export async function updateCounterPickupScheduleAction(
+  input: CounterPickupScheduleIntent
+): Promise<CounterPickupScheduleResult> {
   const ctx = await requireCounterOperatorContext();
-
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
   const orderId = Number(input.orderId || 0);
-  const items = (input.items || [])
-    .map((item) => ({
-      productId: Number(item.productId || 0),
-      qty: Math.max(0, Number(item.qty || 0)),
-      notes: String(item.notes || '').trim() || null,
-      editableDetailLines: Array.isArray(item.editableDetailLines)
-        ? item.editableDetailLines.map((line) => String(line || '').trim()).filter(Boolean)
-        : [],
-    }))
-    .filter((item) => item.productId > 0 && item.qty > 0);
+  const scheduledDate = String(input.scheduledDate || '').trim();
+  const scheduledTime = String(input.scheduledTime || '').trim();
+  const reason = String(input.reason || '').trim();
 
-  if (!Number.isFinite(orderId) || orderId <= 0) throw new Error('Orden invalida.');
-  if (items.length === 0) throw new Error('Agrega al menos un producto.');
+  if (!isUuid(idempotencyKey)) throw new Error('La correccion no tiene un identificador valido.');
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new Error('Orden invalida.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) throw new Error('Indica una fecha valida.');
+  if (!/^\d{2}:\d{2}$/.test(scheduledTime)) throw new Error('Indica una hora valida.');
+  if (reason.length < 4) throw new Error('Indica el motivo de la correccion.');
 
-  const supabase = createSupabaseServiceRoleServer();
-  const { data: orderData, error: orderError } = await supabase
-    .from('orders')
-    .select('id, order_number, status, total_usd, total_bs_snapshot, extra_fields')
-    .eq('id', orderId)
-    .single();
-
-  if (orderError || !orderData) throw new Error(orderError?.message || 'No se pudo cargar la orden.');
-
-  const order = orderData as CounterOrderForItemsRow;
-  if (order.status === 'out_for_delivery' || order.status === 'delivered' || order.status === 'cancelled') {
-    throw new Error('Esta orden ya no puede modificarse desde mostrador.');
-  }
-
-  const fxRate = await loadActiveExchangeRate(supabase);
-  const productIds = Array.from(new Set(items.map((item) => item.productId)));
-  const { data: productsData, error: productsError } = await supabase
-    .from('products')
-    .select('id, sku, name, source_price_currency, source_price_amount, base_price_usd, base_price_bs')
-    .in('id', productIds)
-    .eq('is_active', true);
-
-  if (productsError) throw new Error(productsError.message);
-
-  const productsById = new Map<number, CounterProductRow>(
-    ((productsData ?? []) as CounterProductRow[]).map((product) => [Number(product.id), product])
-  );
-  if (productsById.size !== productIds.length) {
-    throw new Error('Uno de los productos no esta activo o no existe.');
-  }
-
-  const itemSnapshots = items.map((item) => {
-    const product = productsById.get(item.productId);
-    if (!product) throw new Error('Producto no encontrado.');
-    const sourceCurrency = product.source_price_currency === 'VES' ? 'VES' : 'USD';
-    const sourceAmount =
-      sourceCurrency === 'VES'
-        ? toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_bs, 0))
-        : toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_usd, 0));
-
-    return calculateOrderLineSnapshot({
-      sourceCurrency,
-      sourceAmount,
-      quantity: item.qty,
-      fxRate,
-      fallbackUnitUsd: toSafeNumber(product.base_price_usd, 0),
-    });
+  const { data, error } = await ctx.supabase.rpc('counter_update_pickup_schedule', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_schedule_date: scheduledDate,
+    p_schedule_time: scheduledTime,
+    p_reason: reason,
+    p_send_to_kitchen: Boolean(input.sendToKitchen),
   });
-
-  const { data: existingItemsData, error: existingItemsError } = await supabase
-    .from('order_items')
-    .select('line_total_usd, line_total_bs_snapshot')
-    .eq('order_id', orderId);
-
-  if (existingItemsError) throw new Error(existingItemsError.message);
-
-  const existingSubtotalUsd = ((existingItemsData ?? []) as CounterExistingItemRow[]).reduce(
-    (sum, item) => sum + toSafeNumber(item.line_total_usd, 0),
-    0
-  );
-  const existingSubtotalBs = ((existingItemsData ?? []) as CounterExistingItemRow[]).reduce(
-    (sum, item) => sum + toSafeNumber(item.line_total_bs_snapshot, 0),
-    0
-  );
-  const addedSubtotalUsd = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
-  const addedSubtotalBs = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
-  const currentMoney = getOrderMoneySnapshot(order);
-  const totals = calculateOrderTotalsSnapshot({
-    subtotalUsd: existingSubtotalUsd + addedSubtotalUsd,
-    subtotalBs: existingSubtotalBs + addedSubtotalBs,
-    discountPct: currentMoney.discountEnabled ? currentMoney.discountPct : 0,
-    invoiceTaxPct: currentMoney.hasInvoice ? currentMoney.invoiceTaxPct : 0,
-  });
-
-  const nowIso = new Date().toISOString();
-  const shouldReturnToKitchen = order.status === 'ready';
-  const itemsPayload = items.map((item, index) => {
-    const product = productsById.get(item.productId);
-    if (!product) throw new Error('Producto no encontrado.');
-    const sourceCurrency = product.source_price_currency === 'VES' ? 'VES' : 'USD';
-    const sourceAmount =
-      sourceCurrency === 'VES'
-        ? toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_bs, 0))
-        : toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_usd, 0));
-    const snapshot = itemSnapshots[index];
-
-    return {
-      order_id: orderId,
-      product_id: item.productId,
-      qty: item.qty,
-      pricing_origin_currency: sourceCurrency,
-      pricing_origin_amount: sourceAmount,
-      unit_price_usd_snapshot: snapshot.unitUsd,
-      line_total_usd: snapshot.lineUsd,
-      unit_price_bs_snapshot: snapshot.unitBs,
-      line_total_bs_snapshot: snapshot.lineBs,
-      sku_snapshot: product.sku,
-      product_name_snapshot: product.name || 'Producto',
-      notes: buildOrderItemNotes(item),
-    };
-  });
-
-  const { error: insertItemsError } = await supabase.from('order_items').insert(itemsPayload);
-  if (insertItemsError) throw new Error(insertItemsError.message);
-
-  const currentExtraFields = order.extra_fields ?? {};
-  const currentPricing = (currentExtraFields.pricing ?? {}) as Record<string, any>;
-  const nextExtraFields = {
-    ...currentExtraFields,
-    pricing: {
-      ...currentPricing,
-      fx_rate: fxRate,
-      discount_enabled: currentMoney.discountEnabled,
-      discount_pct: currentMoney.discountEnabled ? currentMoney.discountPct : 0,
-      discount_amount_usd: totals.discountAmountUsd,
-      discount_amount_bs: totals.discountAmountBs,
-      subtotal_usd: existingSubtotalUsd + addedSubtotalUsd,
-      subtotal_bs: existingSubtotalBs + addedSubtotalBs,
-      subtotal_after_discount_usd: totals.subtotalAfterDiscountUsd,
-      subtotal_after_discount_bs: totals.subtotalAfterDiscountBs,
-      invoice_tax_pct: currentMoney.hasInvoice ? currentMoney.invoiceTaxPct : 0,
-      invoice_tax_amount_usd: totals.invoiceTaxAmountUsd,
-      invoice_tax_amount_bs: totals.invoiceTaxAmountBs,
-      total_usd: totals.totalUsd,
-      total_bs: totals.totalBs,
-    },
-    counter: {
-      ...((currentExtraFields.counter ?? {}) as Record<string, any>),
-      last_added_items_at: nowIso,
-      last_added_items_by: ctx.user.id,
-    },
-  };
-
-  const updatePayload: Record<string, any> = {
-    total_usd: totals.totalUsd,
-    total_bs_snapshot: totals.totalBs,
-    extra_fields: nextExtraFields,
-  };
-  if (shouldReturnToKitchen) {
-    updatePayload.status = 'confirmed';
-    updatePayload.ready_at = null;
-    updatePayload.sent_to_kitchen_at = nowIso;
-  }
-
-  const { error: updateOrderError } = await supabase.from('orders').update(updatePayload).eq('id', orderId);
-  if (updateOrderError) throw new Error(updateOrderError.message);
-
-  await supabase.from('order_timeline_events').insert({
-    order_id: orderId,
-    order_number: order.order_number,
-    event_type: 'counter_items_added',
-    event_group: shouldReturnToKitchen ? 'kitchen' : 'order',
-    title: shouldReturnToKitchen ? 'Mostrador agrego productos y regreso a cocina' : 'Mostrador agrego productos',
-    message: `Se agregaron ${items.length} linea(s) desde mostrador.`,
-    severity: shouldReturnToKitchen ? 'warning' : 'info',
-    actor_user_id: ctx.user.id,
-    payload: {
-      source: 'counter',
-      added_lines: items.length,
-      returned_to_kitchen: shouldReturnToKitchen,
-      total_usd: totals.totalUsd,
-      total_bs: totals.totalBs,
-    },
-  });
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
 
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');
-  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
 
   return {
-    ok: true,
-    returnedToKitchen: shouldReturnToKitchen,
-    addedLines: items.length,
-    totalUsd: totals.totalUsd,
-    totalBs: totals.totalBs,
+    status: result.status === 'sent_to_kitchen' ? 'sent_to_kitchen' : 'schedule_updated',
+    orderId: Math.trunc(toSafeNumber(result.orderId, orderId)),
+    scheduleDate: String(result.scheduleDate || scheduledDate),
+    scheduleTime: String(result.scheduleTime || scheduledTime),
+    sentToKitchen: Boolean(result.sentToKitchen),
+  };
+}
+
+export async function changeCounterPickupItemsAction(
+  input: CounterPickupItemChangeIntent
+): Promise<CounterPickupItemChangeResult> {
+  const ctx = await requireCounterOperatorContext();
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const orderId = Number(input.orderId || 0);
+  const existingItems = (input.existingItems || []).map((item) => ({
+    item_id: Number(item.itemId || 0),
+    qty: Number(item.qty),
+  }));
+  const addedItems = (input.addedItems || [])
+    .map((item) => ({
+      product_id: Number(item.productId || 0),
+      qty: Math.max(0, Number(item.qty || 0)),
+      notes: buildOrderItemNotes(item),
+    }))
+    .filter((item) => item.product_id > 0 && item.qty > 0);
+
+  if (!isUuid(idempotencyKey)) throw new Error('El cambio no tiene un identificador valido.');
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new Error('Orden invalida.');
+  if (
+    existingItems.some(
+      (item) =>
+        !Number.isSafeInteger(item.item_id) ||
+        item.item_id <= 0 ||
+        !Number.isFinite(item.qty) ||
+        item.qty < 0 ||
+        item.qty > 999
+    )
+  ) {
+    throw new Error('Una linea actual no es valida.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('counter_change_pickup_items', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_existing_items: existingItems,
+    p_added_items: addedItems,
+    p_reason: String(input.reason || '').trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
+
+  return {
+    status: result.status === 'pending_approval' ? 'pending_approval' : 'applied',
+    orderId: Math.trunc(toSafeNumber(result.orderId, orderId)),
+    requestId: result.requestId == null ? null : Math.trunc(toSafeNumber(result.requestId, 0)),
+    returnedToKitchen: Boolean(result.returnedToKitchen),
+    totalUsd: roundCounterMoney(result.totalUsd),
+    totalBs: roundCounterMoney(result.totalBs),
+  };
+}
+
+export async function completeCounterPickupAction(input: {
+  idempotencyKey: string;
+  orderId: number;
+  notes?: string | null;
+}): Promise<CounterPickupCompletionResult> {
+  const ctx = await requireCounterOperatorContext();
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const orderId = Math.trunc(Number(input.orderId || 0));
+
+  if (!isUuid(idempotencyKey)) throw new Error('La entrega no tiene un identificador valido.');
+  if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new Error('Orden invalida.');
+
+  const { data, error } = await ctx.supabase.rpc('counter_complete_pickup', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_notes: String(input.notes || '').trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/inbox');
+
+  return {
+    status: 'delivered',
+    orderId: Math.trunc(toSafeNumber(result.orderId, orderId)),
+    deliveredAt: String(result.deliveredAt || new Date().toISOString()),
+    paymentStatus: String(result.paymentStatus || 'unpaid'),
+    pendingUsd: roundCounterMoney(result.pendingUsd),
+    pendingReportsCount: Math.max(0, Math.trunc(toSafeNumber(result.pendingReportsCount, 0))),
+    advisorResponsibleForCollection: Boolean(result.advisorResponsibleForCollection),
   };
 }
 

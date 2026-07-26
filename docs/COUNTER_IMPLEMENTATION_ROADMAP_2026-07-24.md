@@ -13,7 +13,8 @@ Estado:
 - Bloque 2: cerrado en su alcance de persistencia y comandos atómicos.
 - Bloque 3: cerrado en su alcance de lecturas ligeras y exactas.
 - Bloque 4: cerrado en su alcance de motor de caja registradora.
-- Bloques 5 a 12: no iniciados.
+- Bloque 5: cerrado en su alcance de pickup operativo.
+- Bloques 6 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -40,6 +41,14 @@ Evidencia del Bloque 4:
 - `docs/COUNTER_BLOCK_4_REFUND_GUARD_2026-07-25.sql`
 - `docs/COUNTER_BLOCK_4_ADVISOR_FIXES_2026-07-25.sql`
 - `docs/COUNTER_BLOCK_4_ROLLBACK_2026-07-25.sql`
+
+Evidencia del Bloque 5:
+
+- `docs/COUNTER_BLOCK_5_PICKUP_AUDIT_2026-07-26.md`
+- `docs/COUNTER_BLOCK_5_PICKUP_OPERATION_2026-07-26.sql`
+- `docs/COUNTER_BLOCK_5_READ_HARDENING_2026-07-26.sql`
+- `docs/COUNTER_BLOCK_5_COMPLETION_GUARD_2026-07-26.sql`
+- `docs/COUNTER_BLOCK_5_ROLLBACK_2026-07-26.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -445,6 +454,21 @@ debe ejecutar una secuencia de mutaciones financieras independientes.
 - una devolución no crea deuda negativa ficticia.
 
 ## 11. Bloque 5 - Pickup operativo
+
+Estado: **cerrado el 2026-07-26**.
+
+Se aplicaron las migraciones
+`20260726220533_counter_block5_pickup_operation`,
+`20260726222410_counter_block5_trigger_safe_item_mutations`,
+`20260726222552_counter_block5_timeline_recipient_types` y
+`20260726223553_counter_block5_read_hardening` y
+`20260726224452_counter_block5_completion_guard`.
+
+El flujo permite corregir agenda, enviar a cocina, modificar un pickup activo y
+entregarlo. Los pedidos listos o con precio protegido generan una solicitud
+para Master Ops y no mutan hasta ser aprobados. La cola continúa ligera: las
+solicitudes se leen únicamente al abrir el detalle y mediante un RPC acotado.
+Las pruebas transaccionales terminaron en rollback y no dejaron artefactos.
 
 ### Objetivo
 

@@ -428,10 +428,10 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 5 - Pickup operativo
+Bloque 6 - Delivery y liquidación
 ```
 
-Estado al 2026-07-25:
+Estado al 2026-07-26:
 
 - Bloque 1 cerrado en su alcance de autoridad y perímetro de seguridad;
 - evidencia en `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`;
@@ -467,10 +467,27 @@ Estado al 2026-07-25:
 - una sola tabla nueva para la obligación digital todavía no entregada;
 - cola activa observada en 26,953 ms y detalle en 12,928 ms;
 - build de producción aprobado.
+- Bloque 5 cerrado en su alcance de pickup operativo;
+- evidencia en `docs/COUNTER_BLOCK_5_PICKUP_AUDIT_2026-07-26.md`;
+- migraciones remotas `20260726220533_counter_block5_pickup_operation`,
+  `20260726222410_counter_block5_trigger_safe_item_mutations`,
+  `20260726222552_counter_block5_timeline_recipient_types` y
+  `20260726223553_counter_block5_read_hardening` y
+  `20260726224452_counter_block5_completion_guard` aplicadas;
+- corrección de agenda, entrada idempotente a cocina y mutación de pickup activo
+  aprobadas;
+- pickup listo o con precio protegido requiere autorización en Master Ops;
+- entrega física respeta efectivo/POS, pagos digitales, asesor y cambio
+  pendiente como estados separados;
+- una sola tabla nueva para solicitudes de modificación, sin ledger ni estado
+  financiero paralelo;
+- lectura de solicitudes bajo demanda, acotada a 20 e indexada;
+- pruebas transaccionales con rollback y build de producción aprobados;
+- no se modificó `/app/master/dashboard`.
 
-El Bloque 5 debe completar pickup por estado: modificación permitida antes de
-preparar, motivo en reducciones, autorización de Master para un pedido listo,
-integración con el motor de caja y entrega física sin permitir cancelación.
+El Bloque 6 debe completar delivery y liquidación: despacho al motorizado, ETA,
+cambio entregado, custodia, retorno total o parcial y pendientes entre días,
+sin confundir entrega, pago y liquidación.
 
 ## Prompt sugerido para abrir el chat nuevo
 

@@ -24,6 +24,11 @@ import type {
 } from "../_components/MasterOrderDetailCore";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
 import { canEditMasterOpsOrder } from "./operational-rules";
+import type {
+  CounterPickupChangeDecisionResult,
+  CounterPickupChangePreviewItem,
+  CounterPickupChangeRequest,
+} from "../../counter/pickup-contract";
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
 const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
@@ -48,6 +53,7 @@ export type MasterOpsOrderDetailPayload = {
   paymentReports: MasterOrderPaymentReport[];
   events: MasterOrderEvent[];
   adminAdjustments: MasterOrderAdminAdjustment[];
+  pickupChangeRequests: CounterPickupChangeRequest[];
 };
 
 type MasterOpsDetailItemRow = {
@@ -94,6 +100,24 @@ type MasterOpsDetailAdjustmentRow = {
   created_by_user_id: string | null;
 };
 
+function asOpsArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function mapMasterOpsPickupPreviewItem(value: unknown): CounterPickupChangePreviewItem {
+  const item = asOpsRecord(value);
+  return {
+    itemId: item.itemId == null ? null : Math.trunc(Number(item.itemId || 0)),
+    productId: Math.trunc(Number(item.productId || 0)),
+    name: cleanText(item.name, "Producto"),
+    previousQty: item.previousQty == null ? null : Number(item.previousQty || 0),
+    qty: Number(item.qty || 0),
+    lineUsd: roundOpsMoney(item.lineUsd),
+    lineBs: roundOpsMoney(item.lineBs),
+    notes: item.notes == null ? null : String(item.notes),
+  };
+}
+
 function extractMasterOpsUnitsPerService(name: string) {
   const match = name.match(/\((\d+(?:[.,]\d+)?)\s*(?:und|unidad|unidades|pzas?|piezas?)\)/i);
   if (!match) return 0;
@@ -133,6 +157,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       paymentReportsResult,
       orderEventsResult,
       orderAdjustmentsResult,
+      pickupChangeRequestsResult,
     ] = await Promise.all([
       supabase.from("orders").select("id").eq("id", orderId).maybeSingle(),
       supabase
@@ -178,6 +203,9 @@ export async function loadMasterOpsOrderDetailAction(input: {
         .select("id, adjustment_type, reason, notes, created_at, created_by_user_id")
         .eq("order_id", orderId)
         .order("created_at", { ascending: false }),
+      supabase.rpc("counter_read_pickup_change_requests", {
+        p_order_id: orderId,
+      }),
     ]);
 
     const firstError =
@@ -185,7 +213,8 @@ export async function loadMasterOpsOrderDetailAction(input: {
       orderItemsResult.error ??
       paymentReportsResult.error ??
       orderEventsResult.error ??
-      orderAdjustmentsResult.error;
+      orderAdjustmentsResult.error ??
+      pickupChangeRequestsResult.error;
     if (firstError) throw new Error(firstError.message);
     if (!orderResult.data) throw new Error("No se pudo cargar la orden.");
 
@@ -193,6 +222,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
     const paymentReports = (paymentReportsResult.data ?? []) as MasterOpsDetailPaymentRow[];
     const orderEvents = (orderEventsResult.data ?? []) as MasterOpsDetailEventRow[];
     const orderAdjustments = (orderAdjustmentsResult.data ?? []) as MasterOpsDetailAdjustmentRow[];
+    const pickupChangeRequestRows = asOpsArray(pickupChangeRequestsResult.data);
     const productIds = Array.from(
       new Set(orderItems.map((item) => Number(item.product_id)).filter((id) => Number.isFinite(id) && id > 0))
     );
@@ -335,6 +365,39 @@ export async function loadMasterOpsOrderDetailAction(input: {
           ? profileNameById.get(adjustment.created_by_user_id)
           : null) ?? "Admin",
     }));
+    const pickupChangeRequests: CounterPickupChangeRequest[] = pickupChangeRequestRows.map((value) => {
+      const request = asOpsRecord(value);
+      const preview = asOpsRecord(request.preview);
+      const rawStatus = String(request.status || "");
+      const status: CounterPickupChangeRequest["status"] =
+        rawStatus === "approved" || rawStatus === "rejected" || rawStatus === "stale"
+          ? rawStatus
+          : "pending";
+
+      return {
+        id: Math.trunc(Number(request.id)),
+        status,
+        reason: cleanText(request.reason, "--"),
+        requestedAt: String(request.requestedAt || ""),
+        requestedByName: cleanText(request.requestedByName, "Usuario"),
+        reviewedAt: request.reviewedAt ? String(request.reviewedAt) : null,
+        reviewedByName: request.reviewedByName
+          ? cleanText(request.reviewedByName, "Usuario")
+          : null,
+        reviewNotes: request.reviewNotes ? String(request.reviewNotes) : null,
+        appliedAt: request.appliedAt ? String(request.appliedAt) : null,
+        preview: {
+          totalUsd: roundOpsMoney(preview.totalUsd),
+          totalBs: roundOpsMoney(preview.totalBs),
+          hadReduction: Boolean(preview.hadReduction),
+          hadExistingIncrease: Boolean(preview.hadExistingIncrease),
+          hasAdditions: Boolean(preview.hasAdditions),
+          needsKitchen: Boolean(preview.needsKitchen),
+          existingItems: asOpsArray(preview.existingItems).map(mapMasterOpsPickupPreviewItem),
+          addedItems: asOpsArray(preview.addedItems).map(mapMasterOpsPickupPreviewItem),
+        },
+      };
+    });
 
     return {
       ok: true,
@@ -343,6 +406,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
         paymentReports: mappedPaymentReports,
         events,
         adminAdjustments,
+        pickupChangeRequests,
       },
     };
   } catch (error) {
@@ -351,6 +415,50 @@ export async function loadMasterOpsOrderDetailAction(input: {
       message: error instanceof Error ? error.message : "No se pudo cargar el detalle de la orden.",
     };
   }
+}
+
+export async function decideCounterPickupChangeAction(input: {
+  idempotencyKey: string;
+  requestId: number;
+  decision: "approve" | "reject";
+  notes?: string | null;
+}): Promise<CounterPickupChangeDecisionResult> {
+  const { supabase } = await requireMasterOrAdminContext();
+  const idempotencyKey = String(input.idempotencyKey || "").trim();
+  const requestId = Math.trunc(Number(input.requestId || 0));
+  const decision = input.decision === "reject" ? "reject" : "approve";
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+    throw new Error("La decision no tiene un identificador valido.");
+  }
+  if (!Number.isSafeInteger(requestId) || requestId <= 0) {
+    throw new Error("La solicitud de cambio no es valida.");
+  }
+
+  const { data, error } = await supabase.rpc("counter_decide_pickup_change", {
+    p_idempotency_key: idempotencyKey,
+    p_request_id: requestId,
+    p_decision: decision,
+    p_notes: String(input.notes || "").trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  const result = asOpsRecord(data);
+  const rawStatus = String(result.status || "");
+
+  revalidatePath("/app/counter");
+  revalidatePath("/app/kitchen");
+  revalidatePath("/app/master/ops");
+  revalidatePath("/app/advisor");
+  revalidatePath("/app/advisor/inbox");
+
+  return {
+    status: rawStatus === "approved" || rawStatus === "stale" ? rawStatus : "rejected",
+    requestId: Math.trunc(Number(result.requestId || requestId)),
+    orderId: Math.trunc(Number(result.orderId || 0)),
+    returnedToKitchen: Boolean(result.returnedToKitchen),
+    totalUsd: result.totalUsd == null ? undefined : roundOpsMoney(result.totalUsd),
+    totalBs: result.totalBs == null ? undefined : roundOpsMoney(result.totalBs),
+  };
 }
 
 export async function addMasterOpsOrderNoteAction(input: {

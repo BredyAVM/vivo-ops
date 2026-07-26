@@ -11,10 +11,10 @@ import {
 } from '@/lib/orders/order-composer';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../ModulePreference';
-import { markDeliveredAction } from '../master/dashboard/actions';
 import {
-  addCounterOrderItemsAction,
   applyCounterPaymentAction,
+  changeCounterPickupItemsAction,
+  completeCounterPickupAction,
   createCounterCashClosureAction,
   createCounterCashMovementAction,
   createCounterQuickSaleAction,
@@ -26,6 +26,7 @@ import {
   type CounterAgendaSearchCursor,
   type CounterAgendaSearchResult,
   type CounterClientSearchResult,
+  updateCounterPickupScheduleAction,
 } from './actions';
 import { CounterPaymentEngine } from './CounterPaymentEngine';
 import { CounterRefundPanel } from './CounterRefundPanel';
@@ -38,6 +39,13 @@ import type {
   CounterRefundRequestIntent,
   CounterRefundRequestResult,
 } from './payment-contract';
+import type {
+  CounterPickupChangeRequest,
+  CounterPickupItemChangeIntent,
+  CounterPickupItemChangeResult,
+  CounterPickupScheduleIntent,
+  CounterPickupScheduleResult,
+} from './pickup-contract';
 import {
   loadCounterCashSnapshotAction,
   loadCounterCatalogAction,
@@ -164,6 +172,7 @@ export type CounterOrder = {
     rejected: number;
   };
   items: CounterOrderItem[];
+  pickupChangeRequests: CounterPickupChangeRequest[];
   detailLoaded: boolean;
 };
 
@@ -422,10 +431,11 @@ function isCounterImmediatePaymentMethod(method: string | null | undefined) {
 }
 
 function mustSettleBeforeCounterDelivery(order: CounterOrder) {
+  if (order.pendingDigitalChangeUsd > 0.005) return true;
   const hasUnconfirmedPayment = order.reports.pending > 0;
   if (order.balanceUsd <= 0.005 && !hasUnconfirmedPayment) return false;
-  if (order.hasAdvisor && hasUnconfirmedPayment) return false;
   if (isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005) return true;
+  if (order.hasAdvisor && hasUnconfirmedPayment) return false;
   return !order.hasAdvisor && (order.balanceUsd > 0.005 || hasUnconfirmedPayment);
 }
 
@@ -997,16 +1007,18 @@ export default function CounterClient({
                 ? `Orden #${order.displayNumber} enviada a delivery con ETA ${options.etaMinutes} min.`
                 : `Orden #${order.displayNumber} enviada a delivery.`,
           });
-        } else {
-          await markDeliveredAction({ orderId: order.id });
+        } else if (order.fulfillment === 'pickup' && order.status === 'ready') {
+          await completeCounterPickupAction({
+            idempotencyKey: crypto.randomUUID(),
+            orderId: order.id,
+          });
           completeLocalOrder(order.id);
           setMessage({
             tone: 'success',
-            text:
-              order.fulfillment === 'pickup'
-                ? `Orden #${order.displayNumber} retirada por el cliente.`
-                : `Orden #${order.displayNumber} marcada como entregada.`,
+            text: `Orden #${order.displayNumber} retirada por el cliente.`,
           });
+        } else {
+          throw new Error('Esta accion no corresponde al estado actual de la orden.');
         }
         await refreshCounter();
       } catch (error) {
@@ -1163,34 +1175,61 @@ export default function CounterClient({
     });
   }
 
-  function handleAddItemsToOrder(
+  async function handleChangePickupItems(
     order: CounterOrder,
-    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>
-  ) {
+    input: CounterPickupItemChangeIntent
+  ): Promise<CounterPickupItemChangeResult> {
     setMessage(null);
     setWorkingOrderId(order.id);
-    startTransition(async () => {
-      try {
-        const result = await addCounterOrderItemsAction({ orderId: order.id, items });
-        setMessage({
-          tone: 'success',
-          text: result.returnedToKitchen
-            ? `Se agregaron ${result.addedLines} linea(s). La orden #${order.displayNumber} regreso a cocina.`
-            : `Se agregaron ${result.addedLines} linea(s) a la orden #${order.displayNumber}.`,
-        });
-        await Promise.all([
-          refreshCounter(),
-          refreshCounterOrder(order.id),
-        ]);
-      } catch (error) {
-        setMessage({
-          tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudieron agregar productos.',
-        });
-      } finally {
-        setWorkingOrderId(null);
-      }
-    });
+    try {
+      const result = await changeCounterPickupItemsAction(input);
+      setMessage({
+        tone: 'success',
+        text:
+          result.status === 'pending_approval'
+            ? `Cambio solicitado para la orden #${order.displayNumber}. Master debe autorizarlo porque ya estaba lista.`
+            : `Pedido #${order.displayNumber} modificado y recalculado.`,
+      });
+      await Promise.all([
+        refreshCounter(),
+        refreshCounterOrder(order.id),
+      ]);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo modificar el pickup.';
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
+  }
+
+  async function handleUpdatePickupSchedule(
+    order: CounterOrder,
+    input: CounterPickupScheduleIntent
+  ): Promise<CounterPickupScheduleResult> {
+    setMessage(null);
+    setWorkingOrderId(order.id);
+    try {
+      const result = await updateCounterPickupScheduleAction(input);
+      setMessage({
+        tone: 'success',
+        text: result.sentToKitchen
+          ? `Pickup #${order.displayNumber} corregido y enviado a cocina.`
+          : `Fecha del pickup #${order.displayNumber} corregida.`,
+      });
+      await Promise.all([
+        refreshCounter(),
+        refreshCounterOrder(order.id),
+      ]);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo corregir el pickup.';
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
   }
 
   function handleMasterAgendaSearch(cursor: CounterAgendaSearchCursor | null = null) {
@@ -1504,7 +1543,8 @@ export default function CounterClient({
                 onCreatePaymentReport={handleCreatePaymentReport}
                 onRequestRefund={handleRequestRefund}
                 onExecuteRefund={handleExecuteRefund}
-                onAddItems={handleAddItemsToOrder}
+                onChangePickupItems={handleChangePickupItems}
+                onUpdatePickupSchedule={handleUpdatePickupSchedule}
                 onRequestCatalog={ensureCounterCatalog}
                 catalogLoading={catalogLoading}
               />
@@ -3672,7 +3712,8 @@ function OrderDetail({
   onCreatePaymentReport,
   onRequestRefund,
   onExecuteRefund,
-  onAddItems,
+  onChangePickupItems,
+  onUpdatePickupSchedule,
   onRequestCatalog,
   catalogLoading,
 }: {
@@ -3695,10 +3736,14 @@ function OrderDetail({
     order: CounterOrder,
     input: CounterRefundExecutionIntent
   ) => Promise<CounterRefundExecutionResult>;
-  onAddItems: (
+  onChangePickupItems: (
     order: CounterOrder,
-    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>
-  ) => void;
+    input: CounterPickupItemChangeIntent
+  ) => Promise<CounterPickupItemChangeResult>;
+  onUpdatePickupSchedule: (
+    order: CounterOrder,
+    input: CounterPickupScheduleIntent
+  ) => Promise<CounterPickupScheduleResult>;
   onRequestCatalog: () => Promise<boolean>;
   catalogLoading: boolean;
 }) {
@@ -3710,6 +3755,8 @@ function OrderDetail({
   const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
   const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
+  const pendingPickupChange =
+    order.pickupChangeRequests.find((request) => request.status === 'pending') ?? null;
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
   const pickupReadyNeedsPayment =
     order.fulfillment === 'pickup' &&
@@ -3717,19 +3764,26 @@ function OrderDetail({
     mustCollectNow;
   const primaryActionBlocked =
     notReadyForCounter ||
+    Boolean(pendingPickupChange) ||
     pickupReadyNeedsPayment ||
     deliveryReadyWithoutAssignee ||
     (isDeliverySettlement && mustCollectNow);
-  const primaryActionBlockedMessage = waitingForMaster
+  const primaryActionBlockedMessage = pendingPickupChange
+    ? 'Master debe aprobar o rechazar el cambio solicitado antes de entregar este pickup.'
+    : order.fulfillment === 'pickup' && order.pendingDigitalChangeUsd > 0.005
+      ? 'Todavia existe cambio digital pendiente de entregar al cliente. Completa ese cambio antes de marcar el pickup como retirado.'
+    : waitingForMaster
     ? 'Esta orden quedo agendada. Master debe enviarla a cocina cuando corresponda.'
     : notReadyForCounter
       ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
     : pickupReadyNeedsPayment
-      ? hasPendingReports
+      ? isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005
+        ? 'El metodo esperado es efectivo o punto. Primero registra el cobro antes de marcar el pickup como retirado.'
+        : hasPendingReports
         ? !order.hasAdvisor
           ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de que Counter entregue el pedido.'
           : 'Hay pagos pendientes de revision. No marques retirado hasta que queden confirmados.'
-        : 'El metodo esperado es efectivo o punto. Primero registra el cobro antes de marcar el pickup como retirado.'
+        : 'Master debe confirmar el cobro antes de marcar el pickup como retirado.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
       : mustCollectNow
@@ -3743,7 +3797,18 @@ function OrderDetail({
   const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState('20');
   const [deliveryEtaError, setDeliveryEtaError] = useState<string | null>(null);
   const currentAction = getCounterCurrentAction(order);
-  const canAddItems = order.status !== 'out_for_delivery';
+  const canModifyPickup =
+    order.fulfillment === 'pickup' &&
+    (
+      order.status === 'created' ||
+      order.status === 'confirmed' ||
+      order.status === 'in_kitchen' ||
+      order.status === 'ready'
+    ) &&
+    !pendingPickupChange;
+  const canCorrectPickupSchedule =
+    order.fulfillment === 'pickup' &&
+    (order.status === 'created' || order.status === 'confirmed' || order.status === 'in_kitchen');
   const isReadyDeliveryAction = order.fulfillment === 'delivery' && order.status === 'ready';
   const reservedRefundUsd = order.refundAuthorizations.reduce(
     (sum, authorization) =>
@@ -3969,6 +4034,18 @@ function OrderDetail({
             </div>
           ) : null}
 
+          {pendingPickupChange ? (
+            <CounterPendingPickupChange request={pendingPickupChange} />
+          ) : null}
+
+          {canCorrectPickupSchedule ? (
+            <CounterPickupScheduleBox
+              order={order}
+              isWorking={isWorking}
+              onSubmit={(input) => onUpdatePickupSchedule(order, input)}
+            />
+          ) : null}
+
           {order.notes ? (
             <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
               <h3 className="font-semibold">Notas</h3>
@@ -4052,10 +4129,10 @@ function OrderDetail({
             <button
               type="button"
               onClick={() => void handleToggleAddItems()}
-              disabled={!canAddItems || isWorking || catalogLoading}
+              disabled={!canModifyPickup || isWorking || catalogLoading}
               className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {catalogLoading ? 'Cargando...' : addItemsOpen ? 'Ocultar agregar' : 'Agregar'}
+              {catalogLoading ? 'Cargando...' : addItemsOpen ? 'Ocultar edicion' : 'Modificar'}
             </button>
           </div>
           {order.paymentRequiresChange ? (
@@ -4065,13 +4142,13 @@ function OrderDetail({
               tone="warn"
             />
           ) : null}
-          {canAddItems ? (
+          {canModifyPickup ? (
             <ActionHint
-              title="Agregar productos"
+              title={order.status === 'ready' ? 'Cambio con autorizacion' : 'Modificar pickup'}
               text={
                 order.status === 'ready'
-                  ? 'Si agregas productos a una orden lista, vuelve a cocina para preparar lo nuevo.'
-                  : 'Puedes ampliar la orden mientras siga activa en mostrador.'
+                  ? 'El pedido ya esta empacado. Counter solicita el cambio y Master decide antes de aplicarlo.'
+                  : 'Puedes agregar, reducir o retirar productos. Toda reduccion exige motivo.'
               }
             />
           ) : null}
@@ -4108,13 +4185,14 @@ function OrderDetail({
 
       {addItemsOpen ? (
         <div className="border-t border-[#242433] p-5">
-          <CounterAddItemsBox
+          <CounterPickupItemsEditor
+            key={`${order.id}-${order.items.map((item) => `${item.id}:${item.qty}`).join('|')}`}
             order={order}
             products={quickSaleProducts}
             productComponents={quickSaleProductComponents}
             activeBsRate={activeBsRate}
             isWorking={isWorking}
-            onSubmit={(items) => onAddItems(order, items)}
+            onSubmit={(input) => onChangePickupItems(order, input)}
           />
         </div>
       ) : null}
@@ -4122,7 +4200,186 @@ function OrderDetail({
   );
 }
 
-function CounterAddItemsBox({
+function CounterPendingPickupChange({
+  request,
+}: {
+  request: CounterPickupChangeRequest;
+}) {
+  const changedExisting = request.preview.existingItems.filter(
+    (item) => item.previousQty != null && Math.abs(item.qty - item.previousQty) > 0.0001
+  );
+
+  return (
+    <div className="rounded-[8px] border border-violet-400/35 bg-violet-950/20 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-violet-100">Cambio esperando autorizacion</h3>
+          <p className="mt-1 text-sm text-violet-100/75">{request.reason}</p>
+        </div>
+        <span className="rounded-full border border-violet-300/40 bg-violet-300/10 px-3 py-1 text-xs font-semibold text-violet-100">
+          Master
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {changedExisting.map((item) => (
+          <div key={`existing-${item.itemId}`} className="rounded-[8px] border border-violet-300/20 bg-[#0B0B0D] px-3 py-2 text-xs">
+            <span className="font-semibold text-[#F5F5F7]">{item.name}</span>
+            <span className="ml-2 text-violet-100">
+              x{qtyLabel(item.previousQty ?? 0)} → x{qtyLabel(item.qty)}
+            </span>
+          </div>
+        ))}
+        {request.preview.addedItems.map((item, index) => (
+          <div key={`added-${item.productId}-${index}`} className="rounded-[8px] border border-violet-300/20 bg-[#0B0B0D] px-3 py-2 text-xs">
+            <span className="font-semibold text-[#F5F5F7]">{item.name}</span>
+            <span className="ml-2 text-emerald-200">+x{qtyLabel(item.qty)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-violet-100/75">
+        <span>Solicitado por {request.requestedByName}</span>
+        <span>
+          Nuevo total: {moneyUsd(request.preview.totalUsd)} · {moneyBs(request.preview.totalBs)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function getCaracasTimeInput() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = parts.find((part) => part.type === 'hour')?.value ?? '00';
+  const minute = parts.find((part) => part.type === 'minute')?.value ?? '00';
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+}
+
+function scheduleTimeInput(value: string | null) {
+  const normalized = String(value || '').trim();
+  if (/^\d{2}:\d{2}$/.test(normalized)) return normalized;
+  const match = normalized.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return getCaracasTimeInput();
+  let hour = Number(match[1]);
+  const minute = match[2];
+  const period = match[3].toUpperCase();
+  if (period === 'AM' && hour === 12) hour = 0;
+  if (period === 'PM' && hour !== 12) hour += 12;
+  return `${String(hour).padStart(2, '0')}:${minute}`;
+}
+
+function CounterPickupScheduleBox({
+  order,
+  isWorking,
+  onSubmit,
+}: {
+  order: CounterOrder;
+  isWorking: boolean;
+  onSubmit: (input: CounterPickupScheduleIntent) => Promise<CounterPickupScheduleResult>;
+}) {
+  const [scheduledDate, setScheduledDate] = useState(order.scheduledDate || getTodayKey());
+  const [scheduledTime, setScheduledTime] = useState(scheduleTimeInput(order.scheduledTime));
+  const [reason, setReason] = useState('');
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  async function submit(sendToKitchen: boolean) {
+    if (!scheduledDate || !scheduledTime) {
+      setLocalError('Indica la fecha y la hora correctas.');
+      return;
+    }
+    if (reason.trim().length < 4) {
+      setLocalError('Indica el motivo de la correccion.');
+      return;
+    }
+
+    setLocalError(null);
+    try {
+      await onSubmit({
+        idempotencyKey: crypto.randomUUID(),
+        orderId: order.id,
+        scheduledDate,
+        scheduledTime,
+        reason: reason.trim(),
+        sendToKitchen,
+      });
+      setReason('');
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'No se pudo corregir la fecha.');
+    }
+  }
+
+  return (
+    <div className="rounded-[8px] border border-sky-400/25 bg-sky-950/15 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-sky-100">Fecha y entrada a cocina</h3>
+          <p className="mt-1 text-xs leading-relaxed text-sky-100/70">
+            Corrige una agenda equivocada. El sistema deja motivo y avisa a cocina y asesor.
+          </p>
+        </div>
+        <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1 text-xs font-semibold text-sky-100">
+          {order.status === 'created' ? 'Agendado' : 'En cocina'}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <label className="text-xs text-sky-100/75">
+          Fecha
+          <input
+            type="date"
+            value={scheduledDate}
+            onChange={(event) => setScheduledDate(event.target.value)}
+            className="mt-1 w-full rounded-[8px] border border-sky-300/25 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
+          />
+        </label>
+        <label className="text-xs text-sky-100/75">
+          Hora
+          <input
+            type="time"
+            value={scheduledTime}
+            onChange={(event) => setScheduledTime(event.target.value)}
+            className="mt-1 w-full rounded-[8px] border border-sky-300/25 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
+          />
+        </label>
+      </div>
+      <label className="mt-2 block text-xs text-sky-100/75">
+        Motivo
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          maxLength={1200}
+          placeholder="Ej.: el cliente confirma que el pedido era para hoy."
+          className="mt-1 min-h-16 w-full resize-y rounded-[8px] border border-sky-300/25 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-sky-300"
+        />
+      </label>
+      {localError ? <div className="mt-2 text-xs font-semibold text-red-200">{localError}</div> : null}
+      <div className={['mt-3 grid gap-2', order.status === 'created' ? 'sm:grid-cols-2' : ''].join(' ')}>
+        <button
+          type="button"
+          onClick={() => void submit(false)}
+          disabled={isWorking}
+          className="rounded-[8px] border border-sky-300/35 bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-sky-100 disabled:cursor-wait disabled:opacity-60"
+        >
+          Guardar correccion
+        </button>
+        {order.status === 'created' ? (
+          <button
+            type="button"
+            onClick={() => void submit(true)}
+            disabled={isWorking}
+            className="rounded-[8px] border border-sky-300/50 bg-sky-300/15 px-3 py-2 text-xs font-bold text-sky-100 disabled:cursor-wait disabled:opacity-60"
+          >
+            Corregir y enviar a cocina
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CounterPickupItemsEditor({
   order,
   products,
   productComponents,
@@ -4135,13 +4392,17 @@ function CounterAddItemsBox({
   productComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
-  onSubmit: (items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>) => void;
+  onSubmit: (input: CounterPickupItemChangeIntent) => Promise<CounterPickupItemChangeResult>;
 }) {
   const [productSearch, setProductSearch] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [qty, setQty] = useState('1');
   const [notes, setNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [existingQty, setExistingQty] = useState<Record<number, string>>(
+    () => Object.fromEntries(order.items.map((item) => [item.id, String(item.qty)]))
+  );
+  const [reason, setReason] = useState('');
   const [configProductId, setConfigProductId] = useState<number | null>(null);
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<Array<{
@@ -4204,6 +4465,31 @@ function CounterAddItemsBox({
   }, [activeBsRate, cartItems, productsById]);
   const addedUsd = lineRows.reduce((sum, row) => sum + row.snapshot.lineUsd, 0);
   const addedBs = lineRows.reduce((sum, row) => sum + row.snapshot.lineBs, 0);
+  const existingRows = order.items.map((item) => {
+    const rawQty = String(existingQty[item.id] ?? '').trim();
+    const parsedQty = toDecimalInput(rawQty);
+    const isValid =
+      rawQty.length > 0 &&
+      Number.isFinite(parsedQty) &&
+      parsedQty >= 0 &&
+      parsedQty <= 999;
+    const nextQty = isValid ? parsedQty : item.qty;
+    const unitUsd = item.qty > 0 ? item.lineTotalUsd / item.qty : 0;
+    const unitBs = item.qty > 0 ? item.lineTotalBs / item.qty : 0;
+    return {
+      item,
+      nextQty,
+      isValid,
+      lineUsd: unitUsd * nextQty,
+      lineBs: unitBs * nextQty,
+    };
+  });
+  const hasInvalidExistingQty = existingRows.some((row) => !row.isValid);
+  const hasExistingChange = existingRows.some((row) => Math.abs(row.nextQty - row.item.qty) > 0.0001);
+  const hasReduction = existingRows.some((row) => row.nextQty < row.item.qty);
+  const hasChanges = hasExistingChange || cartItems.length > 0;
+  const estimatedSubtotalUsd = existingRows.reduce((sum, row) => sum + row.lineUsd, 0) + addedUsd;
+  const estimatedSubtotalBs = existingRows.reduce((sum, row) => sum + row.lineBs, 0) + addedBs;
 
   function addLine() {
     const productId = Number(selectedProductId || 0);
@@ -4329,35 +4615,72 @@ function CounterAddItemsBox({
     setLocalError(null);
   }
 
-  function submitItems() {
-    if (cartItems.length === 0) {
-      setLocalError('Agrega al menos una linea.');
+  async function submitItems() {
+    if (hasInvalidExistingQty) {
+      setLocalError('Revisa las cantidades actuales. Deben estar entre 0 y 999.');
       return;
     }
 
-    onSubmit(
-      cartItems.map((item) => ({
-        productId: item.productId,
-        qty: toDecimalInput(item.qty),
-        notes: item.notes.trim() || null,
-        editableDetailLines: item.editableDetailLines,
-      }))
-    );
+    if (!hasChanges) {
+      setLocalError('Modifica una cantidad o agrega al menos una linea.');
+      return;
+    }
+
+    if (
+      existingRows.every((row) => row.nextQty <= 0) &&
+      cartItems.length === 0
+    ) {
+      setLocalError('El pedido debe conservar al menos un producto.');
+      return;
+    }
+
+    if ((hasReduction || order.status === 'ready') && reason.trim().length < 4) {
+      setLocalError(
+        order.status === 'ready'
+          ? 'Explica el cambio para que Master pueda autorizarlo.'
+          : 'Indica el motivo de la reduccion o retiro.'
+      );
+      return;
+    }
+
+    setLocalError(null);
+    try {
+      await onSubmit({
+        idempotencyKey: crypto.randomUUID(),
+        orderId: order.id,
+        existingItems: existingRows.map((row) => ({
+          itemId: row.item.id,
+          qty: row.nextQty,
+        })),
+        addedItems: cartItems.map((item) => ({
+          productId: item.productId,
+          qty: toDecimalInput(item.qty),
+          notes: item.notes.trim() || null,
+          editableDetailLines: item.editableDetailLines,
+        })),
+        reason: reason.trim() || null,
+      });
+      setCartItems([]);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'No se pudo modificar el pickup.');
+    }
   }
 
   return (
     <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold">Agregar al pedido</h3>
+          <h3 className="text-lg font-semibold">Modificar pickup</h3>
           <p className="mt-1 text-sm text-[#9FA0AA]">
-            Se recalcula el total. Si la orden estaba lista, vuelve a cocina.
+            {order.status === 'ready'
+              ? 'El pedido esta listo: el cambio se enviara a Master y no se aplicara hasta que lo autorice.'
+              : 'Ajusta cantidades, retira lineas o agrega productos. El total se recalcula de forma atomica.'}
           </p>
         </div>
         <div className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-right">
-          <div className="text-xs text-[#9FA0AA]">Agregado</div>
-          <div className="text-sm font-semibold text-[#F5F5F7]">{moneyUsd(addedUsd)}</div>
-          <div className="text-xs text-[#9FA0AA]">{moneyBs(addedBs)}</div>
+          <div className="text-xs text-[#9FA0AA]">Subtotal estimado</div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">{moneyUsd(estimatedSubtotalUsd)}</div>
+          <div className="text-xs text-[#9FA0AA]">{moneyBs(estimatedSubtotalBs)}</div>
         </div>
       </div>
 
@@ -4367,7 +4690,42 @@ function CounterAddItemsBox({
         </div>
       ) : null}
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_110px_1fr_130px]">
+      <div className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Lineas actuales</div>
+        <div className="mt-2 divide-y divide-[#242433]">
+          {existingRows.map((row) => (
+            <div key={row.item.id} className="grid gap-2 py-2 sm:grid-cols-[1fr_110px_92px] sm:items-center">
+              <div>
+                <div className="text-sm font-semibold">{row.item.name}</div>
+                <div className="mt-0.5 text-xs text-[#9FA0AA]">
+                  Antes: x{qtyLabel(row.item.qty)} · Ahora: {moneyUsd(row.lineUsd)}
+                </div>
+              </div>
+              <input
+                value={existingQty[row.item.id] ?? ''}
+                onChange={(event) =>
+                  setExistingQty((current) => ({ ...current, [row.item.id]: event.target.value }))
+                }
+                inputMode="decimal"
+                aria-label={`Cantidad de ${row.item.name}`}
+                className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-right text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setExistingQty((current) => ({ ...current, [row.item.id]: '0' }))
+                }
+                className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-400/10"
+              >
+                Retirar
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 text-sm font-semibold text-[#F5F5F7]">Agregar productos</div>
+      <div className="mt-2 grid gap-3 lg:grid-cols-[1fr_110px_1fr_130px]">
         <label className="text-sm text-[#9FA0AA]">
           Producto
           <input
@@ -4517,17 +4875,38 @@ function CounterAddItemsBox({
         )}
       </div>
 
+      <label className="mt-4 block text-sm text-[#9FA0AA]">
+        Motivo {hasReduction || order.status === 'ready' ? '(obligatorio)' : '(opcional)'}
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          maxLength={1200}
+          placeholder={
+            order.status === 'ready'
+              ? 'Explica que solicito el cliente para que Master pueda decidir.'
+              : 'Ej.: cliente retiro una unidad del pedido.'
+          }
+          className="mt-1 min-h-20 w-full resize-y rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+        />
+      </label>
+
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-[#9FA0AA]">
-          Orden #{order.displayNumber} quedara con nuevo saldo al refrescar.
+          {order.status === 'ready'
+            ? `Orden #${order.displayNumber}: Master vera el cambio antes de aplicarlo.`
+            : `Orden #${order.displayNumber}: el saldo financiero se recalculara al confirmar.`}
         </div>
         <button
           type="button"
-          onClick={submitItems}
-          disabled={isWorking || cartItems.length === 0 || activeBsRate <= 0}
+          onClick={() => void submitItems()}
+          disabled={isWorking || !hasChanges || activeBsRate <= 0}
           className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
         >
-          {isWorking ? 'Guardando...' : 'Aplicar agregado'}
+          {isWorking
+            ? 'Guardando...'
+            : order.status === 'ready'
+              ? 'Solicitar autorizacion'
+              : 'Aplicar modificacion'}
         </button>
       </div>
     </div>

@@ -15,6 +15,10 @@ import type {
   CounterQuickSaleProductOption,
 } from './CounterClient';
 import type { CounterRefundAuthorization } from './payment-contract';
+import type {
+  CounterPickupChangePreviewItem,
+  CounterPickupChangeRequest,
+} from './pickup-contract';
 
 type CounterReadClient = {
   rpc: (
@@ -144,6 +148,52 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function mapPickupPreviewItem(value: unknown): CounterPickupChangePreviewItem {
+  const item = asRecord(value);
+  return {
+    itemId: item.itemId == null ? null : Math.trunc(toNumber(item.itemId, 0)),
+    productId: Math.trunc(toNumber(item.productId, 0)),
+    name: String(item.name || 'Producto'),
+    previousQty: item.previousQty == null ? null : toNumber(item.previousQty, 0),
+    qty: toNumber(item.qty, 0),
+    lineUsd: roundOrderMoney(item.lineUsd),
+    lineBs: roundOrderMoney(item.lineBs),
+    notes: item.notes == null ? null : String(item.notes),
+  };
+}
+
+function mapPickupChangeRequest(value: unknown): CounterPickupChangeRequest {
+  const request = asRecord(value);
+  const preview = asRecord(request.preview);
+  const rawStatus = String(request.status || '');
+  const status: CounterPickupChangeRequest['status'] =
+    rawStatus === 'approved' || rawStatus === 'rejected' || rawStatus === 'stale'
+      ? rawStatus
+      : 'pending';
+
+  return {
+    id: Math.trunc(toNumber(request.id, 0)),
+    status,
+    reason: String(request.reason || ''),
+    requestedAt: String(request.requestedAt || ''),
+    requestedByName: String(request.requestedByName || 'Usuario'),
+    reviewedAt: request.reviewedAt == null ? null : String(request.reviewedAt),
+    reviewedByName: request.reviewedByName == null ? null : String(request.reviewedByName),
+    reviewNotes: request.reviewNotes == null ? null : String(request.reviewNotes),
+    appliedAt: request.appliedAt == null ? null : String(request.appliedAt),
+    preview: {
+      totalUsd: roundOrderMoney(preview.totalUsd),
+      totalBs: roundOrderMoney(preview.totalBs),
+      hadReduction: Boolean(preview.hadReduction),
+      hadExistingIncrease: Boolean(preview.hadExistingIncrease),
+      hasAdditions: Boolean(preview.hasAdditions),
+      needsKitchen: Boolean(preview.needsKitchen),
+      existingItems: asArray(preview.existingItems).map(mapPickupPreviewItem),
+      addedItems: asArray(preview.addedItems).map(mapPickupPreviewItem),
+    },
+  };
+}
+
 async function readRpcJson(
   supabase: CounterReadClient,
   functionName: string,
@@ -247,6 +297,7 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
         notes: item.notes == null ? null : String(item.notes),
       };
     }),
+    pickupChangeRequests: [],
     detailLoaded: Array.isArray(row.items),
   };
 }
@@ -292,10 +343,21 @@ export async function loadCounterOrderDetailRead(
   supabase: CounterReadClient,
   orderId: number
 ): Promise<CounterOrder> {
-  const data = await readRpcJson(supabase, 'counter_read_order_detail', {
-    p_order_id: orderId,
-  });
-  return mapCounterOrder(asRecord(data) as unknown as CounterReadOrderRow);
+  const [detailData, pickupRequestsData] = await Promise.all([
+    readRpcJson(supabase, 'counter_read_order_detail', {
+      p_order_id: orderId,
+    }),
+    readRpcJson(supabase, 'counter_read_pickup_change_requests', {
+      p_order_id: orderId,
+    }),
+  ]);
+  const order = mapCounterOrder(asRecord(detailData) as unknown as CounterReadOrderRow);
+  return {
+    ...order,
+    pickupChangeRequests: asArray(pickupRequestsData)
+      .map(mapPickupChangeRequest)
+      .filter((request) => request.id > 0),
+  };
 }
 
 export async function loadCounterCatalogRead(
