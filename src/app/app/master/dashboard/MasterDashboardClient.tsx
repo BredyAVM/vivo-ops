@@ -8607,12 +8607,20 @@ const handleSaveQuickCatalog = async () => {
         setMoneyAccountBalanceSnapshots((currentSnapshots) => {
           const loadedSnapshots = result.balanceSnapshots as MoneyAccountBalanceSnapshot[];
           const snapshotByAccountId = new Map<number, MoneyAccountBalanceSnapshot>();
+          const snapshotTime = (snapshot: MoneyAccountBalanceSnapshot) => {
+            const parsed = Date.parse(snapshot.calculatedAt || '');
+            return Number.isFinite(parsed) ? parsed : 0;
+          };
 
           for (const snapshot of currentSnapshots) {
             snapshotByAccountId.set(snapshot.moneyAccountId, snapshot);
           }
 
           for (const snapshot of loadedSnapshots) {
+            const currentSnapshot = snapshotByAccountId.get(snapshot.moneyAccountId);
+            if (currentSnapshot && snapshotTime(snapshot) < snapshotTime(currentSnapshot)) {
+              continue;
+            }
             snapshotByAccountId.set(snapshot.moneyAccountId, snapshot);
           }
 
