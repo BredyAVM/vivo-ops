@@ -175,6 +175,7 @@ type DraftItem = {
   skuSnapshot: string | null;
   productNameSnapshot: string;
   qty: number;
+  internalRiderPayUsd?: number | null;
   sourcePriceCurrency: 'VES' | 'USD';
   sourcePriceAmount: number;
   unitPriceUsdSnapshot: number;
@@ -2253,9 +2254,34 @@ function getOrderDiscountFactor(order: Order) {
 function getInternalDeliveryPayUsd(order: Order, catalogItemById: Map<number, CatalogItem>) {
   return (order.draftItems ?? []).reduce((sum, item) => {
     const product = catalogItemById.get(item.productId);
-    const payUsd = Number(product?.internalRiderPayUsd || 0);
+    const payUsd = Number(item.internalRiderPayUsd ?? product?.internalRiderPayUsd ?? 0);
     return payUsd > 0 ? sum + payUsd * Number(item.qty || 0) : sum;
   }, 0);
+}
+
+function getEffectiveDeliveryCostUsd(order: Order, catalogItemById: Map<number, CatalogItem>) {
+  const storedCostUsd =
+    order.editMeta?.deliveryCostUsd != null
+      ? Math.max(0, Number(order.editMeta.deliveryCostUsd || 0))
+      : null;
+  const isInternalDelivery =
+    !order.externalPartnerId &&
+    !order.externalPartner &&
+    (!!order.internalDriverUserId || !!order.riderName);
+
+  if (isInternalDelivery && order.editMeta?.deliveryCostSource === 'internal_product') {
+    const internalProductPayUsd = getInternalDeliveryPayUsd(order, catalogItemById);
+    return internalProductPayUsd > 0 ? internalProductPayUsd : storedCostUsd;
+  }
+
+  if (storedCostUsd != null) return storedCostUsd;
+
+  if (isInternalDelivery) {
+    const internalProductPayUsd = getInternalDeliveryPayUsd(order, catalogItemById);
+    return internalProductPayUsd > 0 ? internalProductPayUsd : null;
+  }
+
+  return null;
 }
 
 function isDeliveryCatalogItem(item: Pick<CatalogItem, 'name' | 'internalRiderPayUsd'> | null | undefined) {
@@ -12791,15 +12817,12 @@ const selectedCreateOrderClientAddresses = useMemo(
       setDeliveryAssignCostManuallyEdited(mode === 'external' && order.editMeta?.deliveryCostUsd != null);
 
       if (mode === 'internal') {
+        const effectiveCostUsd = getEffectiveDeliveryCostUsd(order, catalogItemById);
         setDeliveryAssignDriverId(order.internalDriverUserId ?? '');
         setDeliveryAssignPartnerId('');
         setDeliveryAssignReference('');
         setDeliveryAssignDistanceKm('');
-        setDeliveryAssignCostUsd(
-          order.editMeta?.deliveryCostUsd != null
-            ? String(order.editMeta.deliveryCostUsd)
-            : String(getInternalDeliveryPayUsd(order, catalogItemById) || '')
-        );
+        setDeliveryAssignCostUsd(effectiveCostUsd != null ? String(effectiveCostUsd) : '');
         return;
       }
 
@@ -12822,6 +12845,11 @@ const selectedCreateOrderClientAddresses = useMemo(
         ? getExpiredQuotePriceReview(selectedOrder, catalogItemById, currentTimeMs)
         : null,
     [catalogItemById, currentTimeMs, selectedOrder]
+  );
+
+  const selectedOrderDeliveryCostUsd = useMemo(
+    () => (selectedOrder ? getEffectiveDeliveryCostUsd(selectedOrder, catalogItemById) : null),
+    [catalogItemById, selectedOrder]
   );
 
   const filteredInventoryItems = useMemo(() => {
@@ -13854,12 +13882,7 @@ const selectedCreateOrderClientAddresses = useMemo(
             ? ('internal' as const)
             : ('unassigned' as const);
 
-      const internalPayFallback =
-        mode === 'internal' ? getInternalDeliveryPayUsd(order, catalogItemById) : 0;
-      const costUsd =
-        order.editMeta?.deliveryCostUsd != null
-          ? Number(order.editMeta.deliveryCostUsd || 0)
-          : internalPayFallback;
+      const costUsd = getEffectiveDeliveryCostUsd(order, catalogItemById) ?? 0;
 
       const distanceKm =
         order.editMeta?.deliveryDistanceKm != null
@@ -19645,7 +19668,7 @@ onClose={() => {
       </div>
 
       {selectedOrder.fulfillment === 'delivery' &&
-      (selectedOrder.editMeta?.deliveryDistanceKm != null || selectedOrder.editMeta?.deliveryCostUsd != null) ? (
+      (selectedOrder.editMeta?.deliveryDistanceKm != null || selectedOrderDeliveryCostUsd != null) ? (
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
             <div className="text-[10px] text-[#8A8A96]">Distancia</div>
@@ -19659,8 +19682,8 @@ onClose={() => {
           <div className="rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2">
             <div className="text-[10px] text-[#8A8A96]">Costo delivery</div>
               <div className="mt-1 text-sm text-[#F5F5F7]">
-              {selectedOrder.editMeta?.deliveryCostUsd != null
-                ? fmtUSD(selectedOrder.editMeta.deliveryCostUsd)
+              {selectedOrderDeliveryCostUsd != null
+                ? fmtUSD(selectedOrderDeliveryCostUsd)
                 : '—'}
             </div>
             {selectedOrder.editMeta?.deliveryCostSource ? (

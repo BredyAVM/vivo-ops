@@ -3225,6 +3225,8 @@ const returnedToAdvisor = Boolean(row.extra_fields?.review?.returned_to_advisor)
     }));
 
 const draftItems = rowItems.map((item) => {
+  const productId = Number(item.product_id);
+  const catalogItem = catalogItemById.get(productId);
   const qty = toNumber(item.qty, 0);
   const unitPriceUsdSnapshot = toNumber(item.unit_price_usd_snapshot, 0);
   const lineTotalUsd = toNumber(item.line_total_usd, unitPriceUsdSnapshot * qty);
@@ -3254,10 +3256,11 @@ const pricingOriginCurrency: 'VES' | 'USD' =
 
   return {
     localId: `existing-${item.id}`,
-    productId: Number(item.product_id),
+    productId,
     skuSnapshot: item.sku_snapshot ?? null,
     productNameSnapshot: item.product_name_snapshot?.trim() || 'Producto',
     qty,
+    internalRiderPayUsd: catalogItem?.internalRiderPayUsd ?? null,
     sourcePriceCurrency: pricingOriginCurrency,
     sourcePriceAmount: pricingOriginAmount,
     unitPriceUsdSnapshot,
