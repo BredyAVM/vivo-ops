@@ -24,6 +24,7 @@ import type {
   CounterDeliverySettlementDetail,
   CounterDeliverySettlementEntry,
 } from './delivery-contract';
+import type { CounterDiscountRuleOption } from './direct-sale-contract';
 
 type CounterReadClient = {
   rpc: (
@@ -107,6 +108,7 @@ export type CounterConfigurationRead = {
 export type CounterCatalogRead = {
   products: CounterQuickSaleProductOption[];
   components: CounterQuickSaleProductComponent[];
+  discountRules: CounterDiscountRuleOption[];
 };
 
 export type CounterPendingSettlementRead = {
@@ -412,7 +414,27 @@ export async function loadCounterCatalogRead(
     })
     .filter((component) => component.id > 0 && component.parentProductId > 0);
 
-  return { products, components };
+  const discountRules: CounterDiscountRuleOption[] = asArray(data.discountRules)
+    .map((ruleValue) => {
+      const rule = asRecord(ruleValue);
+      return {
+        id: Math.trunc(toNumber(rule.id, 0)),
+        code: String(rule.code || ''),
+        name: String(rule.name || 'Descuento'),
+        description: rule.description == null ? null : String(rule.description),
+        discountPct: toNumber(rule.discountPct, 0),
+        paymentMethodCodes: asArray(rule.paymentMethodCodes).map((value) => String(value)),
+        paymentCurrencies: asArray(rule.paymentCurrencies)
+          .filter((value): value is 'USD' | 'VES' => value === 'USD' || value === 'VES'),
+        fulfillments: asArray(rule.fulfillments)
+          .filter((value): value is 'pickup' | 'delivery' => value === 'pickup' || value === 'delivery'),
+        startsAt: rule.startsAt == null ? null : String(rule.startsAt),
+        endsAt: rule.endsAt == null ? null : String(rule.endsAt),
+      };
+    })
+    .filter((rule) => rule.id > 0 && rule.discountPct > 0);
+
+  return { products, components, discountRules };
 }
 
 export async function loadCounterCashSnapshotRead(

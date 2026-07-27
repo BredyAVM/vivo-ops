@@ -3,8 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireCounterOperatorContext } from '@/lib/auth';
-import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
-import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import type {
   CounterPaymentIntent,
   CounterPaymentOperationResult,
@@ -28,48 +26,10 @@ import type {
   CounterDeliveryReturnResult,
   CounterDeliveryValueLine,
 } from './delivery-contract';
-
-type CounterQuickSaleInput = {
-  clientId?: number | null;
-  clientName: string;
-  clientPhone: string;
-  clientType?: 'own' | 'assigned' | 'legacy';
-  fulfillment: 'pickup' | 'delivery';
-  deliveryAddress: string;
-  deliveryGpsUrl?: string | null;
-  receiverName?: string | null;
-  receiverPhone?: string | null;
-  note: string;
-  scheduleAsap: boolean;
-  scheduledDate: string;
-  scheduledTime: string;
-  paymentMethod: string;
-  paymentCurrency: 'USD' | 'VES';
-  paymentRequiresChange: boolean;
-  paymentChangeFor: string;
-  paymentChangeCurrency: 'USD' | 'VES';
-  paymentNote: string;
-  discountEnabled?: boolean;
-  discountPct?: string | number | null;
-  hasDeliveryNote?: boolean;
-  hasInvoice?: boolean;
-  invoiceTaxPct?: string | number | null;
-  invoiceDataNote?: string | null;
-  invoiceCompanyName?: string | null;
-  invoiceTaxId?: string | null;
-  invoiceAddress?: string | null;
-  invoicePhone?: string | null;
-  deliveryNoteName?: string | null;
-  deliveryNoteDocumentId?: string | null;
-  deliveryNoteAddress?: string | null;
-  deliveryNotePhone?: string | null;
-  items: Array<{
-    productId: number;
-    qty: number;
-    notes?: string | null;
-    editableDetailLines?: string[] | null;
-  }>;
-};
+import type {
+  CounterDirectSaleIntent,
+  CounterDirectSaleResult,
+} from './direct-sale-contract';
 
 export type CounterClientSearchResult = {
   id: number;
@@ -77,36 +37,6 @@ export type CounterClientSearchResult = {
   phone: string | null;
   clientType: string | null;
   fundBalanceUsd: number;
-};
-
-type CounterClientRow = {
-  id: number;
-  full_name: string | null;
-  phone: string | null;
-  client_type: string | null;
-  fund_balance_usd: number | string | null;
-};
-
-type CounterClientProfileRow = CounterClientRow & {
-  billing_company_name: string | null;
-  billing_tax_id: string | null;
-  billing_address: string | null;
-  billing_phone: string | null;
-  delivery_note_name: string | null;
-  delivery_note_document_id: string | null;
-  delivery_note_address: string | null;
-  delivery_note_phone: string | null;
-  recent_addresses: unknown;
-};
-
-type CounterProductRow = {
-  id: number;
-  sku: string | null;
-  name: string | null;
-  source_price_currency: string | null;
-  source_price_amount: number | string | null;
-  base_price_usd: number | string | null;
-  base_price_bs: number | string | null;
 };
 
 type CounterCashMovementInput = {
@@ -203,6 +133,38 @@ function roundCounterMoney(value: unknown) {
   return Number(toSafeNumber(value, 0).toFixed(2));
 }
 
+function directSaleErrorMessage(message: string) {
+  const errors: Array<[string, string]> = [
+    ['counter_access_denied', 'Tu usuario no tiene permiso para crear ventas de Mostrador.'],
+    ['counter_idempotency_key_reused', 'La venta cambió después de iniciar. Cierra el formulario y vuelve a intentarlo.'],
+    ['counter_client_name_required', 'Indica el nombre del cliente.'],
+    ['counter_client_phone_invalid', 'Indica un teléfono válido del cliente.'],
+    ['counter_client_not_found', 'El cliente seleccionado ya no existe. Vuelve a buscarlo.'],
+    ['counter_client_inactive', 'El cliente seleccionado está inactivo. Solicita revisión a Master.'],
+    ['counter_client_phone_mismatch', 'El teléfono no coincide con el cliente seleccionado. Vuelve a buscarlo.'],
+    ['counter_client_phone_conflict', 'Ese teléfono ya pertenece a otro cliente. Vuelve a buscarlo.'],
+    ['counter_receiver_phone_invalid', 'El teléfono de quien recibe no es válido.'],
+    ['counter_delivery_address_required', 'La dirección es obligatoria para delivery.'],
+    ['counter_invoice_phone_invalid', 'El teléfono fiscal no es válido.'],
+    ['counter_delivery_note_phone_invalid', 'El teléfono de la nota de entrega no es válido.'],
+    ['counter_exchange_rate_unavailable', 'No hay una tasa activa válida.'],
+    ['counter_payment_method_invalid', 'El método de pago esperado no es válido.'],
+    ['counter_payment_currency_invalid', 'La moneda no corresponde al método de pago seleccionado.'],
+    ['counter_payment_change_amount_invalid', 'Indica para cuánto dinero requiere cambio el cliente.'],
+    ['counter_discount_rule_not_applicable', 'La regla de descuento venció, fue desactivada o ya no aplica a esta venta.'],
+    ['counter_schedule_must_be_future', 'La fecha y hora agendadas deben estar en el futuro.'],
+    ['counter_schedule_invalid', 'Indica una fecha y hora válidas para agendar.'],
+    ['counter_items_count_invalid', 'La venta debe tener entre uno y cien productos.'],
+    ['counter_product_unavailable', 'Uno de los productos o componentes ya no está disponible.'],
+    ['counter_configurable_product_quantity_must_be_one', 'Los productos configurables se agregan uno por uno.'],
+    ['counter_item_component_unavailable', 'La configuración contiene un componente no disponible.'],
+    ['counter_item_fixed_component_quantity_invalid', 'La cantidad de un componente fijo cambió. Vuelve a armar el producto.'],
+    ['counter_item_required_component_missing', 'Falta un componente obligatorio. Vuelve a armar el producto.'],
+    ['counter_item_detail_limit_mismatch', 'La configuración no completa la cantidad de piezas requerida.'],
+  ];
+  return errors.find(([code]) => message.includes(code))?.[1] ?? message;
+}
+
 function buildOrderItemNotes(input: {
   notes?: string | null;
   editableDetailLines?: string[] | null;
@@ -213,32 +175,6 @@ function buildOrderItemNotes(input: {
   ].filter(Boolean);
 
   return lines.length > 0 ? lines.join('\n') : null;
-}
-
-function normalizeRecentAddresses(value: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) return [];
-  return value.filter(
-    (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'
-  );
-}
-
-function mergeRecentAddresses(value: unknown, address: string, gpsUrl: string) {
-  const cleanAddress = String(address || '').trim();
-  if (!cleanAddress) return normalizeRecentAddresses(value);
-
-  const cleanGps = String(gpsUrl || '').trim();
-  const nextAddress = {
-    address: cleanAddress,
-    gps_url: cleanGps || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  const previous = normalizeRecentAddresses(value).filter((item) => {
-    const itemAddress = String(item.address || '').trim().toLocaleLowerCase('es-VE');
-    return itemAddress !== cleanAddress.toLocaleLowerCase('es-VE');
-  });
-
-  return [nextAddress, ...previous].slice(0, 5);
 }
 
 function isCounterDirectAccount(account: { name?: string | null; account_kind?: string | null }) {
@@ -282,116 +218,6 @@ function accountUsesDailyBalanceCutoff(accountKind: string | null | undefined, c
 
 function isPosClosureAccount(accountKind: string | null | undefined, closureKind: string | null | undefined) {
   return accountKind === 'pos' || closureKind === 'pos';
-}
-
-function pad2(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-function pad4(value: number) {
-  return String(value).padStart(4, '0');
-}
-
-function getCaracasDateParts() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Caracas',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date());
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
-  const hour = Number(get('hour') || 0);
-  const minute = Number(get('minute') || 0);
-  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-
-  return {
-    dateKey: `${get('year')}${get('month')}${get('day')}`,
-    date: `${get('year')}-${get('month')}-${get('day')}`,
-    time24: `${pad2(hour)}:${pad2(minute)}`,
-    time12: `${hour12}:${pad2(minute)} ${ampm}`,
-  };
-}
-
-function normalizeSchedule(input: CounterQuickSaleInput) {
-  const current = getCaracasDateParts();
-  if (input.scheduleAsap) {
-    return {
-      date: current.date,
-      time24: current.time24,
-      time12: current.time12,
-      asap: true,
-    };
-  }
-
-  const date = String(input.scheduledDate || '').trim();
-  const time24 = String(input.scheduledTime || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throw new Error('Indica una fecha valida para agendar el pedido.');
-  }
-  if (!/^\d{2}:\d{2}$/.test(time24)) {
-    throw new Error('Indica una hora valida para agendar el pedido.');
-  }
-
-  const [rawHour, rawMinute] = time24.split(':');
-  const hour = Number(rawHour);
-  const minute = Number(rawMinute);
-  if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !Number.isFinite(minute) || minute < 0 || minute > 59) {
-    throw new Error('Indica una hora valida para agendar el pedido.');
-  }
-
-  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-
-  return {
-    date,
-    time24,
-    time12: `${hour12}:${pad2(minute)} ${ampm}`,
-    asap: false,
-  };
-}
-
-function buildClientPhoneOrFilters(phone: string) {
-  return [
-    `phone.eq.${phone}`,
-    ...getPhoneSearchTerms(phone)
-      .map((term) => term.replace(/[,%]/g, ' '))
-      .filter(Boolean)
-      .slice(0, 5)
-      .map((term) => `phone.ilike.%${term}%`),
-  ];
-}
-
-async function loadActiveExchangeRate(supabase: ReturnType<typeof createSupabaseServiceRoleServer>) {
-  const { data, error } = await supabase
-    .from('exchange_rates')
-    .select('rate_bs_per_usd')
-    .eq('is_active', true)
-    .order('effective_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-
-  const rate = toSafeNumber(data?.rate_bs_per_usd, 0);
-  if (rate <= 0) throw new Error('No hay una tasa activa valida.');
-  return rate;
-}
-
-async function generateUniqueOrderNumber(supabase: ReturnType<typeof createSupabaseServiceRoleServer>) {
-  const { dateKey } = getCaracasDateParts();
-
-  for (let i = 0; i < 20; i += 1) {
-    const orderNumber = `VO-${dateKey}-${pad4(Math.floor(Math.random() * 10000))}`;
-    const { data, error } = await supabase.from('orders').select('id').eq('order_number', orderNumber).maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) return orderNumber;
-  }
-
-  throw new Error('No se pudo generar un numero de orden unico.');
 }
 
 export async function applyCounterPaymentAction(
@@ -823,381 +649,103 @@ export async function recordCounterDeliveryReturnAction(
   };
 }
 
-export async function createCounterQuickSaleAction(input: CounterQuickSaleInput) {
+export async function createCounterQuickSaleAction(
+  input: CounterDirectSaleIntent
+): Promise<CounterDirectSaleResult> {
   const ctx = await requireCounterOperatorContext();
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('La venta no tiene un identificador valido.');
+  }
 
-  const requestedClientId = Number(input.clientId || 0);
-  const clientName = String(input.clientName || '').trim();
-  const phone = normalizePhone(input.clientPhone || '');
-  const fulfillment = input.fulfillment === 'delivery' ? 'delivery' : 'pickup';
-  const deliveryAddress = String(input.deliveryAddress || '').trim();
-  const deliveryGpsUrl = String(input.deliveryGpsUrl || '').trim();
-  const receiverName = String(input.receiverName || '').trim();
-  const receiverPhone = normalizePhone(input.receiverPhone || '');
-  const invoiceDataNote = String(input.invoiceDataNote || '').trim();
-  const invoiceCompanyName = String(input.invoiceCompanyName || '').trim();
-  const invoiceTaxId = String(input.invoiceTaxId || '').trim();
-  const invoiceAddress = String(input.invoiceAddress || '').trim();
-  const invoicePhone = normalizePhone(input.invoicePhone || '');
-  const deliveryNoteName = String(input.deliveryNoteName || '').trim();
-  const deliveryNoteDocumentId = String(input.deliveryNoteDocumentId || '').trim();
-  const deliveryNoteAddress = String(input.deliveryNoteAddress || '').trim();
-  const deliveryNotePhone = normalizePhone(input.deliveryNotePhone || '');
-  const items = (input.items || [])
-    .map((item) => ({
-      productId: Number(item.productId || 0),
-      qty: Math.max(0, Number(item.qty || 0)),
-      notes: String(item.notes || '').trim() || null,
-      editableDetailLines: Array.isArray(item.editableDetailLines)
-        ? item.editableDetailLines.map((line) => String(line || '').trim()).filter(Boolean)
-        : [],
-    }))
-    .filter((item) => item.productId > 0 && item.qty > 0);
+  const items = (input.items || []).map((item) => ({
+    productId: Math.trunc(Number(item.productId || 0)),
+    qty: Number(item.qty || 0),
+    notes: String(item.notes || '').trim() || null,
+    editableDetailLines: Array.isArray(item.editableDetailLines)
+      ? item.editableDetailLines.map((line) => String(line || '').trim()).filter(Boolean)
+      : [],
+  }));
 
-  if (!requestedClientId && !clientName) throw new Error('Indica el nombre del cliente.');
-  if (!requestedClientId && !phone) throw new Error('Indica un telefono valido del cliente.');
-  if (fulfillment === 'delivery' && !deliveryAddress) throw new Error('La direccion es obligatoria para delivery.');
   if (items.length === 0) throw new Error('Agrega al menos un producto.');
-
-  const supabase = createSupabaseServiceRoleServer();
-  const fxRate = await loadActiveExchangeRate(supabase);
-  const productIds = Array.from(new Set(items.map((item) => item.productId)));
-  const { data: productsData, error: productsError } = await supabase
-    .from('products')
-    .select('id, sku, name, source_price_currency, source_price_amount, base_price_usd, base_price_bs')
-    .in('id', productIds)
-    .eq('is_active', true);
-
-  if (productsError) throw new Error(productsError.message);
-
-  const productsById = new Map<number, CounterProductRow>(
-    ((productsData ?? []) as CounterProductRow[]).map((product) => [Number(product.id), product])
-  );
-  if (productsById.size !== productIds.length) {
-    throw new Error('Uno de los productos no esta activo o no existe.');
+  if (items.some((item) => item.productId <= 0 || !Number.isFinite(item.qty) || item.qty <= 0)) {
+    throw new Error('Uno de los productos tiene una cantidad invalida.');
   }
 
-  let clientId = requestedClientId;
-  let resolvedClientName = clientName;
-  let resolvedClientPhone = phone;
-
-  if (clientId > 0) {
-    const { data: selectedClient, error: selectedClientError } = await supabase
-      .from('clients')
-      .select('id, full_name, phone, client_type, fund_balance_usd')
-      .eq('id', clientId)
-      .maybeSingle();
-
-    if (selectedClientError) throw new Error(selectedClientError.message);
-    if (!selectedClient) throw new Error('El cliente seleccionado no existe.');
-
-    const client = selectedClient as CounterClientRow;
-    resolvedClientName = String(client.full_name || clientName || '').trim();
-    resolvedClientPhone = normalizePhone(client.phone || phone || '');
-  } else {
-    const { data: existingClients, error: existingClientError } = await supabase
-      .from('clients')
-      .select('id, full_name, phone, client_type, fund_balance_usd')
-      .or(buildClientPhoneOrFilters(phone).join(','))
-      .limit(1);
-
-    if (existingClientError) throw new Error(existingClientError.message);
-
-    const existingClient = (existingClients?.[0] ?? null) as CounterClientRow | null;
-    clientId = Number(existingClient?.id || 0);
-    if (existingClient) {
-      resolvedClientName = String(existingClient.full_name || clientName).trim();
-      resolvedClientPhone = normalizePhone(existingClient.phone || phone);
-    }
-  }
-
-  if (!clientId) {
-    const clientType =
-      input.clientType === 'assigned' || input.clientType === 'legacy' || input.clientType === 'own'
+  const payload = {
+    clientId: input.clientId ?? null,
+    clientName: String(input.clientName || '').trim(),
+    clientPhone: String(input.clientPhone || '').trim(),
+    clientType:
+      input.clientType === 'assigned' || input.clientType === 'legacy'
         ? input.clientType
-        : 'own';
-    const { data: createdClient, error: createClientError } = await supabase
-      .from('clients')
-      .insert({
-        full_name: clientName,
-        phone,
-        client_type: clientType,
-      })
-      .select('id, full_name, phone, client_type, fund_balance_usd')
-      .single();
-
-    if (createClientError) throw new Error(createClientError.message);
-    clientId = Number(createdClient.id);
-    const client = createdClient as CounterClientRow;
-    resolvedClientName = String(client.full_name || clientName).trim();
-    resolvedClientPhone = normalizePhone(client.phone || phone);
-  }
-
-  const { data: clientProfileBefore, error: clientProfileBeforeError } = await supabase
-    .from('clients')
-    .select(`
-      id,
-      full_name,
-      phone,
-      client_type,
-      fund_balance_usd,
-      billing_company_name,
-      billing_tax_id,
-      billing_address,
-      billing_phone,
-      delivery_note_name,
-      delivery_note_document_id,
-      delivery_note_address,
-      delivery_note_phone,
-      recent_addresses
-    `)
-    .eq('id', clientId)
-    .maybeSingle();
-
-  if (clientProfileBeforeError) throw new Error(clientProfileBeforeError.message);
-  if (!clientProfileBefore) throw new Error('No se pudo confirmar el cliente.');
-
-  const clientUpdatePayload: Record<string, unknown> = {};
-  if (fulfillment === 'delivery') {
-    clientUpdatePayload.recent_addresses = mergeRecentAddresses(
-      (clientProfileBefore as CounterClientProfileRow).recent_addresses,
-      deliveryAddress,
-      deliveryGpsUrl
-    );
-  }
-  if (input.hasInvoice) {
-    clientUpdatePayload.billing_company_name = invoiceCompanyName || null;
-    clientUpdatePayload.billing_tax_id = invoiceTaxId || null;
-    clientUpdatePayload.billing_address = invoiceAddress || null;
-    clientUpdatePayload.billing_phone = invoicePhone || null;
-  }
-  if (input.hasDeliveryNote) {
-    clientUpdatePayload.delivery_note_name = deliveryNoteName || null;
-    clientUpdatePayload.delivery_note_document_id = deliveryNoteDocumentId || null;
-    clientUpdatePayload.delivery_note_address = deliveryNoteAddress || null;
-    clientUpdatePayload.delivery_note_phone = deliveryNotePhone || null;
-  }
-
-  let clientProfile = clientProfileBefore as CounterClientProfileRow;
-  if (Object.keys(clientUpdatePayload).length > 0) {
-    const { data: updatedClientProfile, error: updateClientProfileError } = await supabase
-      .from('clients')
-      .update(clientUpdatePayload)
-      .eq('id', clientId)
-      .select(`
-        id,
-        full_name,
-        phone,
-        client_type,
-        fund_balance_usd,
-        billing_company_name,
-        billing_tax_id,
-        billing_address,
-        billing_phone,
-        delivery_note_name,
-        delivery_note_document_id,
-        delivery_note_address,
-        delivery_note_phone,
-        recent_addresses
-      `)
-      .single();
-
-    if (updateClientProfileError) throw new Error(updateClientProfileError.message);
-    clientProfile = updatedClientProfile as CounterClientProfileRow;
-  }
-
-  const itemSnapshots = items.map((item) => {
-    const product = productsById.get(item.productId);
-    if (!product) throw new Error('Producto no encontrado.');
-    const sourceCurrency = product.source_price_currency === 'VES' ? 'VES' : 'USD';
-    const sourceAmount =
-      sourceCurrency === 'VES'
-        ? toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_bs, 0))
-        : toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_usd, 0));
-
-    return calculateOrderLineSnapshot({
-      sourceCurrency,
-      sourceAmount,
-      quantity: item.qty,
-      fxRate,
-      fallbackUnitUsd: toSafeNumber(product.base_price_usd, 0),
-    });
-  });
-  const subtotalUsd = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0);
-  const subtotalBs = itemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0);
-  const discountPct = input.discountEnabled
-    ? Math.max(0, Math.min(100, toSafeNumber(String(input.discountPct || '0').replace(',', '.'), 0)))
-    : 0;
-  const invoiceTaxPct = input.hasInvoice
-    ? Math.max(0, toSafeNumber(String(input.invoiceTaxPct || '16').replace(',', '.'), 16))
-    : 0;
-  const totals = calculateOrderTotalsSnapshot({ subtotalUsd, subtotalBs, discountPct, invoiceTaxPct });
-  const orderNumber = await generateUniqueOrderNumber(supabase);
-  const nowIso = new Date().toISOString();
-  const schedule = normalizeSchedule(input);
-  const sendNowToKitchen = schedule.asap;
-  const paymentChangeFor = String(input.paymentChangeFor || '').trim()
-    ? toSafeNumber(String(input.paymentChangeFor).replace(',', '.'), 0)
-    : null;
-  const paymentMethod = String(input.paymentMethod || '').trim() || 'pending';
-  const paymentCurrency = input.paymentCurrency === 'VES' ? 'VES' : 'USD';
-  const paymentChangeCurrency = input.paymentChangeCurrency === 'VES' ? 'VES' : 'USD';
-  const note = String(input.note || '').trim();
-
-  const extraFields = {
-    schedule: {
-      date: schedule.date,
-      time_12: schedule.time12,
-      time_24: schedule.time24,
-      asap: schedule.asap,
-    },
-    receiver: {
-      name: receiverName || null,
-      phone: receiverPhone || null,
-    },
-    delivery: {
-      address: fulfillment === 'delivery' ? deliveryAddress : null,
-      gps_url: fulfillment === 'delivery' ? deliveryGpsUrl || null : null,
-    },
-    payment: {
-      method: paymentMethod,
-      currency: paymentCurrency,
-      requires_change: Boolean(input.paymentRequiresChange),
-      change_for: paymentChangeFor,
-      change_currency: paymentChangeCurrency,
-      notes: String(input.paymentNote || '').trim() || null,
-      client_fund_used_usd: 0,
-    },
-    documents: {
-      has_delivery_note: Boolean(input.hasDeliveryNote),
-      has_invoice: Boolean(input.hasInvoice),
-      invoice_data_note: invoiceDataNote || null,
-      invoice_snapshot: input.hasInvoice
-        ? {
-            company_name: clientProfile.billing_company_name ?? null,
-            tax_id: clientProfile.billing_tax_id ?? null,
-            address: clientProfile.billing_address ?? null,
-            phone: clientProfile.billing_phone ?? null,
-          }
-        : null,
-      delivery_note_snapshot: input.hasDeliveryNote
-        ? {
-            name: clientProfile.delivery_note_name ?? null,
-            document_id: clientProfile.delivery_note_document_id ?? null,
-            address: clientProfile.delivery_note_address ?? null,
-            phone: clientProfile.delivery_note_phone ?? null,
-          }
-        : null,
-    },
-    pricing: {
-      fx_rate: fxRate,
-      discount_enabled: discountPct > 0,
-      discount_pct: discountPct,
-      discount_amount_usd: totals.discountAmountUsd,
-      discount_amount_bs: totals.discountAmountBs,
-      invoice_tax_pct: invoiceTaxPct,
-      invoice_tax_amount_usd: totals.invoiceTaxAmountUsd,
-      invoice_tax_amount_bs: totals.invoiceTaxAmountBs,
-      subtotal_usd: totals.subtotalAfterDiscountUsd,
-      subtotal_bs: totals.subtotalAfterDiscountBs,
-      subtotal_after_discount_usd: totals.subtotalAfterDiscountUsd,
-      subtotal_after_discount_bs: totals.subtotalAfterDiscountBs,
-      total_usd: totals.totalUsd,
-      total_bs: totals.totalBs,
-    },
-    note: note || null,
-    ui: {
-      quote_only: false,
-    },
-    counter: {
-      quick_sale: true,
-      created_at: nowIso,
-      scheduled_by_counter: !schedule.asap,
-      client_name_snapshot: resolvedClientName,
-      client_phone_snapshot: resolvedClientPhone || null,
-    },
+        : 'own',
+    fulfillment: input.fulfillment === 'delivery' ? 'delivery' : 'pickup',
+    deliveryAddress: String(input.deliveryAddress || '').trim(),
+    deliveryGpsUrl: String(input.deliveryGpsUrl || '').trim(),
+    receiverName: String(input.receiverName || '').trim(),
+    receiverPhone: String(input.receiverPhone || '').trim(),
+    note: String(input.note || '').trim(),
+    scheduleAsap: Boolean(input.scheduleAsap),
+    scheduledDate: String(input.scheduledDate || '').trim(),
+    scheduledTime: String(input.scheduledTime || '').trim(),
+    paymentMethod: String(input.paymentMethod || '').trim(),
+    paymentCurrency: input.paymentCurrency === 'USD' ? 'USD' : 'VES',
+    paymentRequiresChange: Boolean(input.paymentRequiresChange),
+    paymentChangeFor: String(input.paymentChangeFor || '').trim(),
+    paymentChangeCurrency: input.paymentChangeCurrency === 'VES' ? 'VES' : 'USD',
+    paymentNote: String(input.paymentNote || '').trim(),
+    discountRuleId:
+      input.discountRuleId == null ? null : Math.trunc(Number(input.discountRuleId)),
+    hasDeliveryNote: Boolean(input.hasDeliveryNote),
+    hasInvoice: Boolean(input.hasInvoice),
+    invoiceTaxPct: String(input.invoiceTaxPct ?? '16').trim(),
+    invoiceDataNote: String(input.invoiceDataNote || '').trim(),
+    invoiceCompanyName: String(input.invoiceCompanyName || '').trim(),
+    invoiceTaxId: String(input.invoiceTaxId || '').trim(),
+    invoiceAddress: String(input.invoiceAddress || '').trim(),
+    invoicePhone: String(input.invoicePhone || '').trim(),
+    deliveryNoteName: String(input.deliveryNoteName || '').trim(),
+    deliveryNoteDocumentId: String(input.deliveryNoteDocumentId || '').trim(),
+    deliveryNoteAddress: String(input.deliveryNoteAddress || '').trim(),
+    deliveryNotePhone: String(input.deliveryNotePhone || '').trim(),
+    items,
   };
 
-  const { data: createdOrder, error: orderError } = await supabase
-    .from('orders')
-    .insert({
-      order_number: orderNumber,
-      client_id: clientId,
-      created_by_user_id: ctx.user.id,
-      attributed_advisor_id: ctx.user.id,
-      source: 'walk_in',
-      fulfillment,
-      status: sendNowToKitchen ? 'confirmed' : 'created',
-      sent_to_kitchen_at: sendNowToKitchen ? nowIso : null,
-      total_usd: totals.totalUsd,
-      total_bs_snapshot: totals.totalBs,
-      is_price_locked: false,
-      delivery_address: fulfillment === 'delivery' ? deliveryAddress : null,
-      receiver_name: receiverName || null,
-      receiver_phone: receiverPhone || null,
-      notes: note || null,
-      extra_fields: extraFields,
-    })
-    .select('id')
-    .single();
-
-  if (orderError) throw new Error(orderError.message);
-  const orderId = Number(createdOrder.id);
-
-  const itemsPayload = items.map((item, index) => {
-    const product = productsById.get(item.productId);
-    if (!product) throw new Error('Producto no encontrado.');
-    const sourceCurrency = product.source_price_currency === 'VES' ? 'VES' : 'USD';
-    const sourceAmount =
-      sourceCurrency === 'VES'
-        ? toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_bs, 0))
-        : toSafeNumber(product.source_price_amount, toSafeNumber(product.base_price_usd, 0));
-    const snapshot = itemSnapshots[index];
-
-    return {
-      order_id: orderId,
-      product_id: item.productId,
-      qty: item.qty,
-      pricing_origin_currency: sourceCurrency,
-      pricing_origin_amount: sourceAmount,
-      unit_price_usd_snapshot: snapshot.unitUsd,
-      line_total_usd: snapshot.lineUsd,
-      unit_price_bs_snapshot: snapshot.unitBs,
-      line_total_bs_snapshot: snapshot.lineBs,
-      sku_snapshot: product.sku,
-      product_name_snapshot: product.name || 'Producto',
-      notes: buildOrderItemNotes(item),
-    };
+  const { data, error } = await ctx.supabase.rpc('counter_create_direct_sale', {
+    p_idempotency_key: idempotencyKey,
+    p_payload: payload,
   });
-
-  const { error: itemsError } = await supabase.from('order_items').insert(itemsPayload);
-  if (itemsError) throw new Error(itemsError.message);
-
-  await supabase.from('order_timeline_events').insert({
-    order_id: orderId,
-    order_number: orderNumber,
-    event_type: sendNowToKitchen ? 'counter_quick_sale_created' : 'counter_scheduled_order_created',
-    event_group: sendNowToKitchen ? 'kitchen' : 'approval',
-    title: sendNowToKitchen ? 'Venta de mostrador enviada a cocina' : 'Pedido agendado por mostrador',
-    message: sendNowToKitchen
-      ? 'El counter creo la venta y la envio directamente a cocina.'
-      : 'El counter creo un pedido agendado para que master lo envie a cocina cuando corresponda.',
-    severity: sendNowToKitchen ? 'info' : 'warning',
-    actor_user_id: ctx.user.id,
-    payload: {
-      source: 'counter_quick_sale',
-      fulfillment,
-      scheduled: !sendNowToKitchen,
-      schedule_date: schedule.date,
-      schedule_time: schedule.time24,
-    },
-  });
+  if (error) throw new Error(directSaleErrorMessage(error.message));
+  const result = asRecord(data);
+  const orderId = Math.trunc(toSafeNumber(result.id, 0));
+  if (orderId <= 0) throw new Error('La venta se creo sin un numero de orden valido.');
 
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');
   revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
 
-  return { id: orderId, orderNumber, sentToKitchen: sendNowToKitchen, scheduled: !sendNowToKitchen };
+  return {
+    id: orderId,
+    orderNumber: String(result.orderNumber || ''),
+    sentToKitchen: Boolean(result.sentToKitchen),
+    scheduled: Boolean(result.scheduled),
+    clientId: Math.trunc(toSafeNumber(result.clientId, 0)),
+    clientCreated: Boolean(result.clientCreated),
+    fxRate: toSafeNumber(result.fxRate, 0),
+    subtotalUsd: roundCounterMoney(result.subtotalUsd),
+    subtotalBs: roundCounterMoney(result.subtotalBs),
+    totalUsd: roundCounterMoney(result.totalUsd),
+    totalBs: roundCounterMoney(result.totalBs),
+    discountRuleId:
+      result.discountRuleId == null
+        ? null
+        : Math.trunc(toSafeNumber(result.discountRuleId, 0)),
+    discountPct: toSafeNumber(result.discountPct, 0),
+    openPaymentAfterCreate: Boolean(input.openPaymentAfterCreate),
+  };
 }
 
 export async function updateCounterPickupScheduleAction(

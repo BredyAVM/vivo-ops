@@ -55,6 +55,10 @@ import type {
   CounterPickupScheduleIntent,
   CounterPickupScheduleResult,
 } from './pickup-contract';
+import type {
+  CounterDirectSaleIntent,
+  CounterDiscountRuleOption,
+} from './direct-sale-contract';
 import {
   loadCounterCashSnapshotAction,
   loadCounterCatalogAction,
@@ -258,6 +262,7 @@ function getQuickSalePaymentCurrency(method: string): 'USD' | 'VES' | null {
 }
 
 const PUSH_TIMEOUT_MS = 12000;
+const COUNTER_CATALOG_FRESH_MS = 60_000;
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -592,8 +597,11 @@ export default function CounterClient({
   const [cashLoading, setCashLoading] = useState(false);
   const [quickSaleProducts, setQuickSaleProducts] = useState<CounterQuickSaleProductOption[]>([]);
   const [quickSaleProductComponents, setQuickSaleProductComponents] = useState<CounterQuickSaleProductComponent[]>([]);
+  const [quickSaleDiscountRules, setQuickSaleDiscountRules] = useState<CounterDiscountRuleOption[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const catalogLoadedRef = useRef(false);
+  const catalogLoadedAtRef = useRef(0);
+  const [paymentOrderIdToOpen, setPaymentOrderIdToOpen] = useState<number | null>(null);
   const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
   const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
   const [masterAgendaNextCursor, setMasterAgendaNextCursor] = useState<CounterAgendaSearchCursor | null>(null);
@@ -673,14 +681,19 @@ export default function CounterClient({
     }
   }, []);
 
-  const ensureCounterCatalog = useCallback(async () => {
-    if (catalogLoadedRef.current) return true;
+  const ensureCounterCatalog = useCallback(async (refreshIfStale = false) => {
+    const catalogIsFresh =
+      catalogLoadedRef.current &&
+      Date.now() - catalogLoadedAtRef.current < COUNTER_CATALOG_FRESH_MS;
+    if (catalogLoadedRef.current && (!refreshIfStale || catalogIsFresh)) return true;
     setCatalogLoading(true);
     try {
       const catalog = await loadCounterCatalogAction();
       setQuickSaleProducts(catalog.products);
       setQuickSaleProductComponents(catalog.components);
+      setQuickSaleDiscountRules(catalog.discountRules);
       catalogLoadedRef.current = true;
+      catalogLoadedAtRef.current = Date.now();
       return true;
     } catch (error) {
       setMessage({
@@ -919,7 +932,7 @@ export default function CounterClient({
       setQuickSaleOpen(false);
       return;
     }
-    if (await ensureCounterCatalog()) setQuickSaleOpen(true);
+    if (await ensureCounterCatalog(true)) setQuickSaleOpen(true);
   }
 
   function handleToggleCashPanel() {
@@ -1133,42 +1146,7 @@ export default function CounterClient({
     }
   }
 
-  function handleCreateQuickSale(input: {
-    clientId?: number | null;
-    clientName: string;
-    clientPhone: string;
-    clientType?: 'own' | 'assigned' | 'legacy';
-    fulfillment: 'pickup' | 'delivery';
-    deliveryAddress: string;
-    deliveryGpsUrl: string;
-    receiverName: string;
-    receiverPhone: string;
-    note: string;
-    scheduleAsap: boolean;
-    scheduledDate: string;
-    scheduledTime: string;
-    paymentMethod: string;
-    paymentCurrency: 'USD' | 'VES';
-    paymentRequiresChange: boolean;
-    paymentChangeFor: string;
-    paymentChangeCurrency: 'USD' | 'VES';
-    paymentNote: string;
-    discountEnabled?: boolean;
-    discountPct?: string | number | null;
-    hasDeliveryNote?: boolean;
-    hasInvoice?: boolean;
-    invoiceTaxPct?: string | number | null;
-    invoiceDataNote?: string | null;
-    invoiceCompanyName?: string | null;
-    invoiceTaxId?: string | null;
-    invoiceAddress?: string | null;
-    invoicePhone?: string | null;
-    deliveryNoteName?: string | null;
-    deliveryNoteDocumentId?: string | null;
-    deliveryNoteAddress?: string | null;
-    deliveryNotePhone?: string | null;
-    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>;
-  }) {
+  function handleCreateQuickSale(input: CounterDirectSaleIntent) {
     setMessage(null);
     setWorkingOrderId(-1);
     startTransition(async () => {
@@ -1182,6 +1160,9 @@ export default function CounterClient({
         });
         setQuickSaleOpen(false);
         await refreshCounter();
+        setSelectedOrderId(result.id);
+        setPaymentOrderIdToOpen(result.openPaymentAfterCreate ? result.id : null);
+        await refreshCounterOrder(result.id);
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1564,6 +1545,7 @@ export default function CounterClient({
               <CounterQuickSalePanel
                 products={quickSaleProducts}
                 productComponents={quickSaleProductComponents}
+                discountRules={quickSaleDiscountRules}
                 activeBsRate={activeBsRate}
                 isWorking={workingOrderId === -1}
                 onCancel={() => setQuickSaleOpen(false)}
@@ -1577,6 +1559,8 @@ export default function CounterClient({
               <OrderDetail
                 key={selectedOrder.id}
                 order={selectedOrder}
+                initialPaymentOpen={paymentOrderIdToOpen === selectedOrder.id}
+                onInitialPaymentOpened={() => setPaymentOrderIdToOpen(null)}
                 paymentAccounts={paymentAccounts}
                 quickSaleProducts={quickSaleProducts}
                 quickSaleProductComponents={quickSaleProductComponents}
@@ -2449,6 +2433,7 @@ function MasterAgendaSearchPanel({
 function CounterQuickSalePanel({
   products,
   productComponents,
+  discountRules,
   activeBsRate,
   isWorking,
   onCancel,
@@ -2456,45 +2441,11 @@ function CounterQuickSalePanel({
 }: {
   products: CounterQuickSaleProductOption[];
   productComponents: CounterQuickSaleProductComponent[];
+  discountRules: CounterDiscountRuleOption[];
   activeBsRate: number;
   isWorking: boolean;
   onCancel: () => void;
-  onSubmit: (input: {
-    clientId?: number | null;
-    clientName: string;
-    clientPhone: string;
-    clientType?: 'own' | 'assigned' | 'legacy';
-    fulfillment: 'pickup' | 'delivery';
-    deliveryAddress: string;
-    deliveryGpsUrl: string;
-    receiverName: string;
-    receiverPhone: string;
-    note: string;
-    scheduleAsap: boolean;
-    scheduledDate: string;
-    scheduledTime: string;
-    paymentMethod: string;
-    paymentCurrency: 'USD' | 'VES';
-    paymentRequiresChange: boolean;
-    paymentChangeFor: string;
-    paymentChangeCurrency: 'USD' | 'VES';
-    paymentNote: string;
-    discountEnabled?: boolean;
-    discountPct?: string | number | null;
-    hasDeliveryNote?: boolean;
-    hasInvoice?: boolean;
-    invoiceTaxPct?: string | number | null;
-    invoiceDataNote?: string | null;
-    invoiceCompanyName?: string | null;
-    invoiceTaxId?: string | null;
-    invoiceAddress?: string | null;
-    invoicePhone?: string | null;
-    deliveryNoteName?: string | null;
-    deliveryNoteDocumentId?: string | null;
-    deliveryNoteAddress?: string | null;
-    deliveryNotePhone?: string | null;
-    items: Array<{ productId: number; qty: number; notes?: string | null; editableDetailLines?: string[] | null }>;
-  }) => void;
+  onSubmit: (input: CounterDirectSaleIntent) => void;
 }) {
   const [clientSearch, setClientSearch] = useState('');
   const [clientSearchResults, setClientSearchResults] = useState<CounterClientSearchResult[]>([]);
@@ -2520,8 +2471,9 @@ function CounterQuickSalePanel({
   const [paymentChangeFor, setPaymentChangeFor] = useState('');
   const [paymentChangeCurrency, setPaymentChangeCurrency] = useState<'USD' | 'VES'>('USD');
   const [paymentNote, setPaymentNote] = useState('');
-  const [discountEnabled, setDiscountEnabled] = useState(false);
-  const [discountPct, setDiscountPct] = useState('0');
+  const [discountRuleId, setDiscountRuleId] = useState('');
+  const [openPaymentAfterCreate, setOpenPaymentAfterCreate] = useState(true);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [hasDeliveryNote, setHasDeliveryNote] = useState(false);
   const [hasInvoice, setHasInvoice] = useState(false);
   const [invoiceTaxPct, setInvoiceTaxPct] = useState('16');
@@ -2621,14 +2573,28 @@ function CounterQuickSalePanel({
     }),
     [lineRows]
   );
+  const applicableDiscountRules = useMemo(
+    () => discountRules.filter((rule) =>
+      (rule.paymentMethodCodes.length === 0 || rule.paymentMethodCodes.includes(paymentMethod)) &&
+      (rule.paymentCurrencies.length === 0 || rule.paymentCurrencies.includes(paymentCurrency)) &&
+      (rule.fulfillments.length === 0 || rule.fulfillments.includes(fulfillment))
+    ),
+    [discountRules, fulfillment, paymentCurrency, paymentMethod]
+  );
+  const selectedDiscountRule =
+    applicableDiscountRules.find((rule) => rule.id === Number(discountRuleId)) ?? null;
   const totals = useMemo(() => {
     return calculateOrderTotalsSnapshot({
       subtotalUsd: cartSubtotal.usd,
       subtotalBs: cartSubtotal.bs,
-      discountPct: discountEnabled ? toDecimalInput(discountPct) : 0,
+      discountPct: selectedDiscountRule?.discountPct ?? 0,
       invoiceTaxPct: hasInvoice ? toDecimalInput(invoiceTaxPct) : 0,
     });
-  }, [cartSubtotal.bs, cartSubtotal.usd, discountEnabled, discountPct, hasInvoice, invoiceTaxPct]);
+  }, [cartSubtotal.bs, cartSubtotal.usd, hasInvoice, invoiceTaxPct, selectedDiscountRule]);
+
+  useEffect(() => {
+    if (discountRuleId && !selectedDiscountRule) setDiscountRuleId('');
+  }, [discountRuleId, selectedDiscountRule]);
 
   async function handleClientSearch() {
     const query = clientSearch.trim();
@@ -2837,6 +2803,8 @@ function CounterQuickSalePanel({
     }
 
     onSubmit({
+      idempotencyKey,
+      openPaymentAfterCreate,
       clientId: selectedClient?.id ?? null,
       clientName: clientName.trim(),
       clientPhone: clientPhone.trim(),
@@ -2856,8 +2824,7 @@ function CounterQuickSalePanel({
       paymentChangeFor,
       paymentChangeCurrency,
       paymentNote: paymentNote.trim(),
-      discountEnabled,
-      discountPct,
+      discountRuleId: selectedDiscountRule?.id ?? null,
       hasDeliveryNote,
       hasInvoice,
       invoiceTaxPct,
@@ -2958,11 +2925,21 @@ function CounterQuickSalePanel({
             </div>
           ) : null}
           {selectedClient ? (
-            <div className="rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
+            <div className="space-y-2 rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
               <div className="text-sm font-semibold text-emerald-100">{selectedClient.fullName}</div>
               <div className="mt-1 text-xs text-emerald-100/75">
                 {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
               </div>
+              <label className="block text-xs text-emerald-100/75">
+                Teléfono confirmado para esta venta
+                <input
+                  value={clientPhone}
+                  onChange={(event) => setClientPhone(event.target.value)}
+                  inputMode="tel"
+                  placeholder="Obligatorio"
+                  className="mt-1 w-full rounded-[8px] border border-emerald-200/30 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                />
+              </label>
             </div>
           ) : null}
           {newClientMode ? (
@@ -3197,23 +3174,30 @@ function CounterQuickSalePanel({
               </div>
             )}
           </div>
-          <div className="grid gap-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3 sm:grid-cols-2">
-            <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
-              <input
-                type="checkbox"
-                checked={discountEnabled}
-                onChange={(event) => setDiscountEnabled(event.target.checked)}
-              />
-              Descuento
+          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+            <label className="text-xs text-[#9FA0AA]">
+              Regla de descuento
+              <select
+                value={discountRuleId}
+                onChange={(event) => setDiscountRuleId(event.target.value)}
+                disabled={applicableDiscountRules.length === 0}
+                className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70 disabled:opacity-60"
+              >
+                <option value="">
+                  {applicableDiscountRules.length === 0
+                    ? 'No hay reglas activas aplicables'
+                    : 'Sin descuento'}
+                </option>
+                {applicableDiscountRules.map((rule) => (
+                  <option key={rule.id} value={rule.id}>
+                    {rule.name} ({rule.discountPct}%)
+                  </option>
+                ))}
+              </select>
             </label>
-            <input
-              value={discountPct}
-              onChange={(event) => setDiscountPct(event.target.value)}
-              disabled={!discountEnabled}
-              inputMode="decimal"
-              placeholder="% descuento"
-              className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70 disabled:opacity-50"
-            />
+            <p className="mt-2 text-[11px] text-[#9FA0AA]">
+              Mostrador solo puede aplicar reglas generales activas. La vigencia se vuelve a validar al confirmar.
+            </p>
           </div>
         </div>
 
@@ -3538,9 +3522,9 @@ function CounterQuickSalePanel({
                 <span>Subtotal</span>
                 <span>{moneyUsd(cartSubtotal.usd)} / {moneyBs(cartSubtotal.bs)}</span>
               </div>
-              {discountEnabled && toDecimalInput(discountPct) > 0 ? (
+              {selectedDiscountRule ? (
                 <div className="flex justify-between gap-3 text-emerald-200">
-                  <span>Descuento ({toDecimalInput(discountPct)}%)</span>
+                  <span>Descuento ({selectedDiscountRule.discountPct}%)</span>
                   <span>-{moneyUsd(totals.discountAmountUsd)} / -{moneyBs(totals.discountAmountBs)}</span>
                 </div>
               ) : null}
@@ -3556,6 +3540,21 @@ function CounterQuickSalePanel({
               </div>
             </div>
           </div>
+
+          <label className="flex items-start gap-2 rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-sm text-[#F5F5F7]">
+            <input
+              type="checkbox"
+              checked={openPaymentAfterCreate}
+              onChange={(event) => setOpenPaymentAfterCreate(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Abrir cobro al crear
+              <span className="mt-0.5 block text-xs font-normal text-[#9FA0AA]">
+                La orden se crea primero y luego usa el mismo motor de pagos mixtos de Mostrador.
+              </span>
+            </span>
+          </label>
 
           <button
             type="button"
@@ -3745,6 +3744,8 @@ function getCounterWorkflowChecks(order: CounterOrder) {
 
 function OrderDetail({
   order,
+  initialPaymentOpen,
+  onInitialPaymentOpened,
   paymentAccounts,
   quickSaleProducts,
   quickSaleProductComponents,
@@ -3761,6 +3762,8 @@ function OrderDetail({
   catalogLoading,
 }: {
   order: CounterOrder;
+  initialPaymentOpen: boolean;
+  onInitialPaymentOpened: () => void;
   paymentAccounts: CounterPaymentAccountOption[];
   quickSaleProducts: CounterQuickSaleProductOption[];
   quickSaleProductComponents: CounterQuickSaleProductComponent[];
@@ -3839,7 +3842,7 @@ function OrderDetail({
             ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de cerrar la entrega.'
             : 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
           : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
-  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(initialPaymentOpen);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
   const [deliveryDispatchOpen, setDeliveryDispatchOpen] = useState(false);
   const currentAction = getCounterCurrentAction(order);
@@ -3868,6 +3871,10 @@ function OrderDetail({
     order.refundAuthorizations.some(
       (authorization) => authorization.status === 'pending' || authorization.status === 'approved'
     );
+
+  useEffect(() => {
+    if (initialPaymentOpen) onInitialPaymentOpened();
+  }, [initialPaymentOpen, onInitialPaymentOpened]);
 
   function handlePrimaryActionClick() {
     if (isReadyDeliveryAction) {

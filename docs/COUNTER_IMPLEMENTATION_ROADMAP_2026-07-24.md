@@ -15,7 +15,8 @@ Estado:
 - Bloque 4: cerrado en su alcance de motor de caja registradora.
 - Bloque 5: cerrado en su alcance de pickup operativo.
 - Bloque 6: cerrado en su alcance de delivery y liquidación.
-- Bloques 7 a 12: no iniciados.
+- Bloque 7: cerrado en su alcance de venta directa y agenda.
+- Bloques 8 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -58,6 +59,12 @@ Evidencia del Bloque 6:
 - `docs/COUNTER_BLOCK_6_DIGITAL_CHANGE_EXECUTION_2026-07-27.sql`
 - `docs/COUNTER_BLOCK_6_DISPATCH_IDEMPOTENCY_2026-07-27.sql`
 - `docs/COUNTER_BLOCK_6_ROLLBACK_2026-07-27.sql`
+
+Evidencia del Bloque 7:
+
+- `docs/COUNTER_BLOCK_7_DIRECT_SALE_AUDIT_2026-07-27.md`
+- `docs/COUNTER_BLOCK_7_DIRECT_SALE_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_7_ROLLBACK_2026-07-27.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -569,6 +576,22 @@ incluso entre días y operadores distintos.
 
 ## 13. Bloque 7 - Venta directa y agenda
 
+Estado: **cerrado el 2026-07-27**.
+
+Se aplicó la migración
+`20260727181211_counter_block_7_atomic_direct_sale`. La creación secuencial
+desde una llave privilegiada fue reemplazada por un único RPC transaccional e
+idempotente. Cliente, perfil documental, orden, items, snapshots, totales,
+evento y destinatario se confirman juntos o se revierten juntos.
+
+El bloque agregó una sola tabla, `order_discount_rules`, para reglas generales
+reutilizables por roles. No se sembró ninguna regla activa. Se conservaron las
+tablas canónicas de clientes, órdenes, items, agenda, cocina, eventos y pagos.
+La venta inmediata queda `confirmed` y entra una sola vez a cocina; la futura
+queda `created` para Master. La orden no inventa un asesor: conserva atribución
+explícita a Mostrador y puede abrir el motor de cobro existente después de
+crearse.
+
 ### Objetivo
 
 Atender a una persona que llega sin orden previa.
@@ -915,9 +938,10 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 5 - Pickup operativo
+Bloque 8 - Consulta histórica y recuperación operativa
 ```
 
-Debe consumir el motor de caja ya cerrado y concentrarse en las reglas de
-modificación, autorización y entrega física de pickup sin ampliar el alcance a
-delivery ni a `/app/master/dashboard`.
+Debe reutilizar las búsquedas acotadas y el motor de caja ya cerrados para abrir
+el expediente de una orden bajo demanda, informar con precisión y cobrar deuda
+antigua sin cargar el histórico al abrir Counter ni ampliar el alcance a
+`/app/master/dashboard`.

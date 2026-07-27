@@ -500,10 +500,29 @@ Estado al 2026-07-27:
 - pruebas transaccionales con rollback, lint, TypeScript y build aprobados;
 - no se modificó `/app/master/dashboard`.
 
-El Bloque 7 debe revisar y completar venta directa y agenda: búsqueda o creación
-obligatoria del cliente, venta inmediata hacia cocina y venta futura hacia
-agenda, reutilizando productos, combos, precios, descuentos y snapshots
-canónicos.
+- Bloque 7 cerrado en su alcance de venta directa y agenda;
+- evidencia en
+  `docs/COUNTER_BLOCK_7_DIRECT_SALE_AUDIT_2026-07-27.md`;
+- migración remota
+  `20260727181211_counter_block_7_atomic_direct_sale` aplicada;
+- creación de cliente, orden, items, snapshots, totales y evento inicial
+  atómica e idempotente;
+- teléfono normalizado y protegido contra duplicados concurrentes;
+- venta inmediata entra una sola vez a cocina y venta futura queda en agenda
+  para Master;
+- productos simples, combos y configurables se validan de nuevo en servidor;
+- una venta de Mostrador no se atribuye falsamente a un asesor;
+- descuento libre eliminado: solo acepta una regla general activa y aplicable;
+- `order_discount_rules` es la única tabla nueva y quedó sin reglas activas;
+- el cobro opcional abre el motor mixto existente después de crear la orden;
+- pruebas transaccionales con rollback, lint focalizado, TypeScript y build
+  aprobados;
+- no se modificó `/app/master/dashboard`.
+
+El Bloque 8 debe completar consulta histórica y recuperación operativa:
+búsqueda profunda paginada por número, nombre y teléfono, expediente bajo
+demanda y acciones contextuales permitidas, incluyendo cobro de una orden
+futura, antigua o ya entregada.
 
 ## Prompt sugerido para abrir el chat nuevo
 

@@ -1,0 +1,72 @@
+export type CounterDiscountRuleOption = {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  discountPct: number;
+  paymentMethodCodes: string[];
+  paymentCurrencies: Array<'USD' | 'VES'>;
+  fulfillments: Array<'pickup' | 'delivery'>;
+  startsAt: string | null;
+  endsAt: string | null;
+};
+
+export type CounterDirectSaleIntent = {
+  idempotencyKey: string;
+  openPaymentAfterCreate: boolean;
+  clientId?: number | null;
+  clientName: string;
+  clientPhone: string;
+  clientType?: 'own' | 'assigned' | 'legacy';
+  fulfillment: 'pickup' | 'delivery';
+  deliveryAddress: string;
+  deliveryGpsUrl?: string | null;
+  receiverName?: string | null;
+  receiverPhone?: string | null;
+  note: string;
+  scheduleAsap: boolean;
+  scheduledDate: string;
+  scheduledTime: string;
+  paymentMethod: string;
+  paymentCurrency: 'USD' | 'VES';
+  paymentRequiresChange: boolean;
+  paymentChangeFor: string;
+  paymentChangeCurrency: 'USD' | 'VES';
+  paymentNote: string;
+  discountRuleId?: number | null;
+  hasDeliveryNote?: boolean;
+  hasInvoice?: boolean;
+  invoiceTaxPct?: string | number | null;
+  invoiceDataNote?: string | null;
+  invoiceCompanyName?: string | null;
+  invoiceTaxId?: string | null;
+  invoiceAddress?: string | null;
+  invoicePhone?: string | null;
+  deliveryNoteName?: string | null;
+  deliveryNoteDocumentId?: string | null;
+  deliveryNoteAddress?: string | null;
+  deliveryNotePhone?: string | null;
+  items: Array<{
+    productId: number;
+    qty: number;
+    notes?: string | null;
+    editableDetailLines?: string[] | null;
+  }>;
+};
+
+export type CounterDirectSaleResult = {
+  id: number;
+  orderNumber: string;
+  sentToKitchen: boolean;
+  scheduled: boolean;
+  clientId: number;
+  clientCreated: boolean;
+  fxRate: number;
+  subtotalUsd: number;
+  subtotalBs: number;
+  totalUsd: number;
+  totalBs: number;
+  discountRuleId: number | null;
+  discountPct: number;
+  openPaymentAfterCreate: boolean;
+};
