@@ -8383,7 +8383,7 @@ const handleSaveQuickCatalog = async () => {
     setSelectedAccountId(account.id);
     setAccountDetailTab('closures');
     resetBaselineForm();
-    setBaselineCountedAmount(String(Number((accountStatsById.get(account.id)?.balanceNative ?? 0).toFixed(2))));
+    setBaselineCountedAmount(String(Number(getExpectedAccountBalanceNative(account.id).toFixed(2))));
     setAccountDetailOpen(false);
     setBaselineOpen(true);
   };
@@ -12214,8 +12214,9 @@ const selectedCreateOrderClientAddresses = useMemo(
       viewMode === 'calculations';
 
     if (!needsMoneyActivity) return;
+    if (accountDetailOpen) return;
     void loadMoneyActivity();
-  }, [loadMoneyActivity, settingsTab, viewMode]);
+  }, [accountDetailOpen, loadMoneyActivity, settingsTab, viewMode]);
 
   useEffect(() => {
     if (!closureOpen || !selectedAccount) return;
@@ -23119,7 +23120,7 @@ deliveryAssignMode === 'external' ? (
                 <InfoCell
                   label="Esperado sistema"
                   value={fmtMoneyByCurrency(
-                    accountStatsById.get(selectedAccount.id)?.balanceNative ?? 0,
+                    selectedAccountSystemBalanceNative,
                     selectedAccount.currencyCode
                   )}
                 />
