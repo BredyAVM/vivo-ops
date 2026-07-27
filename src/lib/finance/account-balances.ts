@@ -30,6 +30,7 @@ type MoneyAccountBalanceBaselineRow = {
 };
 
 type MoneyAccountBalanceMovementRow = {
+  id?: number | string;
   money_account_id: number | string;
   direction: 'inflow' | 'outflow' | string | null;
   amount: number | string | null;
@@ -278,29 +279,46 @@ export async function loadMoneyAccountBalanceSnapshots(
     }
   };
 
-  if (minimumAnchorDate && accountIdsWithAnchor.length > 0) {
-    const anchoredMovementsResult = await supabase
-      .from('money_movements')
-      .select('money_account_id, direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
-      .eq('status', 'confirmed')
-      .in('money_account_id', accountIdsWithAnchor)
-      .gte('movement_date', minimumAnchorDate)
-      .limit(20000);
+  const loadConfirmedMovementPages = async (accountIdsForQuery: number[], minimumMovementDate?: string | null) => {
+    if (accountIdsForQuery.length === 0) return [] as MoneyAccountBalanceMovementRow[];
 
-    if (anchoredMovementsResult.error) throw new Error(anchoredMovementsResult.error.message);
-    applyMovementDeltas((anchoredMovementsResult.data ?? []) as MoneyAccountBalanceMovementRow[]);
+    const pageSize = 1000;
+    const rows: MoneyAccountBalanceMovementRow[] = [];
+    let from = 0;
+
+    while (true) {
+      let query = supabase
+        .from('money_movements')
+        .select(
+          'id, money_account_id, direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at'
+        )
+        .eq('status', 'confirmed')
+        .in('money_account_id', accountIdsForQuery)
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (minimumMovementDate) {
+        query = query.gte('movement_date', minimumMovementDate);
+      }
+
+      const result = await query;
+      if (result.error) throw new Error(result.error.message);
+
+      const pageRows = (result.data ?? []) as MoneyAccountBalanceMovementRow[];
+      rows.push(...pageRows);
+      if (pageRows.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  };
+
+  if (minimumAnchorDate && accountIdsWithAnchor.length > 0) {
+    applyMovementDeltas(await loadConfirmedMovementPages(accountIdsWithAnchor, minimumAnchorDate));
   }
 
   if (accountIdsWithoutAnchor.length > 0) {
-    const unanchoredMovementsResult = await supabase
-      .from('money_movements')
-      .select('money_account_id, direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
-      .eq('status', 'confirmed')
-      .in('money_account_id', accountIdsWithoutAnchor)
-      .limit(20000);
-
-    if (unanchoredMovementsResult.error) throw new Error(unanchoredMovementsResult.error.message);
-    applyMovementDeltas((unanchoredMovementsResult.data ?? []) as MoneyAccountBalanceMovementRow[]);
+    applyMovementDeltas(await loadConfirmedMovementPages(accountIdsWithoutAnchor));
   }
 
   const calculatedAt = new Date().toISOString();
