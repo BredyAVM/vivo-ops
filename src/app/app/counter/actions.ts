@@ -20,6 +20,14 @@ import type {
   CounterPickupScheduleIntent,
   CounterPickupScheduleResult,
 } from './pickup-contract';
+import type {
+  CounterDeliveryCashLine,
+  CounterDeliveryDispatchIntent,
+  CounterDeliveryDispatchResult,
+  CounterDeliveryReturnIntent,
+  CounterDeliveryReturnResult,
+  CounterDeliveryValueLine,
+} from './delivery-contract';
 
 type CounterQuickSaleInput = {
   clientId?: number | null;
@@ -627,40 +635,192 @@ export async function executeCounterRefundAction(
   };
 }
 
-export async function dispatchCounterDeliveryAction(input: {
-  orderId: number;
-  etaMinutes?: number | null;
-}) {
+function normalizeCounterDeliveryValueLines(
+  lines: CounterDeliveryValueLine[],
+  label: string
+) {
+  if (!Array.isArray(lines) || lines.length > 12) {
+    throw new Error(`${label} no puede tener mas de doce lineas.`);
+  }
+
+  return lines.map((line) => {
+    const lineKey = String(line.lineKey || '').trim();
+    const currencyCode = line.currencyCode === 'VES' ? 'VES' : 'USD';
+    const amount = roundCounterMoney(line.amount);
+    const exchangeRate =
+      currencyCode === 'VES' ? Number(line.exchangeRateVesPerUsd || 0) : null;
+
+    if (!lineKey || amount <= 0) {
+      throw new Error(`Revisa el identificador y monto de ${label.toLocaleLowerCase('es-VE')}.`);
+    }
+    if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
+      throw new Error(`${label} en bolivares requiere una tasa valida.`);
+    }
+
+    return {
+      line_key: lineKey,
+      currency_code: currencyCode,
+      amount,
+      exchange_rate_ves_per_usd: currencyCode === 'VES' ? Number(exchangeRate) : null,
+      reference_code: String(line.referenceCode || '').trim() || null,
+      notes: String(line.notes || '').trim() || null,
+    };
+  });
+}
+
+function normalizeCounterDeliveryCashLines(
+  lines: CounterDeliveryCashLine[],
+  label: string
+) {
+  const valueLines = normalizeCounterDeliveryValueLines(lines, label);
+
+  return valueLines.map((line, index) => {
+    const source = lines[index];
+    const moneyAccountId = Math.trunc(Number(source.moneyAccountId || 0));
+    const operationDate = String(source.operationDate || '').trim();
+
+    if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+      throw new Error(`${label} requiere una caja valida.`);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) {
+      throw new Error(`${label} requiere una fecha de operacion valida.`);
+    }
+
+    return {
+      ...line,
+      money_account_id: moneyAccountId,
+      operation_date: operationDate,
+    };
+  });
+}
+
+export async function dispatchCounterDeliveryAction(
+  input: CounterDeliveryDispatchIntent
+): Promise<CounterDeliveryDispatchResult> {
   const ctx = await requireCounterOperatorContext();
-  const orderId = Number(input.orderId || 0);
-  const etaMinutes =
-    input.etaMinutes == null
-      ? null
-      : Math.round(Number(input.etaMinutes));
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const etaMinutes = Math.round(Number(input.etaMinutes || 0));
 
   if (!Number.isFinite(orderId) || orderId <= 0) {
     throw new Error('La orden indicada no es valida.');
   }
-
-  if (etaMinutes != null && (!Number.isFinite(etaMinutes) || etaMinutes < 1 || etaMinutes > 1440)) {
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('La salida de delivery no tiene una clave valida.');
+  }
+  if (!Number.isFinite(etaMinutes) || etaMinutes < 1 || etaMinutes > 1440) {
     throw new Error('El tiempo estimado debe estar entre 1 y 1440 minutos.');
   }
 
-  const dispatchRpc = ctx.supabase.rpc.bind(ctx.supabase) as unknown as (
-    functionName: string,
-    args: Record<string, unknown>
-  ) => Promise<{ error: { message: string } | null }>;
-  const { error } = await dispatchRpc('counter_dispatch_order', {
+  const expectedCollectionLines = normalizeCounterDeliveryValueLines(
+    input.expectedCollectionLines,
+    'El cobro esperado'
+  );
+  const cashChangeLines = normalizeCounterDeliveryCashLines(
+    input.cashChangeLines,
+    'El cambio en efectivo'
+  );
+  const digitalBaseLines = normalizeCounterDeliveryValueLines(
+    input.digitalChangeLines,
+    'El cambio digital'
+  );
+  const digitalChangeLines = digitalBaseLines.map((line, index) => {
+    const method = input.digitalChangeLines[index].paymentMethodCode;
+    if (!['payment_mobile', 'transfer', 'zelle', 'other'].includes(method)) {
+      throw new Error('El cambio digital requiere un metodo valido.');
+    }
+    return { ...line, payment_method_code: method };
+  });
+
+  const { data, error } = await ctx.supabase.rpc('counter_dispatch_delivery', {
+    p_idempotency_key: idempotencyKey,
     p_order_id: orderId,
     p_eta_minutes: etaMinutes,
+    p_expected_collection_lines: expectedCollectionLines,
+    p_cash_change_lines: cashChangeLines,
+    p_digital_change_lines: digitalChangeLines,
+    p_notes: String(input.notes || '').trim() || null,
   });
 
   if (error) throw new Error(error.message);
+  const result = asRecord(data);
 
   revalidatePath('/app/counter');
   revalidatePath('/app/kitchen');
+  revalidatePath('/app/master/ops');
   revalidatePath('/app/advisor');
   revalidatePath('/app/advisor/inbox');
+
+  return {
+    ok: true,
+    orderId,
+    orderStatus: 'out_for_delivery',
+    deliverySettlementId: Math.trunc(toSafeNumber(result.delivery_settlement_id, 0)),
+    settlementStatus: String(result.settlement_status || 'open') as CounterDeliveryDispatchResult['settlementStatus'],
+    etaMinutes,
+    expectedCollectionUsd: roundCounterMoney(result.expected_collection_usd),
+    cashChangeUsd: roundCounterMoney(result.cash_change_usd),
+    digitalChangeUsd: roundCounterMoney(result.digital_change_usd),
+    requiredChangeUsd: roundCounterMoney(result.required_change_usd),
+  };
+}
+
+export async function recordCounterDeliveryReturnAction(
+  input: CounterDeliveryReturnIntent
+): Promise<CounterDeliveryReturnResult> {
+  const ctx = await requireCounterOperatorContext();
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
+  }
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('El retorno de delivery no tiene una clave valida.');
+  }
+
+  const customerCollectionLines = normalizeCounterDeliveryValueLines(
+    input.customerCollectionLines,
+    'El cobro recibido por el motorizado'
+  );
+  const cashReturnLines = normalizeCounterDeliveryCashLines(
+    input.cashReturnLines,
+    'El efectivo entregado a caja'
+  );
+
+  if (
+    customerCollectionLines.length === 0 &&
+    cashReturnLines.length === 0 &&
+    !input.collectionFinal
+  ) {
+    throw new Error('Agrega un cobro, un retorno de efectivo o marca la cobranza como final.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('counter_record_delivery_return', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_customer_collection_lines: customerCollectionLines,
+    p_cash_return_lines: cashReturnLines,
+    p_collection_final: Boolean(input.collectionFinal),
+    p_notes: String(input.notes || '').trim() || null,
+  });
+
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+
+  revalidatePath('/app/counter');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+
+  return {
+    ok: true,
+    orderId,
+    deliverySettlementId: Math.trunc(toSafeNumber(result.delivery_settlement_id, 0)),
+    settlementStatus: String(result.settlement_status || 'open') as CounterDeliveryReturnResult['settlementStatus'],
+    collectionFinal: Boolean(result.collection_final),
+  };
 }
 
 export async function createCounterQuickSaleAction(input: CounterQuickSaleInput) {

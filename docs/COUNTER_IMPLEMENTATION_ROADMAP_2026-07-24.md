@@ -14,7 +14,8 @@ Estado:
 - Bloque 3: cerrado en su alcance de lecturas ligeras y exactas.
 - Bloque 4: cerrado en su alcance de motor de caja registradora.
 - Bloque 5: cerrado en su alcance de pickup operativo.
-- Bloques 6 a 12: no iniciados.
+- Bloque 6: cerrado en su alcance de delivery y liquidación.
+- Bloques 7 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -49,6 +50,14 @@ Evidencia del Bloque 5:
 - `docs/COUNTER_BLOCK_5_READ_HARDENING_2026-07-26.sql`
 - `docs/COUNTER_BLOCK_5_COMPLETION_GUARD_2026-07-26.sql`
 - `docs/COUNTER_BLOCK_5_ROLLBACK_2026-07-26.sql`
+
+Evidencia del Bloque 6:
+
+- `docs/COUNTER_BLOCK_6_DELIVERY_AUDIT_2026-07-27.md`
+- `docs/COUNTER_BLOCK_6_DELIVERY_OPERATION_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_6_DIGITAL_CHANGE_EXECUTION_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_6_DISPATCH_IDEMPOTENCY_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_6_ROLLBACK_2026-07-27.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -505,6 +514,20 @@ Completar el ciclo de un pickup desde agenda/cocina hasta entrega.
 - Counter nunca cancela.
 
 ## 12. Bloque 6 - Delivery y liquidación
+
+Estado: **cerrado el 2026-07-27**.
+
+Se aplicaron las migraciones
+`20260727160408_counter_block_6_delivery_dispatch`,
+`20260727160452_counter_block_6_delivery_read_model`,
+`20260727161933_counter_block_6_digital_change_execution` y
+`20260727162100_counter_block_6_dispatch_idempotency`.
+
+No se creó ninguna tabla. El bloque reutiliza la custodia del Bloque 2, las
+lecturas con cursor del Bloque 3, el ledger y las obligaciones digitales del
+Bloque 4. Las pruebas transaccionales con rollback aprobaron salida,
+idempotencia, cambio mixto, retorno parcial entre turnos, deuda separada,
+discrepancia y límite de autoridad sobre la entrega final.
 
 ### Objetivo
 

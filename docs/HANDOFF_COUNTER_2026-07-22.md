@@ -395,7 +395,7 @@ Probar antes de dar por cerrado:
 3. Pickup listo, pendiente por pago movil/transferencia, puede entregar pendiente del asesor/master.
 4. Delivery listo sin motorizado, debe bloquear salida.
 5. Delivery listo con motorizado, preguntar ETA y marcar en camino.
-6. Delivery en camino con cobro pendiente, registrar retorno y marcar entregado.
+6. Delivery en camino con cobro pendiente: Counter liquida; Master marca entregado.
 7. Pago mixto: parte efectivo USD, parte punto VES.
 8. Pago con excedente a fondo.
 9. Pago con cambio parcial desde USD y VES.
@@ -428,10 +428,10 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 6 - Delivery y liquidación
+Bloque 7 - Venta directa y agenda
 ```
 
-Estado al 2026-07-26:
+Estado al 2026-07-27:
 
 - Bloque 1 cerrado en su alcance de autoridad y perímetro de seguridad;
 - evidencia en `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`;
@@ -485,9 +485,25 @@ Estado al 2026-07-26:
 - pruebas transaccionales con rollback y build de producción aprobados;
 - no se modificó `/app/master/dashboard`.
 
-El Bloque 6 debe completar delivery y liquidación: despacho al motorizado, ETA,
-cambio entregado, custodia, retorno total o parcial y pendientes entre días,
-sin confundir entrega, pago y liquidación.
+- Bloque 6 cerrado en su alcance de delivery y liquidación;
+- evidencia en `docs/COUNTER_BLOCK_6_DELIVERY_AUDIT_2026-07-27.md`;
+- migraciones remotas `20260727160408_counter_block_6_delivery_dispatch`,
+  `20260727160452_counter_block_6_delivery_read_model`,
+  `20260727161933_counter_block_6_digital_change_execution` y
+  `20260727162100_counter_block_6_dispatch_idempotency` aplicadas;
+- no se creó ninguna tabla ni fuente financiera paralela;
+- salida sin asignación o ETA bloqueada;
+- cambio mixto y egreso de caja atómicos;
+- custodia parcial, entre días, deuda separada y discrepancia aprobadas;
+- Counter no puede marcar la entrega final ni ejecutar cambio digital;
+- liquidaciones antiguas cargan bajo demanda, 25 por página;
+- pruebas transaccionales con rollback, lint, TypeScript y build aprobados;
+- no se modificó `/app/master/dashboard`.
+
+El Bloque 7 debe revisar y completar venta directa y agenda: búsqueda o creación
+obligatoria del cliente, venta inmediata hacia cocina y venta futura hacia
+agenda, reutilizando productos, combos, precios, descuentos y snapshots
+canónicos.
 
 ## Prompt sugerido para abrir el chat nuevo
 

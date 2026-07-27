@@ -30,6 +30,15 @@ import {
 } from './actions';
 import { CounterPaymentEngine } from './CounterPaymentEngine';
 import { CounterRefundPanel } from './CounterRefundPanel';
+import {
+  CounterDeliveryDispatchPanel,
+  CounterDeliverySettlementBox,
+  CounterPendingSettlementsPanel,
+} from './CounterDeliveryWorkspace';
+import type {
+  CounterDeliveryDispatchIntent,
+  CounterDeliveryDispatchResult,
+} from './delivery-contract';
 import type {
   CounterPaymentIntent,
   CounterPaymentOperationResult,
@@ -465,7 +474,7 @@ function primaryCounterActionLabel(order: CounterOrder) {
   if (order.status === 'in_kitchen') return 'En preparacion';
   if (order.fulfillment === 'pickup' && order.status === 'ready' && mustSettleBeforeCounterDelivery(order)) return 'Primero cobrar';
   if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
-  if (order.fulfillment === 'delivery' && order.status === 'out_for_delivery') return 'Marcar entregada';
+  if (order.fulfillment === 'delivery' && order.status === 'out_for_delivery') return 'Entrega: solo Master';
   return 'Entregar pickup';
 }
 
@@ -578,6 +587,7 @@ export default function CounterClient({
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
   const [cashPanelOpen, setCashPanelOpen] = useState(false);
+  const [settlementsPanelOpen, setSettlementsPanelOpen] = useState(false);
   const [cashAccounts, setCashAccounts] = useState<CounterCashAccountSummary[]>([]);
   const [cashLoading, setCashLoading] = useState(false);
   const [quickSaleProducts, setQuickSaleProducts] = useState<CounterQuickSaleProductOption[]>([]);
@@ -989,47 +999,55 @@ export default function CounterClient({
     );
   }
 
-  function handlePrimaryDeliveryAction(order: CounterOrder, options?: { etaMinutes?: number | null }) {
+  async function handlePrimaryDeliveryAction(
+    order: CounterOrder,
+    dispatchIntent?: CounterDeliveryDispatchIntent
+  ): Promise<CounterDeliveryDispatchResult | null> {
     setMessage(null);
     setWorkingOrderId(order.id);
-    startTransition(async () => {
-      try {
-        if (order.fulfillment === 'delivery' && order.status === 'ready') {
-          await dispatchCounterDeliveryAction({
-            orderId: order.id,
-            etaMinutes: options?.etaMinutes ?? null,
-          });
-          updateLocalOrderStatus(order.id, 'out_for_delivery');
-          setMessage({
-            tone: 'success',
-            text:
-              options?.etaMinutes != null && options.etaMinutes > 0
-                ? `Orden #${order.displayNumber} enviada a delivery con ETA ${options.etaMinutes} min.`
-                : `Orden #${order.displayNumber} enviada a delivery.`,
-          });
-        } else if (order.fulfillment === 'pickup' && order.status === 'ready') {
-          await completeCounterPickupAction({
-            idempotencyKey: crypto.randomUUID(),
-            orderId: order.id,
-          });
-          completeLocalOrder(order.id);
-          setMessage({
-            tone: 'success',
-            text: `Orden #${order.displayNumber} retirada por el cliente.`,
-          });
-        } else {
-          throw new Error('Esta accion no corresponde al estado actual de la orden.');
+    try {
+      if (order.fulfillment === 'delivery' && order.status === 'ready') {
+        if (!dispatchIntent) {
+          throw new Error('Completa los datos de salida y custodia del delivery.');
         }
-        await refreshCounter();
-      } catch (error) {
+        const result = await dispatchCounterDeliveryAction(dispatchIntent);
+        updateLocalOrderStatus(order.id, 'out_for_delivery');
         setMessage({
-          tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo completar la accion.',
+          tone: 'success',
+          text: `Orden #${order.displayNumber} entregada al motorizado con ETA ${result.etaMinutes} min. Custodia abierta.`,
         });
-      } finally {
-        setWorkingOrderId(null);
+        await Promise.all([
+          refreshCounter(),
+          cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+        ]);
+        return result;
       }
-    });
+
+      if (order.fulfillment === 'pickup' && order.status === 'ready') {
+        await completeCounterPickupAction({
+          idempotencyKey: crypto.randomUUID(),
+          orderId: order.id,
+        });
+        completeLocalOrder(order.id);
+        setMessage({
+          tone: 'success',
+          text: `Orden #${order.displayNumber} retirada por el cliente.`,
+        });
+        await refreshCounter();
+        return null;
+      }
+
+      throw new Error('Esta accion no corresponde al estado actual de la orden.');
+    } catch (error) {
+      setMessage({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'No se pudo completar la accion.',
+      });
+      if (dispatchIntent) throw error;
+      return null;
+    } finally {
+      setWorkingOrderId(null);
+    }
   }
 
   async function handleCreatePaymentReport(
@@ -1335,6 +1353,18 @@ export default function CounterClient({
             </button>
             <button
               type="button"
+              onClick={() => setSettlementsPanelOpen((current) => !current)}
+              className={[
+                'rounded-full border px-4 py-2 text-sm font-semibold hover:border-sky-300/60',
+                settlementsPanelOpen
+                  ? 'border-sky-300 bg-sky-300/10 text-sky-100'
+                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              Liquidaciones
+            </button>
+            <button
+              type="button"
               onClick={() => setMasterAgendaOpen((current) => !current)}
               className={[
                 'rounded-full border px-4 py-2 text-sm font-semibold hover:border-[#FEEF00]/60',
@@ -1408,6 +1438,19 @@ export default function CounterClient({
             onRefresh={() => void refreshCounterCash()}
             onCreateMovement={handleCreateCashMovement}
             onCreateClosure={handleCreateCashClosure}
+          />
+        ) : null}
+
+        {settlementsPanelOpen ? (
+          <CounterPendingSettlementsPanel
+            paymentAccounts={paymentAccounts}
+            activeBsRate={activeBsRate}
+            onChanged={async () => {
+              await Promise.all([
+                refreshCounter(),
+                cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+              ]);
+            }}
           />
         ) : null}
 
@@ -1540,6 +1583,13 @@ export default function CounterClient({
                 activeBsRate={activeBsRate}
                 isWorking={workingOrderId === selectedOrder.id}
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
+                onDeliverySettlementChanged={async () => {
+                  await Promise.all([
+                    refreshCounter(),
+                    refreshCounterOrder(selectedOrder.id),
+                    cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+                  ]);
+                }}
                 onCreatePaymentReport={handleCreatePaymentReport}
                 onRequestRefund={handleRequestRefund}
                 onExecuteRefund={handleExecuteRefund}
@@ -3587,19 +3637,16 @@ function getCounterCurrentAction(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
-    const needsSettlement = mustCollectNow;
-
     return {
-      title: needsSettlement ? 'Liquidar delivery' : 'Cerrar entrega',
-      description: needsSettlement
-        ? 'Cuando el motorizado regrese, registra el cobro recibido antes de cerrar la entrega.'
-        : paid
-          ? 'El delivery ya esta sin saldo pendiente. Puedes marcarlo como entregado.'
-          : 'Puedes marcarlo entregado; el pendiente queda bajo responsabilidad del asesor.',
-      tone: needsSettlement ? ('warn' as const) : ('good' as const),
-      steps: needsSettlement
-        ? ['Esperar retorno del motorizado', 'Registrar cobro o revisar pago', 'Marcar entregada']
-        : ['Confirmar entrega', 'Marcar entregada'],
+      title: 'Liquidar custodia',
+      description:
+        'Counter recibe el efectivo y mantiene la liquidacion abierta el tiempo necesario. Master confirma aparte la entrega al cliente.',
+      tone: 'warn' as const,
+      steps: [
+        'Registrar lo cobrado al cliente',
+        'Ingresar el efectivo recibido en caja',
+        'Dejar la entrega final a Master',
+      ],
     };
   }
 
@@ -3676,22 +3723,17 @@ function getCounterWorkflowChecks(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
-    const settlementBlocked = mustCollectNow;
     return [
       { label: 'Salida', detail: 'En camino', state: 'done' as const },
       {
-        label: 'Retorno',
-        detail: paid
-          ? 'Liquidado'
-          : settlementBlocked
-            ? hasPendingReports ? 'Pago por revisar' : `Cobrar ${moneyUsd(order.balanceUsd)}`
-            : `Pendiente asesor ${moneyUsd(order.balanceUsd)}`,
-        state: settlementBlocked ? ('current' as const) : ('done' as const),
+        label: 'Custodia',
+        detail: 'Revisar liquidacion exacta',
+        state: 'current' as const,
       },
       {
-        label: 'Cierre',
-        detail: settlementBlocked ? 'Esperando liquidacion' : 'Marcar entregada',
-        state: settlementBlocked ? ('blocked' as const) : ('current' as const),
+        label: 'Entrega final',
+        detail: 'La confirma Master',
+        state: 'pending' as const,
       },
     ];
   }
@@ -3709,6 +3751,7 @@ function OrderDetail({
   activeBsRate,
   isWorking,
   onPrimaryDeliveryAction,
+  onDeliverySettlementChanged,
   onCreatePaymentReport,
   onRequestRefund,
   onExecuteRefund,
@@ -3723,7 +3766,11 @@ function OrderDetail({
   quickSaleProductComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
-  onPrimaryDeliveryAction: (order: CounterOrder, options?: { etaMinutes?: number | null }) => void;
+  onPrimaryDeliveryAction: (
+    order: CounterOrder,
+    dispatchIntent?: CounterDeliveryDispatchIntent
+  ) => Promise<CounterDeliveryDispatchResult | null>;
+  onDeliverySettlementChanged: () => Promise<void>;
   onCreatePaymentReport: (
     order: CounterOrder,
     input: CounterPaymentIntent
@@ -3753,7 +3800,6 @@ function OrderDetail({
     order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
   const waitingForMaster = order.status === 'created';
   const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
-  const hasPendingBalance = order.balanceUsd > 0.005;
   const hasPendingReports = order.reports.pending > 0;
   const pendingPickupChange =
     order.pickupChangeRequests.find((request) => request.status === 'pending') ?? null;
@@ -3767,7 +3813,7 @@ function OrderDetail({
     Boolean(pendingPickupChange) ||
     pickupReadyNeedsPayment ||
     deliveryReadyWithoutAssignee ||
-    (isDeliverySettlement && mustCollectNow);
+    isDeliverySettlement;
   const primaryActionBlockedMessage = pendingPickupChange
     ? 'Master debe aprobar o rechazar el cambio solicitado antes de entregar este pickup.'
     : order.fulfillment === 'pickup' && order.pendingDigitalChangeUsd > 0.005
@@ -3786,16 +3832,16 @@ function OrderDetail({
         : 'Master debe confirmar el cobro antes de marcar el pickup como retirado.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
-      : mustCollectNow
-        ? !order.hasAdvisor && hasPendingReports
-          ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de cerrar la entrega.'
-          : 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
-        : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
+      : isDeliverySettlement
+        ? 'Counter liquida la custodia y recibe el efectivo. Solo Master confirma la entrega final al cliente.'
+        : mustCollectNow
+          ? !order.hasAdvisor && hasPendingReports
+            ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de cerrar la entrega.'
+            : 'El metodo esperado es efectivo o punto. Primero registra el cobro recibido del motorizado.'
+          : 'Hay pagos pendientes de revision antes de cerrar la entrega.';
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [addItemsOpen, setAddItemsOpen] = useState(false);
-  const [deliveryEtaOpen, setDeliveryEtaOpen] = useState(false);
-  const [deliveryEtaMinutes, setDeliveryEtaMinutes] = useState('20');
-  const [deliveryEtaError, setDeliveryEtaError] = useState<string | null>(null);
+  const [deliveryDispatchOpen, setDeliveryDispatchOpen] = useState(false);
   const currentAction = getCounterCurrentAction(order);
   const canModifyPickup =
     order.fulfillment === 'pickup' &&
@@ -3825,23 +3871,11 @@ function OrderDetail({
 
   function handlePrimaryActionClick() {
     if (isReadyDeliveryAction) {
-      setDeliveryEtaOpen(true);
-      setDeliveryEtaError(null);
+      setDeliveryDispatchOpen(true);
       return;
     }
 
-    onPrimaryDeliveryAction(order);
-  }
-
-  function confirmOutForDeliveryWithEta() {
-    const etaMinutes = Math.round(toDecimalInput(deliveryEtaMinutes));
-    if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
-      setDeliveryEtaError('Indica cuantos minutos estima el motorizado.');
-      return;
-    }
-
-    setDeliveryEtaError(null);
-    onPrimaryDeliveryAction(order, { etaMinutes });
+    void onPrimaryDeliveryAction(order);
   }
 
   async function handleToggleAddItems() {
@@ -3987,51 +4021,29 @@ function OrderDetail({
             </div>
           ) : null}
 
+          {deliveryDispatchOpen && isReadyDeliveryAction && !primaryActionBlocked ? (
+            <CounterDeliveryDispatchPanel
+              order={order}
+              paymentAccounts={paymentAccounts}
+              activeBsRate={activeBsRate}
+              isWorking={isWorking}
+              onCancel={() => setDeliveryDispatchOpen(false)}
+              onSubmit={async (intent) => {
+                const result = await onPrimaryDeliveryAction(order, intent);
+                if (!result) throw new Error('No se pudo confirmar la salida.');
+                setDeliveryDispatchOpen(false);
+                return result;
+              }}
+            />
+          ) : null}
+
           {isDeliverySettlement ? (
-            <div className="rounded-[8px] border border-sky-400/30 bg-sky-950/20 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold text-sky-100">Liquidacion de delivery</h3>
-                  <p className="mt-1 text-sm text-sky-100/70">
-                    Registra el retorno del motorizado antes de marcar la orden como entregada.
-                  </p>
-                </div>
-                <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1 text-xs font-semibold text-sky-100">
-                  En camino
-                </span>
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <Metric
-                  label="Por cobrar"
-                  value={moneyUsd(order.balanceUsd)}
-                  tone={hasPendingBalance ? 'warn' : 'good'}
-                />
-                <Metric
-                  label="Motorizado"
-                  value={deliveryAssigneeLabel(order) || 'No aplica'}
-                  tone={order.deliveryAssigneeName ? 'neutral' : 'warn'}
-                />
-                <Metric label="Metodo esperado" value={getPaymentMethodLabel(order.paymentMethod)} />
-                <Metric
-                  label="Pagos por revisar"
-                  value={String(order.reports.pending)}
-                  tone={hasPendingReports ? 'warn' : 'good'}
-                />
-              </div>
-              {order.paymentRequiresChange ? (
-                <div className="mt-3 rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-sm text-[#C7C8D1]">
-                  Cambio indicado: {order.paymentChangeFor || '-'} {order.paymentChangeCurrency || ''}
-                </div>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setPaymentOpen(true)}
-                disabled={!hasPendingBalance && !hasPendingReports}
-                className="mt-4 w-full rounded-[8px] border border-sky-300/50 bg-sky-300/10 px-4 py-3 text-sm font-bold text-sky-100 transition hover:bg-sky-300/15 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Registrar retorno / cobro
-              </button>
-            </div>
+            <CounterDeliverySettlementBox
+              orderId={order.id}
+              paymentAccounts={paymentAccounts}
+              activeBsRate={activeBsRate}
+              onChanged={onDeliverySettlementChanged}
+            />
           ) : null}
 
           {pendingPickupChange ? (
@@ -4065,54 +4077,6 @@ function OrderDetail({
           >
             {isWorking ? 'Guardando...' : primaryCounterActionLabel(order)}
           </button>
-          {deliveryEtaOpen && isReadyDeliveryAction && !primaryActionBlocked ? (
-            <div className="rounded-[8px] border border-sky-400/30 bg-sky-950/20 p-3">
-              <div className="text-xs font-semibold text-sky-100">Tiempo de entrega</div>
-              <p className="mt-1 text-xs leading-relaxed text-sky-100/70">
-                Pregunta al motorizado cuanto tiempo estima para llegar al cliente.
-              </p>
-              <input
-                value={deliveryEtaMinutes}
-                onChange={(event) => setDeliveryEtaMinutes(event.target.value)}
-                type="number"
-                min={1}
-                className="mt-2 w-full rounded-[8px] border border-sky-300/30 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
-              />
-              <div className="mt-2 grid grid-cols-4 gap-1.5">
-                {[15, 20, 25, 30].map((minutes) => (
-                  <button
-                    key={minutes}
-                    type="button"
-                    onClick={() => setDeliveryEtaMinutes(String(minutes))}
-                    className="rounded-[8px] border border-sky-300/30 bg-sky-300/10 px-2 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-300/15"
-                  >
-                    {minutes}
-                  </button>
-                ))}
-              </div>
-              {deliveryEtaError ? <div className="mt-2 text-xs text-red-200">{deliveryEtaError}</div> : null}
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeliveryEtaOpen(false);
-                    setDeliveryEtaError(null);
-                  }}
-                  className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7]"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmOutForDeliveryWithEta}
-                  disabled={isWorking}
-                  className="rounded-[8px] border border-sky-300/50 bg-sky-300/10 px-3 py-2 text-xs font-bold text-sky-100 disabled:cursor-wait disabled:opacity-60"
-                >
-                  Confirmar salida
-                </button>
-              </div>
-            </div>
-          ) : null}
           {primaryActionBlocked ? (
             <div className="rounded-[8px] border border-orange-400/30 bg-orange-950/20 p-3 text-xs leading-relaxed text-orange-100">
               {primaryActionBlockedMessage}
@@ -4124,7 +4088,7 @@ function OrderDetail({
               onClick={() => setPaymentOpen((current) => !current)}
               className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
             >
-              {paymentOpen ? 'Ocultar pago' : isDeliverySettlement ? 'Retorno / cobro' : 'Pago'}
+              {paymentOpen ? 'Ocultar pago' : 'Pago'}
             </button>
             <button
               type="button"
@@ -4138,7 +4102,7 @@ function OrderDetail({
           {order.paymentRequiresChange ? (
             <ActionHint
               title="Preparar cambio"
-              text={`Cambio para ${order.paymentChangeFor || '-'} ${order.paymentChangeCurrency || ''}. El egreso se registra al liquidar el cobro.`}
+              text={`Cambio para ${order.paymentChangeFor || '-'} ${order.paymentChangeCurrency || ''}. El egreso se registra al confirmar la salida.`}
               tone="warn"
             />
           ) : null}
@@ -4153,7 +4117,7 @@ function OrderDetail({
             />
           ) : null}
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
-            Para delivery, esta vista mantiene la orden hasta que se marque entregada y se liquide el cobro.
+            En delivery, Counter controla salida y custodia. Master controla la entrega final al cliente.
           </div>
         </aside>
       </div>

@@ -19,6 +19,11 @@ import type {
   CounterPickupChangePreviewItem,
   CounterPickupChangeRequest,
 } from './pickup-contract';
+import type {
+  CounterDeliveryCurrency,
+  CounterDeliverySettlementDetail,
+  CounterDeliverySettlementEntry,
+} from './delivery-contract';
 
 type CounterReadClient = {
   rpc: (
@@ -505,4 +510,111 @@ export async function loadCounterPendingSettlementsRead(
       : null;
 
   return { results, nextCursor };
+}
+
+function mapDeliveryCurrency(value: unknown): CounterDeliveryCurrency {
+  return value === 'VES' ? 'VES' : 'USD';
+}
+
+function mapDeliverySettlementEntry(value: unknown): CounterDeliverySettlementEntry {
+  const entry = asRecord(value);
+  const rawType = String(entry.entryType || '');
+  const validTypes: CounterDeliverySettlementEntry['entryType'][] = [
+    'expected_collection',
+    'customer_collection',
+    'cash_return',
+    'cash_change_out',
+    'cash_change_returned',
+    'digital_change_due',
+    'digital_change_completed',
+    'custody_adjustment',
+  ];
+
+  return {
+    id: Math.trunc(toNumber(entry.id, 0)),
+    entryType: validTypes.includes(rawType as CounterDeliverySettlementEntry['entryType'])
+      ? rawType as CounterDeliverySettlementEntry['entryType']
+      : 'custody_adjustment',
+    sourceLineKey: entry.sourceLineKey == null ? null : String(entry.sourceLineKey),
+    currencyCode: mapDeliveryCurrency(entry.currencyCode),
+    amount: roundOrderMoney(entry.amount),
+    amountUsdEquivalent: roundOrderMoney(entry.amountUsdEquivalent),
+    moneyAccountId: entry.moneyAccountId == null
+      ? null
+      : Math.trunc(toNumber(entry.moneyAccountId, 0)),
+    moneyAccountName: entry.moneyAccountName == null ? null : String(entry.moneyAccountName),
+    operationDate: entry.operationDate == null ? null : String(entry.operationDate),
+    referenceCode: entry.referenceCode == null ? null : String(entry.referenceCode),
+    notes: entry.notes == null ? null : String(entry.notes),
+    createdByName: String(entry.createdByName || 'Usuario'),
+    createdAt: String(entry.createdAt || ''),
+  };
+}
+
+export async function loadCounterDeliverySettlementDetailRead(
+  supabase: CounterReadClient,
+  input: { settlementId?: number | null; orderId?: number | null }
+): Promise<CounterDeliverySettlementDetail> {
+  const data = asRecord(await readRpcJson(
+    supabase,
+    'counter_read_delivery_settlement_detail',
+    {
+      p_settlement_id: input.settlementId ?? null,
+      p_order_id: input.orderId ?? null,
+    }
+  ));
+  const rawStatus = String(data.status || '');
+  const validStatuses: CounterDeliverySettlementDetail['status'][] = [
+    'not_required',
+    'open',
+    'partial',
+    'settled',
+    'discrepancy',
+    'voided',
+  ];
+
+  return {
+    id: Math.trunc(toNumber(data.id, 0)),
+    orderId: Math.trunc(toNumber(data.orderId, 0)),
+    displayNumber: String(data.displayNumber || ''),
+    orderNumber: data.orderNumber == null ? null : String(data.orderNumber),
+    orderStatus: String(data.orderStatus || ''),
+    status: validStatuses.includes(rawStatus as CounterDeliverySettlementDetail['status'])
+      ? rawStatus as CounterDeliverySettlementDetail['status']
+      : 'open',
+    clientName: String(data.clientName || 'Cliente'),
+    clientPhone: data.clientPhone == null ? null : String(data.clientPhone),
+    advisorName: data.advisorName == null ? null : String(data.advisorName),
+    responsibleName: String(data.responsibleName || 'Motorizado'),
+    responsiblePhone: data.responsiblePhone == null ? null : String(data.responsiblePhone),
+    deliveryMode: data.deliveryMode === 'external' ? 'external' : 'internal',
+    etaMinutes: data.etaMinutes == null ? null : Math.trunc(toNumber(data.etaMinutes, 0)),
+    dispatchedAt: String(data.dispatchedAt || ''),
+    collectionFinalizedAt: data.collectionFinalizedAt == null
+      ? null
+      : String(data.collectionFinalizedAt),
+    settledAt: data.settledAt == null ? null : String(data.settledAt),
+    notes: data.notes == null ? null : String(data.notes),
+    version: Math.max(1, Math.trunc(toNumber(data.version, 1))),
+    paymentStatus: String(data.paymentStatus || 'unpaid'),
+    orderPendingUsd: roundOrderMoney(data.orderPendingUsd),
+    currencyBreakdown: asArray(data.currencyBreakdown).map((value) => {
+      const currency = asRecord(value);
+      return {
+        currencyCode: mapDeliveryCurrency(currency.currencyCode),
+        expectedCollection: roundOrderMoney(currency.expectedCollection),
+        customerCollection: roundOrderMoney(currency.customerCollection),
+        cashReturned: roundOrderMoney(currency.cashReturned),
+        custodyOutstanding: roundOrderMoney(currency.custodyOutstanding),
+        cashChangeSent: roundOrderMoney(currency.cashChangeSent),
+        cashChangeReturned: roundOrderMoney(currency.cashChangeReturned),
+        digitalChangeDue: roundOrderMoney(currency.digitalChangeDue),
+        digitalChangeCompleted: roundOrderMoney(currency.digitalChangeCompleted),
+        digitalChangeOutstanding: roundOrderMoney(currency.digitalChangeOutstanding),
+      };
+    }),
+    entries: asArray(data.entries)
+      .map(mapDeliverySettlementEntry)
+      .filter((entry) => entry.id > 0),
+  };
 }

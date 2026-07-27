@@ -5,6 +5,7 @@ import {
   loadCounterActiveQueueRead,
   loadCounterCashSnapshotRead,
   loadCounterCatalogRead,
+  loadCounterDeliverySettlementDetailRead,
   loadCounterOrderDetailRead,
   loadCounterPendingSettlementsRead,
   type CounterPendingSettlementCursor,
@@ -39,4 +40,29 @@ export async function loadCounterPendingSettlementsAction(input: {
 } = {}) {
   const ctx = await requireCounterOperatorContext();
   return loadCounterPendingSettlementsRead(ctx.supabase, input.cursor ?? null);
+}
+
+export async function loadCounterDeliverySettlementDetailAction(input: {
+  settlementId?: number | null;
+  orderId?: number | null;
+}) {
+  const ctx = await requireCounterOperatorContext();
+  const settlementId = input.settlementId == null
+    ? null
+    : Math.trunc(Number(input.settlementId));
+  const orderId = input.orderId == null
+    ? null
+    : Math.trunc(Number(input.orderId));
+
+  if (
+    (!settlementId || settlementId <= 0) &&
+    (!orderId || orderId <= 0)
+  ) {
+    throw new Error('Indica una liquidacion o una orden valida.');
+  }
+
+  return loadCounterDeliverySettlementDetailRead(ctx.supabase, {
+    settlementId,
+    orderId,
+  });
 }
