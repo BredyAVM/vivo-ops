@@ -20,7 +20,7 @@ Estado:
 - Bloque 9: cerrado en su alcance de cajas, puntos y cierres.
 - Bloque 10: cerrado en su alcance de sincronización, alertas y resiliencia.
 - Bloque 11: cerrado en su alcance de experiencia operativa y acabado visual.
-- Bloque 12: no iniciado.
+- Bloque 12: certificación técnica cerrada; salida operativa pendiente.
 
 Evidencia del Bloque 1:
 
@@ -93,6 +93,13 @@ Evidencia del Bloque 10:
 Evidencia del Bloque 11:
 
 - `docs/COUNTER_BLOCK_11_EXPERIENCE_AUDIT_2026-07-28.md`
+
+Evidencia del Bloque 12:
+
+- `docs/COUNTER_BLOCK_12_CERTIFICATION_AUDIT_2026-07-28.md`
+- `docs/COUNTER_BLOCK_12_CERTIFICATION_HARDENING_2026-07-28.sql`
+- `docs/COUNTER_BLOCK_12_TRANSACTION_TESTS_2026-07-28.sql`
+- `docs/COUNTER_BLOCK_12_ROLLBACK_2026-07-28.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -1026,12 +1033,15 @@ Un helper compartido solo se modifica si:
 
 ## 21. Próximo paso
 
-El siguiente trabajo autorizado debe ser exclusivamente:
+La ruta de implementación termina en el Bloque 12. No existe un Bloque 13.
 
-```text
-Bloque 11 - Experiencia operativa y acabado visual
-```
+La certificación técnica quedó cerrada. La salida operativa requiere:
 
-Debe pulir la experiencia diaria de la cajera sobre las capacidades ya estables,
-sin convertir Counter en un dashboard financiero, sin añadir consultas por
-estética y sin ampliar el alcance a `/app/master/dashboard`.
+1. crear o asignar un usuario Counter puro, sin heredar Cocina;
+2. iniciar sesión con ese usuario en el monitor real;
+3. validar las resoluciones y recorridos diarios de Counter;
+4. observar logs durante la ventana inicial;
+5. aplicar el criterio de reverso si aparece una regresión material.
+
+Estos pasos no autorizan nuevas capacidades, consultas financieras ni cambios
+en `/app/master/dashboard`.

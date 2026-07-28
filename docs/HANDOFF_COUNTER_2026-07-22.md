@@ -583,8 +583,22 @@ El Bloque 11 quedó cerrado en implementación y validación técnica:
 - no se agregaron consultas, SQL, migraciones ni estado financiero;
 - no se modificó `/app/master/dashboard`.
 
-El siguiente paso es el Bloque 12: certificación integral y salida controlada,
-incluyendo la prueba visual autenticada en el monitor real del local.
+El Bloque 12 completó la certificación técnica:
+
+- evidencia en
+  `docs/COUNTER_BLOCK_12_CERTIFICATION_AUDIT_2026-07-28.md`;
+- migración remota
+  `20260728195653_counter_block12_certification_hardening` aplicada;
+- RPC de despacho heredada retirada de `authenticated`;
+- Counter limitado a sus cinco cuentas operativas directas;
+- cobro con cambio, pickup, pago antiguo, despacho, retorno parcial y
+  liquidación final verificados con `ROLLBACK`;
+- saldos, cierres, recibos idempotentes y liquidaciones sin inconsistencias;
+- rendimiento, bundle, lint focalizado, TypeScript y build aprobados;
+- no se modificó `/app/master/dashboard`.
+
+La salida operativa solo espera un usuario Counter puro y la aceptación visual
+autenticada en el monitor real del local. No existe un Bloque 13.
 
 ## Prompt sugerido para abrir el chat nuevo
 
