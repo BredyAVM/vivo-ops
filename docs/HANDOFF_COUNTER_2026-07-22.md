@@ -555,9 +555,25 @@ Estado al 2026-07-28:
 - pruebas transaccionales con rollback, lint, TypeScript y build aprobados;
 - no se modificó `/app/master/dashboard`.
 
-El Bloque 10 debe mantener vivos los recursos operativos con sincronización
-focalizada, reintentos idempotentes y alertas, sin refrescar caja o históricos
-cuando sus paneles estén cerrados y sin convertir Counter en un dashboard.
+- Bloque 10 cerrado en su alcance de sincronización, alertas y resiliencia;
+- evidencia en
+  `docs/COUNTER_BLOCK_10_SYNC_RESILIENCE_AUDIT_2026-07-28.md`;
+- cero tablas, índices, RPC y migraciones nuevas;
+- reutiliza el evento canónico ya publicado para `order_ready` y
+  `pickup_ready`;
+- reemplaza el refresco ciego de 30 segundos por Realtime y reparación
+  adaptativa por recurso;
+- caja y liquidaciones solo se verifican mientras sus paneles están abiertos;
+- histórico permanece exclusivamente bajo demanda;
+- muestra estado de conexión, aviso de detalle viejo y métricas de sesión;
+- evita respuestas viejas, suscripciones, consultas y sonidos duplicados;
+- reintentos de pickup, modificaciones y caja conservan identidad idempotente;
+- lint focalizado, TypeScript y build aprobados;
+- no se modificó `/app/master/dashboard`.
+
+El Bloque 11 debe pulir la experiencia diaria de la cajera sobre estas
+capacidades estables, sin añadir consultas por estética y sin convertir Counter
+en un dashboard financiero.
 
 ## Prompt sugerido para abrir el chat nuevo
 

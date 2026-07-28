@@ -17,7 +17,9 @@ Estado:
 - Bloque 6: cerrado en su alcance de delivery y liquidación.
 - Bloque 7: cerrado en su alcance de venta directa y agenda.
 - Bloque 8: cerrado en su alcance de consulta histórica y recuperación operativa.
-- Bloques 9 a 12: no iniciados.
+- Bloque 9: cerrado en su alcance de cajas, puntos y cierres.
+- Bloque 10: cerrado en su alcance de sincronización, alertas y resiliencia.
+- Bloques 11 y 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -74,6 +76,18 @@ Evidencia del Bloque 8:
 - `docs/COUNTER_BLOCK_8_INDEX_HARDENING_2026-07-27.sql`
 - `docs/COUNTER_BLOCK_8_PERMISSION_HARDENING_2026-07-27.sql`
 - `docs/COUNTER_BLOCK_8_ROLLBACK_2026-07-27.sql`
+
+Evidencia del Bloque 9:
+
+- `docs/COUNTER_BLOCK_9_CASH_CLOSURES_AUDIT_2026-07-28.md`
+- `docs/COUNTER_BLOCK_9_CASH_CLOSURES_2026-07-28.sql`
+- `docs/COUNTER_BLOCK_9_LEGACY_PENDING_REPAIR_2026-07-28.sql`
+- `docs/COUNTER_BLOCK_9_TRANSACTION_TESTS_2026-07-28.sql`
+- `docs/COUNTER_BLOCK_9_ROLLBACK_2026-07-28.sql`
+
+Evidencia del Bloque 10:
+
+- `docs/COUNTER_BLOCK_10_SYNC_RESILIENCE_AUDIT_2026-07-28.md`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -988,9 +1002,9 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 10 - Sincronización, alertas y resiliencia
+Bloque 11 - Experiencia operativa y acabado visual
 ```
 
-Debe mantener vivos los recursos operativos sin refrescar toda la ruta, sin
-actualizar caja o históricos cuando sus paneles estén cerrados y sin ampliar el
-alcance a `/app/master/dashboard`.
+Debe pulir la experiencia diaria de la cajera sobre las capacidades ya estables,
+sin convertir Counter en un dashboard financiero, sin añadir consultas por
+estética y sin ampliar el alcance a `/app/master/dashboard`.

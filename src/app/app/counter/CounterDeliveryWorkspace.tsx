@@ -744,12 +744,14 @@ export function CounterDeliverySettlementBox({
   paymentAccounts,
   activeBsRate,
   onChanged,
+  onReadMetric,
 }: {
   orderId?: number | null;
   settlementId?: number | null;
   paymentAccounts: CounterPaymentAccountOption[];
   activeBsRate: number;
   onChanged?: () => void | Promise<void>;
+  onReadMetric?: (durationMs: number, succeeded: boolean) => void;
 }) {
   const cashAccounts = useMemo(
     () => paymentAccounts.filter(isDirectCashAccount),
@@ -769,6 +771,8 @@ export function CounterDeliverySettlementBox({
   const requestKey = useRef<string | null>(null);
 
   const loadDetail = useCallback(async () => {
+    const startedAt = performance.now();
+    let succeeded = false;
     setLoading(true);
     try {
       const next = await loadCounterDeliverySettlementDetailAction({
@@ -782,6 +786,7 @@ export function CounterDeliverySettlementBox({
       setCollectionFinal(false);
       setNotes('');
       requestKey.current = null;
+      succeeded = true;
     } catch (loadError) {
       setMessage({
         tone: 'error',
@@ -790,9 +795,10 @@ export function CounterDeliverySettlementBox({
           : 'No se pudo cargar la liquidacion.',
       });
     } finally {
+      onReadMetric?.(performance.now() - startedAt, succeeded);
       setLoading(false);
     }
-  }, [cashAccounts, orderId, settlementId]);
+  }, [cashAccounts, onReadMetric, orderId, settlementId]);
 
   useEffect(() => {
     void loadDetail();
@@ -1038,10 +1044,14 @@ export function CounterPendingSettlementsPanel({
   paymentAccounts,
   activeBsRate,
   onChanged,
+  refreshToken = 0,
+  onReadMetric,
 }: {
   paymentAccounts: CounterPaymentAccountOption[];
   activeBsRate: number;
   onChanged?: () => void | Promise<void>;
+  refreshToken?: number;
+  onReadMetric?: (durationMs: number, succeeded: boolean) => void;
 }) {
   const [settlements, setSettlements] = useState<CounterPendingSettlementRead[]>([]);
   const [nextCursor, setNextCursor] = useState<CounterPendingSettlementCursor | null>(null);
@@ -1049,31 +1059,51 @@ export function CounterPendingSettlementsPanel({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadFirstPageInFlightRef = useRef<Promise<void> | null>(null);
+  const lastRefreshTokenRef = useRef(refreshToken);
 
-  const loadFirstPage = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await loadCounterPendingSettlementsAction();
-      setSettlements(page.results);
-      setNextCursor(page.nextCursor);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'No se pudieron cargar las liquidaciones.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadFirstPage = useCallback(() => {
+    if (loadFirstPageInFlightRef.current) return loadFirstPageInFlightRef.current;
+    const request = (async () => {
+      const startedAt = performance.now();
+      let succeeded = false;
+      setLoading(true);
+      setError(null);
+      try {
+        const page = await loadCounterPendingSettlementsAction();
+        setSettlements(page.results);
+        setNextCursor(page.nextCursor);
+        succeeded = true;
+      } catch (loadError) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'No se pudieron cargar las liquidaciones.'
+        );
+      } finally {
+        onReadMetric?.(performance.now() - startedAt, succeeded);
+        setLoading(false);
+        loadFirstPageInFlightRef.current = null;
+      }
+    })();
+    loadFirstPageInFlightRef.current = request;
+    return request;
+  }, [onReadMetric]);
 
   useEffect(() => {
     void loadFirstPage();
   }, [loadFirstPage]);
 
+  useEffect(() => {
+    if (refreshToken === lastRefreshTokenRef.current) return;
+    lastRefreshTokenRef.current = refreshToken;
+    void loadFirstPage();
+  }, [loadFirstPage, refreshToken]);
+
   async function loadMore() {
     if (!nextCursor) return;
+    const startedAt = performance.now();
+    let succeeded = false;
     setLoadingMore(true);
     try {
       const page = await loadCounterPendingSettlementsAction({ cursor: nextCursor });
@@ -1084,6 +1114,7 @@ export function CounterPendingSettlementsPanel({
         ),
       ]);
       setNextCursor(page.nextCursor);
+      succeeded = true;
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -1091,6 +1122,7 @@ export function CounterPendingSettlementsPanel({
           : 'No se pudieron cargar mas liquidaciones.'
       );
     } finally {
+      onReadMetric?.(performance.now() - startedAt, succeeded);
       setLoadingMore(false);
     }
   }
@@ -1176,6 +1208,7 @@ export function CounterPendingSettlementsPanel({
             settlementId={selectedId}
             paymentAccounts={paymentAccounts}
             activeBsRate={activeBsRate}
+            onReadMetric={onReadMetric}
             onChanged={async () => {
               await loadFirstPage();
               await onChanged?.();

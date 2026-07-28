@@ -286,6 +286,26 @@ type CounterQuickSaleCartItem = {
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
 
+type CounterConnectionState = 'connecting' | 'live' | 'fallback' | 'offline';
+
+type CounterSyncResource = 'queue' | 'detail' | 'cash' | 'settlements';
+
+type CounterSyncMetric = {
+  calls: number;
+  errors: number;
+  totalDurationMs: number;
+  lastDurationMs: number | null;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+};
+
+type CounterSyncMetrics = Record<CounterSyncResource, CounterSyncMetric>;
+
+type StableCommandKey = {
+  fingerprint: string;
+  key: string;
+};
+
 type CounterFilter =
   | 'now'
   | 'kitchen'
@@ -319,6 +339,85 @@ function getQuickSalePaymentCurrency(method: string): 'USD' | 'VES' | null {
 
 const PUSH_TIMEOUT_MS = 12000;
 const COUNTER_CATALOG_FRESH_MS = 60_000;
+const COUNTER_SYNC_TICK_MS = 15_000;
+const COUNTER_LIVE_QUEUE_REPAIR_MS = 5 * 60_000;
+const COUNTER_FALLBACK_QUEUE_MS = 60_000;
+const COUNTER_DETAIL_REFRESH_MS = 2 * 60_000;
+const COUNTER_OPEN_RESOURCE_REFRESH_MS = 2 * 60_000;
+const COUNTER_SYNC_RESOURCE_LABELS: Record<CounterSyncResource, string> = {
+  queue: 'Cola',
+  detail: 'Detalle',
+  cash: 'Caja',
+  settlements: 'Liquidaciones',
+};
+
+const INITIAL_SYNC_METRICS: CounterSyncMetrics = {
+  queue: {
+    calls: 0,
+    errors: 0,
+    totalDurationMs: 0,
+    lastDurationMs: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+  },
+  detail: {
+    calls: 0,
+    errors: 0,
+    totalDurationMs: 0,
+    lastDurationMs: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+  },
+  cash: {
+    calls: 0,
+    errors: 0,
+    totalDurationMs: 0,
+    lastDurationMs: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+  },
+  settlements: {
+    calls: 0,
+    errors: 0,
+    totalDurationMs: 0,
+    lastDurationMs: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+  },
+};
+
+function stableCommandKey(
+  current: StableCommandKey | null,
+  payload: unknown
+): StableCommandKey {
+  const fingerprint = JSON.stringify(payload);
+  if (current?.fingerprint === fingerprint) return current;
+  return {
+    fingerprint,
+    key: crypto.randomUUID(),
+  };
+}
+
+function orderSummaryFingerprint(order: CounterOrder) {
+  return JSON.stringify([
+    order.status,
+    order.readyAt,
+    order.deliveredAt,
+    order.scheduledDate,
+    order.scheduledTime,
+    order.totalUsd,
+    order.totalBs,
+    order.confirmedPaidUsd,
+    order.balanceUsd,
+    order.paymentStatus,
+    order.pendingReportsUsd,
+    order.overpaidUsd,
+    order.pendingDigitalChangeUsd,
+    order.reports.pending,
+    order.reports.confirmed,
+    order.reports.rejected,
+  ]);
+}
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -448,13 +547,35 @@ function formatDateTime(value: string | null) {
 }
 
 function formatRefreshTime(value: string | null) {
-  if (!value) return 'Auto activo';
+  if (!value) return 'Datos iniciales';
 
   return `Actualizado ${new Date(value).toLocaleTimeString('es-VE', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: 'America/Caracas',
   })}`;
+}
+
+function connectionStateLabel(state: CounterConnectionState) {
+  if (state === 'live') return 'En vivo';
+  if (state === 'fallback') return 'Respaldo ligero';
+  if (state === 'offline') return 'Sin conexion';
+  return 'Conectando';
+}
+
+function connectionStateClass(state: CounterConnectionState) {
+  if (state === 'live') {
+    return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
+  }
+  if (state === 'offline') {
+    return 'border-red-400/40 bg-red-400/10 text-red-200';
+  }
+  return 'border-orange-400/40 bg-orange-400/10 text-orange-100';
+}
+
+function averageMetricDuration(metric: CounterSyncMetric) {
+  if (metric.calls === 0) return '-';
+  return `${Math.round(metric.totalDurationMs / metric.calls)} ms`;
 }
 
 function getTodayKey() {
@@ -646,14 +767,49 @@ export default function CounterClient({
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [localOrders, setLocalOrders] = useState(orders);
+  const localOrdersRef = useRef(orders);
   const [recoveredOrder, setRecoveredOrder] = useState<CounterOrder | null>(null);
   const recoveredOrderRef = useRef<CounterOrder | null>(null);
-  const previousOrderIdsRef = useRef<Set<number> | null>(null);
+  const previousOrderIdsRef = useRef(new Set(orders.map((order) => order.id)));
+  const previousOrderStatesRef = useRef(
+    new Map(orders.map((order) => [order.id, order.status] as const))
+  );
+  const alertedReadyOrderIdsRef = useRef(
+    new Set(orders.filter((order) => order.status === 'ready').map((order) => order.id))
+  );
+  const processedRealtimeEventIdsRef = useRef(new Set<number>());
+  const processedPushTagsRef = useRef(new Set<string>());
+  const pendingQueueSignalRef = useRef(false);
   const queueRefreshInFlightRef = useRef<Promise<void> | null>(null);
-  const detailRequestIdRef = useRef(0);
+  const cashRefreshInFlightRef = useRef<Promise<boolean> | null>(null);
+  const detailRequestsInFlightRef = useRef(
+    new Map<number, Promise<CounterOrder | null>>()
+  );
+  const readSequenceRef = useRef(0);
+  const appliedOrderSequenceRef = useRef(new Map<number, number>());
+  const pickupCompletionKeysRef = useRef(new Map<number, string>());
+  const selectedOrderIdRef = useRef<number | null>(null);
+  const detailStaleOrderIdRef = useRef<number | null>(null);
+  const cashPanelOpenRef = useRef(false);
+  const settlementsPanelOpenRef = useRef(false);
+  const detailLastReadAtRef = useRef(new Map<number, number>());
+  const resourceLastAttemptAtRef = useRef<Record<CounterSyncResource, number>>({
+    queue: Date.now(),
+    detail: 0,
+    cash: 0,
+    settlements: 0,
+  });
   const [queueRefreshing, setQueueRefreshing] = useState(false);
   const [detailLoadingOrderId, setDetailLoadingOrderId] = useState<number | null>(null);
   const [lastAutoRefreshAt, setLastAutoRefreshAt] = useState<string | null>(null);
+  const [connectionState, setConnectionState] =
+    useState<CounterConnectionState>('connecting');
+  const [lastRealtimeEventAt, setLastRealtimeEventAt] = useState<string | null>(null);
+  const [detailStaleOrderId, setDetailStaleOrderId] = useState<number | null>(null);
+  const [settlementsRefreshToken, setSettlementsRefreshToken] = useState(0);
+  const [syncDetailsOpen, setSyncDetailsOpen] = useState(false);
+  const [syncMetrics, setSyncMetrics] =
+    useState<CounterSyncMetrics>(INITIAL_SYNC_METRICS);
   const [pushState, setPushState] = useState<PushState>('checking');
   const [pushBusy, setPushBusy] = useState(false);
   const [filter, setFilter] = useState<CounterFilter>('now');
@@ -677,25 +833,134 @@ export default function CounterClient({
   const [historicalSearched, setHistoricalSearched] = useState(false);
   const [historicalSearchOpen, setHistoricalSearchOpen] = useState(false);
 
+  const recordReadMetric = useCallback((
+    resource: CounterSyncResource,
+    durationMs: number,
+    succeeded: boolean
+  ) => {
+    const now = new Date().toISOString();
+    setSyncMetrics((current) => ({
+      ...current,
+      [resource]: {
+        calls: current[resource].calls + 1,
+        errors: current[resource].errors + (succeeded ? 0 : 1),
+        totalDurationMs: current[resource].totalDurationMs + durationMs,
+        lastDurationMs: durationMs,
+        lastSuccessAt: succeeded ? now : current[resource].lastSuccessAt,
+        lastErrorAt: succeeded ? current[resource].lastErrorAt : now,
+      },
+    }));
+  }, []);
+
+  const runMeasuredRead = useCallback(async <T,>(
+    resource: CounterSyncResource,
+    operation: () => Promise<T>
+  ) => {
+    resourceLastAttemptAtRef.current[resource] = Date.now();
+    const startedAt = performance.now();
+    try {
+      const result = await operation();
+      recordReadMetric(resource, performance.now() - startedAt, true);
+      return result;
+    } catch (error) {
+      recordReadMetric(resource, performance.now() - startedAt, false);
+      throw error;
+    }
+  }, [recordReadMetric]);
+
+  const recordSettlementsReadMetric = useCallback((
+    durationMs: number,
+    succeeded: boolean
+  ) => {
+    recordReadMetric('settlements', durationMs, succeeded);
+  }, [recordReadMetric]);
+
+  const announceReadyOrders = useCallback((readyOrders: CounterOrder[]) => {
+    const unseen = readyOrders.filter(
+      (order) => !alertedReadyOrderIdsRef.current.has(order.id)
+    );
+    if (unseen.length === 0) return;
+
+    for (const order of unseen) alertedReadyOrderIdsRef.current.add(order.id);
+    if (alertedReadyOrderIdsRef.current.size > 500) {
+      alertedReadyOrderIdsRef.current = new Set(
+        Array.from(alertedReadyOrderIdsRef.current).slice(-250)
+      );
+    }
+
+    const firstOrder = unseen[0];
+    setMessage({
+      tone: 'success',
+      text:
+        unseen.length === 1
+          ? `Pedido listo: #${firstOrder.displayNumber} - ${firstOrder.clientName}.`
+          : `${unseen.length} pedidos quedaron listos para mostrador.`,
+    });
+    if (document.visibilityState === 'visible') playCounterAlert();
+  }, []);
+
   const refreshCounter = useCallback(async () => {
     if (queueRefreshInFlightRef.current) return queueRefreshInFlightRef.current;
 
+    pendingQueueSignalRef.current = false;
+    const requestSequence = ++readSequenceRef.current;
     const request = (async () => {
       setQueueRefreshing(true);
       try {
-        const nextOrders = await refreshCounterQueueAction();
-        const previousIds = previousOrderIdsRef.current ?? new Set<number>();
+        const nextOrders = await runMeasuredRead('queue', refreshCounterQueueAction);
+        const previousIds = previousOrderIdsRef.current;
+        const previousStates = previousOrderStatesRef.current;
         const newOrders = nextOrders.filter((order) => !previousIds.has(order.id));
+        const newlyReadyOrders = nextOrders.filter(
+          (order) =>
+            order.status === 'ready'
+            && previousStates.get(order.id) !== 'ready'
+        );
+        const currentById = new Map(
+          localOrdersRef.current.map((order) => [order.id, order])
+        );
+        const selectedId = selectedOrderIdRef.current;
+        const selectedSummary = selectedId == null
+          ? null
+          : nextOrders.find((order) => order.id === selectedId) ?? null;
+        const selectedCurrent = selectedId == null
+          ? null
+          : currentById.get(selectedId) ?? recoveredOrderRef.current;
 
         previousOrderIdsRef.current = new Set(nextOrders.map((order) => order.id));
+        previousOrderStatesRef.current = new Map(
+          nextOrders.map((order) => [order.id, order.status] as const)
+        );
         setLocalOrders((current) => {
           const currentById = new Map(current.map((order) => [order.id, order]));
-          return nextOrders.map((summary) => {
+          const nextIds = new Set(nextOrders.map((order) => order.id));
+          const merged = nextOrders.flatMap((summary) => {
             const previous = currentById.get(summary.id);
-            return previous?.detailLoaded
-              ? { ...summary, items: previous.items, detailLoaded: true }
-              : summary;
+            if (
+              (appliedOrderSequenceRef.current.get(summary.id) ?? 0) > requestSequence
+            ) {
+              return previous ? [previous] : [];
+            }
+            appliedOrderSequenceRef.current.set(summary.id, requestSequence);
+            return [previous?.detailLoaded
+              ? {
+                  ...summary,
+                  items: previous.items,
+                  pickupChangeRequests: previous.pickupChangeRequests,
+                  detailLoaded: true,
+                }
+              : summary];
           });
+          for (const currentOrder of current) {
+            if (
+              !nextIds.has(currentOrder.id)
+              && (appliedOrderSequenceRef.current.get(currentOrder.id) ?? 0) > requestSequence
+            ) {
+              merged.push(currentOrder);
+            }
+          }
+          localOrdersRef.current = merged;
+          return merged;
         });
         setSelectedOrderId((current) =>
           current != null && (
@@ -707,7 +972,17 @@ export default function CounterClient({
         );
         setLastAutoRefreshAt(new Date().toISOString());
 
-        if (newOrders.length > 0) {
+        if (
+          selectedId != null
+          && selectedCurrent?.detailLoaded
+          && selectedSummary
+          && orderSummaryFingerprint(selectedCurrent) !== orderSummaryFingerprint(selectedSummary)
+        ) {
+          setDetailStaleOrderId(selectedId);
+        }
+
+        announceReadyOrders(newlyReadyOrders);
+        if (newlyReadyOrders.length === 0 && newOrders.length > 0) {
           const firstOrder = newOrders[0];
           setMessage({
             tone: 'success',
@@ -730,34 +1005,56 @@ export default function CounterClient({
 
     queueRefreshInFlightRef.current = request;
     return request;
-  }, []);
+  }, [announceReadyOrders, runMeasuredRead]);
 
   const refreshCounterOrder = useCallback(async (orderId: number) => {
-    const requestId = ++detailRequestIdRef.current;
-    setDetailLoadingOrderId(orderId);
-    try {
-      const detail = await loadCounterOrderDetailAction({ orderId });
-      if (requestId !== detailRequestIdRef.current) return null;
-      setLocalOrders((current) =>
-        current.map((order) => (order.id === detail.id ? detail : order))
-      );
-      if (recoveredOrderRef.current?.id === detail.id) {
-        recoveredOrderRef.current = detail;
-        setRecoveredOrder(detail);
-      }
-      return detail;
-    } catch (error) {
-      if (requestId === detailRequestIdRef.current) {
+    const existingRequest = detailRequestsInFlightRef.current.get(orderId);
+    if (existingRequest) return existingRequest;
+
+    const requestSequence = ++readSequenceRef.current;
+    const request = (async () => {
+      setDetailLoadingOrderId(orderId);
+      try {
+        const detail = await runMeasuredRead(
+          'detail',
+          () => loadCounterOrderDetailAction({ orderId })
+        );
+        if (
+          (appliedOrderSequenceRef.current.get(detail.id) ?? 0) > requestSequence
+        ) {
+          setDetailStaleOrderId(detail.id);
+          return null;
+        }
+        appliedOrderSequenceRef.current.set(detail.id, requestSequence);
+        detailLastReadAtRef.current.set(detail.id, Date.now());
+        setLocalOrders((current) => {
+          const next = current.map((order) =>
+            order.id === detail.id ? detail : order
+          );
+          localOrdersRef.current = next;
+          return next;
+        });
+        if (recoveredOrderRef.current?.id === detail.id) {
+          recoveredOrderRef.current = detail;
+          setRecoveredOrder(detail);
+        }
+        setDetailStaleOrderId((current) => current === detail.id ? null : current);
+        return detail;
+      } catch (error) {
         setMessage({
           tone: 'error',
           text: error instanceof Error ? error.message : 'No se pudo cargar el detalle de la orden.',
         });
+        return null;
+      } finally {
+        detailRequestsInFlightRef.current.delete(orderId);
+        setDetailLoadingOrderId((current) => current === orderId ? null : current);
       }
-      return null;
-    } finally {
-      if (requestId === detailRequestIdRef.current) setDetailLoadingOrderId(null);
-    }
-  }, []);
+    })();
+
+    detailRequestsInFlightRef.current.set(orderId, request);
+    return request;
+  }, [runMeasuredRead]);
 
   const ensureCounterCatalog = useCallback(async (refreshIfStale = false) => {
     const catalogIsFresh =
@@ -785,20 +1082,26 @@ export default function CounterClient({
   }, []);
 
   const refreshCounterCash = useCallback(async () => {
-    setCashLoading(true);
-    try {
-      setCashAccounts(await loadCounterCashSnapshotAction());
-      return true;
-    } catch (error) {
-      setMessage({
-        tone: 'error',
-        text: error instanceof Error ? error.message : 'No se pudo cargar la caja.',
-      });
-      return false;
-    } finally {
-      setCashLoading(false);
-    }
-  }, []);
+    if (cashRefreshInFlightRef.current) return cashRefreshInFlightRef.current;
+    const request = (async () => {
+      setCashLoading(true);
+      try {
+        setCashAccounts(await runMeasuredRead('cash', loadCounterCashSnapshotAction));
+        return true;
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo cargar la caja.',
+        });
+        return false;
+      } finally {
+        setCashLoading(false);
+        cashRefreshInFlightRef.current = null;
+      }
+    })();
+    cashRefreshInFlightRef.current = request;
+    return request;
+  }, [runMeasuredRead]);
 
   useEffect(() => {
     async function bootPushState() {
@@ -832,63 +1135,234 @@ export default function CounterClient({
 
   useEffect(() => {
     const previousOrderIds = previousOrderIdsRef.current;
-    const newOrders = previousOrderIds
-      ? orders.filter((order) => !previousOrderIds.has(order.id))
-      : [];
+    const previousStates = previousOrderStatesRef.current;
+    const newOrders = orders.filter((order) => !previousOrderIds.has(order.id));
+    const newlyReadyOrders = orders.filter(
+      (order) =>
+        order.status === 'ready'
+        && previousStates.get(order.id) !== 'ready'
+    );
     previousOrderIdsRef.current = new Set(orders.map((order) => order.id));
+    previousOrderStatesRef.current = new Map(
+      orders.map((order) => [order.id, order.status] as const)
+    );
 
+    localOrdersRef.current = orders;
     setLocalOrders(orders);
     setSelectedOrderId((current) =>
       current != null && orders.some((order) => order.id === current) ? current : null
     );
 
-    if (newOrders.length > 0) {
+    announceReadyOrders(newlyReadyOrders);
+    if (newlyReadyOrders.length === 0 && newOrders.length > 0) {
       const firstOrder = newOrders[0];
       setMessage({
         tone: 'success',
         text:
-          newOrders.length === 1
-            ? `Nuevo pedido visible: #${firstOrder.displayNumber} - ${firstOrder.clientName}.`
-            : `${newOrders.length} pedidos nuevos visibles en mostrador.`,
+        newOrders.length === 1
+          ? `Nuevo pedido visible: #${firstOrder.displayNumber} - ${firstOrder.clientName}.`
+          : `${newOrders.length} pedidos nuevos visibles en mostrador.`,
       });
     }
-  }, [orders]);
+  }, [announceReadyOrders, orders]);
 
   useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState === 'hidden') return;
-      void refreshCounter();
+    selectedOrderIdRef.current = selectedOrderId;
+  }, [selectedOrderId]);
+
+  useEffect(() => {
+    detailStaleOrderIdRef.current = detailStaleOrderId;
+  }, [detailStaleOrderId]);
+
+  useEffect(() => {
+    cashPanelOpenRef.current = cashPanelOpen;
+  }, [cashPanelOpen]);
+
+  useEffect(() => {
+    settlementsPanelOpenRef.current = settlementsPanelOpen;
+  }, [settlementsPanelOpen]);
+
+  useEffect(() => {
+    let disposed = false;
+    let liveConnection = false;
+    let queueDebounceId: number | null = null;
+
+    const scheduleQueueRefresh = () => {
+      pendingQueueSignalRef.current = true;
+      if (queueDebounceId != null) window.clearTimeout(queueDebounceId);
+      queueDebounceId = window.setTimeout(() => {
+        queueDebounceId = null;
+        if (!disposed && document.visibilityState === 'visible' && navigator.onLine) {
+          void refreshCounter();
+        }
+      }, 250);
     };
 
-    const intervalId = window.setInterval(refreshIfVisible, 30000);
+    const refreshVisibleResources = (returningToTab = false) => {
+      if (
+        disposed
+        || document.visibilityState !== 'visible'
+        || !navigator.onLine
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      const queueRefreshMs = liveConnection
+        ? COUNTER_LIVE_QUEUE_REPAIR_MS
+        : COUNTER_FALLBACK_QUEUE_MS;
+      const queueAge = now - resourceLastAttemptAtRef.current.queue;
+      if (
+        pendingQueueSignalRef.current
+        ||
+        queueAge >= queueRefreshMs
+        || (returningToTab && queueAge >= 30_000)
+      ) {
+        void refreshCounter();
+      }
+
+      const detailOrderId = selectedOrderIdRef.current;
+      if (detailOrderId != null) {
+        const detailAge = now - (detailLastReadAtRef.current.get(detailOrderId) ?? 0);
+        if (
+          detailAge >= COUNTER_DETAIL_REFRESH_MS
+          || detailStaleOrderIdRef.current === detailOrderId
+        ) {
+          void refreshCounterOrder(detailOrderId);
+        }
+      }
+
+      if (
+        cashPanelOpenRef.current
+        && now - resourceLastAttemptAtRef.current.cash >= COUNTER_OPEN_RESOURCE_REFRESH_MS
+      ) {
+        void refreshCounterCash();
+      }
+
+      if (
+        settlementsPanelOpenRef.current
+        && now - resourceLastAttemptAtRef.current.settlements
+          >= COUNTER_OPEN_RESOURCE_REFRESH_MS
+      ) {
+        resourceLastAttemptAtRef.current.settlements = now;
+        setSettlementsRefreshToken((current) => current + 1);
+      }
+    };
+
+    const channel = supabase
+      .channel('counter-ready-orders')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: 'target_role=eq.counter',
+        },
+        (payload) => {
+          const eventId = Number((payload.new as { id?: number | string } | null)?.id);
+          if (
+            Number.isFinite(eventId)
+            && processedRealtimeEventIdsRef.current.has(eventId)
+          ) {
+            return;
+          }
+          if (Number.isFinite(eventId)) {
+            processedRealtimeEventIdsRef.current.add(eventId);
+            if (processedRealtimeEventIdsRef.current.size > 500) {
+              processedRealtimeEventIdsRef.current = new Set(
+                Array.from(processedRealtimeEventIdsRef.current).slice(-250)
+              );
+            }
+          }
+          setLastRealtimeEventAt(new Date().toISOString());
+          scheduleQueueRefresh();
+        }
+      )
+      .subscribe((status) => {
+        if (disposed) return;
+        if (status === 'SUBSCRIBED') {
+          liveConnection = true;
+          setConnectionState('live');
+          refreshVisibleResources(true);
+          return;
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          liveConnection = false;
+          setConnectionState(navigator.onLine ? 'fallback' : 'offline');
+          return;
+        }
+        if (status === 'CLOSED') {
+          liveConnection = false;
+          setConnectionState(navigator.onLine ? 'fallback' : 'offline');
+        }
+      });
+
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void refreshCounter();
+      if (document.visibilityState === 'visible') refreshVisibleResources(true);
     };
+    const onOnline = () => {
+      setConnectionState(liveConnection ? 'live' : 'connecting');
+      refreshVisibleResources(true);
+    };
+    const onOffline = () => setConnectionState('offline');
+    const intervalId = window.setInterval(
+      () => refreshVisibleResources(false),
+      COUNTER_SYNC_TICK_MS
+    );
 
+    if (!navigator.onLine) setConnectionState('offline');
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
     return () => {
+      disposed = true;
+      if (queueDebounceId != null) window.clearTimeout(queueDebounceId);
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      void supabase.removeChannel(channel);
     };
-  }, [refreshCounter]);
+  }, [
+    refreshCounter,
+    refreshCounterCash,
+    refreshCounterOrder,
+    supabase,
+  ]);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
     const onMessage = (event: MessageEvent) => {
       const data = event.data && typeof event.data === 'object'
-        ? event.data as { type?: string; payload?: { url?: string; title?: string; body?: string } }
+        ? event.data as {
+            type?: string;
+            payload?: { url?: string; title?: string; body?: string; tag?: string };
+          }
         : null;
       if (data?.type !== 'vivo-push') return;
       const url = data.payload?.url || '';
       if (url && !url.startsWith('/app/counter')) return;
+      const tag = data.payload?.tag || '';
+      if (tag && processedPushTagsRef.current.has(tag)) return;
+      if (tag) processedPushTagsRef.current.add(tag);
 
       setMessage({
         tone: 'success',
         text: data.payload?.title || data.payload?.body || 'Hay novedades en mostrador.',
       });
-      playCounterAlert();
-      void refreshCounter();
+      const orderIdMatch = tag.match(/^counter-order-(\d+)-/);
+      const orderId = orderIdMatch ? Number(orderIdMatch[1]) : null;
+      const shouldAlert =
+        orderId == null || !alertedReadyOrderIdsRef.current.has(orderId);
+      if (orderId != null) alertedReadyOrderIdsRef.current.add(orderId);
+      if (shouldAlert && document.visibilityState === 'visible') playCounterAlert();
+      pendingQueueSignalRef.current = true;
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void refreshCounter();
+      }
     };
 
     navigator.serviceWorker.addEventListener('message', onMessage);
@@ -1013,7 +1487,11 @@ export default function CounterClient({
     setDetailLoadingOrderId(orderId);
     startTransition(async () => {
       try {
-        const detail = await loadCounterOrderDetailAction({ orderId });
+        const detail = await runMeasuredRead(
+          'detail',
+          () => loadCounterOrderDetailAction({ orderId })
+        );
+        detailLastReadAtRef.current.set(orderId, Date.now());
         recoveredOrderRef.current = detail;
         setRecoveredOrder(detail);
         setSelectedOrderId(detail.id);
@@ -1102,17 +1580,24 @@ export default function CounterClient({
   }, [filter, filteredOrders]);
 
   function completeLocalOrder(orderId: number) {
+    appliedOrderSequenceRef.current.set(orderId, ++readSequenceRef.current);
     setLocalOrders((current) => {
       const next = current.filter((order) => order.id !== orderId);
+      localOrdersRef.current = next;
       setSelectedOrderId((selected) => (selected === orderId ? next[0]?.id ?? null : selected));
       return next;
     });
   }
 
   function updateLocalOrderStatus(orderId: number, status: CounterOrder['status']) {
-    setLocalOrders((current) =>
-      current.map((order) => (order.id === orderId ? { ...order, status } : order))
-    );
+    appliedOrderSequenceRef.current.set(orderId, ++readSequenceRef.current);
+    setLocalOrders((current) => {
+      const next = current.map((order) =>
+        order.id === orderId ? { ...order, status } : order
+      );
+      localOrdersRef.current = next;
+      return next;
+    });
   }
 
   async function handlePrimaryDeliveryAction(
@@ -1140,10 +1625,14 @@ export default function CounterClient({
       }
 
       if (order.fulfillment === 'pickup' && order.status === 'ready') {
+        const idempotencyKey =
+          pickupCompletionKeysRef.current.get(order.id) ?? crypto.randomUUID();
+        pickupCompletionKeysRef.current.set(order.id, idempotencyKey);
         await completeCounterPickupAction({
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey,
           orderId: order.id,
         });
+        pickupCompletionKeysRef.current.delete(order.id);
         completeLocalOrder(order.id);
         setMessage({
           tone: 'success',
@@ -1362,7 +1851,8 @@ export default function CounterClient({
   function handleCreateCashMovement(input: CounterCashMovementInput) {
     setMessage(null);
     setWorkingOrderId(-2);
-    startTransition(async () => {
+    return new Promise<boolean>((resolve) => {
+      startTransition(async () => {
       try {
         const result = await createCounterCashMovementAction(input);
         setMessage({
@@ -1377,21 +1867,25 @@ export default function CounterClient({
                 }.`,
         });
         await refreshCounterCash();
+        resolve(true);
       } catch (error) {
         setMessage({
           tone: 'error',
           text: error instanceof Error ? error.message : 'No se pudo registrar el movimiento.',
         });
+        resolve(false);
       } finally {
         setWorkingOrderId(null);
       }
+      });
     });
   }
 
   function handleCreateCashClosure(input: CounterCashClosureInput) {
     setMessage(null);
     setWorkingOrderId(-3);
-    startTransition(async () => {
+    return new Promise<boolean>((resolve) => {
+      startTransition(async () => {
       try {
         const result = await createCounterCashClosureAction(input);
         setMessage({
@@ -1401,14 +1895,17 @@ export default function CounterClient({
           }.`,
         });
         await refreshCounterCash();
+        resolve(true);
       } catch (error) {
         setMessage({
           tone: 'error',
           text: error instanceof Error ? error.message : 'No se pudo registrar el cierre.',
         });
+        resolve(false);
       } finally {
         setWorkingOrderId(null);
       }
+      });
     });
   }
 
@@ -1489,9 +1986,17 @@ export default function CounterClient({
             >
               {queueRefreshing ? 'Actualizando...' : 'Actualizar'}
             </button>
-            <span className="hidden rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 sm:inline-flex">
-              {formatRefreshTime(lastAutoRefreshAt)}
-            </span>
+            <button
+              type="button"
+              onClick={() => setSyncDetailsOpen((current) => !current)}
+              className={[
+                'inline-flex rounded-full border px-3 py-2 text-xs font-semibold',
+                connectionStateClass(connectionState),
+              ].join(' ')}
+              aria-expanded={syncDetailsOpen}
+            >
+              {connectionStateLabel(connectionState)} · {formatRefreshTime(lastAutoRefreshAt)}
+            </button>
             <Link
               href="/app"
               className="rounded-full border border-[#303044] bg-[#111118] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
@@ -1516,6 +2021,63 @@ export default function CounterClient({
           </div>
         ) : null}
 
+        {connectionState === 'offline' || connectionState === 'fallback' ? (
+          <div
+            className={[
+              'mt-4 rounded-[8px] border px-4 py-3 text-sm',
+              connectionState === 'offline'
+                ? 'border-red-400/35 bg-red-950/20 text-red-100'
+                : 'border-orange-400/35 bg-orange-950/20 text-orange-100',
+            ].join(' ')}
+          >
+            {connectionState === 'offline'
+              ? 'Sin conexion. Los datos visibles pueden estar desactualizados; no confirmes una operacion hasta recuperar la red.'
+              : 'El canal en vivo esta reconectando. Counter mantiene una verificacion ligera por recurso y las acciones finales siguen validando en servidor.'}
+          </div>
+        ) : null}
+
+        {syncDetailsOpen ? (
+          <section className="mt-4 rounded-[8px] border border-[#303044] bg-[#111118] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-[#F5F5F7]">
+                  Salud de sincronizacion
+                </h2>
+                <p className="mt-1 text-xs text-[#9FA0AA]">
+                  Realtime despierta la cola; detalle, caja y liquidaciones se consultan por separado solo cuando estan abiertos.
+                </p>
+              </div>
+              <div className="text-right text-xs text-[#9FA0AA]">
+                <div>{connectionStateLabel(connectionState)}</div>
+                <div>
+                  Ultimo evento: {lastRealtimeEventAt ? formatDateTime(lastRealtimeEventAt) : 'sin eventos en esta sesion'}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {(Object.keys(syncMetrics) as CounterSyncResource[]).map((resource) => {
+                const metric = syncMetrics[resource];
+                return (
+                  <div
+                    key={resource}
+                    className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs"
+                  >
+                    <div className="font-semibold text-[#F5F5F7]">
+                      {COUNTER_SYNC_RESOURCE_LABELS[resource]}
+                    </div>
+                    <div className="mt-1 text-[#9FA0AA]">
+                      {metric.calls} consulta(s) · {metric.errors} error(es)
+                    </div>
+                    <div className="mt-1 text-[#9FA0AA]">
+                      Promedio {averageMetricDuration(metric)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {cashPanelOpen && cashLoading && cashAccounts.length === 0 ? (
           <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-6 text-sm text-[#9FA0AA]">
             Cargando saldos exactos y movimientos de caja...
@@ -1536,6 +2098,8 @@ export default function CounterClient({
           <CounterPendingSettlementsPanel
             paymentAccounts={paymentAccounts}
             activeBsRate={activeBsRate}
+            refreshToken={settlementsRefreshToken}
+            onReadMetric={recordSettlementsReadMetric}
             onChanged={async () => {
               await Promise.all([
                 refreshCounter(),
@@ -1678,6 +2242,9 @@ export default function CounterClient({
                 quickSaleProductComponents={quickSaleProductComponents}
                 activeBsRate={activeBsRate}
                 isWorking={workingOrderId === selectedOrder.id}
+                isStale={detailStaleOrderId === selectedOrder.id}
+                isRefreshing={detailLoadingOrderId === selectedOrder.id}
+                onRefreshExact={() => void refreshCounterOrder(selectedOrder.id)}
                 onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
                 onDeliverySettlementChanged={async () => {
                   await Promise.all([
@@ -1817,8 +2384,8 @@ function CounterCashPanel({
   isWorking: boolean;
   isClosing: boolean;
   onRefresh: () => void;
-  onCreateMovement: (input: CounterCashMovementInput) => void;
-  onCreateClosure: (input: CounterCashClosureInput) => void;
+  onCreateMovement: (input: CounterCashMovementInput) => Promise<boolean>;
+  onCreateClosure: (input: CounterCashClosureInput) => Promise<boolean>;
 }) {
   const firstAccount = accounts[0] ?? null;
   const movementAccounts = accounts.filter((account) => account.accountKind === 'cash');
@@ -1848,6 +2415,8 @@ function CounterCashPanel({
   const [movementCursor, setMovementCursor] = useState<CounterCashMovementCursor | null>(null);
   const [movementPageLoading, setMovementPageLoading] = useState(false);
   const [movementPageError, setMovementPageError] = useState<string | null>(null);
+  const movementCommandKeyRef = useRef<StableCommandKey | null>(null);
+  const closureCommandKeyRef = useRef<StableCommandKey | null>(null);
   const selectedAccount =
     movementAccounts.find((account) => String(account.accountId) === movementAccountId)
     ?? firstMovementAccount;
@@ -1897,7 +2466,7 @@ function CounterCashPanel({
     );
   }, [detailAccount]);
 
-  function submitMovement() {
+  async function submitMovement() {
     const moneyAccountId = selectedAccount?.accountId ?? 0;
     const amount = toDecimalInput(movementAmount);
     const description = movementDescription.trim();
@@ -1920,8 +2489,7 @@ function CounterCashPanel({
     }
 
     setMovementError(null);
-    onCreateMovement({
-      idempotencyKey: crypto.randomUUID(),
+    const payload = {
       direction: movementDirection,
       moneyAccountId,
       amount,
@@ -1931,7 +2499,17 @@ function CounterCashPanel({
       counterpartyName: movementCounterpartyName.trim() || null,
       description,
       notes: movementNotes.trim() || null,
+    };
+    movementCommandKeyRef.current = stableCommandKey(
+      movementCommandKeyRef.current,
+      payload
+    );
+    const succeeded = await onCreateMovement({
+      idempotencyKey: movementCommandKeyRef.current.key,
+      ...payload,
     });
+    if (!succeeded) return;
+    movementCommandKeyRef.current = null;
     setMovementAmount('');
     setMovementReferenceCode('');
     setMovementCounterpartyName('');
@@ -1939,7 +2517,7 @@ function CounterCashPanel({
     setMovementNotes('');
   }
 
-  function submitClosure() {
+  async function submitClosure() {
     const moneyAccountId = selectedClosureAccount?.accountId ?? 0;
     const countedAmount = toDecimalInput(closureAmount);
     const reason = closureReason.trim();
@@ -1978,8 +2556,7 @@ function CounterCashPanel({
     }
 
     setClosureError(null);
-    onCreateClosure({
-      idempotencyKey: crypto.randomUUID(),
+    const payload = {
       moneyAccountId,
       closureDate,
       closureTime,
@@ -1988,7 +2565,17 @@ function CounterCashPanel({
         selectedClosureAccount?.currencyCode === 'VES' ? activeBsRate : null,
       reason,
       notes: closureNotes.trim() || null,
+    };
+    closureCommandKeyRef.current = stableCommandKey(
+      closureCommandKeyRef.current,
+      payload
+    );
+    const succeeded = await onCreateClosure({
+      idempotencyKey: closureCommandKeyRef.current.key,
+      ...payload,
     });
+    if (!succeeded) return;
+    closureCommandKeyRef.current = null;
     setClosureAmount('');
     setClosureNotes('');
     setClosureTime(getCurrentTimeKey());
@@ -2200,7 +2787,7 @@ function CounterCashPanel({
           <div className="mt-4 flex justify-end">
             <button
               type="button"
-              onClick={submitMovement}
+              onClick={() => void submitMovement()}
               disabled={isWorking || movementAccounts.length === 0}
               className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
             >
@@ -2343,7 +2930,7 @@ function CounterCashPanel({
             </div>
             <button
               type="button"
-              onClick={submitClosure}
+              onClick={() => void submitClosure()}
               disabled={
                 isClosing
                 || accounts.length === 0
@@ -4142,6 +4729,9 @@ function OrderDetail({
   quickSaleProductComponents,
   activeBsRate,
   isWorking,
+  isStale,
+  isRefreshing,
+  onRefreshExact,
   onPrimaryDeliveryAction,
   onDeliverySettlementChanged,
   onCreatePaymentReport,
@@ -4160,6 +4750,9 @@ function OrderDetail({
   quickSaleProductComponents: CounterQuickSaleProductComponent[];
   activeBsRate: number;
   isWorking: boolean;
+  isStale: boolean;
+  isRefreshing: boolean;
+  onRefreshExact: () => void;
   onPrimaryDeliveryAction: (
     order: CounterOrder,
     dispatchIntent?: CounterDeliveryDispatchIntent
@@ -4333,6 +4926,24 @@ function OrderDetail({
           </span>
         </div>
       </div>
+
+      {isStale ? (
+        <div className="border-b border-orange-400/25 bg-orange-950/20 px-4 py-3 text-sm text-orange-100">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              Esta orden cambio mientras estaba abierta. Revisa el detalle exacto antes de cobrar o entregar.
+            </span>
+            <button
+              type="button"
+              onClick={onRefreshExact}
+              disabled={isRefreshing}
+              className="rounded-full border border-orange-300/40 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+            >
+              {isRefreshing ? 'Revisando...' : 'Revisar ahora'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3">
@@ -4689,6 +5300,7 @@ function CounterPickupScheduleBox({
   const [scheduledTime, setScheduledTime] = useState(scheduleTimeInput(order.scheduledTime));
   const [reason, setReason] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const commandKeyRef = useRef<StableCommandKey | null>(null);
 
   async function submit(sendToKitchen: boolean) {
     if (!scheduledDate || !scheduledTime) {
@@ -4702,14 +5314,19 @@ function CounterPickupScheduleBox({
 
     setLocalError(null);
     try {
-      await onSubmit({
-        idempotencyKey: crypto.randomUUID(),
+      const payload = {
         orderId: order.id,
         scheduledDate,
         scheduledTime,
         reason: reason.trim(),
         sendToKitchen,
+      };
+      commandKeyRef.current = stableCommandKey(commandKeyRef.current, payload);
+      await onSubmit({
+        idempotencyKey: commandKeyRef.current.key,
+        ...payload,
       });
+      commandKeyRef.current = null;
       setReason('');
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'No se pudo corregir la fecha.');
@@ -4817,6 +5434,7 @@ function CounterPickupItemsEditor({
     qty: number;
   }>>([]);
   const [localError, setLocalError] = useState<string | null>(null);
+  const commandKeyRef = useRef<StableCommandKey | null>(null);
   const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
   const componentsByParentId = useMemo(() => {
     const map = new Map<number, CounterQuickSaleProductComponent[]>();
@@ -5050,8 +5668,7 @@ function CounterPickupItemsEditor({
 
     setLocalError(null);
     try {
-      await onSubmit({
-        idempotencyKey: crypto.randomUUID(),
+      const payload = {
         orderId: order.id,
         existingItems: existingRows.map((row) => ({
           itemId: row.item.id,
@@ -5064,7 +5681,13 @@ function CounterPickupItemsEditor({
           editableDetailLines: item.editableDetailLines,
         })),
         reason: reason.trim() || null,
+      };
+      commandKeyRef.current = stableCommandKey(commandKeyRef.current, payload);
+      await onSubmit({
+        idempotencyKey: commandKeyRef.current.key,
+        ...payload,
       });
+      commandKeyRef.current = null;
       setCartItems([]);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'No se pudo modificar el pickup.');
