@@ -62,7 +62,7 @@ type CounterCashClosureInput = {
   notes?: string | null;
 };
 
-type CounterAgendaSearchStatus =
+export type CounterHistoricalSearchStatus =
   | 'created'
   | 'queued'
   | 'confirmed'
@@ -72,30 +72,42 @@ type CounterAgendaSearchStatus =
   | 'delivered'
   | 'cancelled';
 
-export type CounterAgendaSearchResult = {
+export type CounterHistoricalSearchResult = {
   id: number;
   displayNumber: string;
   orderNumber: string | null;
-  status: CounterAgendaSearchStatus;
+  status: CounterHistoricalSearchStatus;
   fulfillment: 'pickup' | 'delivery';
   clientName: string;
   clientPhone: string | null;
+  receiverName: string | null;
+  receiverPhone: string | null;
   scheduledDate: string | null;
   scheduledTime: string | null;
+  sentToKitchenAt: string | null;
+  kitchenStartedAt: string | null;
+  readyAt: string | null;
+  deliveredAt: string | null;
   totalUsd: number;
   totalBs: number;
+  confirmedPaidUsd: number;
+  balanceUsd: number;
+  paymentStatus: string;
+  pendingReportsCount: number;
+  itemCount: number;
+  productSummary: string[];
   note: string | null;
   createdAt: string;
 };
 
-export type CounterAgendaSearchCursor = {
+export type CounterHistoricalSearchCursor = {
   createdAt: string;
   id: number;
 };
 
-export type CounterAgendaSearchPage = {
-  results: CounterAgendaSearchResult[];
-  nextCursor: CounterAgendaSearchCursor | null;
+export type CounterHistoricalSearchPage = {
+  results: CounterHistoricalSearchResult[];
+  nextCursor: CounterHistoricalSearchCursor | null;
 };
 
 function createSupabaseServiceRoleServer() {
@@ -1307,14 +1319,17 @@ export async function searchCounterClientsAction(input: { query: string }): Prom
   return Array.isArray(payload.results) ? payload.results : [];
 }
 
-export async function searchCounterAgendaAction(input: {
+export async function searchCounterHistoricalOrdersAction(input: {
   query: string;
-  cursor?: CounterAgendaSearchCursor | null;
-}): Promise<CounterAgendaSearchPage> {
+  cursor?: CounterHistoricalSearchCursor | null;
+}): Promise<CounterHistoricalSearchPage> {
   const ctx = await requireCounterOperatorContext();
 
-  const query = String(input.query || '').trim();
-  if (query.length < 2) return { results: [], nextCursor: null };
+  const rawQuery = String(input.query || '').trim();
+  if (rawQuery.length < 2 && !/^[0-9]$/.test(rawQuery)) {
+    return { results: [], nextCursor: null };
+  }
+  const query = /^[0-9]$/.test(rawQuery) ? `0${rawQuery}` : rawQuery;
 
   const { data, error } = await ctx.supabase.rpc('counter_search_orders', {
     p_query: query,
@@ -1325,7 +1340,7 @@ export async function searchCounterAgendaAction(input: {
   if (error) throw new Error(error.message);
 
   const payload = data && typeof data === 'object' && !Array.isArray(data)
-    ? data as Partial<CounterAgendaSearchPage>
+    ? data as Partial<CounterHistoricalSearchPage>
     : {};
   return {
     results: Array.isArray(payload.results) ? payload.results : [],

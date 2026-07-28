@@ -46,7 +46,12 @@ type CounterReadOrderRow = {
   total_bs_snapshot: number | string | null;
   notes: string | null;
   created_at: string;
+  sent_to_kitchen_at?: string | null;
+  kitchen_started_at?: string | null;
   ready_at: string | null;
+  delivered_at?: string | null;
+  receiver_name?: string | null;
+  receiver_phone?: string | null;
   extra_fields: {
     schedule?: {
       date?: string | null;
@@ -267,7 +272,12 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     externalReference: row.external_reference || null,
     notes: row.notes || null,
     createdAt: row.created_at,
+    sentToKitchenAt: row.sent_to_kitchen_at || null,
+    kitchenStartedAt: row.kitchen_started_at || null,
     readyAt: row.ready_at || null,
+    deliveredAt: row.delivered_at || null,
+    receiverName: row.receiver_name?.trim() || null,
+    receiverPhone: row.receiver_phone || null,
     scheduledDate: schedule?.date || null,
     scheduledTime: schedule?.asap
       ? 'Lo antes posible'

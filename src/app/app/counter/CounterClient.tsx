@@ -22,9 +22,9 @@ import {
   executeCounterRefundAction,
   requestCounterRefundAction,
   searchCounterClientsAction,
-  searchCounterAgendaAction,
-  type CounterAgendaSearchCursor,
-  type CounterAgendaSearchResult,
+  searchCounterHistoricalOrdersAction,
+  type CounterHistoricalSearchCursor,
+  type CounterHistoricalSearchResult,
   type CounterClientSearchResult,
   updateCounterPickupScheduleAction,
 } from './actions';
@@ -144,7 +144,15 @@ export type CounterOrder = {
   id: number;
   orderNumber: string;
   displayNumber: string;
-  status: 'created' | 'confirmed' | 'in_kitchen' | 'ready' | 'out_for_delivery';
+  status:
+    | 'created'
+    | 'queued'
+    | 'confirmed'
+    | 'in_kitchen'
+    | 'ready'
+    | 'out_for_delivery'
+    | 'delivered'
+    | 'cancelled';
   source: string | null;
   isCounterSale: boolean;
   isCounterScheduled: boolean;
@@ -160,7 +168,12 @@ export type CounterOrder = {
   externalReference: string | null;
   notes: string | null;
   createdAt: string;
+  sentToKitchenAt: string | null;
+  kitchenStartedAt: string | null;
   readyAt: string | null;
+  deliveredAt: string | null;
+  receiverName: string | null;
+  receiverPhone: string | null;
   scheduledDate: string | null;
   scheduledTime: string | null;
   paymentMethod: string;
@@ -466,16 +479,20 @@ function accountKindLabel(value: string | null) {
 }
 
 function counterStatusClass(order: CounterOrder) {
+  if (order.status === 'delivered') return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
+  if (order.status === 'cancelled') return 'border-red-400/40 bg-red-400/10 text-red-200';
   if (order.status === 'out_for_delivery') return 'border-sky-400/40 bg-sky-400/10 text-sky-200';
   if (order.status === 'in_kitchen') return 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200';
   if (order.status === 'created') return 'border-purple-300/40 bg-purple-300/10 text-purple-100';
-  if (order.status === 'confirmed') return 'border-orange-400/40 bg-orange-400/10 text-orange-200';
+  if (order.status === 'queued' || order.status === 'confirmed') return 'border-orange-400/40 bg-orange-400/10 text-orange-200';
   return 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]';
 }
 
 function primaryCounterActionLabel(order: CounterOrder) {
+  if (order.status === 'delivered') return 'Orden entregada';
+  if (order.status === 'cancelled') return 'Orden cancelada';
   if (order.status === 'created') return 'Pendiente master';
-  if (order.status === 'confirmed') return 'En cola de cocina';
+  if (order.status === 'queued' || order.status === 'confirmed') return 'En cola de cocina';
   if (order.status === 'in_kitchen') return 'En preparacion';
   if (order.fulfillment === 'pickup' && order.status === 'ready' && mustSettleBeforeCounterDelivery(order)) return 'Primero cobrar';
   if (order.fulfillment === 'delivery' && order.status === 'ready') return 'Entregar a motorizado';
@@ -543,7 +560,7 @@ function sortCounterOrders(orders: CounterOrder[]) {
   });
 }
 
-function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
+function historicalSearchStatusLabel(status: CounterHistoricalSearchResult['status']) {
   if (status === 'created') return 'Agendado / pendiente master';
   if (status === 'queued') return 'En cola de cocina';
   if (status === 'confirmed') return 'En cola de cocina';
@@ -555,7 +572,7 @@ function agendaSearchStatusLabel(status: CounterAgendaSearchResult['status']) {
   return status;
 }
 
-function agendaSearchReason(result: CounterAgendaSearchResult) {
+function historicalSearchReason(result: CounterHistoricalSearchResult) {
   if (result.status === 'created') return 'Master aun no lo ha enviado a cocina.';
   if (result.status === 'queued') return 'Ya esta en la cola operativa de cocina.';
   if (result.status === 'confirmed') return 'Ya esta enviado a cocina; falta que lo tomen.';
@@ -565,6 +582,13 @@ function agendaSearchReason(result: CounterAgendaSearchResult) {
   if (result.status === 'delivered') return 'Esta orden ya fue entregada.';
   if (result.status === 'cancelled') return 'Esta orden fue cancelada.';
   return null;
+}
+
+function historicalSearchPaymentLabel(result: CounterHistoricalSearchResult) {
+  if (result.pendingReportsCount > 0) return 'Pago por revisar';
+  if (result.balanceUsd <= 0.005) return 'Pagado';
+  if (result.confirmedPaidUsd > 0.005) return `Abonado · falta ${moneyUsd(result.balanceUsd)}`;
+  return `Pendiente ${moneyUsd(result.balanceUsd)}`;
 }
 
 export default function CounterClient({
@@ -579,6 +603,8 @@ export default function CounterClient({
   const [workingOrderId, setWorkingOrderId] = useState<number | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [localOrders, setLocalOrders] = useState(orders);
+  const [recoveredOrder, setRecoveredOrder] = useState<CounterOrder | null>(null);
+  const recoveredOrderRef = useRef<CounterOrder | null>(null);
   const previousOrderIdsRef = useRef<Set<number> | null>(null);
   const queueRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const detailRequestIdRef = useRef(0);
@@ -602,11 +628,11 @@ export default function CounterClient({
   const catalogLoadedRef = useRef(false);
   const catalogLoadedAtRef = useRef(0);
   const [paymentOrderIdToOpen, setPaymentOrderIdToOpen] = useState<number | null>(null);
-  const [masterAgendaSearch, setMasterAgendaSearch] = useState('');
-  const [masterAgendaResults, setMasterAgendaResults] = useState<CounterAgendaSearchResult[]>([]);
-  const [masterAgendaNextCursor, setMasterAgendaNextCursor] = useState<CounterAgendaSearchCursor | null>(null);
-  const [masterAgendaSearched, setMasterAgendaSearched] = useState(false);
-  const [masterAgendaOpen, setMasterAgendaOpen] = useState(false);
+  const [historicalSearch, setHistoricalSearch] = useState('');
+  const [historicalResults, setHistoricalResults] = useState<CounterHistoricalSearchResult[]>([]);
+  const [historicalNextCursor, setHistoricalNextCursor] = useState<CounterHistoricalSearchCursor | null>(null);
+  const [historicalSearched, setHistoricalSearched] = useState(false);
+  const [historicalSearchOpen, setHistoricalSearchOpen] = useState(false);
 
   const refreshCounter = useCallback(async () => {
     if (queueRefreshInFlightRef.current) return queueRefreshInFlightRef.current;
@@ -629,7 +655,12 @@ export default function CounterClient({
           });
         });
         setSelectedOrderId((current) =>
-          current != null && nextOrders.some((order) => order.id === current) ? current : null
+          current != null && (
+            nextOrders.some((order) => order.id === current)
+            || recoveredOrderRef.current?.id === current
+          )
+            ? current
+            : null
         );
         setLastAutoRefreshAt(new Date().toISOString());
 
@@ -667,6 +698,10 @@ export default function CounterClient({
       setLocalOrders((current) =>
         current.map((order) => (order.id === detail.id ? detail : order))
       );
+      if (recoveredOrderRef.current?.id === detail.id) {
+        recoveredOrderRef.current = detail;
+        setRecoveredOrder(detail);
+      }
       return detail;
     } catch (error) {
       if (requestId === detailRequestIdRef.current) {
@@ -918,12 +953,37 @@ export default function CounterClient({
 
   const selectedOrder = selectedOrderId == null
     ? null
-    : localOrders.find((order) => order.id === selectedOrderId) ?? null;
+    : localOrders.find((order) => order.id === selectedOrderId)
+      ?? (recoveredOrder?.id === selectedOrderId ? recoveredOrder : null);
 
   function handleSelectCounterOrder(order: CounterOrder) {
     setQuickSaleOpen(false);
+    recoveredOrderRef.current = null;
+    setRecoveredOrder(null);
     setSelectedOrderId(order.id);
     if (!order.detailLoaded) void refreshCounterOrder(order.id);
+  }
+
+  function handleOpenHistoricalOrder(orderId: number, openPayment: boolean) {
+    setQuickSaleOpen(false);
+    setMessage(null);
+    setDetailLoadingOrderId(orderId);
+    startTransition(async () => {
+      try {
+        const detail = await loadCounterOrderDetailAction({ orderId });
+        recoveredOrderRef.current = detail;
+        setRecoveredOrder(detail);
+        setSelectedOrderId(detail.id);
+        setPaymentOrderIdToOpen(openPayment && detail.status !== 'cancelled' ? detail.id : null);
+      } catch (error) {
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo abrir el expediente de la orden.',
+        });
+      } finally {
+        setDetailLoadingOrderId((current) => current === orderId ? null : current);
+      }
+    });
   }
 
   async function handleOpenQuickSale() {
@@ -1231,26 +1291,26 @@ export default function CounterClient({
     }
   }
 
-  function handleMasterAgendaSearch(cursor: CounterAgendaSearchCursor | null = null) {
-    const query = masterAgendaSearch.trim();
-    if (query.length < 2) {
-      setMessage({ tone: 'error', text: 'Escribe al menos 2 caracteres para buscar en agenda.' });
+  function handleHistoricalSearch(cursor: CounterHistoricalSearchCursor | null = null) {
+    const query = historicalSearch.trim();
+    if (query.length < 2 && !/^[0-9]$/.test(query)) {
+      setMessage({ tone: 'error', text: 'Escribe un número de orden o al menos 2 caracteres.' });
       return;
     }
 
     setMessage(null);
-    setMasterAgendaSearched(true);
-    if (!cursor) setMasterAgendaNextCursor(null);
+    setHistoricalSearched(true);
+    if (!cursor) setHistoricalNextCursor(null);
     startTransition(async () => {
       try {
-        const page = await searchCounterAgendaAction({ query, cursor });
-        setMasterAgendaResults((current) => cursor ? [...current, ...page.results] : page.results);
-        setMasterAgendaNextCursor(page.nextCursor);
+        const page = await searchCounterHistoricalOrdersAction({ query, cursor });
+        setHistoricalResults((current) => cursor ? [...current, ...page.results] : page.results);
+        setHistoricalNextCursor(page.nextCursor);
       } catch (error) {
-        if (!cursor) setMasterAgendaResults([]);
+        if (!cursor) setHistoricalResults([]);
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo consultar la agenda.',
+          text: error instanceof Error ? error.message : 'No se pudo consultar el historial.',
         });
       }
     });
@@ -1346,10 +1406,10 @@ export default function CounterClient({
             </button>
             <button
               type="button"
-              onClick={() => setMasterAgendaOpen((current) => !current)}
+              onClick={() => setHistoricalSearchOpen((current) => !current)}
               className={[
                 'rounded-full border px-4 py-2 text-sm font-semibold hover:border-[#FEEF00]/60',
-                masterAgendaOpen
+                historicalSearchOpen
                   ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                   : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
               ].join(' ')}
@@ -1435,24 +1495,26 @@ export default function CounterClient({
           />
         ) : null}
 
-        {masterAgendaOpen ? (
-          <MasterAgendaSearchPanel
-            query={masterAgendaSearch}
-            results={masterAgendaResults}
-            nextCursor={masterAgendaNextCursor}
-            searched={masterAgendaSearched}
+        {historicalSearchOpen ? (
+          <CounterHistoricalSearchPanel
+            query={historicalSearch}
+            results={historicalResults}
+            nextCursor={historicalNextCursor}
+            searched={historicalSearched}
             isPending={isPending}
-            onQueryChange={setMasterAgendaSearch}
-            onSearch={() => handleMasterAgendaSearch()}
+            onQueryChange={setHistoricalSearch}
+            onSearch={() => handleHistoricalSearch()}
             onLoadMore={() => {
-              if (masterAgendaNextCursor) handleMasterAgendaSearch(masterAgendaNextCursor);
+              if (historicalNextCursor) handleHistoricalSearch(historicalNextCursor);
             }}
             onClear={() => {
-              setMasterAgendaSearch('');
-              setMasterAgendaResults([]);
-              setMasterAgendaNextCursor(null);
-              setMasterAgendaSearched(false);
+              setHistoricalSearch('');
+              setHistoricalResults([]);
+              setHistoricalNextCursor(null);
+              setHistoricalSearched(false);
             }}
+            onOpenOrder={(orderId) => handleOpenHistoricalOrder(orderId, false)}
+            onOpenPayment={(orderId) => handleOpenHistoricalOrder(orderId, true)}
           />
         ) : null}
 
@@ -2309,7 +2371,7 @@ function CounterCashPanel({
   );
 }
 
-function MasterAgendaSearchPanel({
+function CounterHistoricalSearchPanel({
   query,
   results,
   nextCursor,
@@ -2319,16 +2381,20 @@ function MasterAgendaSearchPanel({
   onSearch,
   onLoadMore,
   onClear,
+  onOpenOrder,
+  onOpenPayment,
 }: {
   query: string;
-  results: CounterAgendaSearchResult[];
-  nextCursor: CounterAgendaSearchCursor | null;
+  results: CounterHistoricalSearchResult[];
+  nextCursor: CounterHistoricalSearchCursor | null;
   searched: boolean;
   isPending: boolean;
   onQueryChange: (value: string) => void;
   onSearch: () => void;
   onLoadMore: () => void;
   onClear: () => void;
+  onOpenOrder: (orderId: number) => void;
+  onOpenPayment: (orderId: number) => void;
 }) {
   return (
     <section className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
@@ -2379,7 +2445,7 @@ function MasterAgendaSearchPanel({
           ) : (
             <div className="grid gap-2 xl:grid-cols-2">
               {results.map((result) => {
-                const reason = agendaSearchReason(result);
+                const reason = historicalSearchReason(result);
 
                 return (
                   <div key={result.id} className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3">
@@ -2391,7 +2457,7 @@ function MasterAgendaSearchPanel({
                             {result.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}
                           </span>
                           <span className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-2 py-0.5 text-xs font-semibold text-[#FEEF00]">
-                            {agendaSearchStatusLabel(result.status)}
+                            {historicalSearchStatusLabel(result.status)}
                           </span>
                         </div>
                         <div className="mt-1 truncate text-sm font-semibold">{result.clientName}</div>
@@ -2399,6 +2465,12 @@ function MasterAgendaSearchPanel({
                           {result.clientPhone || 'Sin telefono'} - {result.scheduledDate || 'Sin fecha'}{' '}
                           {result.scheduledTime || ''}
                         </div>
+                        {result.receiverName || result.receiverPhone ? (
+                          <div className="mt-1 text-xs text-[#9FA0AA]">
+                            Recibe: {result.receiverName || 'Sin nombre'}
+                            {result.receiverPhone ? ` · ${result.receiverPhone}` : ''}
+                          </div>
+                        ) : null}
                         {reason ? <div className="mt-2 text-sm text-[#C7C8D1]">{reason}</div> : null}
                       </div>
                       <div className="shrink-0 text-right">
@@ -2406,7 +2478,55 @@ function MasterAgendaSearchPanel({
                         <div className="text-xs text-[#9FA0AA]">{moneyBs(result.totalBs)}</div>
                       </div>
                     </div>
+                    <div className="mt-3 grid gap-2 rounded-[8px] border border-[#242433] bg-[#111118] p-2 text-xs text-[#C7C8D1] sm:grid-cols-2">
+                      <div>
+                        <span className="text-[#777988]">Productos: </span>
+                        {result.productSummary.length > 0
+                          ? result.productSummary.join(', ')
+                          : `${result.itemCount} item(s)`}
+                      </div>
+                      <div>
+                        <span className="text-[#777988]">Pago: </span>
+                        {historicalSearchPaymentLabel(result)}
+                      </div>
+                      <div>
+                        <span className="text-[#777988]">Creada: </span>
+                        {formatDateTime(result.createdAt)}
+                      </div>
+                      <div>
+                        <span className="text-[#777988]">Entrega: </span>
+                        {result.deliveredAt
+                          ? formatDateTime(result.deliveredAt)
+                          : result.readyAt
+                            ? `Lista ${formatDateTime(result.readyAt)}`
+                            : 'Pendiente'}
+                      </div>
+                    </div>
                     {result.note ? <div className="mt-2 text-xs text-[#9FA0AA]">Nota: {result.note}</div> : null}
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenOrder(result.id)}
+                        disabled={isPending}
+                        className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-xs font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60 disabled:opacity-60"
+                      >
+                        Abrir expediente
+                      </button>
+                      {result.status !== 'cancelled' && result.balanceUsd > 0.005 ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenPayment(result.id)}
+                          disabled={isPending}
+                          className="rounded-[8px] border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:border-emerald-300/70 disabled:opacity-60"
+                        >
+                          Abrir cobro
+                        </button>
+                      ) : (
+                        <div className="rounded-[8px] border border-[#242433] px-3 py-2 text-center text-xs text-[#777988]">
+                          {result.status === 'cancelled' ? 'Solo consulta' : 'Sin deuda pendiente'}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -3574,6 +3694,28 @@ function getCounterCurrentAction(order: CounterOrder) {
   const paid = order.balanceUsd <= 0.005;
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
 
+  if (order.status === 'cancelled') {
+    return {
+      title: 'Orden cancelada',
+      description: 'Mostrador puede consultar el expediente, pero no modificar ni cobrar esta orden.',
+      tone: 'neutral' as const,
+      steps: ['Informar al cliente', 'Escalar cualquier correccion a Master o Administracion'],
+    };
+  }
+
+  if (order.status === 'delivered') {
+    return {
+      title: paid ? 'Orden entregada y pagada' : 'Cobro pendiente de una orden entregada',
+      description: paid
+        ? 'El expediente queda disponible solo para consulta operativa.'
+        : 'Mostrador puede registrar el pago pendiente sin modificar la orden entregada.',
+      tone: paid ? ('good' as const) : ('warn' as const),
+      steps: paid
+        ? ['Informar el estado al cliente']
+        : ['Abrir Pago', 'Registrar el cobro', 'Mantener la orden sin cambios'],
+    };
+  }
+
   if (order.status === 'created') {
     return {
       title: 'Agendado para master',
@@ -3583,7 +3725,7 @@ function getCounterCurrentAction(order: CounterOrder) {
     };
   }
 
-  if (order.status === 'confirmed' || order.status === 'in_kitchen') {
+  if (order.status === 'queued' || order.status === 'confirmed' || order.status === 'in_kitchen') {
     return {
       title: 'Seguimiento de cocina',
       description: 'El pedido todavia no debe entregarse. Mostrador solo informa el estado al cliente.',
@@ -3660,9 +3802,29 @@ function getCounterCurrentAction(order: CounterOrder) {
 function getCounterWorkflowChecks(order: CounterOrder) {
   const paid = order.balanceUsd <= 0.005;
   const hasPendingReports = order.reports.pending > 0;
-  const inKitchenFlow = order.status === 'confirmed' || order.status === 'in_kitchen';
+  const inKitchenFlow =
+    order.status === 'queued' || order.status === 'confirmed' || order.status === 'in_kitchen';
   const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
+
+  if (order.status === 'cancelled') {
+    return [
+      { label: 'Orden', detail: 'Cancelada', state: 'blocked' as const },
+      { label: 'Acciones', detail: 'Solo consulta', state: 'pending' as const },
+    ];
+  }
+
+  if (order.status === 'delivered') {
+    return [
+      { label: 'Entrega', detail: 'Completada', state: 'done' as const },
+      {
+        label: 'Cobro',
+        detail: paid ? 'Cubierto' : `Pendiente ${moneyUsd(order.balanceUsd)}`,
+        state: paid ? ('done' as const) : ('current' as const),
+      },
+      { label: 'Edicion', detail: 'Bloqueada', state: 'blocked' as const },
+    ];
+  }
 
   if (order.status === 'created') {
     return [
@@ -3798,11 +3960,18 @@ function OrderDetail({
   catalogLoading: boolean;
 }) {
   const paid = order.balanceUsd <= 0.005;
+  const isDelivered = order.status === 'delivered';
+  const isCancelled = order.status === 'cancelled';
+  const isClosedOrder = isDelivered || isCancelled;
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
   const deliveryReadyWithoutAssignee =
     order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
   const waitingForMaster = order.status === 'created';
-  const notReadyForCounter = waitingForMaster || order.status === 'confirmed' || order.status === 'in_kitchen';
+  const notReadyForCounter =
+    waitingForMaster
+    || order.status === 'queued'
+    || order.status === 'confirmed'
+    || order.status === 'in_kitchen';
   const hasPendingReports = order.reports.pending > 0;
   const pendingPickupChange =
     order.pickupChangeRequests.find((request) => request.status === 'pending') ?? null;
@@ -3812,12 +3981,17 @@ function OrderDetail({
     order.status === 'ready' &&
     mustCollectNow;
   const primaryActionBlocked =
+    isClosedOrder ||
     notReadyForCounter ||
     Boolean(pendingPickupChange) ||
     pickupReadyNeedsPayment ||
     deliveryReadyWithoutAssignee ||
     isDeliverySettlement;
-  const primaryActionBlockedMessage = pendingPickupChange
+  const primaryActionBlockedMessage = isCancelled
+    ? 'La orden esta cancelada. Counter solo puede consultar el expediente.'
+    : isDelivered
+      ? 'La orden ya fue entregada. Counter solo puede consultar y registrar pagos pendientes.'
+    : pendingPickupChange
     ? 'Master debe aprobar o rechazar el cambio solicitado antes de entregar este pickup.'
     : order.fulfillment === 'pickup' && order.pendingDigitalChangeUsd > 0.005
       ? 'Todavia existe cambio digital pendiente de entregar al cliente. Completa ese cambio antes de marcar el pickup como retirado.'
@@ -3850,6 +4024,7 @@ function OrderDetail({
     order.fulfillment === 'pickup' &&
     (
       order.status === 'created' ||
+      order.status === 'queued' ||
       order.status === 'confirmed' ||
       order.status === 'in_kitchen' ||
       order.status === 'ready'
@@ -3857,7 +4032,12 @@ function OrderDetail({
     !pendingPickupChange;
   const canCorrectPickupSchedule =
     order.fulfillment === 'pickup' &&
-    (order.status === 'created' || order.status === 'confirmed' || order.status === 'in_kitchen');
+    (
+      order.status === 'created'
+      || order.status === 'queued'
+      || order.status === 'confirmed'
+      || order.status === 'in_kitchen'
+    );
   const isReadyDeliveryAction = order.fulfillment === 'delivery' && order.status === 'ready';
   const reservedRefundUsd = order.refundAuthorizations.reduce(
     (sum, authorization) =>
@@ -3867,9 +4047,12 @@ function OrderDetail({
     0
   );
   const showRefundPanel =
-    order.overpaidUsd - order.pendingDigitalChangeUsd - reservedRefundUsd > 0.005 ||
-    order.refundAuthorizations.some(
-      (authorization) => authorization.status === 'pending' || authorization.status === 'approved'
+    !isClosedOrder
+    && (
+      order.overpaidUsd - order.pendingDigitalChangeUsd - reservedRefundUsd > 0.005
+      || order.refundAuthorizations.some(
+        (authorization) => authorization.status === 'pending' || authorization.status === 'approved'
+      )
     );
 
   useEffect(() => {
@@ -3924,6 +4107,21 @@ function OrderDetail({
 
       <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3">
+          <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+            <h3 className="font-semibold">Recorrido operativo</h3>
+            <div className="mt-2 grid gap-2 text-xs text-[#C7C8D1] sm:grid-cols-2 xl:grid-cols-3">
+              <div><span className="text-[#777988]">Creada: </span>{formatDateTime(order.createdAt)}</div>
+              <div>
+                <span className="text-[#777988]">Agenda: </span>
+                {order.scheduledDate || 'Sin fecha'} {order.scheduledTime || ''}
+              </div>
+              <div><span className="text-[#777988]">Enviada a cocina: </span>{formatDateTime(order.sentToKitchenAt)}</div>
+              <div><span className="text-[#777988]">Preparación: </span>{formatDateTime(order.kitchenStartedAt)}</div>
+              <div><span className="text-[#777988]">Lista: </span>{formatDateTime(order.readyAt)}</div>
+              <div><span className="text-[#777988]">Entregada: </span>{formatDateTime(order.deliveredAt)}</div>
+            </div>
+          </div>
+
           <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold">Pedido</h3>
@@ -4013,6 +4211,12 @@ function OrderDetail({
               <h3 className="font-semibold">Entrega</h3>
               <div className="mt-2 grid gap-2 text-xs text-[#C7C8D1] sm:grid-cols-2">
                 <div className="sm:col-span-2">{order.deliveryAddress || 'Sin direccion'}</div>
+                {order.receiverName || order.receiverPhone ? (
+                  <div className="sm:col-span-2">
+                    Recibe: {order.receiverName || 'Sin nombre'}
+                    {order.receiverPhone ? ` · ${order.receiverPhone}` : ''}
+                  </div>
+                ) : null}
                 {order.fulfillment === 'delivery' ? (
                   <>
                     <div>
@@ -4093,7 +4297,8 @@ function OrderDetail({
             <button
               type="button"
               onClick={() => setPaymentOpen((current) => !current)}
-              className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+              disabled={isCancelled || isWorking}
+              className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {paymentOpen ? 'Ocultar pago' : 'Pago'}
             </button>
@@ -4129,7 +4334,7 @@ function OrderDetail({
         </aside>
       </div>
 
-      {paymentOpen ? (
+      {paymentOpen && !isCancelled ? (
         <div className="border-t border-[#242433] p-5">
           <CounterPaymentEngine
             key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.reports.pending}`}
@@ -4326,7 +4531,7 @@ function CounterPickupScheduleBox({
         />
       </label>
       {localError ? <div className="mt-2 text-xs font-semibold text-red-200">{localError}</div> : null}
-      <div className={['mt-3 grid gap-2', order.status === 'created' ? 'sm:grid-cols-2' : ''].join(' ')}>
+      <div className={['mt-3 grid gap-2', ['created', 'queued'].includes(order.status) ? 'sm:grid-cols-2' : ''].join(' ')}>
         <button
           type="button"
           onClick={() => void submit(false)}
@@ -4335,7 +4540,7 @@ function CounterPickupScheduleBox({
         >
           Guardar correccion
         </button>
-        {order.status === 'created' ? (
+        {order.status === 'created' || order.status === 'queued' ? (
           <button
             type="button"
             onClick={() => void submit(true)}

@@ -16,7 +16,8 @@ Estado:
 - Bloque 5: cerrado en su alcance de pickup operativo.
 - Bloque 6: cerrado en su alcance de delivery y liquidación.
 - Bloque 7: cerrado en su alcance de venta directa y agenda.
-- Bloques 8 a 12: no iniciados.
+- Bloque 8: cerrado en su alcance de consulta histórica y recuperación operativa.
+- Bloques 9 a 12: no iniciados.
 
 Evidencia del Bloque 1:
 
@@ -65,6 +66,14 @@ Evidencia del Bloque 7:
 - `docs/COUNTER_BLOCK_7_DIRECT_SALE_AUDIT_2026-07-27.md`
 - `docs/COUNTER_BLOCK_7_DIRECT_SALE_2026-07-27.sql`
 - `docs/COUNTER_BLOCK_7_ROLLBACK_2026-07-27.sql`
+
+Evidencia del Bloque 8:
+
+- `docs/COUNTER_BLOCK_8_HISTORICAL_RECOVERY_AUDIT_2026-07-27.md`
+- `docs/COUNTER_BLOCK_8_HISTORICAL_RECOVERY_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_8_INDEX_HARDENING_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_8_PERMISSION_HARDENING_2026-07-27.sql`
+- `docs/COUNTER_BLOCK_8_ROLLBACK_2026-07-27.sql`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -633,6 +642,8 @@ recuperación explícita que no deje órdenes incompletas.
 
 ## 14. Bloque 8 - Consulta histórica y recuperación operativa
 
+Estado: cerrado el 2026-07-27.
+
 ### Objetivo
 
 Permitir que Counter informe con precisión y actúe solo cuando el contrato lo
@@ -667,6 +678,23 @@ autorice sobre una orden fuera de la bandeja activa.
 - Counter puede cobrar una orden entregada;
 - no puede cambiar productos, fecha, modalidad ni entrega de una orden cerrada;
 - los resultados no exponen auditoría financiera administrativa.
+
+### Cierre implementado
+
+- buscador profundo paginado, sin precarga histórica;
+- número corto, nombre y teléfono de cliente o receptor;
+- expediente operativo y productos completos bajo demanda;
+- cobro de deuda futura, antigua o entregada mediante el motor existente;
+- órdenes entregadas en solo lectura operativa y canceladas en solo lectura
+  total;
+- cero tablas nuevas y exactamente tres índices funcionales;
+- migraciones remotas
+  `20260728012828_counter_block_8_historical_recovery`,
+  `20260728013250_counter_block_8_index_hardening` y
+  `20260728013741_counter_block_8_index_helper_access`;
+- pruebas de búsqueda, cursor, detalle, permisos, ESLint, TypeScript y build
+  aprobadas;
+- sin cambios en `/app/master/dashboard`.
 
 ## 15. Bloque 9 - Cajas, puntos y cierres
 
@@ -938,10 +966,10 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 8 - Consulta histórica y recuperación operativa
+Bloque 9 - Cajas, puntos y cierres
 ```
 
-Debe reutilizar las búsquedas acotadas y el motor de caja ya cerrados para abrir
-el expediente de una orden bajo demanda, informar con precisión y cobrar deuda
-antigua sin cargar el histórico al abrir Counter ni ampliar el alcance a
-`/app/master/dashboard`.
+Debe reutilizar los movimientos, saldos y cierres canónicos ya existentes,
+cargar cada caja o punto únicamente cuando el operador abra su espacio y
+mantener fuera de Counter las cuentas y el análisis financiero administrativo.
+No debe ampliar el alcance a `/app/master/dashboard`.

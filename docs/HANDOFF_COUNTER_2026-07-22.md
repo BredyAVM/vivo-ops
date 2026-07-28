@@ -428,7 +428,7 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 7 - Venta directa y agenda
+Bloque 9 - Cajas, puntos y cierres
 ```
 
 Estado al 2026-07-27:
@@ -519,10 +519,27 @@ Estado al 2026-07-27:
   aprobados;
 - no se modificó `/app/master/dashboard`.
 
-El Bloque 8 debe completar consulta histórica y recuperación operativa:
-búsqueda profunda paginada por número, nombre y teléfono, expediente bajo
-demanda y acciones contextuales permitidas, incluyendo cobro de una orden
-futura, antigua o ya entregada.
+- Bloque 8 cerrado en su alcance de consulta histórica y recuperación
+  operativa;
+- evidencia en
+  `docs/COUNTER_BLOCK_8_HISTORICAL_RECOVERY_AUDIT_2026-07-27.md`;
+- migraciones remotas
+  `20260728012828_counter_block_8_historical_recovery`,
+  `20260728013250_counter_block_8_index_hardening` y
+  `20260728013741_counter_block_8_index_helper_access` aplicadas;
+- búsqueda paginada por número corto, nombre y teléfono de cliente o receptor;
+- expediente completo y cobro existente cargados bajo demanda;
+- órdenes entregadas quedan en solo lectura operativa con cobro permitido y
+  canceladas en solo lectura total;
+- cero tablas nuevas y exactamente tres índices funcionales;
+- pruebas de cursor, detalle, permisos, rendimiento, lint, TypeScript y build
+  aprobadas;
+- no se modificó `/app/master/dashboard`.
+
+El Bloque 9 debe completar cajas, puntos y cierres: espacios autorizados cargados
+bajo demanda, movimientos menores, solicitudes mayores, saldos exactos y
+cierres con diferencia cero, sin mostrar bancos ni convertir Counter en un
+dashboard financiero.
 
 ## Prompt sugerido para abrir el chat nuevo
 
