@@ -13,6 +13,7 @@ type MoneyAccountBalanceProfileRow = {
 };
 
 type MoneyAccountBalanceClosureRow = {
+  id: number | string;
   money_account_id: number | string;
   closure_date: string | null;
   closure_at: string | null;
@@ -35,13 +36,16 @@ type MoneyAccountBalanceMovementRow = {
   direction: 'inflow' | 'outflow' | string | null;
   amount: number | string | null;
   amount_usd_equivalent: number | string | null;
+  movement_type: string | null;
   movement_date: string | null;
   confirmed_at: string | null;
   created_at: string | null;
+  reference_code: string | null;
 };
 
 type MoneyAccountBalanceAnchor = {
   kind: 'closure' | 'baseline' | 'none';
+  closureId: number | null;
   date: string | null;
   at: string | null;
   amount: number;
@@ -86,8 +90,7 @@ function accountUsesClosureAsBalanceAnchor(
   accountKind: string | null | undefined,
   closureKind: string | null | undefined
 ) {
-  if (accountKind === 'pos' || closureKind === 'pos') return false;
-  return true;
+  return Boolean(accountKind || closureKind);
 }
 
 function movementRecordedAtMs(movement: MoneyAccountBalanceMovementRow) {
@@ -117,6 +120,30 @@ function movementAffectsBalanceAfterAnchor(movement: MoneyAccountBalanceMovement
   return recordedAtMs > new Date(anchor.at).getTime();
 }
 
+function parseClosureReferenceId(referenceCode: unknown) {
+  const match = String(referenceCode || '').trim().match(/^closure-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function isPosClosureSettlementMovement(input: {
+  accountKind: string | null | undefined;
+  closureKind: string | null | undefined;
+  movement: MoneyAccountBalanceMovementRow;
+  closureById: Map<number, MoneyAccountBalanceClosureRow>;
+}) {
+  const isPosAccount = input.accountKind === 'pos' || input.closureKind === 'pos';
+  if (!isPosAccount) return false;
+  if (input.movement.direction !== 'outflow') return false;
+  if (input.movement.movement_type !== 'withdrawal') return false;
+
+  const closureId = parseClosureReferenceId(input.movement.reference_code);
+  if (!closureId) return false;
+
+  const settledClosure = input.closureById.get(closureId) ?? null;
+  if (!settledClosure) return false;
+  return Number(settledClosure.money_account_id) === Number(input.movement.money_account_id);
+}
+
 function normalizeAccountIds(accountIds: number[] | undefined) {
   return Array.from(
     new Set(
@@ -143,7 +170,7 @@ export async function loadMoneyAccountBalanceSnapshots(
     .order('money_account_id', { ascending: true });
   let closuresQuery = supabase
     .from('money_account_closures')
-    .select('money_account_id, closure_date, closure_at, counted_amount, counted_amount_usd, created_at')
+    .select('id, money_account_id, closure_date, closure_at, counted_amount, counted_amount_usd, created_at')
     .in('status', ['recorded', 'approved'])
     .order('closure_date', { ascending: false })
     .order('closure_at', { ascending: false })
@@ -184,8 +211,13 @@ export async function loadMoneyAccountBalanceSnapshots(
   }
 
   const latestClosureByAccountId = new Map<number, MoneyAccountBalanceClosureRow>();
+  const closureById = new Map<number, MoneyAccountBalanceClosureRow>();
   for (const closure of ((closuresResult.data ?? []) as MoneyAccountBalanceClosureRow[]).sort(compareClosureRowsDesc)) {
     const accountId = Number(closure.money_account_id);
+    const closureId = Number(closure.id);
+    if (Number.isFinite(closureId) && closureId > 0) {
+      closureById.set(closureId, closure);
+    }
     if (!Number.isFinite(accountId) || latestClosureByAccountId.has(accountId)) continue;
     latestClosureByAccountId.set(accountId, closure);
   }
@@ -212,15 +244,19 @@ export async function loadMoneyAccountBalanceSnapshots(
       String(account.account_kind || ''),
       profile?.closure_kind == null ? null : String(profile.closure_kind)
     );
+    const isPosAccount =
+      String(account.account_kind || '') === 'pos' ||
+      (profile?.closure_kind == null ? null : String(profile.closure_kind)) === 'pos';
     const closure = usesClosureAnchor ? latestClosureByAccountId.get(accountId) ?? null : null;
 
     if (closure) {
       const anchor: MoneyAccountBalanceAnchor = {
         kind: 'closure',
+        closureId: Number(closure.id),
         date: closure.closure_date,
         at: closure.closure_at || closure.created_at,
-        amount: roundMoney(closure.counted_amount),
-        amountUsd: roundMoney(closure.counted_amount_usd),
+        amount: isPosAccount ? 0 : roundMoney(closure.counted_amount),
+        amountUsd: isPosAccount ? 0 : roundMoney(closure.counted_amount_usd),
         usesDailyCutoff,
       };
       anchorByAccountId.set(accountId, anchor);
@@ -232,10 +268,11 @@ export async function loadMoneyAccountBalanceSnapshots(
     if (baseline) {
       const anchor: MoneyAccountBalanceAnchor = {
         kind: 'baseline',
+        closureId: null,
         date: baseline.baseline_date,
         at: baseline.baseline_at,
-        amount: roundMoney(baseline.counted_amount),
-        amountUsd: roundMoney(baseline.counted_amount_usd),
+        amount: isPosAccount ? 0 : roundMoney(baseline.counted_amount),
+        amountUsd: isPosAccount ? 0 : roundMoney(baseline.counted_amount_usd),
         usesDailyCutoff: true,
       };
       anchorByAccountId.set(accountId, anchor);
@@ -245,6 +282,7 @@ export async function loadMoneyAccountBalanceSnapshots(
 
     anchorByAccountId.set(accountId, {
       kind: 'none',
+      closureId: null,
       date: null,
       at: null,
       amount: 0,
@@ -270,6 +308,18 @@ export async function loadMoneyAccountBalanceSnapshots(
       const anchor = anchorByAccountId.get(accountId) ?? null;
       if (!anchor) continue;
       if (!movementAffectsBalanceAfterAnchor(movement, anchor)) continue;
+      const account = accounts.find((item) => Number(item.id) === accountId) ?? null;
+      const profile = profileByAccountId.get(accountId) ?? null;
+      if (
+        isPosClosureSettlementMovement({
+          accountKind: account?.account_kind == null ? null : String(account.account_kind),
+          closureKind: profile?.closure_kind == null ? null : String(profile.closure_kind),
+          movement,
+          closureById,
+        })
+      ) {
+        continue;
+      }
 
       const current = movementDeltas.get(accountId) ?? { native: 0, usd: 0 };
       const signed = movement.direction === 'inflow' ? 1 : -1;
@@ -290,7 +340,7 @@ export async function loadMoneyAccountBalanceSnapshots(
       let query = supabase
         .from('money_movements')
         .select(
-          'id, money_account_id, direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at'
+          'id, money_account_id, direction, amount, amount_usd_equivalent, movement_type, movement_date, confirmed_at, created_at, reference_code'
         )
         .eq('status', 'confirmed')
         .in('money_account_id', accountIdsForQuery)
@@ -327,6 +377,7 @@ export async function loadMoneyAccountBalanceSnapshots(
     const accountId = Number(account.id);
     const anchor = anchorByAccountId.get(accountId) ?? {
       kind: 'none' as const,
+      closureId: null,
       date: null,
       at: null,
       amount: 0,

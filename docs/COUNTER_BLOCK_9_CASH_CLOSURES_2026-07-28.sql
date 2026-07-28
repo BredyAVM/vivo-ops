@@ -695,13 +695,17 @@ begin
     select
       anchor.id,
       round((
-        coalesce(
-          anchor.closure_counted_amount,
-          anchor.baseline_amount,
-          0
-        )
+        case
+          when anchor.account_kind = 'pos' then 0
+          else coalesce(anchor.closure_counted_amount, anchor.baseline_amount, 0)
+        end
         + coalesce(sum(
           case
+            when anchor.account_kind = 'pos'
+             and movement.direction::text = 'outflow'
+             and movement.movement_type::text = 'withdrawal'
+             and settled_closure.id is not null
+              then 0
             when movement.direction::text = 'inflow' then movement.amount
             else -movement.amount
           end
@@ -729,6 +733,14 @@ begin
          else true
        end
      )
+    left join public.money_account_closures settled_closure
+      on anchor.account_kind = 'pos'
+     and movement.direction::text = 'outflow'
+     and movement.movement_type::text = 'withdrawal'
+     and movement.reference_code ~ '^closure-[0-9]+$'
+     and settled_closure.id = substring(movement.reference_code from '^closure-([0-9]+)$')::bigint
+     and settled_closure.money_account_id = anchor.id
+     and settled_closure.status in ('recorded', 'approved')
     group by
       anchor.id,
       anchor.closure_id,

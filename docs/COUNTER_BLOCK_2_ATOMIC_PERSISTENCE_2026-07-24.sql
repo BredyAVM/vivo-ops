@@ -3762,6 +3762,7 @@ declare
   v_difference_usd numeric(12,2);
   v_rate numeric(18,6);
   v_closure_id bigint;
+  v_is_pos_closure boolean;
 begin
   if v_uid is null then
     raise exception 'Not authenticated';
@@ -3834,6 +3835,7 @@ begin
   if not found then
     raise exception 'Money account has no closure profile';
   end if;
+  v_is_pos_closure := v_account.account_kind::text = 'pos' or v_profile.closure_kind::text = 'pos';
 
   v_closure_date := (p_closure_at at time zone 'America/Caracas')::date;
   v_counted_amount := round(p_counted_amount, 2);
@@ -3878,8 +3880,14 @@ begin
 
   if found then
     v_anchor_at := v_previous_closure.closure_at;
-    v_expected_amount := round(v_previous_closure.counted_amount, 2);
-    v_expected_usd := round(v_previous_closure.counted_amount_usd, 2);
+    v_expected_amount := case
+      when v_is_pos_closure then 0
+      else round(v_previous_closure.counted_amount, 2)
+    end;
+    v_expected_usd := case
+      when v_is_pos_closure then 0
+      else round(v_previous_closure.counted_amount_usd, 2)
+    end;
   else
     select
       baseline.id,
@@ -3903,8 +3911,14 @@ begin
       v_expected_usd := 0;
     else
       v_anchor_at := v_baseline.baseline_at;
-      v_expected_amount := round(v_baseline.counted_amount, 2);
-      v_expected_usd := round(v_baseline.counted_amount_usd, 2);
+      v_expected_amount := case
+        when v_is_pos_closure then 0
+        else round(v_baseline.counted_amount, 2)
+      end;
+      v_expected_usd := case
+        when v_is_pos_closure then 0
+        else round(v_baseline.counted_amount_usd, 2)
+      end;
     end if;
   end if;
 
@@ -3913,6 +3927,11 @@ begin
       v_expected_amount
       + coalesce(sum(
         case
+          when v_is_pos_closure
+           and movement.direction = 'outflow'
+           and movement.movement_type = 'withdrawal'
+           and settled_closure.id is not null
+            then 0
           when movement.direction = 'inflow' then movement.amount
           else -movement.amount
         end
@@ -3923,6 +3942,11 @@ begin
       v_expected_usd
       + coalesce(sum(
         case
+          when v_is_pos_closure
+           and movement.direction = 'outflow'
+           and movement.movement_type = 'withdrawal'
+           and settled_closure.id is not null
+            then 0
           when movement.direction = 'inflow' then movement.amount_usd_equivalent
           else -movement.amount_usd_equivalent
         end
@@ -3931,6 +3955,14 @@ begin
     )
   into v_expected_amount, v_expected_usd
   from public.money_movements movement
+  left join public.money_account_closures settled_closure
+    on v_is_pos_closure
+   and movement.direction = 'outflow'
+   and movement.movement_type = 'withdrawal'
+   and movement.reference_code ~ '^closure-[0-9]+$'
+   and settled_closure.id = substring(movement.reference_code from '^closure-([0-9]+)$')::bigint
+   and settled_closure.money_account_id = p_money_account_id
+   and settled_closure.status in ('recorded', 'approved')
   where movement.money_account_id = p_money_account_id
     and movement.status = 'confirmed'
     and movement.movement_date <= v_closure_date

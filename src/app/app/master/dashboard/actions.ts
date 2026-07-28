@@ -178,6 +178,43 @@ function isPosClosureAccount(accountKind: string | null | undefined, closureKind
   return accountKind === 'pos' || closureKind === 'pos';
 }
 
+type MoneyAccountClosureReferenceRow = {
+  id: number | string;
+  money_account_id: number | string;
+  closure_date: string | null;
+  closure_at: string | null;
+  created_at: string | null;
+};
+
+type MoneyAccountMovementReferenceRow = {
+  money_account_id?: number | string | null;
+  direction?: string | null;
+  movement_type?: string | null;
+  reference_code?: string | null;
+};
+
+function parseClosureReferenceId(referenceCode: unknown) {
+  const match = String(referenceCode || '').trim().match(/^closure-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function isPosClosureSettlementMovement(input: {
+  isPosClosure: boolean;
+  movement: MoneyAccountMovementReferenceRow;
+  closureById: Map<number, MoneyAccountClosureReferenceRow>;
+}) {
+  if (!input.isPosClosure) return false;
+  if (input.movement.direction !== 'outflow') return false;
+  if (input.movement.movement_type !== 'withdrawal') return false;
+
+  const closureId = parseClosureReferenceId(input.movement.reference_code);
+  if (!closureId) return false;
+
+  const settledClosure = input.closureById.get(closureId) ?? null;
+  if (!settledClosure) return false;
+  return Number(settledClosure.money_account_id) === Number(input.movement.money_account_id);
+}
+
 function getDefaultMoneyAccountClosureProfile(input: {
   accountKind: 'bank' | 'cash' | 'fund' | 'other' | 'pos' | 'wallet';
   currencyCode: 'USD' | 'VES';
@@ -9421,7 +9458,7 @@ export async function createMoneyAccountClosureAction(input: {
 
   let previousClosureQuery = supabase
     .from('money_account_closures')
-    .select('closure_date, closure_at, counted_amount, counted_amount_usd')
+    .select('id, money_account_id, closure_date, closure_at, counted_amount, counted_amount_usd, created_at')
     .eq('money_account_id', moneyAccountId)
     .in('status', ['recorded', 'approved']);
 
@@ -9440,9 +9477,25 @@ export async function createMoneyAccountClosureAction(input: {
 
   if (previousClosureError) throw new Error(previousClosureError.message);
 
+  const { data: closureReferences, error: closureReferencesError } = await supabase
+    .from('money_account_closures')
+    .select('id, money_account_id, closure_date, closure_at, created_at')
+    .eq('money_account_id', moneyAccountId)
+    .in('status', ['recorded', 'approved']);
+
+  if (closureReferencesError) throw new Error(closureReferencesError.message);
+
+  const closureReferenceById = new Map<number, MoneyAccountClosureReferenceRow>();
+  for (const closureReference of (closureReferences ?? []) as MoneyAccountClosureReferenceRow[]) {
+    const closureId = Number(closureReference.id);
+    if (Number.isFinite(closureId) && closureId > 0) {
+      closureReferenceById.set(closureId, closureReference);
+    }
+  }
+
   let movementsQuery = supabase
     .from('money_movements')
-    .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
+    .select('money_account_id, direction, amount, amount_usd_equivalent, movement_type, movement_date, confirmed_at, created_at, reference_code')
     .eq('money_account_id', moneyAccountId)
     .eq('status', 'confirmed')
     .lte('movement_date', closureDate);
@@ -9494,6 +9547,16 @@ export async function createMoneyAccountClosureAction(input: {
       ) {
         continue;
       }
+    }
+
+    if (
+      isPosClosureSettlementMovement({
+        isPosClosure,
+        movement,
+        closureById: closureReferenceById,
+      })
+    ) {
+      continue;
     }
 
     const signed = movement.direction === 'inflow' ? 1 : -1;
@@ -9632,7 +9695,7 @@ export async function previewMoneyAccountClosureAction(input: {
 
   let previousClosureQuery = supabase
     .from('money_account_closures')
-    .select('closure_date, closure_at, counted_amount, counted_amount_usd')
+    .select('id, money_account_id, closure_date, closure_at, counted_amount, counted_amount_usd, created_at')
     .eq('money_account_id', moneyAccountId)
     .in('status', ['recorded', 'approved']);
 
@@ -9651,9 +9714,25 @@ export async function previewMoneyAccountClosureAction(input: {
 
   if (previousClosureError) throw new Error(previousClosureError.message);
 
+  const { data: closureReferences, error: closureReferencesError } = await supabase
+    .from('money_account_closures')
+    .select('id, money_account_id, closure_date, closure_at, created_at')
+    .eq('money_account_id', moneyAccountId)
+    .in('status', ['recorded', 'approved']);
+
+  if (closureReferencesError) throw new Error(closureReferencesError.message);
+
+  const closureReferenceById = new Map<number, MoneyAccountClosureReferenceRow>();
+  for (const closureReference of (closureReferences ?? []) as MoneyAccountClosureReferenceRow[]) {
+    const closureId = Number(closureReference.id);
+    if (Number.isFinite(closureId) && closureId > 0) {
+      closureReferenceById.set(closureId, closureReference);
+    }
+  }
+
   let movementsQuery = supabase
     .from('money_movements')
-    .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
+    .select('money_account_id, direction, amount, amount_usd_equivalent, movement_type, movement_date, confirmed_at, created_at, reference_code')
     .eq('money_account_id', moneyAccountId)
     .eq('status', 'confirmed')
     .lte('movement_date', closureDate);
@@ -9705,6 +9784,16 @@ export async function previewMoneyAccountClosureAction(input: {
       ) {
         continue;
       }
+    }
+
+    if (
+      isPosClosureSettlementMovement({
+        isPosClosure,
+        movement,
+        closureById: closureReferenceById,
+      })
+    ) {
+      continue;
     }
 
     const signed = movement.direction === 'inflow' ? 1 : -1;

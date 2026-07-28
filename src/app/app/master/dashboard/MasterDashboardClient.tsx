@@ -456,8 +456,7 @@ function accountUsesClosureAsBalanceAnchor(
   account: MoneyAccountOption | null | undefined,
   profile: MoneyAccountClosureProfile | null | undefined
 ) {
-  if (account?.accountKind === 'pos' || profile?.closureKind === 'pos') return false;
-  return true;
+  return Boolean(account || profile);
 }
 
 function movementAffectsBalanceAfterAnchor(movement: MoneyMovementItem, anchor: AccountBalanceAnchor) {
@@ -475,6 +474,34 @@ function movementAffectsBalanceAfterAnchor(movement: MoneyMovementItem, anchor: 
   if (!movementRecordedAt) return true;
 
   return new Date(movementRecordedAt).getTime() > new Date(anchor.at).getTime();
+}
+
+function parseClosureReferenceId(referenceCode: unknown) {
+  const match = String(referenceCode || '').trim().match(/^closure-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function isPosClosureSettlementMovement(input: {
+  movement: MoneyMovementItem;
+  account: MoneyAccountOption | null | undefined;
+  profile: MoneyAccountClosureProfile | null | undefined;
+  closures: MoneyAccountClosureItem[];
+}) {
+  const isPosAccount = input.account?.accountKind === 'pos' || input.profile?.closureKind === 'pos';
+  if (!isPosAccount) return false;
+  if (input.movement.direction !== 'outflow' || input.movement.movementType !== 'withdrawal') return false;
+
+  const closureId = parseClosureReferenceId(input.movement.referenceCode);
+  if (!closureId) return false;
+
+  const settledClosure =
+    input.closures.find(
+      (closure) =>
+        closure.id === closureId &&
+        closure.moneyAccountId === input.movement.moneyAccountId &&
+        closure.status !== 'rejected'
+    ) ?? null;
+  return Boolean(settledClosure);
 }
 
 function accountMovementGroupMatchesFilter(group: AccountMovementGroup, accountMovementFilter: AccountMovementFilter) {
@@ -8193,6 +8220,7 @@ const handleSaveQuickCatalog = async () => {
       const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
       const usesDailyCutoff = accountUsesDailyBalanceCutoff(account, profile);
       const usesClosureAnchor = accountUsesClosureAsBalanceAnchor(account, profile);
+      const isPosClosure = account?.accountKind === 'pos' || profile?.closureKind === 'pos';
       const latestClosure = usesClosureAnchor
         ? moneyAccountClosures
             .filter((closure) => closure.moneyAccountId === accountId && closure.status !== 'rejected')
@@ -8204,7 +8232,7 @@ const handleSaveQuickCatalog = async () => {
           kind: 'closure',
           date: latestClosure.closureDate,
           at: latestClosure.closureAt || latestClosure.createdAt,
-          amount: Number(latestClosure.countedAmount || 0),
+          amount: isPosClosure ? 0 : Number(latestClosure.countedAmount || 0),
           usesDailyCutoff,
           closure: latestClosure,
           baseline: null,
@@ -8221,7 +8249,7 @@ const handleSaveQuickCatalog = async () => {
           kind: 'baseline',
           date: activeBaseline.baselineDate,
           at: activeBaseline.baselineAt,
-          amount: Number(activeBaseline.countedAmount || 0),
+          amount: isPosClosure ? 0 : Number(activeBaseline.countedAmount || 0),
           usesDailyCutoff: true,
           closure: null,
           baseline: activeBaseline,
@@ -8249,16 +8277,35 @@ const handleSaveQuickCatalog = async () => {
       }
 
       const anchor = getAccountBalanceAnchor(accountId);
+      const account = moneyAccounts.find((item) => item.id === accountId) ?? null;
+      const profile = moneyAccountClosureProfiles.find((item) => item.moneyAccountId === accountId) ?? null;
       const movementDelta = moneyMovements.reduce((sum, movement) => {
         if (movement.moneyAccountId !== accountId) return sum;
         if (movement.status !== 'confirmed') return sum;
         if (!movementAffectsBalanceAfterAnchor(movement, anchor)) return sum;
+        if (
+          isPosClosureSettlementMovement({
+            movement,
+            account,
+            profile,
+            closures: moneyAccountClosures,
+          })
+        ) {
+          return sum;
+        }
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);
 
       return Number((anchor.amount + movementDelta).toFixed(2));
     },
-    [getAccountBalanceAnchor, moneyAccountBalanceSnapshotByAccountId, moneyMovements]
+    [
+      getAccountBalanceAnchor,
+      moneyAccountBalanceSnapshotByAccountId,
+      moneyAccountClosureProfiles,
+      moneyAccountClosures,
+      moneyAccounts,
+      moneyMovements,
+    ]
   );
 
   const getExpectedAccountBalanceNativeAt = useCallback(
@@ -8335,6 +8382,16 @@ const handleSaveQuickCatalog = async () => {
         }
 
         if (!movementAffectsBalanceAfterAnchor(movement, anchor)) return sum;
+        if (
+          isPosClosureSettlementMovement({
+            movement,
+            account,
+            profile,
+            closures: moneyAccountClosures,
+          })
+        ) {
+          return sum;
+        }
 
         return sum + (movement.direction === 'inflow' ? movement.amount : -movement.amount);
       }, 0);
@@ -13118,11 +13175,19 @@ const selectedCreateOrderClientAddresses = useMemo(
     const balanceAnchor = getAccountBalanceAnchor(selectedAccount.id);
     const anchorDate = balanceAnchor.date;
     const anchorAmount = balanceAnchor.amount;
+    const selectedAccountProfile =
+      moneyAccountClosureProfiles.find((item) => item.moneyAccountId === selectedAccount.id) ?? null;
     const effectiveDateFrom = accountDetailDateFrom || (!accountDetailDateTo ? defaultMoneyActivityDate : '');
     const effectiveDateTo = accountDetailDateTo || (!accountDetailDateFrom ? defaultMoneyActivityDate : '');
     const startDate = effectiveDateFrom || anchorDate || '';
     const affectsCurrentBalance = (movement: MoneyMovementItem) =>
-      movementAffectsBalanceAfterAnchor(movement, balanceAnchor);
+      movementAffectsBalanceAfterAnchor(movement, balanceAnchor) &&
+      !isPosClosureSettlementMovement({
+        movement,
+        account: selectedAccount,
+        profile: selectedAccountProfile,
+        closures: moneyAccountClosures,
+      });
     const isBeforePeriod = (movement: MoneyMovementItem) =>
       effectiveDateFrom ? movement.movementDate < effectiveDateFrom : false;
     const isInsidePeriod = (movement: MoneyMovementItem) => {
@@ -13246,6 +13311,8 @@ const selectedCreateOrderClientAddresses = useMemo(
     defaultMoneyActivityDate,
     getMovementGroupClientLabel,
     getAccountBalanceAnchor,
+    moneyAccountClosureProfiles,
+    moneyAccountClosures,
     moneyAccounts,
     moneyMovements,
     orderLookupById,
