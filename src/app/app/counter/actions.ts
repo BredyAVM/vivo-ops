@@ -1,7 +1,6 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@supabase/supabase-js';
 import { requireCounterOperatorContext } from '@/lib/auth';
 import type {
   CounterPaymentIntent,
@@ -40,8 +39,8 @@ export type CounterClientSearchResult = {
 };
 
 type CounterCashMovementInput = {
+  idempotencyKey: string;
   direction: 'inflow' | 'outflow';
-  outflowPurpose?: 'change' | 'expense' | null;
   moneyAccountId: number;
   amount: number;
   movementDate: string;
@@ -53,6 +52,7 @@ type CounterCashMovementInput = {
 };
 
 type CounterCashClosureInput = {
+  idempotencyKey: string;
   moneyAccountId: number;
   closureDate: string;
   closureTime: string;
@@ -109,22 +109,6 @@ export type CounterHistoricalSearchPage = {
   results: CounterHistoricalSearchResult[];
   nextCursor: CounterHistoricalSearchCursor | null;
 };
-
-function createSupabaseServiceRoleServer() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error('Falta configurar SUPABASE_SERVICE_ROLE_KEY para acciones de mostrador.');
-  }
-
-  return createClient(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
 
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
@@ -189,15 +173,6 @@ function buildOrderItemNotes(input: {
   return lines.length > 0 ? lines.join('\n') : null;
 }
 
-function isCounterDirectAccount(account: { name?: string | null; account_kind?: string | null }) {
-  const kind = String(account.account_kind || '');
-  if (kind === 'pos') return true;
-  if (kind !== 'cash') return false;
-
-  const name = String(account.name || '').toLocaleLowerCase('es-VE');
-  return name.includes('dark') || name.includes('dar');
-}
-
 function buildCounterCaracasTimestamp(isoDate: string, timeValue: string | null | undefined) {
   const date = String(isoDate || '').trim();
   const rawTime = String(timeValue || '').trim();
@@ -209,27 +184,6 @@ function buildCounterCaracasTimestamp(isoDate: string, timeValue: string | null 
   }
 
   return parsed.toISOString();
-}
-
-function getCounterMovementRecordedAtMs(movement: {
-  confirmed_at?: string | null;
-  created_at?: string | null;
-}) {
-  const timestamp = movement.confirmed_at || movement.created_at;
-  if (!timestamp) return null;
-
-  const parsedTimestamp = new Date(timestamp);
-  return Number.isNaN(parsedTimestamp.getTime()) ? null : parsedTimestamp.getTime();
-}
-
-function accountUsesDailyBalanceCutoff(accountKind: string | null | undefined, closureKind: string | null | undefined) {
-  if (accountKind === 'cash' || accountKind === 'pos') return false;
-  if (closureKind === 'cash' || closureKind === 'pos') return false;
-  return true;
-}
-
-function isPosClosureAccount(accountKind: string | null | undefined, closureKind: string | null | undefined) {
-  return accountKind === 'pos' || closureKind === 'pos';
 }
 
 export async function applyCounterPaymentAction(
@@ -900,9 +854,9 @@ export async function completeCounterPickupAction(input: {
 export async function createCounterCashMovementAction(input: CounterCashMovementInput) {
   const ctx = await requireCounterOperatorContext();
 
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
   const direction = input.direction === 'outflow' ? 'outflow' : 'inflow';
-  const outflowPurpose = input.outflowPurpose === 'change' ? 'change' : 'expense';
-  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const moneyAccountId = Math.trunc(Number(input.moneyAccountId || 0));
   const amount = Number(input.amount || 0);
   const movementDate = String(input.movementDate || '').trim();
   const referenceCode = String(input.referenceCode || '').trim() || null;
@@ -910,7 +864,10 @@ export async function createCounterCashMovementAction(input: CounterCashMovement
   const description = String(input.description || '').trim();
   const notes = String(input.notes || '').trim() || null;
 
-  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('El movimiento no tiene un identificador valido.');
+  }
+  if (!Number.isSafeInteger(moneyAccountId) || moneyAccountId <= 0) {
     throw new Error('Debes seleccionar una cuenta.');
   }
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -923,118 +880,62 @@ export async function createCounterCashMovementAction(input: CounterCashMovement
     throw new Error('Debes indicar el motivo.');
   }
 
-  const supabase = createSupabaseServiceRoleServer();
-  const { data: account, error: accountError } = await supabase
-    .from('money_accounts')
-    .select('id, name, currency_code, account_kind, is_active')
-    .eq('id', moneyAccountId)
-    .single();
-
-  if (accountError || !account) {
-    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
-  }
-  if (!account.is_active) {
-    throw new Error('La cuenta seleccionada esta inactiva.');
-  }
-
-  if (!isCounterDirectAccount(account)) {
-    throw new Error('Mostrador solo puede registrar movimientos directos en cajas DAR y puntos.');
-  }
-
-  const currencyCode = String(account.currency_code || '').toUpperCase();
-  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
-    throw new Error('La moneda de la cuenta no es valida.');
-  }
-
-  const { data: allowedRule, error: allowedRuleError } = await supabase
-    .from('money_account_payment_rules')
-    .select('id')
-    .eq('money_account_id', moneyAccountId)
-    .eq('role', 'counter')
-    .eq('is_active', true)
-    .or('can_confirm_payment.eq.true,auto_confirms_report.eq.true')
-    .limit(1)
-    .maybeSingle();
-
-  if (allowedRuleError) {
-    throw new Error(allowedRuleError.message);
-  }
-  if (!allowedRule && !ctx.roles.includes('admin') && !ctx.roles.includes('master')) {
-    throw new Error('Mostrador no tiene permiso para mover esta cuenta.');
-  }
-
-  const exchangeRate =
-    currencyCode === 'VES'
-      ? Number(input.exchangeRateVesPerUsd || 0)
-      : null;
-  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
-    throw new Error('Debes indicar una tasa valida para movimientos en Bs.');
-  }
-
-  const amountRounded = Number(amount.toFixed(2));
-  const amountUsdEquivalent =
-    currencyCode === 'USD'
-      ? amountRounded
-      : Number((amountRounded / (exchangeRate ?? 1)).toFixed(2));
-  const movementType =
-    direction === 'inflow'
-      ? 'other_income'
-      : outflowPurpose === 'change'
-        ? 'change_given'
-        : 'expense_payment';
-
-  const { error: insertError } = await supabase.from('money_movements').insert({
-    movement_date: movementDate,
-    created_by_user_id: ctx.user.id,
-    confirmed_at: new Date().toISOString(),
-    confirmed_by_user_id: ctx.user.id,
-    status: 'confirmed',
-    approval_required: false,
-    approval_required_reason: null,
-    direction,
-    movement_type: movementType,
-    money_account_id: moneyAccountId,
-    currency_code: currencyCode,
-    amount: amountRounded,
-    exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-    amount_usd_equivalent: amountUsdEquivalent,
-    reference_code: referenceCode,
-    counterparty_name: counterpartyName,
-    description: `Mostrador - ${description}`,
-    notes,
-    order_id: null,
-    payment_report_id: null,
-    movement_group_id: null,
+  const { data, error } = await ctx.supabase.rpc('counter_record_manual_movement', {
+    p_idempotency_key: idempotencyKey,
+    p_direction: direction,
+    p_money_account_id: moneyAccountId,
+    p_amount: Number(amount.toFixed(2)),
+    p_movement_date: movementDate,
+    p_exchange_rate_ves_per_usd: input.exchangeRateVesPerUsd,
+    p_reference_code: referenceCode,
+    p_counterparty_name: counterpartyName,
+    p_description: description,
+    p_notes: notes,
   });
 
-  if (insertError) {
-    throw new Error(insertError.message);
-  }
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+  const currencyCode = result.currency_code === 'VES' ? 'VES' as const : 'USD' as const;
+  const status = result.status === 'pending' ? 'pending' as const : 'confirmed' as const;
 
   revalidatePath('/app/counter');
-  revalidatePath('/app/master/dashboard');
 
   return {
     ok: true,
-    amount: amountRounded,
+    movementId: Math.trunc(toSafeNumber(result.movement_id, 0)),
+    movementGroupId: String(result.movement_group_id || idempotencyKey),
+    status,
+    approvalRequired: Boolean(result.approval_required),
+    approvalReason:
+      result.approval_required_reason == null
+        ? null
+        : String(result.approval_required_reason),
+    amount: roundCounterMoney(result.amount),
     currencyCode,
-    amountUsdEquivalent,
+    exchangeRateVesPerUsd:
+      result.exchange_rate_ves_per_usd == null
+        ? null
+        : toSafeNumber(result.exchange_rate_ves_per_usd, 0),
+    amountUsdEquivalent: roundCounterMoney(result.amount_usd_equivalent),
   };
 }
 
 export async function createCounterCashClosureAction(input: CounterCashClosureInput) {
   const ctx = await requireCounterOperatorContext();
 
-  const moneyAccountId = Number(input.moneyAccountId || 0);
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const moneyAccountId = Math.trunc(Number(input.moneyAccountId || 0));
   const closureDate = String(input.closureDate || '').trim();
   const closureTime = String(input.closureTime || '').trim();
   const closureAt = buildCounterCaracasTimestamp(closureDate, closureTime);
-  const closureAtMs = new Date(closureAt).getTime();
   const countedAmount = Number(input.countedAmount || 0);
   const reason = String(input.reason || '').trim();
   const notes = String(input.notes || '').trim() || null;
 
-  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('El cierre no tiene un identificador valido.');
+  }
+  if (!Number.isSafeInteger(moneyAccountId) || moneyAccountId <= 0) {
     throw new Error('Debes seleccionar una cuenta.');
   }
   if (!closureDate || !/^\d{4}-\d{2}-\d{2}$/.test(closureDate)) {
@@ -1050,251 +951,27 @@ export async function createCounterCashClosureAction(input: CounterCashClosureIn
     throw new Error('Indica el motivo del cierre.');
   }
 
-  const supabase = createSupabaseServiceRoleServer();
-  const { data: account, error: accountError } = await supabase
-    .from('money_accounts')
-    .select('id, name, currency_code, account_kind, is_active')
-    .eq('id', moneyAccountId)
-    .single();
+  const { data, error } = await ctx.supabase.rpc('counter_close_money_account', {
+    p_idempotency_key: idempotencyKey,
+    p_money_account_id: moneyAccountId,
+    p_closure_at: closureAt,
+    p_counted_amount: Number(countedAmount.toFixed(2)),
+    p_exchange_rate_ves_per_usd: input.exchangeRateVesPerUsd,
+    p_reason: reason,
+    p_notes: notes,
+  });
 
-  if (accountError || !account) {
-    throw new Error(accountError?.message || 'No se pudo cargar la cuenta.');
-  }
-  if (!account.is_active) {
-    throw new Error('La cuenta seleccionada esta inactiva.');
-  }
-  if (!isCounterDirectAccount(account)) {
-    throw new Error('Mostrador solo puede cerrar cajas DAR y puntos.');
-  }
-
-  const { data: allowedRule, error: allowedRuleError } = await supabase
-    .from('money_account_payment_rules')
-    .select('id')
-    .eq('money_account_id', moneyAccountId)
-    .eq('role', 'counter')
-    .eq('is_active', true)
-    .or('can_confirm_payment.eq.true,auto_confirms_report.eq.true')
-    .limit(1)
-    .maybeSingle();
-
-  if (allowedRuleError) {
-    throw new Error(allowedRuleError.message);
-  }
-  if (!allowedRule && !ctx.roles.includes('admin') && !ctx.roles.includes('master')) {
-    throw new Error('Mostrador no tiene permiso para cerrar esta cuenta.');
-  }
-
-  const currencyCode = String(account.currency_code || '').toUpperCase();
-  if (currencyCode !== 'USD' && currencyCode !== 'VES') {
-    throw new Error('La moneda de la cuenta no es valida.');
-  }
-
-  const exchangeRate =
-    currencyCode === 'VES'
-      ? Number(input.exchangeRateVesPerUsd || 0)
-      : null;
-  if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate ?? NaN) || (exchangeRate ?? 0) <= 0)) {
-    throw new Error('Debes indicar una tasa valida para cerrar una cuenta en Bs.');
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('money_account_closure_profiles')
-    .select('closure_kind, requires_zero_difference, allows_classified_difference')
-    .eq('money_account_id', moneyAccountId)
-    .maybeSingle();
-
-  if (profileError) throw new Error(profileError.message);
-
-  const usesDailyCutoff = accountUsesDailyBalanceCutoff(account.account_kind, profile?.closure_kind);
-  const isPosClosure = isPosClosureAccount(account.account_kind, profile?.closure_kind);
-  const requiresZeroDifference =
-    profile?.requires_zero_difference == null ? true : Boolean(profile.requires_zero_difference);
-  const allowsClassifiedDifference = Boolean(profile?.allows_classified_difference);
-
-  let existingClosureQuery = supabase
-    .from('money_account_closures')
-    .select('id')
-    .eq('money_account_id', moneyAccountId)
-    .in('status', ['recorded', 'approved'])
-    .limit(1);
-
-  existingClosureQuery = usesDailyCutoff
-    ? existingClosureQuery.eq('closure_date', closureDate)
-    : existingClosureQuery.eq('closure_at', closureAt);
-
-  const { data: existingClosures, error: existingClosureError } = await existingClosureQuery;
-  if (existingClosureError) throw new Error(existingClosureError.message);
-  if ((existingClosures ?? []).length > 0) {
-    throw new Error(
-      usesDailyCutoff
-        ? 'Ya existe una conciliacion activa para esta cuenta en ese dia.'
-        : 'Ya existe un cierre activo para esta cuenta en esa fecha y hora.'
-    );
-  }
-
-  const { data: activeBaseline, error: baselineError } = await supabase
-    .from('money_account_closure_baselines')
-    .select('baseline_date, baseline_at, counted_amount, counted_amount_usd')
-    .eq('money_account_id', moneyAccountId)
-    .eq('status', 'active')
-    .maybeSingle();
-
-  if (baselineError) throw new Error(baselineError.message);
-
-  let previousClosureQuery = supabase
-    .from('money_account_closures')
-    .select('closure_date, closure_at, counted_amount, counted_amount_usd')
-    .eq('money_account_id', moneyAccountId)
-    .in('status', ['recorded', 'approved']);
-
-  previousClosureQuery = usesDailyCutoff
-    ? previousClosureQuery
-        .lt('closure_date', closureDate)
-        .order('closure_date', { ascending: false })
-        .order('closure_at', { ascending: false })
-        .order('created_at', { ascending: false })
-    : previousClosureQuery
-        .lt('closure_at', closureAt)
-        .order('closure_at', { ascending: false })
-        .order('created_at', { ascending: false });
-
-  const { data: previousClosure, error: previousClosureError } = await previousClosureQuery.limit(1).maybeSingle();
-  if (previousClosureError) throw new Error(previousClosureError.message);
-
-  let movementsQuery = supabase
-    .from('money_movements')
-    .select('direction, amount, amount_usd_equivalent, movement_date, confirmed_at, created_at')
-    .eq('money_account_id', moneyAccountId)
-    .eq('status', 'confirmed')
-    .lte('movement_date', closureDate);
-
-  if (previousClosure?.closure_date) {
-    movementsQuery = usesDailyCutoff
-      ? movementsQuery.gt('movement_date', previousClosure.closure_date)
-      : movementsQuery.gte('movement_date', previousClosure.closure_date);
-  } else if (activeBaseline?.baseline_date) {
-    movementsQuery = movementsQuery.gt('movement_date', activeBaseline.baseline_date);
-  }
-
-  const { data: movements, error: movementsError } = await movementsQuery;
-  if (movementsError) throw new Error(movementsError.message);
-
-  let expectedAmount = isPosClosure
-    ? 0
-    : previousClosure
-      ? toSafeNumber(previousClosure.counted_amount, 0)
-      : activeBaseline
-        ? toSafeNumber(activeBaseline.counted_amount, 0)
-        : 0;
-  let expectedAmountUsd = isPosClosure
-    ? 0
-    : previousClosure
-      ? toSafeNumber(previousClosure.counted_amount_usd, 0)
-      : activeBaseline
-        ? toSafeNumber(activeBaseline.counted_amount_usd, 0)
-        : 0;
-  const previousClosureDate = previousClosure?.closure_date ? String(previousClosure.closure_date) : null;
-  const previousClosureAtMs = previousClosure?.closure_at ? new Date(previousClosure.closure_at).getTime() : null;
-
-  for (const movement of movements ?? []) {
-    const movementDate = String(movement.movement_date || '');
-    const movementRecordedAtMs = getCounterMovementRecordedAtMs(movement);
-
-    if (movementDate > closureDate) continue;
-    if (!usesDailyCutoff && movementDate === closureDate && movementRecordedAtMs != null && movementRecordedAtMs > closureAtMs) {
-      continue;
-    }
-    if (previousClosureDate) {
-      if (usesDailyCutoff && movementDate <= previousClosureDate) continue;
-      if (movementDate < previousClosureDate) continue;
-      if (
-        !usesDailyCutoff &&
-        movementDate === previousClosureDate &&
-        previousClosureAtMs != null &&
-        movementRecordedAtMs != null &&
-        movementRecordedAtMs <= previousClosureAtMs
-      ) {
-        continue;
-      }
-    }
-
-    const signed = movement.direction === 'inflow' ? 1 : -1;
-    expectedAmount += signed * toSafeNumber(movement.amount, 0);
-    expectedAmountUsd += signed * toSafeNumber(movement.amount_usd_equivalent, 0);
-  }
-
-  expectedAmount = Number(expectedAmount.toFixed(2));
-  expectedAmountUsd = Number(expectedAmountUsd.toFixed(2));
-  const countedAmountRounded = Number(countedAmount.toFixed(2));
-  const countedAmountUsd =
-    currencyCode === 'USD'
-      ? countedAmountRounded
-      : Number((countedAmountRounded / (exchangeRate ?? 1)).toFixed(2));
-  const differenceAmount = Number((countedAmountRounded - expectedAmount).toFixed(2));
-  const differenceAmountUsd = Number((countedAmountUsd - expectedAmountUsd).toFixed(2));
-
-  if (requiresZeroDifference && Math.abs(differenceAmount) > 0.009) {
-    throw new Error('Esta cuenta debe cerrar con diferencia cero. Registra el ajuste antes de cerrar.');
-  }
-
-  const { data: insertedClosure, error: insertError } = await supabase
-    .from('money_account_closures')
-    .insert({
-      money_account_id: moneyAccountId,
-      closure_date: closureDate,
-      closure_at: closureAt,
-      expected_amount: expectedAmount,
-      counted_amount: countedAmountRounded,
-      difference_amount: differenceAmount,
-      expected_amount_usd: expectedAmountUsd,
-      counted_amount_usd: countedAmountUsd,
-      difference_amount_usd: differenceAmountUsd,
-      currency_code: currencyCode,
-      exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-      reason: `Mostrador - ${reason}`,
-      notes,
-      status: 'recorded',
-      created_by_user_id: ctx.user.id,
-    })
-    .select('id')
-    .single();
-
-  if (insertError) throw new Error(insertError.message);
-
-  if (allowsClassifiedDifference && Math.abs(differenceAmount) > 0.009) {
-    const closureId = Number(insertedClosure?.id || 0);
-    const { error: reconciliationError } = await supabase.from('money_account_reconciliation_items').insert({
-      money_account_id: moneyAccountId,
-      source_kind: 'closure',
-      source_id: closureId > 0 ? closureId : null,
-      item_type: 'other_pending',
-      direction: differenceAmount > 0 ? 'surplus' : 'shortage',
-      currency_code: currencyCode,
-      amount: Math.abs(differenceAmount),
-      amount_usd_equivalent: Math.abs(differenceAmountUsd),
-      operation_date: closureDate,
-      reference_code: closureId > 0 ? `closure-${closureId}` : `closure-${moneyAccountId}-${closureDate}`,
-      counterparty_name: null,
-      description:
-        differenceAmount > 0
-          ? `Pendiente por identificar en cierre de ${account.name}`
-          : `Faltante pendiente por explicar en cierre de ${account.name}`,
-      status: 'open',
-      created_by_user_id: ctx.user.id,
-    });
-
-    if (reconciliationError) throw new Error(reconciliationError.message);
-  }
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+  const currencyCode = result.currency_code === 'VES' ? 'VES' as const : 'USD' as const;
 
   revalidatePath('/app/counter');
-  revalidatePath('/app/master/dashboard');
-
   return {
     ok: true,
-    closureId: Number(insertedClosure?.id || 0),
-    expectedAmount,
-    countedAmount: countedAmountRounded,
-    differenceAmount,
+    closureId: Math.trunc(toSafeNumber(result.closure_id, 0)),
+    expectedAmount: roundCounterMoney(result.expected_amount),
+    countedAmount: roundCounterMoney(result.counted_amount),
+    differenceAmount: roundCounterMoney(result.difference_amount),
     currencyCode,
   };
 }

@@ -428,10 +428,10 @@ la hoja de ruta del 2026-07-24.
 El siguiente trabajo es:
 
 ```text
-Bloque 9 - Cajas, puntos y cierres
+Bloque 10 - Sincronización, alertas y resiliencia
 ```
 
-Estado al 2026-07-27:
+Estado al 2026-07-28:
 
 - Bloque 1 cerrado en su alcance de autoridad y perímetro de seguridad;
 - evidencia en `docs/COUNTER_BLOCK_1_AUTHORITY_AUDIT_2026-07-24.md`;
@@ -536,10 +536,28 @@ Estado al 2026-07-27:
   aprobadas;
 - no se modificó `/app/master/dashboard`.
 
-El Bloque 9 debe completar cajas, puntos y cierres: espacios autorizados cargados
-bajo demanda, movimientos menores, solicitudes mayores, saldos exactos y
-cierres con diferencia cero, sin mostrar bancos ni convertir Counter en un
-dashboard financiero.
+- Bloque 9 cerrado en su alcance de cajas, puntos y cierres;
+- evidencia en
+  `docs/COUNTER_BLOCK_9_CASH_CLOSURES_AUDIT_2026-07-28.md`;
+- migraciones remotas
+  `20260728142839_counter_block_9_cash_closures` y
+  `20260728143052_counter_block_9_legacy_pending_repair` aplicadas;
+- cero tablas nuevas y un índice parcial para control de fraccionamiento;
+- solo Caja Dark/DAR USD, Caja Dark/DAR VES y puntos habilitados aparecen;
+- movimientos manuales limitados a cajas DAR, hasta USD 20 confirmados y
+  superiores o acumulados pendientes;
+- solo Administración puede decidir gastos manuales pendientes;
+- saldos exactos, autores, solicitudes y movimientos paginados cargan bajo
+  demanda;
+- cierres exigen diferencia cero y un cierre POS no transfiere al banco;
+- Punto BNC y Punto BDV 1 quedaron bloqueados para revisión administrativa por
+  saldos históricos negativos; no se inventó ningún ajuste;
+- pruebas transaccionales con rollback, lint, TypeScript y build aprobados;
+- no se modificó `/app/master/dashboard`.
+
+El Bloque 10 debe mantener vivos los recursos operativos con sincronización
+focalizada, reintentos idempotentes y alertas, sin refrescar caja o históricos
+cuando sus paneles estén cerrados y sin convertir Counter en un dashboard.
 
 ## Prompt sugerido para abrir el chat nuevo
 

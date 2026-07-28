@@ -8,6 +8,9 @@ import {
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import type {
   CounterCashAccountSummary,
+  CounterCashMovement,
+  CounterCashMovementCursor,
+  CounterCashMovementPage,
   CounterOrder,
   CounterOrderItem,
   CounterPaymentAccountOption,
@@ -457,39 +460,117 @@ export async function loadCounterCashSnapshotRead(
   return asArray(data)
     .map((accountValue) => {
       const account = asRecord(accountValue);
-      const movements = asArray(account.movements).map((movementValue) => {
-        const movement = asRecord(movementValue);
-        return {
-          id: Math.trunc(toNumber(movement.id, 0)),
-          movementDate: String(movement.movementDate || ''),
-          createdAt: movement.createdAt == null ? null : String(movement.createdAt),
-          direction: movement.direction === 'outflow' ? 'outflow' as const : 'inflow' as const,
-          movementType: String(movement.movementType || 'other'),
-          amount: roundOrderMoney(movement.amount),
-          amountUsdEquivalent: roundOrderMoney(movement.amountUsdEquivalent),
-          currencyCode: movement.currencyCode === 'VES' ? 'VES' as const : 'USD' as const,
-          referenceCode: movement.referenceCode == null ? null : String(movement.referenceCode),
-          counterpartyName: movement.counterpartyName == null ? null : String(movement.counterpartyName),
-          description: movement.description == null ? null : String(movement.description),
-          orderId: movement.orderId == null ? null : Math.trunc(toNumber(movement.orderId, 0)),
-          createdByName: movement.createdByName == null ? null : String(movement.createdByName),
-        };
-      });
+      const movements = asArray(account.movements)
+        .map(mapCounterCashMovement)
+        .filter((movement) => movement.id > 0);
+      const lastClosureValue = asRecord(account.lastClosure);
+      const lastClosureId = Math.trunc(toNumber(lastClosureValue.id, 0));
 
       return {
         accountId: Math.trunc(toNumber(account.accountId, 0)),
         accountName: String(account.accountName || 'Cuenta'),
         accountKind: String(account.accountKind || 'other'),
+        closureKind: String(account.closureKind || 'shift'),
         currencyCode: account.currencyCode === 'VES' ? 'VES' as const : 'USD' as const,
         methods: asArray(account.methods).map((method) => String(method)),
         inflow: roundOrderMoney(account.inflow),
         outflow: roundOrderMoney(account.outflow),
         net: roundOrderMoney(account.net),
         balance: roundOrderMoney(account.balance),
+        closureExpectedAmount: roundOrderMoney(account.closureExpectedAmount),
+        closureReady: Boolean(account.closureReady),
+        movementCount: Math.max(0, Math.trunc(toNumber(account.movementCount, 0))),
+        lastClosure: lastClosureId > 0
+          ? {
+              id: lastClosureId,
+              closureAt: String(lastClosureValue.closureAt || ''),
+              expectedAmount: roundOrderMoney(lastClosureValue.expectedAmount),
+              countedAmount: roundOrderMoney(lastClosureValue.countedAmount),
+              differenceAmount: roundOrderMoney(lastClosureValue.differenceAmount),
+              createdByName:
+                lastClosureValue.createdByName == null
+                  ? null
+                  : String(lastClosureValue.createdByName),
+            }
+          : null,
+        pendingRequestCount: Math.max(
+          0,
+          Math.trunc(toNumber(account.pendingRequestCount, 0))
+        ),
+        pendingRequests: asArray(account.pendingRequests)
+          .map((requestValue) => {
+            const request = asRecord(requestValue);
+            return {
+              id: Math.trunc(toNumber(request.id, 0)),
+              movementGroupId:
+                request.movementGroupId == null ? null : String(request.movementGroupId),
+              movementDate: String(request.movementDate || ''),
+              createdAt: request.createdAt == null ? null : String(request.createdAt),
+              amount: roundOrderMoney(request.amount),
+              amountUsdEquivalent: roundOrderMoney(request.amountUsdEquivalent),
+              currencyCode: request.currencyCode === 'VES' ? 'VES' as const : 'USD' as const,
+              referenceCode:
+                request.referenceCode == null ? null : String(request.referenceCode),
+              counterpartyName:
+                request.counterpartyName == null ? null : String(request.counterpartyName),
+              description: request.description == null ? null : String(request.description),
+              approvalReason:
+                request.approvalReason == null ? null : String(request.approvalReason),
+              createdByName:
+                request.createdByName == null ? null : String(request.createdByName),
+            };
+          })
+          .filter((request) => request.id > 0),
         movements,
       };
     })
     .filter((account) => account.accountId > 0);
+}
+
+function mapCounterCashMovement(value: unknown): CounterCashMovement {
+  const movement = asRecord(value);
+  return {
+    id: Math.trunc(toNumber(movement.id, 0)),
+    movementDate: String(movement.movementDate || ''),
+    createdAt: movement.createdAt == null ? null : String(movement.createdAt),
+    direction: movement.direction === 'outflow' ? 'outflow' : 'inflow',
+    movementType: String(movement.movementType || 'other'),
+    amount: roundOrderMoney(movement.amount),
+    amountUsdEquivalent: roundOrderMoney(movement.amountUsdEquivalent),
+    currencyCode: movement.currencyCode === 'VES' ? 'VES' : 'USD',
+    referenceCode: movement.referenceCode == null ? null : String(movement.referenceCode),
+    counterpartyName:
+      movement.counterpartyName == null ? null : String(movement.counterpartyName),
+    description: movement.description == null ? null : String(movement.description),
+    orderId: movement.orderId == null ? null : Math.trunc(toNumber(movement.orderId, 0)),
+    createdByName: movement.createdByName == null ? null : String(movement.createdByName),
+  };
+}
+
+export async function loadCounterCashMovementsRead(
+  supabase: CounterReadClient,
+  input: {
+    moneyAccountId: number;
+    cursor: CounterCashMovementCursor | null;
+  }
+): Promise<CounterCashMovementPage> {
+  const data = asRecord(await readRpcJson(supabase, 'counter_read_cash_movements', {
+    p_money_account_id: input.moneyAccountId,
+    p_cursor_created_at: input.cursor?.createdAt || null,
+    p_cursor_id: input.cursor?.id || null,
+    p_limit: 25,
+  }));
+  const results = asArray(data.results)
+    .map(mapCounterCashMovement)
+    .filter((movement) => movement.id > 0);
+  const rawCursor = asRecord(data.nextCursor);
+  const cursorId = Math.trunc(toNumber(rawCursor.id, 0));
+  const nextCursor =
+    typeof rawCursor.createdAt === 'string' && cursorId > 0
+      ? { createdAt: rawCursor.createdAt, id: cursorId }
+      : null;
+
+  return { results, nextCursor };
 }
 
 export async function loadCounterPendingSettlementsRead(

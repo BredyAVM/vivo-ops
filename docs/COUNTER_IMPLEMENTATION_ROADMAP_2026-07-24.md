@@ -736,6 +736,28 @@ La carga de caja se realiza al abrir su espacio, no al abrir Counter.
 - ninguna diferencia distinta de cero cierra;
 - cerrar POS no crea transferencia bancaria.
 
+### Estado al 2026-07-28
+
+Cerrado.
+
+- evidencia en
+  `docs/COUNTER_BLOCK_9_CASH_CLOSURES_AUDIT_2026-07-28.md`;
+- migraciones remotas
+  `20260728142839_counter_block_9_cash_closures` y
+  `20260728143052_counter_block_9_legacy_pending_repair`;
+- cero tablas nuevas y un único índice parcial;
+- cinco cuentas directas exactas, sin Floresta ni bancos;
+- movimientos menores, solicitudes mayores, anti-fraccionamiento y tasa VES
+  activa resueltos en servidor;
+- solo Administración decide gastos manuales pendientes;
+- saldo, movimientos, autores y cierres cargados bajo demanda y paginados;
+- cierre con diferencia cero y cierre POS sin transferencia aprobados;
+- inconsistencias históricas de Punto BNC y Punto BDV 1 expuestas y bloqueadas
+  para revisión administrativa, sin ajuste ficticio;
+- pruebas transaccionales con rollback, permisos, lint, TypeScript y build
+  aprobados;
+- sin cambios en `/app/master/dashboard`.
+
 ## 16. Bloque 10 - Sincronización, alertas y resiliencia
 
 ### Objetivo
@@ -966,10 +988,9 @@ Un helper compartido solo se modifica si:
 El siguiente trabajo autorizado debe ser exclusivamente:
 
 ```text
-Bloque 9 - Cajas, puntos y cierres
+Bloque 10 - Sincronización, alertas y resiliencia
 ```
 
-Debe reutilizar los movimientos, saldos y cierres canónicos ya existentes,
-cargar cada caja o punto únicamente cuando el operador abra su espacio y
-mantener fuera de Counter las cuentas y el análisis financiero administrativo.
-No debe ampliar el alcance a `/app/master/dashboard`.
+Debe mantener vivos los recursos operativos sin refrescar toda la ruta, sin
+actualizar caja o históricos cuando sus paneles estén cerrados y sin ampliar el
+alcance a `/app/master/dashboard`.

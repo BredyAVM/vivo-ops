@@ -3,6 +3,7 @@
 import { requireCounterOperatorContext } from '@/lib/auth';
 import {
   loadCounterActiveQueueRead,
+  loadCounterCashMovementsRead,
   loadCounterCashSnapshotRead,
   loadCounterCatalogRead,
   loadCounterDeliverySettlementDetailRead,
@@ -10,6 +11,7 @@ import {
   loadCounterPendingSettlementsRead,
   type CounterPendingSettlementCursor,
 } from './read-model';
+import type { CounterCashMovementCursor } from './CounterClient';
 
 export async function refreshCounterQueueAction() {
   const ctx = await requireCounterOperatorContext();
@@ -33,6 +35,21 @@ export async function loadCounterCatalogAction() {
 export async function loadCounterCashSnapshotAction() {
   const ctx = await requireCounterOperatorContext();
   return loadCounterCashSnapshotRead(ctx.supabase);
+}
+
+export async function loadCounterCashMovementsAction(input: {
+  moneyAccountId: number;
+  cursor?: CounterCashMovementCursor | null;
+}) {
+  const ctx = await requireCounterOperatorContext();
+  const moneyAccountId = Math.trunc(Number(input.moneyAccountId || 0));
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('La cuenta indicada no es valida.');
+  }
+  return loadCounterCashMovementsRead(ctx.supabase, {
+    moneyAccountId,
+    cursor: input.cursor ?? null,
+  });
 }
 
 export async function loadCounterPendingSettlementsAction(input: {
