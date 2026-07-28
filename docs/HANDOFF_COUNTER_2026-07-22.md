@@ -571,9 +571,20 @@ Estado al 2026-07-28:
 - lint focalizado, TypeScript y build aprobados;
 - no se modificó `/app/master/dashboard`.
 
-El Bloque 11 debe pulir la experiencia diaria de la cajera sobre estas
-capacidades estables, sin añadir consultas por estética y sin convertir Counter
-en un dashboard financiero.
+El Bloque 11 quedó cerrado en implementación y validación técnica:
+
+- evidencia en
+  `docs/COUNTER_BLOCK_11_EXPERIENCE_AUDIT_2026-07-28.md`;
+- `CounterClient.tsx` quedó como shell y bandeja;
+- detalle, venta, caja e histórico cargan bajo demanda;
+- la carga JavaScript inicial cruda asociada a Counter bajó 18 %;
+- la bandeja prioriza acción, número corto, cliente, modalidad y hora;
+- pickup requiere confirmación en línea antes de marcar retirado;
+- no se agregaron consultas, SQL, migraciones ni estado financiero;
+- no se modificó `/app/master/dashboard`.
+
+El siguiente paso es el Bloque 12: certificación integral y salida controlada,
+incluyendo la prueba visual autenticada en el monitor real del local.
 
 ## Prompt sugerido para abrir el chat nuevo
 

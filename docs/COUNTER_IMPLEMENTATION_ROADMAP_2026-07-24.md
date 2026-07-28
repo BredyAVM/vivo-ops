@@ -19,7 +19,8 @@ Estado:
 - Bloque 8: cerrado en su alcance de consulta histórica y recuperación operativa.
 - Bloque 9: cerrado en su alcance de cajas, puntos y cierres.
 - Bloque 10: cerrado en su alcance de sincronización, alertas y resiliencia.
-- Bloques 11 y 12: no iniciados.
+- Bloque 11: cerrado en su alcance de experiencia operativa y acabado visual.
+- Bloque 12: no iniciado.
 
 Evidencia del Bloque 1:
 
@@ -88,6 +89,10 @@ Evidencia del Bloque 9:
 Evidencia del Bloque 10:
 
 - `docs/COUNTER_BLOCK_10_SYNC_RESILIENCE_AUDIT_2026-07-28.md`
+
+Evidencia del Bloque 11:
+
+- `docs/COUNTER_BLOCK_11_EXPERIENCE_AUDIT_2026-07-28.md`
 
 Esta hoja de ruta convierte el contrato canónico de Counter en una secuencia de
 trabajo. No autoriza por sí sola cambios en producción, despliegues, migraciones
@@ -858,6 +863,28 @@ La separación del archivo monolítico debe seguir límites funcionales:
 - no se muestra información financiera administrativa;
 - las acciones peligrosas requieren confirmación clara;
 - la estética no agrega consultas ni duplica estado.
+
+### Estado al 2026-07-28
+
+Cerrado en implementación y validación técnica.
+
+- evidencia en
+  `docs/COUNTER_BLOCK_11_EXPERIENCE_AUDIT_2026-07-28.md`;
+- mantiene lista izquierda y área de trabajo;
+- reduce la bandeja a cuatro filtros operativos;
+- prioriza número corto, cliente, modalidad, hora y acción;
+- muestra el pedido antes del recorrido secundario;
+- conserva el contexto al abrir venta, caja, liquidaciones o histórico;
+- agrega foco visible, objetivos de 44 px, búsqueda con `/` y recorrido con
+  flechas;
+- pickup exige confirmación en línea antes de marcar retirado;
+- venta, caja, histórico y detalle se dividen en chunks bajo demanda;
+- JavaScript inicial crudo asociado a la ruta baja de 414.463 a 339.694 bytes;
+- no agrega consultas, estado duplicado, SQL ni migraciones;
+- ESLint focalizado, TypeScript y build aprobados;
+- no se modificó `/app/master/dashboard`;
+- la prueba visual autenticada en el monitor real queda en la matriz del Bloque
+  12 porque la sesión de navegador disponible redirigió a login.
 
 ## 18. Bloque 12 - Certificación integral y salida controlada
 
