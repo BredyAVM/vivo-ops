@@ -289,16 +289,16 @@ type CounterSyncMetric = {
 type CounterSyncMetrics = Record<CounterSyncResource, CounterSyncMetric>;
 
 type CounterFilter =
-  | 'now'
+  | 'ready'
+  | 'kitchen'
   | 'pickup'
-  | 'delivery'
-  | 'followup';
+  | 'delivery';
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
-  { key: 'now', label: 'Atender ahora' },
+  { key: 'ready', label: 'Listos' },
+  { key: 'kitchen', label: 'En cocina' },
   { key: 'pickup', label: 'Pickup' },
   { key: 'delivery', label: 'Delivery' },
-  { key: 'followup', label: 'Seguimiento' },
 ];
 
 const PUSH_TIMEOUT_MS = 12000;
@@ -597,18 +597,6 @@ function isKitchenFollowUpOrder(order: CounterOrder) {
   return order.status === 'confirmed' || order.status === 'in_kitchen';
 }
 
-function isCounterFollowUpOrder(order: CounterOrder) {
-  return (
-    isCounterAgendaOrder(order)
-    || order.status === 'queued'
-    || isKitchenFollowUpOrder(order)
-  );
-}
-
-function isCounterActionableOrder(order: CounterOrder) {
-  return order.status === 'ready' || order.status === 'out_for_delivery';
-}
-
 function isCounterReadyPickup(order: CounterOrder) {
   return order.fulfillment === 'pickup' && order.status === 'ready';
 }
@@ -701,7 +689,7 @@ export default function CounterClient({
     useState<CounterSyncMetrics>(INITIAL_SYNC_METRICS);
   const [pushState, setPushState] = useState<PushState>('checking');
   const [pushBusy, setPushBusy] = useState(false);
-  const [filter, setFilter] = useState<CounterFilter>('now');
+  const [filter, setFilter] = useState<CounterFilter>('ready');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [quickSaleOpen, setQuickSaleOpen] = useState(false);
@@ -1339,10 +1327,10 @@ export default function CounterClient({
 
   const filterCounts = useMemo<Record<CounterFilter, number>>(() => {
     return {
-      now: localOrders.filter(isCounterActionableOrder).length,
+      ready: localOrders.filter((order) => order.status === 'ready').length,
+      kitchen: localOrders.filter(isKitchenFollowUpOrder).length,
       pickup: localOrders.filter((order) => order.fulfillment === 'pickup').length,
       delivery: localOrders.filter((order) => order.fulfillment === 'delivery').length,
-      followup: localOrders.filter(isCounterFollowUpOrder).length,
     };
   }, [localOrders]);
 
@@ -1350,10 +1338,10 @@ export default function CounterClient({
     const term = search.trim().toLocaleLowerCase('es-VE');
 
     return sortCounterOrders(localOrders.filter((order) => {
-      if (filter === 'now' && !isCounterActionableOrder(order)) return false;
+      if (filter === 'ready' && order.status !== 'ready') return false;
+      if (filter === 'kitchen' && !isKitchenFollowUpOrder(order)) return false;
       if (filter === 'pickup' && order.fulfillment !== 'pickup') return false;
       if (filter === 'delivery' && order.fulfillment !== 'delivery') return false;
-      if (filter === 'followup' && !isCounterFollowUpOrder(order)) return false;
 
       if (!term) return true;
 
@@ -1445,7 +1433,7 @@ export default function CounterClient({
   }
 
   const orderSections = useMemo(() => {
-    const actionableSections = [
+    const readySections = [
       {
         key: 'pickup-ready',
         title: 'Pickup listo',
@@ -1458,17 +1446,15 @@ export default function CounterClient({
         helper: 'Entregar al motorizado y preparar cambio si aplica.',
         orders: filteredOrders.filter(isCounterReadyDelivery),
       },
-      {
-        key: 'delivery-route',
-        title: 'En camino',
-        helper: 'Liquidar cobro al regreso del motorizado.',
-        orders: filteredOrders.filter(isCounterRouteSettlement),
-      },
     ].filter((section) => section.orders.length > 0);
 
-    if (filter === 'now') return actionableSections;
+    if (filter === 'ready') return readySections;
 
-    const filterMeta: Record<Exclude<CounterFilter, 'now'>, { title: string; helper: string }> = {
+    const filterMeta: Record<Exclude<CounterFilter, 'ready'>, { title: string; helper: string }> = {
+      kitchen: {
+        title: 'En cocina',
+        helper: 'Pedidos confirmados o en preparación.',
+      },
       pickup: {
         title: 'Pickup',
         helper: 'Pedidos para retirar en mostrador.',
@@ -1476,10 +1462,6 @@ export default function CounterClient({
       delivery: {
         title: 'Delivery',
         helper: 'Pedidos con entrega a domicilio.',
-      },
-      followup: {
-        title: 'Seguimiento',
-        helper: 'Agenda y cocina para responder al cliente sin mezclar tareas de entrega.',
       },
     };
     const meta = filterMeta[filter];
@@ -2069,7 +2051,7 @@ export default function CounterClient({
                 </span>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 flex flex-nowrap gap-2 overflow-x-auto pb-1">
                 {FILTERS.map((item) => (
                   <button
                     key={item.key}
@@ -2077,7 +2059,7 @@ export default function CounterClient({
                     onClick={() => setFilter(item.key)}
                     aria-pressed={filter === item.key}
                     className={[
-                      'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
+                      'min-h-10 shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-[13px] font-semibold transition sm:text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
                       filter === item.key
                         ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
                         : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1] hover:border-[#FEEF00]/50',
