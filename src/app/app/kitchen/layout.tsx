@@ -6,7 +6,7 @@ import './kitchen.css';
 export const metadata: Metadata = {
   title: 'VIVO OPS Cocina',
   description: 'Operación móvil de cocina en VIVO OPS',
-  manifest: '/app/kitchen/manifest.webmanifest',
+  manifest: '/pwa/kitchen.webmanifest',
   appleWebApp: {
     capable: true,
     title: 'VIVO Cocina',
