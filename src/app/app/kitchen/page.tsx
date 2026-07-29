@@ -69,35 +69,38 @@ export default async function KitchenPage() {
     redirect(resolveHomePath(ctx.roles));
   }
 
-  const { data: profile } = await ctx.supabase
-    .from('profiles')
-    .select('full_name')
-    .eq('id', ctx.user.id)
-    .maybeSingle();
-
-  const { data: ordersData, error: ordersError } = await ctx.supabase
-    .from('orders')
-    .select(
-      [
-        'id',
-        'order_number',
-        'status',
-        'fulfillment',
-        'delivery_address',
-        'notes',
-        'created_at',
-        'sent_to_kitchen_at',
-        'kitchen_started_at',
-        'ready_at',
-        'eta_minutes',
-        'extra_fields',
-        'client:clients(full_name, phone)',
-      ].join(', ')
-    )
-    .in('status', ['confirmed', 'in_kitchen', 'ready'])
-    .order('sent_to_kitchen_at', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: true })
-    .limit(120);
+  const [profileResult, ordersResult] = await Promise.all([
+    ctx.supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', ctx.user.id)
+      .maybeSingle(),
+    ctx.supabase
+      .from('orders')
+      .select(
+        [
+          'id',
+          'order_number',
+          'status',
+          'fulfillment',
+          'delivery_address',
+          'notes',
+          'created_at',
+          'sent_to_kitchen_at',
+          'kitchen_started_at',
+          'ready_at',
+          'eta_minutes',
+          'extra_fields',
+          'client:clients(full_name, phone)',
+        ].join(', ')
+      )
+      .in('status', ['confirmed', 'in_kitchen', 'ready'])
+      .order('sent_to_kitchen_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .limit(120),
+  ]);
+  const { data: profile } = profileResult;
+  const { data: ordersData, error: ordersError } = ordersResult;
 
   if (ordersError) {
     throw new Error(ordersError.message);

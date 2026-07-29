@@ -1,0 +1,35 @@
+import type { MetadataRoute } from 'next';
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    id: '/app/kitchen',
+    name: 'VIVO OPS Cocina',
+    short_name: 'VIVO Cocina',
+    description: 'Operación móvil de cocina en VIVO OPS',
+    start_url: '/app/kitchen',
+    scope: '/app/kitchen/',
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#08090D',
+    theme_color: '#08090D',
+    lang: 'es-VE',
+    icons: [
+      {
+        src: '/pwa/kitchen-192.png',
+        sizes: '192x192',
+        type: 'image/png',
+      },
+      {
+        src: '/pwa/kitchen-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+      {
+        src: '/pwa/kitchen-512-maskable.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
+      },
+    ],
+  };
+}

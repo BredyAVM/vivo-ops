@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getWhatsAppLineUnits } from '@/lib/orders/whatsapp-summary';
 import { ModulePreference } from '../ModulePreference';
+import {
+  useKitchenLiveSync,
+  type KitchenConnectionState,
+} from './useKitchenLiveSync';
 import {
   kitchenTakeAction,
   markReadyAction,
@@ -49,6 +53,11 @@ type KitchenClientProps = {
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
 
+type NewOrderNotice = {
+  ids: number[];
+  displayNumbers: string[];
+};
+
 const STATUS_COLUMNS: Array<{
   key: KitchenOrder['status'];
   title: string;
@@ -61,6 +70,7 @@ const STATUS_COLUMNS: Array<{
 
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 const PUSH_TIMEOUT_MS = 12000;
+const NEW_ORDER_HIGHLIGHT_MS = 15000;
 const ETA_PRESETS = [10, 15];
 const KITCHEN_INCIDENT_REASONS = [
   {
@@ -189,6 +199,39 @@ function statusTone(status: KitchenOrder['status']) {
   return 'border-[#FEEF00]/50 bg-[#FEEF00]/10 text-[#FEEF00]';
 }
 
+function connectionPresentation(state: KitchenConnectionState) {
+  if (state === 'live') {
+    return {
+      label: 'En vivo',
+      className: 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200',
+    };
+  }
+  if (state === 'offline') {
+    return {
+      label: 'Sin conexión',
+      className: 'border-red-400/40 bg-red-400/10 text-red-100',
+    };
+  }
+  if (state === 'fallback') {
+    return {
+      label: 'Sincronizando',
+      className: 'border-orange-400/40 bg-orange-400/10 text-orange-100',
+    };
+  }
+  return {
+    label: 'Conectando',
+    className: 'border-[#3A3A4D] bg-[#171720] text-[#C9C9D4]',
+  };
+}
+
+function normalizeEtaMinutes(value: string) {
+  const etaMinutes = Math.round(Number(value));
+  if (!Number.isFinite(etaMinutes) || etaMinutes < 1 || etaMinutes > 180) {
+    throw new Error('Indica un ETA entre 1 y 180 minutos.');
+  }
+  return etaMinutes;
+}
+
 function toNumber(value: unknown, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -215,7 +258,7 @@ function isNonKitchenLine(name: string) {
 }
 
 function isKitchenAccessoryLine(name: string) {
-  return /\b(salsa|salsas|refresco|refrescos|bebida|bebidas|agua|jugo|jugos|malta|coca|pepsi|chinotto|papel[oÃ³]n|tequechicha)\b/i.test(name);
+  return /\b(salsa|salsas|refresco|refrescos|bebida|bebidas|agua|jugo|jugos|malta|coca|pepsi|chinotto|papel[oó]n|tequechicha)\b/i.test(name);
 }
 
 function isKitchenPreparedLine(name: string) {
@@ -312,10 +355,15 @@ function playKitchenAlert() {
   }
 }
 
+function vibrateKitchenAlert() {
+  if ('vibrate' in navigator) navigator.vibrate([140, 70, 140]);
+}
+
 export default function KitchenClient({ publicVapidKey, fullName, orders }: KitchenClientProps) {
   const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowser(), []);
-  const [isPending, startTransition] = useTransition();
+  const [supabase] = useState(() => createSupabaseBrowser());
+  const [isPending, startActionTransition] = useTransition();
+  const [isRefreshPending, startRefreshTransition] = useTransition();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [etaByOrder, setEtaByOrder] = useState<Record<number, string>>({});
@@ -326,13 +374,52 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
   const [pushState, setPushState] = useState<PushState>('checking');
   const [pushBusy, setPushBusy] = useState(false);
+  const [newOrderNotice, setNewOrderNotice] = useState<NewOrderNotice | null>(null);
+  const [newOrderIds, setNewOrderIds] = useState<Set<number>>(() => new Set());
+  const previousOrderIdsRef = useRef<Set<number> | null>(null);
+  const alertedOrderIdsRef = useRef(new Set<number>());
+  const newOrderTimerRef = useRef<number | null>(null);
+
+  const refreshOrders = useCallback(() => {
+    startRefreshTransition(() => router.refresh());
+  }, [router]);
+  const { connectionState, requestRefresh } = useKitchenLiveSync(supabase, refreshOrders);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTimeMs(Date.now()), 30000);
     return () => window.clearInterval(intervalId);
   }, []);
 
+  const persistPushSubscription = useCallback(
+    async (subscription: PushSubscription) => {
+      const { data, error } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token || '';
+      if (error || !accessToken) throw new Error('La sesión venció. Ingresa de nuevo para activar alertas.');
+
+      const response = await withTimeout(
+        fetch('/api/push-subscriptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accessToken,
+            scope: 'kitchen',
+            subscription: subscriptionToJson(subscription),
+          }),
+        }),
+        'Guardar las alertas tardó demasiado.'
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || 'No se pudo registrar este dispositivo.');
+      }
+    },
+    [supabase]
+  );
+
   useEffect(() => {
+    let cancelled = false;
+
     async function bootPushState() {
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
         setPushState('unsupported');
@@ -351,16 +438,70 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
         const registration = await waitForActiveServiceWorker(await getAppServiceWorker());
         const currentSubscription = await withTimeout(
           registration.pushManager.getSubscription(),
-          'La app tardo demasiado en revisar alertas.'
+          'La app tardó demasiado en revisar alertas.'
         );
-        setPushState(currentSubscription ? 'subscribed' : 'ready');
+        if (cancelled) return;
+
+        if (!currentSubscription) {
+          setPushState('ready');
+          return;
+        }
+
+        await persistPushSubscription(currentSubscription);
+        if (!cancelled) setPushState('subscribed');
       } catch {
-        setPushState('error');
+        if (!cancelled) setPushState('error');
       }
     }
 
     void bootPushState();
-  }, [publicVapidKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [persistPushSubscription, publicVapidKey]);
+
+  useEffect(() => {
+    const currentIds = new Set(orders.map((order) => order.id));
+    const previousIds = previousOrderIdsRef.current;
+    previousOrderIdsRef.current = currentIds;
+
+    if (!previousIds) return;
+
+    const newConfirmedOrders = orders.filter(
+      (order) =>
+        order.status === 'confirmed' &&
+        !previousIds.has(order.id) &&
+        !alertedOrderIdsRef.current.has(order.id)
+    );
+    if (newConfirmedOrders.length === 0) return;
+
+    newConfirmedOrders.forEach((order) => alertedOrderIdsRef.current.add(order.id));
+    if (alertedOrderIdsRef.current.size > 250) {
+      alertedOrderIdsRef.current = new Set(Array.from(alertedOrderIdsRef.current).slice(-120));
+    }
+
+    const ids = newConfirmedOrders.map((order) => order.id);
+    setNewOrderIds(new Set(ids));
+    setNewOrderNotice({
+      ids,
+      displayNumbers: newConfirmedOrders.map((order) => order.displayNumber),
+    });
+    setActiveStatus('confirmed');
+    playKitchenAlert();
+    vibrateKitchenAlert();
+
+    if (newOrderTimerRef.current != null) window.clearTimeout(newOrderTimerRef.current);
+    newOrderTimerRef.current = window.setTimeout(() => {
+      setNewOrderIds(new Set());
+      newOrderTimerRef.current = null;
+    }, NEW_ORDER_HIGHLIGHT_MS);
+  }, [orders]);
+
+  useEffect(() => {
+    return () => {
+      if (newOrderTimerRef.current != null) window.clearTimeout(newOrderTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -368,14 +509,13 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
     const onMessage = (event: MessageEvent) => {
       const data = event.data && typeof event.data === 'object' ? event.data as { type?: string; payload?: { url?: string; tone?: string } } : null;
       if (data?.type !== 'vivo-push') return;
-      if (data.payload?.url !== '/app/kitchen') return;
-      if (data.payload?.tone === 'critical') playKitchenAlert();
-      router.refresh();
+      if (!String(data.payload?.url || '').startsWith('/app/kitchen')) return;
+      requestRefresh('push', true);
     };
 
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
-  }, [router]);
+  }, [requestRefresh]);
 
   const ordersByStatus = useMemo(() => {
     return new Map(
@@ -386,20 +526,37 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
     );
   }, [orders]);
 
-  const totalPreparing = ordersByStatus.get('in_kitchen')?.length ?? 0;
-  const totalPending = ordersByStatus.get('confirmed')?.length ?? 0;
-  const totalReady = ordersByStatus.get('ready')?.length ?? 0;
   const activeColumn = STATUS_COLUMNS.find((column) => column.key === activeStatus) ?? STATUS_COLUMNS[0];
   const activeOrders = ordersByStatus.get(activeColumn.key) ?? [];
   const todayLabel = formatKitchenToday();
+  const connection = connectionPresentation(connectionState);
+  const pushLabel =
+    pushBusy
+      ? 'Activando...'
+      : pushState === 'subscribed'
+        ? 'Push activo'
+        : pushState === 'checking'
+          ? 'Revisando push'
+          : pushState === 'denied'
+            ? 'Push bloqueado'
+            : pushState === 'error'
+              ? 'Reparar push'
+              : pushState === 'unsupported'
+                ? 'Sin push'
+                : 'Activar push';
 
   const runAction = (key: string, action: () => Promise<void>) => {
+    if (isPending) return;
+    if (!navigator.onLine) {
+      setErrorMessage('No hay conexión. Recupera internet antes de realizar esta acción.');
+      return;
+    }
     setPendingKey(key);
     setErrorMessage(null);
-    startTransition(async () => {
+    startActionTransition(async () => {
       try {
         await action();
-        router.refresh();
+        requestRefresh('action', true);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'No se pudo completar la acción.');
       } finally {
@@ -408,11 +565,6 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
     });
   };
 
-  async function getAccessToken() {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token || '';
-  }
-
   async function enablePush() {
     setPushBusy(true);
     setErrorMessage(null);
@@ -420,15 +572,19 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
     try {
       if (!publicVapidKey) throw new Error('Falta configurar alertas push.');
       const permission = await Notification.requestPermission();
-      if (permission === 'denied') {
-        setPushState('denied');
-        throw new Error('El navegador bloqueo las notificaciones.');
+      if (permission !== 'granted') {
+        setPushState(permission === 'denied' ? 'denied' : 'ready');
+        throw new Error(
+          permission === 'denied'
+            ? 'El navegador bloqueó las notificaciones.'
+            : 'Debes permitir las notificaciones para activar las alertas.'
+        );
       }
 
       const registration = await waitForActiveServiceWorker(await getAppServiceWorker());
       let subscription = await withTimeout(
         registration.pushManager.getSubscription(),
-        'La app tardo demasiado en revisar alertas.'
+        'La app tardó demasiado en revisar alertas.'
       );
       if (!subscription) {
         subscription = await withTimeout(
@@ -436,29 +592,14 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(publicVapidKey),
           }),
-          'La suscripcion push tardo demasiado.'
+          'La suscripción push tardó demasiado.'
         );
       }
 
-      const response = await withTimeout(
-        fetch('/api/push-subscriptions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            accessToken: await getAccessToken(),
-            scope: 'kitchen',
-            subscription: subscriptionToJson(subscription),
-          }),
-        }),
-        'Guardar las alertas tardo demasiado.'
-      );
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(payload?.error || 'No se pudo guardar este dispositivo.');
-      }
+      await persistPushSubscription(subscription);
 
       playKitchenAlert();
+      vibrateKitchenAlert();
       setPushState('subscribed');
     } catch (error) {
       setPushState((current) => current === 'denied' ? 'denied' : 'error');
@@ -469,49 +610,66 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   }
 
   return (
-    <main className="min-h-screen bg-[#08090D] text-[#F5F5F7]">
+    <main className="kitchen-app min-h-screen overflow-x-hidden bg-[#08090D] text-[#F5F5F7]">
       <ModulePreference moduleKey="kitchen" />
-      <div className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col px-2.5 py-2 sm:px-3">
-        <header className="sticky top-0 z-30 -mx-3 border-b border-[#242433] bg-[#08090D]/95 px-3 pb-3 pt-3 backdrop-blur sm:-mx-4 sm:px-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col px-2.5 sm:px-3">
+        <header className="kitchen-safe-header sticky top-0 z-30 -mx-3 border-b border-[#242433] bg-[#08090D]/95 px-3 pb-3 backdrop-blur sm:-mx-4 sm:px-4">
           <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-[#8A8A96]">VIVO OPS</div>
-              <h1 className="mt-1 text-xl font-semibold leading-tight">Cocina</h1>
+            <div className="min-w-0">
+              <div className="text-xs uppercase tracking-[0.18em] text-[#8A8A96]">VIVO OPS</div>
+              <h1 className="mt-0.5 text-xl font-black leading-tight">Cocina</h1>
               <div className="mt-0.5 text-xs text-[#B7B7C2]">{fullName || 'Operación de cocina'}</div>
-              <div className="mt-1 inline-flex rounded-full border border-[#303041] bg-[#0B0B10] px-2 py-0.5 text-xs font-semibold text-[#F5F5F7]">
-                Hoy {todayLabel}
-              </div>
+            </div>
+            <Link
+              href="/app"
+              className="flex h-10 shrink-0 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#F5F5F7]"
+            >
+              Módulos
+            </Link>
           </div>
 
-            <div className="flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full border border-[#303041] bg-[#0B0B10] px-2 py-1 text-xs font-semibold text-[#F5F5F7]">
+                Hoy {todayLabel}
+              </span>
+              <span
+                className={`rounded-full border px-2 py-1 text-xs font-semibold ${connection.className}`}
+                aria-live="polite"
+              >
+                {connection.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
                   if (pushState !== 'subscribed') void enablePush();
                 }}
-                disabled={pushBusy || pushState === 'unsupported' || pushState === 'subscribed'}
+                disabled={
+                  pushBusy ||
+                  pushState === 'checking' ||
+                  pushState === 'unsupported' ||
+                  pushState === 'denied' ||
+                  pushState === 'subscribed'
+                }
                 className={[
-                  'h-10 rounded-xl border px-3 text-xs font-semibold active:scale-[0.98] disabled:opacity-70',
+                  'h-9 rounded-xl border px-2.5 text-xs font-semibold',
                   pushState === 'subscribed'
                     ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
                     : 'border-[#FEEF00]/40 bg-[#FEEF00]/10 text-[#FEEF00]',
                 ].join(' ')}
               >
-                {pushBusy ? 'Activando...' : pushState === 'subscribed' ? 'Alertas ON' : 'Alertas'}
+                {pushLabel}
               </button>
               <button
                 type="button"
-                onClick={() => router.refresh()}
-                className="h-10 rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#F5F5F7] active:scale-[0.98]"
+                onClick={() => requestRefresh('manual', true)}
+                disabled={isRefreshPending || connectionState === 'offline'}
+                className="h-9 rounded-xl border border-[#2A2A38] bg-[#121218] px-2.5 text-xs font-semibold text-[#F5F5F7]"
               >
-                Actualizar
+                {isRefreshPending ? 'Actualizando...' : 'Actualizar'}
               </button>
-            <Link
-              href="/app"
-                className="flex h-10 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#F5F5F7]"
-            >
-                Módulo
-            </Link>
             </div>
           </div>
 
@@ -534,13 +692,51 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
           </nav>
         </header>
 
-        {errorMessage ? (
-          <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-            {errorMessage}
+        {newOrderNotice ? (
+          <div
+            className="kitchen-enter mt-3 rounded-xl border border-[#FEEF00]/55 bg-[#FEEF00]/12 p-3"
+            role="status"
+            aria-live="assertive"
+          >
+            <div className="text-sm font-black text-[#FEEF00]">
+              {newOrderNotice.ids.length === 1 ? 'Nuevo pedido en cocina' : `${newOrderNotice.ids.length} pedidos nuevos`}
+            </div>
+            <div className="mt-0.5 text-xs text-[#F5F5F7]">
+              Orden #{newOrderNotice.displayNumbers.join(', #')}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveStatus('confirmed')}
+                className="h-10 rounded-xl border border-[#FEEF00]/60 bg-[#FEEF00] px-3 text-sm font-black text-black"
+              >
+                Ver cola
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewOrderNotice(null)}
+                className="h-10 rounded-xl border border-[#3A3A4D] bg-[#121218] px-3 text-sm font-semibold text-[#F5F5F7]"
+              >
+                Entendido
+              </button>
+            </div>
           </div>
         ) : null}
 
-        <section className="flex-1 py-2">
+        {errorMessage ? (
+          <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-red-100" role="alert">
+            <span>{errorMessage}</span>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="shrink-0 rounded-lg border border-red-300/30 px-2 py-1 text-xs font-semibold"
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : null}
+
+        <section className="kitchen-safe-content flex-1 py-2">
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <h2 className="text-base font-semibold">{activeColumn.title}</h2>
             <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(activeColumn.key)}`}>
@@ -576,15 +772,18 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                     : elapsedMinutes(order.readyAt, currentTimeMs);
               const readyTime = etaClockLabel(order);
               const remainingMinutes = remainingPrepMinutes(order, currentTimeMs);
+              const isNewOrder = newOrderIds.has(order.id);
 
-                    return (
+              return (
                 <article
                   key={order.id}
                   className={[
                     'rounded-xl border p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]',
-                    orderIndex % 2 === 0
-                      ? 'border-[#2A2A38] bg-[#101018]'
-                      : 'border-[#56566A] bg-[#282834] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.18)]',
+                    isNewOrder
+                      ? 'kitchen-new-order border-[#FEEF00]/75 bg-[#1D1D19]'
+                      : orderIndex % 2 === 0
+                        ? 'border-[#2A2A38] bg-[#101018]'
+                        : 'border-[#56566A] bg-[#282834] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.18)]',
                   ].join(' ')}
                 >
                         <div className="flex items-start justify-between gap-3">
@@ -594,6 +793,11 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                       </div>
                       <div className="mt-1 truncate text-base font-semibold text-[#F5F5F7]">{order.clientName}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[#B7B7C2]">
+                        {isNewOrder ? (
+                          <span className="rounded-full border border-[#FEEF00]/60 bg-[#FEEF00] px-2 py-0.5 font-black text-black">
+                            Nuevo
+                          </span>
+                        ) : null}
                         <span className="rounded-full border border-[#303041] bg-[#0B0B10] px-2 py-0.5">
                           {order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}
                         </span>
@@ -688,8 +892,8 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                     })}
                         </div>
 
-                        {order.status === 'confirmed' ? (
-                  <div className="mt-3 grid grid-cols-[52px_52px_76px_1fr] gap-2">
+                  {order.status === 'confirmed' ? (
+                    <div className="mt-3 grid grid-cols-[52px_52px_minmax(76px,1fr)] gap-2 sm:grid-cols-[52px_52px_90px_1fr]">
                             {ETA_PRESETS.map((minutes) => {
                               const activePreset = Math.round(Number(etaValue) || 0) === minutes;
                               return (
@@ -712,7 +916,9 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                             <input
                               type="number"
                               min="1"
+                              max="180"
                               step="1"
+                              inputMode="numeric"
                               value={etaValue}
                               onChange={(event) =>
                                 setEtaByOrder((current) => ({ ...current, [order.id]: event.target.value }))
@@ -722,19 +928,19 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                             />
                             <button
                               type="button"
-                              disabled={isPending && pendingKey === takeActionKey}
+                              disabled={isPending || connectionState === 'offline'}
                               onClick={() =>
                                 runAction(takeActionKey, async () => {
-                                  const etaMinutes = Math.max(1, Math.round(Number(etaValue) || 15));
+                                  const etaMinutes = normalizeEtaMinutes(etaValue);
                                   await kitchenTakeAction({ orderId: order.id, etaMinutes });
                                 })
                               }
-                        className="h-12 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 text-sm font-black text-emerald-200 active:scale-[0.98] disabled:opacity-60"
+                              className="col-span-3 h-12 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 text-sm font-black text-emerald-200 disabled:opacity-60 sm:col-span-1"
                             >
                               {isPending && pendingKey === takeActionKey ? 'Tomando...' : 'Tomar pedido'}
                             </button>
                           </div>
-                        ) : null}
+                  ) : null}
 
                         {order.status === 'in_kitchen' ? (
                           <div className="mt-2 space-y-2">
@@ -769,7 +975,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                             <div className="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
-                                disabled={isPending && pendingKey === delayActionKey}
+                                disabled={isPending || connectionState === 'offline'}
                                 onClick={() =>
                                   runAction(delayActionKey, async () => {
                                     const etaMinutes = Math.max(1, Math.round(Number(order.etaMinutes || 15) + 5));
@@ -782,12 +988,16 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                               </button>
                               <button
                                 type="button"
-                                disabled={isPending && pendingKey === readyActionKey}
-                                onClick={() =>
+                                disabled={isPending || connectionState === 'offline'}
+                                onClick={() => {
+                                  const confirmed = window.confirm(
+                                    `¿Confirmas que la orden #${order.displayNumber} está lista?`
+                                  );
+                                  if (!confirmed) return;
                                   runAction(readyActionKey, async () => {
                                     await markReadyAction({ orderId: order.id });
-                                  })
-                                }
+                                  });
+                                }}
                                 className="h-11 rounded-xl border border-[#FEEF00]/50 bg-[#FEEF00] px-2 text-sm font-black text-black active:scale-[0.98] disabled:opacity-60"
                               >
                                 {isPending && pendingKey === readyActionKey ? 'Marcando...' : 'Marcar lista'}
@@ -795,6 +1005,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                             </div>
                             <button
                               type="button"
+                              disabled={isPending || connectionState === 'offline'}
                               onClick={() => setIncidentOrderId((current) => current === order.id ? null : order.id)}
                               className="h-10 w-full rounded-xl border border-red-400/40 bg-red-400/10 px-3 text-xs font-black text-red-100 active:scale-[0.98]"
                             >
@@ -809,6 +1020,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                                       <button
                                         key={`${order.id}-${reason.key}`}
                                         type="button"
+                                        disabled={isPending}
                                         onClick={() =>
                                           setIncidentReasonByOrder((current) => ({ ...current, [order.id]: reason.key }))
                                         }
@@ -833,9 +1045,9 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                                   placeholder="Nota opcional"
                                   className="mt-2 w-full rounded-lg border border-red-400/30 bg-[#12090B] px-2.5 py-2 text-sm text-[#F5F5F7] placeholder:text-red-100/45"
                                 />
-                                <button
-                                  type="button"
-                                  disabled={isPending && pendingKey === incidentActionKey}
+                                  <button
+                                    type="button"
+                                    disabled={isPending || connectionState === 'offline'}
                                   onClick={() =>
                                     runAction(incidentActionKey, async () => {
                                       await reportKitchenIncidentAction({
@@ -889,6 +1101,8 @@ function StatusTab({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
+      aria-label={`${label}: ${value} pedidos`}
       className={[
         'h-12 rounded-xl border px-2 text-center transition active:scale-[0.98]',
         active ? 'border-[#FEEF00] bg-[#FEEF00] text-black' : 'border-[#242433] bg-[#121218]',

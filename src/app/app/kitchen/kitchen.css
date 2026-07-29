@@ -1,0 +1,83 @@
+.kitchen-app {
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
+.kitchen-app a,
+.kitchen-app button {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 130ms ease,
+    opacity 130ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.kitchen-app a:active,
+.kitchen-app button:active {
+  transform: scale(0.97);
+}
+
+.kitchen-app button:disabled,
+.kitchen-app a[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.kitchen-safe-header {
+  padding-top: calc(env(safe-area-inset-top) + 8px);
+}
+
+.kitchen-safe-content {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
+}
+
+.kitchen-app input,
+.kitchen-app select,
+.kitchen-app textarea,
+.kitchen-app button {
+  font-size: 16px;
+}
+
+.kitchen-new-order {
+  animation: kitchen-new-order 900ms ease-out 2;
+}
+
+.kitchen-enter {
+  animation: kitchen-enter 180ms ease-out;
+}
+
+@keyframes kitchen-new-order {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(254, 239, 0, 0);
+  }
+
+  45% {
+    box-shadow: 0 0 0 4px rgba(254, 239, 0, 0.34);
+  }
+}
+
+@keyframes kitchen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kitchen-app *,
+  .kitchen-app *::before,
+  .kitchen-app *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
