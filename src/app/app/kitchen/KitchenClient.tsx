@@ -71,7 +71,7 @@ const STATUS_COLUMNS: Array<{
 const HIDDEN_DETAIL_PREFIX = '@sel|';
 const PUSH_TIMEOUT_MS = 12000;
 const NEW_ORDER_HIGHLIGHT_MS = 15000;
-const ETA_PRESETS = [10, 15];
+const ETA_PRESETS = [10, 20];
 const KITCHEN_INCIDENT_REASONS = [
   {
     key: 'power',
