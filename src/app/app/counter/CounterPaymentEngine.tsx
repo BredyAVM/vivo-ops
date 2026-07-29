@@ -44,8 +44,40 @@ type DigitalChangeOption = {
   label: string;
 };
 
+const PAYMENT_METHOD_PRIORITY = [
+  'pos',
+  'cash_usd',
+  'cash_ves',
+  'payment_mobile',
+  'transfer',
+  'zelle',
+  'wallet_usd',
+] as const;
+
 function paymentAccountKey(account: CounterPaymentAccountOption) {
   return `${account.accountId}|${account.paymentMethodCode}`;
+}
+
+function paymentMethodPriority(method: string) {
+  const index = PAYMENT_METHOD_PRIORITY.indexOf(
+    method as (typeof PAYMENT_METHOD_PRIORITY)[number]
+  );
+  return index < 0 ? PAYMENT_METHOD_PRIORITY.length : index;
+}
+
+function isImmediateAccount(account: CounterPaymentAccountOption | null) {
+  return Boolean(
+    account
+    && account.canConfirmPayment
+    && account.autoConfirmsReport
+    && !account.reviewRequired
+  );
+}
+
+function paymentDestinationLabel(method: string) {
+  if (method === 'pos') return 'Punto utilizado';
+  if (method === 'cash_usd' || method === 'cash_ves') return 'Caja';
+  return 'Cuenta receptora';
 }
 
 function decimal(value: string) {
@@ -90,9 +122,7 @@ function nativeAmount(currency: 'USD' | 'VES', usd: number, rate: number) {
 
 function isDirectCashAccount(account: CounterPaymentAccountOption) {
   if (account.accountKind !== 'cash') return false;
-  if (!account.canConfirmPayment && !account.autoConfirmsReport) return false;
-  const name = account.accountName.toLocaleLowerCase('es-VE');
-  return name.includes('dar') || name.includes('dark');
+  return account.canConfirmPayment && account.autoConfirmsReport && !account.reviewRequired;
 }
 
 export function CounterPaymentEngine({
@@ -110,11 +140,10 @@ export function CounterPaymentEngine({
     paymentAccounts
       .filter((account) => account.canReportPayment)
       .sort((left, right) => {
-        const leftImmediate =
-          left.canConfirmPayment && left.autoConfirmsReport && !left.reviewRequired ? 1 : 0;
-        const rightImmediate =
-          right.canConfirmPayment && right.autoConfirmsReport && !right.reviewRequired ? 1 : 0;
-        return rightImmediate - leftImmediate || left.accountName.localeCompare(right.accountName, 'es');
+        const methodOrder =
+          paymentMethodPriority(left.paymentMethodCode)
+          - paymentMethodPriority(right.paymentMethodCode);
+        return methodOrder || left.accountName.localeCompare(right.accountName, 'es');
       })
   ), [paymentAccounts]);
   const cashChangeAccounts = useMemo(
@@ -139,7 +168,25 @@ export function CounterPaymentEngine({
     return Array.from(unique.values());
   }, [paymentAccounts]);
 
-  const firstAccount = reportAccounts[0] ?? null;
+  const paymentMethods = useMemo(() => {
+    const unique = Array.from(new Set(reportAccounts.map((account) => account.paymentMethodCode)));
+    return unique.sort((left, right) => {
+      const leftExpected = left === order.paymentMethod ? 1 : 0;
+      const rightExpected = right === order.paymentMethod ? 1 : 0;
+      return (
+        rightExpected - leftExpected
+        || paymentMethodPriority(left) - paymentMethodPriority(right)
+        || getPaymentMethodLabel(left).localeCompare(getPaymentMethodLabel(right), 'es')
+      );
+    });
+  }, [order.paymentMethod, reportAccounts]);
+  const expectedAccount =
+    reportAccounts.find((account) => account.paymentMethodCode === order.paymentMethod) ?? null;
+  const firstAccount =
+    expectedAccount
+    ?? reportAccounts.find((account) => account.paymentMethodCode === 'pos')
+    ?? reportAccounts[0]
+    ?? null;
   const firstCashChangeAccount = cashChangeAccounts[0] ?? null;
   const firstDigitalChange = digitalChangeOptions[0] ?? null;
   const nextPaymentId = useRef(2);
@@ -164,16 +211,22 @@ export function CounterPaymentEngine({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<CounterPaymentOperationResult | null>(null);
+  const [fundRemainderAccepted, setFundRemainderAccepted] = useState(false);
 
   function invalidateIntent() {
     idempotencyKey.current = null;
     setReviewOpen(false);
     setReceipt(null);
     setError(null);
+    setFundRemainderAccepted(false);
   }
 
   function accountForPayment(line: PaymentDraft) {
     return reportAccounts.find((account) => paymentAccountKey(account) === line.accountKey) ?? null;
+  }
+
+  function accountsForMethod(method: string) {
+    return reportAccounts.filter((account) => account.paymentMethodCode === method);
   }
 
   function changeOption(line: ChangeDraft) {
@@ -231,17 +284,31 @@ export function CounterPaymentEngine({
   );
 
   const totalChangeUsd = roundMoney(changeSummary.cash + changeSummary.digital);
+  const registeredNetUsd = roundMoney(paymentSummary.reported - totalChangeUsd);
+  const remainingToRegisterUsd = Math.max(0, roundMoney(order.balanceUsd - registeredNetUsd));
+  const unallocatedOverpaymentUsd = Math.max(0, roundMoney(registeredNetUsd - order.balanceUsd));
   const projectedNetConfirmedUsd = roundMoney(paymentSummary.confirmed - totalChangeUsd);
   const projectedPendingUsd = Math.max(0, roundMoney(order.balanceUsd - projectedNetConfirmedUsd));
   const projectedOverpaidUsd = Math.max(0, roundMoney(projectedNetConfirmedUsd - order.balanceUsd));
-  const fundCreditUsd = changeLines.length > 0
-    ? projectedOverpaidUsd
-    : Math.max(0, roundMoney(paymentSummary.confirmed - order.balanceUsd));
+  const fundCreditUsd = fundRemainderAccepted ? projectedOverpaidUsd : 0;
+  const firstPaymentLine = paymentLines[0] ?? null;
+  const firstPaymentAccount = firstPaymentLine ? accountForPayment(firstPaymentLine) : null;
+  const selectedMethod = firstPaymentAccount?.paymentMethodCode ?? '';
+  const expectedMethodIsSpecific =
+    Boolean(order.paymentMethod)
+    && order.paymentMethod !== 'mixed'
+    && order.paymentMethod !== 'pending';
+  const expectedMethodChanged =
+    expectedMethodIsSpecific
+    && Boolean(selectedMethod)
+    && selectedMethod !== order.paymentMethod;
+  const canStoreOverpaymentAsFund =
+    projectedOverpaidUsd + 0.005 >= unallocatedOverpaymentUsd;
 
   function addPaymentLine() {
     invalidateIntent();
     if (!firstAccount) return;
-    const remaining = Math.max(0, order.balanceUsd - paymentSummary.reported);
+    const remaining = remainingToRegisterUsd;
     const id = `payment-${nextPaymentId.current}`;
     nextPaymentId.current += 1;
     setPaymentLines((current) => [...current, {
@@ -255,6 +322,35 @@ export function CounterPaymentEngine({
       payerName: '',
       notes: '',
     }]);
+  }
+
+  function selectPaymentMethod(id: string, method: string) {
+    const account = accountsForMethod(method)[0] ?? null;
+    if (!account) return;
+    invalidateIntent();
+    setPaymentLines((current) => current.map((line) => {
+      if (line.id !== id) return line;
+      const currentAccount = accountForPayment(line);
+      const currentUsd = currentAccount
+        ? amountUsd(
+            decimal(line.amount),
+            currentAccount.currencyCode,
+            currentAccount.currencyCode === 'VES' ? decimal(line.exchangeRate) : null
+          )
+        : remainingToRegisterUsd;
+      const suggestedUsd = currentUsd > 0 ? currentUsd : remainingToRegisterUsd;
+      return {
+        ...line,
+        accountKey: paymentAccountKey(account),
+        amount: nativeAmount(account.currencyCode, suggestedUsd, order.fxRate),
+        exchangeRate: account.currencyCode === 'VES' ? String(roundMoney(order.fxRate)) : '',
+        operationDate: todayCaracas(),
+        referenceCode: '',
+        bankName: '',
+        payerName: '',
+        notes: '',
+      };
+    }));
   }
 
   function updatePaymentLine(id: string, patch: Partial<PaymentDraft>) {
@@ -271,12 +367,22 @@ export function CounterPaymentEngine({
     }));
   }
 
-  function addChangeLine(mode: 'cash' | 'digital_pending') {
+  function addChangeLine(
+    mode: 'cash' | 'digital_pending',
+    suggestedUsd = 0,
+    preferredCurrency?: 'USD' | 'VES'
+  ) {
     invalidateIntent();
+    const cashAccount =
+      cashChangeAccounts.find((account) => account.currencyCode === preferredCurrency)
+      ?? firstCashChangeAccount;
+    const digitalOption =
+      digitalChangeOptions.find((option) => option.currencyCode === preferredCurrency)
+      ?? firstDigitalChange;
     const optionKey =
       mode === 'cash'
-        ? firstCashChangeAccount ? paymentAccountKey(firstCashChangeAccount) : ''
-        : firstDigitalChange?.key ?? '';
+        ? cashAccount ? paymentAccountKey(cashAccount) : ''
+        : digitalOption?.key ?? '';
     if (!optionKey) {
       setError(
         mode === 'cash'
@@ -285,16 +391,30 @@ export function CounterPaymentEngine({
       );
       return;
     }
+    const currencyCode =
+      mode === 'cash'
+        ? cashAccount?.currencyCode ?? 'USD'
+        : digitalOption?.currencyCode ?? 'USD';
     const id = `change-${nextChangeId.current}`;
     nextChangeId.current += 1;
     setChangeLines((current) => [...current, {
       id,
       mode,
       optionKey,
-      amount: '',
+      amount: suggestedUsd > 0
+        ? nativeAmount(currencyCode, suggestedUsd, order.fxRate)
+        : '',
       exchangeRate: String(roundMoney(order.fxRate)),
       notes: '',
     }]);
+  }
+
+  function acceptFundRemainder() {
+    idempotencyKey.current = null;
+    setReviewOpen(false);
+    setReceipt(null);
+    setError(null);
+    setFundRemainderAccepted(true);
   }
 
   function updateChangeLine(id: string, patch: Partial<ChangeDraft>) {
@@ -402,10 +522,21 @@ export function CounterPaymentEngine({
       return null;
     }
 
+    if (unallocatedOverpaymentUsd > 0.005 && !fundRemainderAccepted) {
+      setError(
+        `Falta decidir que hacer con ${moneyUsd(unallocatedOverpaymentUsd)}: entregar cambio o guardarlo como saldo a favor.`
+      );
+      return null;
+    }
+    if (fundRemainderAccepted && !canStoreOverpaymentAsFund) {
+      setError('Solo el dinero confirmado puede guardarse como saldo a favor.');
+      return null;
+    }
+
     const handling =
       preparedChange.length > 0
         ? 'change_given'
-        : paymentSummary.confirmed > order.balanceUsd + 0.005
+        : fundRemainderAccepted && paymentSummary.confirmed > order.balanceUsd + 0.005
           ? 'store_fund'
           : null;
 
@@ -454,17 +585,22 @@ export function CounterPaymentEngine({
   if (receipt) {
     return (
       <div className="rounded-[8px] border border-emerald-400/35 bg-emerald-400/10 p-4">
-        <div className="text-sm font-semibold text-emerald-100">Cobro registrado una sola vez</div>
+        <div className="text-base font-semibold text-emerald-100">Cobro registrado</div>
         <div className="mt-1 text-xs text-emerald-100/70">
           Comprobante {receipt.idempotencyKey.slice(0, 8).toUpperCase()} · Orden #{order.displayNumber}
         </div>
+        <div className="mt-3 rounded-[8px] border border-emerald-300/20 bg-black/15 px-3 py-2 text-sm text-emerald-50">
+          {receipt.pendingPaymentUsd > 0.005
+            ? `${moneyUsd(receipt.pendingPaymentUsd)} quedó enviado a Master para confirmación.`
+            : receipt.pendingUsd > 0.005
+              ? `La operación quedó registrada y todavía faltan ${moneyUsd(receipt.pendingUsd)} por cobrar.`
+              : 'El pago quedó confirmado. Ya puedes continuar con la entrega del pickup.'}
+        </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <ReceiptMetric label="Confirmado" value={moneyUsd(receipt.confirmedPaymentUsd)} />
-          <ReceiptMetric label="Por revisar" value={moneyUsd(receipt.pendingPaymentUsd)} />
-          <ReceiptMetric label="Cambio efectivo" value={moneyUsd(receipt.cashChangeUsd)} />
-          <ReceiptMetric label="Cambio digital pendiente" value={moneyUsd(receipt.digitalChangePendingUsd)} />
-          <ReceiptMetric label="Fondo cliente" value={moneyUsd(receipt.fundCreditUsd)} />
-          <ReceiptMetric label="Saldo orden" value={moneyUsd(receipt.pendingUsd)} />
+          <ReceiptMetric label="Master revisa" value={moneyUsd(receipt.pendingPaymentUsd)} />
+          <ReceiptMetric label="Cambio entregado" value={moneyUsd(receipt.cashChangeUsd)} />
+          <ReceiptMetric label="Saldo pendiente" value={moneyUsd(receipt.pendingUsd)} />
         </div>
       </div>
     );
@@ -474,61 +610,149 @@ export function CounterPaymentEngine({
     <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold">Caja registradora</h3>
+          <h3 className="text-lg font-semibold">Cobrar pedido</h3>
           <p className="mt-1 text-sm text-[#9FA0AA]">
-            Registra el pago, el cambio real y cualquier parte digital pendiente como una sola operacion.
+            Elige cómo pagó el cliente. Solo verás las cuentas necesarias para ese método.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <SummaryPill label="Recibido" value={moneyUsd(paymentSummary.reported)} />
-          <SummaryPill label="Confirma ahora" value={moneyUsd(paymentSummary.confirmed)} tone="good" />
-          <SummaryPill label="Por revisar" value={moneyUsd(paymentSummary.pending)} tone="warn" />
-        </div>
       </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ReceiptMetric label="Falta por cobrar" value={moneyUsd(order.balanceUsd)} />
+        <ReceiptMetric label="Registrado ahora" value={moneyUsd(registeredNetUsd)} />
+        <ReceiptMetric label="Falta registrar" value={moneyUsd(remainingToRegisterUsd)} />
+        <ReceiptMetric label="Master debe revisar" value={moneyUsd(paymentSummary.pending)} />
+      </div>
+
+      {firstPaymentLine ? (
+        <div className="mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold">¿Cómo está pagando?</div>
+              <div className="mt-1 text-xs text-[#9FA0AA]">
+                Método esperado: {getPaymentMethodLabel(order.paymentMethod || 'pending')}
+              </div>
+            </div>
+            {paymentLines.length > 1 ? (
+              <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-3 py-1 text-xs font-semibold text-sky-100">
+                Pago mixto · {paymentLines.length} métodos
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+            {paymentMethods.map((method) => {
+              const methodAccount = accountsForMethod(method)[0] ?? null;
+              const selected = selectedMethod === method;
+              return (
+                <button
+                  key={method}
+                  type="button"
+                  onClick={() => selectPaymentMethod(firstPaymentLine.id, method)}
+                  disabled={isWorking}
+                  className={[
+                    'min-h-16 rounded-[8px] border px-3 py-2 text-left transition disabled:opacity-50',
+                    selected
+                      ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
+                      : 'border-[#303044] bg-[#111118] text-[#F5F5F7] hover:border-[#FEEF00]/60',
+                  ].join(' ')}
+                >
+                  <span className="block text-sm font-bold">{getPaymentMethodLabel(method)}</span>
+                  <span className={['mt-1 block text-[11px]', selected ? 'text-black/65' : 'text-[#9FA0AA]'].join(' ')}>
+                    {isImmediateAccount(methodAccount) ? 'Se confirma al cobrar' : 'Master confirma'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9FA0AA]">
-            Lineas de pago
+            {paymentLines.length > 1 ? 'Métodos registrados' : 'Datos del cobro'}
           </div>
           <button
             type="button"
             onClick={addPaymentLine}
             className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-xs font-semibold text-[#FEEF00]"
           >
-            Agregar pago
+            + Otro método
           </button>
         </div>
 
         {paymentLines.map((line, index) => {
           const account = accountForPayment(line) ?? firstAccount;
           const requirements = getPaymentReportRequirements(account?.paymentMethodCode);
+          const methodAccounts = account ? accountsForMethod(account.paymentMethodCode) : [];
+          const immediate = isImmediateAccount(account);
           return (
             <div key={line.id} className="rounded-[8px] border border-[#242433] bg-[#111118] p-3">
-              <div className="grid gap-3 lg:grid-cols-[1.4fr_0.7fr_0.55fr_0.7fr_auto]">
-                <Field label="Cuenta">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold">
+                    {paymentLines.length > 1
+                      ? `Pago ${index + 1} · ${getPaymentMethodLabel(account?.paymentMethodCode || '')}`
+                      : getPaymentMethodLabel(account?.paymentMethodCode || '')}
+                  </div>
+                  <div className={['mt-1 text-xs', immediate ? 'text-emerald-300' : 'text-orange-200'].join(' ')}>
+                    {immediate
+                      ? 'Se confirma inmediatamente.'
+                      : 'Queda pendiente hasta que Master lo confirme.'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={paymentLines.length === 1}
+                  onClick={() => {
+                    invalidateIntent();
+                    setPaymentLines((current) => current.filter((item) => item.id !== line.id));
+                  }}
+                  className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs font-semibold text-red-200 disabled:hidden"
+                >
+                  Quitar
+                </button>
+              </div>
+              <div className="mt-3 grid gap-3 lg:grid-cols-[0.9fr_1.3fr_0.8fr_0.55fr]">
+                {paymentLines.length > 1 ? (
+                  <Field label="Método">
+                    <select
+                      value={account?.paymentMethodCode ?? ''}
+                      onChange={(event) => selectPaymentMethod(line.id, event.target.value)}
+                      className="counter-field"
+                    >
+                      {paymentMethods.map((method) => (
+                        <option key={method} value={method}>
+                          {getPaymentMethodLabel(method)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : null}
+                <Field label={paymentDestinationLabel(account?.paymentMethodCode || '')}>
                   <select
                     value={line.accountKey}
                     onChange={(event) => updatePaymentLine(line.id, { accountKey: event.target.value })}
                     className="counter-field"
                   >
-                    {reportAccounts.map((item) => (
+                    {methodAccounts.map((item) => (
                       <option key={paymentAccountKey(item)} value={paymentAccountKey(item)}>
-                        {item.accountName} - {getPaymentMethodLabel(item.paymentMethodCode)}
+                        {item.accountName}
                       </option>
                     ))}
                   </select>
                 </Field>
-                <Field label={`Monto ${account?.currencyCode ?? ''}`}>
+                <Field label={`Monto recibido (${account?.currencyCode ?? ''})`}>
                   <input
                     value={line.amount}
                     onChange={(event) => updatePaymentLine(line.id, { amount: event.target.value })}
+                    onFocus={(event) => event.currentTarget.select()}
                     inputMode="decimal"
-                    className="counter-field"
+                    className="counter-field text-lg font-semibold"
                   />
                 </Field>
-                {account?.currencyCode === 'VES' ? (
-                  <Field label="Tasa">
+                {account?.currencyCode === 'VES' && (!immediate || order.fxRate <= 0) ? (
+                  <Field label="Tasa Bs">
                     <input
                       value={line.exchangeRate}
                       onChange={(event) => updatePaymentLine(line.id, { exchangeRate: event.target.value })}
@@ -537,27 +761,16 @@ export function CounterPaymentEngine({
                     />
                   </Field>
                 ) : <div />}
-                <Field label="Fecha">
-                  <input
-                    type="date"
-                    value={line.operationDate}
-                    onChange={(event) => updatePaymentLine(line.id, { operationDate: event.target.value })}
-                    className="counter-field"
-                  />
-                </Field>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    disabled={paymentLines.length === 1}
-                    onClick={() => {
-                      invalidateIntent();
-                      setPaymentLines((current) => current.filter((item) => item.id !== line.id));
-                    }}
-                    className="w-full rounded-[8px] border border-red-400/35 px-3 py-3 text-xs font-semibold text-red-200 disabled:opacity-40"
-                  >
-                    {index === 0 && paymentLines.length === 1 ? 'Linea unica' : 'Quitar'}
-                  </button>
-                </div>
+                {requirements.requiresOperationDate ? (
+                  <Field label="Fecha de operación">
+                    <input
+                      type="date"
+                      value={line.operationDate}
+                      onChange={(event) => updatePaymentLine(line.id, { operationDate: event.target.value })}
+                      className="counter-field"
+                    />
+                  </Field>
+                ) : null}
               </div>
               <div className="mt-3 grid gap-3 lg:grid-cols-3">
                 {requirements.requiresReference ? (
@@ -587,23 +800,87 @@ export function CounterPaymentEngine({
                     />
                   </Field>
                 ) : null}
-                <Field label="Nota">
-                  <input
-                    value={line.notes}
-                    onChange={(event) => updatePaymentLine(line.id, { notes: event.target.value })}
-                    className="counter-field"
-                  />
-                </Field>
+                {!immediate ? (
+                  <Field label="Nota opcional">
+                    <input
+                      value={line.notes}
+                      onChange={(event) => updatePaymentLine(line.id, { notes: event.target.value })}
+                      className="counter-field"
+                    />
+                  </Field>
+                ) : null}
               </div>
             </div>
           );
         })}
       </div>
 
+      {expectedMethodChanged ? (
+        <div className="mt-3 rounded-[8px] border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-sm text-orange-100">
+          La orden esperaba {getPaymentMethodLabel(order.paymentMethod)}, pero estás registrando {getPaymentMethodLabel(selectedMethod)}.
+        </div>
+      ) : null}
+
+      {unallocatedOverpaymentUsd > 0.005 ? (
+        <div className="mt-4 rounded-[8px] border border-[#FEEF00]/45 bg-[#FEEF00]/10 p-3">
+          <div className="text-sm font-semibold text-[#FEEF00]">
+            Cambio calculado: {moneyUsd(unallocatedOverpaymentUsd)}
+          </div>
+          <div className="mt-1 text-xs leading-relaxed text-[#D5D5C7]">
+            El dinero recibido supera lo pendiente. Debes decidir qué hacer con la diferencia.
+          </div>
+          {fundRemainderAccepted ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[8px] border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-sm text-violet-100">
+              <span>Se guardará como saldo a favor del cliente.</span>
+              <button
+                type="button"
+                onClick={invalidateIntent}
+                className="rounded-full border border-violet-200/30 px-3 py-1 text-xs font-semibold"
+              >
+                Cambiar decisión
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={() => addChangeLine(
+                  'cash',
+                  unallocatedOverpaymentUsd,
+                  firstPaymentAccount?.currencyCode
+                )}
+                className="min-h-11 rounded-[8px] border border-emerald-300/35 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100"
+              >
+                Entregar cambio
+              </button>
+              <button
+                type="button"
+                onClick={() => addChangeLine(
+                  'digital_pending',
+                  unallocatedOverpaymentUsd,
+                  firstPaymentAccount?.currencyCode
+                )}
+                className="min-h-11 rounded-[8px] border border-sky-300/35 bg-sky-300/10 px-3 py-2 text-sm font-semibold text-sky-100"
+              >
+                Cambio digital
+              </button>
+              <button
+                type="button"
+                onClick={acceptFundRemainder}
+                disabled={!canStoreOverpaymentAsFund}
+                className="min-h-11 rounded-[8px] border border-violet-300/35 bg-violet-300/10 px-3 py-2 text-sm font-semibold text-violet-100 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {canStoreOverpaymentAsFund ? 'Guardar saldo a favor' : 'Requiere pago confirmado'}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       <div className="mt-4 rounded-[8px] border border-sky-400/25 bg-sky-400/5 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-sky-100">Cambio</div>
+            <div className="text-sm font-semibold text-sky-100">Cambio de esta operación</div>
             <div className="mt-1 text-xs text-sky-100/65">
               Puede existir aunque el cliente solo esté abonando una parte de la orden.
             </div>
@@ -614,20 +891,20 @@ export function CounterPaymentEngine({
               onClick={() => addChangeLine('cash')}
               className="rounded-full border border-sky-300/35 px-3 py-1.5 text-xs font-semibold text-sky-100"
             >
-              Efectivo
+              Agregar efectivo
             </button>
             <button
               type="button"
               onClick={() => addChangeLine('digital_pending')}
               className="rounded-full border border-sky-300/35 px-3 py-1.5 text-xs font-semibold text-sky-100"
             >
-              Digital pendiente
+              Agregar digital
             </button>
           </div>
         </div>
 
         {changeLines.length === 0 ? (
-          <div className="mt-3 text-xs text-[#9FA0AA]">Sin cambio en esta operacion.</div>
+          <div className="mt-3 text-xs text-[#9FA0AA]">Sin cambio registrado.</div>
         ) : (
           <div className="mt-3 space-y-2">
             {changeLines.map((line) => {
@@ -707,12 +984,14 @@ export function CounterPaymentEngine({
         )}
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <ReceiptMetric label="Neto confirmado" value={moneyUsd(projectedNetConfirmedUsd)} />
-        <ReceiptMetric label="Cambio efectivo" value={moneyUsd(changeSummary.cash)} />
-        <ReceiptMetric label="Digital pendiente" value={moneyUsd(changeSummary.digital)} />
-        <ReceiptMetric label="Fondo" value={moneyUsd(fundCreditUsd)} />
-        <ReceiptMetric label="Saldo resultante" value={moneyUsd(projectedPendingUsd)} />
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ReceiptMetric label="Se confirma ahora" value={moneyUsd(projectedNetConfirmedUsd)} />
+        <ReceiptMetric label="Master debe revisar" value={moneyUsd(paymentSummary.pending)} />
+        <ReceiptMetric label="Cambio total" value={moneyUsd(totalChangeUsd)} />
+        <ReceiptMetric label="Saldo contable" value={moneyUsd(projectedPendingUsd)} />
+        {fundCreditUsd > 0.005 ? (
+          <ReceiptMetric label="Saldo a favor" value={moneyUsd(fundCreditUsd)} />
+        ) : null}
       </div>
 
       {error ? (
@@ -723,14 +1002,19 @@ export function CounterPaymentEngine({
 
       {reviewOpen ? (
         <div className="mt-4 rounded-[8px] border border-[#FEEF00]/35 bg-[#FEEF00]/5 p-4">
-          <div className="text-sm font-semibold text-[#FEEF00]">Confirmar una sola operacion</div>
+          <div className="text-sm font-semibold text-[#FEEF00]">Revisa antes de registrar</div>
           <p className="mt-1 text-xs leading-relaxed text-[#C7C8D1]">
-            Se registrarán {paymentLines.length} pago(s), {changeLines.length} linea(s) de cambio,
-            {` ${moneyUsd(fundCreditUsd)}`} a fondo y un saldo resultante estimado de {moneyUsd(projectedPendingUsd)}.
+            Se reciben {moneyUsd(paymentSummary.reported)}, se entregan {moneyUsd(totalChangeUsd)} de cambio
+            y queda un saldo contable de {moneyUsd(projectedPendingUsd)}.
           </p>
+          {paymentSummary.pending > 0.005 ? (
+            <div className="mt-2 rounded-[8px] border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-xs text-orange-100">
+              {moneyUsd(paymentSummary.pending)} quedará pendiente de confirmación por Master.
+            </div>
+          ) : null}
           {changeSummary.digital > 0.005 ? (
             <div className="mt-2 rounded-[8px] border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-xs text-orange-100">
-              El cambio digital quedará pendiente. No se mostrará como dinero entregado hasta que sea confirmado.
+              El cambio digital queda asignado como pendiente; todavía no cuenta como dinero entregado.
             </div>
           ) : null}
           <div className="mt-3 flex justify-end gap-2">
@@ -747,7 +1031,7 @@ export function CounterPaymentEngine({
               disabled={isWorking}
               className="rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black disabled:cursor-wait disabled:opacity-60"
             >
-              {isWorking ? 'Registrando...' : 'Confirmar cobro'}
+              {isWorking ? 'Registrando...' : 'Registrar cobro'}
             </button>
           </div>
         </div>
@@ -759,7 +1043,7 @@ export function CounterPaymentEngine({
             disabled={isWorking || paymentLines.length === 0}
             className="rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:cursor-wait disabled:opacity-60"
           >
-            Revisar cobro
+            Revisar y cobrar
           </button>
         </div>
       )}
@@ -789,28 +1073,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {label}
       {children}
     </label>
-  );
-}
-
-function SummaryPill({
-  label,
-  value,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  tone?: 'neutral' | 'good' | 'warn';
-}) {
-  const toneClass =
-    tone === 'good'
-      ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-100'
-      : tone === 'warn'
-        ? 'border-orange-400/30 bg-orange-400/10 text-orange-100'
-        : 'border-[#303044] text-[#C7C8D1]';
-  return (
-    <span className={`rounded-full border px-3 py-1 ${toneClass}`}>
-      {label}: {value}
-    </span>
   );
 }
 

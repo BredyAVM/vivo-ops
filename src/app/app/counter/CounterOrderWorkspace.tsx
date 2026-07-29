@@ -162,7 +162,9 @@ function primaryCounterActionLabel(order: CounterOrder) {
     && order.status === 'ready'
     && mustSettleBeforeCounterDelivery(order)
   ) {
-    return 'Primero cobrar';
+    if (order.pendingDigitalChangeUsd > 0.005) return 'Completar cambio';
+    if (order.reports.pending > 0) return 'Esperar Master';
+    return 'Cobrar ahora';
   }
   if (order.fulfillment === 'delivery' && order.status === 'ready') {
     return order.deliveryAssigneeName ? 'Entregar a motorizado' : 'Esperar asignación';
@@ -474,6 +476,12 @@ export function OrderDetail({
     order.fulfillment === 'pickup' &&
     order.status === 'ready' &&
     mustCollectNow;
+  const pickupCheckoutRequired =
+    pickupReadyNeedsPayment
+    && order.balanceUsd > 0.005
+    && order.pendingDigitalChangeUsd <= 0.005
+    && !hasPendingReports
+    && !pendingPickupChange;
   const primaryActionBlocked =
     isClosedOrder ||
     notReadyForCounter ||
@@ -494,12 +502,12 @@ export function OrderDetail({
     : notReadyForCounter
       ? 'Esta orden aun esta en cocina. Cuando quede lista aparecera para entrega.'
     : pickupReadyNeedsPayment
-      ? isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005
-        ? 'El metodo esperado es efectivo o punto. Primero registra el cobro antes de marcar el pickup como retirado.'
-        : hasPendingReports
+      ? hasPendingReports
         ? !order.hasAdvisor
           ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de que Counter entregue el pedido.'
           : 'Hay pagos pendientes de revision. No marques retirado hasta que queden confirmados.'
+        : isCounterImmediatePaymentMethod(order.paymentMethod) && order.balanceUsd > 0.005
+          ? 'El metodo esperado es efectivo o punto. Abre el cobro antes de marcar el pickup como retirado.'
         : 'Master debe confirmar el cobro antes de marcar el pickup como retirado.'
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
@@ -514,6 +522,7 @@ export function OrderDetail({
   const [addItemsOpen, setAddItemsOpen] = useState(false);
   const [deliveryDispatchOpen, setDeliveryDispatchOpen] = useState(false);
   const [pickupConfirmationOpen, setPickupConfirmationOpen] = useState(false);
+  const paymentSectionRef = useRef<HTMLDivElement | null>(null);
   const currentAction = getCounterCurrentAction(order);
   const canModifyPickup =
     order.fulfillment === 'pickup' &&
@@ -555,7 +564,17 @@ export function OrderDetail({
     if (initialPaymentOpen) onInitialPaymentOpened();
   }, [initialPaymentOpen, onInitialPaymentOpened]);
 
+  useEffect(() => {
+    if (!paymentOpen) return;
+    paymentSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [paymentOpen]);
+
   function handlePrimaryActionClick() {
+    if (pickupCheckoutRequired) {
+      setPaymentOpen(true);
+      return;
+    }
+
     if (isReadyDeliveryAction) {
       setDeliveryDispatchOpen(true);
       return;
@@ -728,6 +747,18 @@ export function OrderDetail({
             </div>
           </div>
 
+          {paymentOpen && !isCancelled ? (
+            <div ref={paymentSectionRef} className="scroll-mt-4">
+              <CounterPaymentEngine
+                key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.reports.pending}`}
+                order={order}
+                paymentAccounts={paymentAccounts}
+                isWorking={isWorking}
+                onSubmit={(input) => onCreatePaymentReport(order, input)}
+              />
+            </div>
+          ) : null}
+
           {order.fulfillment === 'delivery' || order.deliveryAddress ? (
             <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
               <h3 className="font-semibold">Entrega</h3>
@@ -805,7 +836,7 @@ export function OrderDetail({
           <button
             type="button"
             onClick={handlePrimaryActionClick}
-            disabled={isWorking || primaryActionBlocked}
+            disabled={isWorking || (primaryActionBlocked && !pickupCheckoutRequired)}
             className="min-h-12 w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black transition hover:bg-[#fff45c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isWorking
@@ -874,18 +905,6 @@ export function OrderDetail({
           </div>
         </aside>
       </div>
-
-      {paymentOpen && !isCancelled ? (
-        <div className="border-t border-[#242433] p-5">
-          <CounterPaymentEngine
-            key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.reports.pending}`}
-            order={order}
-            paymentAccounts={paymentAccounts}
-            isWorking={isWorking}
-            onSubmit={(input) => onCreatePaymentReport(order, input)}
-          />
-        </div>
-      ) : null}
 
       {showRefundPanel ? (
         <div className="border-t border-[#242433] p-5">
