@@ -32,6 +32,7 @@ import type {
 
 const MASTER_OPS_OVERPAYMENT_ROUNDING_MAX_USD = 1;
 const MASTER_OPS_SHORTFALL_ROUNDING_MAX_USD = 0.09;
+const MASTER_OPS_DETAIL_ITEM_RETRY_DELAYS_MS = [120, 320] as const;
 
 export type MasterOpsOrderSearchResult = {
   id: number;
@@ -151,15 +152,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       throw new Error("Orden invalida.");
     }
 
-    const [
-      orderResult,
-      orderItemsResult,
-      paymentReportsResult,
-      orderEventsResult,
-      orderAdjustmentsResult,
-      pickupChangeRequestsResult,
-    ] = await Promise.all([
-      supabase.from("orders").select("id").eq("id", orderId).maybeSingle(),
+    const loadOrderItems = () =>
       supabase
         .from("order_items")
         .select(`
@@ -172,7 +165,18 @@ export async function loadMasterOpsOrderDetailAction(input: {
           notes
         `)
         .eq("order_id", orderId)
-        .order("id", { ascending: true }),
+        .order("id", { ascending: true });
+
+    const [
+      orderResult,
+      initialOrderItemsResult,
+      paymentReportsResult,
+      orderEventsResult,
+      orderAdjustmentsResult,
+      pickupChangeRequestsResult,
+    ] = await Promise.all([
+      supabase.from("orders").select("id, status").eq("id", orderId).maybeSingle(),
+      loadOrderItems(),
       supabase
         .from("payment_reports")
         .select(`
@@ -210,13 +214,32 @@ export async function loadMasterOpsOrderDetailAction(input: {
 
     const firstError =
       orderResult.error ??
-      orderItemsResult.error ??
+      initialOrderItemsResult.error ??
       paymentReportsResult.error ??
       orderEventsResult.error ??
       orderAdjustmentsResult.error ??
       pickupChangeRequestsResult.error;
     if (firstError) throw new Error(firstError.message);
     if (!orderResult.data) throw new Error("No se pudo cargar la orden.");
+
+    let orderItemsResult = initialOrderItemsResult;
+    if ((orderItemsResult.data?.length ?? 0) === 0) {
+      for (const delayMs of MASTER_OPS_DETAIL_ITEM_RETRY_DELAYS_MS) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        orderItemsResult = await loadOrderItems();
+        if (!orderItemsResult.error && (orderItemsResult.data?.length ?? 0) > 0) break;
+      }
+    }
+
+    if (orderItemsResult.error) throw new Error(orderItemsResult.error.message);
+    if (
+      (orderItemsResult.data?.length ?? 0) === 0 &&
+      orderResult.data.status !== "cancelled"
+    ) {
+      throw new Error(
+        "No se pudieron confirmar los productos de la orden. Presiona Reintentar para consultar nuevamente."
+      );
+    }
 
     const orderItems = (orderItemsResult.data ?? []) as MasterOpsDetailItemRow[];
     const paymentReports = (paymentReportsResult.data ?? []) as MasterOpsDetailPaymentRow[];

@@ -909,8 +909,11 @@ function OrderDetailPanel({
   const canOpenPaymentReport = activeTab === "pagos" && order.balanceUsd > 0.005 && normalPaymentOptions.length > 0;
   const canOpenRetentionReport = activeTab === "pagos" && retentionPaymentOptions.length > 0;
   const operationalNotes = order.events.filter((event) => event.title.trim().toLowerCase() === "nota operativa");
+  const canCopyWhatsApp = !detailLoading && !detailError && order.lines.length > 0;
 
   async function handleCopyWhatsApp() {
+    if (!canCopyWhatsApp) return;
+
     try {
       await navigator.clipboard.writeText(buildMasterOrderWhatsAppSummary(order));
       setWhatsAppCopyStatus("copied");
@@ -1512,7 +1515,7 @@ function OrderDetailPanel({
               <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                 <button
                   className={[
-                    "rounded-xl border bg-[#0B0B0D] px-3 py-2 text-sm hover:border-[#FEEF00]/50",
+                    "rounded-xl border bg-[#0B0B0D] px-3 py-2 text-sm hover:border-[#FEEF00]/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[#242433]",
                     whatsAppCopyStatus === "copied"
                       ? "border-emerald-500/50 text-emerald-300"
                       : whatsAppCopyStatus === "error"
@@ -1520,14 +1523,27 @@ function OrderDetailPanel({
                         : "border-[#242433] text-[#F5F5F7]",
                   ].join(" ")}
                   type="button"
+                  disabled={!canCopyWhatsApp}
                   onClick={handleCopyWhatsApp}
-                  title={whatsAppCopyStatus === "error" ? "El navegador no permitio copiar el resumen" : undefined}
+                  title={
+                    detailLoading
+                      ? "Espera a que termine de cargar el pedido"
+                      : detailError || order.lines.length === 0
+                        ? "Los productos de la orden aun no estan disponibles"
+                        : whatsAppCopyStatus === "error"
+                          ? "El navegador no permitio copiar el resumen"
+                          : undefined
+                  }
                 >
-                  {whatsAppCopyStatus === "copied"
-                    ? "WS copiado"
-                    : whatsAppCopyStatus === "error"
-                      ? "No se copio"
-                      : "Copiar WS"}
+                  {detailLoading
+                    ? "Cargando WS"
+                    : detailError || order.lines.length === 0
+                      ? "WS no disponible"
+                      : whatsAppCopyStatus === "copied"
+                        ? "WS copiado"
+                        : whatsAppCopyStatus === "error"
+                          ? "No se copio"
+                          : "Copiar WS"}
                 </button>
                 <button
                   className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] hover:border-[#FEEF00]/50"
