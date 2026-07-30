@@ -1512,7 +1512,9 @@ export default function CounterClient({
         updateLocalOrderStatus(order.id, 'out_for_delivery');
         setMessage({
           tone: 'success',
-          text: `Orden #${order.displayNumber} entregada al motorizado con ETA ${result.etaMinutes} min. Custodia abierta.`,
+          text: result.settlementStatus === 'not_required'
+            ? `Orden #${order.displayNumber} entregada al motorizado con ETA ${result.etaMinutes} min. Sin liquidacion de caja.`
+            : `Orden #${order.displayNumber} entregada al motorizado con ETA ${result.etaMinutes} min. Custodia abierta.`,
         });
         await Promise.all([
           refreshCounter(),

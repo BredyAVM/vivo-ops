@@ -8,6 +8,7 @@ import {
   loadCounterDeliverySettlementDetailAction,
   loadCounterPendingSettlementsAction,
 } from './read-actions';
+import { requiresCounterDeliveryMoneyHandling } from './delivery-contract';
 import type {
   CounterDeliveryCashLine,
   CounterDeliveryCurrency,
@@ -44,6 +45,8 @@ type CashDraft = {
 type DigitalDraft = ValueDraft & {
   paymentMethodCode: CounterDeliveryDigitalChangeLine['paymentMethodCode'];
 };
+
+const DELIVERY_ETA_PRESETS = [10, 15, 20, 30, 45, 60] as const;
 
 function roundMoney(value: number) {
   return Number((Number.isFinite(value) ? value : 0).toFixed(2));
@@ -226,6 +229,9 @@ export function CounterDeliveryDispatchPanel({
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const requestKey = useRef<string | null>(null);
+  const requiresMoneyHandling = requiresCounterDeliveryMoneyHandling(order);
+  const advisorOwnsCollection =
+    order.hasAdvisor && !requiresMoneyHandling && order.balanceUsd > 0.005;
 
   function invalidate() {
     requestKey.current = null;
@@ -249,10 +255,19 @@ export function CounterDeliveryDispatchPanel({
   const requiredChangeUsd = roundMoney(Math.max(expectedUsd - order.balanceUsd, 0));
   const assignedChangeUsd = roundMoney(cashChangeUsd + digitalChangeUsd);
   const differenceUsd = roundMoney(requiredChangeUsd - assignedChangeUsd);
+  const eta = Math.round(decimal(etaMinutes));
+  const etaIsValid = Number.isFinite(eta) && eta >= 1 && eta <= 1440;
+  const showChangeControls =
+    requiresMoneyHandling
+    && (
+      order.paymentRequiresChange
+      || requiredChangeUsd > 0.005
+      || cashChangeLines.length > 0
+      || digitalChangeLines.length > 0
+    );
 
   async function submit() {
     try {
-      const eta = Math.round(decimal(etaMinutes));
       if (!Number.isFinite(eta) || eta < 1 || eta > 1440) {
         throw new Error('Indica un ETA entre 1 y 1440 minutos.');
       }
@@ -306,12 +321,16 @@ export function CounterDeliveryDispatchPanel({
   }
 
   return (
-    <div className="rounded-[8px] border border-sky-400/35 bg-sky-950/20 p-3">
+    <div className="rounded-[10px] border border-sky-400/35 bg-sky-950/20 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-sky-100">Salida con custodia</div>
+          <div className="text-base font-semibold text-sky-100">
+            {requiresMoneyHandling ? 'Despachar con cobro o cambio' : 'Entregar al motorizado'}
+          </div>
           <p className="mt-1 text-xs leading-relaxed text-sky-100/70">
-            Registra lo que el motorizado debe cobrar y el cambio que lleva antes de entregar el pedido.
+            {requiresMoneyHandling
+              ? 'Confirma el tiempo y prepara solamente el dinero indicado en la orden.'
+              : 'Confirma el tiempo estimado y registra la salida. No hay dinero a cargo de Mostrador.'}
           </p>
         </div>
         <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-semibold text-sky-100">
@@ -319,70 +338,152 @@ export function CounterDeliveryDispatchPanel({
         </span>
       </div>
 
-      <label className="mt-3 block text-xs font-semibold text-[#C7C8D1]">
-        ETA informado por el motorizado
-        <div className="mt-1 flex gap-2">
-          <input
-            value={etaMinutes}
-            onChange={(event) => {
-              invalidate();
-              setEtaMinutes(event.target.value);
-            }}
-            type="number"
-            min={1}
-            max={1440}
-            className="min-w-0 flex-1 rounded-[8px] border border-sky-300/30 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
-          />
-          <span className="self-center text-xs text-sky-100/70">min</span>
+      <div className="mt-4 rounded-[10px] border border-[#FEEF00]/35 bg-[#FEEF00]/[0.06] p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#FEEF00]/75">
+              Tiempo de entrega
+            </div>
+            <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
+              ¿En cuánto tiempo llegará?
+            </div>
+            <p className="mt-1 text-xs text-[#C7C8D1]">
+              Pregúntale al motorizado y selecciona el estimado.
+            </p>
+          </div>
+          <div className="rounded-full border border-[#FEEF00]/40 bg-[#FEEF00]/10 px-3 py-1.5 text-sm font-bold text-[#FEEF00]">
+            {etaIsValid ? `${eta} min` : 'Sin tiempo'}
+          </div>
         </div>
-      </label>
 
-      <DeliveryValueDrafts
-        title="Cobro esperado del cliente"
-        helper="Lo que el motorizado recibira del cliente. Puede quedar por debajo del saldo si el resto sigue con el asesor."
-        lines={expectedLines}
-        onChange={(lines) => {
-          invalidate();
-          setExpectedLines(lines);
-        }}
-        addLabel="Agregar moneda"
-      />
+        <div className="mt-3 flex flex-wrap gap-2">
+          {DELIVERY_ETA_PRESETS.map((minutes) => {
+            const selected = eta === minutes;
+            return (
+              <button
+                key={minutes}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => {
+                  invalidate();
+                  setEtaMinutes(String(minutes));
+                }}
+                className={[
+                  'min-h-10 min-w-[64px] rounded-full border px-3 py-2 text-xs font-bold transition',
+                  selected
+                    ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
+                    : 'border-[#3A3A47] bg-[#0B0B0D] text-[#C7C8D1] hover:border-[#FEEF00]/60 hover:text-[#FEEF00]',
+                ].join(' ')}
+              >
+                {minutes} min
+              </button>
+            );
+          })}
+        </div>
 
-      <DeliveryCashDrafts
-        title="Cambio en efectivo que sale de caja"
-        helper="Este monto genera el egreso exacto y queda vinculado a la orden."
-        lines={cashChangeLines}
-        cashAccounts={cashAccounts}
-        onChange={(lines) => {
-          invalidate();
-          setCashChangeLines(lines);
-        }}
-        addLabel="Agregar cambio efectivo"
-      />
-
-      <DeliveryDigitalDrafts
-        lines={digitalChangeLines}
-        onChange={(lines) => {
-          invalidate();
-          setDigitalChangeLines(lines);
-        }}
-      />
-
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <DeliveryMetric label="Cambio requerido" value={moneyUsd(requiredChangeUsd)} />
-        <DeliveryMetric
-          label="Cambio asignado"
-          value={moneyUsd(assignedChangeUsd)}
-          tone={Math.abs(differenceUsd) <= 0.02 ? 'good' : 'warn'}
-        />
+        <label className="mt-3 block text-xs font-semibold text-[#C7C8D1]">
+          Otro tiempo
+          <div className="relative mt-1 max-w-[180px]">
+            <input
+              value={etaMinutes}
+              onChange={(event) => {
+                invalidate();
+                setEtaMinutes(event.target.value);
+              }}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={1440}
+              aria-label="Tiempo estimado en minutos"
+              className="w-full rounded-[8px] border border-[#3A3A47] bg-[#0B0B0D] px-3 py-2.5 pr-12 text-base font-semibold text-[#F5F5F7] outline-none focus:border-[#FEEF00]"
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-[#9FA0AA]">
+              min
+            </span>
+          </div>
+        </label>
       </div>
-      {Math.abs(differenceUsd) > 0.02 ? (
-        <div className="mt-2 text-xs font-semibold text-orange-100">
-          {differenceUsd > 0
-            ? `Falta asignar ${moneyUsd(differenceUsd)}.`
-            : `Sobra ${moneyUsd(Math.abs(differenceUsd))}.`}
+
+      {requiresMoneyHandling ? (
+        <>
+          <div className="mt-4 rounded-[8px] border border-orange-400/30 bg-orange-950/15 px-3 py-2.5">
+            <div className="text-xs font-semibold text-orange-100">
+              Dinero indicado en la orden
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-orange-100/70">
+              Registra únicamente lo que el motorizado cobrará o el cambio que realmente lleva.
+            </p>
+          </div>
+
+          <DeliveryValueDrafts
+            title="Cobro esperado del cliente"
+            helper="Lo que el motorizado recibirá del cliente. El saldo restante puede continuar con el asesor."
+            lines={expectedLines}
+            onChange={(lines) => {
+              invalidate();
+              setExpectedLines(lines);
+            }}
+            addLabel="Agregar moneda"
+          />
+
+          {showChangeControls ? (
+            <>
+              <DeliveryCashDrafts
+                title="Cambio en efectivo que sale de caja"
+                helper="Este monto genera el egreso exacto y queda vinculado a la orden."
+                lines={cashChangeLines}
+                cashAccounts={cashAccounts}
+                onChange={(lines) => {
+                  invalidate();
+                  setCashChangeLines(lines);
+                }}
+                addLabel="Agregar cambio efectivo"
+              />
+
+              <DeliveryDigitalDrafts
+                lines={digitalChangeLines}
+                onChange={(lines) => {
+                  invalidate();
+                  setDigitalChangeLines(lines);
+                }}
+              />
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <DeliveryMetric label="Cambio requerido" value={moneyUsd(requiredChangeUsd)} />
+                <DeliveryMetric
+                  label="Cambio asignado"
+                  value={moneyUsd(assignedChangeUsd)}
+                  tone={Math.abs(differenceUsd) <= 0.02 ? 'good' : 'warn'}
+                />
+              </div>
+              {Math.abs(differenceUsd) > 0.02 ? (
+                <div className="mt-2 text-xs font-semibold text-orange-100">
+                  {differenceUsd > 0
+                    ? `Falta asignar ${moneyUsd(differenceUsd)}.`
+                    : `Sobra ${moneyUsd(Math.abs(differenceUsd))}.`}
+                </div>
+              ) : null}
+
+              {digitalChangeUsd > 0.005 ? (
+                <div className="mt-3 rounded-[8px] border border-violet-400/30 bg-violet-950/20 p-2.5 text-xs leading-relaxed text-violet-100">
+                  Counter solo registra el cambio digital: lo ejecuta el asesor asignado o Master si la orden no tiene asesor.
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      ) : (
+        <div className="mt-4 rounded-[10px] border border-emerald-400/30 bg-emerald-950/20 p-3">
+          <div className="text-sm font-semibold text-emerald-100">
+            Sin liquidación de caja
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-100/75">
+            {advisorOwnsCollection
+              ? `${order.advisorName || 'El asesor'} mantiene la cobranza. Mostrador solo entrega el pedido y registra el ETA.`
+              : 'Esta salida no requiere cobro ni cambio. Mostrador solo entrega el pedido y registra el ETA.'}
+          </p>
         </div>
-      ) : null}
+      )}
 
       <label className="mt-3 block text-xs font-semibold text-[#C7C8D1]">
         Nota de salida
@@ -397,29 +498,33 @@ export function CounterDeliveryDispatchPanel({
         />
       </label>
 
-      {digitalChangeUsd > 0.005 ? (
-        <div className="mt-3 rounded-[8px] border border-violet-400/30 bg-violet-950/20 p-2.5 text-xs leading-relaxed text-violet-100">
-          Counter solo registra el cambio digital: lo ejecuta el asesor asignado o Master si la orden no tiene asesor.
-        </div>
-      ) : null}
       {error ? <div className="mt-3 text-xs font-semibold text-red-200">{error}</div> : null}
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           type="button"
           onClick={onCancel}
           disabled={isWorking}
-          className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] disabled:opacity-50"
+          className="min-h-11 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] disabled:opacity-50"
         >
           Cancelar
         </button>
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={isWorking || !order.deliveryAssigneeName || Math.abs(differenceUsd) > 0.02}
-          className="rounded-[8px] border border-sky-300/50 bg-sky-300/10 px-3 py-2 text-xs font-bold text-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={
+            isWorking
+            || !order.deliveryAssigneeName
+            || !etaIsValid
+            || Math.abs(differenceUsd) > 0.02
+          }
+          className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-xs font-bold text-black transition hover:bg-[#FFF45B] disabled:cursor-not-allowed disabled:border-[#3A3A47] disabled:bg-[#24242D] disabled:text-[#777988]"
         >
-          {isWorking ? 'Registrando...' : 'Confirmar salida'}
+          {isWorking
+            ? 'Registrando...'
+            : etaIsValid
+              ? `Confirmar salida · ${eta} min`
+              : 'Indica el tiempo'}
         </button>
       </div>
     </div>
@@ -861,6 +966,32 @@ export function CounterDeliverySettlementBox({
     return (
       <div className="rounded-[8px] border border-red-400/30 bg-red-950/20 p-4 text-sm text-red-100">
         {message?.text || 'No se encontro la liquidacion.'}
+      </div>
+    );
+  }
+
+  if (detail.status === 'not_required') {
+    return (
+      <div className="rounded-[10px] border border-emerald-400/30 bg-emerald-950/20 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-emerald-100">
+              En camino · sin liquidación de caja
+            </h3>
+            <p className="mt-1 text-xs text-emerald-100/70">
+              {detail.responsibleName} · salida {formatDateTime(detail.dispatchedAt)}
+              {detail.etaMinutes ? ` · ETA ${detail.etaMinutes} min` : ''}
+            </p>
+          </div>
+          <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+            Sin retorno pendiente
+          </span>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-emerald-100/80">
+          {detail.orderPendingUsd > 0.005 && detail.advisorName
+            ? `${detail.advisorName} mantiene la cobranza pendiente de la orden. Counter no debe registrar efectivo ni cambio para este despacho.`
+            : 'Este despacho no llevó cobro ni cambio. Counter no tiene ninguna operación de caja pendiente.'}
+        </p>
       </div>
     );
   }

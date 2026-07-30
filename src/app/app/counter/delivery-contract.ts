@@ -1,5 +1,23 @@
 export type CounterDeliveryCurrency = 'USD' | 'VES';
 
+export type CounterDeliveryPaymentPrescription = {
+  paymentMethod: string | null | undefined;
+  paymentRequiresChange: boolean;
+  balanceUsd: number;
+};
+
+export function requiresCounterDeliveryMoneyHandling(
+  order: CounterDeliveryPaymentPrescription
+) {
+  if (order.paymentRequiresChange) return true;
+
+  const paymentMethod = String(order.paymentMethod || '').trim().toLowerCase();
+  return (
+    order.balanceUsd > 0.005
+    && (paymentMethod === 'cash_usd' || paymentMethod === 'cash_ves')
+  );
+}
+
 export type CounterDeliveryValueLine = {
   lineKey: string;
   currencyCode: CounterDeliveryCurrency;

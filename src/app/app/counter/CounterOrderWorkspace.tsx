@@ -16,6 +16,7 @@ import {
   CounterDeliveryDispatchPanel,
   CounterDeliverySettlementBox,
 } from './CounterDeliveryWorkspace';
+import { requiresCounterDeliveryMoneyHandling } from './delivery-contract';
 import type {
   CounterDeliveryDispatchIntent,
   CounterDeliveryDispatchResult,
@@ -183,6 +184,7 @@ function deliveryAssigneeLabel(order: CounterOrder) {
 function getCounterCurrentAction(order: CounterOrder) {
   const paid = order.balanceUsd <= 0.005;
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
+  const requiresDeliveryMoneyHandling = requiresCounterDeliveryMoneyHandling(order);
 
   if (order.status === 'cancelled') {
     return {
@@ -256,18 +258,43 @@ function getCounterCurrentAction(order: CounterOrder) {
 
   if (order.fulfillment === 'delivery' && order.status === 'ready') {
     return {
-      title: order.paymentRequiresChange ? 'Preparar cambio y entregar' : 'Entregar al motorizado',
+      title: order.paymentRequiresChange
+        ? 'Preparar cambio y entregar'
+        : requiresDeliveryMoneyHandling
+          ? 'Preparar cobro y entregar'
+          : 'Entregar al motorizado',
       description: order.paymentRequiresChange
         ? 'Prepara el cambio indicado antes de entregar el pedido al motorizado.'
-        : 'El pedido esta listo para salir con el motorizado asignado.',
-      tone: order.paymentRequiresChange ? ('warn' as const) : ('good' as const),
-      steps: order.paymentRequiresChange
-        ? ['Preparar cambio', 'Entregar pedido al motorizado', 'Marcar en camino']
-        : ['Validar motorizado', 'Entregar pedido', 'Marcar en camino'],
+        : requiresDeliveryMoneyHandling
+          ? 'La orden indica cobro en efectivo. Confirma el monto y el ETA antes de la salida.'
+          : order.hasAdvisor && order.balanceUsd > 0.005
+            ? 'La orden no indica efectivo ni cambio. El asesor mantiene la cobranza; Mostrador solo registra la salida y el ETA.'
+            : 'El pedido esta listo para salir con el motorizado asignado.',
+      tone: requiresDeliveryMoneyHandling ? ('warn' as const) : ('good' as const),
+      steps: requiresDeliveryMoneyHandling
+        ? [
+            order.paymentRequiresChange ? 'Preparar cambio' : 'Confirmar cobro esperado',
+            'Preguntar ETA',
+            'Entregar pedido y marcar en camino',
+          ]
+        : ['Validar motorizado', 'Preguntar ETA', 'Entregar pedido y marcar en camino'],
     };
   }
 
   if (order.status === 'out_for_delivery') {
+    if (!requiresDeliveryMoneyHandling) {
+      return {
+        title: paid ? 'En camino · sin liquidacion' : 'En camino · cobranza del asesor',
+        description: paid
+          ? 'El despacho no llevo efectivo ni cambio. Master confirma la entrega final.'
+          : `${order.advisorName || 'El asesor'} mantiene la cobranza. Counter no tiene retorno de caja pendiente.`,
+        tone: 'good' as const,
+        steps: paid
+          ? ['Esperar confirmacion de entrega de Master']
+          : ['Mantener cobranza con el asesor', 'Esperar confirmacion de entrega de Master'],
+      };
+    }
+
     return {
       title: 'Liquidar custodia',
       description:
@@ -296,6 +323,7 @@ function getCounterWorkflowChecks(order: CounterOrder) {
     order.status === 'queued' || order.status === 'confirmed' || order.status === 'in_kitchen';
   const immediatePaymentExpected = isCounterImmediatePaymentMethod(order.paymentMethod);
   const mustCollectNow = mustSettleBeforeCounterDelivery(order);
+  const requiresDeliveryMoneyHandling = requiresCounterDeliveryMoneyHandling(order);
 
   if (order.status === 'cancelled') {
     return [
@@ -374,6 +402,24 @@ function getCounterWorkflowChecks(order: CounterOrder) {
   }
 
   if (order.status === 'out_for_delivery') {
+    if (!requiresDeliveryMoneyHandling) {
+      return [
+        { label: 'Salida', detail: 'En camino', state: 'done' as const },
+        {
+          label: 'Cobranza',
+          detail: paid
+            ? 'Sin pendiente en caja'
+            : `Pendiente asesor ${moneyUsd(order.balanceUsd)}`,
+          state: paid ? ('done' as const) : ('pending' as const),
+        },
+        {
+          label: 'Entrega final',
+          detail: 'La confirma Master',
+          state: 'pending' as const,
+        },
+      ];
+    }
+
     return [
       { label: 'Salida', detail: 'En camino', state: 'done' as const },
       {
@@ -460,6 +506,7 @@ export function OrderDetail({
   const isCancelled = order.status === 'cancelled';
   const isClosedOrder = isDelivered || isCancelled;
   const isDeliverySettlement = order.fulfillment === 'delivery' && order.status === 'out_for_delivery';
+  const requiresDeliveryMoneyHandling = requiresCounterDeliveryMoneyHandling(order);
   const deliveryReadyWithoutAssignee =
     order.fulfillment === 'delivery' && order.status === 'ready' && !order.deliveryAssigneeName;
   const waitingForMaster = order.status === 'created';
@@ -512,7 +559,11 @@ export function OrderDetail({
     : deliveryReadyWithoutAssignee
       ? 'Este delivery no tiene motorizado o partner asignado. Asignalo desde master antes de entregarlo.'
       : isDeliverySettlement
-        ? 'Counter liquida la custodia y recibe el efectivo. Solo Master confirma la entrega final al cliente.'
+        ? requiresDeliveryMoneyHandling
+          ? 'Counter liquida la custodia y recibe el efectivo. Solo Master confirma la entrega final al cliente.'
+          : order.hasAdvisor && order.balanceUsd > 0.005
+            ? `${order.advisorName || 'El asesor'} mantiene la cobranza. Counter no tiene liquidacion de caja pendiente.`
+            : 'Este delivery esta en camino sin cobro ni cambio pendiente para Counter. Master confirma la entrega final.'
         : mustCollectNow
           ? !order.hasAdvisor && hasPendingReports
             ? 'El cliente no tiene asesor. Master debe confirmar el pago antes de cerrar la entrega.'
@@ -901,7 +952,11 @@ export function OrderDetail({
             />
           ) : null}
           <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3 text-xs leading-relaxed text-[#9FA0AA]">
-            En delivery, Counter controla salida y custodia. Master controla la entrega final al cliente.
+            {isDeliverySettlement && !requiresDeliveryMoneyHandling
+              ? order.hasAdvisor && order.balanceUsd > 0.005
+                ? 'La cobranza sigue con el asesor. Counter solo registro la salida; Master controla la entrega final.'
+                : 'Counter solo registro la salida. No hay liquidacion de caja; Master controla la entrega final.'
+              : 'En delivery, Counter controla salida y custodia cuando hay dinero prescrito. Master controla la entrega final al cliente.'}
           </div>
         </aside>
       </div>
