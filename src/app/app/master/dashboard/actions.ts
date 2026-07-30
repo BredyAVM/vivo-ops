@@ -3595,7 +3595,7 @@ export async function cancelOrderAction(input: {
   }
 
   const confirmedPaidUsd = roundMoney((orderMovements ?? []).reduce((sum, row) => {
-    const isConfirmed = row.status === 'confirmed' || Boolean(row.confirmed_at);
+    const isConfirmed = row.status === 'confirmed';
     if (!isConfirmed) return sum;
 
     const signedAmount =

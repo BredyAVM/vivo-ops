@@ -1393,7 +1393,9 @@ export async function cancelMasterOpsOrderAction(input: {
 
   if (movementsError) throw new Error(movementsError.message);
   const inconsistentMovements = (movements ?? []).filter(
-    (movement) => movement.status !== "confirmed" && Boolean(movement.confirmed_at)
+    (movement) =>
+      !["confirmed", "voided"].includes(String(movement.status || "")) &&
+      Boolean(movement.confirmed_at)
   );
   if (inconsistentMovements.length > 0) {
     throw new Error(
