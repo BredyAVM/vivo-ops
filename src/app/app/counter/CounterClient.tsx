@@ -1677,8 +1677,10 @@ export default function CounterClient({
         tone: 'success',
         text:
           result.status === 'pending_approval'
-            ? `Cambio solicitado para la orden #${order.displayNumber}. Master debe autorizarlo porque ya estaba lista.`
-            : `Pedido #${order.displayNumber} modificado y recalculado.`,
+            ? `La orden #${order.displayNumber} conserva una solicitud anterior pendiente de Master.`
+            : result.returnedToKitchen
+              ? `Pedido #${order.displayNumber} modificado y enviado nuevamente a cocina.`
+              : `Pedido #${order.displayNumber} modificado y recalculado.`,
       });
       await Promise.all([
         refreshCounter(),

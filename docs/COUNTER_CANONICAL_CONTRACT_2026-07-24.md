@@ -183,7 +183,7 @@ esa deuda de custodia.
 | Enviar una venta inmediata nueva a cocina | Sí | No |
 | Crear una venta agendada | Sí | Master decide su envío posterior a cocina |
 | Modificar productos de un pickup aún no preparado | Sí, con trazabilidad | No |
-| Modificar un pickup ya preparado o empacado | No directamente | Aprobación de Master |
+| Modificar un pickup ya preparado o empacado | Sí, con trazabilidad | No |
 | Modificar productos de un delivery existente | No | Master |
 | Cancelar una orden | No | Master o Administración |
 | Aplicar un descuento arbitrario | No | No permitido |
@@ -269,15 +269,21 @@ Reglas:
 
 ### 8.2 Pickup ya preparado o empacado
 
-Counter no puede modificarlo unilateralmente.
+Counter puede modificarlo directamente porque atiende al cliente presente en
+mostrador. No requiere autorización de Master para agregar, aumentar, reducir o
+retirar productos.
 
-Si el cliente solicita retirar, descontar o cambiar algo:
+Reglas:
 
-1. Counter registra o comunica la solicitud;
-2. Master decide y autoriza;
-3. la modificación autorizada conserva motivo y responsable;
-4. cualquier pérdida, desperdicio o corrección productiva queda registrada según
-   el mecanismo operativo correspondiente.
+- toda reducción o retiro exige un motivo;
+- Counter no puede cancelar completamente la orden;
+- el total y el saldo financiero se recalculan en servidor;
+- si la modificación agrega o aumenta productos, el pedido vuelve a cocina para
+  preparar y verificar el cambio;
+- una reducción de un pedido ya listo se informa a cocina y conserva la
+  trazabilidad del operador;
+- si la reducción produce un saldo a favor, su devolución mantiene la regla de
+  autorización financiera definida para reembolsos.
 
 ### 8.3 Delivery
 
@@ -726,7 +732,6 @@ Counter no debe:
 - marcar un delivery como entregado al cliente final;
 - cambiar modalidad de una orden existente;
 - modificar productos de delivery;
-- modificar unilateralmente un pickup ya preparado;
 - cancelar órdenes;
 - alterar órdenes entregadas, salvo registrar pagos;
 - aplicar descuentos arbitrarios;
@@ -736,4 +741,3 @@ Counter no debe:
 - precargar históricos largos;
 - duplicar cálculos financieros o de precios;
 - transferir automáticamente el cierre de punto al banco.
-

@@ -943,10 +943,10 @@ export function OrderDetail({
           ) : null}
           {canModifyPickup ? (
             <ActionHint
-              title={order.status === 'ready' ? 'Cambio con autorizacion' : 'Modificar pickup'}
+              title="Modificar pickup"
               text={
                 order.status === 'ready'
-                  ? 'El pedido ya esta empacado. Counter solicita el cambio y Master decide antes de aplicarlo.'
+                  ? 'Puedes editarlo directamente. Si agregas o aumentas productos, el pedido vuelve a cocina.'
                   : 'Puedes agregar, reducir o retirar productos. Toda reduccion exige motivo.'
               }
             />
@@ -1192,9 +1192,6 @@ function CounterPickupItemsEditor({
   onSubmit: (input: CounterPickupItemChangeIntent) => Promise<CounterPickupItemChangeResult>;
 }) {
   const [productSearch, setProductSearch] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState('');
-  const [qty, setQty] = useState('1');
-  const [notes, setNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
   const [existingQty, setExistingQty] = useState<Record<number, string>>(
     () => Object.fromEntries(order.items.map((item) => [item.id, String(item.qty)]))
@@ -1231,14 +1228,14 @@ function CounterPickupItemsEditor({
   }, 0);
   const filteredProducts = useMemo(() => {
     const term = productSearch.trim().toLocaleLowerCase('es-VE');
-    if (!term) return products.slice(0, 80);
+    if (!term) return [];
     return products
       .filter((product) =>
         [product.name, product.sku, product.type]
           .filter(Boolean)
           .some((value) => String(value).toLocaleLowerCase('es-VE').includes(term))
       )
-      .slice(0, 80);
+      .slice(0, 12);
   }, [productSearch, products]);
   const lineRows = useMemo(() => {
     return cartItems.map((item) => {
@@ -1286,30 +1283,26 @@ function CounterPickupItemsEditor({
   const hasExistingChange = existingRows.some((row) => Math.abs(row.nextQty - row.item.qty) > 0.0001);
   const hasReduction = existingRows.some((row) => row.nextQty < row.item.qty);
   const hasChanges = hasExistingChange || cartItems.length > 0;
+  const changedExistingCount = existingRows.filter(
+    (row) => Math.abs(row.nextQty - row.item.qty) > 0.0001
+  ).length;
+  const currentSubtotalUsd = order.items.reduce((sum, item) => sum + item.lineTotalUsd, 0);
+  const currentSubtotalBs = order.items.reduce((sum, item) => sum + item.lineTotalBs, 0);
   const estimatedSubtotalUsd = existingRows.reduce((sum, row) => sum + row.lineUsd, 0) + addedUsd;
   const estimatedSubtotalBs = existingRows.reduce((sum, row) => sum + row.lineBs, 0) + addedBs;
+  const estimatedTotalUsd =
+    currentSubtotalUsd > 0.005
+      ? Math.round(estimatedSubtotalUsd * (order.totalUsd / currentSubtotalUsd) * 100) / 100
+      : Math.round(estimatedSubtotalUsd * 100) / 100;
+  const estimatedTotalBs =
+    currentSubtotalBs > 0.005
+      ? Math.round(estimatedSubtotalBs * (order.totalBs / currentSubtotalBs) * 100) / 100
+      : Math.round(estimatedSubtotalBs * 100) / 100;
+  const estimatedDifferenceUsd = Math.round((estimatedTotalUsd - order.totalUsd) * 100) / 100;
 
-  function addLine() {
-    const productId = Number(selectedProductId || 0);
-    const product = productsById.get(productId);
-    const productConfigComponents = componentsByParentId.get(productId) ?? [];
-    const itemQty = toDecimalInput(qty);
-
-    if (!product) {
-      setLocalError('Selecciona un producto valido.');
-      return;
-    }
-    if (!Number.isFinite(itemQty) || itemQty <= 0) {
-      setLocalError('Indica una cantidad valida.');
-      return;
-    }
-
+  function addProduct(product: CounterQuickSaleProductOption) {
+    const productConfigComponents = componentsByParentId.get(product.id) ?? [];
     if (product.isDetailEditable) {
-      if (itemQty !== 1) {
-        setLocalError('Los productos configurables se cargan uno por uno. Usa cantidad 1.');
-        return;
-      }
-
       const optionalFixedSelections = productConfigComponents
         .filter((component) => component.componentMode === 'fixed' && !component.isRequired && Number(component.quantity || 0) > 0)
         .map((component) => ({
@@ -1326,20 +1319,71 @@ function CounterPickupItemsEditor({
       return;
     }
 
-    setCartItems((current) => [
+    setCartItems((current) => {
+      const existingIndex =
+        productConfigComponents.length === 0
+          ? current.findIndex(
+              (item) =>
+                item.productId === product.id
+                && item.notes.trim().length === 0
+                && item.editableDetailLines.length === 0
+            )
+          : -1;
+
+      if (existingIndex >= 0) {
+        return current.map((item, index) =>
+          index === existingIndex
+            ? { ...item, qty: String(Math.max(1, toDecimalInput(item.qty)) + 1) }
+            : item
+        );
+      }
+
+      return [
+        ...current,
+        {
+          id: `add-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          productId: product.id,
+          qty: '1',
+          notes: '',
+          editableDetailLines: buildComponentDetailLines(productConfigComponents, {
+            totalMultiplier: 1,
+          }),
+        },
+      ];
+    });
+    setLocalError(null);
+  }
+
+  function updateExistingItemQty(itemId: number, nextQty: number) {
+    setExistingQty((current) => ({
       ...current,
-      {
-        id: `add-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        productId,
-        qty,
-        notes: notes.trim(),
-        editableDetailLines: buildComponentDetailLines(productConfigComponents, {
-          totalMultiplier: itemQty,
-        }),
-      },
-    ]);
-    setQty('1');
-    setNotes('');
+      [itemId]: String(Math.max(0, Math.min(999, nextQty))),
+    }));
+    setLocalError(null);
+  }
+
+  function updateAddedItemQty(itemId: string, nextQty: number) {
+    const safeQty = Math.max(0, Math.min(999, nextQty));
+    if (safeQty <= 0) {
+      setCartItems((current) => current.filter((item) => item.id !== itemId));
+      return;
+    }
+
+    setCartItems((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) return item;
+        const product = productsById.get(item.productId);
+        if (product?.isDetailEditable) return item;
+        const productConfigComponents = componentsByParentId.get(item.productId) ?? [];
+        return {
+          ...item,
+          qty: String(safeQty),
+          editableDetailLines: buildComponentDetailLines(productConfigComponents, {
+            totalMultiplier: safeQty,
+          }),
+        };
+      })
+    );
     setLocalError(null);
   }
 
@@ -1403,12 +1447,10 @@ function CounterPickupItemsEditor({
         id: `add-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         productId: configProduct.id,
         qty: '1',
-        notes: notes.trim(),
+        notes: '',
         editableDetailLines: detailLines,
       },
     ]);
-    setQty('1');
-    setNotes('');
     closeProductConfig();
     setLocalError(null);
   }
@@ -1432,12 +1474,8 @@ function CounterPickupItemsEditor({
       return;
     }
 
-    if ((hasReduction || order.status === 'ready') && reason.trim().length < 4) {
-      setLocalError(
-        order.status === 'ready'
-          ? 'Explica el cambio para que Master pueda autorizarlo.'
-          : 'Indica el motivo de la reduccion o retiro.'
-      );
+    if (hasReduction && reason.trim().length < 4) {
+      setLocalError('Indica el motivo de la reduccion o retiro.');
       return;
     }
 
@@ -1470,114 +1508,189 @@ function CounterPickupItemsEditor({
   }
 
   return (
-    <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold">Modificar pickup</h3>
-          <p className="mt-1 text-sm text-[#9FA0AA]">
-            {order.status === 'ready'
-              ? 'El pedido esta listo: el cambio se enviara a Master y no se aplicara hasta que lo autorice.'
-              : 'Ajusta cantidades, retira lineas o agrega productos. El total se recalcula de forma atomica.'}
-          </p>
-        </div>
-        <div className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-right">
-          <div className="text-xs text-[#9FA0AA]">Subtotal estimado</div>
-          <div className="text-sm font-semibold text-[#F5F5F7]">{moneyUsd(estimatedSubtotalUsd)}</div>
-          <div className="text-xs text-[#9FA0AA]">{moneyBs(estimatedSubtotalBs)}</div>
-        </div>
-      </div>
-
-      {localError ? (
-        <div className="mt-3 rounded-[8px] border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-200">
-          {localError}
-        </div>
-      ) : null}
-
-      <div className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
-        <div className="text-sm font-semibold text-[#F5F5F7]">Lineas actuales</div>
-        <div className="mt-2 divide-y divide-[#242433]">
-          {existingRows.map((row) => (
-            <div key={row.item.id} className="grid gap-2 py-2 sm:grid-cols-[1fr_110px_92px] sm:items-center">
-              <div>
-                <div className="text-sm font-semibold">{row.item.name}</div>
-                <div className="mt-0.5 text-xs text-[#9FA0AA]">
-                  Antes: x{qtyLabel(row.item.qty)} · Ahora: {moneyUsd(row.lineUsd)}
-                </div>
-              </div>
-              <input
-                value={existingQty[row.item.id] ?? ''}
-                onChange={(event) =>
-                  setExistingQty((current) => ({ ...current, [row.item.id]: event.target.value }))
-                }
-                inputMode="decimal"
-                aria-label={`Cantidad de ${row.item.name}`}
-                className="w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-right text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  setExistingQty((current) => ({ ...current, [row.item.id]: '0' }))
-                }
-                className="rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-400/10"
-              >
-                Retirar
-              </button>
+    <div className="overflow-hidden rounded-[10px] border border-[#303044] bg-[#0B0B0D]">
+      <div className="border-b border-[#242433] bg-[#111118] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold">Editar pedido pickup</h3>
+              <span className="rounded-full border border-emerald-300/35 bg-emerald-300/10 px-2.5 py-1 text-[11px] font-bold text-emerald-200">
+                Cambio directo
+              </span>
             </div>
-          ))}
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-[#9FA0AA]">
+              Busca productos, ajusta cantidades y revisa el nuevo total antes de guardar.
+              No necesitas autorizacion de Master.
+            </p>
+          </div>
+          <span className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1 text-xs font-semibold text-[#C7C8D1]">
+            Orden #{order.displayNumber}
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#777887]">Total actual</div>
+            <div className="mt-1 text-lg font-bold text-[#F5F5F7]">{moneyUsd(order.totalUsd)}</div>
+            <div className="text-xs text-[#9FA0AA]">{moneyBs(order.totalBs)}</div>
+          </div>
+          <div className="rounded-[8px] border border-[#FEEF00]/45 bg-[#FEEF00]/10 p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#D8CD2E]">Nuevo total</div>
+            <div className="mt-1 text-lg font-bold text-[#FEEF00]">{moneyUsd(estimatedTotalUsd)}</div>
+            <div className="text-xs text-[#D8CD2E]">{moneyBs(estimatedTotalBs)}</div>
+          </div>
+          <div className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#777887]">Diferencia</div>
+            <div
+              className={[
+                'mt-1 text-lg font-bold',
+                estimatedDifferenceUsd > 0.005
+                  ? 'text-emerald-300'
+                  : estimatedDifferenceUsd < -0.005
+                    ? 'text-orange-200'
+                    : 'text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              {estimatedDifferenceUsd > 0.005 ? '+' : ''}
+              {moneyUsd(estimatedDifferenceUsd)}
+            </div>
+            <div className="text-xs text-[#9FA0AA]">Se valida al guardar</div>
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 text-sm font-semibold text-[#F5F5F7]">Agregar productos</div>
-      <div className="mt-2 grid gap-3 lg:grid-cols-[1fr_110px_1fr_130px]">
-        <label className="text-sm text-[#9FA0AA]">
-          Producto
-          <input
-            value={productSearch}
-            onChange={(event) => setProductSearch(event.target.value)}
-            placeholder="Buscar producto"
-            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-          />
-          <select
-            value={selectedProductId}
-            onChange={(event) => setSelectedProductId(event.target.value)}
-            className="mt-2 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-          >
-            {filteredProducts.map((product) => (
-              <option key={product.id} value={product.id}>
-                {product.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm text-[#9FA0AA]">
-          Cant.
-          <input
-            value={qty}
-            onChange={(event) => setQty(event.target.value)}
-            inputMode="decimal"
-            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-          />
-        </label>
-        <label className="text-sm text-[#9FA0AA]">
-          Nota
-          <input
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Opcional"
-            className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-          />
-        </label>
-        <div className="flex items-end">
-          <button
-            type="button"
-            onClick={addLine}
-            disabled={products.length === 0}
-            className="w-full rounded-[8px] border border-[#303044] bg-[#111118] px-4 py-3 text-sm font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Agregar
-          </button>
+      <div className="p-4">
+        {order.status === 'ready' ? (
+          <div className="mb-4 rounded-[8px] border border-sky-300/30 bg-sky-950/25 px-3 py-2 text-sm leading-relaxed text-sky-100">
+            Este pedido ya estaba listo. Las reducciones se aplican de inmediato; si agregas o aumentas
+            productos, volvera a cocina para preparar el cambio.
+          </div>
+        ) : null}
+
+        {localError ? (
+          <div className="mb-4 rounded-[8px] border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-200">
+            {localError}
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
+          <section className="rounded-[8px] border border-[#242433] bg-[#111118] p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold text-[#F5F5F7]">Pedido actual</h4>
+                <p className="mt-0.5 text-xs text-[#9FA0AA]">Usa − y + o escribe la cantidad.</p>
+              </div>
+              <span className="text-xs font-semibold text-[#9FA0AA]">{order.items.length} linea(s)</span>
+            </div>
+            <div className="mt-3 divide-y divide-[#242433]">
+              {existingRows.map((row) => {
+                const changed = Math.abs(row.nextQty - row.item.qty) > 0.0001;
+                const removed = row.nextQty <= 0;
+                return (
+                  <div key={row.item.id} className="grid gap-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className={['truncate text-sm font-semibold', removed ? 'text-[#777887] line-through' : 'text-[#F5F5F7]'].join(' ')}>
+                        {row.item.name}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#9FA0AA]">
+                        <span>{moneyUsd(row.lineUsd)}</span>
+                        {row.item.notes ? <span className="truncate">· {row.item.notes}</span> : null}
+                        {changed ? (
+                          <span className={removed ? 'font-semibold text-red-200' : 'font-semibold text-[#FEEF00]'}>
+                            {removed ? 'Retirado' : `Antes x${qtyLabel(row.item.qty)}`}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateExistingItemQty(row.item.id, row.nextQty - 1)}
+                        aria-label={`Restar una unidad de ${row.item.name}`}
+                        className="grid h-11 w-11 place-items-center rounded-[8px] border border-[#3A3A48] bg-[#0B0B0D] text-xl font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+                      >
+                        −
+                      </button>
+                      <input
+                        value={existingQty[row.item.id] ?? ''}
+                        onChange={(event) =>
+                          setExistingQty((current) => ({ ...current, [row.item.id]: event.target.value }))
+                        }
+                        inputMode="decimal"
+                        aria-label={`Cantidad de ${row.item.name}`}
+                        className="h-11 w-20 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-2 text-center text-sm font-bold text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => updateExistingItemQty(row.item.id, row.nextQty + 1)}
+                        aria-label={`Sumar una unidad de ${row.item.name}`}
+                        className="grid h-11 w-11 place-items-center rounded-[8px] border border-[#3A3A48] bg-[#0B0B0D] text-xl font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="rounded-[8px] border border-[#242433] bg-[#111118] p-3">
+            <div>
+              <h4 className="text-sm font-semibold text-[#F5F5F7]">Agregar productos</h4>
+              <p className="mt-0.5 text-xs text-[#9FA0AA]">Escribe el nombre o codigo y toca el producto.</p>
+            </div>
+            <label className="mt-3 block">
+              <span className="sr-only">Buscar producto</span>
+              <input
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                placeholder="Ej.: refresco, tequeno, EMP..."
+                autoComplete="off"
+                className="min-h-12 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-3 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              />
+            </label>
+
+            {productSearch.trim() ? (
+              <div className="mt-2 max-h-[310px] overflow-y-auto rounded-[8px] border border-[#303044] bg-[#0B0B0D]">
+                {filteredProducts.length === 0 ? (
+                  <div className="px-4 py-5 text-center text-sm text-[#9FA0AA]">
+                    No encontramos productos con ese nombre o codigo.
+                  </div>
+                ) : (
+                  filteredProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => addProduct(product)}
+                      className="flex min-h-14 w-full items-center justify-between gap-3 border-b border-[#242433] px-3 py-2.5 text-left transition last:border-b-0 hover:bg-[#1A1A22] focus-visible:bg-[#1A1A22] focus-visible:outline-none"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</span>
+                        <span className="mt-0.5 block truncate text-xs text-[#9FA0AA]">
+                          {[product.sku, product.type].filter(Boolean).join(' · ') || 'Producto activo'}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="text-right text-xs font-semibold text-[#C7C8D1]">
+                          <span className="block">{moneyUsd(product.basePriceUsd)}</span>
+                          <span className="font-normal text-[#777887]">{moneyBs(product.basePriceBs)}</span>
+                        </span>
+                        <span className="grid h-9 w-9 place-items-center rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 text-lg font-bold text-[#FEEF00]">
+                          +
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 rounded-[8px] border border-dashed border-[#303044] px-4 py-5 text-center text-sm text-[#777887]">
+                El catalogo aparece solo cuando escribes una busqueda.
+              </div>
+            )}
+          </section>
         </div>
-      </div>
 
       {configProduct ? (
         <div className="mt-4 space-y-3 rounded-[8px] border border-[#FEEF00]/40 bg-[#181807] p-3">
@@ -1647,70 +1760,125 @@ function CounterPickupItemsEditor({
         </div>
       ) : null}
 
-      <div className="mt-4 divide-y divide-[#242433] rounded-[8px] border border-[#242433]">
-        {lineRows.length === 0 ? (
-          <div className="p-4 text-sm text-[#9FA0AA]">Sin lineas por agregar.</div>
-        ) : (
-          lineRows.map((row) => (
-            <div key={row.item.id} className="grid gap-3 p-3 sm:grid-cols-[70px_1fr_110px_90px]">
-              <div className="text-sm font-semibold text-[#FEEF00]">x{qtyLabel(row.qty)}</div>
+        {lineRows.length > 0 ? (
+          <section className="mt-4 overflow-hidden rounded-[8px] border border-emerald-300/25 bg-emerald-950/10">
+            <div className="flex items-center justify-between gap-2 border-b border-emerald-300/20 px-3 py-2">
               <div>
-                <div className="text-sm font-semibold">{row.product?.name || 'Producto'}</div>
-                {row.item.notes ? <div className="mt-1 text-xs text-[#9FA0AA]">{row.item.notes}</div> : null}
-                {getVisibleEditableDetailLines(row.item.editableDetailLines).length > 0 ? (
-                  <ul className="mt-1 space-y-0.5 text-xs text-[#C7C8D1]">
-                    {getVisibleEditableDetailLines(row.item.editableDetailLines).map((detail, detailIdx) => (
-                      <li key={`${row.item.id}-${detailIdx}`}>• {detail}</li>
-                    ))}
-                  </ul>
-                ) : null}
+                <h4 className="text-sm font-semibold text-emerald-100">Productos nuevos</h4>
+                <p className="mt-0.5 text-xs text-emerald-100/65">Ya forman parte del nuevo total.</p>
               </div>
-              <div className="text-sm font-semibold">{moneyUsd(row.snapshot.lineUsd)}</div>
-              <button
-                type="button"
-                onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
-                className="rounded-[8px] border border-red-400/40 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-400/10"
-              >
-                Quitar
-              </button>
+              <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-xs font-bold text-emerald-200">
+                +{lineRows.length}
+              </span>
             </div>
-          ))
-        )}
-      </div>
+            <div className="divide-y divide-emerald-300/15">
+              {lineRows.map((row) => (
+                <div key={row.item.id} className="grid gap-3 p-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-[#F5F5F7]">{row.product?.name || 'Producto'}</span>
+                      <span className="text-sm font-bold text-emerald-200">{moneyUsd(row.snapshot.lineUsd)}</span>
+                    </div>
+                    {getVisibleEditableDetailLines(row.item.editableDetailLines).length > 0 ? (
+                      <ul className="mt-1 space-y-0.5 text-xs text-[#C7C8D1]">
+                        {getVisibleEditableDetailLines(row.item.editableDetailLines).map((detail, detailIdx) => (
+                          <li key={`${row.item.id}-${detailIdx}`}>• {detail}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <input
+                      value={row.item.notes}
+                      onChange={(event) =>
+                        setCartItems((current) =>
+                          current.map((item) =>
+                            item.id === row.item.id ? { ...item, notes: event.target.value } : item
+                          )
+                        )
+                      }
+                      placeholder="Nota para este producto (opcional)"
+                      className="mt-2 min-h-10 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {row.product?.isDetailEditable ? (
+                      <span className="min-w-20 text-center text-sm font-bold text-[#F5F5F7]">x1 armado</span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => updateAddedItemQty(row.item.id, row.qty - 1)}
+                          aria-label={`Restar una unidad de ${row.product?.name || 'producto'}`}
+                          className="grid h-11 w-11 place-items-center rounded-[8px] border border-[#3A3A48] bg-[#0B0B0D] text-xl font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+                        >
+                          −
+                        </button>
+                        <input
+                          value={row.item.qty}
+                          onChange={(event) => {
+                            if (!event.target.value.trim()) return;
+                            const nextQty = toDecimalInput(event.target.value);
+                            if (Number.isFinite(nextQty)) updateAddedItemQty(row.item.id, nextQty);
+                          }}
+                          inputMode="decimal"
+                          aria-label={`Cantidad nueva de ${row.product?.name || 'producto'}`}
+                          className="h-11 w-20 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-2 text-center text-sm font-bold text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateAddedItemQty(row.item.id, row.qty + 1)}
+                          aria-label={`Sumar una unidad de ${row.product?.name || 'producto'}`}
+                          className="grid h-11 w-11 place-items-center rounded-[8px] border border-[#3A3A48] bg-[#0B0B0D] text-xl font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60"
+                        >
+                          +
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCartItems((current) => current.filter((item) => item.id !== row.item.id))}
+                      aria-label={`Quitar ${row.product?.name || 'producto'}`}
+                      className="min-h-11 rounded-[8px] border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-400/10"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-      <label className="mt-4 block text-sm text-[#9FA0AA]">
-        Motivo {hasReduction || order.status === 'ready' ? '(obligatorio)' : '(opcional)'}
-        <textarea
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          maxLength={1200}
-          placeholder={
-            order.status === 'ready'
-              ? 'Explica que solicito el cliente para que Master pueda decidir.'
-              : 'Ej.: cliente retiro una unidad del pedido.'
-          }
-          className="mt-1 min-h-20 w-full resize-y rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-        />
-      </label>
+        {hasReduction ? (
+          <label className="mt-4 block rounded-[8px] border border-orange-300/30 bg-orange-950/20 p-3 text-sm text-orange-100">
+            Motivo de la reduccion o retiro <span className="font-bold">(obligatorio)</span>
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              maxLength={1200}
+              placeholder="Ej.: el cliente retiro una unidad del pedido."
+              className="mt-2 min-h-20 w-full resize-y rounded-[8px] border border-orange-300/30 bg-[#0B0B0D] px-3 py-3 text-[#F5F5F7] outline-none placeholder:text-[#777887] focus:border-orange-200/70"
+            />
+          </label>
+        ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-[#9FA0AA]">
-          {order.status === 'ready'
-            ? `Orden #${order.displayNumber}: Master vera el cambio antes de aplicarlo.`
-            : `Orden #${order.displayNumber}: el saldo financiero se recalculara al confirmar.`}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#242433] pt-4">
+          <div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">
+              {changedExistingCount + lineRows.length} cambio(s) en el pedido
+            </div>
+            <div className="mt-0.5 text-xs text-[#9FA0AA]">
+              El servidor recalculara total y saldo financiero al confirmar.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void submitItems()}
+            disabled={isWorking || !hasChanges || activeBsRate <= 0}
+            className="min-h-12 rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
+          >
+            {isWorking ? 'Guardando...' : 'Guardar cambios'}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void submitItems()}
-          disabled={isWorking || !hasChanges || activeBsRate <= 0}
-          className="rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-wait disabled:opacity-60"
-        >
-          {isWorking
-            ? 'Guardando...'
-            : order.status === 'ready'
-              ? 'Solicitar autorizacion'
-              : 'Aplicar modificacion'}
-        </button>
       </div>
     </div>
   );
