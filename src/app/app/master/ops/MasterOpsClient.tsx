@@ -46,6 +46,7 @@ import {
 import {
   MASTER_ORDER_DETAIL_TABS,
   MasterOrderDetailBody,
+  MasterOrderDetailMetric,
   buildMasterOrderWhatsAppSummary,
   formatMasterOrderBs,
   formatMasterOrderDateTime,
@@ -1670,13 +1671,33 @@ function OrderDetailPanel({
                   </div>
                 </div>
               ) : (
-                <MasterOrderDetailBody
-                  actionLabel={actionLabel}
-                  activeTab={activeTab}
-                  order={order}
-                  showDeliveryProcessDetails={false}
-                  showPaymentExchangeRate={false}
-                />
+                <>
+                  {activeTab === "pagos" ? (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <MasterOrderDetailMetric
+                        label="Monto de la orden"
+                        value={formatMasterOrderUSD(order.totalUsd)}
+                      />
+                      <MasterOrderDetailMetric
+                        label="Abonado confirmado"
+                        value={formatMasterOrderUSD(order.confirmedPaidUsd)}
+                        tone="green"
+                      />
+                      <MasterOrderDetailMetric
+                        label="Pendiente"
+                        value={formatMasterOrderUSD(order.balanceUsd)}
+                        tone={order.balanceUsd > 0.005 ? "yellow" : "green"}
+                      />
+                    </div>
+                  ) : null}
+                  <MasterOrderDetailBody
+                    actionLabel={actionLabel}
+                    activeTab={activeTab}
+                    order={order}
+                    showDeliveryProcessDetails={false}
+                    showPaymentExchangeRate={false}
+                  />
+                </>
               )}
             </div>
 
