@@ -1673,22 +1673,42 @@ function OrderDetailPanel({
               ) : (
                 <>
                   {activeTab === "pagos" ? (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <MasterOrderDetailMetric
-                        label="Monto de la orden"
-                        value={formatMasterOrderUSD(order.totalUsd)}
-                      />
-                      <MasterOrderDetailMetric
-                        label="Abonado confirmado"
-                        value={formatMasterOrderUSD(order.confirmedPaidUsd)}
-                        tone="green"
-                      />
-                      <MasterOrderDetailMetric
-                        label="Pendiente"
-                        value={formatMasterOrderUSD(order.balanceUsd)}
-                        tone={order.balanceUsd > 0.005 ? "yellow" : "green"}
-                      />
-                    </div>
+                    <>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <MasterOrderDetailMetric
+                          label="Monto de la orden"
+                          value={formatMasterOrderUSD(order.totalUsd)}
+                        />
+                        <MasterOrderDetailMetric
+                          label="Abonado confirmado"
+                          value={formatMasterOrderUSD(order.confirmedPaidUsd)}
+                          tone="green"
+                        />
+                        <MasterOrderDetailMetric
+                          label="Pendiente"
+                          value={formatMasterOrderUSD(order.balanceUsd)}
+                          tone={order.balanceUsd > 0.005 ? "yellow" : "green"}
+                        />
+                      </div>
+
+                      {order.clientFundUsedUsd > 0.005 ? (
+                        <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-[#F5F5F7]">
+                                Fondo aplicado · {formatMasterOrderUSD(order.clientFundUsedUsd)}
+                              </div>
+                              <div className="mt-1 text-[11px] leading-relaxed text-[#8A8A96]">
+                                Saldo a favor del cliente debitado para esta orden. Este monto ya esta incluido en el abonado confirmado.
+                              </div>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
+                              APLICADO
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
                   <MasterOrderDetailBody
                     actionLabel={actionLabel}
