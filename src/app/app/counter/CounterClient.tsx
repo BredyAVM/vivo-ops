@@ -24,8 +24,10 @@ import {
   createCounterQuickSaleAction,
   dispatchCounterDeliveryAction,
   executeCounterRefundAction,
+  loadCounterDailyHistoryAction,
   requestCounterRefundAction,
   searchCounterHistoricalOrdersAction,
+  type CounterDailyHistoryCursor,
   type CounterHistoricalSearchCursor,
   type CounterHistoricalSearchResult,
   updateCounterPickupScheduleAction,
@@ -74,6 +76,11 @@ const CounterCashPanel = dynamic(
 const CounterHistoricalSearchPanel = dynamic(
   () => import('./CounterHistoricalSearchWorkspace').then((module) => module.CounterHistoricalSearchPanel),
   { loading: () => <CounterWorkspaceLoading label="Abriendo búsqueda..." compact /> }
+);
+
+const CounterDailyHistoryPanel = dynamic(
+  () => import('./CounterHistoricalSearchWorkspace').then((module) => module.CounterDailyHistoryPanel),
+  { loading: () => <CounterWorkspaceLoading label="Abriendo entregados de hoy..." compact /> }
 );
 
 const CounterQuickSalePanel = dynamic(
@@ -704,6 +711,11 @@ export default function CounterClient({
   const catalogLoadedRef = useRef(false);
   const catalogLoadedAtRef = useRef(0);
   const [paymentOrderIdToOpen, setPaymentOrderIdToOpen] = useState<number | null>(null);
+  const [dailyHistoryOpen, setDailyHistoryOpen] = useState(false);
+  const [dailyHistoryServiceDate, setDailyHistoryServiceDate] = useState('');
+  const [dailyHistoryResults, setDailyHistoryResults] = useState<CounterHistoricalSearchResult[]>([]);
+  const [dailyHistoryNextCursor, setDailyHistoryNextCursor] = useState<CounterDailyHistoryCursor | null>(null);
+  const [dailyHistoryLoaded, setDailyHistoryLoaded] = useState(false);
   const [historicalSearch, setHistoricalSearch] = useState('');
   const [historicalResults, setHistoricalResults] = useState<CounterHistoricalSearchResult[]>([]);
   const [historicalNextCursor, setHistoricalNextCursor] = useState<CounterHistoricalSearchCursor | null>(null);
@@ -1749,6 +1761,45 @@ export default function CounterClient({
     });
   }
 
+  function handleDailyHistory(cursor: CounterDailyHistoryCursor | null = null) {
+    setMessage(null);
+    if (!cursor) setDailyHistoryNextCursor(null);
+    startTransition(async () => {
+      try {
+        const page = await loadCounterDailyHistoryAction({ cursor });
+        setDailyHistoryServiceDate(page.serviceDate);
+        setDailyHistoryResults((current) => cursor ? [...current, ...page.results] : page.results);
+        setDailyHistoryNextCursor(page.nextCursor);
+        setDailyHistoryLoaded(true);
+      } catch (error) {
+        if (!cursor) {
+          setDailyHistoryResults([]);
+          setDailyHistoryLoaded(false);
+        }
+        setMessage({
+          tone: 'error',
+          text: error instanceof Error ? error.message : 'No se pudo consultar el historial de hoy.',
+        });
+      }
+    });
+  }
+
+  function handleToggleDailyHistoryPanel() {
+    if (dailyHistoryOpen) {
+      setDailyHistoryOpen(false);
+      return;
+    }
+
+    setHistoricalSearchOpen(false);
+    setDailyHistoryOpen(true);
+    handleDailyHistory();
+  }
+
+  function handleToggleHistoricalSearchPanel() {
+    setDailyHistoryOpen(false);
+    setHistoricalSearchOpen((current) => !current);
+  }
+
   function handleCreateCashMovement(input: CounterCashMovementInput) {
     setMessage(null);
     setWorkingOrderId(-2);
@@ -1857,7 +1908,20 @@ export default function CounterClient({
             </button>
             <button
               type="button"
-              onClick={() => setHistoricalSearchOpen((current) => !current)}
+              onClick={handleToggleDailyHistoryPanel}
+              aria-expanded={dailyHistoryOpen}
+              className={[
+                'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold hover:border-[#FEEF00]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
+                dailyHistoryOpen
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
+              ].join(' ')}
+            >
+              Entregados hoy
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleHistoricalSearchPanel}
               aria-expanded={historicalSearchOpen}
               className={[
                 'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold hover:border-[#FEEF00]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
@@ -2014,6 +2078,22 @@ export default function CounterClient({
                 cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
               ]);
             }}
+          />
+        ) : null}
+
+        {dailyHistoryOpen ? (
+          <CounterDailyHistoryPanel
+            serviceDate={dailyHistoryServiceDate}
+            results={dailyHistoryResults}
+            nextCursor={dailyHistoryNextCursor}
+            loaded={dailyHistoryLoaded}
+            isPending={isPending}
+            onRefresh={() => handleDailyHistory()}
+            onLoadMore={() => {
+              if (dailyHistoryNextCursor) handleDailyHistory(dailyHistoryNextCursor);
+            }}
+            onOpenOrder={(orderId) => handleOpenHistoricalOrder(orderId, false)}
+            onOpenPayment={(orderId) => handleOpenHistoricalOrder(orderId, true)}
           />
         ) : null}
 

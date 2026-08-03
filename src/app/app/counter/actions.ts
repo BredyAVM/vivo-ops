@@ -110,6 +110,17 @@ export type CounterHistoricalSearchPage = {
   nextCursor: CounterHistoricalSearchCursor | null;
 };
 
+export type CounterDailyHistoryCursor = {
+  deliveredAt: string;
+  id: number;
+};
+
+export type CounterDailyHistoryPage = {
+  serviceDate: string;
+  results: CounterHistoricalSearchResult[];
+  nextCursor: CounterDailyHistoryCursor | null;
+};
+
 function toSafeNumber(value: unknown, fallback = 0) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : fallback;
@@ -1028,6 +1039,47 @@ export async function searchCounterHistoricalOrdersAction(input: {
         ? {
             createdAt: payload.nextCursor.createdAt,
             id: Number(payload.nextCursor.id),
+          }
+        : null,
+  };
+}
+
+export async function loadCounterDailyHistoryAction(input: {
+  cursor?: CounterDailyHistoryCursor | null;
+} = {}): Promise<CounterDailyHistoryPage> {
+  const ctx = await requireCounterOperatorContext();
+  const cursor = input.cursor ?? null;
+
+  if (cursor) {
+    const deliveredAt = new Date(cursor.deliveredAt);
+    const cursorId = Math.trunc(Number(cursor.id));
+    if (Number.isNaN(deliveredAt.getTime()) || !Number.isFinite(cursorId) || cursorId <= 0) {
+      throw new Error('El cursor del historial diario no es valido.');
+    }
+  }
+
+  const { data, error } = await ctx.supabase.rpc('counter_list_today_delivered_orders', {
+    p_cursor_delivered_at: cursor?.deliveredAt || null,
+    p_cursor_id: cursor?.id || null,
+    p_limit: 20,
+  });
+  if (error) throw new Error(error.message);
+
+  const payload = data && typeof data === 'object' && !Array.isArray(data)
+    ? data as Partial<CounterDailyHistoryPage>
+    : {};
+  const nextCursor = payload.nextCursor;
+
+  return {
+    serviceDate: typeof payload.serviceDate === 'string' ? payload.serviceDate : '',
+    results: Array.isArray(payload.results) ? payload.results : [],
+    nextCursor:
+      nextCursor &&
+      typeof nextCursor.deliveredAt === 'string' &&
+      Number.isFinite(Number(nextCursor.id))
+        ? {
+            deliveredAt: nextCursor.deliveredAt,
+            id: Number(nextCursor.id),
           }
         : null,
   };

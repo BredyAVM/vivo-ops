@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  CounterDailyHistoryCursor,
   CounterHistoricalSearchCursor,
   CounterHistoricalSearchResult,
 } from './actions';
@@ -24,6 +25,14 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString('es-VE', {
     dateStyle: 'short',
     timeStyle: 'short',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function formatServiceDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'Fecha operativa de Caracas';
+  return new Date(`${value}T12:00:00-04:00`).toLocaleDateString('es-VE', {
+    dateStyle: 'long',
     timeZone: 'America/Caracas',
   });
 }
@@ -59,6 +68,210 @@ function historicalSearchPaymentLabel(result: CounterHistoricalSearchResult) {
   return `Pendiente ${moneyUsd(result.balanceUsd)}`;
 }
 
+function CounterHistoryOrderList({
+  results,
+  nextPageAvailable,
+  emptyMessage,
+  isPending,
+  loadMoreLabel,
+  onLoadMore,
+  onOpenOrder,
+  onOpenPayment,
+}: {
+  results: CounterHistoricalSearchResult[];
+  nextPageAvailable: boolean;
+  emptyMessage: string;
+  isPending: boolean;
+  loadMoreLabel: string;
+  onLoadMore: () => void;
+  onOpenOrder: (orderId: number) => void;
+  onOpenPayment: (orderId: number) => void;
+}) {
+  if (results.length === 0) {
+    return (
+      <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA]">
+        {emptyMessage}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid gap-2 xl:grid-cols-2">
+        {results.map((result) => {
+          const reason = historicalSearchReason(result);
+
+          return (
+            <div key={result.id} className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-base font-semibold">#{result.displayNumber}</span>
+                    <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
+                      {result.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}
+                    </span>
+                    <span className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-2 py-0.5 text-xs font-semibold text-[#FEEF00]">
+                      {historicalSearchStatusLabel(result.status)}
+                    </span>
+                  </div>
+                  <div className="mt-1 truncate text-sm font-semibold">{result.clientName}</div>
+                  <div className="mt-1 text-xs text-[#9FA0AA]">
+                    {result.clientPhone || 'Sin teléfono'} · {result.scheduledDate || 'Sin fecha'}{' '}
+                    {result.scheduledTime || ''}
+                  </div>
+                  {result.receiverName || result.receiverPhone ? (
+                    <div className="mt-1 text-xs text-[#9FA0AA]">
+                      Recibe: {result.receiverName || 'Sin nombre'}
+                      {result.receiverPhone ? ` · ${result.receiverPhone}` : ''}
+                    </div>
+                  ) : null}
+                  {reason ? <div className="mt-2 text-sm text-[#C7C8D1]">{reason}</div> : null}
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-semibold">{moneyUsd(result.totalUsd)}</div>
+                  <div className="text-xs text-[#9FA0AA]">{moneyBs(result.totalBs)}</div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2 rounded-[8px] border border-[#242433] bg-[#111118] p-2 text-xs text-[#C7C8D1] sm:grid-cols-2">
+                <div>
+                  <span className="text-[#777988]">Productos: </span>
+                  {result.productSummary.length > 0
+                    ? result.productSummary.join(', ')
+                    : `${result.itemCount} item(s)`}
+                </div>
+                <div>
+                  <span className="text-[#777988]">Pago: </span>
+                  {historicalSearchPaymentLabel(result)}
+                </div>
+                <div>
+                  <span className="text-[#777988]">Creada: </span>
+                  {formatDateTime(result.createdAt)}
+                </div>
+                <div>
+                  <span className="text-[#777988]">Entrega: </span>
+                  {result.deliveredAt
+                    ? formatDateTime(result.deliveredAt)
+                    : result.readyAt
+                      ? `Lista ${formatDateTime(result.readyAt)}`
+                      : 'Pendiente'}
+                </div>
+              </div>
+
+              {result.note ? <div className="mt-2 text-xs text-[#9FA0AA]">Nota: {result.note}</div> : null}
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenOrder(result.id)}
+                  disabled={isPending}
+                  className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-xs font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60 disabled:opacity-60"
+                >
+                  Abrir expediente
+                </button>
+                {result.status !== 'cancelled' && result.balanceUsd > 0.005 ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPayment(result.id)}
+                    disabled={isPending}
+                    className="rounded-[8px] border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:border-emerald-300/70 disabled:opacity-60"
+                  >
+                    Abrir cobro
+                  </button>
+                ) : (
+                  <div className="rounded-[8px] border border-[#242433] px-3 py-2 text-center text-xs text-[#777988]">
+                    {result.status === 'cancelled' ? 'Solo consulta' : 'Sin deuda pendiente'}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {nextPageAvailable ? (
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={isPending}
+            className="rounded-full border border-[#303044] bg-[#0B0B0D] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50 disabled:cursor-wait disabled:opacity-60"
+          >
+            {isPending ? 'Cargando...' : loadMoreLabel}
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+export function CounterDailyHistoryPanel({
+  serviceDate,
+  results,
+  nextCursor,
+  loaded,
+  isPending,
+  onRefresh,
+  onLoadMore,
+  onOpenOrder,
+  onOpenPayment,
+}: {
+  serviceDate: string;
+  results: CounterHistoricalSearchResult[];
+  nextCursor: CounterDailyHistoryCursor | null;
+  loaded: boolean;
+  isPending: boolean;
+  onRefresh: () => void;
+  onLoadMore: () => void;
+  onOpenOrder: (orderId: number) => void;
+  onOpenPayment: (orderId: number) => void;
+}) {
+  return (
+    <section className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Entregados hoy</h2>
+          <p className="mt-1 text-xs text-[#9FA0AA]">
+            Pickup y delivery completados durante el día operativo de Caracas. Se carga solo al abrir.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isPending}
+          className="rounded-full border border-[#303044] bg-[#0B0B0D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50 disabled:opacity-60"
+        >
+          {isPending ? 'Actualizando...' : 'Actualizar'}
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#9FA0AA]">
+        <span>{formatServiceDate(serviceDate)}</span>
+        {loaded ? <span>{results.length} entrega(s) cargada(s)</span> : null}
+      </div>
+
+      <div className="mt-3">
+        {!loaded && isPending ? (
+          <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA]">
+            Cargando entregas de hoy...
+          </div>
+        ) : (
+          <CounterHistoryOrderList
+            results={results}
+            nextPageAvailable={Boolean(nextCursor)}
+            emptyMessage="Todavía no hay pedidos entregados hoy."
+            isPending={isPending}
+            loadMoreLabel="Cargar entregas anteriores"
+            onLoadMore={onLoadMore}
+            onOpenOrder={onOpenOrder}
+            onOpenPayment={onOpenPayment}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function CounterHistoricalSearchPanel({
   query,
   results,
@@ -90,7 +303,7 @@ export function CounterHistoricalSearchPanel({
         <div>
           <h2 className="text-sm font-semibold">Buscar orden</h2>
           <p className="mt-1 text-xs text-[#9FA0AA]">
-            Consulta cualquier orden por numero, cliente o telefono cuando no aparezca en la cola del counter.
+            Consulta por número, cliente o teléfono cuando una orden no aparezca en la cola.
           </p>
         </div>
         {searched ? (
@@ -111,7 +324,7 @@ export function CounterHistoricalSearchPanel({
           onKeyDown={(event) => {
             if (event.key === 'Enter') onSearch();
           }}
-          placeholder="Orden, cliente o telefono"
+          placeholder="Orden, cliente o teléfono"
           className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
         />
         <button
@@ -126,112 +339,16 @@ export function CounterHistoricalSearchPanel({
 
       {searched ? (
         <div className="mt-4">
-          {results.length === 0 ? (
-            <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA]">
-              Sin resultados para esa busqueda.
-            </div>
-          ) : (
-            <div className="grid gap-2 xl:grid-cols-2">
-              {results.map((result) => {
-                const reason = historicalSearchReason(result);
-
-                return (
-                  <div key={result.id} className="rounded-[8px] border border-[#303044] bg-[#0B0B0D] p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-base font-semibold">#{result.displayNumber}</span>
-                          <span className="rounded-full border border-[#303044] px-2 py-0.5 text-xs text-[#C7C8D1]">
-                            {result.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}
-                          </span>
-                          <span className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-2 py-0.5 text-xs font-semibold text-[#FEEF00]">
-                            {historicalSearchStatusLabel(result.status)}
-                          </span>
-                        </div>
-                        <div className="mt-1 truncate text-sm font-semibold">{result.clientName}</div>
-                        <div className="mt-1 text-xs text-[#9FA0AA]">
-                          {result.clientPhone || 'Sin telefono'} - {result.scheduledDate || 'Sin fecha'}{' '}
-                          {result.scheduledTime || ''}
-                        </div>
-                        {result.receiverName || result.receiverPhone ? (
-                          <div className="mt-1 text-xs text-[#9FA0AA]">
-                            Recibe: {result.receiverName || 'Sin nombre'}
-                            {result.receiverPhone ? ` · ${result.receiverPhone}` : ''}
-                          </div>
-                        ) : null}
-                        {reason ? <div className="mt-2 text-sm text-[#C7C8D1]">{reason}</div> : null}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="text-sm font-semibold">{moneyUsd(result.totalUsd)}</div>
-                        <div className="text-xs text-[#9FA0AA]">{moneyBs(result.totalBs)}</div>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid gap-2 rounded-[8px] border border-[#242433] bg-[#111118] p-2 text-xs text-[#C7C8D1] sm:grid-cols-2">
-                      <div>
-                        <span className="text-[#777988]">Productos: </span>
-                        {result.productSummary.length > 0
-                          ? result.productSummary.join(', ')
-                          : `${result.itemCount} item(s)`}
-                      </div>
-                      <div>
-                        <span className="text-[#777988]">Pago: </span>
-                        {historicalSearchPaymentLabel(result)}
-                      </div>
-                      <div>
-                        <span className="text-[#777988]">Creada: </span>
-                        {formatDateTime(result.createdAt)}
-                      </div>
-                      <div>
-                        <span className="text-[#777988]">Entrega: </span>
-                        {result.deliveredAt
-                          ? formatDateTime(result.deliveredAt)
-                          : result.readyAt
-                            ? `Lista ${formatDateTime(result.readyAt)}`
-                            : 'Pendiente'}
-                      </div>
-                    </div>
-                    {result.note ? <div className="mt-2 text-xs text-[#9FA0AA]">Nota: {result.note}</div> : null}
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => onOpenOrder(result.id)}
-                        disabled={isPending}
-                        className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-xs font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60 disabled:opacity-60"
-                      >
-                        Abrir expediente
-                      </button>
-                      {result.status !== 'cancelled' && result.balanceUsd > 0.005 ? (
-                        <button
-                          type="button"
-                          onClick={() => onOpenPayment(result.id)}
-                          disabled={isPending}
-                          className="rounded-[8px] border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-xs font-semibold text-emerald-100 hover:border-emerald-300/70 disabled:opacity-60"
-                        >
-                          Abrir cobro
-                        </button>
-                      ) : (
-                        <div className="rounded-[8px] border border-[#242433] px-3 py-2 text-center text-xs text-[#777988]">
-                          {result.status === 'cancelled' ? 'Solo consulta' : 'Sin deuda pendiente'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {nextCursor ? (
-            <div className="mt-3 flex justify-center">
-              <button
-                type="button"
-                onClick={onLoadMore}
-                disabled={isPending}
-                className="rounded-full border border-[#303044] bg-[#0B0B0D] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50 disabled:cursor-wait disabled:opacity-60"
-              >
-                {isPending ? 'Cargando...' : 'Cargar resultados anteriores'}
-              </button>
-            </div>
-          ) : null}
+          <CounterHistoryOrderList
+            results={results}
+            nextPageAvailable={Boolean(nextCursor)}
+            emptyMessage="Sin resultados para esa búsqueda."
+            isPending={isPending}
+            loadMoreLabel="Cargar resultados anteriores"
+            onLoadMore={onLoadMore}
+            onOpenOrder={onOpenOrder}
+            onOpenPayment={onOpenPayment}
+          />
         </div>
       ) : null}
     </section>
