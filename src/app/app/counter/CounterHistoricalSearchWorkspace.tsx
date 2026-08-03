@@ -29,18 +29,6 @@ function formatDateTime(value: string | null) {
   });
 }
 
-function formatServiceDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'Cargando fecha de hoy...';
-  const formatted = new Date(`${value}T12:00:00-04:00`).toLocaleDateString('es-VE', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'America/Caracas',
-  });
-  return formatted.charAt(0).toLocaleUpperCase('es-VE') + formatted.slice(1);
-}
-
 function historicalSearchStatusLabel(status: CounterHistoricalSearchResult['status']) {
   if (status === 'created') return 'Agendado / pendiente master';
   if (status === 'queued') return 'En cola de cocina';
@@ -210,7 +198,6 @@ function CounterHistoryOrderList({
 }
 
 export function CounterDailyHistoryPanel({
-  serviceDate,
   results,
   nextCursor,
   loaded,
@@ -220,7 +207,6 @@ export function CounterDailyHistoryPanel({
   onLoadMore,
   onSelectOrder,
 }: {
-  serviceDate: string;
   results: CounterHistoricalSearchResult[];
   nextCursor: CounterDailyHistoryCursor | null;
   loaded: boolean;
@@ -238,10 +224,6 @@ export function CounterDailyHistoryPanel({
           <p className="mt-1 text-xs text-[#9FA0AA]">
             Pickup y delivery completados durante el día operativo de Caracas. Se carga solo al abrir.
           </p>
-          <div className="mt-2 inline-flex flex-wrap items-center gap-2 rounded-full border border-[#FEEF00]/35 bg-[#FEEF00]/8 px-3 py-1.5 text-xs">
-            <span className="font-semibold uppercase tracking-[0.12em] text-[#FEEF00]">Hoy</span>
-            <span className="font-semibold text-[#F5F5F7]">{formatServiceDate(serviceDate)}</span>
-          </div>
         </div>
         <button
           type="button"

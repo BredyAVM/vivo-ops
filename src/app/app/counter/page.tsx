@@ -11,6 +11,17 @@ import {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+function formatCounterOperatingDate(date: Date) {
+  const label = new Intl.DateTimeFormat('es-VE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'America/Caracas',
+  }).format(date);
+  return label.charAt(0).toLocaleUpperCase('es-VE') + label.slice(1);
+}
+
 export default async function CounterPage() {
   noStore();
 
@@ -26,6 +37,7 @@ export default async function CounterPage() {
   return (
     <CounterClient
       publicVapidKey={getPublicVapidKey()}
+      operatingDateLabel={formatCounterOperatingDate(new Date())}
       fullName={
         configuration.fullName ||
         ctx.user.user_metadata?.full_name ||

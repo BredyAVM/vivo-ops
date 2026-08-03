@@ -273,6 +273,7 @@ export type CounterOrder = {
 
 type CounterClientProps = {
   publicVapidKey: string;
+  operatingDateLabel: string;
   fullName: string;
   orders: CounterOrder[];
   paymentAccounts: CounterPaymentAccountOption[];
@@ -667,6 +668,7 @@ function sortCounterOrders(orders: CounterOrder[]) {
 
 export default function CounterClient({
   publicVapidKey,
+  operatingDateLabel,
   fullName,
   orders,
   paymentAccounts,
@@ -1988,7 +1990,14 @@ export default function CounterClient({
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-lg font-semibold tracking-tight sm:text-xl">Counter</div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="text-lg font-semibold tracking-tight sm:text-xl">Counter</div>
+                <div className="rounded-full border border-[#FEEF00]/35 bg-[#FEEF00]/8 px-3 py-1 text-xs font-semibold text-[#F5F5F7]">
+                  <span className="text-[#FEEF00]">Fecha operativa</span>
+                  <span className="mx-1.5 text-[#777988]">·</span>
+                  {operatingDateLabel}
+                </div>
+              </div>
               <div className="text-xs text-[#AEB0BC] sm:text-sm">{fullName} · Mostrador operativo</div>
             </div>
             <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
@@ -2188,7 +2197,6 @@ export default function CounterClient({
         {workspace === 'today' ? (
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(320px,0.72fr)_minmax(560px,1.28fr)]">
             <CounterDailyHistoryPanel
-              serviceDate={dailyHistoryServiceDate}
               results={dailyHistoryResults}
               nextCursor={dailyHistoryNextCursor}
               loaded={dailyHistoryLoaded}
