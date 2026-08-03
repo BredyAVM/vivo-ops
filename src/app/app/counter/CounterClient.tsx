@@ -8,6 +8,7 @@ import {
   useState,
   useTransition,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -300,6 +301,32 @@ type CounterFilter =
   | 'kitchen'
   | 'pickup'
   | 'delivery';
+
+type CounterWorkspace =
+  | 'orders'
+  | 'sale'
+  | 'cash'
+  | 'settlements'
+  | 'today'
+  | 'search';
+
+const COUNTER_WORKSPACES: Array<{ key: CounterWorkspace; label: string }> = [
+  { key: 'orders', label: 'Pedidos' },
+  { key: 'sale', label: 'Nueva venta' },
+  { key: 'cash', label: 'Caja' },
+  { key: 'settlements', label: 'Liquidaciones' },
+  { key: 'today', label: 'Entregados hoy' },
+  { key: 'search', label: 'Buscar orden' },
+];
+
+const COUNTER_WORKSPACE_DESCRIPTIONS: Record<CounterWorkspace, string> = {
+  orders: 'Cola activa y detalle operativo.',
+  sale: 'Crear una orden presencial o agendada.',
+  cash: 'Cajas, puntos, movimientos y cierres.',
+  settlements: 'Retornos pendientes de motorizados.',
+  today: 'Pedidos completados durante el día.',
+  search: 'Consulta precisa por orden, cliente o teléfono.',
+};
 
 const FILTERS: Array<{ key: CounterFilter; label: string }> = [
   { key: 'ready', label: 'Listos' },
@@ -699,9 +726,9 @@ export default function CounterClient({
   const [filter, setFilter] = useState<CounterFilter>('ready');
   const [search, setSearch] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
-  const [quickSaleOpen, setQuickSaleOpen] = useState(false);
-  const [cashPanelOpen, setCashPanelOpen] = useState(false);
-  const [settlementsPanelOpen, setSettlementsPanelOpen] = useState(false);
+  const [workspace, setWorkspace] = useState<CounterWorkspace>('orders');
+  const cashPanelOpen = workspace === 'cash';
+  const settlementsPanelOpen = workspace === 'settlements';
   const [cashAccounts, setCashAccounts] = useState<CounterCashAccountSummary[]>([]);
   const [cashLoading, setCashLoading] = useState(false);
   const [quickSaleProducts, setQuickSaleProducts] = useState<CounterQuickSaleProductOption[]>([]);
@@ -711,16 +738,15 @@ export default function CounterClient({
   const catalogLoadedRef = useRef(false);
   const catalogLoadedAtRef = useRef(0);
   const [paymentOrderIdToOpen, setPaymentOrderIdToOpen] = useState<number | null>(null);
-  const [dailyHistoryOpen, setDailyHistoryOpen] = useState(false);
   const [dailyHistoryServiceDate, setDailyHistoryServiceDate] = useState('');
   const [dailyHistoryResults, setDailyHistoryResults] = useState<CounterHistoricalSearchResult[]>([]);
   const [dailyHistoryNextCursor, setDailyHistoryNextCursor] = useState<CounterDailyHistoryCursor | null>(null);
   const [dailyHistoryLoaded, setDailyHistoryLoaded] = useState(false);
+  const [dailyHistorySelectedOrderId, setDailyHistorySelectedOrderId] = useState<number | null>(null);
   const [historicalSearch, setHistoricalSearch] = useState('');
   const [historicalResults, setHistoricalResults] = useState<CounterHistoricalSearchResult[]>([]);
   const [historicalNextCursor, setHistoricalNextCursor] = useState<CounterHistoricalSearchCursor | null>(null);
   const [historicalSearched, setHistoricalSearched] = useState(false);
-  const [historicalSearchOpen, setHistoricalSearchOpen] = useState(false);
 
   useEffect(() => {
     const focusQueueSearch = (event: KeyboardEvent) => {
@@ -1394,15 +1420,18 @@ export default function CounterClient({
   }
 
   function handleSelectCounterOrder(order: CounterOrder) {
-    setQuickSaleOpen(false);
+    setWorkspace('orders');
     recoveredOrderRef.current = null;
     setRecoveredOrder(null);
     setSelectedOrderId(order.id);
     if (!order.detailLoaded) void refreshCounterOrder(order.id);
   }
 
-  function handleOpenHistoricalOrder(orderId: number, openPayment: boolean) {
-    setQuickSaleOpen(false);
+  function handleOpenHistoricalOrder(
+    orderId: number,
+    openPayment: boolean,
+    returnToOrders = false
+  ) {
     setMessage(null);
     setDetailLoadingOrderId(orderId);
     startTransition(async () => {
@@ -1416,6 +1445,7 @@ export default function CounterClient({
         setRecoveredOrder(detail);
         setSelectedOrderId(detail.id);
         setPaymentOrderIdToOpen(openPayment && detail.status !== 'cancelled' ? detail.id : null);
+        if (returnToOrders) setWorkspace('orders');
       } catch (error) {
         setMessage({
           tone: 'error',
@@ -1428,19 +1458,11 @@ export default function CounterClient({
   }
 
   async function handleOpenQuickSale() {
-    if (quickSaleOpen) {
-      setQuickSaleOpen(false);
-      return;
-    }
-    if (await ensureCounterCatalog(true)) setQuickSaleOpen(true);
+    if (await ensureCounterCatalog(true)) setWorkspace('sale');
   }
 
-  function handleToggleCashPanel() {
-    if (cashPanelOpen) {
-      setCashPanelOpen(false);
-      return;
-    }
-    setCashPanelOpen(true);
+  function handleOpenCashWorkspace() {
+    setWorkspace('cash');
     void refreshCounterCash();
   }
 
@@ -1661,7 +1683,7 @@ export default function CounterClient({
             ? `Venta creada y enviada a cocina. Orden #${result.id}.`
             : `Pedido agendado para master. Orden #${result.id}.`,
         });
-        setQuickSaleOpen(false);
+        setWorkspace('orders');
         await refreshCounter();
         setSelectedOrderId(result.id);
         setPaymentOrderIdToOpen(result.openPaymentAfterCreate ? result.id : null);
@@ -1767,10 +1789,24 @@ export default function CounterClient({
     startTransition(async () => {
       try {
         const page = await loadCounterDailyHistoryAction({ cursor });
+        if (
+          !cursor
+          && dailyHistoryServiceDate
+          && dailyHistoryServiceDate !== page.serviceDate
+        ) {
+          setDailyHistorySelectedOrderId(null);
+        }
         setDailyHistoryServiceDate(page.serviceDate);
         setDailyHistoryResults((current) => cursor ? [...current, ...page.results] : page.results);
         setDailyHistoryNextCursor(page.nextCursor);
         setDailyHistoryLoaded(true);
+        if (
+          !cursor
+          && dailyHistorySelectedOrderId != null
+          && !page.results.some((result) => result.id === dailyHistorySelectedOrderId)
+        ) {
+          setDailyHistorySelectedOrderId(null);
+        }
       } catch (error) {
         if (!cursor) {
           setDailyHistoryResults([]);
@@ -1784,20 +1820,45 @@ export default function CounterClient({
     });
   }
 
-  function handleToggleDailyHistoryPanel() {
-    if (dailyHistoryOpen) {
-      setDailyHistoryOpen(false);
-      return;
-    }
-
-    setHistoricalSearchOpen(false);
-    setDailyHistoryOpen(true);
-    handleDailyHistory();
+  function handleSelectDailyHistoryOrder(orderId: number) {
+    setDailyHistorySelectedOrderId(orderId);
+    handleOpenHistoricalOrder(orderId, false);
   }
 
-  function handleToggleHistoricalSearchPanel() {
-    setDailyHistoryOpen(false);
-    setHistoricalSearchOpen((current) => !current);
+  function handleWorkspaceChange(nextWorkspace: CounterWorkspace) {
+    if (nextWorkspace === 'sale') {
+      void handleOpenQuickSale();
+      return;
+    }
+    if (nextWorkspace === 'cash') {
+      handleOpenCashWorkspace();
+      return;
+    }
+    if (nextWorkspace === 'today' && workspace !== 'today') {
+      setWorkspace('today');
+      handleDailyHistory();
+      if (
+        dailyHistorySelectedOrderId != null
+        && selectedOrder?.id !== dailyHistorySelectedOrderId
+      ) {
+        handleOpenHistoricalOrder(dailyHistorySelectedOrderId, false);
+      }
+      return;
+    }
+    if (
+      nextWorkspace === 'orders'
+      && workspace === 'today'
+      && dailyHistorySelectedOrderId != null
+      && selectedOrderId === dailyHistorySelectedOrderId
+    ) {
+      const nextOrder = localOrders[0] ?? null;
+      recoveredOrderRef.current = null;
+      setRecoveredOrder(null);
+      setDailyHistorySelectedOrderId(null);
+      setSelectedOrderId(nextOrder?.id ?? null);
+      if (nextOrder && !nextOrder.detailLoaded) void refreshCounterOrder(nextOrder.id);
+    }
+    setWorkspace(nextWorkspace);
   }
 
   function handleCreateCashMovement(input: CounterCashMovementInput) {
@@ -1861,77 +1922,76 @@ export default function CounterClient({
     });
   }
 
+  const activeWorkspace = COUNTER_WORKSPACES.find((item) => item.key === workspace)
+    ?? COUNTER_WORKSPACES[0];
+  const dailySelectedOrder =
+    dailyHistorySelectedOrderId != null && selectedOrder?.id === dailyHistorySelectedOrderId
+      ? selectedOrder
+      : null;
+
+  function renderOrderDetailSurface(
+    order: CounterOrder | null,
+    pendingOrderId: number | null,
+    emptyState: ReactNode
+  ) {
+    if (
+      pendingOrderId != null
+      && detailLoadingOrderId === pendingOrderId
+      && (!order || order.id !== pendingOrderId || !order.detailLoaded)
+    ) {
+      return (
+        <div className="flex min-h-[520px] items-center justify-center p-8 text-sm text-[#9FA0AA]">
+          Cargando detalle exacto de la orden...
+        </div>
+      );
+    }
+
+    if (!order) return emptyState;
+
+    return (
+      <OrderDetail
+        key={order.id}
+        order={order}
+        initialPaymentOpen={paymentOrderIdToOpen === order.id}
+        onInitialPaymentOpened={() => setPaymentOrderIdToOpen(null)}
+        paymentAccounts={paymentAccounts}
+        quickSaleProducts={quickSaleProducts}
+        quickSaleProductComponents={quickSaleProductComponents}
+        activeBsRate={activeBsRate}
+        isWorking={workingOrderId === order.id}
+        isStale={detailStaleOrderId === order.id}
+        isRefreshing={detailLoadingOrderId === order.id}
+        onRefreshExact={() => void refreshCounterOrder(order.id)}
+        onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
+        onDeliverySettlementChanged={async () => {
+          await Promise.all([
+            refreshCounter(),
+            refreshCounterOrder(order.id),
+            cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+          ]);
+        }}
+        onCreatePaymentReport={handleCreatePaymentReport}
+        onRequestRefund={handleRequestRefund}
+        onExecuteRefund={handleExecuteRefund}
+        onChangePickupItems={handleChangePickupItems}
+        onUpdatePickupSchedule={handleUpdatePickupSchedule}
+        onRequestCatalog={ensureCounterCatalog}
+        catalogLoading={catalogLoading}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <ModulePreference moduleKey="counter" />
       <header className="sticky top-0 z-20 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-          <div>
-            <div className="text-lg font-semibold tracking-tight sm:text-xl">Counter</div>
-            <div className="text-xs text-[#AEB0BC] sm:text-sm">{fullName} · Mostrador operativo</div>
-          </div>
-          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => void handleOpenQuickSale()}
-              disabled={catalogLoading}
-              aria-pressed={quickSaleOpen}
-              className="min-h-11 rounded-full border border-[#FEEF00]/70 bg-[#FEEF00] px-4 py-2 text-sm font-bold text-black hover:bg-[#fff45c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00] disabled:opacity-60"
-            >
-              {catalogLoading ? 'Cargando...' : 'Nueva venta'}
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleCashPanel}
-              aria-expanded={cashPanelOpen}
-              className={[
-                'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold hover:border-[#FEEF00]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
-                cashPanelOpen
-                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
-              ].join(' ')}
-            >
-              Caja
-            </button>
-            <button
-              type="button"
-              onClick={() => setSettlementsPanelOpen((current) => !current)}
-              aria-expanded={settlementsPanelOpen}
-              className={[
-                'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold hover:border-sky-300/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300',
-                settlementsPanelOpen
-                  ? 'border-sky-300 bg-sky-300/10 text-sky-100'
-                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
-              ].join(' ')}
-            >
-              Liquidaciones
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleDailyHistoryPanel}
-              aria-expanded={dailyHistoryOpen}
-              className={[
-                'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold hover:border-[#FEEF00]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
-                dailyHistoryOpen
-                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
-              ].join(' ')}
-            >
-              Entregados hoy
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleHistoricalSearchPanel}
-              aria-expanded={historicalSearchOpen}
-              className={[
-                'min-h-11 rounded-full border px-3 py-2 text-sm font-semibold hover:border-[#FEEF00]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
-                historicalSearchOpen
-                  ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                  : 'border-[#303044] bg-[#111118] text-[#F5F5F7]',
-              ].join(' ')}
-            >
-              Buscar orden
-            </button>
+        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold tracking-tight sm:text-xl">Counter</div>
+              <div className="text-xs text-[#AEB0BC] sm:text-sm">{fullName} · Mostrador operativo</div>
+            </div>
+            <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => {
@@ -1973,7 +2033,34 @@ export default function CounterClient({
             >
               Módulos
             </Link>
+            </div>
           </div>
+
+          <nav
+            className="mt-3 flex flex-nowrap gap-2 overflow-x-auto border-t border-[#242433] pt-3"
+            aria-label="Secciones de Counter"
+          >
+            {COUNTER_WORKSPACES.map((item) => {
+              const isActive = workspace === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => handleWorkspaceChange(item.key)}
+                  disabled={item.key === 'sale' && catalogLoading}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={[
+                    'min-h-10 shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00] disabled:cursor-wait disabled:opacity-60',
+                    isActive
+                      ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
+                      : 'border-[#303044] bg-[#111118] text-[#C7C8D1] hover:border-[#FEEF00]/55 hover:text-[#F5F5F7]',
+                  ].join(' ')}
+                >
+                  {item.key === 'sale' && catalogLoading ? 'Cargando...' : item.label}
+                </button>
+              );
+            })}
+          </nav>
         </div>
       </header>
 
@@ -2009,7 +2096,7 @@ export default function CounterClient({
         ) : null}
 
         {syncDetailsOpen ? (
-          <section className="mt-4 rounded-[8px] border border-[#303044] bg-[#111118] p-4">
+          <section className="fixed inset-x-3 top-32 z-40 max-h-[calc(100vh-9rem)] overflow-y-auto rounded-[8px] border border-[#3D3D52] bg-[#111118] p-4 shadow-2xl lg:left-auto lg:right-5 lg:w-[680px]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-[#F5F5F7]">
@@ -2020,6 +2107,13 @@ export default function CounterClient({
                 </p>
               </div>
               <div className="text-right text-xs text-[#9FA0AA]">
+                <button
+                  type="button"
+                  onClick={() => setSyncDetailsOpen(false)}
+                  className="mb-2 min-h-9 rounded-full border border-[#3D3D52] px-3 py-1 text-xs font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
+                >
+                  Cerrar
+                </button>
                 <div>{connectionStateLabel(connectionState)}</div>
                 <div>
                   Ultimo evento: {lastRealtimeEventAt ? formatDateTime(lastRealtimeEventAt) : 'sin eventos en esta sesion'}
@@ -2049,6 +2143,16 @@ export default function CounterClient({
             </div>
           </section>
         ) : null}
+
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[8px] border border-[#242433] bg-[#111118] px-4 py-3">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9FA0AA]">
+            Vista actual
+          </span>
+          <span className="font-semibold text-[#FEEF00]">{activeWorkspace.label}</span>
+          <span className="text-sm text-[#9FA0AA]">
+            {COUNTER_WORKSPACE_DESCRIPTIONS[workspace]}
+          </span>
+        </div>
 
         {cashPanelOpen && cashLoading && cashAccounts.length === 0 ? (
           <section className="mt-5 rounded-[8px] border border-[#242433] bg-[#111118] p-6 text-sm text-[#9FA0AA]">
@@ -2081,23 +2185,39 @@ export default function CounterClient({
           />
         ) : null}
 
-        {dailyHistoryOpen ? (
-          <CounterDailyHistoryPanel
-            serviceDate={dailyHistoryServiceDate}
-            results={dailyHistoryResults}
-            nextCursor={dailyHistoryNextCursor}
-            loaded={dailyHistoryLoaded}
-            isPending={isPending}
-            onRefresh={() => handleDailyHistory()}
-            onLoadMore={() => {
-              if (dailyHistoryNextCursor) handleDailyHistory(dailyHistoryNextCursor);
-            }}
-            onOpenOrder={(orderId) => handleOpenHistoricalOrder(orderId, false)}
-            onOpenPayment={(orderId) => handleOpenHistoricalOrder(orderId, true)}
-          />
+        {workspace === 'today' ? (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(320px,0.72fr)_minmax(560px,1.28fr)]">
+            <CounterDailyHistoryPanel
+              serviceDate={dailyHistoryServiceDate}
+              results={dailyHistoryResults}
+              nextCursor={dailyHistoryNextCursor}
+              loaded={dailyHistoryLoaded}
+              isPending={isPending}
+              selectedOrderId={dailyHistorySelectedOrderId}
+              onRefresh={() => handleDailyHistory()}
+              onLoadMore={() => {
+                if (dailyHistoryNextCursor) handleDailyHistory(dailyHistoryNextCursor);
+              }}
+              onSelectOrder={handleSelectDailyHistoryOrder}
+            />
+            <section
+              className="min-w-0 rounded-[8px] border border-[#242433] bg-[#111118]"
+              aria-label="Detalle de la entrega del día"
+            >
+              {renderOrderDetailSurface(
+                dailySelectedOrder,
+                dailyHistorySelectedOrderId,
+                <div className="flex min-h-[520px] items-center justify-center p-8 text-center text-sm text-[#9FA0AA]">
+                  {dailyHistorySelectedOrderId
+                    ? 'No se pudo abrir el detalle de esta entrega. Intenta seleccionarla nuevamente.'
+                    : 'Selecciona una entrega de la lista para ver su pedido completo.'}
+                </div>
+              )}
+            </section>
+          </div>
         ) : null}
 
-        {historicalSearchOpen ? (
+        {workspace === 'search' ? (
           <CounterHistoricalSearchPanel
             query={historicalSearch}
             results={historicalResults}
@@ -2115,12 +2235,27 @@ export default function CounterClient({
               setHistoricalNextCursor(null);
               setHistoricalSearched(false);
             }}
-            onOpenOrder={(orderId) => handleOpenHistoricalOrder(orderId, false)}
-            onOpenPayment={(orderId) => handleOpenHistoricalOrder(orderId, true)}
+            onOpenOrder={(orderId) => handleOpenHistoricalOrder(orderId, false, true)}
+            onOpenPayment={(orderId) => handleOpenHistoricalOrder(orderId, true, true)}
           />
         ) : null}
 
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(340px,0.82fr)_minmax(520px,1.18fr)]">
+        {workspace === 'sale' ? (
+          <div className="mt-5">
+            <CounterQuickSalePanel
+              products={quickSaleProducts}
+              productComponents={quickSaleProductComponents}
+              discountRules={quickSaleDiscountRules}
+              activeBsRate={activeBsRate}
+              isWorking={workingOrderId === -1}
+              onCancel={() => setWorkspace('orders')}
+              onSubmit={handleCreateQuickSale}
+            />
+          </div>
+        ) : null}
+
+        {workspace === 'orders' ? (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(340px,0.82fr)_minmax(520px,1.18fr)]">
           <section className="min-w-0 rounded-[8px] border border-[#242433] bg-[#111118]" aria-label="Bandeja de pedidos">
             <div className="border-b border-[#242433] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2237,75 +2372,17 @@ export default function CounterClient({
           </section>
 
           <section className="min-w-0 rounded-[8px] border border-[#242433] bg-[#111118]" aria-label="Área de trabajo">
-            {quickSaleOpen && selectedOrder ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#242433] bg-[#0B0B0D] px-4 py-3 text-sm">
-                <div className="min-w-0">
-                  <span className="text-[#9FA0AA]">Contexto conservado: </span>
-                  <span className="font-semibold text-[#F5F5F7]">
-                    #{selectedOrder.displayNumber} · {selectedOrder.clientName}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setQuickSaleOpen(false)}
-                  className="min-h-11 rounded-full border border-[#3D3D52] px-4 py-2 text-xs font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/60"
-                >
-                  Volver a la orden
-                </button>
-              </div>
-            ) : null}
-            {quickSaleOpen ? (
-              <CounterQuickSalePanel
-                products={quickSaleProducts}
-                productComponents={quickSaleProductComponents}
-                discountRules={quickSaleDiscountRules}
-                activeBsRate={activeBsRate}
-                isWorking={workingOrderId === -1}
-                onCancel={() => setQuickSaleOpen(false)}
-                onSubmit={handleCreateQuickSale}
-              />
-            ) : selectedOrder && detailLoadingOrderId === selectedOrder.id && !selectedOrder.detailLoaded ? (
-              <div className="flex min-h-[520px] items-center justify-center p-8 text-sm text-[#9FA0AA]">
-                Cargando detalle exacto de la orden...
-              </div>
-            ) : selectedOrder ? (
-              <OrderDetail
-                key={selectedOrder.id}
-                order={selectedOrder}
-                initialPaymentOpen={paymentOrderIdToOpen === selectedOrder.id}
-                onInitialPaymentOpened={() => setPaymentOrderIdToOpen(null)}
-                paymentAccounts={paymentAccounts}
-                quickSaleProducts={quickSaleProducts}
-                quickSaleProductComponents={quickSaleProductComponents}
-                activeBsRate={activeBsRate}
-                isWorking={workingOrderId === selectedOrder.id}
-                isStale={detailStaleOrderId === selectedOrder.id}
-                isRefreshing={detailLoadingOrderId === selectedOrder.id}
-                onRefreshExact={() => void refreshCounterOrder(selectedOrder.id)}
-                onPrimaryDeliveryAction={handlePrimaryDeliveryAction}
-                onDeliverySettlementChanged={async () => {
-                  await Promise.all([
-                    refreshCounter(),
-                    refreshCounterOrder(selectedOrder.id),
-                    cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
-                  ]);
-                }}
-                onCreatePaymentReport={handleCreatePaymentReport}
-                onRequestRefund={handleRequestRefund}
-                onExecuteRefund={handleExecuteRefund}
-                onChangePickupItems={handleChangePickupItems}
-                onUpdatePickupSchedule={handleUpdatePickupSchedule}
-                onRequestCatalog={ensureCounterCatalog}
-                catalogLoading={catalogLoading}
-              />
-            ) : (
+            {renderOrderDetailSurface(
+              selectedOrder,
+              selectedOrder?.id ?? null,
               <CounterEmptyWorkSurface
                 hasOrders={filteredOrders.length > 0}
                 onNewSale={() => void handleOpenQuickSale()}
               />
             )}
           </section>
-        </div>
+          </div>
+        ) : null}
       </section>
     </main>
   );

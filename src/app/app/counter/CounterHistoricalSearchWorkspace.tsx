@@ -211,23 +211,23 @@ export function CounterDailyHistoryPanel({
   nextCursor,
   loaded,
   isPending,
+  selectedOrderId,
   onRefresh,
   onLoadMore,
-  onOpenOrder,
-  onOpenPayment,
+  onSelectOrder,
 }: {
   serviceDate: string;
   results: CounterHistoricalSearchResult[];
   nextCursor: CounterDailyHistoryCursor | null;
   loaded: boolean;
   isPending: boolean;
+  selectedOrderId: number | null;
   onRefresh: () => void;
   onLoadMore: () => void;
-  onOpenOrder: (orderId: number) => void;
-  onOpenPayment: (orderId: number) => void;
+  onSelectOrder: (orderId: number) => void;
 }) {
   return (
-    <section className="mt-4 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
+    <section className="min-w-0 rounded-[8px] border border-[#242433] bg-[#111118] p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Entregados hoy</h2>
@@ -255,17 +255,71 @@ export function CounterDailyHistoryPanel({
           <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA]">
             Cargando entregas de hoy...
           </div>
+        ) : results.length === 0 ? (
+          <div className="rounded-[8px] border border-dashed border-[#303044] p-4 text-sm text-[#9FA0AA]">
+            Todavía no hay pedidos entregados hoy.
+          </div>
         ) : (
-          <CounterHistoryOrderList
-            results={results}
-            nextPageAvailable={Boolean(nextCursor)}
-            emptyMessage="Todavía no hay pedidos entregados hoy."
-            isPending={isPending}
-            loadMoreLabel="Cargar entregas anteriores"
-            onLoadMore={onLoadMore}
-            onOpenOrder={onOpenOrder}
-            onOpenPayment={onOpenPayment}
-          />
+          <div className="max-h-[calc(100vh-330px)] space-y-2 overflow-y-auto pr-1">
+            {results.map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                onClick={() => onSelectOrder(result.id)}
+                aria-pressed={selectedOrderId === result.id}
+                className={[
+                  'w-full rounded-[8px] border p-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
+                  selectedOrderId === result.id
+                    ? 'border-[#FEEF00] bg-[#FEEF00]/8'
+                    : 'border-[#303044] bg-[#0B0B0D] hover:border-[#FEEF00]/45',
+                ].join(' ')}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-[#FEEF00]">#{result.displayNumber}</span>
+                      <span className="rounded-full border border-[#303044] px-2 py-0.5 text-[11px] text-[#C7C8D1]">
+                        {result.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}
+                      </span>
+                    </div>
+                    <div className="mt-1 truncate text-sm font-semibold text-[#F5F5F7]">
+                      {result.clientName}
+                    </div>
+                    <div className="mt-1 text-xs text-[#9FA0AA]">
+                      Entregada {formatDateTime(result.deliveredAt)}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-sm font-semibold text-[#F5F5F7]">{moneyUsd(result.totalUsd)}</div>
+                    <div className={[
+                      'mt-1 text-xs font-semibold',
+                      result.balanceUsd > 0.005 || result.pendingReportsCount > 0
+                        ? 'text-orange-200'
+                        : 'text-emerald-200',
+                    ].join(' ')}>
+                      {historicalSearchPaymentLabel(result)}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 truncate text-xs text-[#C7C8D1]">
+                  {result.productSummary.length > 0
+                    ? result.productSummary.join(', ')
+                    : `${result.itemCount} item(s)`}
+                </div>
+              </button>
+            ))}
+
+            {nextCursor ? (
+              <button
+                type="button"
+                onClick={onLoadMore}
+                disabled={isPending}
+                className="min-h-11 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-4 py-2 text-sm font-semibold text-[#F5F5F7] hover:border-[#FEEF00]/50 disabled:opacity-60"
+              >
+                {isPending ? 'Cargando...' : 'Cargar entregas anteriores'}
+              </button>
+            ) : null}
+          </div>
         )}
       </div>
     </section>
