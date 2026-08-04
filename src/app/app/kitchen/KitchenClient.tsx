@@ -16,6 +16,7 @@ import {
   reportKitchenIncidentAction,
   updateKitchenEtaAction,
 } from '../master/dashboard/actions';
+import { acknowledgeKitchenOrderChangesAction } from './actions';
 
 export type KitchenOrderItem = {
   id: number;
@@ -45,10 +46,22 @@ export type KitchenOrder = {
   items: KitchenOrderItem[];
 };
 
+export type KitchenOrderChangeAlert = {
+  recipientId: number;
+  eventId: number;
+  orderId: number;
+  title: string;
+  message: string;
+  reason: string | null;
+  changedSections: string[];
+  createdAt: string;
+};
+
 type KitchenClientProps = {
   publicVapidKey: string;
   fullName: string;
   orders: KitchenOrder[];
+  changeAlerts: KitchenOrderChangeAlert[];
 };
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
@@ -359,7 +372,59 @@ function vibrateKitchenAlert() {
   if ('vibrate' in navigator) navigator.vibrate([140, 70, 140]);
 }
 
-export default function KitchenClient({ publicVapidKey, fullName, orders }: KitchenClientProps) {
+function playKitchenChangeAlert() {
+  try {
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const ctx = new AudioContextCtor();
+    const toneStarts = [0, 0.24, 0.48];
+
+    toneStarts.forEach((offset, index) => {
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const startsAt = ctx.currentTime + offset;
+
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(index === 1 ? 520 : 700, startsAt);
+      gain.gain.setValueAtTime(0.0001, startsAt);
+      gain.gain.exponentialRampToValueAtTime(0.2, startsAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.18);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(startsAt);
+      oscillator.stop(startsAt + 0.2);
+    });
+
+    setTimeout(() => void ctx.close().catch(() => undefined), 950);
+  } catch {
+    // Browsers can block audio until the user interacts with the page.
+  }
+}
+
+function vibrateKitchenChangeAlert() {
+  if ('vibrate' in navigator) navigator.vibrate([220, 90, 220, 90, 420]);
+}
+
+function changeSectionLabel(section: string) {
+  const labels: Record<string, string> = {
+    pedido: 'productos del pedido',
+    cliente: 'cliente',
+    entrega: 'tipo o programación de entrega',
+    direccion: 'dirección',
+    nota: 'notas',
+    precio: 'precios',
+  };
+  return labels[section] || section;
+}
+
+export default function KitchenClient({
+  publicVapidKey,
+  fullName,
+  orders,
+  changeAlerts,
+}: KitchenClientProps) {
   const router = useRouter();
   const [supabase] = useState(() => createSupabaseBrowser());
   const [isPending, startActionTransition] = useTransition();
@@ -378,6 +443,7 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   const [newOrderIds, setNewOrderIds] = useState<Set<number>>(() => new Set());
   const previousOrderIdsRef = useRef<Set<number> | null>(null);
   const alertedOrderIdsRef = useRef(new Set<number>());
+  const alertedChangeEventIdsRef = useRef(new Set<number>());
   const newOrderTimerRef = useRef<number | null>(null);
 
   const refreshOrders = useCallback(() => {
@@ -504,6 +570,27 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
   }, []);
 
   useEffect(() => {
+    const newChangeAlerts = changeAlerts.filter(
+      (alert) => !alertedChangeEventIdsRef.current.has(alert.eventId),
+    );
+    if (newChangeAlerts.length === 0) return;
+
+    newChangeAlerts.forEach((alert) => alertedChangeEventIdsRef.current.add(alert.eventId));
+    if (alertedChangeEventIdsRef.current.size > 250) {
+      alertedChangeEventIdsRef.current = new Set(
+        Array.from(alertedChangeEventIdsRef.current).slice(-120),
+      );
+    }
+
+    const newestChangedOrder = orders.find(
+      (order) => order.id === newChangeAlerts[0]?.orderId,
+    );
+    if (newestChangedOrder) setActiveStatus(newestChangedOrder.status);
+    playKitchenChangeAlert();
+    vibrateKitchenChangeAlert();
+  }, [changeAlerts, orders]);
+
+  useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
     const onMessage = (event: MessageEvent) => {
@@ -525,6 +612,21 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
       ])
     );
   }, [orders]);
+
+  const changeAlertsByOrder = useMemo(() => {
+    const alertsByOrder = new Map<number, KitchenOrderChangeAlert[]>();
+    for (const alert of changeAlerts) {
+      const orderAlerts = alertsByOrder.get(alert.orderId) ?? [];
+      orderAlerts.push(alert);
+      alertsByOrder.set(alert.orderId, orderAlerts);
+    }
+    return alertsByOrder;
+  }, [changeAlerts]);
+
+  const latestChangeAlert = changeAlerts[0] ?? null;
+  const latestChangedOrder = latestChangeAlert
+    ? orders.find((order) => order.id === latestChangeAlert.orderId) ?? null
+    : null;
 
   const activeColumn = STATUS_COLUMNS.find((column) => column.key === activeStatus) ?? STATUS_COLUMNS[0];
   const activeOrders = ordersByStatus.get(activeColumn.key) ?? [];
@@ -564,6 +666,21 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
       }
     });
   };
+
+  const focusOrder = useCallback((orderId: number) => {
+    const order = orders.find((candidate) => candidate.id === orderId);
+    if (!order) return;
+
+    setActiveStatus(order.status);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(`kitchen-order-${orderId}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      });
+    });
+  }, [orders]);
 
   async function enablePush() {
     setPushBusy(true);
@@ -692,6 +809,45 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
           </nav>
         </header>
 
+        {latestChangeAlert && latestChangedOrder ? (
+          <div
+            className="kitchen-enter mt-3 rounded-xl border-2 border-orange-400 bg-[#321B0C] p-3 shadow-[0_14px_34px_rgba(249,115,22,0.18)]"
+            role="alert"
+            aria-live="assertive"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-black uppercase tracking-[0.14em] text-orange-300">
+                  Modificación pendiente de revisar
+                </div>
+                <div className="mt-1 text-base font-black leading-tight text-white">
+                  {changeAlertsByOrder.size === 1
+                    ? `Orden #${latestChangedOrder.displayNumber} modificada durante preparación`
+                    : `${changeAlertsByOrder.size} pedidos tienen cambios sin revisar`}
+                </div>
+                <div className="mt-1 text-sm font-semibold text-orange-100">
+                  {latestChangeAlert.message}
+                </div>
+                {latestChangeAlert.reason ? (
+                  <div className="mt-1 text-xs text-orange-100/80">
+                    Motivo de Master: {latestChangeAlert.reason}
+                  </div>
+                ) : null}
+              </div>
+              <span className="shrink-0 rounded-full bg-orange-400 px-2 py-1 text-xs font-black text-black">
+                {changeAlerts.length}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => focusOrder(latestChangeAlert.orderId)}
+              className="mt-3 h-11 w-full rounded-xl bg-orange-400 px-3 text-sm font-black text-black active:scale-[0.98]"
+            >
+              Ver pedido #{latestChangedOrder.displayNumber}
+            </button>
+          </div>
+        ) : null}
+
         {newOrderNotice ? (
           <div
             className="kitchen-enter mt-3 rounded-xl border border-[#FEEF00]/55 bg-[#FEEF00]/12 p-3"
@@ -752,11 +908,12 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
             ) : null}
 
             {activeOrders.map((order, orderIndex) => {
-                    const takeActionKey = `take:${order.id}`;
+              const takeActionKey = `take:${order.id}`;
               const delayActionKey = `delay:${order.id}`;
-                    const readyActionKey = `ready:${order.id}`;
+              const readyActionKey = `ready:${order.id}`;
               const incidentActionKey = `incident:${order.id}`;
-                    const etaValue = etaByOrder[order.id] ?? String(order.etaMinutes || 15);
+              const changeActionKey = `ack-change:${order.id}`;
+              const etaValue = etaByOrder[order.id] ?? String(order.etaMinutes || 15);
               const incidentOpen = incidentOrderId === order.id;
               const incidentReasonKey = incidentReasonByOrder[order.id] ?? KITCHEN_INCIDENT_REASONS[0].key;
               const incidentReason =
@@ -773,13 +930,19 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
               const readyTime = etaClockLabel(order);
               const remainingMinutes = remainingPrepMinutes(order, currentTimeMs);
               const isNewOrder = newOrderIds.has(order.id);
+              const orderChanges = changeAlertsByOrder.get(order.id) ?? [];
+              const latestOrderChange = orderChanges[0] ?? null;
+              const hasPendingChanges = orderChanges.length > 0;
 
               return (
                 <article
                   key={order.id}
+                  id={`kitchen-order-${order.id}`}
                   className={[
-                    'rounded-xl border p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]',
-                    isNewOrder
+                    'scroll-mt-44 rounded-xl border p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]',
+                    hasPendingChanges
+                      ? 'border-orange-400 bg-[#26180C] ring-2 ring-orange-400/30'
+                      : isNewOrder
                       ? 'kitchen-new-order border-[#FEEF00]/75 bg-[#1D1D19]'
                       : orderIndex % 2 === 0
                         ? 'border-[#2A2A38] bg-[#101018]'
@@ -796,6 +959,11 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                         {isNewOrder ? (
                           <span className="rounded-full border border-[#FEEF00]/60 bg-[#FEEF00] px-2 py-0.5 font-black text-black">
                             Nuevo
+                          </span>
+                        ) : null}
+                        {hasPendingChanges ? (
+                          <span className="rounded-full border border-orange-300 bg-orange-400 px-2 py-0.5 font-black text-black">
+                            MODIFICADO · REVISAR
                           </span>
                         ) : null}
                         <span className="rounded-full border border-[#303041] bg-[#0B0B10] px-2 py-0.5">
@@ -819,6 +987,54 @@ export default function KitchenClient({ publicVapidKey, fullName, orders }: Kitc
                       <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">piezas</div>
                         </div>
                   </div>
+
+                  {latestOrderChange ? (
+                    <div className="mt-2 rounded-xl border-2 border-orange-400/80 bg-[#3A1D08] p-2.5 text-orange-50">
+                      <div className="text-xs font-black uppercase tracking-[0.12em] text-orange-300">
+                        Master modificó esta orden durante la preparación
+                      </div>
+                      <div className="mt-1 text-sm font-semibold leading-snug">
+                        {latestOrderChange.message}
+                      </div>
+                      {latestOrderChange.changedSections.length > 0 ? (
+                        <div className="mt-1 text-xs text-orange-100/85">
+                          Cambió: {latestOrderChange.changedSections.map(changeSectionLabel).join(', ')}
+                        </div>
+                      ) : null}
+                      {latestOrderChange.reason ? (
+                        <div className="mt-1 text-xs text-orange-100/85">
+                          Motivo: {latestOrderChange.reason}
+                        </div>
+                      ) : null}
+                      {orderChanges.length > 1 ? (
+                        <div className="mt-1 text-xs font-bold text-orange-200">
+                          Hay {orderChanges.length} modificaciones pendientes en este pedido.
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-orange-100/65">
+                          {formatDateTime(latestOrderChange.createdAt)}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isPending || connectionState === 'offline'}
+                          onClick={() =>
+                            runAction(changeActionKey, async () => {
+                              await acknowledgeKitchenOrderChangesAction({
+                                orderId: order.id,
+                                recipientIds: orderChanges.map((change) => change.recipientId),
+                              });
+                            })
+                          }
+                          className="min-h-10 shrink-0 rounded-xl border border-orange-200/60 bg-orange-400 px-3 text-xs font-black text-black active:scale-[0.98] disabled:opacity-60"
+                        >
+                          {isPending && pendingKey === changeActionKey
+                            ? 'Marcando...'
+                            : 'Cambio revisado'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {readyTime ? (
                     <div className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1.5 text-sm font-semibold text-emerald-200">

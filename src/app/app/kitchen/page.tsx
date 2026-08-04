@@ -2,7 +2,11 @@ import { redirect } from 'next/navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 import { getPublicVapidKey } from '@/lib/push';
-import KitchenClient, { type KitchenOrder, type KitchenOrderItem } from './KitchenClient';
+import KitchenClient, {
+  type KitchenOrder,
+  type KitchenOrderChangeAlert,
+  type KitchenOrderItem,
+} from './KitchenClient';
 
 type RawKitchenOrder = {
   id: number;
@@ -40,6 +44,20 @@ type RawKitchenItem = {
     | { units_per_service: number | string | null }[]
     | { units_per_service: number | string | null }
     | null;
+};
+
+type RawKitchenChangeEvent = {
+  id: number | string;
+  order_id: number | string;
+  title: string | null;
+  message: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type RawKitchenChangeRecipient = {
+  id: number | string;
+  event_id: number | string;
 };
 
 function normalizeClient(order: RawKitchenOrder) {
@@ -109,16 +127,50 @@ export default async function KitchenPage() {
   const rawOrders = (ordersData ?? []) as unknown as RawKitchenOrder[];
   const orderIds = rawOrders.map((order) => order.id);
 
-  const { data: itemsData, error: itemsError } = orderIds.length
-    ? await ctx.supabase
-        .from('order_items')
-        .select('id, order_id, qty, product_name_snapshot, notes, product:products!order_items_product_id_fkey(units_per_service)')
-        .in('order_id', orderIds)
-        .order('id', { ascending: true })
-    : { data: [], error: null };
+  const [itemsResult, changeEventsResult] = await Promise.all([
+    orderIds.length
+      ? ctx.supabase
+          .from('order_items')
+          .select('id, order_id, qty, product_name_snapshot, notes, product:products!order_items_product_id_fkey(units_per_service)')
+          .in('order_id', orderIds)
+          .order('id', { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
+    orderIds.length
+      ? ctx.supabase
+          .from('order_timeline_events')
+          .select('id, order_id, title, message, payload, created_at')
+          .in('order_id', orderIds)
+          .eq('event_type', 'order_modified')
+          .order('created_at', { ascending: false })
+          .limit(100)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const { data: itemsData, error: itemsError } = itemsResult;
+  const { data: changeEventsData, error: changeEventsError } = changeEventsResult;
 
   if (itemsError) {
     throw new Error(itemsError.message);
+  }
+  if (changeEventsError) {
+    throw new Error(changeEventsError.message);
+  }
+
+  const rawChangeEvents = (changeEventsData ?? []) as unknown as RawKitchenChangeEvent[];
+  const changeEventIds = rawChangeEvents
+    .map((event) => Number(event.id))
+    .filter((eventId) => Number.isFinite(eventId) && eventId > 0);
+  const { data: changeRecipientsData, error: changeRecipientsError } = changeEventIds.length
+    ? await ctx.supabase
+        .from('order_timeline_event_recipients')
+        .select('id, event_id')
+        .in('event_id', changeEventIds)
+        .eq('target_role', 'kitchen')
+        .eq('requires_action', true)
+        .is('read_at', null)
+    : { data: [], error: null };
+
+  if (changeRecipientsError) {
+    throw new Error(changeRecipientsError.message);
   }
 
   const itemsByOrder = new Map<number, KitchenOrderItem[]>();
@@ -173,6 +225,52 @@ export default async function KitchenPage() {
       );
     });
 
+  const changeEventById = new Map(
+    rawChangeEvents.map((event) => [Number(event.id), event]),
+  );
+  const changeAlerts: KitchenOrderChangeAlert[] = (
+    (changeRecipientsData ?? []) as unknown as RawKitchenChangeRecipient[]
+  )
+    .flatMap((recipient) => {
+      const recipientId = Number(recipient.id);
+      const eventId = Number(recipient.event_id);
+      const event = changeEventById.get(eventId);
+      const orderId = Number(event?.order_id);
+      if (
+        !event ||
+        !Number.isFinite(recipientId) ||
+        recipientId <= 0 ||
+        !Number.isFinite(eventId) ||
+        eventId <= 0 ||
+        !Number.isFinite(orderId) ||
+        orderId <= 0
+      ) {
+        return [];
+      }
+
+      const payload =
+        event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+          ? event.payload
+          : {};
+      const changedSections = Array.isArray(payload.changed_sections)
+        ? payload.changed_sections
+            .map((value) => String(value ?? '').trim())
+            .filter(Boolean)
+        : [];
+
+      return [{
+        recipientId,
+        eventId,
+        orderId,
+        title: event.title?.trim() || 'Orden modificada durante preparación',
+        message: event.message?.trim() || 'Se realizaron cambios en la orden.',
+        reason: String(payload.reason ?? '').trim() || null,
+        changedSections,
+        createdAt: event.created_at,
+      }];
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
   return (
     <KitchenClient
       publicVapidKey={getPublicVapidKey()}
@@ -183,6 +281,7 @@ export default async function KitchenPage() {
         'Cocina'
       }
       orders={orders}
+      changeAlerts={changeAlerts}
     />
   );
 }

@@ -1317,14 +1317,15 @@ async function appendOrderEvent(
       try {
         const orderLabel = formatOrderDisplayLabel(input.orderId);
         const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
+        const isNewKitchenOrder = input.eventType === 'order_sent_to_kitchen';
         await sendPushToRoleDevices({
           roles: ['kitchen'],
-          title: `${orderLabel}: nueva orden en cola`,
+          title: isNewKitchenOrder ? `${orderLabel}: nueva orden en cola` : `${orderLabel}: ${input.title}`,
           body: `${clientLabel}${input.message || 'Hay una orden nueva para tomar en cocina.'}`,
           url: '/app/kitchen',
           tag: `kitchen-order-${input.orderId}-${input.eventType}`,
-          tone: input.eventType === 'order_sent_to_kitchen' ? 'critical' : 'warning',
-          requireInteraction: input.eventType === 'order_sent_to_kitchen',
+          tone: isNewKitchenOrder ? 'critical' : 'warning',
+          requireInteraction: isNewKitchenOrder || input.eventType === 'order_modified',
         });
       } catch (pushError) {
         console.warn(
@@ -11917,12 +11918,17 @@ export async function updateOrderAction(input: {
       context: eventContext,
       eventType: 'order_modified',
       eventGroup: 'modification',
-      title: currentOrder.status === 'queued' ? 'Orden modificada para re-aprobacion' : 'Orden modificada',
+      title:
+        currentOrder.status === 'queued'
+          ? 'Orden modificada para re-aprobacion'
+          : currentOrder.status === 'in_kitchen'
+            ? 'Orden modificada durante preparación'
+            : 'Orden modificada',
       message:
         changeMeta.summary.length > 0
           ? changeMeta.summary.join(' ')
           : 'Se realizaron cambios en la orden.',
-      severity: currentOrder.status === 'queued' ? 'warning' : 'info',
+      severity: currentOrder.status === 'queued' || currentOrder.status === 'in_kitchen' ? 'warning' : 'info',
       actorUserId: user.id,
       payload: {
         changed_sections: changeMeta.sections,
@@ -11933,6 +11939,9 @@ export async function updateOrderAction(input: {
       recipients: [
         { targetRole: 'master', requiresAction: currentOrder.status === 'queued' },
         { targetUserId: attributedAdvisorId },
+        ...(currentOrder.status === 'in_kitchen'
+          ? [{ targetRole: 'kitchen' as const, requiresAction: true }]
+          : []),
       ],
     });
   }
