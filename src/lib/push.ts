@@ -39,10 +39,24 @@ function safeText(value: unknown, fallback = '') {
   return text || fallback;
 }
 
-function pushUrlForSubscription(url: string, scope: unknown) {
+function pushUrlForSubscription(url: string, scope: unknown, tag: unknown) {
   if (safeText(scope) !== 'master_ops') return url;
-  if (!url.startsWith('/app/master/dashboard')) return url;
-  return url.replace('/app/master/dashboard', '/app/master/ops');
+
+  const masterOpsUrl = url.startsWith('/app/master/dashboard')
+    ? url.replace('/app/master/dashboard', '/app/master/ops')
+    : url;
+  if (!masterOpsUrl.startsWith('/app/master/ops')) return masterOpsUrl;
+
+  const orderId = safeText(tag).match(/^master-order-(\d+)(?:-|$)/)?.[1];
+  if (!orderId) return masterOpsUrl;
+
+  const [pathAndQuery, hash = ''] = masterOpsUrl.split('#', 2);
+  const [pathname, query = ''] = pathAndQuery.split('?', 2);
+  const params = new URLSearchParams(query);
+  if (!params.has('openOrder')) params.set('openOrder', orderId);
+
+  const nextQuery = params.toString();
+  return `${pathname}${nextQuery ? `?${nextQuery}` : ''}${hash ? `#${hash}` : ''}`;
 }
 
 function webPushTopicFromTag(value: unknown) {
@@ -280,7 +294,7 @@ export async function sendPushToUserDevices(input: {
       const payload = JSON.stringify({
         title: safeText(input.title, 'VIVO OPS'),
         body: safeText(input.body, 'Tienes una actualizacion nueva.'),
-        url: pushUrlForSubscription(requestedUrl, row.scope),
+        url: pushUrlForSubscription(requestedUrl, row.scope, input.tag),
         tag: safeText(input.tag, 'vivo-notification'),
         tone,
         requireInteraction: Boolean(input.requireInteraction || tone === 'critical'),
