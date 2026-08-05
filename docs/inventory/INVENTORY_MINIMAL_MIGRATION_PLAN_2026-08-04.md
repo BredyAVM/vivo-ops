@@ -2,7 +2,8 @@
 
 Fecha: 2026-08-04
 
-Estado: baseline y Fase A estructural aplicadas; backfill no iniciado.
+Estado: baseline, Fase A estructural y clasificación del catálogo aplicadas;
+presentaciones, recetas, motor y saldo inicial pendientes.
 
 ## 0. Ejecución del 2026-08-04
 
@@ -28,6 +29,40 @@ mantienen documentadas dos deudas de las cinco tablas legadas: permisos de
 `anon` demasiado amplios y políticas permisivas duplicadas para lectura. No se
 cambiaron en Fase A para no alterar el comportamiento de la aplicación antes de
 migrar sus consumidores.
+
+## 0.1. Ejecución del 2026-08-05: Bloque 1
+
+Se reconcilió la matriz del 2026-07-30 contra el catálogo vivo. Desde aquella
+extracción se habían eliminado 11 productos inactivos y se había creado Fanta
+Naranja 1,5 Lts como producto 162 e ítem físico 76. El catálogo vivo quedó en
+143 productos y 76 ítems, todos con una decisión canónica conocida.
+
+Se aplicó `20260805144417_inventory_catalog_classification.sql`. La migración:
+
+- clasifica 46 ítems como `transactional`, 29 como `not_tracked` y uno como
+  `periodic_count`;
+- asigna los 46 ítems operativos por turno a Cocina;
+- mantiene `Cajas grandes` como conteo quincenal a cargo de Master;
+- declara 23 alias históricos mediante `merged_into_item_id`, sin sumar ni
+  trasladar saldos;
+- configura objetivo 10 y vida útil de 90 días para los cinco prefritos de
+  stock, y objetivo cero para el prefrito regular bajo demanda y el producto de
+  cerdo estacional;
+- configura alerta inclusiva en 10 unidades para 23 bebidas y alerta estricta
+  por debajo de 10 para los cinco prefritos mantenidos;
+- incorpora Fanta Naranja 1,5 Lts bajo las mismas reglas de bebida.
+
+La prueba previa se ejecutó dentro de una transacción revertida. La verificación
+posterior conservó exactamente las huellas de `current_stock_units`, las
+políticas operativas de `products` y `product_inventory_links`; tampoco cambió
+el número de productos, enlaces, recetas ni movimientos.
+
+Las 143 políticas comerciales están resueltas en la matriz canónica, pero no se
+reescribieron todavía en las columnas operativas de `products`. El consumidor
+actual solo entiende `self/composition` y omite conversiones de unidad en parte
+del flujo. Activarlas antes del cambio coordinado del motor produciría descuentos
+incorrectos. No se tocó código de Master, Counter, Cocina ni Finanzas en este
+bloque.
 
 ## 1. Principio
 
