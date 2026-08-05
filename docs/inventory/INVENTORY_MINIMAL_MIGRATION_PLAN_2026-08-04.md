@@ -2,8 +2,8 @@
 
 Fecha: 2026-08-04
 
-Estado: baseline, Fase A estructural, clasificación del catálogo y política
-canónica de productos aplicadas; recetas, motor y saldo inicial pendientes.
+Estado: baseline, Fase A estructural, clasificación, política de productos y
+recetas canónicas aplicadas; motor y saldo inicial pendientes.
 
 ## 0. Ejecución del 2026-08-04
 
@@ -95,6 +95,40 @@ saldos, movimientos, recetas, componentes ni campos heredados de descuento.
 La nueva lectura está aislada en `/app/inventory/products`. No se añadió ninguna
 consulta a la carga inicial de la dashboard ni se cambió código operativo de
 Master, Counter, Cocina o Finanzas.
+
+## 0.3. Ejecución del 2026-08-05: Bloque 3
+
+Se aplicó `20260805171625_inventory_recipe_catalog_staging.sql`. Antes de
+escribir se auditó el consumidor real y se encontró que la dashboard de Master
+ya puede ejecutar toda receta con `is_active = true`, escribiendo movimientos y
+saldos mediante llamadas separadas. Por eso las 13 recetas canónicas quedaron
+guardadas con `is_active = false`; las dos recetas heredadas y sus tres
+componentes permanecieron intactas y activas.
+
+La configuración canónica incluye:
+
+- seis transformaciones de crudo a prefrito, con 240 minutos y salida en
+  servicios;
+- tártara a granel desde mayonesa y menjurje;
+- porcionado de tártara en 5, 2 y 1 oz;
+- preparación de tártara por galón;
+- un nuevo ítem físico interno para mostaza miel de 1 kg, reutilizando
+  `inventory_items` e `inventory_item_presentations`;
+- porcionado de mostaza miel en 5 y 2 oz.
+
+También se cerraron los cinco pendientes técnicos del Bloque 2: las dos mostazas
+quedaron enlazadas a receta, Evento se convirtió en composición abierta de cinco
+familias fritas, Colegio quedó histórico y no inventariable, y la línea de cerdo
+se corrigió a Pulled Pork estacional. Los 143 productos están ahora en estado
+`ready`.
+
+No se crearon tablas ni productos comerciales. El artículo especial del
+restaurante no existe en el catálogo vivo y, por la regla de alcance, se
+incorporará posteriormente mediante el configurador universal.
+
+La migración conservó las huellas de saldos existentes, movimientos, enlaces de
+producto, recetas heredadas y todos los componentes comerciales ajenos a Evento.
+La lectura nueva está aislada en `/app/inventory/recipes`.
 
 ## 1. Principio
 
@@ -370,6 +404,8 @@ operaciones necesarias a `authenticated`.
 
 - clasificación de los 143 productos y 76 ítems vivos completada;
 - enlaces canónicos versión 1 preparados e inactivos;
+- recetas canónicas preparadas e inactivas; el catálogo físico contiene ahora 77
+  ítems por la base comprada de mostaza miel;
 - crear presentaciones desde los empaques actuales;
 - migrar alias con `merged_into_item_id`;
 - cargar recetas canónicas;

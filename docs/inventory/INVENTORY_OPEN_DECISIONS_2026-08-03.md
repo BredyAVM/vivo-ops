@@ -8,8 +8,8 @@ incompatible.
 
 ## Estado del catálogo actual
 
-- 143 de 143 productos vivos tienen política canónica definida;
-- 76 de 76 ítems vivos tienen clasificación canónica definida y aplicada en
+- 143 de 143 productos vivos tienen política canónica definida y estado `ready`;
+- 77 de 77 ítems vivos tienen clasificación canónica definida y aplicada en
   Supabase;
 - no quedan preguntas de negocio del catálogo actual necesarias para continuar;
 - los estados distintos de `confirmed` representan migraciones o correcciones
@@ -17,14 +17,15 @@ incompatible.
 
 ## 1. Cerrar técnicamente el catálogo existente
 
-Estado: **clasificación y enlaces canónicos preparados; cinco correcciones
-técnicas pendientes**.
+Estado: **cerrado para el catálogo vivo**.
 
-- crear el ítem a granel de mostaza miel de 1 kg y enlazar sus recetas de 2 oz y
-  5 oz reutilizando las tablas actuales;
-- separar la empanada Pulled Pork estacional de la receta cruda del restaurante;
-- convertir Evento/Colegio en una composición abierta y persistir la selección
-  real de cada pedido;
+- el ítem a granel de mostaza miel de 1 kg y sus recetas de 2 oz y 5 oz ya están
+  preparados;
+- Pulled Pork estacional ya tiene identidad corregida; el producto del
+  restaurante no existe en el catálogo y se creará posteriormente desde el
+  configurador;
+- Evento quedó como composición abierta de cinco familias y Colegio como
+  histórico; persistir la selección real pertenece al cambio del motor;
 - los 23 alias con objetivo físico ya tienen `merged_into_item_id`, sin sumar ni
   trasladar saldos; los enlaces canónicos ya apuntan a identidades finales y
   permanecen inactivos hasta el cambio de motor;
@@ -51,7 +52,7 @@ incorporará progresivamente mediante este asistente.
 
 ## 3. Encaje con Supabase
 
-Estado: **estructura mínima, clasificación y política de productos aplicadas**.
+Estado: **estructura mínima, clasificación, política y recetas aplicadas**.
 
 - reutilizar primero `products`, `product_components`, `inventory_items`,
   `product_inventory_links`, `inventory_recipes`,
@@ -68,10 +69,12 @@ está en `INVENTORY_MINIMAL_MIGRATION_PLAN_2026-08-04.md`.
 
 ## 4. Migración y activación
 
-Estado: **en curso; configuración versión 1 preparada e inactiva**.
+Estado: **en curso; enlaces y recetas canónicas preparados e inactivos**.
 
 - clasificación de identidades y enlaces versión 1 aplicada; activación pendiente
   del cambio coordinado del motor;
+- 13 recetas canónicas preparadas; las dos heredadas continúan activas sin
+  modificaciones hasta retirar el comando no atómico de Master;
 - ejecutar conteo físico inicial;
 - registrar `opening_balance` sin reinterpretar saldos históricos;
 - probar venta, producción, recepción, pérdida, conteo, reverso y reservas;

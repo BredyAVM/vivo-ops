@@ -2,7 +2,7 @@
 
 Fecha: 2026-08-03
 
-Estado: arquitectura aprobada; clasificación de ítems y políticas de productos
+Estado: arquitectura aprobada; clasificación, políticas y recetas canónicas
 aplicadas sin activar el motor canónico.
 
 ## 1. Resultado buscado
@@ -186,6 +186,11 @@ edición libre.
 - múltiplo de producción;
 - vida útil;
 - vigencia o versión para no reinterpretar producción histórica.
+
+El Bloque 3 reutilizó `lead_time_minutes`, `production_multiple`, `version` e
+`is_active`. Las recetas canónicas están versionadas e inactivas porque el comando
+heredado de Master todavía escribe movimiento y saldo en operaciones separadas.
+Solo se activarán junto con el comando atómico.
 
 ### `inventory_movements`
 
