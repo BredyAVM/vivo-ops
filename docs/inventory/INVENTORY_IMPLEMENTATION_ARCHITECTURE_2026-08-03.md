@@ -249,3 +249,26 @@ ya asentadas en las matrices:
 
 Las políticas RLS deben proteger filas y los comandos privilegiados deben validar
 la identidad y el rol dentro de la función; no basta con `TO authenticated`.
+
+## 11. Frontera de aplicación y lecturas operativas
+
+El centro de verdad de inventario vive en la ruta independiente `/app/inventory`.
+No forma parte de la dashboard heredada ni del módulo operativo de Master. Su
+código y sus consultas se cargan únicamente cuando el usuario entra al centro.
+
+La entrada desde `/app/master/dashboard` usa navegación sin precarga. Mientras se
+termina el motor canónico, la dashboard conserva sus lecturas heredadas porque
+todavía sostienen comprometidos, disponibilidad y edición del catálogo. No se
+agregará allí ninguna nueva pantalla ni consulta pesada de inventario.
+
+Cuando el motor esté listo, Master y los demás módulos consumirán proyecciones
+pequeñas adaptadas a cada operación:
+
+- existencia y disponibilidad actual;
+- compromisos dentro del horizonte operativo;
+- alertas que requieren acción del rol;
+- resumen del último conteo.
+
+Los historiales, líneas de conteo, recetas y movimientos detallados se consultan
+bajo demanda dentro del Centro de Inventario. Las proyecciones no reemplazan el
+kardex ni se convierten en una segunda autoridad de stock.

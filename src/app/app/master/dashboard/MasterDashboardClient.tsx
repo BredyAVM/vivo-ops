@@ -14551,9 +14551,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <Chip active={settingsTab === 'catalog'} onClick={() => setSettingsTab('catalog')}>
           Catálogo
         </Chip>
-        <Chip active={settingsTab === 'inventory'} onClick={() => setSettingsTab('inventory')}>
+        <Link
+          href="/app/inventory"
+          prefetch={false}
+          className="whitespace-nowrap rounded-full border border-[#242433] bg-[#101014] px-2 py-0.5 text-[11px] text-[#8A8A96] hover:border-[#FEEF00]/60 hover:text-[#F5F5F7]"
+        >
           Inventario
-        </Chip>
+        </Link>
         <Chip active={settingsTab === 'exchange_rate'} onClick={() => setSettingsTab('exchange_rate')}>
           Tasa
         </Chip>
