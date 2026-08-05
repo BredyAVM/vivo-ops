@@ -2,8 +2,8 @@
 
 Fecha: 2026-08-04
 
-Estado: baseline, Fase A estructural y clasificación del catálogo aplicadas;
-presentaciones, recetas, motor y saldo inicial pendientes.
+Estado: baseline, Fase A estructural, clasificación del catálogo y política
+canónica de productos aplicadas; recetas, motor y saldo inicial pendientes.
 
 ## 0. Ejecución del 2026-08-04
 
@@ -63,6 +63,38 @@ actual solo entiende `self/composition` y omite conversiones de unidad en parte
 del flujo. Activarlas antes del cambio coordinado del motor produciría descuentos
 incorrectos. No se tocó código de Master, Counter, Cocina ni Finanzas en este
 bloque.
+
+## 0.2. Ejecución del 2026-08-05: Bloque 2
+
+Se aplicó `20260805164243_inventory_product_policy_staging.sql`. La auditoría del
+consumidor real demostró que `products.inventory_deduction_mode` no es una
+clasificación pasiva: el flujo heredado de entrega lo usa directamente para
+descontar. Por eso no se amplió ni se reescribió esa columna.
+
+La migración añadió únicamente los campos que el nuevo centro ya consume:
+
+- `products.inventory_policy`, con `self`, `direct`, `components` o `none`;
+- `products.inventory_configuration_status`, que deja productos nuevos en
+  `draft` y hace visibles las configuraciones incompletas;
+- `products.allows_half_service`, como regla comercial explícita;
+- `product_inventory_links.configuration_version`, que separa los enlaces
+  heredados de la configuración canónica;
+- `product_inventory_links.deduction_stage`, que declara la etapa física futura.
+
+Quedaron clasificados 143 productos: 56 `self`, 37 `direct`, 37 `components` y
+13 `none`. Hay 138 listos y cinco pendientes técnicos ya identificados: dos
+recetas de mostaza miel, dos packs abiertos de eventos/colegios y una corrección
+del producto de cerdo estacional. Quince productos permiten medio servicio.
+
+Se prepararon 103 enlaces canónicos para 93 productos. Todos tienen
+`configuration_version = 1` e `is_active = false`. Los 107 enlaces heredados
+siguen en versión 0, activos y sin cambios; `product_components` conserva sus 233
+filas. La migración verificó dentro de la misma transacción que no variaran
+saldos, movimientos, recetas, componentes ni campos heredados de descuento.
+
+La nueva lectura está aislada en `/app/inventory/products`. No se añadió ninguna
+consulta a la carga inicial de la dashboard ni se cambió código operativo de
+Master, Counter, Cocina o Finanzas.
 
 ## 1. Principio
 
@@ -127,14 +159,17 @@ a ejecutar DDL sobre las tablas existentes.
 
 ### Se conservan
 
-- `inventory_enabled`: indica que la política está configurada y activa;
-- `inventory_deduction_mode`: se reutiliza como política canónica, ampliando los
-  valores a `self`, `direct`, `components` y `none`;
+- `inventory_enabled`: se conserva temporalmente como interruptor heredado;
+- `inventory_deduction_mode`: se conserva sin cambios mientras lo consuma el
+  motor heredado; no es la autoridad canónica;
 - campos comerciales como `type`, `is_combo`, `units_per_service`,
   `is_detail_editable`, `detail_units_limit` e
   `is_combo_component_selectable`.
 
-El valor actual `composition` se migrará a `components`.
+La autoridad nueva es `inventory_policy`. La separación evita activar descuentos
+antes de que el motor atómico pueda respetar cantidades, componentes y etapas.
+Cuando el motor nuevo sea el único consumidor, se retirarán el interruptor y el
+modo heredados tras demostrar cero dependencias.
 
 ### Se eliminan después de migrar consumidores
 
@@ -202,11 +237,18 @@ notas.
 ### `product_inventory_links`
 
 Se reutilizan todas sus columnas. `quantity_units` será obligatoria y se respetará
-también en `self_link`. Se agregan restricciones, no columnas:
+también en `self_link`. El Bloque 2 agregó dos columnas necesarias para una
+transición segura:
+
+- `configuration_version`: versión 0 para el motor heredado y versión 1 para la
+  configuración canónica preparada;
+- `deduction_stage`: `kitchen`, `production`, `packing` o `fulfillment`.
+
+También se agregan estas restricciones:
 
 - cantidad mayor que cero;
 - valores conocidos de `deduction_mode`;
-- índice único parcial por producto e ítem cuando `is_active = true`.
+- unicidad por producto, ítem y versión de configuración.
 
 No habrá resolución por coincidencia de nombre.
 
@@ -326,7 +368,8 @@ operaciones necesarias a `authenticated`.
 
 ### Fase B. Backfill
 
-- clasificar los 143 productos y 76 ítems vivos;
+- clasificación de los 143 productos y 76 ítems vivos completada;
+- enlaces canónicos versión 1 preparados e inactivos;
 - crear presentaciones desde los empaques actuales;
 - migrar alias con `merged_into_item_id`;
 - cargar recetas canónicas;

@@ -2,8 +2,8 @@
 
 Fecha: 2026-08-03
 
-Estado: diseño técnico previo a migraciones. No aplica cambios a Supabase ni a los
-módulos operativos.
+Estado: arquitectura aprobada; clasificación de ítems y políticas de productos
+aplicadas sin activar el motor canónico.
 
 ## 1. Resultado buscado
 
@@ -12,8 +12,8 @@ programar excepciones por nombre y sin levantar por chat los consumibles futuros
 Administración podrá crear o reutilizar productos, ítems, presentaciones, recetas
 y reglas desde un configurador genérico.
 
-El alcance inicial utiliza únicamente los 153 productos y 75 ítems auditados. Los
-ítems futuros se incorporarán desde el sistema.
+El alcance inicial fue reconciliado contra el catálogo vivo: 143 productos y 76
+ítems. Los ítems futuros se incorporarán desde el sistema.
 
 ## 2. Qué ya existe y se reutiliza
 
@@ -38,8 +38,9 @@ saldo desde acciones de servidor separadas.
 
 - `products` conserva saldo, empaque y umbral además de `inventory_items`; esa
   duplicación no puede seguir siendo autoridad física.
-- `inventory_deduction_mode` solo admite `self` o `composition`, por lo que no
-  distingue explícitamente `direct`, `components` y `none`.
+- `inventory_deduction_mode` solo admite `self` o `composition` y además lo
+  consume directamente el motor heredado; no puede reciclarse como clasificación
+  canónica sin cambiar primero ese consumidor.
 - el descuento actual todavía busca ítems por nombre cuando falta un enlace;
 - las selecciones configurables pueden interpretarse desde texto guardado en notas;
 - un enlace `self` puede ignorar su cantidad configurada durante el descuento;
@@ -147,8 +148,13 @@ existentes y no justifican una tabla paralela:
 
 ### `products`
 
-- ampliar la política para representar `self`, `direct`, `components` y `none`;
-- usar `inventory_enabled` solo como estado de configuración/activación;
+- usar `inventory_policy` para representar `self`, `direct`, `components` y
+  `none`;
+- usar `inventory_configuration_status` para distinguir borrador, listo y
+  pendientes técnicos;
+- declarar `allows_half_service` explícitamente;
+- mantener `inventory_enabled` e `inventory_deduction_mode` como compatibilidad
+  heredada hasta el cambio coordinado del motor;
 - dejar de considerar `current_stock_units`, empaque y umbral del producto como
   autoridad física;
 - validar que una política activa tenga su configuración completa.
@@ -169,7 +175,8 @@ edición libre.
 
 - conservar cantidades explícitas para `self` y `direct`;
 - declarar etapa física de deducción;
-- impedir enlaces activos duplicados;
+- versionar la configuración para preparar enlaces sin activar el motor heredado;
+- impedir enlaces duplicados dentro de una versión;
 - prohibir la ruta por nombre.
 
 ### `inventory_recipes`

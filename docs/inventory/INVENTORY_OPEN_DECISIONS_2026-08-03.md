@@ -17,7 +17,8 @@ incompatible.
 
 ## 1. Cerrar técnicamente el catálogo existente
 
-Estado: **clasificación base aplicada; enlaces, recetas y composiciones en curso**.
+Estado: **clasificación y enlaces canónicos preparados; cinco correcciones
+técnicas pendientes**.
 
 - crear el ítem a granel de mostaza miel de 1 kg y enlazar sus recetas de 2 oz y
   5 oz reutilizando las tablas actuales;
@@ -25,7 +26,8 @@ Estado: **clasificación base aplicada; enlaces, recetas y composiciones en curs
 - convertir Evento/Colegio en una composición abierta y persistir la selección
   real de cada pedido;
 - los 23 alias con objetivo físico ya tienen `merged_into_item_id`, sin sumar ni
-  trasladar saldos; falta redirigir los enlaces cuando se active el motor nuevo;
+  trasladar saldos; los enlaces canónicos ya apuntan a identidades finales y
+  permanecen inactivos hasta el cambio de motor;
 - conservar Desayuno Woman y Crema de Leche únicamente como históricos;
 - mantener `Cajas grandes` como ítem de conteo periódico. Sus valores operativos
   podrán editarse posteriormente desde el sistema y no bloquean esta fase.
@@ -49,7 +51,7 @@ incorporará progresivamente mediante este asistente.
 
 ## 3. Encaje con Supabase
 
-Estado: **estructura mínima y clasificación del catálogo aplicadas**.
+Estado: **estructura mínima, clasificación y política de productos aplicadas**.
 
 - reutilizar primero `products`, `product_components`, `inventory_items`,
   `product_inventory_links`, `inventory_recipes`,
@@ -66,10 +68,10 @@ está en `INVENTORY_MINIMAL_MIGRATION_PLAN_2026-08-04.md`.
 
 ## 4. Migración y activación
 
-Estado: **en curso**.
+Estado: **en curso; configuración versión 1 preparada e inactiva**.
 
-- clasificación de identidades aplicada; redirección de enlaces pendiente del
-  cambio coordinado del motor;
+- clasificación de identidades y enlaces versión 1 aplicada; activación pendiente
+  del cambio coordinado del motor;
 - ejecutar conteo físico inicial;
 - registrar `opening_balance` sin reinterpretar saldos históricos;
 - probar venta, producción, recepción, pérdida, conteo, reverso y reservas;
