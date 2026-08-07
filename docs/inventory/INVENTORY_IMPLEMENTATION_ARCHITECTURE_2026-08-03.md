@@ -2,8 +2,9 @@
 
 Fecha: 2026-08-03
 
-Estado: arquitectura aprobada; clasificación, políticas y recetas canónicas
-aplicadas sin activar el motor canónico.
+Estado: arquitectura aprobada; clasificación, políticas, recetas, motor
+atómico, resolución de ventas y compromisos fechados aplicados. La apertura y
+el corte operativo siguen pendientes.
 
 ## 1. Resultado buscado
 
@@ -25,7 +26,7 @@ La revisión en vivo de Supabase confirmó estas estructuras:
 | --- | --- | --- |
 | `products` | Identidad y oferta comercial | Reutilizar |
 | `product_components` | Plantilla de componentes fijos, seleccionables y opcionales | Reutilizar |
-| `order_item_components` | Selección comercial real del pedido | Reutilizar y completar su uso |
+| `order_item_components` | Selección comercial real del pedido | Reutilizada; snapshot automático desde el Bloque 6 |
 | `inventory_items` | Identidad física y unidad base | Reutilizar |
 | `product_inventory_links` | Resolución de producto a hojas físicas | Reutilizar |
 | `inventory_recipes` | Encabezado de transformación | Reutilizar y ampliar |

@@ -25,7 +25,8 @@ Estado: **cerrado para el catálogo vivo**.
   restaurante no existe en el catálogo y se creará posteriormente desde el
   configurador;
 - Evento quedó como composición abierta de cinco familias y Colegio como
-  histórico; persistir la selección real pertenece al cambio del motor;
+  histórico; la selección real de las partidas nuevas ya se congela en el
+  snapshot canónico;
 - los 23 alias con objetivo físico ya tienen `merged_into_item_id`, sin sumar ni
   trasladar saldos; los enlaces canónicos ya apuntan a identidades finales y
   permanecen inactivos hasta el cambio de motor;
@@ -54,8 +55,8 @@ incorporará progresivamente mediante este asistente.
 
 ## 3. Encaje con Supabase
 
-Estado: **estructura mínima, clasificación, política, recetas, motor atómico y
-resolución de venta aplicados**.
+Estado: **estructura mínima, clasificación, política, recetas, motor atómico,
+resolución de venta y compromisos fechados aplicados**.
 
 - reutilizar primero `products`, `product_components`, `inventory_items`,
   `product_inventory_links`, `inventory_recipes`,
@@ -68,6 +69,8 @@ resolución de venta aplicados**.
   recetas, ajustes, conteos y reversos;
 - resolución de órdenes instalada para productos directos, medios servicios,
   componentes fijos, selecciones, promociones y productos no inventariables;
+- composición comercial congelada automáticamente y compromisos aprobados
+  representados en `inventory_planned_flows` sin mover stock;
 - trazabilidad canónica protegida mediante reversos, sin borrar movimientos.
 
 El detalle de reutilización, columnas legadas y cinco tablas nuevas justificadas
@@ -75,7 +78,7 @@ está en `INVENTORY_MINIMAL_MIGRATION_PLAN_2026-08-04.md`.
 
 ## 4. Migración y activación
 
-Estado: **en curso; motor y resolución de venta instalados, apertura e
+Estado: **en curso; motor, resolución y compromisos instalados; apertura e
 integración operativa pendientes**.
 
 - clasificación de identidades y enlaces versión 1 aplicada; activación pendiente
@@ -86,9 +89,9 @@ integración operativa pendientes**.
 - registrar `opening_balance` sin reinterpretar saldos históricos;
 - producción, recepción, pérdida, conteo y reverso ya están probados de forma
   aislada; venta también está resuelta y probada, pero permanece desconectada;
-- persistir `order_item_components` al crear o modificar pedidos y congelar la
-  composición comercial real;
-- construir compromisos y dependencias fechadas dentro del horizonte de diez
+- `order_item_components` ya se persiste al crear o modificar partidas y su
+  escritura directa quedó cerrada;
+- compromisos y dependencias fechadas ya protegen el horizonte móvil de diez
   días sin descontar físicamente pedidos futuros;
 - activar por etapas antes de conectar las vistas adaptadas de cocina, Master,
   Counter y Administración.

@@ -3,8 +3,8 @@
 Fecha: 2026-08-04
 
 Estado: baseline, Fase A estructural, clasificación, política de productos,
-recetas canónicas, motor atómico v1 y resolución de venta aplicados; saldo
-inicial y activación operativa pendientes.
+recetas canónicas, motor atómico v1, resolución de venta y compromisos fechados
+aplicados; saldo inicial y activación operativa pendientes.
 
 ## 0. Ejecución del 2026-08-04
 
@@ -177,6 +177,31 @@ Los 144 productos vivos quedaron `ready`. El plato de degustación nuevo consume
 ocho crudos y el medio Dondy promocional consume tres. Las pruebas completas se
 ejecutaron con `ROLLBACK`; ningún ítem fue abierto y no se creó movimiento
 canónico.
+
+## 0.6. Ejecución del 2026-08-07: Bloque 6
+
+Se aplicaron `20260807192344_inventory_order_commitments_v1.sql`,
+`20260807192602_inventory_order_commitment_hardening.sql` y
+`20260807193006_inventory_order_commitment_actor_boundary.sql`. No se creó
+ninguna tabla ni columna. `order_item_components` congela automáticamente
+componentes fijos y selecciones reales, y `inventory_planned_flows` representa
+una sola línea abierta por orden e ítem físico.
+
+La aprobación crea el compromiso; una solicitud en `created` no reserva. Los
+pedidos a más de diez días quedan `draft`, los incluidos en el horizonte móvil
+quedan `active`, la reprobación cierra la versión abierta y la reaprobación la
+reconstruye. Cancelar libera y entregar marca `fulfilled`. Ninguna transición
+mueve existencia física.
+
+La capacidad protege el saldo mínimo proyectado hasta el final del horizonte y
+distingue una disponibilidad propia de otra que depende de recepción o
+producción esperada. La insuficiencia no bloquea al Asesor: informa y deja la
+decisión final al Máster.
+
+La verificación real encontró 11 órdenes abiertas, 43 líneas de compromiso, 24
+snapshots y cero diferencias contra el resolver. Ningún ítem fue abierto y no se
+crearon movimientos. La lectura anónima heredada del snapshot fue revocada y la
+clave foránea de componente recibió su índice de cobertura.
 
 ## 1. Principio
 
@@ -463,7 +488,8 @@ operaciones necesarias a `authenticated`.
 ### Fase C. Cambio del motor
 
 - resolución física y comando atómico de venta instalados, aún desconectados;
-- persistir `order_item_components` al congelar cada pedido;
+- `order_item_components` ya se congela automáticamente;
+- compromisos fechados ya instalados sobre `inventory_planned_flows`;
 - retirar la compatibilidad de marcadores después de migrar el consumidor;
 - la búsqueda por nombre ya está prohibida en el resolver canónico;
 - activar comandos atómicos e idempotentes;
