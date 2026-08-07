@@ -2,8 +2,9 @@
 
 Fecha: 2026-08-04
 
-Estado: baseline, Fase A estructural, clasificación, política de productos y
-recetas canónicas aplicadas; motor y saldo inicial pendientes.
+Estado: baseline, Fase A estructural, clasificación, política de productos,
+recetas canónicas y motor atómico v1 aplicados; saldo inicial y activación
+operativa pendientes.
 
 ## 0. Ejecución del 2026-08-04
 
@@ -129,6 +130,30 @@ incorporará posteriormente mediante el configurador universal.
 La migración conservó las huellas de saldos existentes, movimientos, enlaces de
 producto, recetas heredadas y todos los componentes comerciales ajenos a Evento.
 La lectura nueva está aislada en `/app/inventory/recipes`.
+
+## 0.4. Ejecución del 2026-08-07: Bloque 4
+
+Se aplicaron `20260807175917_inventory_atomic_engine_v1.sql`,
+`20260807183124_inventory_read_access_hardening.sql` y
+`20260807183841_inventory_opening_command_cleanup.sql`. No se creó una tabla de
+operaciones: `inventory_movements.operation_id` ya representa la clave común e
+idempotente y `reversal_of_movement_id` conserva el vínculo de reversión. La
+apertura quedó disponible únicamente mediante el conteo trazable, sin un atajo
+individual paralelo.
+
+El motor v1 cubre apertura física, recepción y devolución, pérdidas, ajuste
+administrativo, receta, reverso, conteo, aceptación y reconteo selectivo. Cada
+comando valida usuario y rol, usa bloqueos transaccionales y actualiza kardex y
+saldo de forma indivisible. Los hechos canónicos quedan inmutables.
+
+La prueba se ejecutó primero dentro de transacciones revertidas. Después de la
+aplicación, las huellas continuaron exactamente iguales: 77 ítems, 3.905
+movimientos heredados, cero movimientos canónicos, 15 recetas y dos recetas
+activas. Ningún ítem fue abierto y las 13 recetas canónicas siguen inactivas.
+
+El rol anónimo perdió todos los privilegios sobre las diez tablas del dominio.
+La lectura técnica nueva vive en `/app/inventory/operations` y solo se carga al
+entrar. No se cambió código de Master, Cocina, Counter, Asesor ni Finanzas.
 
 ## 1. Principio
 

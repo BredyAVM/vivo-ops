@@ -194,9 +194,9 @@ Solo se activarán junto con el comando atómico.
 
 ### `inventory_movements`
 
-- referencia a operación atómica;
+- `operation_id` reutilizado como clave idempotente de la operación atómica;
 - referencia de origen estructurada;
-- movimiento reversado, cuando aplique;
+- `reversal_of_movement_id` reutilizado para el movimiento reversado;
 - saldo resultante opcional para auditoría;
 - prohibición de borrar hechos contabilizados.
 
@@ -208,7 +208,7 @@ representar correctamente estas capacidades:
 | Capacidad | Por qué no cabe de forma segura en lo actual |
 | --- | --- |
 | Presentaciones múltiples por ítem | `inventory_items` solo admite un nombre y factor de empaque |
-| Operación atómica e idempotente | un hecho puede producir varios movimientos y hoy no existe encabezado común |
+| Operación atómica e idempotente | resuelta en el Bloque 4 reutilizando `inventory_movements.operation_id`; no requirió otra tabla |
 | Lotes y vencimiento | el saldo agregado no identifica producción, fecha ni cantidad restante |
 | Asignaciones y dependencias futuras | una promesa no es un movimiento físico |
 | Reposiciones esperadas y conciliación | la entrada real debe reemplazar, no acumular ciegamente, la expectativa |

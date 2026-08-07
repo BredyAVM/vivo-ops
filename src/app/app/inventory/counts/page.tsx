@@ -13,6 +13,7 @@ type InventoryCountRow = {
 };
 
 const kindLabels: Record<string, string> = {
+  opening: 'Apertura física',
   shift_change: 'Cambio de turno',
   requested: 'Solicitado',
   recount: 'Reconteo',

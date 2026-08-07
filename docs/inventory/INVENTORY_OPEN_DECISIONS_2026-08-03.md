@@ -52,7 +52,7 @@ incorporará progresivamente mediante este asistente.
 
 ## 3. Encaje con Supabase
 
-Estado: **estructura mínima, clasificación, política y recetas aplicadas**.
+Estado: **estructura mínima, clasificación, política, recetas y motor atómico v1 aplicados**.
 
 - reutilizar primero `products`, `product_components`, `inventory_items`,
   `product_inventory_links`, `inventory_recipes`,
@@ -61,15 +61,16 @@ Estado: **estructura mínima, clasificación, política y recetas aplicadas**.
 - identificar qué reglas caben en columnas actuales;
 - justificar cada columna o tabla adicional antes de crearla;
 - eliminar descuentos por coincidencia de nombre y notas interpretadas;
-- mover los movimientos y saldos a comandos atómicos e idempotentes;
-- mantener la trazabilidad mediante reversos, nunca borrando movimientos.
+- comandos atómicos e idempotentes instalados para apertura, entradas, pérdidas,
+  recetas, ajustes, conteos y reversos;
+- trazabilidad canónica protegida mediante reversos, sin borrar movimientos.
 
 El detalle de reutilización, columnas legadas y cinco tablas nuevas justificadas
 está en `INVENTORY_MINIMAL_MIGRATION_PLAN_2026-08-04.md`.
 
 ## 4. Migración y activación
 
-Estado: **en curso; enlaces y recetas canónicas preparados e inactivos**.
+Estado: **en curso; motor instalado, apertura e integración operativa pendientes**.
 
 - clasificación de identidades y enlaces versión 1 aplicada; activación pendiente
   del cambio coordinado del motor;
@@ -77,7 +78,8 @@ Estado: **en curso; enlaces y recetas canónicas preparados e inactivos**.
   modificaciones hasta retirar el comando no atómico de Master;
 - ejecutar conteo físico inicial;
 - registrar `opening_balance` sin reinterpretar saldos históricos;
-- probar venta, producción, recepción, pérdida, conteo, reverso y reservas;
+- producción, recepción, pérdida, conteo y reverso ya están probados de forma
+  aislada; falta conectar venta y reservas a la resolución comercial canónica;
 - activar por etapas antes de conectar las vistas adaptadas de cocina, Master,
   Counter y Administración.
 

@@ -58,6 +58,13 @@ export default async function InventoryLayout({ children }: { children: ReactNod
               Conteos históricos
             </Link>
             <Link
+              href="/app/inventory/operations"
+              prefetch={false}
+              className="rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] hover:border-[#FEEF00]/50"
+            >
+              Motor
+            </Link>
+            <Link
               href="/app/master/dashboard"
               prefetch={false}
               className="rounded-xl border border-[#2A2A39] px-3 py-2 text-sm text-[#A6A6B2] hover:text-white"
