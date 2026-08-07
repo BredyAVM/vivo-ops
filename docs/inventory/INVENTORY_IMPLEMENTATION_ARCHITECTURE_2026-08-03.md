@@ -287,3 +287,15 @@ pequeñas adaptadas a cada operación:
 Los historiales, líneas de conteo, recetas y movimientos detallados se consultan
 bajo demanda dentro del Centro de Inventario. Las proyecciones no reemplazan el
 kardex ni se convierten en una segunda autoridad de stock.
+
+## 12. Apertura física y corte derivado
+
+El Bloque 7 queda preparado sin agregar tablas ni columnas. La activación se
+deriva exclusivamente de los conteos existentes: todos los ítems canónicos,
+activos y rastreados deben tener una apertura aceptada y no revertida.
+
+El corte tiene tres modos: `legacy` antes del primer conteo, `opening` durante la
+ventana física controlada y `canonical` al aceptar la apertura completa. En modo
+canónico, la transición de una orden a `delivered` y su consumo físico pertenecen
+a la misma transacción. La migración está instalada, pero con 0 de 47 aperturas
+continúa en `legacy` y no modifica ni bloquea órdenes actuales.

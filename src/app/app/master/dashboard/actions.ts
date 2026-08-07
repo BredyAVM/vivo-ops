@@ -7329,6 +7329,11 @@ async function applyDeliveredOrderInventoryDeductions(
     return;
   }
 
+  const cutoverMode = await loadInventoryCutoverMode(supabase);
+  if (cutoverMode !== 'legacy') {
+    return;
+  }
+
   const { data: orderRow, error: orderError } = await supabase
     .from('orders')
     .select('id, order_number')
@@ -7674,6 +7679,21 @@ async function applyDeliveredOrderInventoryDeductions(
 
     inventoryItemsById.set(inventoryItemId, { id: inventoryItemId, currentStockUnits: nextStock });
   }
+}
+
+async function loadInventoryCutoverMode(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>
+): Promise<'legacy' | 'opening' | 'canonical'> {
+  const { data, error } = await supabase.rpc('inventory_cutover_mode_v1');
+  if (error) {
+    throw new Error(`No se pudo verificar el modo de inventario: ${error.message}`);
+  }
+
+  if (data !== 'legacy' && data !== 'opening' && data !== 'canonical') {
+    throw new Error('Supabase devolvió un modo de inventario inválido.');
+  }
+
+  return data;
 }
 
 async function resetDeliveredOrderInventoryDeductions(
@@ -11236,6 +11256,15 @@ export async function updateOrderAction(input: {
 
   if (expectedLastModifiedAt !== currentLastModifiedAt) {
     return { ok: false as const, code: 'stale_order_edit', message: STALE_ORDER_EDIT_MESSAGE };
+  }
+
+  if (currentOrder.status === 'delivered') {
+    const cutoverMode = await loadInventoryCutoverMode(supabase);
+    if (cutoverMode !== 'legacy') {
+      throw new Error(
+        'La orden ya está entregada y el inventario está en transición o en modo canónico. Para conservar la trazabilidad, sus productos no pueden editarse sin un flujo formal de reverso.'
+      );
+    }
   }
 
   const isAdvancedOrderEdit = !['created', 'queued'].includes(currentOrder.status);

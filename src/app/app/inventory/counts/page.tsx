@@ -88,7 +88,15 @@ export default async function InventoryCountsPage() {
               <tbody className="divide-y divide-[#242433]">
                 {counts.map((count) => (
                   <tr key={count.id} className="hover:bg-[#15151D]">
-                    <td className="px-4 py-3 font-semibold">#{count.id}</td>
+                    <td className="px-4 py-3 font-semibold">
+                      <Link
+                        href={`/app/inventory/counts/${count.id}`}
+                        prefetch={false}
+                        className="text-[#FEEF00] hover:underline"
+                      >
+                        #{count.id}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">{kindLabels[count.count_kind] ?? count.count_kind}</td>
                     <td className="px-4 py-3">{statusLabels[count.status] ?? count.status}</td>
                     <td className="px-4 py-3 uppercase text-[#A6A6B2]">{count.responsible_role}</td>

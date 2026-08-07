@@ -15,11 +15,6 @@ type CanonicalMovementRow = {
   created_at: string;
 };
 
-type OpeningMovementRow = {
-  id: number;
-  inventory_item_id: number;
-};
-
 const movementLabels: Record<string, string> = {
   inbound: 'Entrada',
   return_in: 'Devolución',
@@ -55,7 +50,7 @@ export default async function InventoryOperationsPage() {
     return null;
   }
 
-  const [itemsResult, movementsResult, openingsResult, recipesResult, countsResult] = await Promise.all([
+  const [itemsResult, movementsResult, recipesResult, countsResult, openingStatusResult] = await Promise.all([
     ctx.supabase.from('inventory_items').select('id,name').order('name'),
     ctx.supabase
       .from('inventory_movements')
@@ -67,12 +62,6 @@ export default async function InventoryOperationsPage() {
       .order('created_at', { ascending: false })
       .limit(100),
     ctx.supabase
-      .from('inventory_movements')
-      .select('id,inventory_item_id')
-      .eq('reason_code', 'opening_balance')
-      .not('operation_id', 'is', null)
-      .limit(200),
-    ctx.supabase
       .from('inventory_recipes')
       .select('id', { count: 'exact', head: true })
       .like('notes', 'Bloque 3:%')
@@ -81,14 +70,15 @@ export default async function InventoryOperationsPage() {
       .from('inventory_counts')
       .select('id', { count: 'exact', head: true })
       .in('status', ['open', 'submitted', 'recount_requested']),
+    ctx.supabase.rpc('inventory_opening_status_v1'),
   ]);
 
   const firstError = [
     itemsResult.error,
     movementsResult.error,
-    openingsResult.error,
     recipesResult.error,
     countsResult.error,
+    openingStatusResult.error,
   ].find(Boolean);
 
   if (firstError) {
@@ -97,32 +87,15 @@ export default async function InventoryOperationsPage() {
 
   const items = (itemsResult.data ?? []) as InventoryItemRow[];
   const movements = (movementsResult.data ?? []) as CanonicalMovementRow[];
-  const openings = (openingsResult.data ?? []) as OpeningMovementRow[];
-  const openingMovementIds = openings.map((movement) => movement.id);
-
-  const reversalsResult = openingMovementIds.length
-    ? await ctx.supabase
-        .from('inventory_movements')
-        .select('reversal_of_movement_id')
-        .eq('movement_type', 'reversal')
-        .in('reversal_of_movement_id', openingMovementIds)
-    : { data: [], error: null };
-
-  if (reversalsResult.error) {
-    throw new Error(`No se pudo verificar la apertura de inventario: ${reversalsResult.error.message}`);
-  }
-
-  const reversedMovementIds = new Set(
-    (reversalsResult.data ?? [])
-      .map((movement) => movement.reversal_of_movement_id)
-      .filter((id): id is number => id != null),
-  );
-  const initializedItemIds = new Set(
-    openings
-      .filter((movement) => !reversedMovementIds.has(movement.id))
-      .map((movement) => movement.inventory_item_id),
-  );
   const itemNameById = new Map(items.map((item) => [item.id, item.name]));
+  const openingStatus = (openingStatusResult.data ?? {}) as {
+    eligible_count?: unknown;
+    accepted_count?: unknown;
+    ready?: unknown;
+  };
+  const eligibleOpeningCount = Number(openingStatus.eligible_count ?? 0);
+  const acceptedOpeningCount = Number(openingStatus.accepted_count ?? 0);
+  const isCanonicalReady = openingStatus.ready === true;
 
   return (
     <section>
@@ -135,14 +108,14 @@ export default async function InventoryOperationsPage() {
           </p>
         </div>
         <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
-          Bloque 4 · Motor v1 instalado
+          Bloque 7 · Apertura y corte
         </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard label="Ítems del catálogo" value={items.length} />
-        <SummaryCard label="Con apertura física" value={initializedItemIds.size} tone="good" />
-        <SummaryCard label="Pendientes de apertura" value={items.length - initializedItemIds.size} tone="warn" />
+        <SummaryCard label="Aperturas aceptadas" value={acceptedOpeningCount} tone="good" />
+        <SummaryCard label="Pendientes de apertura" value={Math.max(0, eligibleOpeningCount - acceptedOpeningCount)} tone="warn" />
         <SummaryCard label="Asientos canónicos" value={movementsResult.count ?? 0} tone="info" />
         <SummaryCard label="Conteos por revisar" value={countsResult.count ?? 0} tone="danger" />
       </div>
@@ -157,8 +130,16 @@ export default async function InventoryOperationsPage() {
               value={`${recipesResult.count ?? 0} en espera`}
               tone="warn"
             />
-            <StatusRow label="Descuento automático por ventas" value="No activado" tone="neutral" />
-            <StatusRow label="Apertura de existencias" value="Requiere conteo físico" tone="neutral" />
+            <StatusRow
+              label="Descuento automático por ventas"
+              value={isCanonicalReady ? 'Activo al entregar' : 'Espera apertura completa'}
+              tone={isCanonicalReady ? 'good' : 'neutral'}
+            />
+            <StatusRow
+              label="Apertura de existencias"
+              value={`${acceptedOpeningCount} de ${eligibleOpeningCount} aceptadas`}
+              tone={isCanonicalReady ? 'good' : 'neutral'}
+            />
           </div>
           <p className="mt-4 text-xs leading-5 text-[#858591]">
             Un ítem empieza a usar el motor únicamente después de su conteo de apertura. Hasta entonces,

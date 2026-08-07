@@ -78,8 +78,8 @@ está en `INVENTORY_MINIMAL_MIGRATION_PLAN_2026-08-04.md`.
 
 ## 4. Migración y activación
 
-Estado: **en curso; motor, resolución y compromisos instalados; apertura e
-integración operativa pendientes**.
+Estado: **en curso; apertura y corte aplicados y probados con `ROLLBACK`;
+conteo físico real pendiente**.
 
 - clasificación de identidades y enlaces versión 1 aplicada; activación pendiente
   del cambio coordinado del motor;
@@ -93,6 +93,10 @@ integración operativa pendientes**.
   escritura directa quedó cerrada;
 - compromisos y dependencias fechadas ya protegen el horizonte móvil de diez
   días sin descontar físicamente pedidos futuros;
+- la ruta independiente de apertura, la revisión y el reconteo selectivo están
+  preparados sin nuevas tablas ni columnas;
+- la venta canónica se activará solo cuando todos los ítems tengan apertura
+  aceptada; actualmente continúa en `legacy`, sin afectar ni bloquear órdenes;
 - activar por etapas antes de conectar las vistas adaptadas de cocina, Master,
   Counter y Administración.
 

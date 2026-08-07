@@ -44,6 +44,13 @@ export default async function InventoryLayout({ children }: { children: ReactNod
               Productos
             </Link>
             <Link
+              href="/app/inventory/opening"
+              prefetch={false}
+              className="rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] hover:border-[#FEEF00]/50"
+            >
+              Apertura
+            </Link>
+            <Link
               href="/app/inventory/recipes"
               prefetch={false}
               className="rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] hover:border-[#FEEF00]/50"

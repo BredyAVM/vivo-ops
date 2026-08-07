@@ -497,9 +497,11 @@ operaciones necesarias a `authenticated`.
 
 ### Fase D. Línea base
 
-- conteo físico ciego;
-- `opening_balance`;
-- validación de stock y disponibilidad.
+- conteo físico ciego y revisión selectiva implementados localmente;
+- `opening_balance` y cierre de reconteos probados con `ROLLBACK`;
+- corte automático de ventas instalado sin tabla ni bandera nueva;
+- modo actual `legacy`, con 0 de 47 aperturas y sin efecto sobre órdenes;
+- el conteo físico real continúa pendiente.
 
 ### Fase E. Limpieza
 
