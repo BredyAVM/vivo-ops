@@ -8,7 +8,7 @@ incompatible.
 
 ## Estado del catálogo actual
 
-- 143 de 143 productos vivos tienen política canónica definida y estado `ready`;
+- 144 de 144 productos vivos tienen política canónica definida y estado `ready`;
 - 77 de 77 ítems vivos tienen clasificación canónica definida y aplicada en
   Supabase;
 - no quedan preguntas de negocio del catálogo actual necesarias para continuar;
@@ -32,6 +32,8 @@ Estado: **cerrado para el catálogo vivo**.
 - conservar Desayuno Woman y Crema de Leche únicamente como históricos;
 - mantener `Cajas grandes` como ítem de conteo periódico. Sus valores operativos
   podrán editarse posteriormente desde el sistema y no bloquean esta fase.
+- `Degustación Prefritos (8 und)` consume ocho piezas crudas y no servicios
+  prefritos; su vínculo canónico ya evita el alias fusionado de mini tequeño.
 
 ## 2. Configuración universal de productos e ítems
 
@@ -52,7 +54,8 @@ incorporará progresivamente mediante este asistente.
 
 ## 3. Encaje con Supabase
 
-Estado: **estructura mínima, clasificación, política, recetas y motor atómico v1 aplicados**.
+Estado: **estructura mínima, clasificación, política, recetas, motor atómico y
+resolución de venta aplicados**.
 
 - reutilizar primero `products`, `product_components`, `inventory_items`,
   `product_inventory_links`, `inventory_recipes`,
@@ -63,6 +66,8 @@ Estado: **estructura mínima, clasificación, política, recetas y motor atómic
 - eliminar descuentos por coincidencia de nombre y notas interpretadas;
 - comandos atómicos e idempotentes instalados para apertura, entradas, pérdidas,
   recetas, ajustes, conteos y reversos;
+- resolución de órdenes instalada para productos directos, medios servicios,
+  componentes fijos, selecciones, promociones y productos no inventariables;
 - trazabilidad canónica protegida mediante reversos, sin borrar movimientos.
 
 El detalle de reutilización, columnas legadas y cinco tablas nuevas justificadas
@@ -70,7 +75,8 @@ está en `INVENTORY_MINIMAL_MIGRATION_PLAN_2026-08-04.md`.
 
 ## 4. Migración y activación
 
-Estado: **en curso; motor instalado, apertura e integración operativa pendientes**.
+Estado: **en curso; motor y resolución de venta instalados, apertura e
+integración operativa pendientes**.
 
 - clasificación de identidades y enlaces versión 1 aplicada; activación pendiente
   del cambio coordinado del motor;
@@ -79,7 +85,11 @@ Estado: **en curso; motor instalado, apertura e integración operativa pendiente
 - ejecutar conteo físico inicial;
 - registrar `opening_balance` sin reinterpretar saldos históricos;
 - producción, recepción, pérdida, conteo y reverso ya están probados de forma
-  aislada; falta conectar venta y reservas a la resolución comercial canónica;
+  aislada; venta también está resuelta y probada, pero permanece desconectada;
+- persistir `order_item_components` al crear o modificar pedidos y congelar la
+  composición comercial real;
+- construir compromisos y dependencias fechadas dentro del horizonte de diez
+  días sin descontar físicamente pedidos futuros;
 - activar por etapas antes de conectar las vistas adaptadas de cocina, Master,
   Counter y Administración.
 

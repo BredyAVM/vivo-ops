@@ -3,8 +3,8 @@
 Fecha: 2026-08-04
 
 Estado: baseline, Fase A estructural, clasificación, política de productos,
-recetas canónicas y motor atómico v1 aplicados; saldo inicial y activación
-operativa pendientes.
+recetas canónicas, motor atómico v1 y resolución de venta aplicados; saldo
+inicial y activación operativa pendientes.
 
 ## 0. Ejecución del 2026-08-04
 
@@ -154,6 +154,29 @@ activas. Ningún ítem fue abierto y las 13 recetas canónicas siguen inactivas.
 El rol anónimo perdió todos los privilegios sobre las diez tablas del dominio.
 La lectura técnica nueva vive en `/app/inventory/operations` y solo se carga al
 entrar. No se cambió código de Master, Cocina, Counter, Asesor ni Finanzas.
+
+## 0.5. Ejecución del 2026-08-07: Bloque 5
+
+Se aplicó `20260807190101_inventory_sale_resolver_v1.sql`. No se creó ninguna
+tabla ni columna: `order_item_components` recibió restricciones de cantidad y
+unicidad, y la resolución reutiliza la plantilla comercial, el snapshot del
+pedido, los vínculos físicos versión 1 y el motor atómico del Bloque 4.
+
+El resolver distingue servicios directos de piezas dentro de combos, aplica el
+redondeo de medios servicios, agrega hojas físicas y falla ante configuraciones
+ambiguas. `order_item_components` es la fuente preferente; los marcadores
+estructurados existentes son una compatibilidad temporal y el texto visible no
+decide inventario.
+
+También quedó preparado el comando idempotente de `sale_out`, limitado a
+Administración y Máster. Exige orden entregada, apertura y stock suficiente;
+bloquea dobles descuentos canónicos o legados y escribe todos los movimientos o
+ninguno. El comando sigue desconectado de los módulos operativos.
+
+Los 144 productos vivos quedaron `ready`. El plato de degustación nuevo consume
+ocho crudos y el medio Dondy promocional consume tres. Las pruebas completas se
+ejecutaron con `ROLLBACK`; ningún ítem fue abierto y no se creó movimiento
+canónico.
 
 ## 1. Principio
 
@@ -439,8 +462,10 @@ operaciones necesarias a `authenticated`.
 
 ### Fase C. Cambio del motor
 
-- persistir `order_item_components`;
-- eliminar parsing por notas y búsqueda por nombre;
+- resolución física y comando atómico de venta instalados, aún desconectados;
+- persistir `order_item_components` al congelar cada pedido;
+- retirar la compatibilidad de marcadores después de migrar el consumidor;
+- la búsqueda por nombre ya está prohibida en el resolver canónico;
 - activar comandos atómicos e idempotentes;
 - impedir edición directa de saldos.
 

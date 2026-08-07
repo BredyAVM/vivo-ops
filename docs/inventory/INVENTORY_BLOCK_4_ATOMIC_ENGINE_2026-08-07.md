@@ -72,9 +72,9 @@ La migración no realizó una apertura física y por eso el estado vivo continú
 - 13 recetas canónicas todavía inactivas.
 
 Tampoco se conectó el comando heredado de entrega de Master, Cocina, Counter ni
-el asesor. El consumo por venta necesita primero resolver cada producto,
-composición y selección real a líneas físicas; esa integración será el siguiente
-bloque y no interpretará nombres ni notas libres.
+el asesor. El Bloque 5 resolvió después cada producto, composición y selección
+real a líneas físicas sin interpretar nombres ni texto visible, pero conservó la
+misma frontera: el escritor legado todavía no fue reemplazado.
 
 ## Seguridad
 

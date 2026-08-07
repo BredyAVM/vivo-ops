@@ -12,8 +12,10 @@ programar excepciones por nombre y sin levantar por chat los consumibles futuros
 Administración podrá crear o reutilizar productos, ítems, presentaciones, recetas
 y reglas desde un configurador genérico.
 
-El alcance inicial fue reconciliado contra el catálogo vivo: 143 productos y 76
-ítems. Los ítems futuros se incorporarán desde el sistema.
+El alcance inicial fue reconciliado contra 143 productos y 76 ítems. Después de
+las incorporaciones auditadas de los bloques siguientes, el catálogo vivo tiene
+144 productos listos y 77 ítems; los ítems futuros se incorporarán desde el
+sistema.
 
 ## 2. Qué ya existe y se reutiliza
 
