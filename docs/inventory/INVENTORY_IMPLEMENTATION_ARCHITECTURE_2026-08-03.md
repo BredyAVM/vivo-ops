@@ -289,6 +289,11 @@ consumen una proyección pequeña para ese `target_at` y presentan el catálogo 
 advertencias informativas. Esa lectura no bloquea el envío de la orden ni carga
 el Centro de Inventario completo; Master continúa tomando la decisión final.
 
+La frontera instalada para esa integración es
+`inventory_catalog_availability_v1`. Las superficies `advisor_availability` y
+`counter_inventory` reciben solo datos comerciales; los detalles de ítems
+físicos quedan limitados a Master y Administración.
+
 Los historiales, líneas de conteo, recetas y movimientos detallados se consultan
 bajo demanda dentro del Centro de Inventario. Las proyecciones no reemplazan el
 kardex ni se convierten en una segunda autoridad de stock.

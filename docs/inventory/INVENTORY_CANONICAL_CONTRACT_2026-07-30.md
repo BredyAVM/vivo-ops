@@ -966,6 +966,11 @@ La lectura es informativa: distingue disponibilidad protegida, dependencia de
 reposición o producción y próxima disponibilidad conocida. Master conserva la
 decisión final sobre la solicitud.
 
+El contrato compartido es `inventory_catalog_availability_v1(target_at,
+product_ids, surface)`. Siempre devuelve `inventory_blocks_submission = false`.
+Los productos configurables piden primero su composición; los combos fijos se
+resuelven hasta sus hojas físicas.
+
 ### 12.2 Demanda tentativa
 
 La orden enviada por el asesor:
