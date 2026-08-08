@@ -133,7 +133,7 @@ export default async function InventoryOperationsPage() {
           </p>
         </div>
         <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
-          Bloque 11 · Recepciones
+          Bloque 12 · Producción
         </div>
       </div>
 

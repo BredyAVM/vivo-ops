@@ -38,6 +38,14 @@ function normalizeCountId(value: unknown) {
   return countId;
 }
 
+function normalizePositiveQuantity(value: unknown, label: string) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error(`${label} debe ser mayor que cero.`);
+  }
+  return quantity;
+}
+
 function normalizeNotes(value: unknown) {
   const notes = String(value ?? '').trim();
   if (notes.length > 1000) {
@@ -128,6 +136,12 @@ function normalizeDateTime(value: unknown, label: string) {
 
 function revalidateInventoryReceiptRoutes() {
   revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/operations');
+}
+
+function revalidateInventoryProductionRoutes() {
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/recipes');
   revalidatePath('/app/inventory/operations');
 }
 
@@ -559,4 +573,130 @@ export async function receiveInventoryStockAction(input: {
       ? null
       : String(result.expected_flow_status),
   };
+}
+
+export async function activateInventoryRecipeAction(input: { recipeId: number }) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede activar recetas de inventario.');
+  }
+
+  const recipeId = normalizeCountId(input.recipeId);
+  const { data, error } = await ctx.supabase.rpc('inventory_activate_recipe_v1', {
+    p_recipe_id: recipeId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateInventoryProductionRoutes();
+  return data as { status?: string; recipe_id?: number } | null;
+}
+
+export async function startInventoryProductionAction(input: {
+  operationId: string;
+  recipeId: number;
+  batchMultiplier: number;
+  declaredOutputUnits?: number | null;
+  notes?: string | null;
+}) {
+  const ctx = await requireAuthContext();
+  if (!ctx.roles.includes('admin') && !ctx.roles.includes('kitchen')) {
+    throw new Error('Solo cocina o administración pueden iniciar preparaciones.');
+  }
+
+  const operationId = normalizeOperationId(input.operationId);
+  const recipeId = normalizeCountId(input.recipeId);
+  const batchMultiplier = normalizePositiveQuantity(
+    input.batchMultiplier,
+    'El multiplicador de producción',
+  );
+  const declaredOutputUnits = input.declaredOutputUnits == null
+    ? null
+    : normalizePositiveQuantity(input.declaredOutputUnits, 'La salida real');
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_start_recipe_v2', {
+    p_operation_id: operationId,
+    p_recipe_id: recipeId,
+    p_batch_multiplier: batchMultiplier,
+    p_declared_output_units: declaredOutputUnits,
+    p_notes: notes,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateInventoryProductionRoutes();
+  return data as {
+    status?: string;
+    availability_mode?: 'immediate' | 'scheduled';
+    production_flow_id?: number;
+    inventory_lot_id?: number;
+  } | null;
+}
+
+export async function completeInventoryProductionAction(input: {
+  operationId: string;
+  productionFlowId: number;
+  actualOutputUnits: number;
+  notes?: string | null;
+}) {
+  const ctx = await requireAuthContext();
+  if (!ctx.roles.includes('admin') && !ctx.roles.includes('kitchen')) {
+    throw new Error('Solo cocina o administración pueden terminar preparaciones.');
+  }
+
+  const operationId = normalizeOperationId(input.operationId);
+  const productionFlowId = normalizeCountId(input.productionFlowId);
+  const actualOutputUnits = normalizePositiveQuantity(
+    input.actualOutputUnits,
+    'La salida real',
+  );
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_complete_production_v1', {
+    p_operation_id: operationId,
+    p_production_flow_id: productionFlowId,
+    p_actual_output_units: actualOutputUnits,
+    p_notes: notes,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateInventoryProductionRoutes();
+  return data as { status?: string; inventory_lot_id?: number } | null;
+}
+
+export async function resolveInventoryProductionAction(input: {
+  productionFlowId: number;
+  resolution: 'failed' | 'cancelled';
+  notes?: string | null;
+}) {
+  const ctx = await requireAuthContext();
+  if (!ctx.roles.includes('admin') && !ctx.roles.includes('kitchen')) {
+    throw new Error('Solo cocina o administración pueden resolver preparaciones.');
+  }
+  if (input.resolution === 'cancelled' && !ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede anular una preparación iniciada.');
+  }
+
+  const productionFlowId = normalizeCountId(input.productionFlowId);
+  const notes = normalizeNotes(input.notes);
+  const { data, error } = await ctx.supabase.rpc('inventory_resolve_production_v1', {
+    p_production_flow_id: productionFlowId,
+    p_resolution: input.resolution,
+    p_notes: notes,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateInventoryProductionRoutes();
+  return data as { status?: string; resolution?: string } | null;
 }

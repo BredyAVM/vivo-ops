@@ -1,0 +1,3 @@
+-- Production completion functions are included in the preceding complete
+-- fresh-install migration. Production received this definition as a separate
+-- migration because the remote migration connector applies bounded SQL chunks.
