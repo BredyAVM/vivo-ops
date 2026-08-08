@@ -284,6 +284,11 @@ pequeñas adaptadas a cada operación:
 - alertas que requieren acción del rol;
 - resumen del último conteo.
 
+Counter y Asesor deben seleccionar primero la fecha y hora de entrega. Después
+consumen una proyección pequeña para ese `target_at` y presentan el catálogo con
+advertencias informativas. Esa lectura no bloquea el envío de la orden ni carga
+el Centro de Inventario completo; Master continúa tomando la decisión final.
+
 Los historiales, líneas de conteo, recetas y movimientos detallados se consultan
 bajo demanda dentro del Centro de Inventario. Las proyecciones no reemplazan el
 kardex ni se convierten en una segunda autoridad de stock.

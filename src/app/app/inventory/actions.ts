@@ -916,3 +916,50 @@ export async function updateInventoryAlertStatusAction(input: {
   revalidateInventoryAlertRoutes();
   return data as { status?: string; alert_status?: string } | null;
 }
+
+export type InventoryKardexCursor = {
+  beforeCreatedAt: string;
+  beforeId: number;
+};
+
+export async function loadInventoryKardexPageAction(input: {
+  inventoryItemId?: number | null;
+  cursor?: InventoryKardexCursor | null;
+  limit?: number;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const inventoryItemId = input.inventoryItemId == null
+    ? null
+    : normalizeCountId(input.inventoryItemId);
+  const limit = input.limit ?? 100;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+    throw new Error('El límite del kardex debe estar entre 1 y 200.');
+  }
+
+  let beforeCreatedAt: string | null = null;
+  let beforeId: number | null = null;
+  if (input.cursor) {
+    const parsedDate = new Date(input.cursor.beforeCreatedAt);
+    if (Number.isNaN(parsedDate.getTime())) {
+      throw new Error('La fecha del cursor del kardex no es válida.');
+    }
+    beforeCreatedAt = parsedDate.toISOString();
+    beforeId = normalizeCountId(input.cursor.beforeId);
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_kardex_page_v1', {
+    p_inventory_item_id: inventoryItemId,
+    p_before_created_at: beforeCreatedAt,
+    p_before_id: beforeId,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+
+  return data as {
+    items?: Array<Record<string, unknown>>;
+    next_cursor?: {
+      before_created_at?: string;
+      before_id?: number;
+    } | null;
+  } | null;
+}

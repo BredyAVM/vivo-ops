@@ -949,6 +949,10 @@ un movimiento ni un saldo físico negativo creado anticipadamente.
 
 ### 12.1 Asesor
 
+El flujo comercial selecciona primero la fecha y hora objetivo. Solo después
+solicita y presenta el catálogo, porque la disponibilidad se evalúa para ese
+`target_at`, no como una cifra general sin fecha. Counter aplica el mismo orden.
+
 El asesor ve información mínima:
 
 ```text
@@ -957,6 +961,10 @@ La solicitud puede ser enviada al Master para revisión.
 ```
 
 Una insuficiencia proyectada no impide enviar la solicitud.
+
+La lectura es informativa: distingue disponibilidad protegida, dependencia de
+reposición o producción y próxima disponibilidad conocida. Master conserva la
+decisión final sobre la solicitud.
 
 ### 12.2 Demanda tentativa
 
