@@ -5,6 +5,7 @@ import InventoryCountDetailClient, {
   type InventoryCountDetailLine,
 } from './InventoryCountDetailClient';
 import { getAuthContext } from '@/lib/auth';
+import { inventoryDisplayText } from '../../display';
 
 type PageProps = {
   params: Promise<{ countId: string }>;
@@ -70,7 +71,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
     status: String(rawCount.status),
     responsibleRole: String(rawCount.responsible_role),
     parentCountId: rawCount.parent_count_id == null ? null : Number(rawCount.parent_count_id),
-    notes: rawCount.notes == null ? null : String(rawCount.notes),
+    notes: rawCount.notes == null ? null : inventoryDisplayText(String(rawCount.notes)),
     createdAt: String(rawCount.created_at),
     submittedAt: rawCount.submitted_at == null ? null : String(rawCount.submitted_at),
     reviewedAt: rawCount.reviewed_at == null ? null : String(rawCount.reviewed_at),
@@ -82,13 +83,13 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
     return {
       id: Number(rawLine.id),
       inventoryItemId,
-      itemName: String(inventoryItem?.name ?? `Ítem #${inventoryItemId}`),
-      unitName: String(inventoryItem?.unit_name ?? 'unidad'),
+      itemName: inventoryDisplayText(String(inventoryItem?.name ?? `Ítem #${inventoryItemId}`)),
+      unitName: inventoryDisplayText(String(inventoryItem?.unit_name ?? 'unidad')),
       expectedQuantityUnits: toNullableNumber(rawLine.expected_quantity_units) ?? 0,
       countedQuantityUnits: toNullableNumber(rawLine.counted_quantity_units),
       differenceQuantityUnits: toNullableNumber(rawLine.difference_quantity_units),
       lineStatus: String(rawLine.line_status),
-      note: rawLine.note == null ? null : String(rawLine.note),
+      note: rawLine.note == null ? null : inventoryDisplayText(String(rawLine.note)),
     };
   });
 

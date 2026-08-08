@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { reviewInventoryCountAction, submitInventoryOpenCountAction } from '../../actions';
+import { displayLabel, inventoryRoleLabels } from '../../display';
 
 export type InventoryCountDetail = {
   id: number;
@@ -173,7 +174,8 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
           <div className="text-sm text-[#8F8F9C]">{kindLabels[count.countKind] ?? count.countKind}</div>
           <h2 className="mt-1 text-2xl font-semibold">Conteo #{count.id}</h2>
           <p className="mt-2 text-sm text-[#9696A3]">
-            Creado {formatDate(count.createdAt)} · Responsable {count.responsibleRole.toUpperCase()}
+            Creado {formatDate(count.createdAt)} · Responsable{' '}
+            {displayLabel(inventoryRoleLabels, count.responsibleRole)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

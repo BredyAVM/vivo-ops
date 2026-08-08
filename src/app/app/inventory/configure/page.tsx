@@ -7,6 +7,7 @@ import InventoryConfiguratorClient, {
 import InventoryActivationQueueClient, {
   type InventoryActivationQueue,
 } from './InventoryActivationQueueClient';
+import { inventoryDisplayText, repairInventoryDisplayData } from '../display';
 
 type RawInventoryItem = {
   id: number;
@@ -75,8 +76,8 @@ export default async function InventoryConfigurePage() {
   const items: ConfiguratorInventoryItem[] = ((itemsResult.data ?? []) as RawInventoryItem[]).map(
     (item) => ({
       id: Number(item.id),
-      name: item.name,
-      unitName: item.unit_name,
+      name: inventoryDisplayText(item.name),
+      unitName: inventoryDisplayText(item.unit_name, 'unidad'),
       trackingMode: item.tracking_mode,
       isActive: item.is_active,
     }),
@@ -85,8 +86,8 @@ export default async function InventoryConfigurePage() {
   const products: ConfiguratorProduct[] = ((productsResult.data ?? []) as RawProduct[]).map(
     (product) => ({
       id: Number(product.id),
-      sku: product.sku,
-      name: product.name,
+      sku: product.sku ? inventoryDisplayText(product.sku) : null,
+      name: inventoryDisplayText(product.name),
       type: product.type,
       isActive: product.is_active,
       sourcePriceAmount: Number(product.source_price_amount),
@@ -102,7 +103,9 @@ export default async function InventoryConfigurePage() {
   return (
     <div className="space-y-8">
       <InventoryActivationQueueClient
-        queue={activationQueueResult.data as InventoryActivationQueue}
+        queue={repairInventoryDisplayData(
+          activationQueueResult.data as InventoryActivationQueue,
+        )}
       />
       <InventoryConfiguratorClient
         inventoryItems={items}

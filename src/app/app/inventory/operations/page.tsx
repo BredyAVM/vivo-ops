@@ -2,6 +2,7 @@ import { getAuthContext } from '@/lib/auth';
 import InventoryReceiptWorkspaceClient, {
   type InventoryReceiptWorkspace,
 } from './InventoryReceiptWorkspaceClient';
+import { repairInventoryDisplayData } from '../display';
 
 type InventoryItemRow = {
   id: number;
@@ -108,7 +109,7 @@ export default async function InventoryOperationsPage() {
   const eligibleOpeningCount = Number(openingStatus.eligible_count ?? 0);
   const acceptedOpeningCount = Number(openingStatus.accepted_count ?? 0);
   const isCanonicalReady = openingStatus.ready === true;
-  const receiptWorkspace = (receiptWorkspaceResult.data ?? {
+  const receiptWorkspace = repairInventoryDisplayData((receiptWorkspaceResult.data ?? {
     permissions: { can_plan: false, can_receive: false },
     items: [],
     presentations: [],
@@ -119,7 +120,7 @@ export default async function InventoryOperationsPage() {
       overdue_expectations: 0,
       receipt_mismatches: 0,
     },
-  }) as InventoryReceiptWorkspace;
+  }) as InventoryReceiptWorkspace);
 
   return (
     <section>

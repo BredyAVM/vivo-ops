@@ -2,6 +2,7 @@ import InventoryProductsClient, {
   type InventoryProductRow,
 } from './InventoryProductsClient';
 import { getAuthContext } from '@/lib/auth';
+import { inventoryDisplayText } from '../display';
 
 type RawProduct = {
   id: number;
@@ -72,7 +73,16 @@ export default async function InventoryProductsPage() {
   const rawLinks = (linksResult.data ?? []) as RawProductLink[];
   const rawItems = (itemsResult.data ?? []) as RawInventoryItem[];
   const rawComponents = (componentsResult.data ?? []) as RawComponent[];
-  const itemById = new Map(rawItems.map((item) => [Number(item.id), item]));
+  const itemById = new Map(
+    rawItems.map((item) => [
+      Number(item.id),
+      {
+        ...item,
+        name: inventoryDisplayText(item.name),
+        unit_name: inventoryDisplayText(item.unit_name, 'unidad'),
+      },
+    ]),
+  );
   const componentCountByProduct = new Map<number, number>();
   const linksByProduct = new Map<number, InventoryProductRow['links']>();
 
@@ -98,8 +108,8 @@ export default async function InventoryProductsPage() {
 
   const products: InventoryProductRow[] = rawProducts.map((product) => ({
     id: Number(product.id),
-    sku: product.sku,
-    name: product.name,
+    sku: product.sku ? inventoryDisplayText(product.sku) : null,
+    name: inventoryDisplayText(product.name),
     productType: product.type,
     isActive: product.is_active,
     inventoryPolicy: product.inventory_policy,

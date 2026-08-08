@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
+import { displayLabel, inventoryRoleLabels } from '../display';
 
 type InventoryCountRow = {
   id: number;
@@ -99,7 +100,9 @@ export default async function InventoryCountsPage() {
                     </td>
                     <td className="px-4 py-3">{kindLabels[count.count_kind] ?? count.count_kind}</td>
                     <td className="px-4 py-3">{statusLabels[count.status] ?? count.status}</td>
-                    <td className="px-4 py-3 uppercase text-[#A6A6B2]">{count.responsible_role}</td>
+                    <td className="px-4 py-3 text-[#A6A6B2]">
+                      {displayLabel(inventoryRoleLabels, count.responsible_role)}
+                    </td>
                     <td className="px-4 py-3 text-[#A6A6B2]">{formatDate(count.created_at)}</td>
                     <td className="px-4 py-3 text-[#A6A6B2]">{formatDate(count.due_at)}</td>
                     <td className="px-4 py-3 text-[#A6A6B2]">{formatDate(count.submitted_at)}</td>

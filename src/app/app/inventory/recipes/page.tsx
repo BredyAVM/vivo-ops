@@ -1,4 +1,5 @@
 import { getAuthContext } from '@/lib/auth';
+import { inventoryDisplayText } from '../display';
 
 type RawRecipe = {
   id: number;
@@ -113,7 +114,16 @@ export default async function InventoryRecipesPage() {
   const rawRecipes = (recipesResult.data ?? []) as RawRecipe[];
   const rawComponents = (componentsResult.data ?? []) as RawRecipeComponent[];
   const rawItems = (itemsResult.data ?? []) as RawInventoryItem[];
-  const itemById = new Map(rawItems.map((item) => [Number(item.id), item]));
+  const itemById = new Map(
+    rawItems.map((item) => [
+      Number(item.id),
+      {
+        ...item,
+        name: inventoryDisplayText(item.name),
+        unit_name: inventoryDisplayText(item.unit_name, 'unidad'),
+      },
+    ]),
+  );
   const componentsByRecipeId = new Map<number, RecipeComponentView[]>();
 
   for (const component of rawComponents) {
@@ -133,6 +143,7 @@ export default async function InventoryRecipesPage() {
 
   const recipes: RecipeView[] = rawRecipes.map((recipe) => {
     const outputItem = itemById.get(Number(recipe.output_inventory_item_id));
+    const notes = recipe.notes ? inventoryDisplayText(recipe.notes) : null;
 
     return {
       id: Number(recipe.id),
@@ -142,14 +153,14 @@ export default async function InventoryRecipesPage() {
       outputUnitName: outputItem?.unit_name ?? 'unidad',
       recipeKind: recipe.recipe_kind,
       outputQuantityUnits: Number(recipe.output_quantity_units),
-      notes: recipe.notes,
+      notes,
       isActive: recipe.is_active,
       leadTimeMinutes: Number(recipe.lead_time_minutes),
       productionMultiple: Number(recipe.production_multiple),
       version: Number(recipe.version),
       availabilityMode: outputItem?.availability_mode ?? null,
       components: componentsByRecipeId.get(Number(recipe.id)) ?? [],
-      isCanonicalStaged: recipe.notes?.startsWith('Bloque 3:') ?? false,
+      isCanonicalStaged: notes?.startsWith('Bloque 3:') ?? false,
     };
   });
 

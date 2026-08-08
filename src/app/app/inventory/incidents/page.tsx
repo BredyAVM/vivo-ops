@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { unstable_noStore as noStore } from 'next/cache';
 import { getAuthContext } from '@/lib/auth';
+import { inventoryDisplayText } from '../display';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -42,7 +43,7 @@ function objectValue(value: unknown): Record<string, unknown> {
 }
 
 function cleanText(value: unknown) {
-  return String(value ?? '').trim();
+  return inventoryDisplayText(String(value ?? '')).trim();
 }
 
 function formatIncidentDate(value: string) {
@@ -153,9 +154,13 @@ export default async function InventoryIncidentsPage() {
                         {status === 'resolved' ? 'Resuelta' : status === 'reviewed' ? 'Revisada' : 'Pendiente'}
                       </span>
                     </div>
-                    <h3 className="mt-3 font-semibold text-white">{incident.title}</h3>
+                    <h3 className="mt-3 font-semibold text-white">
+                      {inventoryDisplayText(incident.title)}
+                    </h3>
                     {incident.message ? (
-                      <p className="mt-1 text-sm text-[#B6B6C2]">{incident.message}</p>
+                      <p className="mt-1 text-sm text-[#B6B6C2]">
+                        {inventoryDisplayText(incident.message)}
+                      </p>
                     ) : null}
                     {shortageNames.length > 0 ? (
                       <p className="mt-2 text-sm text-red-200">

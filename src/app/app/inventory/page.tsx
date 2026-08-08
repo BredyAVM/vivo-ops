@@ -1,5 +1,6 @@
 import InventoryCatalogClient, { type InventoryCatalogRow } from './InventoryCatalogClient';
 import { getAuthContext } from '@/lib/auth';
+import { inventoryDisplayText } from './display';
 
 type RawInventoryItem = {
   id: number;
@@ -66,14 +67,18 @@ export default async function InventoryPage() {
   }
 
   const rawItems = (data ?? []) as RawInventoryItem[];
-  const itemNameById = new Map(rawItems.map((item) => [Number(item.id), item.name]));
+  const itemNameById = new Map(
+    rawItems.map((item) => [Number(item.id), inventoryDisplayText(item.name)]),
+  );
   const items: InventoryCatalogRow[] = rawItems.map((item) => ({
     id: Number(item.id),
-    name: item.name,
+    name: inventoryDisplayText(item.name),
     inventoryKind: item.inventory_kind,
     inventoryGroup: item.inventory_group ?? 'other',
-    unitName: item.unit_name ?? 'unidad',
-    packagingName: item.packaging_name,
+    unitName: inventoryDisplayText(item.unit_name, 'unidad'),
+    packagingName: item.packaging_name
+      ? inventoryDisplayText(item.packaging_name)
+      : null,
     packagingSize: toNullableNumber(item.packaging_size),
     currentStockUnits: toNullableNumber(item.current_stock_units) ?? 0,
     lowStockThreshold: toNullableNumber(item.low_stock_threshold),

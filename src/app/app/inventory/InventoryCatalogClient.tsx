@@ -1,6 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import {
+  displayLabel,
+  inventoryGroupLabels,
+  inventoryKindLabels,
+  inventoryRoleLabels,
+} from './display';
 
 export type InventoryCatalogRow = {
   id: number;
@@ -136,7 +142,8 @@ export default function InventoryCatalogClient({ items }: { items: InventoryCata
                 <td className="px-4 py-3">
                   <div className="font-semibold text-[#F2F2F5]">{item.name}</div>
                   <div className="mt-1 text-xs text-[#7F7F8C]">
-                    #{item.id} · {item.inventoryGroup} · {item.inventoryKind}
+                    #{item.id} · {displayLabel(inventoryGroupLabels, item.inventoryGroup)} ·{' '}
+                    {displayLabel(inventoryKindLabels, item.inventoryKind)}
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -176,7 +183,9 @@ export default function InventoryCatalogClient({ items }: { items: InventoryCata
                     ? frequencyLabels[item.primaryCountFrequency] ?? item.primaryCountFrequency
                     : 'Sin frecuencia'}
                   {item.primaryCountRole ? (
-                    <div className="mt-1 text-xs uppercase text-[#7F7F8C]">{item.primaryCountRole}</div>
+                    <div className="mt-1 text-xs text-[#7F7F8C]">
+                      {displayLabel(inventoryRoleLabels, item.primaryCountRole)}
+                    </div>
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-[#C9C9D2]">

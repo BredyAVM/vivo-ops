@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { displayLabel, productTypeLabels } from '../display';
 
 export type InventoryProductLink = {
   inventoryItemId: number;
@@ -177,7 +178,8 @@ export default function InventoryProductsClient({ products }: { products: Invent
                 <td className="px-4 py-3">
                   <div className="font-semibold text-[#F2F2F5]">{product.name}</div>
                   <div className="mt-1 text-xs text-[#7F7F8C]">
-                    #{product.id} · {product.sku ?? 'sin SKU'} · {product.productType}
+                    #{product.id} · {product.sku ?? 'sin SKU'} ·{' '}
+                    {displayLabel(productTypeLabels, product.productType)}
                   </div>
                 </td>
                 <td className="px-4 py-3">

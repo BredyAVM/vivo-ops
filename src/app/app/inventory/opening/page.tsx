@@ -1,5 +1,6 @@
 import InventoryOpeningClient, { type InventoryOpeningItem } from './InventoryOpeningClient';
 import { getAuthContext } from '@/lib/auth';
+import { inventoryDisplayText } from '../display';
 
 type OpeningStatusPayload = {
   eligible_count?: unknown;
@@ -29,9 +30,9 @@ function parseOpeningItems(value: unknown): InventoryOpeningItem[] {
     const inventoryCountId = rawCountId == null ? null : Number(rawCountId);
     return [{
       id,
-      name: String(item.name ?? `Ítem #${id}`),
+      name: inventoryDisplayText(String(item.name ?? `Ítem #${id}`)),
       inventoryGroup: String(item.inventory_group ?? 'other'),
-      unitName: String(item.unit_name ?? 'unidad'),
+      unitName: inventoryDisplayText(String(item.unit_name ?? 'unidad')),
       trackingMode: String(item.tracking_mode ?? 'transactional'),
       openingStatus: rawStatus as InventoryOpeningItem['openingStatus'],
       inventoryCountId:
