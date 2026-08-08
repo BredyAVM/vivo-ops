@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
+import { parseDecimalInput } from '@/lib/number-input';
 import { saveInventoryCatalogDraftAction } from '../actions';
 
 export type ConfiguratorInventoryItem = {
@@ -88,8 +89,7 @@ function emptyItemDraft(): ItemDraft {
 }
 
 function optionalNumber(value: string) {
-  const normalized = value.trim().replace(',', '.');
-  return normalized ? Number(normalized) : null;
+  return value.trim() ? parseDecimalInput(value) : null;
 }
 
 function itemPayload(item: ItemDraft) {

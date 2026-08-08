@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
+import { parseDecimalInput } from '@/lib/number-input';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from '@/lib/pricing/order-snapshots';
 import { ModulePreference } from '../../ModulePreference';
@@ -7146,7 +7147,7 @@ const handleCreatePaymentReport = async (o: Order) => {
       return;
     }
 
-    const reportedAmount = Number(paymentReportAmount || 0);
+    const reportedAmount = parseDecimalInput(paymentReportAmount, 0);
     if (!Number.isFinite(reportedAmount) || reportedAmount <= 0) {
       showToast('error', 'Monto inválido.');
       return;
@@ -7172,7 +7173,7 @@ const handleCreatePaymentReport = async (o: Order) => {
     });
 
     if (selectedAccount.currencyCode === 'VES') {
-      exchangeRate = Number(paymentReportExchangeRate || 0);
+      exchangeRate = parseDecimalInput(paymentReportExchangeRate, 0);
       if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) {
         showToast('error', 'Debes indicar una tasa válida para pagos en VES.');
         return;
@@ -11399,7 +11400,7 @@ const handleUpdateCreateOrderItemQty = (localId: string, nextQty: number) => {
   );
 };
 
-const parseMoneyInput = (value: string) => Number(String(value || '').replace(',', '.'));
+const parseMoneyInput = (value: string) => parseDecimalInput(value);
 
 const formatMoneyInput = (value: number, fractionDigits = 2) => {
   if (!Number.isFinite(value)) return '';
@@ -11562,7 +11563,7 @@ const createOrderFilteredProducts = catalogItems
   .slice(0, 12);
 
 
-const createOrderFxRateNumber = Math.max(0, Number(createOrderFxRate || 0));
+const createOrderFxRateNumber = Math.max(0, parseDecimalInput(createOrderFxRate, 0));
 
 const createOrderPriorityInput = (item: DraftItem) => {
   const catalogItem = catalogItems.find((catalogItem) => catalogItem.id === item.productId);
@@ -11607,11 +11608,11 @@ const createOrderDraftSubtotalBs = createOrderLineSnapshots.reduce(
 
 const createOrderDiscountPctNumber = Math.max(
   0,
-  Math.min(100, Number(createOrderDiscountPct || 0))
+  Math.min(100, parseDecimalInput(createOrderDiscountPct, 0))
 );
 
 const createOrderInvoiceTaxPctNumber = createOrderHasInvoice
-  ? Math.max(0, Number(String(createOrderInvoiceTaxPct || '0').replace(',', '.')) || 0)
+  ? Math.max(0, parseDecimalInput(createOrderInvoiceTaxPct, 0))
   : 0;
 
 const createOrderTotalsSnapshot = calculateOrderTotalsSnapshot({

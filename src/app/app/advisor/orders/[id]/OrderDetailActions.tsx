@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
+import { parseDecimalInput } from '@/lib/number-input';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import {
   cancelAdvisorOrderAction,
@@ -903,9 +904,9 @@ export default function OrderDetailActions({
                         orderId,
                         reportedMoneyAccountId: Number(moneyAccountId || 0),
                         reportedCurrency: selectedAccount?.currencyCode || '',
-                        reportedAmount: Number(amount || 0),
+                        reportedAmount: parseDecimalInput(amount, 0),
                         reportedExchangeRateVesPerUsd:
-                          selectedAccount?.currencyCode === 'VES' ? Number(exchangeRate || 0) : null,
+                          selectedAccount?.currencyCode === 'VES' ? parseDecimalInput(exchangeRate, 0) : null,
                         paymentMethod: reportPaymentMethod || null,
                         operationDate: operationDate.trim() || null,
                         referenceCode: referenceCode.trim() || null,

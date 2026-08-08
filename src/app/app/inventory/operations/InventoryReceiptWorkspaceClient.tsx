@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { parseDecimalInput } from '@/lib/number-input';
 import {
   cancelInventoryExpectedReceiptAction,
   receiveInventoryStockAction,
@@ -119,8 +120,7 @@ function lineKey() {
 }
 
 function numericInput(value: string) {
-  const normalized = value.trim().replace(',', '.');
-  return normalized ? Number(normalized) : 0;
+  return parseDecimalInput(value, 0);
 }
 
 function formatQuantity(value: number | null, maximumFractionDigits = 3) {

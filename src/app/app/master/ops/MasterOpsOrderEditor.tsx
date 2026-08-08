@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { parseDecimalInput } from "@/lib/number-input";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
 import {
   buildComponentDetailLines,
@@ -88,8 +89,7 @@ const PAYMENT_METHODS = [
 ];
 
 function toNumber(value: unknown, fallback = 0) {
-  const n = Number(String(value ?? "").replace(",", "."));
-  return Number.isFinite(n) ? n : fallback;
+  return parseDecimalInput(value, fallback);
 }
 
 function money(value: number) {

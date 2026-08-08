@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { parseDecimalInput } from '@/lib/number-input';
 import {
   activateInventoryRecipeAction,
   completeInventoryProductionAction,
@@ -181,7 +182,7 @@ export default function InventoryProductionWorkspaceClient({
       const existing = current[recipe.id];
       const next = { ...existing, ...patch };
       if (patch.batchMultiplier != null) {
-        const multiplier = Number(patch.batchMultiplier);
+        const multiplier = parseDecimalInput(patch.batchMultiplier);
         if (Number.isFinite(multiplier) && multiplier > 0) {
           next.actualOutputUnits = String(multiplier * recipe.output_quantity_units);
         }
@@ -200,9 +201,9 @@ export default function InventoryProductionWorkspaceClient({
 
   function startRecipe(recipe: ProductionRecipe) {
     const draft = recipeDrafts[recipe.id];
-    const batchMultiplier = Number(draft.batchMultiplier);
+    const batchMultiplier = parseDecimalInput(draft.batchMultiplier);
     const declaredOutputUnits = recipe.lead_time_minutes === 0
-      ? Number(draft.actualOutputUnits)
+      ? parseDecimalInput(draft.actualOutputUnits)
       : null;
     runAction(
       `start-${recipe.id}`,
@@ -230,7 +231,7 @@ export default function InventoryProductionWorkspaceClient({
       () => completeInventoryProductionAction({
         operationId: crypto.randomUUID(),
         productionFlowId: batch.id,
-        actualOutputUnits: Number(draft.actualOutputUnits),
+        actualOutputUnits: parseDecimalInput(draft.actualOutputUnits),
         notes: draft.notes,
       }),
     );
@@ -472,7 +473,7 @@ function RecipeSection({
           const draft = recipeDrafts[recipe.id];
           const hasBlockers = recipe.activation_blockers.length > 0;
           const canExecute = recipe.is_active && !hasBlockers && permissions.can_start;
-          const multiplier = Number(draft.batchMultiplier);
+          const multiplier = parseDecimalInput(draft.batchMultiplier);
           return (
             <article key={recipe.id} className="rounded-2xl border border-[#242433] bg-[#111117] p-5">
               <div className="flex items-start justify-between gap-4">

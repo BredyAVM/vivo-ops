@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
+import { parseDecimalInput } from '@/lib/number-input';
 import { reviewInventoryCountAction, submitInventoryOpenCountAction } from '../../actions';
 import { displayLabel, inventoryRoleLabels } from '../../display';
 
@@ -108,12 +109,12 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
     setError(null);
     let validationError: string | null = null;
     const submittedLines = lines.flatMap((line) => {
-      const rawQuantity = String(quantities[line.id] ?? '').trim().replace(',', '.');
+      const rawQuantity = String(quantities[line.id] ?? '').trim();
       if (!rawQuantity) {
         validationError = `Falta contar “${line.itemName}”.`;
         return [];
       }
-      const quantity = Number(rawQuantity);
+      const quantity = parseDecimalInput(rawQuantity);
       if (!Number.isFinite(quantity) || quantity < 0) {
         validationError = `Revisa la cantidad de “${line.itemName}”.`;
         return [];

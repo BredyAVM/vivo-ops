@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
+import { parseDecimalInput } from '@/lib/number-input';
 import { submitInventoryOpeningAction } from '../actions';
 
 export type InventoryOpeningItem = {
@@ -77,9 +78,9 @@ export default function InventoryOpeningClient({ items, isAdmin }: Props) {
     let validationError: string | null = null;
     const lines = items.flatMap((item) => {
       if (item.openingStatus !== 'pending') return [];
-      const rawQuantity = String(quantities[item.id] ?? '').trim().replace(',', '.');
+      const rawQuantity = String(quantities[item.id] ?? '').trim();
       if (!rawQuantity) return [];
-      const quantity = Number(rawQuantity);
+      const quantity = parseDecimalInput(rawQuantity);
       if (!Number.isFinite(quantity) || quantity < 0) {
         validationError = `Revisa la cantidad contada de “${item.name}”.`;
         return [];

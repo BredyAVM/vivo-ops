@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
+import { parseDecimalInput } from '@/lib/number-input';
 import {
   activateInventoryDraftAction,
   submitInventoryDraftOpeningAction,
@@ -65,8 +66,7 @@ const openingLabels: Record<ActivationItem['opening_status'], string> = {
 };
 
 function normalizedNumber(value: string) {
-  const normalized = value.trim().replace(',', '.');
-  return normalized ? Number(normalized) : Number.NaN;
+  return parseDecimalInput(value);
 }
 
 export default function InventoryActivationQueueClient({

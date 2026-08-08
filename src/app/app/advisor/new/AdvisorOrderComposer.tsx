@@ -4,6 +4,7 @@ import { type FormEvent, type ReactNode, useDeferredValue, useEffect, useMemo, u
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import { normalizeDecimalInput, parseDecimalInput } from '@/lib/number-input';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { getPhoneSearchTerms, normalizePhone } from '@/lib/phone/normalize-phone';
@@ -436,13 +437,7 @@ function parseStoredTime12(value: string | null | undefined, fallback: { hour12:
 }
 
 function sanitizeQuantityInput(value: string | number | null | undefined) {
-  const raw = String(value ?? '').trim().replace(',', '.');
-  const cleaned = raw.replace(/[^\d.]/g, '');
-  const firstDot = cleaned.indexOf('.');
-
-  if (firstDot === -1) return cleaned;
-
-  return `${cleaned.slice(0, firstDot + 1)}${cleaned.slice(firstDot + 1).replace(/\./g, '')}`;
+  return normalizeDecimalInput(value).replace('-', '');
 }
 
 function parseQuantityValue(value: string | number | null | undefined) {
@@ -1454,7 +1449,7 @@ export default function AdvisorOrderComposer({
       return true;
     });
   }, [selectedClient, selectedClientAddresses]);
-  const fxRateNumber = Math.max(0, Number(String(fxRate || '0').replace(',', '.')) || 0);
+  const fxRateNumber = Math.max(0, parseDecimalInput(fxRate, 0));
   const draftItemSnapshots = useMemo(
     () =>
       draftItems.map((item) =>
@@ -1484,9 +1479,9 @@ export default function AdvisorOrderComposer({
     () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineUsd, 0),
     [draftItemSnapshots]
   );
-  const discountPctNumber = Math.max(0, Math.min(100, Number(discountPct || 0) || 0));
+  const discountPctNumber = Math.max(0, Math.min(100, parseDecimalInput(discountPct, 0)));
   const invoiceTaxPctNumber = hasInvoice
-    ? Math.max(0, Number(String(invoiceTaxPct || '0').replace(',', '.')) || 0)
+    ? Math.max(0, parseDecimalInput(invoiceTaxPct, 0))
     : 0;
   const draftSubtotalBs = useMemo(
     () => draftItemSnapshots.reduce((sum, snapshot) => sum + snapshot.lineBs, 0),
@@ -3211,7 +3206,7 @@ export default function AdvisorOrderComposer({
         method: paymentMethod,
         currency: paymentCurrency,
         requires_change: paymentRequiresChange,
-        change_for: paymentRequiresChange && paymentChangeFor.trim() ? Number(paymentChangeFor) : null,
+        change_for: paymentRequiresChange && paymentChangeFor.trim() ? parseDecimalInput(paymentChangeFor, 0) : null,
         change_currency: paymentRequiresChange ? paymentChangeCurrency : null,
         notes: paymentNote.trim() || null,
       },

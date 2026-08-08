@@ -14,6 +14,7 @@ import {
   isRecognizedBillingOrder,
   isScheduledClosingOrder,
 } from "@/lib/domain/order-domain";
+import { parseDecimalInput } from "@/lib/number-input";
 import {
   ORDER_STATUS_LABELS,
   formatOrderDisplayNumber,
@@ -330,9 +331,7 @@ function orderDisplayNumber(order: Pick<MasterOpsOrder, "id">) {
 }
 
 function parseDecimal(value: string) {
-  const normalized = String(value || "").replace(",", ".");
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
+  return parseDecimalInput(value);
 }
 
 function compactDecimal(value: number, decimals = 2) {

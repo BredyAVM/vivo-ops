@@ -1,4 +1,5 @@
 import { parseEditableDetailLines } from "@/lib/orders/order-composer";
+import { parseDecimalInput } from "@/lib/number-input";
 
 export type MasterOpsOrderEditorValidationIssue = {
   code:
@@ -86,8 +87,7 @@ export type MasterOpsOrderEditorValidationInput = {
 };
 
 function numberValue(value: unknown) {
-  const parsed = Number(String(value ?? "").replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
+  return parseDecimalInput(value);
 }
 
 function hasValidDate(value: unknown) {
