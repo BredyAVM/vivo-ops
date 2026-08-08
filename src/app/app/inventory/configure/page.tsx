@@ -4,6 +4,9 @@ import InventoryConfiguratorClient, {
   type ConfiguratorInventoryItem,
   type ConfiguratorProduct,
 } from './InventoryConfiguratorClient';
+import InventoryActivationQueueClient, {
+  type InventoryActivationQueue,
+} from './InventoryActivationQueueClient';
 
 type RawInventoryItem = {
   id: number;
@@ -38,7 +41,7 @@ export default async function InventoryConfigurePage() {
     redirect('/app/inventory');
   }
 
-  const [itemsResult, productsResult] = await Promise.all([
+  const [itemsResult, productsResult, activationQueueResult] = await Promise.all([
     ctx.supabase
       .from('inventory_items')
       .select('id, name, unit_name, tracking_mode, is_active')
@@ -61,9 +64,10 @@ export default async function InventoryConfigurePage() {
         inventory_policy
       `)
       .order('name', { ascending: true }),
+    ctx.supabase.rpc('inventory_activation_queue_v1'),
   ]);
 
-  const firstError = itemsResult.error ?? productsResult.error;
+  const firstError = itemsResult.error ?? productsResult.error ?? activationQueueResult.error;
   if (firstError) {
     throw new Error(`No se pudo cargar el configurador: ${firstError.message}`);
   }
@@ -96,9 +100,14 @@ export default async function InventoryConfigurePage() {
   );
 
   return (
-    <InventoryConfiguratorClient
-      inventoryItems={items}
-      products={products}
-    />
+    <div className="space-y-8">
+      <InventoryActivationQueueClient
+        queue={activationQueueResult.data as InventoryActivationQueue}
+      />
+      <InventoryConfiguratorClient
+        inventoryItems={items}
+        products={products}
+      />
+    </div>
   );
 }

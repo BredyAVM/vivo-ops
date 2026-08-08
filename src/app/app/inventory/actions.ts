@@ -136,6 +136,84 @@ export async function saveInventoryCatalogDraftAction(input: { configuration: un
   };
 }
 
+export async function submitInventoryDraftOpeningAction(input: {
+  operationId: string;
+  inventoryItemId: number;
+  countedQuantityUnits: number;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede presentar la apertura incremental de un borrador.');
+  }
+
+  const operationId = normalizeOperationId(input.operationId);
+  const inventoryItemId = normalizeCountId(input.inventoryItemId);
+  const countedQuantityUnits = Number(input.countedQuantityUnits);
+  const notes = normalizeNotes(input.notes);
+
+  if (!Number.isFinite(countedQuantityUnits) || countedQuantityUnits < 0) {
+    throw new Error('La existencia inicial debe ser mayor o igual a cero.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_submit_draft_opening_v1', {
+    p_operation_id: operationId,
+    p_inventory_item_id: inventoryItemId,
+    p_counted_quantity_units: countedQuantityUnits,
+    p_notes: notes,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const countId = normalizeCountId(
+    (data as { inventory_count_id?: unknown } | null)?.inventory_count_id,
+  );
+  revalidateInventoryCountRoutes(countId);
+  revalidatePath('/app/inventory/configure');
+  return { countId };
+}
+
+export async function activateInventoryDraftAction(input: {
+  productId?: number | null;
+  inventoryItemId?: number | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede activar borradores de inventario.');
+  }
+
+  const hasProduct = input.productId != null;
+  const hasItem = input.inventoryItemId != null;
+  if (hasProduct === hasItem) {
+    throw new Error('Indica exactamente un producto o un ítem para activar.');
+  }
+
+  const rpcName = hasProduct
+    ? 'inventory_activate_product_draft_v1'
+    : 'inventory_activate_item_draft_v1';
+  const rpcArguments = hasProduct
+    ? { p_product_id: normalizeCountId(input.productId) }
+    : { p_inventory_item_id: normalizeCountId(input.inventoryItemId) };
+  const { data, error } = await ctx.supabase.rpc(rpcName, rpcArguments);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/products');
+  revalidatePath('/app/inventory/configure');
+  revalidatePath('/app/inventory/opening');
+
+  return data as {
+    status?: string;
+    product_id?: number;
+    inventory_item_id?: number;
+  } | null;
+}
+
 export async function submitInventoryOpeningAction(input: {
   operationId: string;
   lines: CountLineInput[];
@@ -189,14 +267,21 @@ export async function submitInventoryOpenCountAction(input: {
     throw new Error('El tipo de conteo abierto no es válido.');
   }
 
-  const { data, error } = await ctx.supabase.rpc('inventory_submit_count_v1', {
-    p_operation_id: operationId,
-    p_count_kind: input.countKind,
-    p_lines: serializeLines(lines),
-    p_notes: notes,
-    p_parent_count_id: null,
-    p_existing_count_id: countId,
-  });
+  const { data, error } = input.countKind === 'recount'
+    ? await ctx.supabase.rpc('inventory_submit_staged_recount_v1', {
+        p_operation_id: operationId,
+        p_existing_count_id: countId,
+        p_lines: serializeLines(lines),
+        p_notes: notes,
+      })
+    : await ctx.supabase.rpc('inventory_submit_count_v1', {
+        p_operation_id: operationId,
+        p_count_kind: input.countKind,
+        p_lines: serializeLines(lines),
+        p_notes: notes,
+        p_parent_count_id: null,
+        p_existing_count_id: countId,
+      });
 
   if (error) {
     throw new Error(error.message);
