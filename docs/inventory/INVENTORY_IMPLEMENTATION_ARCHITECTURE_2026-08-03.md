@@ -309,3 +309,18 @@ ventana física controlada y `canonical` al aceptar la apertura completa. En mod
 canónico, la transición de una orden a `delivered` y su consumo físico pertenecen
 a la misma transacción. La migración está instalada, pero con 0 de 47 aperturas
 continúa en `legacy` y no modifica ni bloquea órdenes actuales.
+
+## 13. Auditoría de preparación e integración
+
+El corte no se decide por una bandera manual. La lectura
+`inventory_cutover_readiness_v1` deriva dos niveles:
+
+- `structural_ready`: catálogo activo, vínculos, componentes, recetas, órdenes,
+  guardas y roles son coherentes;
+- `operational_ready`: además están aceptadas todas las aperturas, activadas las
+  recetas canónicas y cerrados los reconteos y producciones pendientes.
+
+La auditoría es de solo lectura y nunca bloquea órdenes. La secuencia de entrega
+a otros módulos es Master, Cocina, Asesor y Counter. Asesor y Counter deben
+seleccionar fecha/hora antes de consultar disponibilidad y siempre presentan la
+respuesta como advertencia informativa sujeta a la decisión final de Master.
