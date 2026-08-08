@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { requireMasterOrAdminContext } from '@/lib/auth';
+import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
 
 type CountLineInput = {
   inventoryItemId: number;
@@ -9,12 +9,23 @@ type CountLineInput = {
   note?: string | null;
 };
 
+type ReceiptCaptureInput = {
+  quantityUnknown?: boolean;
+  sourceName?: string | null;
+  looseUnits?: number | null;
+  presentations?: Array<{
+    presentationId: number;
+    quantity: number;
+    baseUnitsPerPresentation?: number | null;
+  }>;
+};
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeOperationId(value: unknown) {
   const operationId = String(value ?? '').trim();
   if (!UUID_PATTERN.test(operationId)) {
-    throw new Error('La clave de operación del conteo no es válida.');
+    throw new Error('La clave de idempotencia de la operación no es válida.');
   }
   return operationId;
 }
@@ -33,6 +44,91 @@ function normalizeNotes(value: unknown) {
     throw new Error('La nota no puede superar 1.000 caracteres.');
   }
   return notes || null;
+}
+
+function normalizeOptionalText(value: unknown, label: string, maxLength: number) {
+  const normalized = String(value ?? '').trim();
+  if (normalized.length > maxLength) {
+    throw new Error(`${label} no puede superar ${maxLength.toLocaleString('es-VE')} caracteres.`);
+  }
+  return normalized || null;
+}
+
+function normalizeReceiptCapture(value: unknown, allowUnknown: boolean) {
+  const capture = (value ?? {}) as ReceiptCaptureInput;
+  if (typeof capture !== 'object' || Array.isArray(capture)) {
+    throw new Error('La captura de presentaciones no es válida.');
+  }
+
+  const quantityUnknown = capture.quantityUnknown === true;
+  if (quantityUnknown && !allowUnknown) {
+    throw new Error('La recepción real requiere una cantidad exacta.');
+  }
+
+  const sourceName = normalizeOptionalText(capture.sourceName, 'La fuente', 160);
+  const looseUnits = Number(capture.looseUnits ?? 0);
+  if (!Number.isFinite(looseUnits) || looseUnits < 0) {
+    throw new Error('Las unidades sueltas deben ser mayores o iguales a cero.');
+  }
+
+  const rawPresentations = capture.presentations ?? [];
+  if (!Array.isArray(rawPresentations) || rawPresentations.length > 20) {
+    throw new Error('La captura admite hasta 20 presentaciones.');
+  }
+
+  const seenPresentationIds = new Set<number>();
+  const presentations = rawPresentations.map((line) => {
+    const presentationId = Number(line.presentationId);
+    const quantity = Number(line.quantity);
+    const conversion = line.baseUnitsPerPresentation == null
+      ? null
+      : Number(line.baseUnitsPerPresentation);
+    if (!Number.isSafeInteger(presentationId) || presentationId <= 0) {
+      throw new Error('La captura contiene una presentación inválida.');
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error('Cada cantidad de presentación debe ser mayor que cero.');
+    }
+    if (conversion != null && (!Number.isFinite(conversion) || conversion <= 0)) {
+      throw new Error('Cada conversión debe ser mayor que cero.');
+    }
+    if (seenPresentationIds.has(presentationId)) {
+      throw new Error('Una presentación no puede repetirse.');
+    }
+    seenPresentationIds.add(presentationId);
+    return {
+      presentation_id: presentationId,
+      quantity,
+      base_units_per_presentation: conversion,
+    };
+  });
+
+  if (quantityUnknown && (looseUnits !== 0 || presentations.length !== 0)) {
+    throw new Error('Una cantidad desconocida no puede mezclarse con cantidades capturadas.');
+  }
+  if (!quantityUnknown && looseUnits === 0 && presentations.length === 0) {
+    throw new Error('Indica presentaciones, unidades sueltas o marca la cantidad como desconocida.');
+  }
+
+  return {
+    quantity_unknown: quantityUnknown,
+    source_name: sourceName,
+    loose_units: looseUnits,
+    presentations,
+  };
+}
+
+function normalizeDateTime(value: unknown, label: string) {
+  const date = new Date(String(value ?? ''));
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error(`${label} no es válida.`);
+  }
+  return date.toISOString();
+}
+
+function revalidateInventoryReceiptRoutes() {
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/operations');
 }
 
 function normalizeLines(value: unknown): CountLineInput[] {
@@ -338,4 +434,129 @@ export async function reviewInventoryCountAction(input: {
   }
 
   return { countId, recountCountId };
+}
+
+export async function saveInventoryExpectedReceiptAction(input: {
+  operationId: string;
+  inventoryItemId: number;
+  effectiveAt: string;
+  capture: ReceiptCaptureInput;
+  notes?: string | null;
+  replacesFlowId?: number | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const inventoryItemId = normalizeCountId(input.inventoryItemId);
+  const effectiveAt = normalizeDateTime(input.effectiveAt, 'La fecha esperada');
+  const capture = normalizeReceiptCapture(input.capture, true);
+  const notes = normalizeNotes(input.notes);
+  const replacesFlowId = input.replacesFlowId == null
+    ? null
+    : normalizeCountId(input.replacesFlowId);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_expected_receipt_v1', {
+    p_operation_id: operationId,
+    p_inventory_item_id: inventoryItemId,
+    p_effective_at: effectiveAt,
+    p_capture: capture,
+    p_notes: notes,
+    p_replaces_flow_id: replacesFlowId,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const expectedFlowId = normalizeCountId(
+    (data as { expected_flow_id?: unknown } | null)?.expected_flow_id,
+  );
+  revalidateInventoryReceiptRoutes();
+  return { expectedFlowId };
+}
+
+export async function cancelInventoryExpectedReceiptAction(input: {
+  expectedFlowId: number;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const expectedFlowId = normalizeCountId(input.expectedFlowId);
+  const notes = normalizeNotes(input.notes);
+
+  const { error } = await ctx.supabase.rpc('inventory_cancel_expected_receipt_v1', {
+    p_expected_flow_id: expectedFlowId,
+    p_notes: notes,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateInventoryReceiptRoutes();
+  return { expectedFlowId };
+}
+
+export async function receiveInventoryStockAction(input: {
+  operationId: string;
+  inventoryItemId: number;
+  expectedFlowId?: number | null;
+  capture: ReceiptCaptureInput;
+  lotCode?: string | null;
+  receivedAt?: string | null;
+  expiresAt?: string | null;
+  notes?: string | null;
+}) {
+  const ctx = await requireAuthContext();
+  if (!ctx.roles.includes('admin') && !ctx.roles.includes('kitchen')) {
+    throw new Error('Solo cocina o administración pueden registrar mercancía recibida.');
+  }
+
+  const operationId = normalizeOperationId(input.operationId);
+  const inventoryItemId = normalizeCountId(input.inventoryItemId);
+  const expectedFlowId = input.expectedFlowId == null
+    ? null
+    : normalizeCountId(input.expectedFlowId);
+  const capture = normalizeReceiptCapture(input.capture, false);
+  const lotCode = normalizeOptionalText(input.lotCode, 'El código de lote', 120);
+  const receivedAt = input.receivedAt
+    ? normalizeDateTime(input.receivedAt, 'La fecha de recepción')
+    : new Date().toISOString();
+  const expiresAt = input.expiresAt
+    ? normalizeDateTime(input.expiresAt, 'La fecha de vencimiento')
+    : null;
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_reconcile_receipt_v1', {
+    p_operation_id: operationId,
+    p_inventory_item_id: inventoryItemId,
+    p_capture: capture,
+    p_expected_flow_id: expectedFlowId,
+    p_lot_code: lotCode,
+    p_received_at: receivedAt,
+    p_expires_at: expiresAt,
+    p_notes: notes,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const result = data as {
+    inventory_lot_id?: unknown;
+    received_quantity_units?: unknown;
+    difference_quantity_units?: unknown;
+    expected_flow_status?: unknown;
+  } | null;
+  const inventoryLotId = normalizeCountId(result?.inventory_lot_id);
+  revalidateInventoryReceiptRoutes();
+
+  return {
+    inventoryLotId,
+    receivedQuantityUnits: Number(result?.received_quantity_units ?? 0),
+    differenceQuantityUnits: result?.difference_quantity_units == null
+      ? null
+      : Number(result.difference_quantity_units),
+    expectedFlowStatus: result?.expected_flow_status == null
+      ? null
+      : String(result.expected_flow_status),
+  };
 }

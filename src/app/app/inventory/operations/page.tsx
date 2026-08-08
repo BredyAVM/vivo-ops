@@ -1,4 +1,7 @@
 import { getAuthContext } from '@/lib/auth';
+import InventoryReceiptWorkspaceClient, {
+  type InventoryReceiptWorkspace,
+} from './InventoryReceiptWorkspaceClient';
 
 type InventoryItemRow = {
   id: number;
@@ -50,7 +53,14 @@ export default async function InventoryOperationsPage() {
     return null;
   }
 
-  const [itemsResult, movementsResult, recipesResult, countsResult, openingStatusResult] = await Promise.all([
+  const [
+    itemsResult,
+    movementsResult,
+    recipesResult,
+    countsResult,
+    openingStatusResult,
+    receiptWorkspaceResult,
+  ] = await Promise.all([
     ctx.supabase.from('inventory_items').select('id,name').order('name'),
     ctx.supabase
       .from('inventory_movements')
@@ -71,6 +81,7 @@ export default async function InventoryOperationsPage() {
       .select('id', { count: 'exact', head: true })
       .in('status', ['open', 'submitted', 'recount_requested']),
     ctx.supabase.rpc('inventory_opening_status_v1'),
+    ctx.supabase.rpc('inventory_receipt_workspace_v1'),
   ]);
 
   const firstError = [
@@ -79,6 +90,7 @@ export default async function InventoryOperationsPage() {
     recipesResult.error,
     countsResult.error,
     openingStatusResult.error,
+    receiptWorkspaceResult.error,
   ].find(Boolean);
 
   if (firstError) {
@@ -96,6 +108,18 @@ export default async function InventoryOperationsPage() {
   const eligibleOpeningCount = Number(openingStatus.eligible_count ?? 0);
   const acceptedOpeningCount = Number(openingStatus.accepted_count ?? 0);
   const isCanonicalReady = openingStatus.ready === true;
+  const receiptWorkspace = (receiptWorkspaceResult.data ?? {
+    permissions: { can_plan: false, can_receive: false },
+    items: [],
+    presentations: [],
+    active_expectations: [],
+    recent_receipts: [],
+    summary: {
+      active_expectations: 0,
+      overdue_expectations: 0,
+      receipt_mismatches: 0,
+    },
+  }) as InventoryReceiptWorkspace;
 
   return (
     <section>
@@ -108,9 +132,11 @@ export default async function InventoryOperationsPage() {
           </p>
         </div>
         <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
-          Bloque 7 · Apertura y corte
+          Bloque 11 · Recepciones
         </div>
       </div>
+
+      <InventoryReceiptWorkspaceClient workspace={receiptWorkspace} />
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard label="Ítems del catálogo" value={items.length} />
