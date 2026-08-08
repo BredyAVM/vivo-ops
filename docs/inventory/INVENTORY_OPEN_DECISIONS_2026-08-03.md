@@ -38,7 +38,7 @@ Estado: **cerrado para el catálogo vivo**.
 
 ## 2. Configuración universal de productos e ítems
 
-Estado: **pendiente**.
+Estado: **en curso; creación atómica de borradores aplicada y probada**.
 
 Definir un asistente genérico que permita crear o reutilizar:
 
@@ -52,6 +52,23 @@ Definir un asistente genérico que permita crear o reutilizar:
 
 No se levantará por chat el catálogo futuro de consumibles. Administración lo
 incorporará progresivamente mediante este asistente.
+
+La primera fase ya está disponible en `/app/inventory/configure` solo para
+Administración:
+
+- crea ítems internos con unidad, control, disponibilidad, conteo, umbrales y
+  presentaciones;
+- crea productos con política `self`, `direct`, `components` o `none`;
+- reutiliza ítems canónicos y productos inactivos que no tengan historia de
+  pedidos ni dependencias;
+- guarda todo en una transacción como borrador inactivo, stock cero y sin
+  conectar descuentos;
+- no crea tablas ni columnas; solo añade una restricción de unicidad por índice
+  para impedir duplicados concurrentes de identidad física.
+
+Queda pendiente la segunda fase del asistente: validación final, apertura
+incremental y activación segura; luego se incorporará la edición de recetas y
+tiempos desde el mismo flujo.
 
 ## 3. Encaje con Supabase
 

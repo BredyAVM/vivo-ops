@@ -78,6 +78,64 @@ function revalidateInventoryCountRoutes(countId: number) {
   revalidatePath('/app/inventory/operations');
 }
 
+export async function saveInventoryCatalogDraftAction(input: { configuration: unknown }) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede guardar borradores del catálogo de inventario.');
+  }
+
+  if (!input || typeof input.configuration !== 'object' || input.configuration == null) {
+    throw new Error('La configuración del borrador no es válida.');
+  }
+
+  let serializedConfiguration: string;
+  try {
+    serializedConfiguration = JSON.stringify(input.configuration);
+  } catch {
+    throw new Error('La configuración contiene datos que no se pueden guardar.');
+  }
+
+  if (serializedConfiguration.length > 200_000) {
+    throw new Error('La configuración supera el tamaño permitido.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_catalog_draft_v1', {
+    p_configuration: JSON.parse(serializedConfiguration),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const result = data as {
+    entry_kind?: unknown;
+    product_id?: unknown;
+    inventory_item_id?: unknown;
+    reused_product?: unknown;
+  } | null;
+  const entryKind: 'product' | 'item' = result?.entry_kind === 'product' ? 'product' : 'item';
+  const productId = result?.product_id == null ? null : Number(result.product_id);
+  const inventoryItemId = result?.inventory_item_id == null ? null : Number(result.inventory_item_id);
+
+  if (entryKind === 'product' && (!Number.isSafeInteger(productId) || Number(productId) <= 0)) {
+    throw new Error('Supabase no devolvió el producto configurado.');
+  }
+  if (entryKind === 'item' && (!Number.isSafeInteger(inventoryItemId) || Number(inventoryItemId) <= 0)) {
+    throw new Error('Supabase no devolvió el ítem configurado.');
+  }
+
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/products');
+  revalidatePath('/app/inventory/configure');
+
+  return {
+    entryKind,
+    productId,
+    inventoryItemId,
+    reusedProduct: result?.reused_product === true,
+  };
+}
+
 export async function submitInventoryOpeningAction(input: {
   operationId: string;
   lines: CountLineInput[];
