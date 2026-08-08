@@ -700,3 +700,219 @@ export async function resolveInventoryProductionAction(input: {
   revalidateInventoryProductionRoutes();
   return data as { status?: string; resolution?: string } | null;
 }
+
+export type InventoryAlertCategory =
+  | 'availability'
+  | 'commitment'
+  | 'production'
+  | 'control'
+  | 'procurement'
+  | 'system';
+
+export type InventoryAlertRouteInput = {
+  targetRole: 'admin' | 'master' | 'advisor' | 'kitchen' | 'counter';
+  surface:
+    | 'inventory_center'
+    | 'advisor_availability'
+    | 'master_inventory'
+    | 'kitchen_inventory'
+    | 'counter_inventory'
+    | 'admin_inventory';
+};
+
+const INVENTORY_ALERT_CATEGORIES = new Set<InventoryAlertCategory>([
+  'availability',
+  'commitment',
+  'production',
+  'control',
+  'procurement',
+  'system',
+]);
+
+const INVENTORY_ALERT_ROUTE_KEYS = new Set([
+  'admin:inventory_center',
+  'admin:admin_inventory',
+  'master:inventory_center',
+  'master:master_inventory',
+  'advisor:advisor_availability',
+  'kitchen:kitchen_inventory',
+  'counter:counter_inventory',
+]);
+
+function normalizeInventoryAlertCategory(value: unknown): InventoryAlertCategory {
+  const category = String(value ?? '') as InventoryAlertCategory;
+  if (!INVENTORY_ALERT_CATEGORIES.has(category)) {
+    throw new Error('La categoría de alerta no es válida.');
+  }
+  return category;
+}
+
+function normalizeInventoryAlertRoutes(value: unknown): InventoryAlertRouteInput[] {
+  if (!Array.isArray(value) || value.length > 20) {
+    throw new Error('La configuración admite hasta 20 rutas.');
+  }
+
+  const seen = new Set<string>();
+  return value.map((rawRoute) => {
+    const route = rawRoute as Partial<InventoryAlertRouteInput>;
+    const targetRole = String(route.targetRole ?? '') as InventoryAlertRouteInput['targetRole'];
+    const surface = String(route.surface ?? '') as InventoryAlertRouteInput['surface'];
+    const key = `${targetRole}:${surface}`;
+    if (!INVENTORY_ALERT_ROUTE_KEYS.has(key)) {
+      throw new Error('La configuración contiene una combinación de rol y ubicación no válida.');
+    }
+    if (seen.has(key)) {
+      throw new Error('Una ruta de alerta no puede repetirse.');
+    }
+    seen.add(key);
+    return { targetRole, surface };
+  });
+}
+
+function normalizeNullableNonnegativeNumber(value: unknown, label: string) {
+  if (value == null || String(value).trim() === '') return null;
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) {
+    throw new Error(`${label} debe ser mayor o igual a cero.`);
+  }
+  return numberValue;
+}
+
+function revalidateInventoryAlertRoutes() {
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/alerts');
+}
+
+export async function refreshInventoryAlertsAction() {
+  const ctx = await requireMasterOrAdminContext();
+  const { data, error } = await ctx.supabase.rpc('inventory_refresh_alerts_v1');
+  if (error) throw new Error(error.message);
+  revalidateInventoryAlertRoutes();
+  return data as {
+    detected_or_updated?: number;
+    automatically_resolved?: number;
+    refreshed_at?: string;
+  } | null;
+}
+
+export async function saveInventoryAlertPolicyAction(input: {
+  category: InventoryAlertCategory;
+  inventoryItemId?: number | null;
+  isEnabled: boolean;
+  routes: InventoryAlertRouteInput[];
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede configurar alertas de inventario.');
+  }
+
+  const category = normalizeInventoryAlertCategory(input.category);
+  const inventoryItemId = input.inventoryItemId == null
+    ? null
+    : normalizeCountId(input.inventoryItemId);
+  const routes = normalizeInventoryAlertRoutes(input.routes);
+  if (input.isEnabled && routes.length === 0) {
+    throw new Error('Una política activa requiere al menos una ruta.');
+  }
+  if (!input.isEnabled && routes.length > 0) {
+    throw new Error('Una política desactivada no debe conservar rutas.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_alert_policy_v1', {
+    p_alert_category: category,
+    p_inventory_item_id: inventoryItemId,
+    p_is_enabled: input.isEnabled,
+    p_routes: routes.map((route) => ({
+      target_role: route.targetRole,
+      surface: route.surface,
+    })),
+  });
+  if (error) throw new Error(error.message);
+  revalidateInventoryAlertRoutes();
+  return data as { status?: string; policy_id?: number } | null;
+}
+
+export async function deleteInventoryAlertPolicyOverrideAction(input: {
+  category: InventoryAlertCategory;
+  inventoryItemId: number;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede eliminar excepciones de alertas.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc(
+    'inventory_delete_alert_policy_override_v1',
+    {
+      p_alert_category: normalizeInventoryAlertCategory(input.category),
+      p_inventory_item_id: normalizeCountId(input.inventoryItemId),
+    },
+  );
+  if (error) throw new Error(error.message);
+  revalidateInventoryAlertRoutes();
+  return data as { status?: string } | null;
+}
+
+export async function updateInventoryItemAlertSettingsAction(input: {
+  inventoryItemId: number;
+  lowStockThreshold?: number | string | null;
+  lowStockInclusive: boolean;
+  targetStockUnits?: number | string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede cambiar umbrales y objetivos.');
+  }
+
+  const lowStockThreshold = normalizeNullableNonnegativeNumber(
+    input.lowStockThreshold,
+    'El umbral',
+  );
+  const targetStockUnits = normalizeNullableNonnegativeNumber(
+    input.targetStockUnits,
+    'El objetivo',
+  );
+  if (
+    lowStockThreshold != null
+    && targetStockUnits != null
+    && targetStockUnits < lowStockThreshold
+  ) {
+    throw new Error('El objetivo no puede ser menor que el umbral.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc(
+    'inventory_update_item_alert_settings_v1',
+    {
+      p_inventory_item_id: normalizeCountId(input.inventoryItemId),
+      p_low_stock_threshold: lowStockThreshold,
+      p_low_stock_inclusive: input.lowStockInclusive === true,
+      p_target_stock_units: targetStockUnits,
+    },
+  );
+  if (error) throw new Error(error.message);
+  revalidateInventoryAlertRoutes();
+  return data as { status?: string } | null;
+}
+
+export async function updateInventoryAlertStatusAction(input: {
+  alertId: number;
+  action: 'manage' | 'resolve' | 'reopen';
+  note?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!['manage', 'resolve', 'reopen'].includes(input.action)) {
+    throw new Error('La acción de alerta no es válida.');
+  }
+  if ((input.action === 'resolve' || input.action === 'reopen') && !ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede resolver o reabrir manualmente una alerta.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_update_alert_status_v1', {
+    p_alert_id: normalizeCountId(input.alertId),
+    p_action: input.action,
+    p_note: normalizeNotes(input.note),
+  });
+  if (error) throw new Error(error.message);
+  revalidateInventoryAlertRoutes();
+  return data as { status?: string; alert_status?: string } | null;
+}
