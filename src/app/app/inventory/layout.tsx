@@ -14,6 +14,9 @@ export default async function InventoryLayout({ children }: { children: ReactNod
     redirect('/app');
   }
 
+  const returnHref = ctx.roles.includes('admin') ? '/app/master/dashboard' : '/app/master/ops';
+  const returnLabel = ctx.roles.includes('admin') ? 'Volver a la dashboard' : 'Volver a Máster';
+
   return (
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <header className="border-b border-[#242433] bg-[#101014]">
@@ -78,7 +81,7 @@ export default async function InventoryLayout({ children }: { children: ReactNod
               prefetch={false}
               className="rounded-xl border border-[#2A2A39] bg-[#15151D] px-3 py-2 text-sm text-[#D5D5DE] hover:border-[#FEEF00]/50"
             >
-              Conteos históricos
+              Conteos y revisiones
             </Link>
             <Link
               href="/app/inventory/operations"
@@ -102,11 +105,11 @@ export default async function InventoryLayout({ children }: { children: ReactNod
               Alertas
             </Link>
             <Link
-              href="/app/master/dashboard"
+              href={returnHref}
               prefetch={false}
               className="rounded-xl border border-[#2A2A39] px-3 py-2 text-sm text-[#A6A6B2] hover:text-white"
             >
-              Volver a la dashboard
+              {returnLabel}
             </Link>
           </div>
         </div>

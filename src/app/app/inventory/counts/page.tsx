@@ -57,17 +57,33 @@ export default async function InventoryCountsPage() {
   }
 
   const counts = (data ?? []) as InventoryCountRow[];
+  const pendingReviewCount = counts.filter((count) => count.status === 'submitted').length;
+  const activeRecountCount = counts.filter(
+    (count) => count.count_kind === 'recount' && ['open', 'submitted'].includes(count.status),
+  ).length;
+  const orderedCounts = [...counts].sort((left, right) => {
+    const leftPriority = left.status === 'submitted' ? 0 : left.status === 'recount_requested' ? 1 : 2;
+    const rightPriority = right.status === 'submitted' ? 0 : right.status === 'recount_requested' ? 1 : 2;
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
 
   return (
     <section>
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Conteos históricos</h2>
+          <h2 className="text-xl font-semibold">Conteos y revisiones</h2>
           <p className="mt-1 text-sm text-[#9696A3]">
-            Esta consulta se ejecuta solamente al abrir esta sección.
+            Los pendientes de decisión aparecen primero. Esta consulta se ejecuta solamente al abrir esta sección.
           </p>
         </div>
         <div className="text-sm text-[#8F8F9C]">Últimos {Math.min(counts.length, 100)} registros</div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <SummaryCard label="Por revisar" value={pendingReviewCount} tone={pendingReviewCount > 0 ? 'warning' : 'default'} />
+        <SummaryCard label="Reconteos activos" value={activeRecountCount} tone={activeRecountCount > 0 ? 'warning' : 'default'} />
+        <SummaryCard label="Registros visibles" value={counts.length} tone="default" />
       </div>
 
       <div className="mt-5 overflow-hidden rounded-2xl border border-[#242433] bg-[#111117]">
@@ -87,7 +103,7 @@ export default async function InventoryCountsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#242433]">
-                {counts.map((count) => (
+                {orderedCounts.map((count) => (
                   <tr key={count.id} className="hover:bg-[#15151D]">
                     <td className="px-4 py-3 font-semibold">
                       <Link
@@ -116,8 +132,8 @@ export default async function InventoryCountsPage() {
           <div className="px-5 py-14 text-center">
             <div className="text-lg font-semibold">Todavía no hay conteos registrados</div>
             <p className="mx-auto mt-2 max-w-xl text-sm text-[#8F8F9C]">
-              La estructura existe en Supabase, pero el flujo operativo de conteos aún no ha comenzado a
-              generar historial.
+              Cuando Administración presente la apertura, el reporte aparecerá aquí para que Máster
+              pueda aceptarlo o solicitar reconteos específicos.
             </p>
             <Link
               href="/app/inventory"
@@ -130,5 +146,24 @@ export default async function InventoryCountsPage() {
         )}
       </div>
     </section>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'default' | 'warning';
+}) {
+  return (
+    <div className="rounded-2xl border border-[#242433] bg-[#111117] p-4">
+      <div className="text-xs uppercase tracking-wide text-[#858591]">{label}</div>
+      <div className={`mt-2 text-2xl font-semibold ${tone === 'warning' ? 'text-amber-300' : 'text-white'}`}>
+        {value}
+      </div>
+    </div>
   );
 }
