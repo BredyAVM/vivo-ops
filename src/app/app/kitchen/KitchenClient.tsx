@@ -737,12 +737,21 @@ export default function KitchenClient({
               <h1 className="mt-0.5 text-xl font-black leading-tight">Cocina</h1>
               <div className="mt-0.5 text-xs text-[#B7B7C2]">{fullName || 'Operación de cocina'}</div>
             </div>
-            <Link
-              href="/app"
-              className="flex h-10 shrink-0 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#F5F5F7]"
-            >
-              Módulos
-            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              <Link
+                href="/app/kitchen/inventory"
+                prefetch={false}
+                className="flex h-10 items-center rounded-xl border border-[#FEEF00]/40 bg-[#FEEF00]/10 px-3 text-xs font-semibold text-[#FEEF00]"
+              >
+                Inventario
+              </Link>
+              <Link
+                href="/app"
+                className="flex h-10 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-3 text-xs font-semibold text-[#F5F5F7]"
+              >
+                Módulos
+              </Link>
+            </div>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">

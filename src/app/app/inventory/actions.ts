@@ -138,12 +138,14 @@ function normalizeDateTime(value: unknown, label: string) {
 function revalidateInventoryReceiptRoutes() {
   revalidatePath('/app/inventory');
   revalidatePath('/app/inventory/operations');
+  revalidatePath('/app/kitchen/inventory/receipts');
 }
 
 function revalidateInventoryProductionRoutes() {
   revalidatePath('/app/inventory');
   revalidatePath('/app/inventory/recipes');
   revalidatePath('/app/inventory/operations');
+  revalidatePath('/app/kitchen/inventory/production');
 }
 
 function normalizeLines(value: unknown): CountLineInput[] {
