@@ -25,6 +25,12 @@ import { getMasterDashboardPermissions } from './permissions';
 const MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG = 'master-dashboard-financial-references';
 const STALE_ORDER_EDIT_MESSAGE =
   'No se guardaron los cambios porque otra persona actualizó esta orden después de que la abriste. Para evitar pisar su trabajo, actualiza la orden, revisa lo nuevo y vuelve a guardar si todavía aplica.';
+const LEGACY_INVENTORY_ADMIN_DISABLED_MESSAGE =
+  'La administración de inventario fue trasladada al Centro de Inventario. Usa /app/inventory/configure para productos, ítems y recetas, y las secciones operativas del centro para movimientos y producción.';
+
+function rejectLegacyInventoryAdministration(): void {
+  throw new Error(LEGACY_INVENTORY_ADMIN_DISABLED_MESSAGE);
+}
 
 function revalidateMasterDashboardFinancialReferences() {
   updateTag(MASTER_DASHBOARD_FINANCIAL_REFERENCES_TAG);
@@ -4738,52 +4744,16 @@ export async function updateCatalogItemAction(input: {
   }
 
   const sourcePriceAmount = toSafeNumber(input.sourcePriceAmount, 0);
-  const unitsPerService = Math.max(0, toSafeNumber(input.unitsPerService, 0));
-  const detailUnitsLimit = Math.max(0, toSafeNumber(input.detailUnitsLimit, 0));
   const internalRiderPayUsd =
     input.internalRiderPayUsd == null ? null : Math.max(0, toSafeNumber(input.internalRiderPayUsd, 0));
   const advisorGiftCostUsd =
     input.advisorGiftCostUsd == null ? 0 : Math.max(0, toSafeNumber(input.advisorGiftCostUsd, 0));
-  const packagingSize =
-    input.packagingSize == null ? null : Math.max(0, toSafeNumber(input.packagingSize, 0));
-  const currentStockUnits =
-    input.currentStockUnits == null ? null : Math.max(0, toSafeNumber(input.currentStockUnits, 0));
-  const lowStockThreshold =
-    input.lowStockThreshold == null ? null : Math.max(0, toSafeNumber(input.lowStockThreshold, 0));
 
   if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
     throw new Error('Modo de comisión inválido.');
   }
-  if (!['raw_material', 'prepared_base', 'finished_good'].includes(input.inventoryKind)) {
-    throw new Error('Tipo de inventario inválido.');
-  }
-  if (!['raw', 'fried', 'prefried', 'sauces', 'packaging', 'other'].includes(input.inventoryGroup)) {
-    throw new Error('Grupo de inventario inválido.');
-  }
-  if (!['self', 'composition'].includes(input.inventoryDeductionMode)) {
-    throw new Error('Modo de descuento de inventario inválido.');
-  }
   if (!['VES', 'USD'].includes(input.sourcePriceCurrency)) {
     throw new Error('Moneda inválida.');
-  }
-
-  const normalizedInventoryLinks = (input.inventoryLinks ?? [])
-    .map((row, index) => ({
-      inventoryItemId: toSafeNumber(row.inventoryItemId, 0),
-      quantityUnits: Math.max(0, toSafeNumber(row.quantityUnits, 0)),
-      notes: row.notes?.trim() ? row.notes.trim() : null,
-      sortOrder: toSafeNumber(row.sortOrder, index + 1) || index + 1,
-    }))
-    .filter((row) => row.inventoryItemId > 0 && row.quantityUnits > 0);
-  const hasConfiguredComponents = input.isDetailEditable;
-
-  if (
-    input.inventoryEnabled &&
-    input.inventoryDeductionMode === 'composition' &&
-    normalizedInventoryLinks.length === 0 &&
-    !hasConfiguredComponents
-  ) {
-    throw new Error('Define al menos un item interno para el descuento por composición.');
   }
 
   const { data: currentProduct, error: productError } = await supabase
@@ -4825,54 +4795,13 @@ export async function updateCatalogItemAction(input: {
     basePriceUsd = sourcePriceAmount / rateBsPerUsd;
   }
 
-  const normalizedComponents = (input.components ?? [])
-    .map((row, index) => ({
-      componentProductId: toSafeNumber(row.componentProductId, 0),
-      componentMode: row.componentMode === 'selectable' ? 'selectable' : 'fixed',
-      quantity: Math.max(0, toSafeNumber(row.quantity, 0)),
-      countsTowardDetailLimit: !!row.countsTowardDetailLimit,
-      isRequired: !!row.isRequired,
-      sortOrder: toSafeNumber(row.sortOrder, index + 1),
-      notes: row.notes?.trim() ? row.notes.trim() : null,
-    }))
-    .filter((row) => row.componentProductId > 0 && row.quantity > 0);
-
-  const componentIds = Array.from(
-    new Set(normalizedComponents.map((row) => row.componentProductId))
-  );
-
-  if (componentIds.length > 0) {
-    const { data: componentProducts, error: componentCheckError } = await supabase
-      .from('products')
-      .select('id')
-      .in('id', componentIds);
-
-    if (componentCheckError) {
-      throw new Error(componentCheckError.message);
-    }
-
-    const foundIds = new Set((componentProducts ?? []).map((row) => Number(row.id)));
-    const missing = componentIds.filter((id) => !foundIds.has(id));
-    if (missing.length > 0) {
-      throw new Error(`Hay componentes inválidos: ${missing.join(', ')}`);
-    }
-  }
-
   const { data: updatedProduct, error: updateProductError } = await supabase
     .from('products')
     .update({
-      type: input.type,
       source_price_amount: sourcePriceAmount,
       source_price_currency: input.sourcePriceCurrency,
       base_price_usd: basePriceUsd,
       base_price_bs: basePriceBs,
-      is_active: input.isActive,
-      units_per_service: unitsPerService,
-      is_detail_editable: input.isDetailEditable,
-      detail_units_limit: detailUnitsLimit,
-      is_inventory_item: input.isInventoryItem,
-      is_temporary: input.isTemporary,
-      is_combo_component_selectable: input.isComboComponentSelectable,
       commission_mode: input.commissionMode,
       commission_value: input.commissionMode === 'default' ? null : input.commissionValue,
       commission_notes: input.commissionNotes,
@@ -4887,14 +4816,6 @@ export async function updateCatalogItemAction(input: {
         advisor_gift_cost_usd: advisorGiftCostUsd,
       },
       internal_rider_pay_usd: internalRiderPayUsd,
-      inventory_enabled: input.inventoryEnabled,
-      inventory_kind: input.inventoryKind,
-      inventory_deduction_mode: input.inventoryDeductionMode,
-      inventory_unit_name: String(input.inventoryUnitName || 'pieza').trim() || 'pieza',
-      packaging_name: input.packagingName?.trim() ? input.packagingName.trim() : null,
-      packaging_size: packagingSize,
-      current_stock_units: currentStockUnits ?? 0,
-      low_stock_threshold: lowStockThreshold,
     })
     .eq('id', input.productId)
     .select('id')
@@ -4908,59 +4829,6 @@ export async function updateCatalogItemAction(input: {
     throw new Error('No se pudo actualizar el producto. Revisa los permisos de update sobre products.');
   }
 
-  const selfInventoryItemId = await syncInventoryItemFromCatalogProduct(supabase, {
-    currentName: currentProduct.name,
-    nextName: currentProduct.name,
-    isActive: input.isActive,
-    inventoryEnabled: input.inventoryEnabled,
-    isInventoryItem: input.isInventoryItem,
-    inventoryDeductionMode: input.inventoryDeductionMode,
-    inventoryKind: input.inventoryKind,
-    inventoryUnitName: input.inventoryUnitName,
-    packagingName: input.packagingName,
-    packagingSize,
-    currentStockUnits,
-    lowStockThreshold,
-    inventoryGroup: input.inventoryGroup,
-  });
-
-  await replaceProductInventoryLinks(supabase, {
-    productId: input.productId,
-    inventoryDeductionMode: input.inventoryDeductionMode,
-    selfInventoryItemId,
-    inventoryLinks: normalizedInventoryLinks,
-  });
-
-  const { error: deleteComponentsError } = await supabase
-    .from('product_components')
-    .delete()
-    .eq('parent_product_id', input.productId);
-
-  if (deleteComponentsError) {
-    throw new Error(deleteComponentsError.message);
-  }
-
-  if (normalizedComponents.length > 0) {
-    const rowsToInsert = normalizedComponents.map((row) => ({
-      parent_product_id: input.productId,
-      component_product_id: row.componentProductId,
-      component_mode: row.componentMode,
-      quantity: row.quantity,
-      counts_toward_detail_limit: row.countsTowardDetailLimit,
-      is_required: row.isRequired,
-      sort_order: row.sortOrder,
-      notes: row.notes,
-    }));
-
-    const { error: insertComponentsError } = await supabase
-      .from('product_components')
-      .insert(rowsToInsert);
-
-    if (insertComponentsError) {
-      throw new Error(insertComponentsError.message);
-    }
-  }
-
   await notifyOpenOrdersAffectedByCatalogPriceChange(supabase, {
     productId: input.productId,
     productName: String(currentProduct.name || 'Producto'),
@@ -4972,6 +4840,8 @@ export async function updateCatalogItemAction(input: {
   });
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/inventory/products');
+  revalidatePath('/app/inventory/configure');
 }
 
 export async function updateExchangeRateAction(input: {
@@ -6129,6 +5999,8 @@ export async function createInventoryItemAction(input: {
   isActive: boolean;
   notes: string | null;
 }) {
+  rejectLegacyInventoryAdministration();
+
   const { supabase, user, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
@@ -6408,6 +6280,8 @@ export async function updateInventoryItemAction(input: {
   isActive: boolean;
   notes: string | null;
 }) {
+  rejectLegacyInventoryAdministration();
+
   const { supabase, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
@@ -6451,6 +6325,8 @@ export async function toggleInventoryItemActiveAction(input: {
   inventoryItemId: number;
   nextIsActive: boolean;
 }) {
+  rejectLegacyInventoryAdministration();
+
   const { supabase, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
@@ -6480,6 +6356,8 @@ export async function saveInventoryRecipeAction(input: {
     sortOrder: number;
   }>;
 }) {
+  rejectLegacyInventoryAdministration();
+
   const { supabase, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
@@ -8540,23 +8418,23 @@ async function createCatalogItemActionImpl(input: {
   return { id: Number(data.id) };
 }
 
-export async function createCatalogItemAction(input: Parameters<typeof createCatalogItemActionImpl>[0]) {
-  try {
-    const result = await createCatalogItemActionImpl(input);
-    return { ok: true as const, id: result.id };
-  } catch (error) {
-    return {
-      ok: false as const,
-      error: error instanceof Error ? error.message : 'No se pudo crear el item de catalogo.',
-    };
-  }
+export async function createCatalogItemAction(
+  input: Parameters<typeof createCatalogItemActionImpl>[0]
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  void input;
+  void createCatalogItemActionImpl;
+  return { ok: false as const, error: LEGACY_INVENTORY_ADMIN_DISABLED_MESSAGE };
 }
 
 export async function duplicateCatalogItemAction(input: {
   sourceProductId: number;
   sku?: string | null;
   name: string;
-}) {
+}): Promise<{ ok: true; id: number; sku: string } | { ok: false; error: string }> {
+  void input;
+  return { ok: false as const, error: LEGACY_INVENTORY_ADMIN_DISABLED_MESSAGE };
+
+  /* Legacy implementation retained temporarily for rollback reference.
   try {
     const { supabase, roles } = await requireMasterOrAdmin();
     requireAdminRole(roles);
@@ -8777,12 +8655,17 @@ export async function duplicateCatalogItemAction(input: {
       error: error instanceof Error ? error.message : 'No se pudo copiar el item de catalogo.',
     };
   }
+  */
 }
 
 export async function toggleCatalogItemActiveAction(input: {
   productId: number;
   nextIsActive: boolean;
 }) {
+  if (input.nextIsActive) {
+    rejectLegacyInventoryAdministration();
+  }
+
   const { supabase, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
 
@@ -10227,6 +10110,8 @@ export async function createInventoryMovementAction(input: {
   reasonCode: string | null;
   notes: string | null;
 }) {
+  rejectLegacyInventoryAdministration();
+
   const { supabase, user } = await requireMasterOrAdmin();
 
   const inventoryItemId = toSafeNumber(input.inventoryItemId, 0);
@@ -10294,6 +10179,8 @@ export async function createInventoryProductionAction(input: {
   batchMultiplier: number;
   notes: string | null;
 }) {
+  rejectLegacyInventoryAdministration();
+
   const { supabase, user } = await requireMasterOrAdmin();
 
   const recipeId = toSafeNumber(input.recipeId, 0);

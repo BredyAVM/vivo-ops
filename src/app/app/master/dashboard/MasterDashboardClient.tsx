@@ -4072,12 +4072,14 @@ function FieldInput({
   onChange,
   type = 'text',
   hint,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   hint?: string;
+  disabled?: boolean;
 }) {
   return (
     <div>
@@ -4086,7 +4088,8 @@ function FieldInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         type={type}
-        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]"
+        disabled={disabled}
+        className="w-full rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] disabled:cursor-not-allowed disabled:opacity-60"
       />
       {hint ? <div className="mt-1 text-[11px] text-[#6F6F7C]">{hint}</div> : null}
     </div>
@@ -4133,17 +4136,24 @@ function FieldCheckbox({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7]">
+    <label
+      className={`flex items-center gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] ${
+        disabled ? 'cursor-not-allowed opacity-60' : ''
+      }`}
+    >
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
       />
       {label}
     </label>
@@ -10071,25 +10081,6 @@ const resetCreateCatalogForm = () => {
   setNewCurrentStockUnits('0');
   setNewLowStockThreshold('');
   setNewInventoryLinks([]);
-};
-
-const openCopyCatalog = (sourceProductId?: number) => {
-  if (!permissions.canCreateCatalogItems) {
-    showToast('error', 'Solo admin puede copiar items de catalogo.');
-    return;
-  }
-
-  const source =
-    catalogItems.find((item) => item.id === sourceProductId) ??
-    selectedCatalogItem ??
-    filteredCatalogItems[0] ??
-    catalogItems[0] ??
-    null;
-
-  setCopySourceCatalogItemId(source ? String(source.id) : '');
-  setCopyCatalogName(source ? `${source.name} copia` : '');
-  setCopyCatalogSku(source?.sku ? `${source.sku}-COPY` : '');
-  setCopyCatalogOpen(true);
 };
 
 const handleCopySourceCatalogChange = (value: string) => {
@@ -16925,14 +16916,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
   <div className="flex flex-wrap gap-2">
     {permissions.canCreateCatalogItems ? (
-      <>
-        <Btn onClick={() => openCopyCatalog()}>
-          Copiar ítem
-        </Btn>
-        <Btn onClick={() => setCreateCatalogOpen(true)}>
-          Nuevo ítem
-        </Btn>
-      </>
+      <Link
+        href="/app/inventory/configure"
+        prefetch={false}
+        className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
+      >
+        Crear en Centro de Inventario
+      </Link>
     ) : null}
   </div>
 </div>
@@ -18886,27 +18876,37 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </>
             ) : (
               <>
-                <button
+                <Link
+                  href="/app/inventory/configure"
+                  prefetch={false}
                   className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
-                  onClick={() => openCopyCatalog(selectedCatalogItem.id)}
-                  type="button"
                 >
-                  Copiar
-                </button>
+                  Crear nuevo
+                </Link>
                 <button
                   className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
                   onClick={() => setCatalogEditMode(true)}
                   type="button"
                 >
-                  Editar
+                  Precio y comisión
                 </button>
-                <button
-                  className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
-                  onClick={handleToggleCatalogItemActive}
-                  type="button"
-                >
-                  {selectedCatalogItem.isActive ? 'Desactivar' : 'Activar'}
-                </button>
+                {selectedCatalogItem.isActive ? (
+                  <button
+                    className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                    onClick={handleToggleCatalogItemActive}
+                    type="button"
+                  >
+                    Desactivar
+                  </button>
+                ) : (
+                  <Link
+                    href="/app/inventory/configure"
+                    prefetch={false}
+                    className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                  >
+                    Reactivar en Inventario
+                  </Link>
+                )}
                 <button
                   className="rounded-xl border border-red-500 bg-[#121218] px-3 py-1.5 text-sm text-red-400"
                   onClick={handleDeleteCatalogItem}
@@ -19077,8 +19077,22 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               </>
             ) : (
               <>
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Inventario</div>
+                <fieldset disabled className="rounded-2xl border border-[#242433] bg-[#121218] p-4 opacity-70">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Inventario · solo lectura</div>
+                      <div className="mt-1 text-xs text-[#8A8A96]">
+                        La política, los vínculos físicos y las unidades se administran únicamente en el centro canónico.
+                      </div>
+                    </div>
+                    <Link
+                      href="/app/inventory/configure"
+                      prefetch={false}
+                      className="rounded-xl border border-[#FEEF00]/50 px-3 py-2 text-xs font-semibold text-[#FEEF00]"
+                    >
+                      Abrir Centro de Inventario
+                    </Link>
+                  </div>
                     <div className="mt-4 space-y-4">
                       <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
                         <input
@@ -19188,21 +19202,26 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       </div>
                     ) : null}
                   </div>
-                </div>
+                </fieldset>
 
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Operación</div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Datos comerciales</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Aquí solo se guardan precio y pago de rider. La estructura bloqueada se modifica en el Centro de Inventario.
+                  </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldCheckbox
                       label="Activo"
                       checked={editIsActive}
                       onChange={setEditIsActive}
+                      disabled
                     />
                     <FieldSelect
                       label="Tipo"
                       value={editType}
                       onChange={(v) => setEditType(v as 'product' | 'combo' | 'service' | 'promo' | 'gambit')}
+                      disabled
                       options={[
                         { value: 'product', label: 'Producto' },
                         { value: 'combo', label: 'Combo' },
@@ -19215,16 +19234,19 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       label="Detalle editable"
                       checked={editIsDetailEditable}
                       onChange={setEditIsDetailEditable}
+                      disabled
                     />
                     <FieldCheckbox
                       label="Temporal"
                       checked={editIsTemporary}
                       onChange={setEditIsTemporary}
+                      disabled
                     />
                     <FieldCheckbox
                       label="Puede ser comp. combo"
                       checked={editIsComboComponentSelectable}
                       onChange={setEditIsComboComponentSelectable}
+                      disabled
                     />
 
                     <FieldSelect
@@ -19256,6 +19278,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       value={editUnitsPerService}
                       onChange={setEditUnitsPerService}
                       type="number"
+                      disabled
                       hint="Cuántas unidades reales representa un servicio. Ejemplo: un pack de 25 lleva 25. Si se vende medio servicio, el sistema redondea hacia abajo: 25 / 2 = 12."
                     />
                     {shouldShowRiderPayField({
@@ -19277,6 +19300,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         value={editDetailUnitsLimit}
                         onChange={setEditDetailUnitsLimit}
                         type="number"
+                        disabled
                         hint="Máximo de piezas seleccionables que permite este plato."
                       />
                     ) : null}
@@ -19319,9 +19343,14 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <fieldset disabled className="rounded-2xl border border-[#242433] bg-[#121218] p-4 opacity-70">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-[#F5F5F7]">Composición</div>
+                    <div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">Composición · solo lectura</div>
+                      <div className="mt-1 text-xs text-[#8A8A96]">
+                        Los componentes forman parte de la configuración canónica y ya no se escriben desde esta dashboard.
+                      </div>
+                    </div>
                     <button
                       className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-1.5 text-sm"
                       onClick={addEditComponent}
@@ -19544,7 +19573,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
     )}
   </div>
 </div>
-                </div>
+                </fieldset>
               </>
             )}
           </div>
