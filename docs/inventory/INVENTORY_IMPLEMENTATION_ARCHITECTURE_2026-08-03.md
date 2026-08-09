@@ -324,3 +324,20 @@ La auditoría es de solo lectura y nunca bloquea órdenes. La secuencia de entre
 a otros módulos es Master, Cocina, Asesor y Counter. Asesor y Counter deben
 seleccionar fecha/hora antes de consultar disponibilidad y siempre presentan la
 respuesta como advertencia informativa sujeta a la decisión final de Master.
+
+## 14. Simulacro y certificación previa a la apertura
+
+La certificación del corte se ejecuta sobre el catálogo real dentro de una sola
+transacción reversible. Debe cubrir apertura completa, activación de recetas,
+entrada reconciliada, producción inmediata y diferida, disponibilidad no
+bloqueante y consumo de una orden entregada. La transacción usa bloqueo asesor y
+tiempos máximos para impedir simulacros concurrentes o esperas prolongadas.
+
+El protocolo siempre termina en `ROLLBACK` y luego verifica, en una transacción
+independiente, que no persista ninguna fixture. Superar el simulacro acredita el
+motor, pero no autoriza una apertura real: los 47 saldos físicos deben estar
+representados con cantidades exactas y Master conserva la revisión final.
+
+El Bloque 17 certificó técnicamente el recorrido completo. El estado productivo
+permanece en `legacy` mientras se resuelven los faltantes del conteo físico y no
+se ha activado ninguna receta ni restricción de inventario sobre órdenes.
