@@ -7,6 +7,9 @@ import InventoryConfiguratorClient, {
 import InventoryActivationQueueClient, {
   type InventoryActivationQueue,
 } from './InventoryActivationQueueClient';
+import InventoryAdministrationClient, {
+  type InventoryAdminWorkspace,
+} from './InventoryAdministrationClient';
 import { inventoryDisplayText, repairInventoryDisplayData } from '../display';
 
 type RawInventoryItem = {
@@ -42,7 +45,7 @@ export default async function InventoryConfigurePage() {
     redirect('/app/inventory');
   }
 
-  const [itemsResult, productsResult, activationQueueResult] = await Promise.all([
+  const [itemsResult, productsResult, activationQueueResult, administrationResult] = await Promise.all([
     ctx.supabase
       .from('inventory_items')
       .select('id, name, unit_name, tracking_mode, is_active')
@@ -66,9 +69,13 @@ export default async function InventoryConfigurePage() {
       `)
       .order('name', { ascending: true }),
     ctx.supabase.rpc('inventory_activation_queue_v1'),
+    ctx.supabase.rpc('inventory_admin_configuration_workspace_v1'),
   ]);
 
-  const firstError = itemsResult.error ?? productsResult.error ?? activationQueueResult.error;
+  const firstError = itemsResult.error
+    ?? productsResult.error
+    ?? activationQueueResult.error
+    ?? administrationResult.error;
   if (firstError) {
     throw new Error(`No se pudo cargar el configurador: ${firstError.message}`);
   }
@@ -102,6 +109,11 @@ export default async function InventoryConfigurePage() {
 
   return (
     <div className="space-y-8">
+      <InventoryAdministrationClient
+        workspace={repairInventoryDisplayData(
+          administrationResult.data as InventoryAdminWorkspace,
+        )}
+      />
       <InventoryActivationQueueClient
         queue={repairInventoryDisplayData(
           activationQueueResult.data as InventoryActivationQueue,

@@ -137,12 +137,12 @@ export default async function InventoryProductsPage() {
           <div>
             <h2 className="text-xl font-semibold">Configuración canónica de productos</h2>
             <p className="mt-1 max-w-3xl text-sm text-[#9696A3]">
-              Define qué consume cada producto. Los enlaces de esta versión están preparados pero
-              todavía no ejecutan descuentos automáticos.
+              Explica qué consume cada producto cuando una entrega se cierra. La ejecución permanece
+              informativa para las órdenes: nunca impide al asesor enviar una solicitud a Máster.
             </p>
           </div>
-          <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
-            Solo lectura · Versión 1 inactiva
+          <div className="rounded-full border border-emerald-400/25 bg-emerald-400/5 px-3 py-1 text-xs text-emerald-200">
+            Lectura canónica activa
           </div>
         </div>
 

@@ -246,6 +246,207 @@ export async function saveInventoryCatalogDraftAction(input: { configuration: un
   };
 }
 
+function revalidateInventoryConfigurationRoutes() {
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/products');
+  revalidatePath('/app/inventory/configure');
+  revalidatePath('/app/inventory/recipes');
+  revalidatePath('/app/inventory/readiness');
+  revalidatePath('/app/inventory/reports');
+  revalidatePath('/app/inventory/alerts');
+}
+
+export async function updateInventoryProductIdentityAction(input: {
+  productId: number;
+  name: string;
+  sku: string;
+  unitsPerService: number;
+  allowsHalfService: boolean;
+  isTemporary: boolean;
+  detailUnitsLimit: number;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede modificar productos activos.');
+  }
+
+  const productId = normalizeCountId(input.productId);
+  const name = normalizeOptionalText(input.name, 'El nombre', 160);
+  const sku = normalizeOptionalText(input.sku, 'El SKU', 64);
+  const unitsPerService = Number(input.unitsPerService);
+  const detailUnitsLimit = Number(input.detailUnitsLimit);
+  if (!name) throw new Error('El nombre es obligatorio.');
+  if (!sku) throw new Error('El SKU es obligatorio.');
+  if (!Number.isSafeInteger(unitsPerService) || unitsPerService < 0) {
+    throw new Error('Las unidades por servicio deben ser un entero mayor o igual a cero.');
+  }
+  if (!Number.isSafeInteger(detailUnitsLimit) || detailUnitsLimit < 0) {
+    throw new Error('El límite seleccionable debe ser un entero mayor o igual a cero.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_update_product_identity_v1', {
+    p_configuration: {
+      product_id: productId,
+      name,
+      sku,
+      units_per_service: unitsPerService,
+      allows_half_service: input.allowsHalfService === true,
+      is_temporary: input.isTemporary === true,
+      detail_units_limit: detailUnitsLimit,
+    },
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateInventoryConfigurationRoutes();
+  return data as { status?: string; product_id?: number } | null;
+}
+
+export async function updateInventoryItemControlsAction(input: {
+  inventoryItemId: number;
+  name: string;
+  availabilityMode: 'on_hand_only' | 'immediate_recipe' | 'scheduled_recipe' | null;
+  lowStockThreshold: number | null;
+  lowStockInclusive: boolean;
+  targetStockUnits: number | null;
+  shelfLifeDays: number | null;
+  primaryCountFrequency: 'per_shift' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | null;
+  primaryCountRole: 'admin' | 'master' | 'kitchen' | 'counter' | null;
+  notes: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede modificar controles de inventario.');
+  }
+
+  const inventoryItemId = normalizeCountId(input.inventoryItemId);
+  const name = normalizeOptionalText(input.name, 'El nombre', 160);
+  const notes = normalizeNotes(input.notes);
+  if (!name) throw new Error('El nombre es obligatorio.');
+
+  const optionalNonnegative = (value: number | null, label: string) => {
+    if (value == null) return null;
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized < 0) {
+      throw new Error(`${label} debe ser mayor o igual a cero.`);
+    }
+    return normalized;
+  };
+
+  const lowStockThreshold = optionalNonnegative(input.lowStockThreshold, 'La alerta mínima');
+  const targetStockUnits = optionalNonnegative(input.targetStockUnits, 'El stock objetivo');
+  const shelfLifeDays = optionalNonnegative(input.shelfLifeDays, 'La vida útil');
+  if (shelfLifeDays != null && !Number.isSafeInteger(shelfLifeDays)) {
+    throw new Error('La vida útil debe expresarse en días enteros.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_update_item_controls_v1', {
+    p_configuration: {
+      inventory_item_id: inventoryItemId,
+      name,
+      availability_mode: input.availabilityMode,
+      low_stock_threshold: lowStockThreshold,
+      low_stock_inclusive: input.lowStockInclusive === true,
+      target_stock_units: targetStockUnits,
+      shelf_life_days: shelfLifeDays,
+      primary_count_frequency: input.primaryCountFrequency,
+      primary_count_role: input.primaryCountRole,
+      notes,
+    },
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateInventoryConfigurationRoutes();
+  return data as { status?: string; inventory_item_id?: number } | null;
+}
+
+export async function saveInventoryRecipeDraftAction(input: {
+  draftRecipeId: number | null;
+  sourceRecipeId: number | null;
+  outputInventoryItemId: number;
+  recipeKind: 'production' | 'packaging';
+  outputQuantityUnits: number;
+  leadTimeMinutes: number;
+  productionMultiple: number;
+  notes: string | null;
+  components: Array<{
+    inputInventoryItemId: number;
+    quantityUnits: number;
+  }>;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede guardar versiones de recetas.');
+  }
+
+  const draftRecipeId = input.draftRecipeId == null
+    ? null
+    : normalizeCountId(input.draftRecipeId);
+  const sourceRecipeId = input.sourceRecipeId == null
+    ? null
+    : normalizeCountId(input.sourceRecipeId);
+  const outputInventoryItemId = normalizeCountId(input.outputInventoryItemId);
+  if (!['production', 'packaging'].includes(input.recipeKind)) {
+    throw new Error('El tipo de receta no es válido.');
+  }
+
+  const outputQuantityUnits = normalizePositiveQuantity(
+    input.outputQuantityUnits,
+    'La salida de la receta',
+  );
+  const productionMultiple = normalizePositiveQuantity(
+    input.productionMultiple,
+    'El múltiplo de producción',
+  );
+  const leadTimeMinutes = Number(input.leadTimeMinutes);
+  if (!Number.isSafeInteger(leadTimeMinutes) || leadTimeMinutes < 0 || leadTimeMinutes > 43_200) {
+    throw new Error('El tiempo debe ser un entero entre 0 y 43.200 minutos.');
+  }
+  const notes = normalizeNotes(input.notes);
+
+  if (!Array.isArray(input.components) || input.components.length < 1 || input.components.length > 50) {
+    throw new Error('La receta requiere entre 1 y 50 insumos.');
+  }
+  const seenItemIds = new Set<number>();
+  const components = input.components.map((component) => {
+    const inputInventoryItemId = normalizeCountId(component.inputInventoryItemId);
+    const quantityUnits = normalizePositiveQuantity(component.quantityUnits, 'La cantidad del insumo');
+    if (inputInventoryItemId === outputInventoryItemId) {
+      throw new Error('La receta no puede consumir su propio ítem de salida.');
+    }
+    if (seenItemIds.has(inputInventoryItemId)) {
+      throw new Error('Un insumo no puede repetirse en la misma receta.');
+    }
+    seenItemIds.add(inputInventoryItemId);
+    return {
+      input_inventory_item_id: inputInventoryItemId,
+      quantity_units: quantityUnits,
+    };
+  });
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_recipe_draft_v1', {
+    p_configuration: {
+      draft_recipe_id: draftRecipeId,
+      source_recipe_id: sourceRecipeId,
+      output_inventory_item_id: outputInventoryItemId,
+      recipe_kind: input.recipeKind,
+      output_quantity_units: outputQuantityUnits,
+      lead_time_minutes: leadTimeMinutes,
+      production_multiple: productionMultiple,
+      notes,
+      components,
+    },
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateInventoryConfigurationRoutes();
+  return data as {
+    status?: string;
+    recipe_id?: number;
+    version?: number;
+    operational_recipe_unchanged?: boolean;
+  } | null;
+}
+
 export async function submitInventoryDraftOpeningAction(input: {
   operationId: string;
   inventoryItemId: number;
@@ -591,6 +792,9 @@ export async function activateInventoryRecipeAction(input: { recipeId: number })
   }
 
   revalidateInventoryProductionRoutes();
+  revalidatePath('/app/inventory/configure');
+  revalidatePath('/app/inventory/readiness');
+  revalidatePath('/app/inventory/reports');
   return data as { status?: string; recipe_id?: number } | null;
 }
 

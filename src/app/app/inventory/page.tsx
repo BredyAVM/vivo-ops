@@ -1,3 +1,5 @@
+import Link from 'next/link';
+import type { ReactNode } from 'react';
 import InventoryCatalogClient, { type InventoryCatalogRow } from './InventoryCatalogClient';
 import { getAuthContext } from '@/lib/auth';
 import { inventoryDisplayText } from './display';
@@ -114,12 +116,12 @@ export default async function InventoryPage() {
           <div>
             <h2 className="text-xl font-semibold">Estado del catálogo inventariable</h2>
             <p className="mt-1 max-w-3xl text-sm text-[#9696A3]">
-              Esta vista lee la clasificación canónica aplicada en Supabase. Todavía no activa nuevas
-              deducciones ni modifica existencias.
+              Existencia física vigente y controles de cada ítem. Los movimientos canónicos ya
+              actualizan estos saldos; esta pantalla no los modifica al consultarlos.
             </p>
           </div>
-          <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
-            Solo lectura · Bloque de clasificación
+          <div className="rounded-full border border-emerald-400/25 bg-emerald-400/5 px-3 py-1 text-xs text-emerald-200">
+            Centro canónico activo
           </div>
         </div>
 
@@ -132,8 +134,48 @@ export default async function InventoryPage() {
         </div>
       </section>
 
+      <section className="mt-6 rounded-2xl border border-[#242433] bg-[#111117] p-5">
+        <h3 className="font-semibold">Cómo usar este centro</h3>
+        <p className="mt-1 text-sm text-[#92929F]">
+          Cada apartado responde una pregunta distinta; abrir uno no precarga los demás.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <GuideLink href="/app/inventory" title="¿Cuánto hay?">
+            Existencias muestra el saldo físico, unidad, mínimo y método de conteo.
+          </GuideLink>
+          <GuideLink href="/app/inventory/products" title="¿Qué descuenta una venta?">
+            Productos muestra la política comercial y su fuente física.
+          </GuideLink>
+          <GuideLink href="/app/inventory/recipes" title="¿Qué se está preparando?">
+            Producción ejecuta recetas activas y controla sus tiempos; no edita fórmulas.
+          </GuideLink>
+          {ctx.roles.includes('admin') ? (
+            <GuideLink href="/app/inventory/configure" title="¿Cómo cambio una regla?">
+              Reglas y catálogo permite editar, versionar recetas y crear borradores nuevos.
+            </GuideLink>
+          ) : (
+            <GuideLink href="/app/inventory/counts" title="¿Qué se contó?">
+              Conteos conserva cierres, diferencias, decisiones y reconteos.
+            </GuideLink>
+          )}
+        </div>
+      </section>
+
       <InventoryCatalogClient items={items} />
     </>
+  );
+}
+
+function GuideLink({ href, title, children }: {
+  href: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link href={href} prefetch={false} className="rounded-xl border border-[#2B2B38] bg-[#0D0D12] p-4 hover:border-[#FEEF00]/40">
+      <div className="text-sm font-semibold text-[#FEEF00]">{title}</div>
+      <p className="mt-2 text-xs leading-5 text-[#9696A3]">{children}</p>
+    </Link>
   );
 }
 
