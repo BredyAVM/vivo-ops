@@ -36,11 +36,15 @@ saldo legado negativo a las cantidades físicas nuevas.
 | Salsa Tártara 1 oz | 10 unidades |
 | Aderezo Mostaza Miel 5 oz | 5 unidades |
 | Aderezo Mostaza Miel 2 oz | 3 unidades |
+| Aderezo Mostaza Miel a granel | 0,25 kg (0,25 del envase de 1 kg) |
 | Tequeños Regulares Pre-Fritos | 0 servicios |
 
 La regla del conteo de cierre queda documentada así: si un producto perteneciente
 a ese conteo no aparece en la relación, su cantidad es cero. Esto no se extiende
 a consumibles que pertenecen a otro programa de conteo.
+
+Con la fracción exacta del aderezo a granel, las 48 cantidades transaccionales
+necesarias para la apertura de productos quedan precisadas.
 
 ## Cajas y otros conteos periódicos
 
@@ -61,4 +65,3 @@ mantiene su historial, alertas y programación independientes.
 - Esta preparación no activa recetas ni realiza la apertura.
 - Las cantidades físicas anteriores solo se escribirán cuando se autorice y se
   ejecute el flujo formal de conteo, revisión y aceptación.
-

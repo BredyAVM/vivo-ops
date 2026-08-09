@@ -362,3 +362,17 @@ Después de separar Yukipack en Manzana, Pera y Durazno, la apertura de producto
 incluye 48 ítems transaccionales. `Cajas grandes` continúa fuera de ese conjunto
 como ítem quincenal. Esta separación no autoriza todavía la apertura real ni
 convierte referencias aproximadas en cantidades físicas.
+
+## 16. Entrega controlada de la apertura real
+
+Los valores certificados pueden precargarse en la interfaz, pero la escritura y
+la revisión deben conservar las sesiones reales de sus responsables. Administración
+presenta el lote y Master lo acepta o solicita reconteos; ningún script suplanta
+sus identidades para dejar una aprobación artificial en el historial.
+
+La precarga se invalida si cambia el número, ID o nombre de cualquiera de los 48
+ítems. Después de la aceptación completa, Administración activa las 13 recetas
+canónicas mediante un único comando atómico e idempotente. Solo entonces la
+auditoría alcanza `ready_for_canonical_operation`. Esta transición no cambia la
+regla no bloqueante de órdenes ni incorpora consumibles periódicos al descuento
+por ventas.

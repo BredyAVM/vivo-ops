@@ -1,6 +1,11 @@
 import InventoryOpeningClient, { type InventoryOpeningItem } from './InventoryOpeningClient';
 import { getAuthContext } from '@/lib/auth';
 import { inventoryDisplayText } from '../display';
+import {
+  CERTIFIED_OPENING_LABEL,
+  CERTIFIED_OPENING_LINES,
+  certifiedOpeningQuantity,
+} from './certified-opening-2026-08-08';
 
 type OpeningStatusPayload = {
   eligible_count?: unknown;
@@ -26,11 +31,12 @@ function parseOpeningItems(value: unknown): InventoryOpeningItem[] {
     if (!Number.isSafeInteger(id) || id <= 0) return [];
     if (!['pending', 'under_review', 'accepted'].includes(rawStatus)) return [];
 
+    const rawName = String(item.name ?? `Ítem #${id}`);
     const rawCountId = item.inventory_count_id;
     const inventoryCountId = rawCountId == null ? null : Number(rawCountId);
     return [{
       id,
-      name: inventoryDisplayText(String(item.name ?? `Ítem #${id}`)),
+      name: inventoryDisplayText(rawName),
       inventoryGroup: String(item.inventory_group ?? 'other'),
       unitName: inventoryDisplayText(String(item.unit_name ?? 'unidad')),
       trackingMode: String(item.tracking_mode ?? 'transactional'),
@@ -39,6 +45,7 @@ function parseOpeningItems(value: unknown): InventoryOpeningItem[] {
         inventoryCountId != null && Number.isSafeInteger(inventoryCountId) && inventoryCountId > 0
           ? inventoryCountId
           : null,
+      certifiedQuantity: certifiedOpeningQuantity(id, rawName),
     }];
   });
 }
@@ -60,6 +67,10 @@ export default async function InventoryOpeningPage() {
   const pendingCount = toCount(payload.pending_count);
   const ready = payload.ready === true;
   const isAdmin = ctx.roles.includes('admin');
+  const certifiedBaselineReady =
+    eligibleCount === CERTIFIED_OPENING_LINES.length &&
+    items.length === CERTIFIED_OPENING_LINES.length &&
+    items.every((item) => item.certifiedQuantity != null);
 
   return (
     <section>
@@ -90,7 +101,12 @@ export default async function InventoryOpeningPage() {
         </div>
       ) : null}
 
-      <InventoryOpeningClient items={items} isAdmin={isAdmin} />
+      <InventoryOpeningClient
+        items={items}
+        isAdmin={isAdmin}
+        certifiedBaselineReady={certifiedBaselineReady}
+        certifiedBaselineLabel={CERTIFIED_OPENING_LABEL}
+      />
     </section>
   );
 }

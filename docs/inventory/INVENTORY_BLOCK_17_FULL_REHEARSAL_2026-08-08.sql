@@ -187,6 +187,7 @@ begin
         when 9 then 10     -- Tartar 1 oz.
         when 23 then 5     -- Honey mustard 5 oz.
         when 22 then 3     -- Honey mustard 2 oz.
+        when 78 then 0.25  -- One quarter of the canonical 1 kg container.
         else 0
         end
       end

@@ -14,11 +14,14 @@ export type InventoryOpeningItem = {
   trackingMode: string;
   openingStatus: 'pending' | 'under_review' | 'accepted';
   inventoryCountId: number | null;
+  certifiedQuantity: number | null;
 };
 
 type Props = {
   items: InventoryOpeningItem[];
   isAdmin: boolean;
+  certifiedBaselineReady: boolean;
+  certifiedBaselineLabel: string;
 };
 
 const groupLabels: Record<string, string> = {
@@ -42,9 +45,24 @@ function statusClass(status: InventoryOpeningItem['openingStatus']) {
   return 'border-[#343444] bg-[#171720] text-[#B6B6C2]';
 }
 
-export default function InventoryOpeningClient({ items, isAdmin }: Props) {
+export default function InventoryOpeningClient({
+  items,
+  isAdmin,
+  certifiedBaselineReady,
+  certifiedBaselineLabel,
+}: Props) {
   const router = useRouter();
-  const [quantities, setQuantities] = useState<Record<number, string>>({});
+  const [quantities, setQuantities] = useState<Record<number, string>>(() =>
+    certifiedBaselineReady
+      ? Object.fromEntries(
+          items.flatMap((item) =>
+            item.openingStatus === 'pending' && item.certifiedQuantity != null
+              ? [[item.id, String(item.certifiedQuantity)]]
+              : [],
+          ),
+        )
+      : {},
+  );
   const [notes, setNotes] = useState('');
   const [query, setQuery] = useState('');
   const [maintenanceConfirmed, setMaintenanceConfirmed] = useState(false);
@@ -126,6 +144,19 @@ export default function InventoryOpeningClient({ items, isAdmin }: Props) {
           {items.length} ítems aceptados que hoy forman el catálogo inventariable.
         </p>
       </div>
+
+      {isAdmin && items.some((item) => item.openingStatus === 'pending') ? (
+        <div className={`rounded-2xl border p-4 text-sm ${certifiedBaselineReady ? 'border-emerald-400/25 bg-emerald-400/5 text-emerald-100' : 'border-red-400/25 bg-red-400/5 text-red-100'}`}>
+          <div className="font-semibold">
+            {certifiedBaselineReady ? 'Conteo certificado precargado' : 'El catálogo cambió después del conteo'}
+          </div>
+          <p className="mt-1 max-w-4xl leading-6 opacity-75">
+            {certifiedBaselineReady
+              ? `${certifiedBaselineLabel}. Las ${items.length} cantidades están listas para revisión antes de presentar; puedes corregir cualquier valor.`
+              : 'No se precargaron cantidades porque la lista física ya no coincide exactamente con los 48 ítems certificados. Revisa el catálogo antes de abrir.'}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-3 rounded-2xl border border-[#242433] bg-[#111117] p-4 lg:flex-row lg:items-end lg:justify-between">
         <label className="block w-full max-w-xl text-sm">

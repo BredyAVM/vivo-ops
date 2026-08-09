@@ -594,6 +594,32 @@ export async function activateInventoryRecipeAction(input: { recipeId: number })
   return data as { status?: string; recipe_id?: number } | null;
 }
 
+export async function activateAllCanonicalInventoryRecipesAction() {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede activar todas las recetas canónicas.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc(
+    'inventory_activate_canonical_recipes_v1',
+  );
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidateInventoryProductionRoutes();
+  revalidatePath('/app/inventory/readiness');
+  revalidatePath('/app/inventory/opening');
+  revalidatePath('/app/inventory/reports');
+  return data as {
+    status?: string;
+    canonical_recipe_count?: number;
+    active_recipe_count?: number;
+    activated_recipe_count?: number;
+  } | null;
+}
+
 export async function startInventoryProductionAction(input: {
   operationId: string;
   recipeId: number;

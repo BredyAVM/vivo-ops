@@ -108,11 +108,12 @@ canónico elegible y no se agregó durante este bloque.
 | Salsa Tártara 1 oz | 10 |
 | Aderezo Mostaza Miel 5 oz | 5 |
 | Aderezo Mostaza Miel 2 oz | 3 |
+| Aderezo Mostaza Miel a granel | 0,25 kg |
 
 Los productos del conteo de cierre que no aparecen en la relación se interpretan
-como cero. `Aderezo a granel: un poquito` sí apareció en el conteo original, por
-lo que todavía requiere una fracción exacta antes de usarlo en una apertura real;
-el simulacro reversible utilizó cero únicamente como valor técnico para esa línea.
+como cero. La indicación original `Aderezo a granel: un poquito` quedó sustituida
+por el conteo exacto de un cuarto de kilo, equivalente a `0,25` del envase
+canónico de 1 kg.
 
 ## Conteos periódicos fuera del corte
 
@@ -123,18 +124,18 @@ exacto ni se guardó.
 
 ## Estado para una apertura real
 
-El motor y la representación del catálogo están certificados, pero no se ejecutó
-la apertura. El estado productivo correcto es `structure_ready_opening_pending`:
+El motor, la representación del catálogo y las 48 cantidades físicas están
+certificados, pero no se ejecutó la apertura. El estado productivo correcto es
+`structure_ready_opening_pending`:
 
 - 0 de 48 aperturas aceptadas;
 - 0 de 13 recetas activas;
 - pedidos sin bloqueo de inventario;
 - decisión final todavía en Master.
 
-Antes de una apertura real se necesita sustituir la cantidad no auditable del
-aderezo a granel por una fracción exacta y obtener la autorización explícita para
-ejecutar el conteo formal. Después, Master revisará el reporte completo y
-Administración activará las recetas.
+El conteo ya no tiene cantidades pendientes de precisar. La apertura real solo
+requiere autorización explícita para ejecutar el conteo formal. Después, Master
+revisará el reporte completo y Administración activará las recetas.
 
 ## Evidencia reproducible
 

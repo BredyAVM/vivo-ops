@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseDecimalInput } from '@/lib/number-input';
 import {
+  activateAllCanonicalInventoryRecipesAction,
   activateInventoryRecipeAction,
   completeInventoryProductionAction,
   resolveInventoryProductionAction,
@@ -159,6 +160,9 @@ export default function InventoryProductionWorkspaceClient({
 
   const scheduledRecipes = workspace.recipes.filter((recipe) => recipe.lead_time_minutes > 0);
   const immediateRecipes = workspace.recipes.filter((recipe) => recipe.lead_time_minutes === 0);
+  const readyInactiveRecipeCount = workspace.recipes.filter(
+    (recipe) => !recipe.is_active && recipe.activation_blockers.length === 0,
+  ).length;
 
   function runAction(key: string, successMessage: string, action: () => Promise<unknown>) {
     setPendingKey(key);
@@ -196,6 +200,14 @@ export default function InventoryProductionWorkspaceClient({
       `activate-${recipe.id}`,
       `${recipe.output_name} quedó activa para producción.`,
       () => activateInventoryRecipeAction({ recipeId: recipe.id }),
+    );
+  }
+
+  function activateAllRecipes() {
+    runAction(
+      'activate-all-recipes',
+      'Las recetas canónicas quedaron activas para la operación.',
+      activateAllCanonicalInventoryRecipesAction,
     );
   }
 
@@ -286,6 +298,26 @@ export default function InventoryProductionWorkspaceClient({
         ) : null}
         {notice ? <Feedback tone="good">{notice}</Feedback> : null}
         {error ? <Feedback tone="danger">{error}</Feedback> : null}
+        {workspace.permissions.can_activate && workspace.summary.active_recipes < workspace.summary.canonical_recipes ? (
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-emerald-100">Activación posterior a la apertura</div>
+              <p className="mt-1 text-xs leading-5 text-emerald-100/70">
+                Se habilita cuando Master haya aceptado los 48 saldos físicos. La activación completa es atómica.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={activateAllRecipes}
+              disabled={isPending || readyInactiveRecipeCount !== workspace.summary.canonical_recipes - workspace.summary.active_recipes}
+              className={`${PRIMARY_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              {pendingKey === 'activate-all-recipes'
+                ? 'Activando…'
+                : `Activar ${workspace.summary.canonical_recipes - workspace.summary.active_recipes} recetas`}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="mt-6 rounded-2xl border border-[#242433] bg-[#111117] p-5">
