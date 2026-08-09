@@ -81,6 +81,7 @@ function revalidateKitchenInventory() {
   revalidatePath('/app/inventory/counts');
   revalidatePath('/app/inventory/reports');
   revalidatePath('/app/inventory/alerts');
+  revalidatePath('/app/master/ops/inventory');
 }
 
 export async function submitKitchenInventoryCountAction(input: {

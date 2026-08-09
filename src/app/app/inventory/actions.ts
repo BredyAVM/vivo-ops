@@ -189,6 +189,7 @@ function revalidateInventoryCountRoutes(countId: number) {
   revalidatePath('/app/inventory/counts');
   revalidatePath(`/app/inventory/counts/${countId}`);
   revalidatePath('/app/inventory/operations');
+  revalidatePath('/app/master/ops/inventory');
 }
 
 export async function saveInventoryCatalogDraftAction(input: { configuration: unknown }) {

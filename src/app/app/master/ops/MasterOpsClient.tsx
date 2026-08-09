@@ -4094,10 +4094,10 @@ export default function MasterOpsClient({
                 </div>
 
                 <Link
-                  href="/app/inventory/counts"
+                  href="/app/master/ops/inventory"
                   prefetch={false}
                   className="shrink-0 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
-                  title="Abrir conteos y revisiones en el Centro de Inventario"
+                  title="Abrir el control operativo de inventario de Máster"
                 >
                   Inventario
                 </Link>
