@@ -29,6 +29,13 @@ export type AdminProduct = {
   allows_half_service: boolean;
   is_temporary: boolean;
   detail_units_limit: number;
+  source_price_amount: number;
+  source_price_currency: 'USD' | 'VES';
+  commission_mode: 'default' | 'fixed_item' | 'fixed_order';
+  commission_value: number | null;
+  commission_notes: string | null;
+  advisor_gift_cost_usd: number | null;
+  internal_rider_pay_usd: number | null;
   inventory_policy: 'self' | 'direct' | 'components' | 'none' | null;
   inventory_configuration_status: string;
   order_reference_count: number;
@@ -193,7 +200,7 @@ export default function InventoryAdministrationClient({
 
       <div className="mt-5 grid gap-3 lg:grid-cols-3">
         <RuleCard number="1" title="Producto comercial">
-          Nombre, SKU y forma de servicio. No cambia precios ni descuentos físicos.
+          Identidad, precio, comisión y condiciones comerciales. No cambia descuentos físicos.
         </RuleCard>
         <RuleCard number="2" title="Ítem físico">
           Alertas, objetivo, conteo y disponibilidad. No cambia unidad, tipo ni saldo.
@@ -315,6 +322,19 @@ function ProductEditor({ product }: { product: AdminProduct }) {
   const [detailUnitsLimit, setDetailUnitsLimit] = useState(String(product.detail_units_limit));
   const [allowsHalfService, setAllowsHalfService] = useState(product.allows_half_service);
   const [isTemporary, setIsTemporary] = useState(product.is_temporary);
+  const [sourcePriceAmount, setSourcePriceAmount] = useState(String(product.source_price_amount));
+  const [sourcePriceCurrency, setSourcePriceCurrency] = useState(product.source_price_currency);
+  const [commissionMode, setCommissionMode] = useState(product.commission_mode);
+  const [commissionValue, setCommissionValue] = useState(
+    product.commission_value == null ? '' : String(product.commission_value),
+  );
+  const [commissionNotes, setCommissionNotes] = useState(product.commission_notes ?? '');
+  const [advisorGiftCostUsd, setAdvisorGiftCostUsd] = useState(
+    product.advisor_gift_cost_usd == null ? '' : String(product.advisor_gift_cost_usd),
+  );
+  const [internalRiderPayUsd, setInternalRiderPayUsd] = useState(
+    product.internal_rider_pay_usd == null ? '' : String(product.internal_rider_pay_usd),
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -331,8 +351,16 @@ function ProductEditor({ product }: { product: AdminProduct }) {
           detailUnitsLimit: Number(detailUnitsLimit),
           allowsHalfService,
           isTemporary,
+          sourcePriceAmount: parseDecimalInput(sourcePriceAmount),
+          sourcePriceCurrency,
+          commissionMode,
+          commissionValue:
+            commissionMode === 'default' ? null : parseDecimalInput(commissionValue),
+          commissionNotes: commissionNotes.trim() || null,
+          advisorGiftCostUsd: optionalDecimal(advisorGiftCostUsd),
+          internalRiderPayUsd: optionalDecimal(internalRiderPayUsd),
         });
-        setMessage('Producto actualizado. Las órdenes históricas conservaron su nombre y SKU original.');
+        setMessage('Producto actualizado. Las órdenes históricas conservaron sus datos originales.');
         router.refresh();
       } catch (saveError) {
         setError(saveError instanceof Error ? saveError.message : 'No se pudo modificar el producto.');
@@ -361,6 +389,94 @@ function ProductEditor({ product }: { product: AdminProduct }) {
           <Checkbox checked={allowsHalfService} onChange={setAllowsHalfService} label="Admite medio servicio" />
           <Checkbox checked={isTemporary} onChange={setIsTemporary} label="Producto temporal" />
         </div>
+        <div className="mt-5 border-t border-[#2B2B38] pt-5">
+          <div className="text-sm font-semibold text-[#E4E4EA]">Precio y condiciones comerciales</div>
+          <p className="mt-1 text-xs leading-5 text-[#92929F]">
+            Se guardan en el producto actual y no modifican su estructura física de inventario.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-[1fr_100px] gap-2">
+              <Field label="Precio fuente">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={sourcePriceAmount}
+                  onChange={(event) => setSourcePriceAmount(event.target.value)}
+                  className={INPUT_CLASS}
+                />
+              </Field>
+              <Field label="Moneda">
+                <select
+                  value={sourcePriceCurrency}
+                  onChange={(event) => setSourcePriceCurrency(event.target.value as 'USD' | 'VES')}
+                  className={INPUT_CLASS}
+                >
+                  <option value="USD">USD</option>
+                  <option value="VES">VES</option>
+                </select>
+              </Field>
+            </div>
+            <Field label="Comisión del asesor">
+              <select
+                value={commissionMode}
+                onChange={(event) =>
+                  setCommissionMode(
+                    event.target.value as AdminProduct['commission_mode'],
+                  )
+                }
+                className={INPUT_CLASS}
+              >
+                <option value="default">Comisión general</option>
+                <option value="fixed_item">Específica para este producto</option>
+                <option value="fixed_order">Específica para toda la orden</option>
+              </select>
+            </Field>
+            <Field
+              label="Porcentaje específico"
+              hint={commissionMode === 'default' ? 'No aplica con la comisión general.' : 'Entre 0 y 100.'}
+            >
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={commissionValue}
+                onChange={(event) => setCommissionValue(event.target.value)}
+                disabled={commissionMode === 'default'}
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Costo por obsequio para el asesor (USD)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={advisorGiftCostUsd}
+                onChange={(event) => setAdvisorGiftCostUsd(event.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Pago interno de delivery (USD)">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={internalRiderPayUsd}
+                onChange={(event) => setInternalRiderPayUsd(event.target.value)}
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Nota de comisión (opcional)">
+              <input
+                value={commissionNotes}
+                onChange={(event) => setCommissionNotes(event.target.value)}
+                maxLength={1000}
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+        </div>
         <Feedback message={message} error={error} />
         <button type="button" onClick={save} disabled={isPending} className={`mt-4 ${PRIMARY_BUTTON}`}>
           {isPending ? 'Guardando…' : 'Guardar datos comerciales'}
@@ -382,7 +498,8 @@ function ProductEditor({ product }: { product: AdminProduct }) {
           )) : <div className="mt-2 text-xs text-[#858591]">No tiene enlace directo; se resuelve por composición o no descuenta.</div>}
         </div>
         <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-2 text-xs leading-5 text-sky-100">
-          Este editor no modifica precios, componentes ni cantidades descontadas.
+          Este editor modifica identidad, precio y condiciones comerciales. No modifica componentes,
+          recetas, existencias ni cantidades descontadas.
         </div>
       </ImpactCard>
     </div>
@@ -753,11 +870,12 @@ function EditorButton({ active, onClick, children }: { active: boolean; onClick:
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block text-xs text-[#A6A6B2]">
       <span className="mb-1.5 block font-medium">{label}</span>
       {children}
+      {hint ? <span className="mt-1.5 block leading-5 text-[#858591]">{hint}</span> : null}
     </label>
   );
 }

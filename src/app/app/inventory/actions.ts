@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
+import { notifyCanonicalCatalogPriceChangeAction } from '@/app/app/master/dashboard/actions';
 
 type CountLineInput = {
   inventoryItemId: number;
@@ -264,6 +265,13 @@ export async function updateInventoryProductIdentityAction(input: {
   allowsHalfService: boolean;
   isTemporary: boolean;
   detailUnitsLimit: number;
+  sourcePriceAmount: number;
+  sourcePriceCurrency: 'USD' | 'VES';
+  commissionMode: 'default' | 'fixed_item' | 'fixed_order';
+  commissionValue: number | null;
+  commissionNotes: string | null;
+  advisorGiftCostUsd: number | null;
+  internalRiderPayUsd: number | null;
 }) {
   const ctx = await requireMasterOrAdminContext();
   if (!ctx.roles.includes('admin')) {
@@ -283,6 +291,47 @@ export async function updateInventoryProductIdentityAction(input: {
   if (!Number.isSafeInteger(detailUnitsLimit) || detailUnitsLimit < 0) {
     throw new Error('El límite seleccionable debe ser un entero mayor o igual a cero.');
   }
+  const sourcePriceAmount = Number(input.sourcePriceAmount);
+  if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
+    throw new Error('El precio fuente debe ser mayor o igual a cero.');
+  }
+  if (!['USD', 'VES'].includes(input.sourcePriceCurrency)) {
+    throw new Error('La moneda del precio fuente no es válida.');
+  }
+  if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
+    throw new Error('La modalidad de comisión no es válida.');
+  }
+  const commissionValue = input.commissionMode === 'default'
+    ? null
+    : input.commissionValue == null
+      ? null
+      : Number(input.commissionValue);
+  if (
+    input.commissionMode !== 'default' &&
+    (commissionValue == null ||
+      !Number.isFinite(commissionValue) ||
+      commissionValue < 0 ||
+      commissionValue > 100)
+  ) {
+    throw new Error('La comisión específica debe ser un porcentaje entre 0 y 100.');
+  }
+  const commissionNotes = normalizeOptionalText(input.commissionNotes, 'La nota de comisión', 1000);
+  const normalizeOptionalNonnegative = (value: number | null, label: string) => {
+    if (value == null) return null;
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized < 0) {
+      throw new Error(`${label} debe ser mayor o igual a cero.`);
+    }
+    return normalized;
+  };
+  const advisorGiftCostUsd = normalizeOptionalNonnegative(
+    input.advisorGiftCostUsd,
+    'El costo para el asesor',
+  );
+  const internalRiderPayUsd = normalizeOptionalNonnegative(
+    input.internalRiderPayUsd,
+    'El pago interno de delivery',
+  );
 
   const { data, error } = await ctx.supabase.rpc('inventory_update_product_identity_v1', {
     p_configuration: {
@@ -293,12 +342,37 @@ export async function updateInventoryProductIdentityAction(input: {
       allows_half_service: input.allowsHalfService === true,
       is_temporary: input.isTemporary === true,
       detail_units_limit: detailUnitsLimit,
+      source_price_amount: sourcePriceAmount,
+      source_price_currency: input.sourcePriceCurrency,
+      commission_mode: input.commissionMode,
+      commission_value: commissionValue,
+      commission_notes: commissionNotes,
+      advisor_gift_cost_usd: advisorGiftCostUsd,
+      internal_rider_pay_usd: internalRiderPayUsd,
     },
   });
 
   if (error) throw new Error(error.message);
+  const result = data as {
+    status?: string;
+    product_id?: number;
+    product_name?: string;
+    previous_source_price_amount?: number | string;
+    previous_source_price_currency?: string;
+    source_price_amount?: number | string;
+    source_price_currency?: string;
+  } | null;
+
+  await notifyCanonicalCatalogPriceChangeAction({
+    productId,
+    productName: String(result?.product_name || name),
+    previousCurrency: result?.previous_source_price_currency === 'VES' ? 'VES' : 'USD',
+    previousAmount: Number(result?.previous_source_price_amount ?? sourcePriceAmount),
+    nextCurrency: result?.source_price_currency === 'VES' ? 'VES' : 'USD',
+    nextAmount: Number(result?.source_price_amount ?? sourcePriceAmount),
+  });
   revalidateInventoryConfigurationRoutes();
-  return data as { status?: string; product_id?: number } | null;
+  return result;
 }
 
 export async function updateInventoryItemControlsAction(input: {

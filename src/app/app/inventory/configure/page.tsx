@@ -28,6 +28,11 @@ type RawProduct = {
   is_active: boolean;
   source_price_amount: number | string;
   source_price_currency: ConfiguratorProduct['sourcePriceCurrency'];
+  commission_mode: ConfiguratorProduct['commissionMode'];
+  commission_value: number | string | null;
+  commission_notes: string | null;
+  extra_fields: Record<string, unknown> | null;
+  internal_rider_pay_usd: number | string | null;
   units_per_service: number;
   allows_half_service: boolean;
   is_temporary: boolean;
@@ -61,6 +66,11 @@ export default async function InventoryConfigurePage() {
         is_active,
         source_price_amount,
         source_price_currency,
+        commission_mode,
+        commission_value,
+        commission_notes,
+        extra_fields,
+        internal_rider_pay_usd,
         units_per_service,
         allows_half_service,
         is_temporary,
@@ -91,28 +101,57 @@ export default async function InventoryConfigurePage() {
   );
 
   const products: ConfiguratorProduct[] = ((productsResult.data ?? []) as RawProduct[]).map(
-    (product) => ({
-      id: Number(product.id),
-      sku: product.sku ? inventoryDisplayText(product.sku) : null,
-      name: inventoryDisplayText(product.name),
-      type: product.type,
-      isActive: product.is_active,
-      sourcePriceAmount: Number(product.source_price_amount),
-      sourcePriceCurrency: product.source_price_currency,
-      unitsPerService: Number(product.units_per_service),
-      allowsHalfService: product.allows_half_service,
-      isTemporary: product.is_temporary,
-      detailUnitsLimit: Number(product.detail_units_limit),
-      inventoryPolicy: product.inventory_policy,
-    }),
+    (product) => {
+      const rawGiftCost = product.extra_fields?.advisor_gift_cost_usd;
+      const giftCost = rawGiftCost == null ? null : Number(rawGiftCost);
+      return {
+        id: Number(product.id),
+        sku: product.sku ? inventoryDisplayText(product.sku) : null,
+        name: inventoryDisplayText(product.name),
+        type: product.type,
+        isActive: product.is_active,
+        sourcePriceAmount: Number(product.source_price_amount),
+        sourcePriceCurrency: product.source_price_currency,
+        commissionMode: product.commission_mode,
+        commissionValue: product.commission_value == null ? null : Number(product.commission_value),
+        commissionNotes: product.commission_notes,
+        advisorGiftCostUsd: giftCost != null && Number.isFinite(giftCost) ? giftCost : null,
+        internalRiderPayUsd:
+          product.internal_rider_pay_usd == null ? null : Number(product.internal_rider_pay_usd),
+        unitsPerService: Number(product.units_per_service),
+        allowsHalfService: product.allows_half_service,
+        isTemporary: product.is_temporary,
+        detailUnitsLimit: Number(product.detail_units_limit),
+        inventoryPolicy: product.inventory_policy,
+      };
+    },
   );
+
+  const commercialByProductId = new Map(products.map((product) => [product.id, product]));
+  const rawAdministrationWorkspace = repairInventoryDisplayData(
+    administrationResult.data as InventoryAdminWorkspace,
+  );
+  const administrationWorkspace: InventoryAdminWorkspace = {
+    ...rawAdministrationWorkspace,
+    products: rawAdministrationWorkspace.products.map((product) => {
+      const commercial = commercialByProductId.get(product.id);
+      return {
+        ...product,
+        source_price_amount: commercial?.sourcePriceAmount ?? 0,
+        source_price_currency: commercial?.sourcePriceCurrency ?? 'USD',
+        commission_mode: commercial?.commissionMode ?? 'default',
+        commission_value: commercial?.commissionValue ?? null,
+        commission_notes: commercial?.commissionNotes ?? null,
+        advisor_gift_cost_usd: commercial?.advisorGiftCostUsd ?? null,
+        internal_rider_pay_usd: commercial?.internalRiderPayUsd ?? null,
+      };
+    }),
+  };
 
   return (
     <div className="space-y-8">
       <InventoryAdministrationClient
-        workspace={repairInventoryDisplayData(
-          administrationResult.data as InventoryAdminWorkspace,
-        )}
+        workspace={administrationWorkspace}
       />
       <InventoryActivationQueueClient
         queue={repairInventoryDisplayData(

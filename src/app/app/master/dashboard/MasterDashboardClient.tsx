@@ -8021,25 +8021,6 @@ const handleSaveCatalog = async () => {
   }
 };
 
-const openQuickCatalog = () => {
-  if (!permissions.canManageCatalogPrices) {
-    showToast('error', 'Solo admin puede actualizar precios.');
-    return;
-  }
-
-  setQuickCatalogRows(
-    filteredCatalogItems.map((item) => ({
-      productId: item.id,
-      name: item.name,
-      sku: item.sku,
-      sourcePriceCurrency: item.sourcePriceCurrency,
-      originalAmount: String(item.sourcePriceAmount ?? 0),
-      nextAmount: String(item.sourcePriceAmount ?? 0),
-    }))
-  );
-  setQuickCatalogOpen(true);
-};
-
 const handleQuickCatalogRowChange = (productId: number, value: string) => {
   setQuickCatalogRows((prev) =>
     prev.map((row) => (row.productId === productId ? { ...row, nextAmount: value } : row))
@@ -16929,9 +16910,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
               {permissions.canManageCatalogPrices ? (
               <div className="mb-3 flex flex-wrap gap-2">
-                <Btn onClick={openQuickCatalog}>
-                  Actualizar precios
-                </Btn>
+                <Link
+                  href="/app/inventory/configure"
+                  prefetch={false}
+                  className="rounded-xl border border-[#FEEF00]/50 px-4 py-2 text-sm font-semibold text-[#FEEF00]"
+                >
+                  Configurar precios y comisiones en Inventario
+                </Link>
               </div>
               ) : null}
 
@@ -18883,13 +18868,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 >
                   Crear nuevo
                 </Link>
-                <button
+                <Link
+                  href="/app/inventory/configure"
+                  prefetch={false}
                   className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
-                  onClick={() => setCatalogEditMode(true)}
-                  type="button"
                 >
-                  Precio y comisión
-                </button>
+                  Editar en Inventario
+                </Link>
                 {selectedCatalogItem.isActive ? (
                   <button
                     className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"

@@ -22,6 +22,11 @@ export type ConfiguratorProduct = {
   isActive: boolean;
   sourcePriceAmount: number;
   sourcePriceCurrency: 'USD' | 'VES';
+  commissionMode: 'default' | 'fixed_item' | 'fixed_order';
+  commissionValue: number | null;
+  commissionNotes: string | null;
+  advisorGiftCostUsd: number | null;
+  internalRiderPayUsd: number | null;
   unitsPerService: number;
   allowsHalfService: boolean;
   isTemporary: boolean;
@@ -31,6 +36,7 @@ export type ConfiguratorProduct = {
 
 type EntryKind = 'item' | 'product';
 type InventoryPolicy = 'self' | 'direct' | 'components' | 'none';
+type CommissionMode = ConfiguratorProduct['commissionMode'];
 type ItemDraft = {
   name: string;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
@@ -139,6 +145,11 @@ export default function InventoryConfiguratorClient({
   const [productType, setProductType] = useState<ConfiguratorProduct['type']>('product');
   const [sourcePriceAmount, setSourcePriceAmount] = useState('0');
   const [sourcePriceCurrency, setSourcePriceCurrency] = useState<'USD' | 'VES'>('USD');
+  const [commissionMode, setCommissionMode] = useState<CommissionMode>('default');
+  const [commissionValue, setCommissionValue] = useState('');
+  const [commissionNotes, setCommissionNotes] = useState('');
+  const [advisorGiftCostUsd, setAdvisorGiftCostUsd] = useState('');
+  const [internalRiderPayUsd, setInternalRiderPayUsd] = useState('');
   const [unitsPerService, setUnitsPerService] = useState('0');
   const [allowsHalfService, setAllowsHalfService] = useState(false);
   const [isTemporary, setIsTemporary] = useState(false);
@@ -177,6 +188,11 @@ export default function InventoryConfiguratorClient({
     setProductType('product');
     setSourcePriceAmount('0');
     setSourcePriceCurrency('USD');
+    setCommissionMode('default');
+    setCommissionValue('');
+    setCommissionNotes('');
+    setAdvisorGiftCostUsd('');
+    setInternalRiderPayUsd('');
     setUnitsPerService('0');
     setAllowsHalfService(false);
     setIsTemporary(false);
@@ -205,6 +221,17 @@ export default function InventoryConfiguratorClient({
     setProductType(selectedProduct.type);
     setSourcePriceAmount(String(selectedProduct.sourcePriceAmount));
     setSourcePriceCurrency(selectedProduct.sourcePriceCurrency);
+    setCommissionMode(selectedProduct.commissionMode);
+    setCommissionValue(
+      selectedProduct.commissionValue == null ? '' : String(selectedProduct.commissionValue),
+    );
+    setCommissionNotes(selectedProduct.commissionNotes ?? '');
+    setAdvisorGiftCostUsd(
+      selectedProduct.advisorGiftCostUsd == null ? '' : String(selectedProduct.advisorGiftCostUsd),
+    );
+    setInternalRiderPayUsd(
+      selectedProduct.internalRiderPayUsd == null ? '' : String(selectedProduct.internalRiderPayUsd),
+    );
     setUnitsPerService(String(selectedProduct.unitsPerService));
     setAllowsHalfService(selectedProduct.allowsHalfService);
     setIsTemporary(selectedProduct.isTemporary);
@@ -221,6 +248,27 @@ export default function InventoryConfiguratorClient({
 
     if (!productName.trim()) return 'Escribe el nombre del producto.';
     if (!sku.trim()) return 'Escribe el SKU del producto.';
+    if (!Number.isFinite(Number(sourcePriceAmount)) || Number(sourcePriceAmount) < 0) {
+      return 'El precio fuente debe ser mayor o igual a cero.';
+    }
+    if (commissionMode !== 'default') {
+      const percentage = Number(commissionValue);
+      if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+        return 'La comisión específica debe ser un porcentaje entre 0 y 100.';
+      }
+    }
+    if (
+      advisorGiftCostUsd.trim() &&
+      (!Number.isFinite(Number(advisorGiftCostUsd)) || Number(advisorGiftCostUsd) < 0)
+    ) {
+      return 'El costo para el asesor debe ser mayor o igual a cero.';
+    }
+    if (
+      internalRiderPayUsd.trim() &&
+      (!Number.isFinite(Number(internalRiderPayUsd)) || Number(internalRiderPayUsd) < 0)
+    ) {
+      return 'El pago interno de delivery debe ser mayor o igual a cero.';
+    }
     if (policy === 'self') {
       if (selfItemMode === 'existing' && !selfInventoryItemId) {
         return 'Selecciona el ítem físico que representa al producto.';
@@ -270,6 +318,12 @@ export default function InventoryConfiguratorClient({
           type: productType,
           source_price_amount: optionalNumber(sourcePriceAmount) ?? 0,
           source_price_currency: sourcePriceCurrency,
+          commission_mode: commissionMode,
+          commission_value:
+            commissionMode === 'default' ? null : optionalNumber(commissionValue),
+          commission_notes: commissionNotes.trim() || null,
+          advisor_gift_cost_usd: optionalNumber(advisorGiftCostUsd),
+          internal_rider_pay_usd: optionalNumber(internalRiderPayUsd),
           units_per_service: optionalNumber(unitsPerService) ?? 0,
           allows_half_service: allowsHalfService,
           is_temporary: isTemporary,
@@ -418,7 +472,89 @@ export default function InventoryConfiguratorClient({
             </div>
           </Section>
 
-          <Section title="2. Política de inventario" description="Esta elección define la única ruta canónica de consumo del producto.">
+          <Section
+            title="2. Condiciones comerciales"
+            description="Se guardan en el mismo producto, pero permanecen separadas de sus reglas físicas de inventario."
+          >
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Field
+                label="Comisión del asesor"
+                hint="La comisión general usa el porcentaje vigente del asesor; no lo copia dentro del producto."
+              >
+                <select
+                  value={commissionMode}
+                  onChange={(event) => setCommissionMode(event.target.value as CommissionMode)}
+                  disabled={isPending}
+                  className={inputClass}
+                >
+                  <option value="default">Comisión general</option>
+                  <option value="fixed_item">Porcentaje específico sobre este producto</option>
+                  <option value="fixed_order">Porcentaje específico sobre la orden completa</option>
+                </select>
+              </Field>
+              <Field
+                label="Porcentaje específico"
+                hint={commissionMode === 'default' ? 'No aplica cuando se usa la comisión general.' : 'Porcentaje entre 0 y 100.'}
+              >
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={commissionValue}
+                  onChange={(event) => setCommissionValue(event.target.value)}
+                  disabled={isPending || commissionMode === 'default'}
+                  className={inputClass}
+                />
+              </Field>
+              <Field
+                label="Costo para el asesor por obsequio (USD)"
+                hint="Déjalo vacío cuando el producto no descuente un costo al asesor."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={advisorGiftCostUsd}
+                  onChange={(event) => setAdvisorGiftCostUsd(event.target.value)}
+                  disabled={isPending}
+                  className={inputClass}
+                />
+              </Field>
+              <Field
+                label="Pago interno de delivery (USD)"
+                hint="Solo se llena cuando este producto representa un delivery interno."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={internalRiderPayUsd}
+                  onChange={(event) => setInternalRiderPayUsd(event.target.value)}
+                  disabled={isPending}
+                  className={inputClass}
+                />
+              </Field>
+              <div className="lg:col-span-2">
+                <Field label="Nota de comisión (opcional)">
+                  <textarea
+                    value={commissionNotes}
+                    onChange={(event) => setCommissionNotes(event.target.value)}
+                    disabled={isPending}
+                    rows={2}
+                    maxLength={1000}
+                    className={inputClass}
+                  />
+                </Field>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-sky-400/20 bg-sky-400/5 px-4 py-3 text-xs leading-5 text-sky-100">
+              Estas condiciones alimentan los cálculos comerciales existentes. No cambian stock,
+              recetas ni la forma en que el producto descuenta inventario.
+            </div>
+          </Section>
+
+          <Section title="3. Política de inventario" description="Esta elección define la única ruta canónica de consumo del producto.">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {([
                 ['self', 'Se descuenta a sí mismo'],

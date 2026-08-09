@@ -1500,6 +1500,48 @@ async function notifyOpenOrdersAffectedByCatalogPriceChange(
   }
 }
 
+export async function notifyCanonicalCatalogPriceChangeAction(input: {
+  productId: number;
+  productName: string;
+  previousCurrency: 'VES' | 'USD';
+  previousAmount: number;
+  nextCurrency: 'VES' | 'USD';
+  nextAmount: number;
+}) {
+  const { supabase, user, roles } = await requireMasterOrAdmin();
+  requireAdminRole(roles);
+
+  const productId = Number(input.productId);
+  const previousAmount = Number(input.previousAmount);
+  const nextAmount = Number(input.nextAmount);
+  if (!Number.isSafeInteger(productId) || productId <= 0) {
+    throw new Error('Producto inválido para revisar el impacto del precio.');
+  }
+  if (
+    !['VES', 'USD'].includes(input.previousCurrency) ||
+    !['VES', 'USD'].includes(input.nextCurrency) ||
+    !Number.isFinite(previousAmount) ||
+    previousAmount < 0 ||
+    !Number.isFinite(nextAmount) ||
+    nextAmount < 0
+  ) {
+    throw new Error('El cambio de precio no es válido.');
+  }
+
+  await notifyOpenOrdersAffectedByCatalogPriceChange(supabase, {
+    productId,
+    productName: String(input.productName || 'Producto').trim() || 'Producto',
+    previousCurrency: input.previousCurrency,
+    previousAmount,
+    nextCurrency: input.nextCurrency,
+    nextAmount,
+    actorUserId: user.id,
+  });
+
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor/inbox');
+}
+
 function getChangeSectionsSummary(params: {
   changedFields: string[];
   itemsChanged: boolean;
@@ -4734,6 +4776,7 @@ export async function updateCatalogItemAction(input: {
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
+  rejectLegacyInventoryAdministration();
 
   if (!Number.isFinite(input.productId) || input.productId <= 0) {
     throw new Error('Producto inválido.');
@@ -4921,6 +4964,7 @@ export async function updateCatalogPricesQuickAction(input: {
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
   requireAdminRole(roles);
+  rejectLegacyInventoryAdministration();
 
   const items = (input.items ?? [])
     .map((row) => ({
