@@ -1,13 +1,14 @@
-# Bloque 17: simulacro y certificación previa a la apertura
+# Bloques 17–18: certificación previa a la apertura
 
 ## Resultado
 
-El 8 de agosto de 2026 se ejecutó contra el proyecto Vivo Ops un simulacro
-integral con el catálogo real. El resultado técnico fue **PASS**.
+El 8 de agosto de 2026 se repitió contra el proyecto Vivo Ops el simulacro
+integral con el catálogo real y la separación de Yukipack por sabor. El resultado
+técnico fue **PASS**.
 
 La prueba alcanzó temporalmente:
 
-- 47 de 47 ítems con apertura aceptada;
+- 48 de 48 ítems transaccionales con apertura aceptada;
 - 13 de 13 recetas canónicas activas;
 - modo canónico y `operational_ready = true`;
 - entrada esperada de seis unidades frente a cinco recibidas, acreditando solo
@@ -20,15 +21,16 @@ La prueba alcanzó temporalmente:
 
 El script terminó en `ROLLBACK`. La verificación independiente posterior confirmó:
 
-- cero órdenes de prueba persistidas;
-- cero movimientos de prueba persistidos;
+- cero órdenes y movimientos de prueba persistidos;
 - cero aperturas aceptadas en producción;
 - cero recetas canónicas activas en producción;
 - modo real todavía `legacy`;
+- `structural_ready = true`;
 - ninguna orden real bloqueada o modificada.
 
-No se creó ninguna tabla, columna, migración ni bandera adicional. El certificado
-es reproducible y deriva su resultado del estado real.
+La preparación agregó configuración y funciones mediante migraciones, pero no
+creó tablas ni columnas. Tampoco escribió saldos físicos, conteos, lotes,
+movimientos, recetas nuevas u órdenes reales.
 
 ## Conteo físico recibido y normalizado
 
@@ -43,6 +45,7 @@ Estas respuestas quedan registradas para no volver a solicitarlas.
 | Cachitas Pre-Fritas | 10 | servicios de 20 piezas |
 | Mandocas Pre-Fritas | 3 | servicios de 25 piezas |
 | Bombys Pre-Fritos | 2 | servicios de 25 piezas |
+| Tequeños Regulares Pre-Fritos | 0 | servicios de 5 piezas |
 
 ### Bebidas
 
@@ -60,6 +63,9 @@ Todas las cantidades son unidades individuales.
 | Yukery Naranja 1,5 Lts | 5 |
 | Yukery Manzana 1,5 Lts | 9 |
 | Yukery Pera 1,5 Lts | 7 |
+| Yukipack Manzana | 14 |
+| Yukipack Pera | 14 |
+| Yukipack Durazno | 22 |
 | Coca-Cola 2 Lts | 16 |
 | Coca-Cola Sin Azúcar 2 Lts | 0 |
 | Coca-Cola 1,5 Lts | 20 |
@@ -73,10 +79,8 @@ Todas las cantidades son unidades individuales.
 | Fanta Naranja 1,5 Lts | 6 |
 | Jugo del Valle 1,5 Lts | 0 |
 
-Yukipack fue contado como Manzana 14, Pera 14 y Durazno 22: total físico 50.
-El catálogo vigente tiene un único ítem genérico `Yukypack`, por lo que ese total
-no se autoriza como apertura definitiva hasta resolver cómo conservar la
-disponibilidad por sabor.
+Yukipack quedó resuelto como un producto comercial con tres sabores físicos.
+El saldo genérico legado no se trasladó ni se sumó.
 
 ### Crudos y bases
 
@@ -92,51 +96,53 @@ disponibilidad por sabor.
 | Mayonesa: 1,25 potes de 3,3 kg | 1,25 × 3,3 kg | 4,125 kg |
 | Menjurje: 7 potes de 1 kg | 7 × 1 kg | 7 kg |
 
-`Aceite: 1,75` también quedó registrado, pero no existe hoy como ítem canónico
-elegible y no se agregó durante este bloque. `Aderezo: un poquito` quedó como
-cantidad no auditable y no se convirtió artificialmente.
+`Aceite: 1,75` también quedó registrado, pero no existe hoy como producto
+canónico elegible y no se agregó durante este bloque.
 
-## Pendientes para una apertura real
+### Salsas listas
 
-El motor está certificado, pero la apertura operativa sigue en **NO-GO** hasta
-resolver los 11 ítems que no tienen una cantidad canónica exacta y utilizable:
+| Ítem canónico | Cantidad |
+|---|---:|
+| Salsa Tártara 5 oz | 10 |
+| Salsa Tártara 2 oz | 10 |
+| Salsa Tártara 1 oz | 10 |
+| Aderezo Mostaza Miel 5 oz | 5 |
+| Aderezo Mostaza Miel 2 oz | 3 |
 
-| ID | Ítem | Pendiente |
-|---:|---|---|
-| 75 | Yukypack | Definir inventario por sabor o aceptar explícitamente un saldo genérico. |
-| 48 | Cajas grandes | Conteo físico exacto. |
-| 18 | Tequeños Regulares Pre-Fritos | Confirmar el conteo, incluso si es cero. |
-| 22 | Aderezo Mostaza Miel 2oz | Conteo de porciones listas. |
-| 23 | Aderezo Mostaza Miel 5oz | Conteo de porciones listas. |
-| 78 | Aderezo Mostaza Miel a granel | Reemplazar “un poquito” por una fracción exacta del envase. |
-| 9 | Salsa Tártara 1oz | Conteo de porciones listas. |
-| 21 | Salsa Tártara 2oz | Conteo de porciones listas. |
-| 8 | Salsa Tártara 5oz | Conteo de porciones listas. |
-| 7 | Salsa Tártara a granel | Conteo exacto en recipientes y fracción. |
-| 68 | Salsa Tártara Galón | Conteo exacto en recipientes y fracción. |
+Los productos del conteo de cierre que no aparecen en la relación se interpretan
+como cero. `Aderezo a granel: un poquito` sí apareció en el conteo original, por
+lo que todavía requiere una fracción exacta antes de usarlo en una apertura real;
+el simulacro reversible utilizó cero únicamente como valor técnico para esa línea.
 
-La ausencia de una línea en el conteo recibido no se interpreta como cero. Para
-la prueba reversible se usó el total técnico de 50 en Yukypack y cero como valor
-sintético en los otros 10 pendientes. Ninguno se guardó ni representa una
-decisión operativa.
+## Conteos periódicos fuera del corte
 
-## Criterio de aprobación final
+`Cajas grandes` no pertenece al inventario de cierre por turno. Conserva su
+programa quincenal y su alerta de procura, pero no participa en los 48 ítems de
+apertura transaccional. La referencia de “más de 150” no se convirtió en un saldo
+exacto ni se guardó.
 
-La apertura real solo puede ejecutarse cuando:
+## Estado para una apertura real
 
-1. los 11 pendientes tengan una representación y un conteo exactos;
-2. el Centro de Inventario siga mostrando estructura completa y sin errores de
-   resolución de órdenes;
-3. Administración presente el conteo ciego completo;
-4. Master revise el reporte de los 47 ítems y acepte o solicite reconteos;
-5. Administración active las 13 recetas después de la aceptación;
-6. una auditoría final devuelva `ready_for_canonical_operation`.
+El motor y la representación del catálogo están certificados, pero no se ejecutó
+la apertura. El estado productivo correcto es `structure_ready_opening_pending`:
 
-La orden de prueba del simulacro fue una fixture transaccional necesaria para
-certificar la integración. No se cambió código de Master, Counter ni Cocina.
+- 0 de 48 aperturas aceptadas;
+- 0 de 13 recetas activas;
+- pedidos sin bloqueo de inventario;
+- decisión final todavía en Master.
+
+Antes de una apertura real se necesita sustituir la cantidad no auditable del
+aderezo a granel por una fracción exacta y obtener la autorización explícita para
+ejecutar el conteo formal. Después, Master revisará el reporte completo y
+Administración activará las recetas.
 
 ## Evidencia reproducible
 
-El protocolo ejecutable está en
-`docs/inventory/INVENTORY_BLOCK_17_FULL_REHEARSAL_2026-08-08.sql`. Usa bloqueo
-asesor transaccional, tiempos máximos y una verificación posterior al `ROLLBACK`.
+- `docs/inventory/INVENTORY_BLOCK_18_TRANSACTION_TESTS_2026-08-08.sql` certifica
+  sabores, catálogo ligero, disponibilidad no bloqueante y resolución física.
+- `docs/inventory/INVENTORY_BLOCK_17_FULL_REHEARSAL_2026-08-08.sql` certifica el
+  recorrido integral de 48 ítems y siempre termina en `ROLLBACK`.
+
+No se cambió código del módulo de Master, Counter ni Cocina. La única adaptación
+de interfaz fue la lectura mínima del catálogo de Asesor; Counter recibe los
+componentes por su función ligera existente.

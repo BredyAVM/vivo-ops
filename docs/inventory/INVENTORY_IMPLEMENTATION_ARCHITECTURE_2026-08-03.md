@@ -341,3 +341,24 @@ representados con cantidades exactas y Master conserva la revisión final.
 El Bloque 17 certificó técnicamente el recorrido completo. El estado productivo
 permanece en `legacy` mientras se resuelven los faltantes del conteo físico y no
 se ha activado ninguna receta ni restricción de inventario sobre órdenes.
+
+## 15. Variantes físicas y frontera de la apertura operativa
+
+Un producto comercial puede ser una sola opción visible y, a la vez, descontar
+existencias físicas separadas. Yukipack establece el patrón canónico: el producto
+padre se configura con componentes seleccionables y cada sabor enlaza su propio
+ítem físico. Las opciones internas no aparecen como productos sueltos, pero sí
+están disponibles al construir el detalle de la orden. La selección queda
+congelada en `order_item_components`, por lo que compromisos y ventas descuentan
+el sabor realmente solicitado.
+
+El corte que conecta ventas con inventario exige apertura aceptada únicamente a
+los ítems con `tracking_mode = transactional`. Los consumibles de conteo periódico
+conservan saldo, periodicidad, alertas de procura e historial, pero no bloquean el
+corte de productos ni se descuentan por orden. Cada programa periódico inicia con
+su propio conteo físico cuando corresponda.
+
+Después de separar Yukipack en Manzana, Pera y Durazno, la apertura de productos
+incluye 48 ítems transaccionales. `Cajas grandes` continúa fuera de ese conjunto
+como ítem quincenal. Esta separación no autoriza todavía la apertura real ni
+convierte referencias aproximadas en cantidades físicas.

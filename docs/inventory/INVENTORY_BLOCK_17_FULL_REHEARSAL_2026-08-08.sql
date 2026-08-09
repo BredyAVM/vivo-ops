@@ -115,25 +115,28 @@ begin
     or (v_readiness ->> 'operational_ready')::boolean
     or v_readiness ->> 'cutover_mode' <> 'legacy'
     or (v_readiness #>> '{opening,accepted_count}')::integer <> 0
-    or (v_readiness #>> '{opening,eligible_count}')::integer <> 47
+    or (v_readiness #>> '{opening,eligible_count}')::integer <> 48
     or (v_readiness #>> '{recipes,active_count}')::integer <> 0
     or (v_readiness #>> '{recipes,canonical_count}')::integer <> 13
   then
-    raise exception 'The live baseline is not the certified 0/47 legacy starting point: %.', v_readiness;
+    raise exception 'The live baseline is not the certified 0/48 legacy starting point: %.', v_readiness;
   end if;
 
   v_opening_status := public.inventory_opening_status_v1();
 
-  -- Thirty-six values are exact and directly canonical. Yukypack uses its
-  -- technical total of 50 while its flavor mapping remains unresolved. The
-  -- other ten unresolved rows deliberately use zero only inside this rehearsal:
-  -- Cajas grandes, regular prefried stock, and eight sauce rows. These test
-  -- values are not approval of their real opening balance.
+  -- The count is normalized to the canonical base unit. Yukipack is represented
+  -- by three physical flavor items, regular prefried stock is explicitly zero,
+  -- and the ready sauce portions use the confirmed physical quantities. Periodic
+  -- items such as Cajas grandes do not participate in the product opening.
   select jsonb_agg(
     jsonb_build_object(
       'inventory_item_id', source.item_id,
       'counted_quantity_units',
-      case source.item_id
+      case source.item_name
+        when 'Yukipack Manzana' then 14
+        when 'Yukipack Pera' then 14
+        when 'Yukipack Durazno' then 22
+        else case source.item_id
         -- Prefried services.
         when 2 then 7
         when 14 then 8
@@ -152,7 +155,6 @@ begin
         when 32 then 5
         when 31 then 9
         when 33 then 7
-        when 75 then 50 -- 14 apple + 14 pear + 22 peach; mapping remains unresolved.
         when 38 then 16
         when 45 then 0
         when 36 then 20
@@ -178,19 +180,29 @@ begin
         -- Exact sauce inputs.
         when 3 then 4.125  -- 1.25 containers x 3.3 kg.
         when 4 then 7      -- 7 containers x 1 kg.
+
+        -- Exact ready sauce portions.
+        when 8 then 10     -- Tartar 5 oz.
+        when 21 then 10    -- Tartar 2 oz.
+        when 9 then 10     -- Tartar 1 oz.
+        when 23 then 5     -- Honey mustard 5 oz.
+        when 22 then 3     -- Honey mustard 2 oz.
         else 0
+        end
       end
     )
     order by source.item_id
   )
   into v_opening_lines
   from (
-    select (element ->> 'id')::bigint as item_id
+    select
+      (element ->> 'id')::bigint as item_id,
+      element ->> 'name' as item_name
     from jsonb_array_elements(v_opening_status -> 'items') element
     where element ->> 'opening_status' = 'pending'
   ) source;
 
-  if jsonb_array_length(v_opening_lines) <> 47
+  if jsonb_array_length(v_opening_lines) <> 48
     or not exists (
       select 1
       from jsonb_array_elements(v_opening_lines) line
@@ -209,8 +221,32 @@ begin
       where (line ->> 'inventory_item_id')::bigint = 47
         and (line ->> 'counted_quantity_units')::numeric = 125
     )
+    or not exists (
+      select 1
+      from jsonb_array_elements(v_opening_lines) line
+      join public.inventory_items item
+        on item.id = (line ->> 'inventory_item_id')::bigint
+      where item.name = 'Yukipack Manzana'
+        and (line ->> 'counted_quantity_units')::numeric = 14
+    )
+    or not exists (
+      select 1
+      from jsonb_array_elements(v_opening_lines) line
+      join public.inventory_items item
+        on item.id = (line ->> 'inventory_item_id')::bigint
+      where item.name = 'Yukipack Pera'
+        and (line ->> 'counted_quantity_units')::numeric = 14
+    )
+    or not exists (
+      select 1
+      from jsonb_array_elements(v_opening_lines) line
+      join public.inventory_items item
+        on item.id = (line ->> 'inventory_item_id')::bigint
+      where item.name = 'Yukipack Durazno'
+        and (line ->> 'counted_quantity_units')::numeric = 22
+    )
   then
-    raise exception 'The physical-count normalization did not produce the expected 47-line rehearsal.';
+    raise exception 'The physical-count normalization did not produce the expected 48-line rehearsal.';
   end if;
 
   v_result := public.inventory_submit_count_v1(
@@ -244,7 +280,7 @@ begin
   );
 
   v_opening_status := public.inventory_opening_status_v1();
-  if (v_opening_status ->> 'accepted_count')::integer <> 47
+  if (v_opening_status ->> 'accepted_count')::integer <> 48
     or not (v_opening_status ->> 'ready')::boolean
     or public.inventory_cutover_mode_v1() <> 'canonical'
   then

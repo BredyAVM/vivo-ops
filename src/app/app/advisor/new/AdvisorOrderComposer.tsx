@@ -64,6 +64,8 @@ type ProductRow = {
   id: number;
   sku: string | null;
   name: string;
+  is_active: boolean | null;
+  extra_fields: Record<string, unknown> | null;
   type: 'product' | 'combo' | 'service' | 'promo' | 'gambit' | null;
   base_price_usd: number | string | null;
   source_price_currency: CurrencyCode | null;
@@ -1602,6 +1604,11 @@ export default function AdvisorOrderComposer({
     const query = deferredProductSearch.trim().toLowerCase();
     if (!query) return [];
     return products
+      .filter(
+        (product) =>
+          product.is_active !== false &&
+          product.extra_fields?.inventory_component_only !== true
+      )
       .map((product) => ({
         product,
         score: productSearchScore({
@@ -1723,9 +1730,8 @@ export default function AdvisorOrderComposer({
         supabase
           .from('products')
           .select(
-            'id, sku, name, type, base_price_usd, source_price_currency, source_price_amount, units_per_service, is_detail_editable, detail_units_limit'
+            'id, sku, name, is_active, extra_fields, type, base_price_usd, source_price_currency, source_price_amount, units_per_service, is_detail_editable, detail_units_limit'
           )
-          .eq('is_active', true)
           .order('name', { ascending: true }),
         supabase
           .from('product_components')
