@@ -41,6 +41,21 @@ type InventoryItemRow = {
 type InventoryWorkspaceRow = {
   generated_at: string;
   items: InventoryItemRow[];
+  projection_events: InventoryProjectionEventRow[];
+};
+
+type InventoryProjectionEventRow = {
+  id: number | string;
+  inventory_item_id: number | string;
+  inventory_item_name: string;
+  unit_name: string;
+  flow_type: string;
+  quantity_units: number | string;
+  effective_at: string;
+  status: string;
+  inventory_recipe_id: number | string | null;
+  notes: string | null;
+  capture_details: unknown;
 };
 
 type CountHeaderRow = {
@@ -89,6 +104,12 @@ function inventoryCountAgeText(countedAt: string | null, generatedAt: string) {
   return elapsedDays === 1 ? 'Hace un día' : `Hace ${elapsedDays} días`;
 }
 
+function inventoryObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 export default async function MasterInventoryPage() {
   noStore();
   const ctx = await getAuthContext();
@@ -126,8 +147,26 @@ export default async function MasterInventoryPage() {
 
   if (linesResult.error) throw new Error(`No se pudieron cargar las líneas de conteo: ${linesResult.error.message}`);
 
-  const workspace = (workspaceResult.data ?? { generated_at: new Date().toISOString(), items: [] }) as InventoryWorkspaceRow;
+  const workspace = (workspaceResult.data ?? { generated_at: new Date().toISOString(), items: [], projection_events: [] }) as InventoryWorkspaceRow;
   const rawItems = workspace.items ?? [];
+  const supplies = (workspace.projection_events ?? [])
+    .filter((flow) => flow.flow_type === 'expected_receipt' || flow.flow_type === 'planned_production')
+    .map((flow) => {
+      const captureDetails = inventoryObject(flow.capture_details);
+      const sourceName = String(captureDetails.source_name ?? '').trim();
+      return {
+        id: Number(flow.id),
+        type: flow.flow_type === 'planned_production' ? 'planned_production' as const : 'expected_receipt' as const,
+        inventoryItemId: Number(flow.inventory_item_id),
+        itemName: inventoryDisplayText(flow.inventory_item_name),
+        unitName: inventoryDisplayText(flow.unit_name),
+        quantityUnits: Number(flow.quantity_units ?? 0),
+        effectiveAt: flow.effective_at,
+        sourceName: sourceName ? inventoryDisplayText(sourceName) : null,
+        recipeId: flow.inventory_recipe_id == null ? null : Number(flow.inventory_recipe_id),
+        notes: flow.notes ? inventoryDisplayText(flow.notes) : null,
+      };
+    });
   const itemNameById = new Map(rawItems.map((item) => [Number(item.id), inventoryDisplayText(item.name)]));
   const lines = (linesResult.data ?? []) as CountLineRow[];
   const activeCountIdSet = new Set(activeCounts.map((count) => Number(count.id)));
@@ -236,7 +275,7 @@ export default async function MasterInventoryPage() {
       </header>
 
       <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
-        <MasterInventoryClient items={items} counts={countSummaries} />
+        <MasterInventoryClient items={items} counts={countSummaries} supplies={supplies} />
       </div>
     </main>
   );

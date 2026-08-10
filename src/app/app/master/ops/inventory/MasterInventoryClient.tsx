@@ -45,6 +45,19 @@ export type MasterInventoryCount = {
   itemNames: string[];
 };
 
+export type MasterInventorySupply = {
+  id: number;
+  type: 'expected_receipt' | 'planned_production';
+  inventoryItemId: number;
+  itemName: string;
+  unitName: string;
+  quantityUnits: number;
+  effectiveAt: string;
+  sourceName: string | null;
+  recipeId: number | null;
+  notes: string | null;
+};
+
 const groupLabels: Record<string, string> = {
   raw: 'Crudos',
   fried: 'Fritos',
@@ -112,9 +125,11 @@ function countItemSummary(count: MasterInventoryCount) {
 export default function MasterInventoryClient({
   items,
   counts,
+  supplies,
 }: {
   items: MasterInventoryItem[];
   counts: MasterInventoryCount[];
+  supplies: MasterInventorySupply[];
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -206,6 +221,51 @@ export default function MasterInventoryClient({
         <SummaryCard label="Esperando a Cocina" value={waitingKitchen.length} detail="solicitudes abiertas" tone={waitingKitchen.length ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Máster" value={waitingMaster.length} detail="reportes por decidir" tone={waitingMaster.length ? 'danger' : 'default'} />
         <SummaryCard label="Stock bajo" value={lowStockCount} detail="según umbral configurado" tone={lowStockCount ? 'warning' : 'default'} />
+      </div>
+
+      <div className="rounded-2xl border border-sky-400/25 bg-sky-400/5 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-sky-100">Suministros próximos</h2>
+            <p className="mt-1 text-sm leading-6 text-[#A8BBC8]">
+              Entradas y producciones activas incluidas en la proyección de los próximos 10 días. Todavía no son existencia física.
+            </p>
+          </div>
+          <Link href="/app/inventory/operations" prefetch={false} className="rounded-xl border border-sky-300/30 px-3 py-2 text-xs font-bold text-sky-100 hover:border-sky-300/60">
+            Ver operaciones
+          </Link>
+        </div>
+
+        {supplies.length ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {supplies.slice(0, 12).map((supply) => (
+              <article key={supply.id} className="rounded-xl border border-sky-300/20 bg-[#0B1118] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-white">{supply.itemName}</div>
+                    <div className="mt-1 text-xs text-[#93A8B8]">{formatDate(supply.effectiveAt)}</div>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-sky-300/25 px-2 py-1 text-[10px] font-semibold text-sky-100">
+                    {supply.type === 'expected_receipt' ? 'ENTRADA' : 'PRODUCCIÓN'}
+                  </span>
+                </div>
+                <div className="mt-3 text-lg font-black text-sky-100">+{formatQuantity(supply.quantityUnits)} {supply.unitName}</div>
+                <div className="mt-1 text-xs font-semibold text-amber-200">
+                  {supply.type === 'expected_receipt' ? 'Programada · no recibida' : 'Planificada · no disponible'}
+                </div>
+                {supply.sourceName ? <div className="mt-2 text-xs text-[#A6B5C1]">Origen: {supply.sourceName}</div> : null}
+                {!supply.sourceName && supply.recipeId ? <div className="mt-2 text-xs text-[#A6B5C1]">Receta #{supply.recipeId}</div> : null}
+                {supply.notes ? <div className="mt-1 line-clamp-2 text-xs text-[#8395A3]">{supply.notes}</div> : null}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-sky-300/20 px-4 py-5 text-sm text-[#93A8B8]">
+            No hay entradas ni producciones activas dentro de los próximos 10 días.
+          </div>
+        )}
+
+        {supplies.length > 12 ? <div className="mt-3 text-xs text-[#93A8B8]">Mostrando 12 de {supplies.length}. Abre Operaciones para ver el calendario completo.</div> : null}
       </div>
 
       {waitingMaster.length ? (

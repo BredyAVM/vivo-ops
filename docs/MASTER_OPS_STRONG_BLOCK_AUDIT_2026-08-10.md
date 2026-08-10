@@ -116,11 +116,10 @@ mermas/averías y no configura políticas. Esas fronteras se mantienen.
 Siguen pendientes y deben avanzar solamente sobre la lectura canónica ya
 estabilizada:
 
-1. resumir en el adaptador las entradas/producciones esperadas y su certeza;
-2. mostrar dependencias concretas entre una orden y una fuente futura;
-3. ofrecer la decisión estructurada de aprobar bajo riesgo o condicionar una
+1. mostrar dependencias concretas entre una orden y una fuente futura;
+2. ofrecer la decisión estructurada de aprobar bajo riesgo o condicionar una
    orden a reposición/producción;
-4. agregar un contador compacto de alertas de inventario en la cabecera de
+3. agregar un contador compacto de alertas de inventario en la cabecera de
    Operación cuando la API final de alertas quede estabilizada.
 
 Implementado el 2026-08-10: el adaptador de inventario de Master consume
@@ -136,17 +135,24 @@ la fecha del mínimo proyectado. Master no calcula ni persiste esos valores: los
 consume directamente de `inventory_reporting_workspace_v1`, y la pantalla no
 mueve inventario ni bloquea pedidos.
 
+Implementado el 2026-08-10: el panel `Suministros próximos` resume los flujos
+activos `expected_receipt` y `planned_production` de los siguientes diez días.
+Muestra ítem, cantidad, fecha, origen o receta y nota disponibles. La interfaz no
+inventa un porcentaje de certeza: una entrada se rotula `Programada · no
+recibida` y una producción `Planificada · no disponible`, porque ambas pueden
+mejorar la proyección pero solo una recepción o terminación física crea stock.
+El calendario y las acciones completas permanecen en `Entradas esperadas`.
+
 Para los frentes que siguen pendientes, Master abre las superficies canónicas
 `Alertas activas` y `Entradas esperadas`; no se creó una copia local de esos
 datos.
 
 ## Pendientes acumulados
 
-1. Resumen de entradas/producciones esperadas y su certeza.
-2. Dependencias estructuradas entre órdenes y fuentes futuras.
-3. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
+1. Dependencias estructuradas entre órdenes y fuentes futuras.
+2. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
    reposición/producción.
-4. Contador compacto de alertas de inventario en la cabecera de Operación cuando
+3. Contador compacto de alertas de inventario en la cabecera de Operación cuando
    la API final quede estabilizada.
 
 La configuración financiera, conciliaciones, cierres y auditoría contable
