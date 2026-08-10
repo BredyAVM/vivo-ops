@@ -307,8 +307,13 @@ activos y rastreados deben tener una apertura aceptada y no revertida.
 El corte tiene tres modos: `legacy` antes del primer conteo, `opening` durante la
 ventana física controlada y `canonical` al aceptar la apertura completa. En modo
 canónico, la transición de una orden a `delivered` y su consumo físico pertenecen
-a la misma transacción. La migración está instalada, pero con 0 de 47 aperturas
-continúa en `legacy` y no modifica ni bloquea órdenes actuales.
+a la misma transacción. La atomicidad protege la integridad del libro, pero no
+convierte la disponibilidad en una prohibición operativa: si la venta produce un
+saldo negativo, la entrega se confirma y el `sale_out` conserva el hecho físico.
+
+El estado productivo auditado el 10 de agosto de 2026 es `canonical`: la apertura
+controlada ya fue aceptada y las recetas requeridas están activas. Esta activación
+no cambia la regla no bloqueante de órdenes.
 
 ## 13. Auditoría de preparación e integración
 
@@ -338,9 +343,10 @@ independiente, que no persista ninguna fixture. Superar el simulacro acredita el
 motor, pero no autoriza una apertura real: los 47 saldos físicos deben estar
 representados con cantidades exactas y Master conserva la revisión final.
 
-El Bloque 17 certificó técnicamente el recorrido completo. El estado productivo
-permanece en `legacy` mientras se resuelven los faltantes del conteo físico y no
-se ha activado ninguna receta ni restricción de inventario sobre órdenes.
+El Bloque 17 certificó técnicamente el recorrido completo cuando producción aún
+permanecía en `legacy`. El Bloque 19 instaló la apertura controlada con responsables
+reales y la operación posterior completó esa apertura. La auditoría del 10 de
+agosto de 2026 confirma el catálogo canónico activo.
 
 ## 15. Variantes físicas y frontera de la apertura operativa
 
@@ -376,3 +382,26 @@ canónicas mediante un único comando atómico e idempotente. Solo entonces la
 auditoría alcanza `ready_for_canonical_operation`. Esta transición no cambia la
 regla no bloqueante de órdenes ni incorpora consumibles periódicos al descuento
 por ventas.
+
+## 17. Entrega canónica con existencia insuficiente
+
+La entrega confirmada por Master es un hecho comercial y físico que inventario
+debe registrar, no vetar. `inventory_commit_order_sale_v1` resuelve los ítems,
+bloquea las filas en orden estable e inserta todos los movimientos `sale_out` en
+la misma transacción de `delivered`, incluso cuando una de las existencias no
+alcanza y el saldo resultante queda por debajo de cero.
+
+El saldo negativo es deliberadamente visible. El detector existente lo convierte
+en alerta crítica de disponibilidad o procura y permite que Master o Administración
+coordinen reposición, conteo o reconteo. No se rellena saldo, no se omite el consumo
+y no se crea una segunda autoridad.
+
+Siguen siendo errores bloqueantes las violaciones estructurales que harían imposible
+un asiento válido: ítem inexistente o no operativo, ausencia de apertura, resolución
+inválida, operación duplicada o falta de autorización. La insuficiencia cuantitativa
+por sí sola no es una de esas violaciones.
+
+Este contrato quedó corregido en producción mediante
+`20260810145845_inventory_nonblocking_order_delivery_v1`; el diagnóstico y alcance
+del incidente están en
+`INVENTORY_HOTFIX_NONBLOCKING_DELIVERY_2026-08-10.md`.
