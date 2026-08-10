@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getPaymentMethodLabel as getSharedPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { parseDecimalInput } from '@/lib/number-input';
+import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import {
   cancelAdvisorOrderAction,
@@ -174,6 +175,9 @@ export default function OrderDetailActions({
   initialReportBoxOpen?: boolean;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sourceReturnTo = searchParams.get('returnTo');
+  const orderDetailReturnTo = withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, sourceReturnTo || '');
   const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [isPending, startTransition] = useTransition();
   const [fundRequestPending, startFundRequestTransition] = useTransition();
@@ -405,7 +409,7 @@ export default function OrderDetailActions({
 
         {canCorrectOrder ? (
           <Link
-            href={`/app/advisor/new?fromOrder=${orderId}`}
+            href={withAdvisorReturnTo(`/app/advisor/new?fromOrder=${orderId}`, orderDetailReturnTo)}
             className="inline-flex h-9 items-center justify-center rounded-full bg-[#F0D000] px-3.5 text-xs font-semibold text-[#17191E]"
           >
             Editar
@@ -414,7 +418,7 @@ export default function OrderDetailActions({
 
         {canDuplicateOrder ? (
           <Link
-            href={`/app/advisor/new?duplicateFrom=${orderId}`}
+            href={withAdvisorReturnTo(`/app/advisor/new?duplicateFrom=${orderId}`, orderDetailReturnTo)}
             className="inline-flex h-9 items-center justify-center rounded-full border border-[#232632] px-3.5 text-xs font-semibold text-[#F5F7FB]"
           >
             Repetir

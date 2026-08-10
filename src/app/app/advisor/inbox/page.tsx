@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { PageIntro } from '../advisor-ui';
@@ -185,14 +184,6 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         eyebrow={intro.eyebrow}
         title={intro.title}
         description={intro.description}
-        action={
-          <Link
-            href="/app/advisor"
-            className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
-          >
-            Volver
-          </Link>
-        }
       />
 
       <AdvisorInboxClient activeFilter={activeFilter} initialEvents={inboxEvents} />

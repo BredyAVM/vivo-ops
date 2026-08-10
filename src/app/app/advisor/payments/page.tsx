@@ -2,15 +2,19 @@ import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { formatOrderDisplayNumber, getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
+import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type SearchParams = Promise<{
   day?: string;
+  view?: string;
+  client?: string;
 }>;
 
 type OrderRow = {
   id: number;
+  client_id: number | string | null;
   order_number: string;
   status: string;
   total_usd: number | string;
@@ -194,6 +198,19 @@ function sortPaymentRows(rows: PaymentRow[]) {
   return [...rows].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
 
+function getWhatsAppHref(phone: string | null | undefined) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  return digits ? `https://wa.me/${digits}` : null;
+}
+
+function formatOrderDate(order: OrderRow) {
+  const value = order.extra_fields?.schedule?.date || order.created_at;
+  return new Date(String(value).includes('T') ? String(value) : `${value}T12:00:00-04:00`).toLocaleDateString('es-VE', {
+    dateStyle: 'short',
+    timeZone: 'America/Caracas',
+  });
+}
+
 export default async function AdvisorPaymentsPage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
   const ctx = await getAuthContext();
@@ -201,11 +218,13 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
 
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
+  const selectedView = params.view === 'orders' ? 'orders' : 'clients';
+  const selectedClientKey = String(params.client || '').trim();
   const dayRange = getCaracasDayRange(selectedDayKey);
   const orderSelect =
-    'id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
+    'id, client_id, order_number, status, total_usd, created_at, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
 
-  const [scheduledOrdersResult, createdOrdersResult] = await Promise.all([
+  const [scheduledOrdersResult, createdOrdersResult, deliveredOrdersResult] = await Promise.all([
     ctx.supabase
       .from('orders')
       .select(orderSelect)
@@ -223,16 +242,30 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
       .lt('created_at', dayRange.endISO)
       .order('created_at', { ascending: false })
       .limit(180),
+    ctx.supabase
+      .from('orders')
+      .select(orderSelect)
+      .eq('attributed_advisor_id', ctx.user.id)
+      .eq('status', 'delivered')
+      .order('created_at', { ascending: false })
+      .limit(500),
   ]);
 
   const orderById = new Map<number, OrderRow>();
-  for (const order of ([...(scheduledOrdersResult.data ?? []), ...(createdOrdersResult.data ?? [])] as RawOrderRow[])) {
+  for (const order of ([
+    ...(scheduledOrdersResult.data ?? []),
+    ...(createdOrdersResult.data ?? []),
+    ...(deliveredOrdersResult.data ?? []),
+  ] as RawOrderRow[])) {
     orderById.set(Number(order.id), {
       ...order,
       client: Array.isArray(order.client) ? order.client[0] ?? null : order.client,
     });
   }
-  const orders = Array.from(orderById.values()).filter((order) => getAgendaDayKey(order) === selectedDayKey);
+  const orders = Array.from(orderById.values());
+  const agendaOrderIds = new Set(
+    orders.filter((order) => getAgendaDayKey(order) === selectedDayKey).map((order) => order.id)
+  );
   const ordersById = new Map(orders.map((order) => [order.id, order]));
 
   const orderIds = orders.map((order) => order.id);
@@ -289,10 +322,11 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
       const reports = reportsByOrderId.get(order.id) ?? [];
       const canonicalState = financialStateByOrderId.get(order.id);
       if (canonicalState) {
+        const paymentState = getCanonicalPaymentState(canonicalState);
         return {
           ...order,
-          ...getCanonicalPaymentState(canonicalState),
-          hasPending: reports.some((payment) => payment.status === 'pending'),
+          ...paymentState,
+          hasPending: paymentState.pendingUsd > 0.005 || reports.some((payment) => payment.status === 'pending'),
           paymentMethod: paymentMethodLabel(order.extra_fields?.payment?.method),
         };
       }
@@ -337,12 +371,13 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
         paymentMethod: paymentMethodLabel(order.extra_fields?.payment?.method),
       };
     })
-    .filter((order) => order.status !== 'cancelled' && order.reportableBalanceUsd > 0.005)
+    .filter((order) => order.status === 'delivered' && order.reportableBalanceUsd > 0.005)
     .sort((a, b) => getAgendaLabel(a).localeCompare(getAgendaLabel(b)));
 
-  const pendingReviewRows = sortPaymentRows(payments.filter((payment) => payment.status === 'pending'));
-  const confirmedRows = sortPaymentRows(payments.filter((payment) => payment.status === 'confirmed'));
-  const rejectedRows = sortPaymentRows(payments.filter((payment) => payment.status === 'rejected'));
+  const dayPayments = payments.filter((payment) => agendaOrderIds.has(payment.order_id));
+  const pendingReviewRows = sortPaymentRows(dayPayments.filter((payment) => payment.status === 'pending'));
+  const confirmedRows = sortPaymentRows(dayPayments.filter((payment) => payment.status === 'confirmed'));
+  const rejectedRows = sortPaymentRows(dayPayments.filter((payment) => payment.status === 'rejected'));
   const collectBsFromPayments = (rows: PaymentRow[]) =>
     rows.reduce((sum, payment) => {
       const order = ordersById.get(payment.order_id);
@@ -350,6 +385,44 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
     }, 0);
   const reportableTotalBs = ordersPendingPayment.reduce((sum, order) => sum + order.reportableBalanceBs, 0);
   const pendingReviewTotalBs = collectBsFromPayments(pendingReviewRows);
+
+  const collectionGroupsByClient = new Map<
+    string,
+    {
+      key: string;
+      name: string;
+      phone: string | null;
+      totalUsd: number;
+      totalBs: number;
+      orders: typeof ordersPendingPayment;
+    }
+  >();
+  for (const order of ordersPendingPayment) {
+    const clientId = toSafeNumber(order.client_id, 0);
+    const phone = order.client?.phone?.trim() || null;
+    const key = clientId > 0 ? `client-${clientId}` : `order-${order.id}`;
+    const current = collectionGroupsByClient.get(key) ?? {
+      key,
+      name: order.client?.full_name?.trim() || `Cliente de orden ${formatOrderDisplayNumber(order.id)}`,
+      phone,
+      totalUsd: 0,
+      totalBs: 0,
+      orders: [],
+    };
+    current.totalUsd += order.reportableBalanceUsd;
+    current.totalBs += order.reportableBalanceBs;
+    current.orders.push(order);
+    collectionGroupsByClient.set(key, current);
+  }
+  const collectionGroups = Array.from(collectionGroupsByClient.values()).sort(
+    (a, b) => b.totalBs - a.totalBs || a.name.localeCompare(b.name)
+  );
+  const visibleCollectionGroups = selectedClientKey
+    ? collectionGroups.filter((group) => group.key === selectedClientKey)
+    : collectionGroups;
+  const paymentsReturnTo = `/app/advisor/payments?day=${selectedDayKey}&view=${selectedView}${
+    selectedClientKey ? `&client=${encodeURIComponent(selectedClientKey)}` : ''
+  }`;
 
   const sections = [
     { title: 'Por validar', subtitle: 'Reportes enviados y pendientes por confirmacion.', rows: pendingReviewRows },
@@ -393,82 +466,184 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
         />
       </section>
 
-      <SectionCard
-        title="Por cobrar"
-        subtitle="Ordenes con saldo real disponible para cargar o reportar."
-      >
-        {ordersPendingPayment.length === 0 ? (
-          <EmptyBlock
-            title="Sin ordenes por cobrar"
-            detail="Cuando haya saldo pendiente, aparecera aqui para cargar el pago."
-            href="/app/advisor/orders"
-            cta="Ver pedidos"
-          />
-        ) : (
-          <div className="space-y-2.5">
-            {ordersPendingPayment.map((order) => (
-              <article
-                key={order.id}
-                className={[
-                  'advisor-fade-in rounded-[20px] border px-3.5 py-3',
-                  order.hasRejected ? 'border-[#5E2229] bg-[#171118]' : 'border-[#564511] bg-[#151208]',
-                ].join(' ')}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[#F5F7FB]">
-                      {order.client?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
-                    </div>
-                    <div className="mt-1 text-xs text-[#8B93A7]">Orden {formatOrderDisplayNumber(order.id)}</div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <StatusBadge label={`Saldo ${formatBs(order.reportableBalanceBs)}`} tone="warning" />
-                    {order.hasRejected ? <StatusBadge label="Rechazado antes" tone="danger" /> : null}
-                    {order.hasPending ? <StatusBadge label={`${formatBs(order.pendingBs)} por validar`} tone="neutral" /> : null}
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-2 rounded-[14px] bg-[#0B1017] px-3 py-2">
-                  <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                    <span>Entrega</span>
-                    <span>{getAgendaLabel(order)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                    <span>Metodo esperado</span>
-                    <span className="text-[#F5F7FB]">{order.paymentMethod}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs text-[#8B93A7]">Total orden</span>
-                    <span className="text-sm font-semibold text-[#F5F7FB]">{formatBs(order.totalBs)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
-                    <span>Referencia $</span>
-                    <span>{formatUsd(getOrderTotalUsd(order))}</span>
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <Link
-                    href={`/app/advisor/orders/${order.id}?reportPayment=1`}
-                    className="inline-flex h-9 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-xs font-semibold text-[#17191E]"
-                  >
-                    Cargar pago
-                  </Link>
-                  <Link
-                    href={`/app/advisor/orders/${order.id}`}
-                    className="inline-flex h-9 items-center rounded-[14px] border border-[#232632] px-3.5 text-xs font-medium text-[#F5F7FB]"
-                  >
-                    Ver orden
-                  </Link>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+      <nav className="grid grid-cols-2 gap-2 rounded-[18px] border border-[#232632] bg-[#10131B] p-1.5">
+        <Link
+          href={`/app/advisor/payments?day=${selectedDayKey}&view=clients`}
+          className={[
+            'inline-flex h-9 items-center justify-center rounded-[13px] text-xs font-semibold',
+            selectedView === 'clients' ? 'bg-[#F0D000] text-[#17191E]' : 'text-[#AAB2C5]',
+          ].join(' ')}
+        >
+          Por cliente
+        </Link>
+        <Link
+          href={`/app/advisor/payments?day=${selectedDayKey}&view=orders`}
+          className={[
+            'inline-flex h-9 items-center justify-center rounded-[13px] text-xs font-semibold',
+            selectedView === 'orders' ? 'bg-[#F0D000] text-[#17191E]' : 'text-[#AAB2C5]',
+          ].join(' ')}
+        >
+          Por orden
+        </Link>
+      </nav>
 
-      {payments.length === 0 ? (
+      {selectedView === 'clients' ? (
+        <SectionCard
+          title="Cobranza por cliente"
+          subtitle="Agrupa todas las ordenes entregadas con deuda para cobrar el total de cada cliente."
+        >
+          {selectedClientKey ? (
+            <div className="mb-3 flex justify-end">
+              <Link
+                href={`/app/advisor/payments?day=${selectedDayKey}&view=clients`}
+                className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+              >
+                Ver todos los clientes
+              </Link>
+            </div>
+          ) : null}
+          {visibleCollectionGroups.length === 0 ? (
+            <EmptyBlock
+              title="Sin clientes por cobrar"
+              detail="Cuando una orden entregada conserve saldo, aparecera en esta relacion."
+              href="/app/advisor/orders"
+              cta="Ver pedidos"
+            />
+          ) : (
+            <div className="space-y-3">
+              {visibleCollectionGroups.map((group) => {
+                const whatsappHref = getWhatsAppHref(group.phone);
+                return (
+                  <article key={group.key} className="advisor-fade-in rounded-[20px] border border-[#564511] bg-[#151208] px-3.5 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#F5F7FB]">{group.name}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">
+                          {group.orders.length} orden{group.orders.length === 1 ? '' : 'es'} pendiente{group.orders.length === 1 ? '' : 's'}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-[#F0D000]">{formatBs(group.totalBs)}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">{formatUsd(group.totalUsd)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 divide-y divide-[#232632] rounded-[14px] bg-[#0B1017] px-3">
+                      {group.orders.map((order) => (
+                        <div key={order.id} className="grid grid-cols-[1fr_auto] items-center gap-3 py-2.5">
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-[#F5F7FB]">
+                              Orden {formatOrderDisplayNumber(order.id)} · {formatOrderDate(order)}
+                            </div>
+                            <div className="mt-1 text-xs text-[#8B93A7]">
+                              Saldo {formatBs(order.reportableBalanceBs)} / {formatUsd(order.reportableBalanceUsd)}
+                            </div>
+                          </div>
+                          <Link
+                            href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}?reportPayment=1`, paymentsReturnTo)}
+                            className="inline-flex h-8 items-center rounded-[11px] bg-[#F0D000] px-3 text-[11px] font-semibold text-[#17191E]"
+                          >
+                            Cobrar
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {!selectedClientKey ? (
+                        <Link
+                          href={`/app/advisor/payments?day=${selectedDayKey}&view=clients&client=${encodeURIComponent(group.key)}`}
+                          className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
+                        >
+                          Ver relacion
+                        </Link>
+                      ) : null}
+                      {whatsappHref ? (
+                        <a
+                          href={whatsappHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-9 items-center rounded-[12px] border border-[#1C5036] px-3 text-xs font-semibold text-[#72D99C]"
+                        >
+                          Conversar por WhatsApp
+                        </a>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </SectionCard>
+      ) : (
+        <SectionCard title="Por cobrar" subtitle="Ordenes entregadas con saldo real disponible para reportar.">
+          {ordersPendingPayment.length === 0 ? (
+            <EmptyBlock
+              title="Sin ordenes por cobrar"
+              detail="Cuando haya saldo pendiente, aparecera aqui para cargar el pago."
+              href="/app/advisor/orders"
+              cta="Ver pedidos"
+            />
+          ) : (
+            <div className="space-y-2.5">
+              {ordersPendingPayment.map((order) => (
+                <article
+                  key={order.id}
+                  className={[
+                    'advisor-fade-in rounded-[20px] border px-3.5 py-3',
+                    order.hasRejected ? 'border-[#5E2229] bg-[#171118]' : 'border-[#564511] bg-[#151208]',
+                  ].join(' ')}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#F5F7FB]">
+                        {order.client?.full_name?.trim() || formatOrderDisplayNumber(order.id)}
+                      </div>
+                      <div className="mt-1 text-xs text-[#8B93A7]">Orden {formatOrderDisplayNumber(order.id)} · {formatOrderDate(order)}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <StatusBadge label={`Saldo ${formatBs(order.reportableBalanceBs)}`} tone="warning" />
+                      {order.hasRejected ? <StatusBadge label="Rechazado antes" tone="danger" /> : null}
+                      {order.hasPending ? <StatusBadge label={`${formatBs(order.pendingBs)} por validar`} tone="neutral" /> : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 rounded-[14px] bg-[#0B1017] px-3 py-2">
+                    <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                      <span>Metodo esperado</span>
+                      <span className="text-[#F5F7FB]">{order.paymentMethod}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-[#8B93A7]">Total orden</span>
+                      <span className="text-sm font-semibold text-[#F5F7FB]">{formatBs(order.totalBs)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 text-xs text-[#8B93A7]">
+                      <span>Referencia $</span>
+                      <span>{formatUsd(getOrderTotalUsd(order))}</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Link
+                      href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}?reportPayment=1`, paymentsReturnTo)}
+                      className="inline-flex h-9 items-center rounded-[14px] bg-[#F0D000] px-3.5 text-xs font-semibold text-[#17191E]"
+                    >
+                      Cargar pago
+                    </Link>
+                    <Link
+                      href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}`, paymentsReturnTo)}
+                      className="inline-flex h-9 items-center rounded-[14px] border border-[#232632] px-3.5 text-xs font-medium text-[#F5F7FB]"
+                    >
+                      Ver orden
+                    </Link>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {dayPayments.length === 0 ? (
         <EmptyBlock
-          title="Sin reportes todavia"
-          detail="Cuando este asesor cargue pagos, la trazabilidad aparecera aqui."
+          title="Sin reportes este dia"
+          detail="Los pagos enviados para la fecha seleccionada apareceran aqui."
           href="/app/advisor/orders"
           cta="Abrir pedidos"
         />
@@ -527,14 +702,17 @@ export default async function AdvisorPaymentsPage({ searchParams }: { searchPara
                       </div>
                       <div className="mt-3 flex gap-2">
                         <Link
-                          href={`/app/advisor/orders/${payment.order_id}`}
+                          href={withAdvisorReturnTo(`/app/advisor/orders/${payment.order_id}`, paymentsReturnTo)}
                           className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                         >
                           Ver orden
                         </Link>
                         {payment.status === 'rejected' ? (
                           <Link
-                            href={`/app/advisor/orders/${payment.order_id}?reportPayment=1`}
+                            href={withAdvisorReturnTo(
+                              `/app/advisor/orders/${payment.order_id}?reportPayment=1`,
+                              paymentsReturnTo
+                            )}
                             className="inline-flex h-9 items-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
                           >
                             Reenviar

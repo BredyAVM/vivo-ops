@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
+import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorPendingLink from '../AdvisorPendingLink';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
 import {
@@ -11,10 +12,6 @@ import {
   type InboxFilter,
   formatEventTime,
 } from './inbox-shared';
-
-const UPDATE_FILTERS = FILTERS.filter((filter) =>
-  filter.key === 'updates'
-);
 
 function getDayKey(value: string) {
   return new Date(value).toLocaleDateString('en-CA', {
@@ -26,16 +23,17 @@ function isTodayEvent(value: string) {
   return getDayKey(value) === getDayKey(new Date().toISOString());
 }
 
-function actionHref(event: InboxEvent) {
+function actionHref(event: InboxEvent, activeFilter: InboxFilter) {
+  const returnTo = `/app/advisor/inbox?filter=${activeFilter}`;
   if (event.eventType === 'payment_rejected') {
-    return `/app/advisor/orders/${event.orderId}?reportPayment=1`;
+    return withAdvisorReturnTo(`/app/advisor/orders/${event.orderId}?reportPayment=1`, returnTo);
   }
 
   if (event.eventType === 'order_returned_to_review' || event.eventType === 'order_changes_rejected') {
-    return `/app/advisor/new?fromOrder=${event.orderId}`;
+    return withAdvisorReturnTo(`/app/advisor/new?fromOrder=${event.orderId}`, returnTo);
   }
 
-  return `/app/advisor/orders/${event.orderId}`;
+  return withAdvisorReturnTo(`/app/advisor/orders/${event.orderId}`, returnTo);
 }
 
 function actionLabel(event: InboxEvent) {
@@ -267,7 +265,7 @@ export default function AdvisorInboxClient({
                       return (
                         <AdvisorPendingLink
                           key={event.id}
-                          href={actionHref(event)}
+                          href={actionHref(event, activeFilter)}
                           onClick={() => {
                             if (!isRead && !isSaving(event.recipientId)) {
                               void markNotificationRead(event.recipientId);
@@ -348,7 +346,7 @@ export default function AdvisorInboxClient({
                             )}
                           </div>
                           <AdvisorPendingLink
-                            href={actionHref(event)}
+                            href={actionHref(event, activeFilter)}
                             onClick={() => {
                               if (!isRead && !isSaving(event.recipientId)) {
                                 void markNotificationRead(event.recipientId);

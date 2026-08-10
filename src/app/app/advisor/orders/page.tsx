@@ -18,6 +18,7 @@ import {
 } from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
+import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorCalendarStrip from '../AdvisorCalendarStrip';
 import AdvisorSearchForm from '../AdvisorSearchForm';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
@@ -479,6 +480,9 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
   const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
   const searchIsNumeric = /^\d+$/.test(remoteSearchQuery);
   const searchCanRun = normalizedSearchQuery.length >= 2 || searchIsNumeric;
+  const ordersReturnTo = `/app/advisor/orders?day=${selectedDayKey}&bucket=${encodeURIComponent(bucket)}${
+    searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''
+  }`;
   const dayRange = getCaracasDayRange(selectedDayKey);
   const orderSelect =
     'id, client_id, order_number, status, queued_needs_reapproval, fulfillment, total_usd, created_at, delivery_address, extra_fields, client:clients!orders_client_id_fkey(full_name, phone)';
@@ -735,14 +739,6 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
             ? 'Pedidos encontrados por numero o cliente, desde el mas reciente.'
             : subtitleForBucket(bucket)
         }
-        action={
-          <Link
-            href={`/app/advisor?day=${selectedDayKey}`}
-            className="inline-flex h-10 items-center rounded-[14px] border border-[#232632] px-3.5 text-sm font-medium text-[#F5F7FB]"
-          >
-            Volver
-          </Link>
-        }
       />
 
       <section className="rounded-[22px] border border-[#232632] bg-[#12151d] px-4 py-3.5">
@@ -836,7 +832,7 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                   key={order.id}
                   className="advisor-fade-in rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
                 >
-                  <Link href={`/app/advisor/orders/${order.id}`} className="block">
+                  <Link href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}`, ordersReturnTo)} className="block">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-[#F5F7FB]">
@@ -907,14 +903,14 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {canAdvisorModifyOrder(order.status) ? (
                       <Link
-                        href={`/app/advisor/new?fromOrder=${order.id}`}
+                        href={withAdvisorReturnTo(`/app/advisor/new?fromOrder=${order.id}`, ordersReturnTo)}
                         className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                       >
                         Modificar
                       </Link>
                     ) : (
                       <Link
-                        href={`/app/advisor/new?duplicateFrom=${order.id}`}
+                        href={withAdvisorReturnTo(`/app/advisor/new?duplicateFrom=${order.id}`, ordersReturnTo)}
                         className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                       >
                         Repetir
@@ -922,18 +918,19 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                     )}
                     {unpaid ? (
                       <Link
-                        href={
+                        href={withAdvisorReturnTo(
                           canReportMorePayment
                             ? `/app/advisor/orders/${order.id}?reportPayment=1`
-                            : `/app/advisor/orders/${order.id}`
-                        }
+                            : `/app/advisor/orders/${order.id}`,
+                          ordersReturnTo
+                        )}
                         className="inline-flex h-9 items-center justify-center rounded-[12px] bg-[#F0D000] px-3 text-xs font-semibold text-[#17191E]"
                       >
                         {canReportMorePayment ? 'Reportar pago' : 'Ver pago'}
                       </Link>
                     ) : (
                       <Link
-                        href={`/app/advisor/orders/${order.id}`}
+                        href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}`, ordersReturnTo)}
                         className="inline-flex h-9 items-center justify-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]"
                       >
                         Abrir

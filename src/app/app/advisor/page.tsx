@@ -12,6 +12,7 @@ import { getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { isOpenOrderStatus, needsInitialOrderApproval, needsOrderReapproval } from '@/lib/domain/order-domain';
 import { getPhoneSearchTerms } from '@/lib/phone/normalize-phone';
 import { normalizeRemoteSearchValue, normalizeSearchValue } from '@/lib/search/normalize-search';
+import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorCalendarStrip from './AdvisorCalendarStrip';
 import AdvisorSearchForm from './AdvisorSearchForm';
 import { EmptyBlock, SectionCard, StatusBadge } from './advisor-ui';
@@ -450,6 +451,9 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
 
   const selectedDayKey =
     params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : getDateKey(new Date());
+  const advisorHomeReturnTo = `/app/advisor?day=${selectedDayKey}${
+    String(params.q || '').trim() ? `&q=${encodeURIComponent(String(params.q).trim())}` : ''
+  }`;
   const searchQuery = String(params.q || '').trim();
   const normalizedSearchQuery = normalizeSearchValue(searchQuery);
   const remoteSearchQuery = normalizeRemoteSearchValue(searchQuery);
@@ -721,7 +725,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
                 {displayedSearchResults.map((order) => (
                   <Link
                     key={`search-${order.id}`}
-                    href={`/app/advisor/orders/${order.id}`}
+                    href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}`, advisorHomeReturnTo)}
                     className="block rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -878,7 +882,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
               return (
                 <Link
                   key={order.id}
-                  href={`/app/advisor/orders/${order.id}`}
+                  href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}`, advisorHomeReturnTo)}
                   className="block rounded-[18px] border border-[#2A3040] bg-[#0F131B] px-3.5 py-3"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -943,7 +947,7 @@ export default async function AdvisorHomePage({ searchParams }: { searchParams?:
               return (
                 <Link
                   key={order.id}
-                  href={`/app/advisor/orders/${order.id}`}
+                  href={withAdvisorReturnTo(`/app/advisor/orders/${order.id}`, advisorHomeReturnTo)}
                   className="block rounded-[18px] border border-[#232632] bg-[#0F131B] px-3.5 py-3"
                 >
                   <div className="flex items-start justify-between gap-3">

@@ -2,8 +2,9 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { type ReactNode, useMemo, useState } from 'react';
+import { sanitizeAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorInboxBell from './AdvisorInboxBell';
 import AdvisorPendingLink from './AdvisorPendingLink';
 import { ModulePreference } from '../ModulePreference';
@@ -21,7 +22,8 @@ const navItems = [
   { href: '/app/advisor/orders', label: 'Pedidos' },
   { href: '/app/advisor/drafts', label: 'Borradores' },
   { href: '/app/advisor/payments', label: 'Pagos' },
-  { href: '/app/advisor/settings', label: 'Configuracion' },
+  { href: '/app/advisor/commissions', label: 'Comisiones' },
+  { href: '/app/advisor/settings', label: 'Configuración' },
   { href: '/app', label: 'Cambiar modulo' },
 ];
 
@@ -29,11 +31,14 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function resolveBackHref(pathname: string) {
+function resolveBackHref(pathname: string, requestedReturnTo: string | null) {
+  const contextualReturnTo = sanitizeAdvisorReturnTo(requestedReturnTo);
+  if (contextualReturnTo && contextualReturnTo !== pathname) return contextualReturnTo;
   if (pathname.startsWith('/app/advisor/new')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/drafts')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
+  if (pathname.startsWith('/app/advisor/commissions')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/settings')) return '/app/advisor';
   return null;
 }
@@ -41,11 +46,12 @@ function resolveBackHref(pathname: string) {
 export default function AdvisorShell(props: AdvisorShellProps) {
   const { children, userId, fullName, actionCount, updateCount } = props;
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isNewOrderRoute = pathname.startsWith('/app/advisor/new');
   const isOrderDetailRoute = pathname.startsWith('/app/advisor/orders/');
-  const backHref = resolveBackHref(pathname);
+  const backHref = resolveBackHref(pathname, searchParams.get('returnTo'));
   const showCreateButton =
     !isNewOrderRoute &&
     !isOrderDetailRoute &&
@@ -137,16 +143,6 @@ export default function AdvisorShell(props: AdvisorShellProps) {
                     </AdvisorPendingLink>
                   );
                 })}
-
-                {backHref ? (
-                  <AdvisorPendingLink
-                    href={backHref}
-                    onClick={() => setMenuOpen(false)}
-                    className="flex h-10 items-center rounded-[12px] px-3 text-sm font-medium text-[#AAB2C5] hover:bg-[#171B24] hover:text-[#F5F7FB]"
-                  >
-                    Volver
-                  </AdvisorPendingLink>
-                ) : null}
               </div>
             </div>
           ) : null}

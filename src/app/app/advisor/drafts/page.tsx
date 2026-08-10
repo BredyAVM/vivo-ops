@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+import ArchiveDraftButton from './ArchiveDraftButton';
 
 type DraftRow = {
   id: number;
@@ -118,12 +119,18 @@ export default async function AdvisorDraftsPage() {
                   </div>
                 </div>
 
-                <Link
-                  href={`/app/advisor/new?draftId=${draft.id}`}
-                  className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-[14px] border border-[#2A3040] text-sm font-semibold text-[#F5F7FB]"
-                >
-                  Abrir
-                </Link>
+                <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                  <Link
+                    href={`/app/advisor/new?draftId=${draft.id}&returnTo=${encodeURIComponent('/app/advisor/drafts')}`}
+                    className="inline-flex h-10 items-center justify-center rounded-[14px] border border-[#2A3040] px-4 text-sm font-semibold text-[#F5F7FB]"
+                  >
+                    Abrir
+                  </Link>
+                  <ArchiveDraftButton
+                    draftId={draft.id}
+                    label={draft.status === 'quoted' ? 'este presupuesto' : 'este borrador'}
+                  />
+                </div>
               </article>
             ))}
           </div>
