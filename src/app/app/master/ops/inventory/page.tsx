@@ -25,6 +25,12 @@ type InventoryItemRow = {
   inventory_group: string;
   initialized: boolean;
   stock_units: number | string | null;
+  commitment_units: number | string;
+  commitment_count: number | string;
+  available_without_incoming_units: number | string | null;
+  projected_available_units: number | string | null;
+  minimum_projected_at: string | null;
+  depends_on_incoming: boolean;
   low_stock_threshold: number | string | null;
   target_stock_units: number | string | null;
   primary_count_frequency: string | null;
@@ -150,6 +156,18 @@ export default async function MasterInventoryPage() {
         unitName: inventoryDisplayText(item.unit_name),
         inventoryGroup: item.inventory_group,
         currentStockUnits: stock,
+        commitmentUnits: Number(item.commitment_units ?? 0),
+        commitmentCount: Number(item.commitment_count ?? 0),
+        availableWithoutIncomingUnits:
+          item.available_without_incoming_units == null
+            ? null
+            : Number(item.available_without_incoming_units),
+        projectedAvailableUnits:
+          item.projected_available_units == null
+            ? null
+            : Number(item.projected_available_units),
+        minimumProjectedAt: item.minimum_projected_at,
+        dependsOnIncoming: item.depends_on_incoming,
         lowStockThreshold: threshold,
         targetStockUnits: item.target_stock_units == null ? null : Number(item.target_stock_units),
         primaryCountFrequency: item.primary_count_frequency,

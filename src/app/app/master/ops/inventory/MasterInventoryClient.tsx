@@ -11,6 +11,12 @@ export type MasterInventoryItem = {
   unitName: string;
   inventoryGroup: string;
   currentStockUnits: number;
+  commitmentUnits: number;
+  commitmentCount: number;
+  availableWithoutIncomingUnits: number | null;
+  projectedAvailableUnits: number | null;
+  minimumProjectedAt: string | null;
+  dependsOnIncoming: boolean;
   lowStockThreshold: number | null;
   targetStockUnits: number | null;
   primaryCountFrequency: string | null;
@@ -81,6 +87,21 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function inventoryValueClass(value: number | null, warning = false) {
+  if (value == null) return 'text-[#777784]';
+  if (value < -0.005) return 'text-rose-300';
+  if (value <= 0.005 || warning) return 'text-amber-300';
+  return 'text-white';
+}
+
+function inventoryRiskRank(item: MasterInventoryItem) {
+  if (item.projectedAvailableUnits != null && item.projectedAvailableUnits < -0.005) return 4;
+  if (item.availableWithoutIncomingUnits != null && item.availableWithoutIncomingUnits < -0.005) return 3;
+  if (item.dependsOnIncoming) return 2;
+  if (item.isLowStock) return 1;
+  return 0;
+}
+
 function countItemSummary(count: MasterInventoryCount) {
   if (!count.itemNames.length) return `${count.lineCount} ítems`;
   const visible = count.itemNames.slice(0, 3).join(', ');
@@ -110,6 +131,7 @@ export default function MasterInventoryClient({
   const waitingMaster = counts.filter((count) => count.status === 'submitted');
   const recentCounts = counts.filter((count) => !['open', 'submitted'].includes(count.status)).slice(0, 12);
   const lowStockCount = items.filter((item) => item.isLowStock).length;
+  const dependsOnIncomingCount = items.filter((item) => item.dependsOnIncoming).length;
   const selectableItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('es');
     return items.filter((item) => {
@@ -121,7 +143,7 @@ export default function MasterInventoryClient({
     const query = stockSearch.trim().toLocaleLowerCase('es');
     return [...items]
       .filter((item) => !query || `${item.name} ${groupLabels[item.inventoryGroup] ?? item.inventoryGroup}`.toLocaleLowerCase('es').includes(query))
-      .sort((left, right) => Number(right.isLowStock) - Number(left.isLowStock) || left.name.localeCompare(right.name, 'es'));
+      .sort((left, right) => inventoryRiskRank(right) - inventoryRiskRank(left) || left.name.localeCompare(right.name, 'es'));
   }, [items, stockSearch]);
 
   function toggleItem(itemId: number) {
@@ -180,7 +202,7 @@ export default function MasterInventoryClient({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Saldo disponible" value={items.length} detail="ítems inicializados" />
+        <SummaryCard label="Ítems operativos" value={items.length} detail={dependsOnIncomingCount ? `${dependsOnIncomingCount} dependen de reposición` : 'sin dependencia de reposición'} tone={dependsOnIncomingCount ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Cocina" value={waitingKitchen.length} detail="solicitudes abiertas" tone={waitingKitchen.length ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Máster" value={waitingMaster.length} detail="reportes por decidir" tone={waitingMaster.length ? 'danger' : 'default'} />
         <SummaryCard label="Stock bajo" value={lowStockCount} detail="según umbral configurado" tone={lowStockCount ? 'warning' : 'default'} />
@@ -264,17 +286,51 @@ export default function MasterInventoryClient({
 
           <div className="mt-4 overflow-hidden rounded-xl border border-[#292938]">
             <div className="max-h-[610px] overflow-auto">
-              <table className="w-full min-w-[920px] text-left text-sm">
+              <table className="w-full min-w-[1160px] text-left text-sm">
                 <thead className="sticky top-0 bg-[#171720] text-xs uppercase tracking-wide text-[#92929F]">
-                  <tr><th className="px-4 py-3">Ítem</th><th className="px-4 py-3">Grupo</th><th className="px-4 py-3 text-right">Saldo</th><th className="px-4 py-3 text-right">Alerta</th><th className="px-4 py-3">Último conteo</th><th className="px-4 py-3">Pendiente</th></tr>
+                  <tr>
+                    <th className="px-4 py-3">Ítem</th>
+                    <th className="px-4 py-3 text-right">Existencia</th>
+                    <th className="px-4 py-3 text-right">Comprometido</th>
+                    <th className="px-4 py-3 text-right">Libre sin entradas</th>
+                    <th className="px-4 py-3 text-right">Proyección 10 días</th>
+                    <th className="px-4 py-3">Último conteo</th>
+                    <th className="px-4 py-3">Conteo pendiente</th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-[#292938]">
                   {visibleStock.map((item) => (
                     <tr key={item.id} className={item.isLowStock ? 'bg-amber-400/5' : ''}>
-                      <td className="px-4 py-3 font-semibold">{item.name}</td>
-                      <td className="px-4 py-3 text-[#A6A6B2]">{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</td>
-                      <td className="px-4 py-3 text-right"><span className="font-bold text-white">{formatQuantity(item.currentStockUnits)}</span> <span className="text-xs text-[#8F8F9C]">{item.unitName}</span></td>
-                      <td className="px-4 py-3 text-right">{item.lowStockThreshold == null ? <span className="text-[#777784]">—</span> : <span className={item.isLowStock ? 'font-semibold text-amber-300' : 'text-[#A6A6B2]'}>{formatQuantity(item.lowStockThreshold)}</span>}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold">{item.name}</div>
+                        <div className="mt-1 flex items-center gap-2 text-xs text-[#8F8F9C]">
+                          <span>{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</span>
+                          {item.lowStockThreshold == null ? null : <span>Umbral {formatQuantity(item.lowStockThreshold)}</span>}
+                          {item.isLowStock ? <span className="rounded-full border border-amber-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">STOCK BAJO</span> : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-bold text-white">{formatQuantity(item.currentStockUnits)}</span>{' '}
+                        <span className="text-xs text-[#8F8F9C]">{item.unitName}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {item.commitmentUnits > 0.005 ? (
+                          <>
+                            <div className="font-semibold text-violet-200">{formatQuantity(item.commitmentUnits)} {item.unitName}</div>
+                            <div className="mt-1 text-xs text-[#858591]">{item.commitmentCount} compromiso{item.commitmentCount === 1 ? '' : 's'}</div>
+                          </>
+                        ) : <span className="text-[#777784]">—</span>}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-bold ${inventoryValueClass(item.availableWithoutIncomingUnits)}`}>
+                        {item.availableWithoutIncomingUnits == null ? '—' : `${formatQuantity(item.availableWithoutIncomingUnits)} ${item.unitName}`}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className={`font-bold ${inventoryValueClass(item.projectedAvailableUnits, item.dependsOnIncoming)}`}>
+                          {item.projectedAvailableUnits == null ? '—' : `${formatQuantity(item.projectedAvailableUnits)} ${item.unitName}`}
+                        </div>
+                        {item.dependsOnIncoming ? <div className="mt-1 text-xs font-semibold text-amber-300">Depende de reposición</div> : null}
+                        {item.minimumProjectedAt && (item.commitmentCount > 0 || item.dependsOnIncoming || (item.projectedAvailableUnits ?? 1) <= 0.005) ? <div className="mt-1 text-xs text-[#858591]">Mínimo: {formatDate(item.minimumProjectedAt)}</div> : null}
+                      </td>
                       <td className="px-4 py-3">
                         {item.lastCountId && item.lastCountedAt ? (
                           <div className="min-w-[190px]">
@@ -295,6 +351,9 @@ export default function MasterInventoryClient({
               </table>
             </div>
           </div>
+          <p className="mt-3 text-xs leading-5 text-[#858591]">
+            Libre sin entradas descuenta los compromisos activos sin contar reposiciones futuras. La proyección incorpora entradas y producciones conocidas dentro de los próximos 10 días; es informativa y no mueve inventario.
+          </p>
         </div>
       </div>
 
