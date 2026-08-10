@@ -391,17 +391,52 @@ bloquea las filas en orden estable e inserta todos los movimientos `sale_out` en
 la misma transacción de `delivered`, incluso cuando una de las existencias no
 alcanza y el saldo resultante queda por debajo de cero.
 
-El saldo negativo es deliberadamente visible. El detector existente lo convierte
-en alerta crítica de disponibilidad o procura y permite que Master o Administración
-coordinen reposición, conteo o reconteo. No se rellena saldo, no se omite el consumo
-y no se crea una segunda autoridad.
+El saldo negativo es deliberadamente visible. Un guardián genérico del balance
+abre una alerta crítica de control para cualquier ítem operativo negativo, sin
+depender de umbrales, recetas o vínculos comerciales. Permite que Máster,
+Administración y Cocina coordinen reposición, conteo o reconteo. No se rellena
+saldo, no se omite el consumo y no se crea una segunda autoridad.
 
-Siguen siendo errores bloqueantes las violaciones estructurales que harían imposible
-un asiento válido: ítem inexistente o no operativo, ausencia de apertura, resolución
-inválida, operación duplicada o falta de autorización. La insuficiencia cuantitativa
-por sí sola no es una de esas violaciones.
+El comando explícito de consumo sigue rechazando violaciones estructurales que
+harían imposible un asiento válido: ítem inexistente o no operativo, ausencia de
+apertura, resolución inválida, operación duplicada o falta de autorización. En
+el flujo automático de órdenes, esas excepciones ya no se propagan: se registra
+una incidencia crítica y la orden continúa. La insuficiencia cuantitativa no es
+una violación estructural; produce el `sale_out` y permite saldo negativo.
 
 Este contrato quedó corregido en producción mediante
 `20260810145845_inventory_nonblocking_order_delivery_v1`; el diagnóstico y alcance
 del incidente están en
 `INVENTORY_HOTFIX_NONBLOCKING_DELIVERY_2026-08-10.md`.
+
+## 18. Frontera completamente no bloqueante con órdenes
+
+Inventario es un centro de verdad y observación, no un mecanismo de veto del
+proceso comercial durante esta etapa de evaluación. Los cuatro puntos automáticos
+conectados a órdenes son:
+
+1. congelación de componentes al guardar una partida;
+2. actualización de compromisos al modificar una partida;
+3. ciclo de compromisos al aprobar, reprogramar, cancelar o entregar;
+4. consumo físico al pasar una orden a `delivered`.
+
+Cada punto ejecuta su trabajo dentro de un bloque tolerante. Si el inventario
+falla, la escritura comercial se conserva y se crea un evento del grupo
+`inventory` en `order_timeline_events`, dirigido a Máster y Administración.
+El refresco del Centro de Alertas convierte esos eventos en alertas de sistema.
+Si incluso el registro de la incidencia fallara, esa falla se reduce a una
+advertencia interna y tampoco revierte la orden.
+
+La entrega conserva dos resultados distintos:
+
+- si la resolución es válida, se insertan los `sale_out`, aun con saldo
+  negativo;
+- si no puede construirse un asiento válido, la orden se entrega, no se inventa
+  un movimiento y queda una incidencia crítica pendiente de conciliación.
+
+El disparador de entrega usa una clave determinista por orden. Una repetición
+reproduce la misma operación y evita descuentos dobles. La migración canónica es
+`20260810152823_inventory_order_flow_nonblocking_v2`; sustituye la intención
+del archivo histórico no aplicado
+`20260807214500_inventory_non_blocking_order_policy_v1.sql`, que no debe
+ejecutarse porque todavía contenía una guarda de existencia insuficiente.
