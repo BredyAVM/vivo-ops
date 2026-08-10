@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import {
   displayLabel,
@@ -31,7 +32,13 @@ export type InventoryCatalogRow = {
   isActive: boolean;
 };
 
-type FilterMode = 'tracked' | InventoryCatalogRow['trackingMode'] | 'all';
+type FilterMode =
+  | 'tracked'
+  | InventoryCatalogRow['trackingMode']
+  | 'missing_minimum'
+  | 'low_stock'
+  | 'negative_stock'
+  | 'all';
 
 const trackingLabels: Record<InventoryCatalogRow['trackingMode'], string> = {
   transactional: 'Transaccional',
@@ -68,7 +75,13 @@ function thresholdText(item: InventoryCatalogRow) {
   return `${item.lowStockInclusive ? '≤' : '<'} ${formatQuantity(item.lowStockThreshold)}`;
 }
 
-export default function InventoryCatalogClient({ items }: { items: InventoryCatalogRow[] }) {
+export default function InventoryCatalogClient({
+  items,
+  canConfigure = false,
+}: {
+  items: InventoryCatalogRow[];
+  canConfigure?: boolean;
+}) {
   const [search, setSearch] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('tracked');
 
@@ -76,11 +89,19 @@ export default function InventoryCatalogClient({ items }: { items: InventoryCata
     const normalizedSearch = search.trim().toLocaleLowerCase('es');
 
     return items.filter((item) => {
-      const matchesMode =
-        filterMode === 'all' ||
-        (filterMode === 'tracked'
-          ? item.trackingMode !== 'not_tracked'
-          : item.trackingMode === filterMode);
+      const isOperational = item.isActive
+        && item.mergedIntoItemId == null
+        && item.trackingMode !== 'not_tracked';
+      const thresholdHit = item.lowStockThreshold != null && (
+        (item.lowStockInclusive && item.currentStockUnits <= item.lowStockThreshold)
+        || (!item.lowStockInclusive && item.currentStockUnits < item.lowStockThreshold)
+      );
+      const matchesMode = filterMode === 'all'
+        || (filterMode === 'tracked' && isOperational)
+        || (filterMode === 'missing_minimum' && isOperational && item.lowStockThreshold == null)
+        || (filterMode === 'low_stock' && isOperational && item.currentStockUnits > 0 && thresholdHit)
+        || (filterMode === 'negative_stock' && isOperational && item.currentStockUnits < 0)
+        || item.trackingMode === filterMode;
       const matchesSearch =
         !normalizedSearch ||
         item.name.toLocaleLowerCase('es').includes(normalizedSearch) ||
@@ -114,6 +135,9 @@ export default function InventoryCatalogClient({ items }: { items: InventoryCata
             className="rounded-xl border border-[#30303E] bg-[#0B0B0D] px-3 py-2 text-sm outline-none focus:border-[#FEEF00]/60"
           >
             <option value="tracked">Control activo</option>
+            <option value="low_stock">Nivel bajo</option>
+            <option value="negative_stock">Saldo negativo</option>
+            <option value="missing_minimum">Pendientes de mínimo</option>
             <option value="transactional">Transaccionales</option>
             <option value="periodic_count">Conteo periódico</option>
             <option value="not_tracked">Históricos/no controlados</option>
@@ -121,6 +145,15 @@ export default function InventoryCatalogClient({ items }: { items: InventoryCata
           </select>
         </div>
       </div>
+
+      {filterMode === 'missing_minimum' && canConfigure ? (
+        <div className="flex flex-col gap-3 border-b border-sky-400/20 bg-sky-400/5 px-4 py-3 text-sm text-sky-100 sm:flex-row sm:items-center sm:justify-between">
+          <span>Estos ítems operan correctamente, pero todavía no tienen definido cuándo encender su alerta de procura.</span>
+          <Link href="/app/inventory/configure?view=edit" prefetch={false} className="font-semibold text-[#FEEF00] hover:underline">
+            Configurar mínimos
+          </Link>
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto">
         <table className="min-w-[1180px] w-full text-left text-sm">

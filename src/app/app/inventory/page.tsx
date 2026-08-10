@@ -102,8 +102,26 @@ export default async function InventoryPage() {
   const transactionalCount = items.filter((item) => item.trackingMode === 'transactional').length;
   const periodicCount = items.filter((item) => item.trackingMode === 'periodic_count').length;
   const aliasCount = items.filter((item) => item.mergedIntoItemId != null).length;
+  const missingMinimumCount = items.filter((item) =>
+    item.isActive
+    && item.mergedIntoItemId == null
+    && item.trackingMode !== 'not_tracked'
+    && item.lowStockThreshold == null,
+  ).length;
+  const negativeCount = items.filter((item) =>
+    item.isActive
+    && item.mergedIntoItemId == null
+    && item.trackingMode !== 'not_tracked'
+    && item.currentStockUnits < 0,
+  ).length;
   const lowStockCount = items.filter((item) => {
-    if (item.trackingMode === 'not_tracked' || item.lowStockThreshold == null) return false;
+    if (
+      !item.isActive
+      || item.mergedIntoItemId != null
+      || item.trackingMode === 'not_tracked'
+      || item.lowStockThreshold == null
+      || item.currentStockUnits <= 0
+    ) return false;
     return item.lowStockInclusive
       ? item.currentStockUnits <= item.lowStockThreshold
       : item.currentStockUnits < item.lowStockThreshold;
@@ -125,13 +143,15 @@ export default async function InventoryPage() {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
           <SummaryCard label="Registros" value={items.length} />
           <SummaryCard label="Transaccionales" value={transactionalCount} tone="good" />
           <SummaryCard label="Conteo periódico" value={periodicCount} tone="info" />
-          <SummaryCard label="Alias históricos" value={aliasCount} tone="warn" />
-          <SummaryCard label="Alertas por umbral" value={lowStockCount} tone="danger" />
+          <SummaryCard label="Nivel bajo" value={lowStockCount} tone="warn" />
+          <SummaryCard label="Sin mínimo" value={missingMinimumCount} tone="info" />
+          <SummaryCard label="Saldo negativo" value={negativeCount} tone="danger" />
         </div>
+        {aliasCount > 0 ? <p className="mt-3 text-xs text-[#777784]">{aliasCount} alias históricos permanecen fuera del control operativo.</p> : null}
       </section>
 
       <section className="mt-6 rounded-2xl border border-[#242433] bg-[#111117] p-5">
@@ -161,7 +181,7 @@ export default async function InventoryPage() {
         </div>
       </section>
 
-      <InventoryCatalogClient items={items} />
+      <InventoryCatalogClient items={items} canConfigure={ctx.roles.includes('admin')} />
     </>
   );
 }
