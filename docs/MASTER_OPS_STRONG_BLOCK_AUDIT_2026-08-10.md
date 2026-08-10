@@ -59,7 +59,7 @@ La ruta nueva `/app/master/ops/finance`:
 Quedan deliberadamente fuera: configuración de cuentas, estados de cuenta,
 conciliaciones, cierres, líneas base y ajustes contables administrativos.
 
-### Pendiente: trazabilidad visual de salidas y devoluciones
+### Estado: devolución de fondo visible; otras salidas pendientes
 
 Cuando se devuelve al cliente dinero que tenía en fondo, la salida ya queda
 registrada en caja y en el libro contable, pero no aparece dentro de la orden
@@ -67,9 +67,21 @@ usada como referencia con una presentación equivalente a la de los pagos. Eso
 impide que Master, Asesor y otros usuarios autorizados entiendan visualmente la
 secuencia completa sin consultar la contabilidad.
 
-La mejora futura debe:
+Implementado el 2026-08-10:
 
-- mostrar en la orden las devoluciones de fondo ya confirmadas;
+- la devolución posterior de dinero guardado en fondo se proyecta desde
+  `client_fund_movements` con `reason_code = client_fund_payout`;
+- aparece dentro de la pestaña `Pagos` de la orden en Master Ops y en el detalle
+  autorizado del Asesor;
+- muestra moneda, monto original, equivalente USD cuando aplica, cuenta, fecha,
+  actor y nota;
+- `read_order_client_fund_payouts(bigint)` limita la lectura al Master/Admin o al
+  asesor atribuido a esa orden, sin abrir el resto del historial del fondo;
+- la proyección no crea pagos, reportes ni asientos nuevos y no altera el saldo
+  financiero de la orden.
+
+Queda pendiente para una ampliación posterior:
+
 - mostrar también el cambio entregado, devoluciones por cancelación y otras
   salidas monetarias vinculadas a la orden;
 - indicar tipo de operación, moneda, monto, cuenta o caja, fecha de operación,
@@ -121,9 +133,9 @@ Hasta entonces, Master abre las superficies canónicas `Alertas activas` y
 
 ## Pendientes acumulados
 
-1. Trazabilidad visual de devoluciones de fondo, cambios y demás salidas
-   monetarias ligadas a una orden, visible para Master y Asesor sin duplicar el
-   movimiento contable.
+1. Ampliar la trazabilidad ya instalada para devoluciones de fondo al cambio
+   entregado, devoluciones por cancelación y demás salidas monetarias ligadas a
+   una orden, sin duplicar el movimiento contable.
 2. Último conteo físico, responsable y antigüedad por ítem en el adaptador de
    inventario de Master.
 3. Existencia física, comprometida, disponible y proyección por fecha.

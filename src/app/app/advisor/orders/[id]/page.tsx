@@ -11,6 +11,7 @@ import {
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import { mapOrderClientFundPayouts } from '@/lib/finance/order-client-fund-payouts';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -857,6 +858,7 @@ export default async function AdvisorOrderDetailPage({
   const [
     itemsResult,
     paymentsResult,
+    fundPayoutsResult,
     historyResults,
     exchangeRateResult,
   ] = await Promise.all([
@@ -872,6 +874,9 @@ export default async function AdvisorOrderDetailPage({
         )
         .eq('order_id', orderId)
         .order('created_at', { ascending: false }),
+      ctx.supabase.rpc('read_order_client_fund_payouts', {
+        p_order_id: orderId,
+      }),
       Promise.all([
         ctx.supabase
           .from('order_events')
@@ -895,6 +900,10 @@ export default async function AdvisorOrderDetailPage({
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
+  if (fundPayoutsResult.error) {
+    console.warn('read_order_client_fund_payouts skipped in advisor order detail', fundPayoutsResult.error.message);
+  }
+  const clientFundPayouts = mapOrderClientFundPayouts(fundPayoutsResult.data);
   const [legacyEventsResult, timelineEventsResult] = historyResults;
   const rawTimeline = dedupeEvents([
     ...((legacyEventsResult.data ?? []) as RawTimelineEvent[]).map((event) => ({ ...event, source: 'legacy' as const })),
@@ -1401,7 +1410,7 @@ export default async function AdvisorOrderDetailPage({
           ) : null}
         </div>
 
-        {payments.length > 0 || clientFundUsedUsd > 0.005 ? (
+        {payments.length > 0 || clientFundUsedUsd > 0.005 || clientFundPayouts.length > 0 ? (
           <div className="mt-3 space-y-2.5">
             {clientFundUsedUsd > 0.005 ? (
               <article className="rounded-[18px] border border-emerald-500/25 bg-[#0D1712] px-3.5 py-3">
@@ -1422,6 +1431,34 @@ export default async function AdvisorOrderDetailPage({
                 </div>
               </article>
             ) : null}
+
+            {clientFundPayouts.map((payout) => (
+              <article
+                key={`fund-payout-${payout.id}`}
+                className="rounded-[18px] border border-sky-500/25 bg-[#0C151C] px-3.5 py-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-[#F5F7FB]">
+                      Fondo devuelto · {payout.currencyCode === 'VES'
+                        ? formatBs(payout.amount)
+                        : `${payout.currencyCode} ${payout.amount.toFixed(2)}`}
+                      {payout.currencyCode !== 'USD' ? ` · ${formatUsd(payout.amountUsd)}` : null}
+                    </div>
+                    <div className="mt-1 text-xs text-[#8B93A7]">
+                      {payout.moneyAccountName} · {formatDateTime(payout.createdAt)}
+                    </div>
+                  </div>
+                  <StatusBadge label="Entregado" tone="success" />
+                </div>
+                <div className="mt-2 grid gap-1 text-xs leading-5 text-[#AAB2C5]">
+                  <div>Registrado por: {payout.actorName}</div>
+                  <div>Salida desde: {payout.moneyAccountName}</div>
+                  {payout.notes ? <div>Nota: {payout.notes}</div> : null}
+                  <div>Esta devolución reduce el fondo del cliente; no es un pago nuevo de la orden.</div>
+                </div>
+              </article>
+            ))}
 
             {payments.map((paymentReport) => (
               <article
