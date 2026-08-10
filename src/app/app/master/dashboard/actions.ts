@@ -11998,6 +11998,15 @@ type AdvisorCommissionPaymentLedgerEntry = {
   amountUsd: number;
 };
 
+type AdvisorCommissionManualDeductionSnapshot = {
+  id: number;
+  kind: string;
+  description: string;
+  amountUsd: number;
+  notes: string | null;
+  createdAt: string | null;
+};
+
 const ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF = '2026-06-02';
 
 function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
@@ -12423,7 +12432,7 @@ function buildAdvisorCommissionSnapshots(params: {
         new_clients: closure.newClients,
         products: closure.products,
         gifts: closure.gifts,
-        deductions: [],
+        deductions: [] as AdvisorCommissionManualDeductionSnapshot[],
       },
     };
   });
@@ -12766,18 +12775,69 @@ export async function generateAdvisorCommissionClosuresAction(input: {
 
   const { data: existingClosures, error: existingError } = await supabase
     .from('advisor_commission_closures')
-    .select('advisor_user_id, status')
+    .select('id, advisor_user_id, status')
     .eq('period_id', periodId);
 
   if (existingError) {
     throw new Error(existingError.message);
   }
 
+  const typedExistingClosures = (existingClosures ?? []) as Array<{
+    id: number | string;
+    advisor_user_id: string;
+    status: string;
+  }>;
   const lockedAdvisorIds = new Set(
-    ((existingClosures ?? []) as Array<{ advisor_user_id: string; status: string }>)
+    typedExistingClosures
       .filter((closure) => closure.status === 'closed' || closure.status === 'paid')
       .map((closure) => closure.advisor_user_id)
   );
+  const editableClosures = typedExistingClosures.filter(
+    (closure) => !lockedAdvisorIds.has(closure.advisor_user_id)
+  );
+  const editableClosureIds = editableClosures
+    .map((closure) => Number(closure.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  const advisorIdByClosureId = new Map(
+    editableClosures.map((closure) => [Number(closure.id), closure.advisor_user_id])
+  );
+  const manualDeductionsByAdvisorId = new Map<string, AdvisorCommissionManualDeductionSnapshot[]>();
+
+  if (editableClosureIds.length > 0) {
+    const { data: manualDeductionRows, error: manualDeductionsError } = await supabase
+      .from('advisor_commission_deductions')
+      .select('id, closure_id, deduction_type, description, amount_usd, notes, created_at')
+      .in('closure_id', editableClosureIds)
+      .neq('deduction_type', 'gift')
+      .order('created_at', { ascending: true });
+
+    if (manualDeductionsError) {
+      throw new Error(manualDeductionsError.message);
+    }
+
+    for (const row of (manualDeductionRows ?? []) as Array<{
+      id: number | string;
+      closure_id: number | string;
+      deduction_type: string | null;
+      description: string | null;
+      amount_usd: number | string | null;
+      notes: string | null;
+      created_at: string | null;
+    }>) {
+      const advisorId = advisorIdByClosureId.get(Number(row.closure_id));
+      if (!advisorId) continue;
+      const deductions = manualDeductionsByAdvisorId.get(advisorId) ?? [];
+      deductions.push({
+        id: Number(row.id),
+        kind: row.deduction_type || 'manual_expense',
+        description: row.description || '',
+        amountUsd: roundMoney(row.amount_usd),
+        notes: row.notes || null,
+        createdAt: row.created_at || null,
+      });
+      manualDeductionsByAdvisorId.set(advisorId, deductions);
+    }
+  }
 
   const snapshots = buildAdvisorCommissionSnapshots({
     orders,
@@ -12794,6 +12854,22 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     },
     baseCommissionPct,
   });
+
+  for (const snapshot of snapshots) {
+    const manualDeductions = manualDeductionsByAdvisorId.get(snapshot.advisor_user_id) ?? [];
+    const manualDeductionsUsd = roundMoney(
+      manualDeductions.reduce((sum, deduction) => sum + deduction.amountUsd, 0)
+    );
+    const payableUsd = roundMoney(
+      snapshot.gross_commission_usd - snapshot.gift_deductions_usd - manualDeductionsUsd
+    );
+
+    snapshot.manual_deductions_usd = manualDeductionsUsd;
+    snapshot.payable_usd = payableUsd;
+    snapshot.snapshot.totals.manualDeductionsUsd = manualDeductionsUsd;
+    snapshot.snapshot.totals.payableUsd = payableUsd;
+    snapshot.snapshot.deductions = manualDeductions;
+  }
 
   if (snapshots.length > 0) {
     const nowIso = new Date().toISOString();
@@ -12814,6 +12890,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   }
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor/commissions');
 
   return {
     ok: true as const,
@@ -13157,6 +13234,7 @@ export async function addAdvisorCommissionClosureDeductionAction(input: {
   const totals = await syncAdvisorCommissionClosureManualDeductions(supabase, closureId);
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor/commissions');
   return { ok: true as const, ...totals };
 }
 
@@ -13199,6 +13277,7 @@ export async function deleteAdvisorCommissionClosureDeductionAction(input: {
   const totals = await syncAdvisorCommissionClosureManualDeductions(supabase, closureId);
 
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/advisor/commissions');
   return { ok: true as const, ...totals };
 }
 
