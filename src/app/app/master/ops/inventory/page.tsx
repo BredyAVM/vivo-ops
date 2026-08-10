@@ -182,6 +182,12 @@ export default async function MasterInventoryPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href="/app/inventory/alerts" prefetch={false} className="rounded-xl border border-amber-400/35 bg-amber-400/5 px-4 py-2.5 text-sm font-semibold text-amber-200">
+              Alertas activas
+            </Link>
+            <Link href="/app/inventory/operations" prefetch={false} className="rounded-xl border border-sky-400/35 bg-sky-400/5 px-4 py-2.5 text-sm font-semibold text-sky-200">
+              Entradas esperadas
+            </Link>
             <Link href="/app/inventory/counts" prefetch={false} className="rounded-xl border border-[#343442] bg-[#15151D] px-4 py-2.5 text-sm font-semibold">
               Historial completo
             </Link>

@@ -30,6 +30,10 @@ este piloto.
 | Rendimiento | Lista | Detalle y bandejas se cargan bajo demanda; refresco por foco y antiguedad. |
 | Movil | Lista | Tarjetas operativas en pantallas pequenas y tabla en escritorio. |
 | Alertas | Lista | Activacion compacta en Ops, sonido en alertas importantes, refresco en primer plano y retorno a Ops desde notificaciones del dispositivo. |
+| Cambio de operador | Lista | Cierre de sesion local desde la cabecera y limpieza de la preferencia del modulo compartido. |
+| Verificacion externa de pagos | Lista | Copia compacta por reporte sin el estado redundante `PENDIENTE`. |
+| Consola de pagos | Lista | Cola, filtros, busqueda e historial bajo demanda en `/app/master/ops/finance`. |
+| Inventario de Master | Parcial controlado | Saldo, conteos y reconteos en el adaptador; alertas y entradas esperadas enlazadas a sus superficies canonicas. Proyeccion y dependencias siguen pendientes. |
 
 ## Requisitos ambientales
 
@@ -66,12 +70,22 @@ para probar cancelaciones o rechazos.
 14. Repetir apertura, bandejas y accion principal desde un telefono.
 15. Cortar la conexion antes de una mutacion de prueba: debe mostrarse error y la
     interfaz no debe presentar la accion como exitosa.
+16. Editar con motivo una orden en cocina y otra lista; confirmar que conservan
+    trazabilidad y que el asesor sigue sin tener ese permiso.
+17. Copiar un reporte de pago y pegarlo en WhatsApp; debe incluir orden, cliente,
+    monto, hora, cuenta, pagador, referencia y reportante, sin `PENDIENTE`.
+18. Abrir la consola `Pagos`, filtrar, buscar una referencia y regresar al detalle
+    de la orden dentro de Master Ops.
+19. Abrir Inventario, Alertas activas y Entradas esperadas; confirmar que el rol
+    Master no recibe controles exclusivos de Admin o Cocina.
+20. Cerrar sesion desde Master Ops e iniciar con el siguiente operador en el mismo
+    equipo.
 
 ## Criterio de aprobacion
 
 El piloto puede comenzar cuando:
 
-- los 15 pasos anteriores pasan;
+- los 20 pasos anteriores pasan;
 - ningun control de Master Ops envia al master a Dashboard;
 - los saldos y montos VES coinciden con la fuente canonica;
 - una accion fallida no produce un estado visual falso;
