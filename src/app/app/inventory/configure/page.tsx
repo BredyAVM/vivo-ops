@@ -1,4 +1,6 @@
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { getAuthContext } from '@/lib/auth';
 import InventoryConfiguratorClient, {
   type ConfiguratorInventoryItem,
@@ -40,7 +42,31 @@ type RawProduct = {
   inventory_policy: ConfiguratorProduct['inventoryPolicy'];
 };
 
-export default async function InventoryConfigurePage() {
+type RawProductComponent = {
+  parent_product_id: number;
+  component_product_id: number;
+  component_mode: 'fixed' | 'selectable';
+  quantity: number | string;
+  counts_toward_detail_limit: boolean;
+  is_required: boolean;
+};
+
+type RawProductLink = {
+  product_id: number;
+  inventory_item_id: number;
+  quantity_units: number | string;
+  deduction_mode: string;
+  deduction_stage: string | null;
+};
+
+type ConfigureView = 'edit' | 'activate' | 'create';
+type ConfigureSearchParams = Promise<{ view?: string }>;
+
+export default async function InventoryConfigurePage({
+  searchParams,
+}: {
+  searchParams?: ConfigureSearchParams;
+}) {
   const ctx = await getAuthContext();
 
   if (!ctx) {
@@ -50,7 +76,12 @@ export default async function InventoryConfigurePage() {
     redirect('/app/inventory');
   }
 
-  const [itemsResult, productsResult, activationQueueResult, administrationResult] = await Promise.all([
+  const requestedView = (await searchParams)?.view;
+  const view: ConfigureView = requestedView === 'activate' || requestedView === 'create'
+    ? requestedView
+    : 'edit';
+
+  const [itemsResult, productsResult, linksResult, componentsResult, activationQueueResult, administrationResult] = await Promise.all([
     ctx.supabase
       .from('inventory_items')
       .select('id, name, unit_name, tracking_mode, is_active')
@@ -78,12 +109,23 @@ export default async function InventoryConfigurePage() {
         inventory_policy
       `)
       .order('name', { ascending: true }),
+    ctx.supabase
+      .from('product_inventory_links')
+      .select('product_id, inventory_item_id, quantity_units, deduction_mode, deduction_stage')
+      .eq('configuration_version', 1)
+      .order('sort_order', { ascending: true }),
+    ctx.supabase
+      .from('product_components')
+      .select('parent_product_id, component_product_id, component_mode, quantity, counts_toward_detail_limit, is_required')
+      .order('sort_order', { ascending: true }),
     ctx.supabase.rpc('inventory_activation_queue_v1'),
     ctx.supabase.rpc('inventory_admin_configuration_workspace_v1'),
   ]);
 
   const firstError = itemsResult.error
     ?? productsResult.error
+    ?? linksResult.error
+    ?? componentsResult.error
     ?? activationQueueResult.error
     ?? administrationResult.error;
   if (firstError) {
@@ -128,6 +170,38 @@ export default async function InventoryConfigurePage() {
   );
 
   const commercialByProductId = new Map(products.map((product) => [product.id, product]));
+  const rawProductById = new Map(
+    ((productsResult.data ?? []) as RawProduct[]).map((product) => [Number(product.id), product]),
+  );
+  const productNameById = new Map(products.map((product) => [product.id, product.name]));
+  const itemNameById = new Map(items.map((item) => [item.id, item.name]));
+  const linksByProductId = new Map<number, InventoryAdminWorkspace['products'][number]['links']>();
+  for (const link of (linksResult.data ?? []) as RawProductLink[]) {
+    const productId = Number(link.product_id);
+    const current = linksByProductId.get(productId) ?? [];
+    current.push({
+      inventory_item_id: Number(link.inventory_item_id),
+      item_name: itemNameById.get(Number(link.inventory_item_id)) ?? `Ítem #${link.inventory_item_id}`,
+      quantity_units: Number(link.quantity_units),
+      deduction_mode: link.deduction_mode,
+      deduction_stage: link.deduction_stage,
+    });
+    linksByProductId.set(productId, current);
+  }
+  const componentsByParentId = new Map<number, AdminProductComponent[]>();
+  for (const component of (componentsResult.data ?? []) as RawProductComponent[]) {
+    const parentId = Number(component.parent_product_id);
+    const current = componentsByParentId.get(parentId) ?? [];
+    current.push({
+      component_product_id: Number(component.component_product_id),
+      component_name: productNameById.get(Number(component.component_product_id)) ?? `Producto #${component.component_product_id}`,
+      component_mode: component.component_mode,
+      quantity: Number(component.quantity),
+      counts_toward_detail_limit: component.counts_toward_detail_limit,
+      is_required: component.is_required,
+    });
+    componentsByParentId.set(parentId, current);
+  }
   const rawAdministrationWorkspace = repairInventoryDisplayData(
     administrationResult.data as InventoryAdminWorkspace,
   );
@@ -135,6 +209,9 @@ export default async function InventoryConfigurePage() {
     ...rawAdministrationWorkspace,
     products: rawAdministrationWorkspace.products.map((product) => {
       const commercial = commercialByProductId.get(product.id);
+      const rawProduct = rawProductById.get(product.id);
+      const revision = Number(rawProduct?.extra_fields?.inventory_physical_revision ?? 1);
+      const history = rawProduct?.extra_fields?.inventory_physical_history;
       return {
         ...product,
         source_price_amount: commercial?.sourcePriceAmount ?? 0,
@@ -144,24 +221,65 @@ export default async function InventoryConfigurePage() {
         commission_notes: commercial?.commissionNotes ?? null,
         advisor_gift_cost_usd: commercial?.advisorGiftCostUsd ?? null,
         internal_rider_pay_usd: commercial?.internalRiderPayUsd ?? null,
+        links: linksByProductId.get(product.id) ?? [],
+        components: componentsByParentId.get(product.id) ?? [],
+        physical_revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 1,
+        physical_history_count: Array.isArray(history) ? history.length : 0,
       };
     }),
   };
 
   return (
-    <div className="space-y-8">
-      <InventoryAdministrationClient
-        workspace={administrationWorkspace}
-      />
-      <InventoryActivationQueueClient
-        queue={repairInventoryDisplayData(
-          activationQueueResult.data as InventoryActivationQueue,
-        )}
-      />
-      <InventoryConfiguratorClient
-        inventoryItems={items}
-        products={products}
-      />
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-[#2C2C3A] bg-[#101016] p-5">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">Reglas y catálogo</div>
+        <h2 className="mt-1 text-xl font-semibold">¿Qué necesitas hacer?</h2>
+        <p className="mt-2 text-sm text-[#9898A5]">Solo se abre una tarea a la vez para mantener clara la configuración.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <ConfigureLink active={view === 'edit'} href="/app/inventory/configure?view=edit" title="Modificar lo existente">
+            Nombre, precio, comisión, mínimos, conteos, receta o descuento físico.
+          </ConfigureLink>
+          <ConfigureLink active={view === 'activate'} href="/app/inventory/configure?view=activate" title="Revisar y activar">
+            Borradores listos, bloqueos y activación controlada.
+          </ConfigureLink>
+          <ConfigureLink active={view === 'create'} href="/app/inventory/configure?view=create" title="Crear producto o ítem">
+            Alta universal para productos actuales y futuros consumibles.
+          </ConfigureLink>
+        </div>
+      </section>
+
+      {view === 'edit' ? <InventoryAdministrationClient workspace={administrationWorkspace} /> : null}
+      {view === 'activate' ? (
+        <InventoryActivationQueueClient
+          queue={repairInventoryDisplayData(activationQueueResult.data as InventoryActivationQueue)}
+        />
+      ) : null}
+      {view === 'create' ? <InventoryConfiguratorClient inventoryItems={items} products={products} /> : null}
     </div>
+  );
+}
+
+type AdminProductComponent = InventoryAdminWorkspace['products'][number]['components'][number];
+
+function ConfigureLink({
+  active,
+  href,
+  title,
+  children,
+}: {
+  active: boolean;
+  href: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      className={`rounded-xl border p-4 transition ${active ? 'border-[#FEEF00]/60 bg-[#FEEF00]/5' : 'border-[#30303E] bg-[#14141C] hover:border-[#FEEF00]/30'}`}
+    >
+      <div className={active ? 'font-semibold text-[#FEEF00]' : 'font-semibold text-white'}>{title}</div>
+      <p className="mt-2 text-xs leading-5 text-[#9898A5]">{children}</p>
+    </Link>
   );
 }

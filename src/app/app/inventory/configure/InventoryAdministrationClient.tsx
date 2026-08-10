@@ -9,6 +9,7 @@ import {
   saveInventoryRecipeDraftAction,
   updateInventoryItemControlsAction,
   updateInventoryProductIdentityAction,
+  updateInventoryProductPhysicalConfigurationAction,
 } from '../actions';
 
 type ProductLink = {
@@ -17,6 +18,15 @@ type ProductLink = {
   quantity_units: number;
   deduction_mode: string;
   deduction_stage: string | null;
+};
+
+type ProductComponent = {
+  component_product_id: number;
+  component_name: string;
+  component_mode: 'fixed' | 'selectable';
+  quantity: number;
+  counts_toward_detail_limit: boolean;
+  is_required: boolean;
 };
 
 export type AdminProduct = {
@@ -42,6 +52,9 @@ export type AdminProduct = {
   open_order_reference_count: number;
   parent_product_count: number;
   links: ProductLink[];
+  components: ProductComponent[];
+  physical_revision: number;
+  physical_history_count: number;
 };
 
 export type AdminItem = {
@@ -111,6 +124,20 @@ type RecipeLine = {
   key: string;
   inputInventoryItemId: string;
   quantityUnits: string;
+};
+type PhysicalLinkLine = {
+  key: string;
+  inventoryItemId: string;
+  quantityUnits: string;
+  deductionStage: 'kitchen' | 'production' | 'packing' | 'fulfillment';
+};
+type PhysicalComponentLine = {
+  key: string;
+  componentProductId: string;
+  componentMode: 'fixed' | 'selectable';
+  quantity: string;
+  countsTowardDetailLimit: boolean;
+  isRequired: boolean;
 };
 
 const INPUT_CLASS =
@@ -238,7 +265,14 @@ export default function InventoryAdministrationClient({
               ))}
             </select>
           </Field>
-          {product ? <ProductEditor key={product.id} product={product} /> : <EmptyEditor />}
+          {product ? (
+            <ProductEditor
+              key={product.id}
+              product={product}
+              products={workspace.products}
+              items={workspace.items}
+            />
+          ) : <EmptyEditor />}
         </div>
       ) : null}
 
@@ -313,7 +347,15 @@ export default function InventoryAdministrationClient({
   );
 }
 
-function ProductEditor({ product }: { product: AdminProduct }) {
+function ProductEditor({
+  product,
+  products,
+  items,
+}: {
+  product: AdminProduct;
+  products: AdminProduct[];
+  items: AdminItem[];
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(product.name);
@@ -369,7 +411,8 @@ function ProductEditor({ product }: { product: AdminProduct }) {
   }
 
   return (
-    <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+    <div className="mt-4 space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="rounded-xl border border-[#292938] bg-[#14141C] p-4">
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Nombre comercial">
@@ -502,6 +545,203 @@ function ProductEditor({ product }: { product: AdminProduct }) {
           recetas, existencias ni cantidades descontadas.
         </div>
       </ImpactCard>
+      </div>
+
+      <PhysicalConfigurationEditor product={product} products={products} items={items} />
+    </div>
+  );
+}
+
+function PhysicalConfigurationEditor({
+  product,
+  products,
+  items,
+}: {
+  product: AdminProduct;
+  products: AdminProduct[];
+  items: AdminItem[];
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [policy, setPolicy] = useState<NonNullable<AdminProduct['inventory_policy']>>(
+    product.inventory_policy ?? 'none',
+  );
+  const [detailUnitsLimit, setDetailUnitsLimit] = useState(String(product.detail_units_limit));
+  const [changeNote, setChangeNote] = useState('');
+  const [links, setLinks] = useState<PhysicalLinkLine[]>(() =>
+    product.links.length
+      ? product.links.map((link, index) => ({
+          key: `${link.inventory_item_id}:${index}`,
+          inventoryItemId: String(link.inventory_item_id),
+          quantityUnits: String(link.quantity_units),
+          deductionStage: (link.deduction_stage || 'fulfillment') as PhysicalLinkLine['deductionStage'],
+        }))
+      : [{ key: 'initial-link', inventoryItemId: '', quantityUnits: '1', deductionStage: 'fulfillment' }],
+  );
+  const [components, setComponents] = useState<PhysicalComponentLine[]>(() =>
+    product.components.length
+      ? product.components.map((component, index) => ({
+          key: `${component.component_product_id}:${component.component_mode}:${index}`,
+          componentProductId: String(component.component_product_id),
+          componentMode: component.component_mode,
+          quantity: String(component.quantity),
+          countsTowardDetailLimit: component.counts_toward_detail_limit,
+          isRequired: component.is_required,
+        }))
+      : [{
+          key: 'initial-component',
+          componentProductId: '',
+          componentMode: 'fixed',
+          quantity: '1',
+          countsTowardDetailLimit: true,
+          isRequired: true,
+        }],
+  );
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectableItems = items.filter(
+    (item) => item.is_active && item.tracking_mode !== 'not_tracked',
+  );
+  const selectableProducts = products.filter(
+    (candidate) => candidate.id !== product.id && candidate.inventory_configuration_status === 'ready',
+  );
+
+  function savePhysicalConfiguration() {
+    setMessage(null);
+    setError(null);
+    const accepted = window.confirm(
+      `Se guardará la revisión física v${product.physical_revision + 1} de ${product.name}. `
+      + 'La existencia no cambia y las órdenes ya comprometidas conservan su cálculo. ¿Continuar?',
+    );
+    if (!accepted) return;
+
+    startTransition(async () => {
+      try {
+        const result = await updateInventoryProductPhysicalConfigurationAction({
+          productId: product.id,
+          inventoryPolicy: policy,
+          detailUnitsLimit: Number(detailUnitsLimit),
+          changeNote,
+          links: policy === 'self' || policy === 'direct'
+            ? links.map((line) => ({
+                inventoryItemId: Number(line.inventoryItemId),
+                quantityUnits: parseDecimalInput(line.quantityUnits),
+                deductionStage: line.deductionStage,
+              }))
+            : [],
+          components: policy === 'components'
+            ? components.map((line) => ({
+                componentProductId: Number(line.componentProductId),
+                componentMode: line.componentMode,
+                quantity: parseDecimalInput(line.quantity),
+                countsTowardDetailLimit: line.countsTowardDetailLimit,
+                isRequired: line.isRequired,
+              }))
+            : [],
+        });
+        setMessage(`Revisión física v${result?.revision ?? product.physical_revision + 1} activada sin modificar existencias.`);
+        router.refresh();
+      } catch (saveError) {
+        setError(saveError instanceof Error ? saveError.message : 'No se pudo versionar la configuración física.');
+      }
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-[#3A3518] bg-[#17150B] p-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-[#FEEF00]">Qué descuenta este producto</div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-[#B7B39A]">
+            Esta es la regla física activa. Cada cambio crea una revisión, conserva la anterior en
+            el historial del producto y no altera saldos ni detiene órdenes.
+          </p>
+        </div>
+        <div className="rounded-full border border-[#FEEF00]/30 px-3 py-1 text-xs text-[#FEEF00]">
+          Revisión v{product.physical_revision} · {product.physical_history_count} anteriores
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <Field label="Forma de descuento">
+          <select
+            value={policy}
+            onChange={(event) => setPolicy(event.target.value as typeof policy)}
+            className={INPUT_CLASS}
+          >
+            <option value="self">Se descuenta a sí mismo</option>
+            <option value="direct">Consume uno o varios ítems físicos</option>
+            <option value="components">Se arma con productos componentes</option>
+            <option value="none">No descuenta inventario</option>
+          </select>
+        </Field>
+        {policy === 'components' ? (
+          <Field label="Piezas seleccionables por unidad vendida">
+            <input type="number" min="0" step="1" value={detailUnitsLimit} onChange={(event) => setDetailUnitsLimit(event.target.value)} className={INPUT_CLASS} />
+          </Field>
+        ) : <div />}
+      </div>
+
+      {policy === 'self' || policy === 'direct' ? (
+        <div className="mt-4 space-y-3">
+          {links.slice(0, policy === 'self' ? 1 : links.length).map((line, index) => (
+            <div key={line.key} className="grid gap-2 rounded-xl border border-[#373322] bg-[#11100B] p-3 md:grid-cols-[1fr_150px_180px_auto]">
+              <select value={line.inventoryItemId} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} className={INPUT_CLASS}>
+                <option value="">Selecciona el ítem físico…</option>
+                {selectableItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.unit_name}</option>)}
+              </select>
+              <input inputMode="decimal" value={line.quantityUnits} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} className={INPUT_CLASS} aria-label="Cantidad descontada" />
+              <select value={line.deductionStage} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, deductionStage: event.target.value as PhysicalLinkLine['deductionStage'] } : candidate))} className={INPUT_CLASS}>
+                <option value="fulfillment">Al entregar</option>
+                <option value="kitchen">En cocina</option>
+                <option value="production">En producción</option>
+                <option value="packing">Al empacar</option>
+              </select>
+              {policy === 'direct' ? <button type="button" onClick={() => setLinks((current) => current.filter((candidate) => candidate.key !== line.key))} className={SECONDARY_BUTTON}>Quitar</button> : <span className="self-center text-xs text-[#8E8A75]">#{index + 1}</span>}
+            </div>
+          ))}
+          {policy === 'direct' ? (
+            <button type="button" onClick={() => setLinks((current) => [...current, { key: crypto.randomUUID(), inventoryItemId: '', quantityUnits: '1', deductionStage: 'fulfillment' }])} className={SECONDARY_BUTTON}>Agregar consumo físico</button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {policy === 'components' ? (
+        <div className="mt-4 space-y-3">
+          {components.map((line) => (
+            <div key={line.key} className="rounded-xl border border-[#373322] bg-[#11100B] p-3">
+              <div className="grid gap-2 md:grid-cols-[1fr_160px_140px_auto]">
+                <select value={line.componentProductId} onChange={(event) => setComponents((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, componentProductId: event.target.value } : candidate))} className={INPUT_CLASS}>
+                  <option value="">Selecciona el producto componente…</option>
+                  {selectableProducts.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                </select>
+                <select value={line.componentMode} onChange={(event) => setComponents((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, componentMode: event.target.value as PhysicalComponentLine['componentMode'], isRequired: event.target.value === 'fixed' } : candidate))} className={INPUT_CLASS}>
+                  <option value="fixed">Fijo</option>
+                  <option value="selectable">Seleccionable</option>
+                </select>
+                <input inputMode="decimal" value={line.quantity} onChange={(event) => setComponents((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantity: event.target.value } : candidate))} className={INPUT_CLASS} aria-label="Cantidad del componente" />
+                <button type="button" onClick={() => setComponents((current) => current.filter((candidate) => candidate.key !== line.key))} className={SECONDARY_BUTTON}>Quitar</button>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-4">
+                <Checkbox checked={line.countsTowardDetailLimit} onChange={(checked) => setComponents((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, countsTowardDetailLimit: checked } : candidate))} label="Cuenta para el límite" />
+                <Checkbox checked={line.isRequired} onChange={(checked) => setComponents((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, isRequired: checked } : candidate))} label="Obligatorio" />
+              </div>
+            </div>
+          ))}
+          <button type="button" onClick={() => setComponents((current) => [...current, { key: crypto.randomUUID(), componentProductId: '', componentMode: 'fixed', quantity: '1', countsTowardDetailLimit: true, isRequired: true }])} className={SECONDARY_BUTTON}>Agregar componente</button>
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+        <Field label="Motivo del cambio (recomendado)">
+          <input value={changeNote} onChange={(event) => setChangeNote(event.target.value)} maxLength={1000} placeholder="Ej. La nueva presentación de Bombys trae 10 piezas" className={INPUT_CLASS} />
+        </Field>
+        <button type="button" onClick={savePhysicalConfiguration} disabled={isPending} className={PRIMARY_BUTTON}>
+          {isPending ? 'Guardando revisión…' : 'Guardar nueva revisión física'}
+        </button>
+      </div>
+      <Feedback message={message} error={error} />
     </div>
   );
 }

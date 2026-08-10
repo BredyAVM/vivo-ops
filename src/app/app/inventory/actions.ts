@@ -378,6 +378,108 @@ export async function updateInventoryProductIdentityAction(input: {
   return result;
 }
 
+export async function updateInventoryProductPhysicalConfigurationAction(input: {
+  productId: number;
+  inventoryPolicy: 'self' | 'direct' | 'components' | 'none';
+  detailUnitsLimit: number;
+  changeNote: string | null;
+  links: Array<{
+    inventoryItemId: number;
+    quantityUnits: number;
+    deductionStage: 'kitchen' | 'production' | 'packing' | 'fulfillment' | null;
+  }>;
+  components: Array<{
+    componentProductId: number;
+    componentMode: 'fixed' | 'selectable';
+    quantity: number;
+    countsTowardDetailLimit: boolean;
+    isRequired: boolean;
+  }>;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede versionar la configuración física.');
+  }
+
+  const productId = normalizeCountId(input.productId);
+  if (!['self', 'direct', 'components', 'none'].includes(input.inventoryPolicy)) {
+    throw new Error('La política física no es válida.');
+  }
+  const detailUnitsLimit = Number(input.detailUnitsLimit);
+  if (!Number.isSafeInteger(detailUnitsLimit) || detailUnitsLimit < 0) {
+    throw new Error('El límite seleccionable debe ser un entero mayor o igual a cero.');
+  }
+  if (!Array.isArray(input.links) || input.links.length > 50) {
+    throw new Error('La configuración admite hasta 50 consumos directos.');
+  }
+  if (!Array.isArray(input.components) || input.components.length > 100) {
+    throw new Error('La configuración admite hasta 100 componentes.');
+  }
+
+  const seenItems = new Set<number>();
+  const links = input.links.map((line) => {
+    const inventoryItemId = normalizeCountId(line.inventoryItemId);
+    if (seenItems.has(inventoryItemId)) {
+      throw new Error('Un ítem físico no puede repetirse.');
+    }
+    seenItems.add(inventoryItemId);
+    if (line.deductionStage != null && !['kitchen', 'production', 'packing', 'fulfillment'].includes(line.deductionStage)) {
+      throw new Error('La etapa de descuento no es válida.');
+    }
+    return {
+      inventory_item_id: inventoryItemId,
+      quantity_units: normalizePositiveQuantity(line.quantityUnits, 'La cantidad descontada'),
+      deduction_stage: line.deductionStage,
+    };
+  });
+
+  const seenComponents = new Set<string>();
+  const components = input.components.map((line) => {
+    const componentProductId = normalizeCountId(line.componentProductId);
+    if (!['fixed', 'selectable'].includes(line.componentMode)) {
+      throw new Error('El modo del componente no es válido.');
+    }
+    const key = `${componentProductId}:${line.componentMode}`;
+    if (seenComponents.has(key)) {
+      throw new Error('Un componente no puede repetirse con el mismo modo.');
+    }
+    seenComponents.add(key);
+    return {
+      component_product_id: componentProductId,
+      component_mode: line.componentMode,
+      quantity: normalizePositiveQuantity(line.quantity, 'La cantidad del componente'),
+      counts_toward_detail_limit: line.countsTowardDetailLimit === true,
+      is_required: line.isRequired === true,
+    };
+  });
+
+  const { data, error } = await ctx.supabase.rpc(
+    'inventory_update_product_physical_configuration_v1',
+    {
+      p_configuration: {
+        product_id: productId,
+        inventory_policy: input.inventoryPolicy,
+        detail_units_limit: detailUnitsLimit,
+        change_note: normalizeNotes(input.changeNote),
+        links: input.inventoryPolicy === 'self' || input.inventoryPolicy === 'direct' ? links : [],
+        components: input.inventoryPolicy === 'components' ? components : [],
+      },
+    },
+  );
+
+  if (error) throw new Error(error.message);
+  revalidateInventoryConfigurationRoutes();
+  return data as {
+    status?: string;
+    product_id?: number;
+    previous_revision?: number;
+    revision?: number;
+    inventory_policy?: string;
+    orders_blocked?: boolean;
+    committed_orders_keep_snapshot?: boolean;
+  } | null;
+}
+
 export async function updateInventoryItemControlsAction(input: {
   inventoryItemId: number;
   name: string;
