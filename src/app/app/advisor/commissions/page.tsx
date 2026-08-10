@@ -2,10 +2,14 @@ import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
-import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type CommissionDetail =
   | 'orders'
+  | 'commissions'
+  | 'commission-normal'
+  | 'commission-special-items'
+  | 'commission-special-orders'
   | 'payments'
   | 'paid'
   | 'pending'
@@ -14,7 +18,10 @@ type CommissionDetail =
   | 'clients-assigned'
   | 'products'
   | 'gifts'
-  | 'deductions';
+  | 'deductions'
+  | 'deductions-direct'
+  | 'deductions-gifts'
+  | 'payable';
 
 type SearchParams = Promise<{ period?: string; detail?: string }>;
 
@@ -50,6 +57,7 @@ type SnapshotProduct = {
   qty?: number | string | null;
   lineBaseUsd?: number | string | null;
   commissionMode?: string | null;
+  commissionValue?: number | string | null;
 };
 
 type SnapshotGift = SnapshotProduct & {
@@ -83,6 +91,9 @@ type ClosureRow = {
   base_commission_pct: number | string;
   delivered_orders_count: number | string;
   billed_usd: number | string;
+  regular_base_usd: number | string;
+  special_item_base_usd: number | string;
+  special_order_base_usd: number | string;
   gross_commission_usd: number | string;
   pending_collection_usd: number | string;
   punctual_paid_count: number | string;
@@ -116,6 +127,10 @@ function money(value: unknown) {
   return `$${numberValue(value).toFixed(2)}`;
 }
 
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
 function dateLabel(value: string | null | undefined) {
   if (!value) return 'Sin fecha';
   const parsed = new Date(`${value.slice(0, 10)}T12:00:00-04:00`);
@@ -142,9 +157,52 @@ function commissionModeLabel(value: string | null | undefined) {
   return 'Normal';
 }
 
+function groupCommissionProducts(rows: SnapshotProduct[], fallbackPct: number) {
+  const grouped = new Map<
+    string,
+    {
+      name: string;
+      pct: number;
+      qty: number;
+      baseUsd: number;
+      commissionUsd: number;
+      orders: Set<number>;
+    }
+  >();
+
+  for (const row of rows) {
+    const name = String(row.productName || 'Producto').trim();
+    const pct = numberValue(row.commissionValue) > 0 ? numberValue(row.commissionValue) : fallbackPct;
+    const key = `${name.toLocaleLowerCase('es')}::${pct}`;
+    const current = grouped.get(key) ?? {
+      name,
+      pct,
+      qty: 0,
+      baseUsd: 0,
+      commissionUsd: 0,
+      orders: new Set<number>(),
+    };
+    const lineBaseUsd = numberValue(row.lineBaseUsd);
+    current.qty += numberValue(row.qty);
+    current.baseUsd += lineBaseUsd;
+    current.commissionUsd += lineBaseUsd * (pct / 100);
+    const orderId = numberValue(row.orderId);
+    if (orderId > 0) current.orders.add(orderId);
+    grouped.set(key, current);
+  }
+
+  return Array.from(grouped.values()).sort(
+    (a, b) => b.commissionUsd - a.commissionUsd || a.name.localeCompare(b.name, 'es')
+  );
+}
+
 function getCommissionDetail(value: string | null | undefined): CommissionDetail | null {
   const details: CommissionDetail[] = [
     'orders',
+    'commissions',
+    'commission-normal',
+    'commission-special-items',
+    'commission-special-orders',
     'payments',
     'paid',
     'pending',
@@ -154,12 +212,48 @@ function getCommissionDetail(value: string | null | undefined): CommissionDetail
     'products',
     'gifts',
     'deductions',
+    'deductions-direct',
+    'deductions-gifts',
+    'payable',
   ];
   return details.includes(value as CommissionDetail) ? (value as CommissionDetail) : null;
 }
 
 function commissionHref(periodId: number | string, detail?: CommissionDetail) {
   return `/app/advisor/commissions?period=${periodId}${detail ? `&detail=${detail}#commission-detail` : ''}`;
+}
+
+function CommissionSummaryLink({
+  label,
+  value,
+  detail,
+  href,
+  active,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  href: string;
+  active: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? 'page' : undefined}
+      className={[
+        'flex min-h-[132px] flex-col rounded-[20px] border bg-[#12151D] px-3.5 py-3 transition active:scale-[0.99]',
+        active ? 'border-[#F0D000] ring-1 ring-[#F0D000]' : 'border-[#232632]',
+      ].join(' ')}
+    >
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8B93A7]">{label}</div>
+      <div className="mt-2 text-[24px] font-semibold tracking-[-0.04em] text-[#F5F7FB]">{value}</div>
+      <div className="mt-1 text-[11px] leading-4 text-[#AAB2C5]">{detail}</div>
+      <div className="mt-auto flex items-center justify-between pt-2 text-[11px] font-semibold text-[#F7DA66]">
+        <span>Ver detalle</span>
+        <span aria-hidden="true">→</span>
+      </div>
+    </Link>
+  );
 }
 
 export default async function AdvisorCommissionsPage({ searchParams }: { searchParams?: SearchParams }) {
@@ -188,6 +282,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
       .from('advisor_commission_closures')
       .select(`
         id, status, base_commission_pct, delivered_orders_count, billed_usd,
+        regular_base_usd, special_item_base_usd, special_order_base_usd,
         gross_commission_usd, pending_collection_usd, punctual_paid_count,
         late_paid_count, pending_payment_count, new_own_clients_count,
         new_assigned_clients_count, gift_deductions_usd, manual_deductions_usd,
@@ -238,6 +333,35 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const productQty = products.reduce((sum, product) => sum + numberValue(product.qty), 0);
   const productBaseUsd = products.reduce((sum, product) => sum + numberValue(product.lineBaseUsd), 0);
   const giftQty = gifts.reduce((sum, gift) => sum + numberValue(gift.qty), 0);
+  const baseCommissionPct = numberValue(closure?.base_commission_pct);
+  const normalCommissionProducts = products.filter(
+    (product) => String(product.commissionMode || 'default') === 'default' && numberValue(product.lineBaseUsd) > 0.005
+  );
+  const specialCommissionProducts = products.filter(
+    (product) => String(product.commissionMode || '') === 'fixed_item' && numberValue(product.lineBaseUsd) > 0.005
+  );
+  const fixedCommissionOrders = orders.filter((order) => String(order.commissionMode || '') === 'fixed_order');
+  const normalCommissionGroups = groupCommissionProducts(normalCommissionProducts, baseCommissionPct);
+  const specialCommissionGroups = groupCommissionProducts(specialCommissionProducts, 0);
+  const detailCommissionGroups =
+    activeDetail === 'commission-special-items' ? specialCommissionGroups : normalCommissionGroups;
+  const specialItemsCommissionUsd = roundMoney(
+    specialCommissionProducts.reduce(
+      (sum, product) =>
+        sum + numberValue(product.lineBaseUsd) * (numberValue(product.commissionValue) / 100),
+      0
+    )
+  );
+  const specialOrdersCommissionUsd = roundMoney(
+    fixedCommissionOrders.reduce((sum, order) => sum + numberValue(order.commissionUsd), 0)
+  );
+  const normalCommissionUsd = Math.max(
+    0,
+    roundMoney(numberValue(closure?.gross_commission_usd) - specialItemsCommissionUsd - specialOrdersCommissionUsd)
+  );
+  const totalDeductionsUsd = roundMoney(
+    numberValue(closure?.gift_deductions_usd) + numberValue(closure?.manual_deductions_usd)
+  );
   const paidTotalUsd = paidOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
   const orderById = new Map(orders.map((order) => [numberValue(order.orderId), order]));
   const getClientFirstOrderTotal = (client: SnapshotClient) =>
@@ -247,33 +371,51 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const detailOrders = activeDetail === 'paid' ? paidOrders : activeDetail === 'pending' ? pendingOrders : orders;
   const detailClients = activeDetail === 'clients-own' ? ownClients : assignedClients;
   const parentDetail: CommissionDetail | null =
-    activeDetail === 'paid' || activeDetail === 'pending'
-      ? 'payments'
-      : activeDetail === 'clients-own' || activeDetail === 'clients-assigned'
-        ? 'clients'
-        : null;
+    activeDetail === 'commission-normal' ||
+    activeDetail === 'commission-special-items' ||
+    activeDetail === 'commission-special-orders'
+      ? 'commissions'
+      : activeDetail === 'paid' || activeDetail === 'pending'
+        ? 'payments'
+        : activeDetail === 'clients-own' || activeDetail === 'clients-assigned'
+          ? 'clients'
+          : activeDetail === 'deductions-direct' || activeDetail === 'deductions-gifts'
+            ? 'deductions'
+            : null;
   const detailTitle =
     activeDetail === 'orders'
       ? 'Órdenes facturadas'
-      : activeDetail === 'payments'
-        ? 'Pagos de clientes'
-        : activeDetail === 'paid'
-          ? 'Pagos puntuales'
-          : activeDetail === 'pending'
-            ? 'Pendientes por cobrar'
-            : activeDetail === 'clients'
-              ? 'Clientes nuevos'
-              : activeDetail === 'clients-own'
-                ? 'Clientes nuevos propios'
-                : activeDetail === 'clients-assigned'
-                  ? 'Clientes nuevos asignados'
-                  : activeDetail === 'products'
-                    ? 'Productos del período'
-                    : activeDetail === 'gifts'
-                      ? 'Obsequios entregados'
-                      : activeDetail === 'deductions'
-                        ? 'Deducibles aplicados'
-                        : '';
+      : activeDetail === 'commissions'
+        ? 'Comisión bruta'
+        : activeDetail === 'commission-normal'
+          ? 'Comisión normal'
+          : activeDetail === 'commission-special-items'
+            ? 'Ítems con comisión especial'
+            : activeDetail === 'commission-special-orders'
+              ? 'Órdenes con porcentaje fijo'
+              : activeDetail === 'payments'
+                ? 'Pagos de clientes'
+                : activeDetail === 'paid'
+                  ? 'Pagos puntuales'
+                  : activeDetail === 'pending'
+                    ? 'Pendientes por cobrar'
+                    : activeDetail === 'clients'
+                      ? 'Clientes nuevos'
+                      : activeDetail === 'clients-own'
+                        ? 'Clientes nuevos propios'
+                        : activeDetail === 'clients-assigned'
+                          ? 'Clientes nuevos asignados'
+                          : activeDetail === 'products'
+                            ? 'Productos del período'
+                            : activeDetail === 'gifts' || activeDetail === 'deductions-gifts'
+                              ? 'Obsequios entregados'
+                              : activeDetail === 'deductions'
+                                ? 'Deducibles aplicados'
+                                : activeDetail === 'deductions-direct'
+                                  ? 'Deducibles directos'
+                                  : activeDetail === 'payable'
+                                    ? 'Monto a pagar'
+                                    : '';
 
   return (
     <div className="space-y-4">
@@ -326,35 +468,42 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
           </div>
 
           <section className="grid grid-cols-2 gap-3">
-            <Link
+            <CommissionSummaryLink
+              label="Facturación"
+              value={money(closure.billed_usd)}
+              detail={`${closure.delivered_orders_count} órdenes entregadas`}
               href={commissionHref(selectedPeriod.id, 'orders')}
-              className={activeDetail === 'orders' ? 'rounded-[22px] ring-2 ring-[#F0D000]' : 'rounded-[22px]'}
-            >
-              <MetricCard
-                label="Facturación"
-                value={money(closure.billed_usd)}
-                detail={`${closure.delivered_orders_count} órdenes · Toca para ver`}
-              />
-            </Link>
-            <MetricCard
+              active={activeDetail === 'orders'}
+            />
+            <CommissionSummaryLink
               label="Comisión bruta"
               value={money(closure.gross_commission_usd)}
-              detail={`Base general ${numberValue(closure.base_commission_pct).toFixed(2)}%.`}
+              detail={`Normal y especiales · Base ${baseCommissionPct.toFixed(2)}%`}
+              href={commissionHref(selectedPeriod.id, 'commissions')}
+              active={
+                activeDetail === 'commissions' ||
+                activeDetail === 'commission-normal' ||
+                activeDetail === 'commission-special-items' ||
+                activeDetail === 'commission-special-orders'
+              }
             />
-            <Link
+            <CommissionSummaryLink
+              label="Deducibles"
+              value={money(totalDeductionsUsd)}
+              detail={`${money(closure.gift_deductions_usd)} obsequios + ${money(closure.manual_deductions_usd)} directos`}
               href={commissionHref(selectedPeriod.id, 'deductions')}
-              className={activeDetail === 'deductions' ? 'rounded-[22px] ring-2 ring-[#F0D000]' : 'rounded-[22px]'}
-            >
-              <MetricCard
-                label="Deducibles"
-                value={money(closure.manual_deductions_usd)}
-                detail={`${deductions.length} registro${deductions.length === 1 ? '' : 's'} · Toca para ver`}
-              />
-            </Link>
-            <MetricCard
+              active={
+                activeDetail === 'deductions' ||
+                activeDetail === 'deductions-direct' ||
+                activeDetail === 'deductions-gifts'
+              }
+            />
+            <CommissionSummaryLink
               label="A pagar"
               value={money(closure.payable_usd)}
-              detail={closure.status === 'paid' ? 'Pago registrado.' : 'Monto del cierre actual.'}
+              detail={closure.status === 'paid' ? 'Pago registrado' : 'Comisión menos deducibles'}
+              href={commissionHref(selectedPeriod.id, 'payable')}
+              active={activeDetail === 'payable'}
             />
           </section>
 
@@ -372,6 +521,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pagos de clientes</div>
                 <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{paidOrders.length + pendingOrders.length}</div>
                 <div className="mt-1 text-xs text-[#AAB2C5]">{paidOrders.length} puntuales · {pendingOrders.length} pendientes</div>
+                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
               </Link>
               <Link
                 href={commissionHref(selectedPeriod.id, 'clients')}
@@ -385,6 +535,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Clientes nuevos</div>
                 <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{newClients.length}</div>
                 <div className="mt-1 text-xs text-[#AAB2C5]">{ownClients.length} propios · {assignedClients.length} asignados</div>
+                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
               </Link>
               <Link
                 href={commissionHref(selectedPeriod.id, 'products')}
@@ -396,6 +547,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Productos</div>
                 <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{productQty}</div>
                 <div className="mt-1 text-xs text-[#AAB2C5]">Base {money(productBaseUsd)}</div>
+                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
               </Link>
               <Link
                 href={commissionHref(selectedPeriod.id, 'gifts')}
@@ -407,6 +559,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Obsequios</div>
                 <div className="mt-1.5 text-xl font-semibold text-orange-300">{giftQty}</div>
                 <div className="mt-1 text-xs text-[#AAB2C5]">-{money(closure.gift_deductions_usd)}</div>
+                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
               </Link>
             </div>
           </SectionCard>
@@ -425,6 +578,103 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   </Link>
                 }
               >
+              {activeDetail === 'commissions' ? (
+                <div className="space-y-2.5">
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'commission-normal')}
+                    className="block rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[#F5F7FB]">Comisión normal</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">{normalCommissionProducts.reduce((sum, row) => sum + numberValue(row.qty), 0)} ítems · {baseCommissionPct.toFixed(2)}%</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-[#F7DA66]">{money(normalCommissionUsd)}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">Base {money(closure.regular_base_usd)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver ítems</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'commission-special-items')}
+                    className="block rounded-[16px] border border-[#564511] bg-[#201B08] px-3 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[#F5F7FB]">Ítems especiales</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">{specialCommissionProducts.reduce((sum, row) => sum + numberValue(row.qty), 0)} ítems · Porcentaje propio</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-[#F7DA66]">{money(specialItemsCommissionUsd)}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">Base {money(closure.special_item_base_usd)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver ítems</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'commission-special-orders')}
+                    className="block rounded-[16px] border border-[#463258] bg-[#181220] px-3 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[#F5F7FB]">Órdenes con porcentaje fijo</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">{fixedCommissionOrders.length} orden{fixedCommissionOrders.length === 1 ? '' : 'es'}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-[#F7DA66]">{money(specialOrdersCommissionUsd)}</div>
+                        <div className="mt-1 text-xs text-[#8B93A7]">Base {money(closure.special_order_base_usd)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
+                  </Link>
+                </div>
+              ) : null}
+
+              {activeDetail === 'deductions' ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'deductions-gifts')}
+                    className="rounded-[16px] border border-orange-500/40 bg-[#21150D] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Obsequios</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-orange-300">{money(closure.gift_deductions_usd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{giftQty} ítems</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver obsequios</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'deductions-direct')}
+                    className="rounded-[16px] border border-[#5A341F] bg-[#17110D] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Directos</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-orange-300">{money(closure.manual_deductions_usd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{deductions.length} registro{deductions.length === 1 ? '' : 's'}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver deducibles</span><span>→</span></div>
+                  </Link>
+                </div>
+              ) : null}
+
+              {activeDetail === 'payable' ? (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
+                    <span className="text-[#AAB2C5]">Comisión bruta</span>
+                    <span className="font-semibold text-emerald-300">{money(closure.gross_commission_usd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#17110D] px-3 py-2.5 text-sm">
+                    <span className="text-[#AAB2C5]">Menos obsequios</span>
+                    <span className="font-semibold text-orange-300">-{money(closure.gift_deductions_usd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-[14px] bg-[#17110D] px-3 py-2.5 text-sm">
+                    <span className="text-[#AAB2C5]">Menos deducibles directos</span>
+                    <span className="font-semibold text-orange-300">-{money(closure.manual_deductions_usd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-[16px] border border-[#F0D000] bg-[#201B08] px-3 py-3">
+                    <span className="text-sm font-semibold text-[#F5F7FB]">Monto a pagar</span>
+                    <span className="text-xl font-semibold text-[#F7DA66]">{money(closure.payable_usd)}</span>
+                  </div>
+                </div>
+              ) : null}
+
               {activeDetail === 'payments' ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <Link
@@ -433,7 +683,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Puntuales</div>
                     <div className="mt-1.5 text-2xl font-semibold text-emerald-300">{paidOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(paidTotalUsd)} · Ver órdenes</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(paidTotalUsd)}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                   <Link
                     href={commissionHref(selectedPeriod.id, 'pending')}
@@ -441,7 +692,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pendientes</div>
                     <div className="mt-1.5 text-2xl font-semibold text-[#F7DA66]">{pendingOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(closure.pending_collection_usd)} · Ver órdenes</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(closure.pending_collection_usd)}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                 </div>
               ) : null}
@@ -454,7 +706,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Propios</div>
                     <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{ownClients.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(ownClientsTotalUsd)} · Ver clientes</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(ownClientsTotalUsd)}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
                   </Link>
                   <Link
                     href={commissionHref(selectedPeriod.id, 'clients-assigned')}
@@ -462,9 +715,70 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Asignados</div>
                     <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{assignedClients.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(assignedClientsTotalUsd)} · Ver clientes</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(assignedClientsTotalUsd)}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
                   </Link>
                 </div>
+              ) : null}
+
+              {activeDetail === 'commission-normal' || activeDetail === 'commission-special-items' ? (
+                detailCommissionGroups.length === 0 ? (
+                  <EmptyBlock title="Sin ítems" detail="No hay productos en esta categoría de comisión." />
+                ) : (
+                  <div className="space-y-2">
+                    {detailCommissionGroups.map((group) => (
+                      <article key={`${group.name}-${group.pct}`} className="rounded-[16px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-[#F5F7FB]">{group.name}</div>
+                            <div className="mt-1 text-xs text-[#8B93A7]">{group.qty} ítems · {group.orders.size} orden{group.orders.size === 1 ? '' : 'es'} · {group.pct.toFixed(2)}%</div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-sm font-semibold text-[#F7DA66]">{money(roundMoney(group.commissionUsd))}</div>
+                            <div className="mt-1 text-xs text-[#8B93A7]">Base {money(roundMoney(group.baseUsd))}</div>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )
+              ) : null}
+
+              {activeDetail === 'commission-special-orders' ? (
+                fixedCommissionOrders.length === 0 ? (
+                  <EmptyBlock title="Sin órdenes especiales" detail="No hubo órdenes con porcentaje fijo en este período." />
+                ) : (
+                  <div className="space-y-2">
+                    {fixedCommissionOrders.map((order, index) => {
+                      const orderId = numberValue(order.orderId);
+                      const baseUsd = numberValue(order.specialOrderBaseUsd);
+                      const commissionUsd = numberValue(order.commissionUsd);
+                      const pct = baseUsd > 0 ? (commissionUsd / baseUsd) * 100 : 0;
+                      return (
+                        <article key={`${orderId}-${index}`} className="rounded-[16px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-[#F5F7FB]">{order.clientName || 'Cliente'}</div>
+                              <div className="mt-1 text-xs text-[#8B93A7]">Orden {orderLabel(order)} · {pct.toFixed(2)}%</div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className="text-sm font-semibold text-[#F7DA66]">{money(commissionUsd)}</div>
+                              <div className="mt-1 text-xs text-[#8B93A7]">Base {money(baseUsd)}</div>
+                            </div>
+                          </div>
+                          {orderId > 0 ? (
+                            <Link
+                              href={withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, returnTo)}
+                              className="mt-2 inline-flex h-8 items-center rounded-[11px] border border-[#2A3040] px-3 text-xs font-medium text-[#F5F7FB]"
+                            >
+                              Abrir orden
+                            </Link>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )
               ) : null}
 
               {activeDetail === 'orders' || activeDetail === 'paid' || activeDetail === 'pending' ? (
@@ -565,7 +879,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 )
               ) : null}
 
-              {activeDetail === 'gifts' ? (
+              {activeDetail === 'gifts' || activeDetail === 'deductions-gifts' ? (
                 giftsByName.size === 0 ? (
                   <EmptyBlock title="Sin obsequios" detail="No se registraron obsequios en este período." />
                 ) : (
@@ -593,7 +907,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 )
               ) : null}
 
-              {activeDetail === 'deductions' ? (
+              {activeDetail === 'deductions-direct' ? (
                 deductions.length === 0 ? (
                   <EmptyBlock title="Sin deducibles" detail="No se aplicaron deducibles manuales en este cierre." />
                 ) : (
