@@ -5,18 +5,19 @@ import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type CommissionDetail =
+  | 'sales'
   | 'orders'
   | 'commissions'
   | 'commission-normal'
   | 'commission-special-items'
   | 'commission-special-orders'
-  | 'payments'
+  | 'closures'
   | 'paid'
+  | 'late'
   | 'pending'
   | 'clients'
   | 'clients-own'
   | 'clients-assigned'
-  | 'products'
   | 'gifts'
   | 'deductions'
   | 'deductions-direct'
@@ -46,6 +47,8 @@ type SnapshotOrder = {
   specialOrderBaseUsd?: number | string | null;
   commissionUsd?: number | string | null;
   commissionMode?: string | null;
+  paymentCompletedDate?: string | null;
+  paymentTiming?: 'punctual' | 'late' | 'pending' | null;
 };
 
 type SnapshotProduct = {
@@ -110,6 +113,8 @@ type ClosureRow = {
   snapshot: {
     orders?: SnapshotOrder[];
     paid_orders?: SnapshotOrder[];
+    punctual_orders?: SnapshotOrder[];
+    late_orders?: SnapshotOrder[];
     pending_orders?: SnapshotOrder[];
     new_clients?: SnapshotClient[];
     products?: SnapshotProduct[];
@@ -198,18 +203,19 @@ function groupCommissionProducts(rows: SnapshotProduct[], fallbackPct: number) {
 
 function getCommissionDetail(value: string | null | undefined): CommissionDetail | null {
   const details: CommissionDetail[] = [
+    'sales',
     'orders',
     'commissions',
     'commission-normal',
     'commission-special-items',
     'commission-special-orders',
-    'payments',
+    'closures',
     'paid',
+    'late',
     'pending',
     'clients',
     'clients-own',
     'clients-assigned',
-    'products',
     'gifts',
     'deductions',
     'deductions-direct',
@@ -303,6 +309,12 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const orders = Array.isArray(snapshot.orders) ? snapshot.orders : [];
   const pendingOrders = Array.isArray(snapshot.pending_orders) ? snapshot.pending_orders : [];
   const paidOrders = Array.isArray(snapshot.paid_orders) ? snapshot.paid_orders : [];
+  const punctualOrders = Array.isArray(snapshot.punctual_orders)
+    ? snapshot.punctual_orders
+    : paidOrders.filter((order) => order.paymentTiming !== 'late');
+  const lateOrders = Array.isArray(snapshot.late_orders)
+    ? snapshot.late_orders
+    : paidOrders.filter((order) => order.paymentTiming === 'late');
   const newClients = Array.isArray(snapshot.new_clients) ? snapshot.new_clients : [];
   const products = Array.isArray(snapshot.products) ? snapshot.products : [];
   const gifts = Array.isArray(snapshot.gifts) ? snapshot.gifts : [];
@@ -310,16 +322,6 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const ownClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'own');
   const assignedClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'assigned');
   const status = closure ? closureStatus(closure.status) : null;
-
-  const productsByName = new Map<string, { qty: number; baseUsd: number; rows: number }>();
-  for (const product of products) {
-    const name = String(product.productName || 'Producto').trim();
-    const current = productsByName.get(name) ?? { qty: 0, baseUsd: 0, rows: 0 };
-    current.qty += numberValue(product.qty);
-    current.baseUsd += numberValue(product.lineBaseUsd);
-    current.rows += 1;
-    productsByName.set(name, current);
-  }
 
   const giftsByName = new Map<string, { qty: number; deductionUsd: number; rows: SnapshotGift[] }>();
   for (const gift of gifts) {
@@ -330,8 +332,6 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
     current.rows.push(gift);
     giftsByName.set(name, current);
   }
-  const productQty = products.reduce((sum, product) => sum + numberValue(product.qty), 0);
-  const productBaseUsd = products.reduce((sum, product) => sum + numberValue(product.lineBaseUsd), 0);
   const giftQty = gifts.reduce((sum, gift) => sum + numberValue(gift.qty), 0);
   const baseCommissionPct = numberValue(closure?.base_commission_pct);
   const normalCommissionProducts = products.filter(
@@ -362,28 +362,40 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const totalDeductionsUsd = roundMoney(
     numberValue(closure?.gift_deductions_usd) + numberValue(closure?.manual_deductions_usd)
   );
-  const paidTotalUsd = paidOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
+  const punctualTotalUsd = punctualOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
+  const lateTotalUsd = lateOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
   const orderById = new Map(orders.map((order) => [numberValue(order.orderId), order]));
   const getClientFirstOrderTotal = (client: SnapshotClient) =>
     numberValue(orderById.get(numberValue(client.orderId))?.totalUsd ?? client.totalUsd ?? client.billedUsd);
   const ownClientsTotalUsd = ownClients.reduce((sum, client) => sum + getClientFirstOrderTotal(client), 0);
   const assignedClientsTotalUsd = assignedClients.reduce((sum, client) => sum + getClientFirstOrderTotal(client), 0);
-  const detailOrders = activeDetail === 'paid' ? paidOrders : activeDetail === 'pending' ? pendingOrders : orders;
+  const detailOrders =
+    activeDetail === 'paid'
+      ? punctualOrders
+      : activeDetail === 'late'
+        ? lateOrders
+        : activeDetail === 'pending'
+          ? pendingOrders
+          : orders;
   const detailClients = activeDetail === 'clients-own' ? ownClients : assignedClients;
   const parentDetail: CommissionDetail | null =
     activeDetail === 'commission-normal' ||
     activeDetail === 'commission-special-items' ||
     activeDetail === 'commission-special-orders'
       ? 'commissions'
-      : activeDetail === 'paid' || activeDetail === 'pending'
-        ? 'payments'
+      : activeDetail === 'paid' || activeDetail === 'late' || activeDetail === 'pending'
+        ? 'closures'
+        : activeDetail === 'orders' || activeDetail === 'closures' || activeDetail === 'clients' || activeDetail === 'gifts'
+          ? 'sales'
         : activeDetail === 'clients-own' || activeDetail === 'clients-assigned'
           ? 'clients'
           : activeDetail === 'deductions-direct' || activeDetail === 'deductions-gifts'
             ? 'deductions'
             : null;
   const detailTitle =
-    activeDetail === 'orders'
+    activeDetail === 'sales'
+      ? 'Detalle de ventas'
+      : activeDetail === 'orders'
       ? 'Órdenes facturadas'
       : activeDetail === 'commissions'
         ? 'Comisión bruta'
@@ -393,10 +405,12 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             ? 'Ítems con comisión especial'
             : activeDetail === 'commission-special-orders'
               ? 'Órdenes con porcentaje fijo'
-              : activeDetail === 'payments'
-                ? 'Pagos de clientes'
+              : activeDetail === 'closures'
+                ? 'Cierres de clientes'
                 : activeDetail === 'paid'
                   ? 'Pagos puntuales'
+                  : activeDetail === 'late'
+                    ? 'Pagos impuntuales'
                   : activeDetail === 'pending'
                     ? 'Pendientes por cobrar'
                     : activeDetail === 'clients'
@@ -405,9 +419,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                         ? 'Clientes nuevos propios'
                         : activeDetail === 'clients-assigned'
                           ? 'Clientes nuevos asignados'
-                          : activeDetail === 'products'
-                            ? 'Productos del período'
-                            : activeDetail === 'gifts' || activeDetail === 'deductions-gifts'
+                          : activeDetail === 'gifts' || activeDetail === 'deductions-gifts'
                               ? 'Obsequios entregados'
                               : activeDetail === 'deductions'
                                 ? 'Deducibles aplicados'
@@ -469,11 +481,22 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
 
           <section className="grid grid-cols-2 gap-3">
             <CommissionSummaryLink
-              label="Facturación"
+              label="Ventas"
               value={money(closure.billed_usd)}
               detail={`${closure.delivered_orders_count} órdenes entregadas`}
-              href={commissionHref(selectedPeriod.id, 'orders')}
-              active={activeDetail === 'orders'}
+              href={commissionHref(selectedPeriod.id, 'sales')}
+              active={
+                activeDetail === 'sales' ||
+                activeDetail === 'orders' ||
+                activeDetail === 'closures' ||
+                activeDetail === 'paid' ||
+                activeDetail === 'late' ||
+                activeDetail === 'pending' ||
+                activeDetail === 'clients' ||
+                activeDetail === 'clients-own' ||
+                activeDetail === 'clients-assigned' ||
+                activeDetail === 'gifts'
+              }
             />
             <CommissionSummaryLink
               label="Comisión bruta"
@@ -507,63 +530,6 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             />
           </section>
 
-          <SectionCard title="Explorar el cierre" subtitle="Toca una tarjeta para mostrar solo ese detalle.">
-            <div className="grid grid-cols-2 gap-2.5">
-              <Link
-                href={commissionHref(selectedPeriod.id, 'payments')}
-                className={[
-                  'rounded-[16px] border px-3 py-3',
-                  activeDetail === 'payments' || activeDetail === 'paid' || activeDetail === 'pending'
-                    ? 'border-emerald-400 bg-[#102219]'
-                    : 'border-[#232632] bg-[#0D1017]',
-                ].join(' ')}
-              >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pagos de clientes</div>
-                <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{paidOrders.length + pendingOrders.length}</div>
-                <div className="mt-1 text-xs text-[#AAB2C5]">{paidOrders.length} puntuales · {pendingOrders.length} pendientes</div>
-                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
-              </Link>
-              <Link
-                href={commissionHref(selectedPeriod.id, 'clients')}
-                className={[
-                  'rounded-[16px] border px-3 py-3',
-                  activeDetail === 'clients' || activeDetail === 'clients-own' || activeDetail === 'clients-assigned'
-                    ? 'border-[#7EA6FF] bg-[#101827]'
-                    : 'border-[#232632] bg-[#0D1017]',
-                ].join(' ')}
-              >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Clientes nuevos</div>
-                <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{newClients.length}</div>
-                <div className="mt-1 text-xs text-[#AAB2C5]">{ownClients.length} propios · {assignedClients.length} asignados</div>
-                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
-              </Link>
-              <Link
-                href={commissionHref(selectedPeriod.id, 'products')}
-                className={[
-                  'rounded-[16px] border px-3 py-3',
-                  activeDetail === 'products' ? 'border-[#7EA6FF] bg-[#101827]' : 'border-[#232632] bg-[#0D1017]',
-                ].join(' ')}
-              >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Productos</div>
-                <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{productQty}</div>
-                <div className="mt-1 text-xs text-[#AAB2C5]">Base {money(productBaseUsd)}</div>
-                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
-              </Link>
-              <Link
-                href={commissionHref(selectedPeriod.id, 'gifts')}
-                className={[
-                  'rounded-[16px] border px-3 py-3',
-                  activeDetail === 'gifts' ? 'border-orange-400 bg-[#21150D]' : 'border-[#232632] bg-[#0D1017]',
-                ].join(' ')}
-              >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Obsequios</div>
-                <div className="mt-1.5 text-xl font-semibold text-orange-300">{giftQty}</div>
-                <div className="mt-1 text-xs text-[#AAB2C5]">-{money(closure.gift_deductions_usd)}</div>
-                <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver detalle</span><span>→</span></div>
-              </Link>
-            </div>
-          </SectionCard>
-
           {activeDetail ? (
             <div id="commission-detail" className="scroll-mt-20">
               <SectionCard
@@ -578,6 +544,47 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   </Link>
                 }
               >
+              {activeDetail === 'sales' ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'orders')}
+                    className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Facturación</div>
+                    <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{money(closure.billed_usd)}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{closure.delivered_orders_count} órdenes</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'closures')}
+                    className="rounded-[16px] border border-emerald-500/40 bg-[#102219] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Cierres</div>
+                    <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{orders.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">Puntuales, tarde y pendientes</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver cobros</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'clients')}
+                    className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Clientes nuevos</div>
+                    <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{newClients.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{ownClients.length} propios · {assignedClients.length} asignados</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver clientes</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'gifts')}
+                    className="rounded-[16px] border border-orange-500/40 bg-[#21150D] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Obsequios</div>
+                    <div className="mt-1.5 text-xl font-semibold text-orange-300">{giftQty}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">-{money(closure.gift_deductions_usd)}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver obsequios</span><span>→</span></div>
+                  </Link>
+                </div>
+              ) : null}
+
               {activeDetail === 'commissions' ? (
                 <div className="space-y-2.5">
                   <Link
@@ -675,20 +682,29 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 </div>
               ) : null}
 
-              {activeDetail === 'payments' ? (
+              {activeDetail === 'closures' ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <Link
                     href={commissionHref(selectedPeriod.id, 'paid')}
                     className="rounded-[16px] border border-emerald-500/40 bg-[#102219] px-3 py-3"
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Puntuales</div>
-                    <div className="mt-1.5 text-2xl font-semibold text-emerald-300">{paidOrders.length}</div>
-                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(paidTotalUsd)}</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-emerald-300">{punctualOrders.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(punctualTotalUsd)}</div>
+                    <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'late')}
+                    className="rounded-[16px] border border-orange-500/40 bg-[#21150D] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Impuntuales</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-orange-300">{lateOrders.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(lateTotalUsd)}</div>
                     <div className="mt-2 flex justify-between text-[11px] font-semibold text-[#F7DA66]"><span>Ver órdenes</span><span>→</span></div>
                   </Link>
                   <Link
                     href={commissionHref(selectedPeriod.id, 'pending')}
-                    className="rounded-[16px] border border-[#564511] bg-[#201B08] px-3 py-3"
+                    className="col-span-2 rounded-[16px] border border-[#564511] bg-[#201B08] px-3 py-3"
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pendientes</div>
                     <div className="mt-1.5 text-2xl font-semibold text-[#F7DA66]">{pendingOrders.length}</div>
@@ -781,7 +797,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                 )
               ) : null}
 
-              {activeDetail === 'orders' || activeDetail === 'paid' || activeDetail === 'pending' ? (
+              {activeDetail === 'orders' || activeDetail === 'paid' || activeDetail === 'late' || activeDetail === 'pending' ? (
                 detailOrders.length === 0 ? (
                   <EmptyBlock title="Sin órdenes" detail="No hay órdenes en esta categoría para el período." />
                 ) : (
@@ -802,8 +818,20 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                           </div>
                           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
                             <span>{commissionModeLabel(order.commissionMode)}</span>
-                            <span className={numberValue(order.pendingUsd) > 0 ? 'text-[#F7DA66]' : 'text-emerald-300'}>
-                              {numberValue(order.pendingUsd) > 0 ? `Pendiente ${money(order.pendingUsd)}` : 'Pagada'}
+                            <span
+                              className={
+                                numberValue(order.pendingUsd) > 0
+                                  ? 'text-[#F7DA66]'
+                                  : order.paymentTiming === 'late'
+                                    ? 'text-orange-300'
+                                    : 'text-emerald-300'
+                              }
+                            >
+                              {numberValue(order.pendingUsd) > 0
+                                ? `Pendiente ${money(order.pendingUsd)}`
+                                : order.paymentTiming === 'late'
+                                  ? `Pagada ${dateLabel(order.paymentCompletedDate)}`
+                                  : 'Pago puntual'}
                             </span>
                           </div>
                           {orderId > 0 ? (
@@ -854,27 +882,6 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                         </article>
                       );
                     })}
-                  </div>
-                )
-              ) : null}
-
-              {activeDetail === 'products' ? (
-                productsByName.size === 0 ? (
-                  <EmptyBlock title="Sin productos" detail="El cierre no contiene líneas de producto." />
-                ) : (
-                  <div className="space-y-2">
-                    {Array.from(productsByName.entries()).map(([name, product]) => (
-                      <div key={name} className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
-                        <div className="min-w-0">
-                          <div className="truncate font-medium text-[#F5F7FB]">{name}</div>
-                          <div className="text-xs text-[#8B93A7]">{product.rows} orden{product.rows === 1 ? '' : 'es'}</div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <div className="font-semibold text-[#F5F7FB]">{product.qty} ítems</div>
-                          <div className="text-xs text-[#8B93A7]">Base {money(product.baseUsd)}</div>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 )
               ) : null}

@@ -11992,6 +11992,12 @@ type AdvisorCommissionFinancialStateRow = {
   delivery_reference_date: string | null;
 };
 
+type AdvisorCommissionPaymentLedgerEntry = {
+  orderId: number;
+  operationDate: string;
+  amountUsd: number;
+};
+
 const ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF = '2026-06-02';
 
 function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
@@ -12047,9 +12053,55 @@ function getAdvisorCommissionDiscountFactor(order: AdvisorCommissionOrderRow, it
   return Math.max(0, Math.min(1, commercialNetUsd / rawItemsTotal));
 }
 
+function buildAdvisorCommissionPaymentCompletionDates(params: {
+  orders: AdvisorCommissionOrderRow[];
+  financialStates: Map<number, AdvisorCommissionFinancialStateRow>;
+  ledgerEntries: AdvisorCommissionPaymentLedgerEntry[];
+}) {
+  const entriesByOrderId = new Map<number, AdvisorCommissionPaymentLedgerEntry[]>();
+
+  for (const entry of params.ledgerEntries) {
+    const entries = entriesByOrderId.get(entry.orderId) ?? [];
+    entries.push(entry);
+    entriesByOrderId.set(entry.orderId, entries);
+  }
+
+  const completionDates = new Map<number, string>();
+
+  for (const order of params.orders) {
+    const orderId = Number(order.id);
+    const financialState = params.financialStates.get(orderId);
+    const totalUsd = roundMoney(financialState?.total_usd ?? getOrderMoneySnapshot(order).totalUsd);
+    const confirmedPaidUsd = Math.max(0, roundMoney(financialState?.confirmed_paid_usd ?? 0));
+    const targetUsd = Math.min(totalUsd, confirmedPaidUsd);
+
+    if (targetUsd <= 0.005) continue;
+
+    const entries = [...(entriesByOrderId.get(orderId) ?? [])].sort(
+      (a, b) => a.operationDate.localeCompare(b.operationDate)
+    );
+    let accumulatedUsd = 0;
+    let completionDate: string | null = null;
+
+    for (const entry of entries) {
+      const wasComplete = accumulatedUsd >= targetUsd - 0.005;
+      accumulatedUsd = Math.max(0, roundMoney(accumulatedUsd + entry.amountUsd));
+      const isComplete = accumulatedUsd >= targetUsd - 0.005;
+
+      if (!wasComplete && isComplete) completionDate = entry.operationDate;
+      if (wasComplete && !isComplete) completionDate = null;
+    }
+
+    if (completionDate) completionDates.set(orderId, completionDate);
+  }
+
+  return completionDates;
+}
+
 function buildAdvisorCommissionSnapshots(params: {
   orders: AdvisorCommissionOrderRow[];
   financialStates: Map<number, AdvisorCommissionFinancialStateRow>;
+  paymentCompletionDates: Map<number, string>;
   firstPurchaseOrdersByClientId: Map<number, AdvisorCommissionFirstOrderRow>;
   advisorIds: string[];
   advisorNamesById: Map<string, string>;
@@ -12059,6 +12111,7 @@ function buildAdvisorCommissionSnapshots(params: {
   const {
     orders,
     financialStates,
+    paymentCompletionDates,
     firstPurchaseOrdersByClientId,
     advisorIds,
     advisorNamesById,
@@ -12214,6 +12267,14 @@ function buildAdvisorCommissionSnapshots(params: {
       ? 'closed_by_rounding'
       : String(financialState?.payment_status || '').toLowerCase();
     const isPending = pendingUsd > 0.005;
+    const paymentCompletedDate = isPending
+      ? null
+      : paymentCompletionDates.get(orderId) || deliveryDate || null;
+    const paymentTiming = isPending
+      ? 'pending'
+      : paymentCompletedDate && deliveryDate && paymentCompletedDate > deliveryDate
+        ? 'late'
+        : 'punctual';
 
     closure.totals.deliveredOrdersCount += 1;
     closure.totals.billedUsd += commissionableSubtotalUsd;
@@ -12223,7 +12284,8 @@ function buildAdvisorCommissionSnapshots(params: {
     closure.totals.grossCommissionUsd += orderCommissionUsd;
     closure.totals.pendingCollectionUsd += isPending ? pendingUsd : 0;
     closure.totals.pendingPaymentCount += isPending ? 1 : 0;
-    closure.totals.punctualPaidCount += !isPending ? 1 : 0;
+    closure.totals.punctualPaidCount += paymentTiming === 'punctual' ? 1 : 0;
+    closure.totals.latePaidCount += paymentTiming === 'late' ? 1 : 0;
 
     const client = getAdvisorCommissionClient(order);
     const clientCreatedDate = dateOnlyFromIso(client?.created_at);
@@ -12273,6 +12335,8 @@ function buildAdvisorCommissionSnapshots(params: {
       commissionUsd: orderCommissionUsd,
       commissionMode: fixedOrderPct == null ? (specialItemBaseUsd > 0 ? 'mixed_items' : 'default') : 'fixed_order',
       paymentStatus,
+      paymentCompletedDate,
+      paymentTiming,
     };
 
     closure.orders.push(orderSnapshot);
@@ -12353,6 +12417,8 @@ function buildAdvisorCommissionSnapshots(params: {
         totals,
         orders: closure.orders,
         paid_orders: closure.paidOrders,
+        punctual_orders: closure.paidOrders.filter((order) => order.paymentTiming === 'punctual'),
+        late_orders: closure.paidOrders.filter((order) => order.paymentTiming === 'late'),
         pending_orders: closure.pendingOrders,
         new_clients: closure.newClients,
         products: closure.products,
@@ -12540,6 +12606,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       .filter((id) => Number.isFinite(id) && id > 0)
   ));
   const financialStates = new Map<number, AdvisorCommissionFinancialStateRow>();
+  const paymentLedgerEntries: AdvisorCommissionPaymentLedgerEntry[] = [];
   const firstPurchaseOrdersByClientId = new Map<number, AdvisorCommissionFirstOrderRow>();
 
   if (orderIds.length > 0) {
@@ -12562,7 +12629,107 @@ export async function generateAdvisorCommissionClosuresAction(input: {
         financialStates.set(orderId, state);
       }
     }
+
+    for (let index = 0; index < orderIds.length; index += 250) {
+      const orderIdChunk = orderIds.slice(index, index + 250);
+      const [movementsResult, fundMovementsResult, refundReceiptsResult] = await Promise.all([
+        supabase
+          .from('money_movements')
+          .select('order_id, movement_date, direction, movement_type, amount_usd_equivalent, movement_group_id')
+          .in('order_id', orderIdChunk)
+          .eq('status', 'confirmed'),
+        supabase
+          .from('client_fund_movements')
+          .select('order_id, movement_type, reason_code, amount_usd, created_at')
+          .in('order_id', orderIdChunk),
+        supabase
+          .from('counter_command_receipts')
+          .select('order_id, idempotency_key')
+          .in('order_id', orderIdChunk)
+          .eq('command_type', 'request_refund'),
+      ]);
+
+      if (movementsResult.error) throw new Error(movementsResult.error.message);
+      if (fundMovementsResult.error) throw new Error(fundMovementsResult.error.message);
+      if (refundReceiptsResult.error) throw new Error(refundReceiptsResult.error.message);
+
+      const refundReceiptKeys = new Set(
+        ((refundReceiptsResult.data ?? []) as Array<{
+          order_id: number | string;
+          idempotency_key: string | null;
+        }>).map((receipt) => `${receipt.order_id}:${receipt.idempotency_key || ''}`)
+      );
+
+      for (const movement of (movementsResult.data ?? []) as Array<{
+        order_id: number | string;
+        movement_date: string | null;
+        direction: string | null;
+        movement_type: string | null;
+        amount_usd_equivalent: number | string | null;
+        movement_group_id: string | null;
+      }>) {
+        const orderId = Number(movement.order_id);
+        const operationDate = normalizeDateOnly(movement.movement_date);
+        const amountUsd = Math.max(0, toSafeNumber(movement.amount_usd_equivalent, 0));
+        if (!Number.isFinite(orderId) || orderId <= 0 || !operationDate || amountUsd <= 0.005) continue;
+
+        const isInflow = movement.direction === 'inflow';
+        const isPaymentReduction =
+          movement.direction === 'outflow' &&
+          (movement.movement_type === 'change_given' ||
+            (movement.movement_type === 'withdrawal' &&
+              refundReceiptKeys.has(`${movement.order_id}:${movement.movement_group_id || ''}`)));
+        if (!isInflow && !isPaymentReduction) continue;
+
+        paymentLedgerEntries.push({
+          orderId,
+          operationDate,
+          amountUsd: isInflow ? amountUsd : -amountUsd,
+        });
+      }
+
+      for (const movement of (fundMovementsResult.data ?? []) as Array<{
+        order_id: number | string;
+        movement_type: string | null;
+        reason_code: string | null;
+        amount_usd: number | string | null;
+        created_at: string | null;
+      }>) {
+        const orderId = Number(movement.order_id);
+        const operationDate = movement.created_at
+          ? getCaracasDateString(new Date(movement.created_at))
+          : '';
+        const amountUsd = Math.max(0, toSafeNumber(movement.amount_usd, 0));
+        const isAppliedFund =
+          movement.movement_type === 'debit' &&
+          (movement.reason_code === 'order_fund_applied' ||
+            movement.reason_code === 'counter_change_fund_reversal');
+        const isRestoredFund =
+          movement.movement_type === 'credit' && movement.reason_code === 'order_fund_restore';
+        if (
+          !Number.isFinite(orderId) ||
+          orderId <= 0 ||
+          !operationDate ||
+          amountUsd <= 0.005 ||
+          (!isAppliedFund && !isRestoredFund)
+        ) {
+          continue;
+        }
+
+        paymentLedgerEntries.push({
+          orderId,
+          operationDate,
+          amountUsd: isAppliedFund ? amountUsd : -amountUsd,
+        });
+      }
+    }
   }
+
+  const paymentCompletionDates = buildAdvisorCommissionPaymentCompletionDates({
+    orders,
+    financialStates,
+    ledgerEntries: paymentLedgerEntries,
+  });
 
   if (clientIds.length > 0) {
     const { data: firstOrderCandidates, error: firstOrderCandidatesError } = await supabase
@@ -12615,6 +12782,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   const snapshots = buildAdvisorCommissionSnapshots({
     orders,
     financialStates,
+    paymentCompletionDates,
     firstPurchaseOrdersByClientId,
     advisorIds: advisorIds.filter((id) => !lockedAdvisorIds.has(id)),
     advisorNamesById,
