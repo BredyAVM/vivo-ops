@@ -955,6 +955,110 @@ export async function receiveInventoryStockAction(input: {
   };
 }
 
+function revalidateInventoryEventRoutes(orderId?: number) {
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/operations');
+  revalidatePath('/app/inventory/reports');
+  revalidatePath('/app/inventory/alerts');
+  revalidatePath('/app/master/ops/inventory');
+  if (orderId != null) {
+    revalidatePath('/app/master/ops');
+    revalidatePath(`/orders/${orderId}`);
+  }
+}
+
+export async function dispatchInventoryForEventAction(input: {
+  operationId: string;
+  orderId: number;
+  lines: Array<{ inventoryItemId: number; quantityUnits: number }>;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const orderId = normalizeCountId(input.orderId);
+  if (!Array.isArray(input.lines) || input.lines.length === 0 || input.lines.length > 100) {
+    throw new Error('El despacho debe incluir entre 1 y 100 ítems.');
+  }
+  const seenItems = new Set<number>();
+  const lines = input.lines.map((line) => {
+    const inventoryItemId = normalizeCountId(line.inventoryItemId);
+    if (seenItems.has(inventoryItemId)) throw new Error('Un ítem no puede repetirse en el despacho.');
+    seenItems.add(inventoryItemId);
+    return {
+      inventory_item_id: inventoryItemId,
+      quantity_units: normalizePositiveQuantity(line.quantityUnits, 'La cantidad despachada'),
+    };
+  });
+
+  const { data, error } = await ctx.supabase.rpc(
+    'inventory_dispatch_event_stock_v1',
+    {
+      p_operation_id: operationId,
+      p_order_id: orderId,
+      p_lines: lines,
+      p_notes: normalizeNotes(input.notes),
+    },
+  );
+  if (error) throw new Error(error.message);
+  revalidateInventoryEventRoutes(orderId);
+  return data as { status?: string; event_id?: number; order_id?: number; lines?: unknown[] } | null;
+}
+
+export async function reconcileInventoryEventAction(input: {
+  operationId: string;
+  dispatchOperationId: string;
+  orderId: number;
+  lines: Array<{
+    inventoryItemId: number;
+    returnedQuantityUnits: number;
+    lossQuantityUnits: number;
+    lossKind: 'damage' | 'waste';
+  }>;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const dispatchOperationId = normalizeOperationId(input.dispatchOperationId);
+  const orderId = normalizeCountId(input.orderId);
+  if (!Array.isArray(input.lines) || input.lines.length === 0 || input.lines.length > 100) {
+    throw new Error('La conciliación debe incluir todos los ítems despachados.');
+  }
+  const seenItems = new Set<number>();
+  const lines = input.lines.map((line) => {
+    const inventoryItemId = normalizeCountId(line.inventoryItemId);
+    if (seenItems.has(inventoryItemId)) throw new Error('Un ítem no puede repetirse en la conciliación.');
+    seenItems.add(inventoryItemId);
+    const returned = Number(line.returnedQuantityUnits);
+    const lost = Number(line.lossQuantityUnits);
+    if (!Number.isFinite(returned) || returned < 0 || !Number.isFinite(lost) || lost < 0) {
+      throw new Error('Las cantidades devueltas y perdidas deben ser mayores o iguales a cero.');
+    }
+    if (!['damage', 'waste'].includes(line.lossKind)) throw new Error('El tipo de pérdida no es válido.');
+    return {
+      inventory_item_id: inventoryItemId,
+      returned_quantity_units: returned,
+      loss_quantity_units: lost,
+      loss_kind: line.lossKind,
+    };
+  });
+
+  const { data, error } = await ctx.supabase.rpc('inventory_reconcile_event_stock_v1', {
+    p_operation_id: operationId,
+    p_dispatch_operation_id: dispatchOperationId,
+    p_lines: lines,
+    p_notes: normalizeNotes(input.notes),
+  });
+  if (error) throw new Error(error.message);
+  revalidateInventoryEventRoutes(orderId);
+  return data as {
+    status?: string;
+    event_id?: number;
+    order_id?: number;
+    commitment_mismatch?: boolean;
+    orders_blocked?: boolean;
+  } | null;
+}
+
 export async function activateInventoryRecipeAction(input: { recipeId: number }) {
   const ctx = await requireMasterOrAdminContext();
   if (!ctx.roles.includes('admin')) {

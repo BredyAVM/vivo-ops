@@ -35,7 +35,7 @@ export default async function InventoryLayout({ children }: { children: ReactNod
             <div className="flex flex-wrap items-start gap-4">
               <NavGroup label="Operar">
                 <NavLink href="/app/inventory" primary>Existencias</NavLink>
-                <NavLink href="/app/inventory/operations">Entradas</NavLink>
+                <NavLink href="/app/inventory/operations">Operaciones</NavLink>
                 <NavLink href="/app/inventory/recipes">Producción</NavLink>
                 <NavLink href="/app/inventory/counts">Conteos</NavLink>
               </NavGroup>

@@ -3,10 +3,31 @@ import InventoryReceiptWorkspaceClient, {
   type InventoryReceiptWorkspace,
 } from './InventoryReceiptWorkspaceClient';
 import { repairInventoryDisplayData } from '../display';
+import InventoryEventWorkspaceClient, {
+  type InventoryEventDispatch,
+  type InventoryEventDispatchLine,
+  type InventoryEventItem,
+  type InventoryEventOrder,
+} from './InventoryEventWorkspaceClient';
 
 type InventoryItemRow = {
   id: number;
   name: string;
+  unit_name: string;
+  current_stock_units: number | string;
+  is_active: boolean;
+  tracking_mode: string;
+  merged_into_item_id: number | null;
+};
+
+type EventOrderRow = { id: number; order_number: string; status: string };
+type EventTimelineRow = {
+  id: number;
+  order_id: number;
+  order_number: string;
+  event_type: 'inventory_event_dispatched' | 'inventory_event_reconciled';
+  created_at: string;
+  payload: Record<string, unknown>;
 };
 
 type CanonicalMovementRow = {
@@ -29,6 +50,7 @@ const movementLabels: Record<string, string> = {
   stock_count: 'Conteo físico',
   production_out: 'Consumo de preparación',
   production_in: 'Producción terminada',
+  sale_out: 'Consumo por venta',
   reversal: 'Reverso',
 };
 
@@ -61,8 +83,10 @@ export default async function InventoryOperationsPage() {
     countsResult,
     openingStatusResult,
     receiptWorkspaceResult,
+    eventOrdersResult,
+    eventTimelineResult,
   ] = await Promise.all([
-    ctx.supabase.from('inventory_items').select('id,name').order('name'),
+    ctx.supabase.from('inventory_items').select('id,name,unit_name,current_stock_units,is_active,tracking_mode,merged_into_item_id').order('name'),
     ctx.supabase
       .from('inventory_movements')
       .select(
@@ -83,6 +107,18 @@ export default async function InventoryOperationsPage() {
       .in('status', ['open', 'submitted', 'recount_requested']),
     ctx.supabase.rpc('inventory_opening_status_v1'),
     ctx.supabase.rpc('inventory_receipt_workspace_v1'),
+    ctx.supabase
+      .from('orders')
+      .select('id,order_number,status')
+      .in('status', ['created', 'queued', 'confirmed', 'in_kitchen', 'ready', 'out_for_delivery'])
+      .order('created_at', { ascending: false })
+      .limit(150),
+    ctx.supabase
+      .from('order_timeline_events')
+      .select('id,order_id,order_number,event_type,created_at,payload')
+      .in('event_type', ['inventory_event_dispatched', 'inventory_event_reconciled'])
+      .order('created_at', { ascending: false })
+      .limit(200),
   ]);
 
   const firstError = [
@@ -92,6 +128,8 @@ export default async function InventoryOperationsPage() {
     countsResult.error,
     openingStatusResult.error,
     receiptWorkspaceResult.error,
+    eventOrdersResult.error,
+    eventTimelineResult.error,
   ].find(Boolean);
 
   if (firstError) {
@@ -121,23 +159,74 @@ export default async function InventoryOperationsPage() {
       receipt_mismatches: 0,
     },
   }) as InventoryReceiptWorkspace);
+  const eventItems: InventoryEventItem[] = items
+    .filter((item) => item.is_active && item.merged_into_item_id == null && item.tracking_mode !== 'not_tracked')
+    .map((item) => ({
+      id: Number(item.id),
+      name: item.name,
+      unitName: item.unit_name,
+      currentStockUnits: Number(item.current_stock_units),
+    }));
+  const eventOrders: InventoryEventOrder[] = ((eventOrdersResult.data ?? []) as EventOrderRow[]).map((order) => ({
+    id: Number(order.id),
+    orderNumber: order.order_number,
+    status: order.status,
+  }));
+  const eventRows = (eventTimelineResult.data ?? []) as EventTimelineRow[];
+  const reconciledOperationIds = new Set(
+    eventRows
+      .filter((event) => event.event_type === 'inventory_event_reconciled')
+      .map((event) => String(event.payload.dispatch_operation_id ?? ''))
+      .filter(Boolean),
+  );
+  const eventDispatches: InventoryEventDispatch[] = eventRows
+    .filter((event) => event.event_type === 'inventory_event_dispatched')
+    .map((event) => ({
+      eventId: Number(event.id),
+      orderId: Number(event.order_id),
+      orderNumber: event.order_number,
+      dispatchOperationId: String(event.payload.dispatch_operation_id ?? ''),
+      createdAt: event.created_at,
+      notes: typeof event.payload.notes === 'string' ? event.payload.notes : null,
+      reconciled: reconciledOperationIds.has(String(event.payload.dispatch_operation_id ?? '')),
+      lines: Array.isArray(event.payload.lines)
+        ? event.payload.lines.map((rawLine) => {
+            const line = rawLine as Record<string, unknown>;
+            return {
+              inventoryItemId: Number(line.inventory_item_id),
+              inventoryItemName: String(line.inventory_item_name ?? `Ítem #${line.inventory_item_id}`),
+              unitName: String(line.unit_name ?? 'unidad'),
+              dispatchedQuantityUnits: Number(line.dispatched_quantity_units ?? 0),
+              committedQuantityUnits: Number(line.committed_quantity_units ?? 0),
+              reservedExcessUnits: Number(line.reserved_excess_units ?? 0),
+            } satisfies InventoryEventDispatchLine;
+          })
+        : [],
+    }))
+    .filter((dispatch) => dispatch.dispatchOperationId && dispatch.lines.length > 0);
 
   return (
     <section>
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Motor atómico de inventario</h2>
+          <h2 className="text-xl font-semibold">Operaciones de inventario</h2>
           <p className="mt-1 max-w-3xl text-sm text-[#9696A3]">
-            Estado técnico del centro de verdad. Esta página consulta Supabase solo cuando se abre y no
-            ejecuta movimientos ni activa recetas.
+            Entradas reales, despachos para eventos y trazabilidad reciente. Cada operación se carga
+            únicamente al abrir esta sección.
           </p>
         </div>
         <div className="rounded-full border border-[#2B2B38] px-3 py-1 text-xs text-[#9D9DA9]">
-          Bloque 12 · Producción
+          Centro canónico activo
         </div>
       </div>
 
       <InventoryReceiptWorkspaceClient workspace={receiptWorkspace} />
+
+      <InventoryEventWorkspaceClient
+        items={eventItems}
+        orders={eventOrders}
+        dispatches={eventDispatches}
+      />
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <SummaryCard label="Ítems del catálogo" value={items.length} />
