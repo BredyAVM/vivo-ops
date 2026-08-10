@@ -136,6 +136,16 @@ canónica equivalente— y definir su ciclo de vida cuando la fuente se reprogra
 se cancela, se recibe o cambia la orden. La interfaz podrá leer ese vínculo una
 vez exista, sin reconstruirlo por inferencia.
 
+Auditado el 2026-08-10: la decisión de aprobar bajo riesgo o condicionar tampoco
+tiene todavía un comando persistente. La previsualización canónica calcula un
+estado transitorio, pero `approve_order` solo recibe el ID de la orden y
+`reapprove_queued_order` recibe una nota general. No existe un modo de decisión,
+motivo de riesgo ni asignación cuantificada de fuentes que sobreviva a la
+aprobación. El contrato mínimo para habilitarlo quedó incorporado en la sección
+12.5 de `docs/inventory/INVENTORY_CANONICAL_CONTRACT_2026-07-30.md`. Master Ops
+no añadirá botones que aparenten esa auditoría antes de que exista el comando
+atómico.
+
 Implementado el 2026-08-10: el adaptador de inventario de Master consume
 `inventory_reporting_workspace_v1` para mostrar por ítem el último conteo
 físico, cantidad contada, responsable, fecha y antigüedad. El dato se calcula en
@@ -178,7 +188,8 @@ datos.
 1. Persistir canónicamente las dependencias entre órdenes y fuentes futuras;
    la columna existe, pero hoy todos los compromisos de orden la dejan nula.
 2. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
-   reposición/producción.
+   reposición/producción; depende del comando atómico definido en el contrato
+   canónico y no puede resolverse solo en la interfaz.
 
 La configuración financiera, conciliaciones, cierres y auditoría contable
 completa continúan fuera de Master Ops. No son requisitos para cerrar su piloto

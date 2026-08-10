@@ -1010,6 +1010,44 @@ Pedido confirmado
 
 El Master debe ver la fuente, cantidad usada, hora y margen restante.
 
+### 12.5 Estado de implementación auditado el 2026-08-10
+
+La lectura informativa ya existe, pero la decisión estructurada todavía no se
+persiste. `inventory_preview_order_commitment_v1(order_id)` calcula de forma
+transitoria `available`, `insufficient`, `relies_on_incoming`,
+`outside_horizon`, `requires_opening` o `no_inventory_effect`. Sin embargo:
+
+- `approve_order` recibe únicamente `order_id`;
+- `reapprove_queued_order` recibe `order_id` y una nota general, no una decisión
+  de inventario;
+- `inventory_materialize_order_commitment_v1` crea todos los compromisos con
+  `depends_on_flow_id = null`;
+- no existe en `orders`, `inventory_planned_flows` ni en una relación auxiliar
+  un modo de aprobación, motivo de riesgo o distribución cuantificada entre una
+  orden y sus fuentes futuras.
+
+Por ello, ninguna interfaz debe presentar todavía `Aprobar bajo riesgo` o
+`Condicionar a reposición/producción` como una decisión persistida. Tampoco debe
+reconstruir la relación por coincidencia de producto, cantidad o fecha.
+
+El bloque que habilite esa decisión debe, como mínimo:
+
+1. reevaluar la capacidad dentro de la misma transacción que confirma o
+   re-confirma la orden;
+2. recibir un modo explícito (`with_stock`, `depends_on_future` o
+   `approved_at_risk`) y exigir motivo para el último;
+3. guardar por cada compromiso la fuente futura y la cantidad realmente
+   asignada, admitiendo más de una fuente cuando corresponda;
+4. registrar actor, fecha, motivo, resultado de capacidad y un evento visible
+   para Master y Asesor;
+5. definir qué ocurre al editar la orden y al reprogramar, cancelar, recibir o
+   completar una fuente;
+6. mantener la regla no bloqueante: una insuficiencia advierte y exige decisión,
+   pero no puede impedir por sí sola el flujo autorizado por Master.
+
+Hasta que ese comando atómico exista, Master Ops conserva la aprobación actual
+y muestra inventario solamente como información operativa.
+
 ## 13. Reposiciones y ventanas de disponibilidad
 
 Una indisponibilidad declarada por el Master tiene prioridad sobre una
