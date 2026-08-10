@@ -16,6 +16,11 @@ export type MasterInventoryItem = {
   primaryCountFrequency: string | null;
   isLowStock: boolean;
   pendingCountId: number | null;
+  lastCountId: number | null;
+  lastCountedUnits: number | null;
+  lastCountedAt: string | null;
+  lastCountedByName: string | null;
+  lastCountAgeText: string;
 };
 
 export type MasterInventoryCount = {
@@ -259,9 +264,9 @@ export default function MasterInventoryClient({
 
           <div className="mt-4 overflow-hidden rounded-xl border border-[#292938]">
             <div className="max-h-[610px] overflow-auto">
-              <table className="w-full min-w-[680px] text-left text-sm">
+              <table className="w-full min-w-[920px] text-left text-sm">
                 <thead className="sticky top-0 bg-[#171720] text-xs uppercase tracking-wide text-[#92929F]">
-                  <tr><th className="px-4 py-3">Ítem</th><th className="px-4 py-3">Grupo</th><th className="px-4 py-3 text-right">Saldo</th><th className="px-4 py-3 text-right">Alerta</th><th className="px-4 py-3">Conteo</th></tr>
+                  <tr><th className="px-4 py-3">Ítem</th><th className="px-4 py-3">Grupo</th><th className="px-4 py-3 text-right">Saldo</th><th className="px-4 py-3 text-right">Alerta</th><th className="px-4 py-3">Último conteo</th><th className="px-4 py-3">Pendiente</th></tr>
                 </thead>
                 <tbody className="divide-y divide-[#292938]">
                   {visibleStock.map((item) => (
@@ -270,6 +275,19 @@ export default function MasterInventoryClient({
                       <td className="px-4 py-3 text-[#A6A6B2]">{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</td>
                       <td className="px-4 py-3 text-right"><span className="font-bold text-white">{formatQuantity(item.currentStockUnits)}</span> <span className="text-xs text-[#8F8F9C]">{item.unitName}</span></td>
                       <td className="px-4 py-3 text-right">{item.lowStockThreshold == null ? <span className="text-[#777784]">—</span> : <span className={item.isLowStock ? 'font-semibold text-amber-300' : 'text-[#A6A6B2]'}>{formatQuantity(item.lowStockThreshold)}</span>}</td>
+                      <td className="px-4 py-3">
+                        {item.lastCountId && item.lastCountedAt ? (
+                          <div className="min-w-[190px]">
+                            <Link href={`/app/inventory/counts/${item.lastCountId}`} prefetch={false} className="font-semibold text-[#FEEF00] hover:underline">
+                              {formatDate(item.lastCountedAt)}
+                            </Link>
+                            <div className="mt-1 text-xs text-[#A6A6B2]">
+                              {item.lastCountedUnits == null ? 'Cantidad no disponible' : `${formatQuantity(item.lastCountedUnits)} ${item.unitName}`} · {item.lastCountAgeText}
+                            </div>
+                            <div className="mt-0.5 text-xs text-[#858591]">Por: {item.lastCountedByName ?? 'Sin responsable'}</div>
+                          </div>
+                        ) : <span className="text-[#777784]">Sin conteo</span>}
+                      </td>
                       <td className="px-4 py-3">{item.pendingCountId ? <Link href={`/app/inventory/counts/${item.pendingCountId}`} prefetch={false} className="font-semibold text-amber-300 hover:underline">#{item.pendingCountId}</Link> : <span className="text-[#777784]">Sin pendiente</span>}</td>
                     </tr>
                   ))}

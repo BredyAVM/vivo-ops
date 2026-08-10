@@ -11,16 +11,30 @@ import MasterInventoryClient, {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+type InventoryLastCountRow = {
+  inventory_count_id: number | string;
+  counted_units: number | string | null;
+  counted_at: string;
+  counted_by_name: string | null;
+};
+
 type InventoryItemRow = {
   id: number | string;
   name: string;
   unit_name: string;
   inventory_group: string;
-  current_stock_units: number | string;
+  initialized: boolean;
+  stock_units: number | string | null;
   low_stock_threshold: number | string | null;
-  low_stock_inclusive: boolean;
   target_stock_units: number | string | null;
   primary_count_frequency: string | null;
+  threshold_status: string;
+  last_count: InventoryLastCountRow | null;
+};
+
+type InventoryWorkspaceRow = {
+  generated_at: string;
+  items: InventoryItemRow[];
 };
 
 type CountHeaderRow = {
@@ -53,21 +67,30 @@ function uniqueCountRows(...groups: CountHeaderRow[][]) {
   return Array.from(byId.values());
 }
 
+function inventoryCountAgeText(countedAt: string | null, generatedAt: string) {
+  if (!countedAt) return 'Sin conteo';
+  const countedAtMs = new Date(countedAt).getTime();
+  const generatedAtMs = new Date(generatedAt).getTime();
+  if (!Number.isFinite(countedAtMs) || !Number.isFinite(generatedAtMs)) return 'Antigüedad no disponible';
+
+  const elapsedMinutes = Math.max(0, Math.floor((generatedAtMs - countedAtMs) / 60_000));
+  if (elapsedMinutes < 60) return elapsedMinutes <= 1 ? 'Hace un minuto' : `Hace ${elapsedMinutes} min`;
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 48) return elapsedHours === 1 ? 'Hace una hora' : `Hace ${elapsedHours} h`;
+
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return elapsedDays === 1 ? 'Hace un día' : `Hace ${elapsedDays} días`;
+}
+
 export default async function MasterInventoryPage() {
   noStore();
   const ctx = await getAuthContext();
   if (!ctx) redirect('/login');
   if (!isMasterOrAdminRole(ctx.roles)) redirect(resolveHomePath(ctx.roles));
 
-  const [itemsResult, activeCountsResult, recentCountsResult, openingsResult] = await Promise.all([
-    ctx.supabase
-      .from('inventory_items')
-      .select('id,name,unit_name,inventory_group,current_stock_units,low_stock_threshold,low_stock_inclusive,target_stock_units,primary_count_frequency')
-      .eq('is_active', true)
-      .is('merged_into_item_id', null)
-      .in('tracking_mode', ['transactional', 'periodic_count'])
-      .order('inventory_group')
-      .order('name'),
+  const [workspaceResult, activeCountsResult, recentCountsResult] = await Promise.all([
+    ctx.supabase.rpc('inventory_reporting_workspace_v1', { p_horizon_days: 10 }),
     ctx.supabase
       .from('inventory_counts')
       .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at')
@@ -78,23 +101,15 @@ export default async function MasterInventoryPage() {
       .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at')
       .order('created_at', { ascending: false })
       .limit(40),
-    ctx.supabase
-      .from('inventory_counts')
-      .select('id')
-      .eq('count_kind', 'opening')
-      .eq('status', 'accepted')
-      .order('id', { ascending: false })
-      .limit(100),
   ]);
 
-  const firstError = itemsResult.error ?? activeCountsResult.error ?? recentCountsResult.error ?? openingsResult.error;
+  const firstError = workspaceResult.error ?? activeCountsResult.error ?? recentCountsResult.error;
   if (firstError) throw new Error(`No se pudo cargar el control operativo de inventario: ${firstError.message}`);
 
   const activeCounts = (activeCountsResult.data ?? []) as CountHeaderRow[];
   const recentCounts = (recentCountsResult.data ?? []) as CountHeaderRow[];
-  const openingIds = (openingsResult.data ?? []).map((row) => Number(row.id));
   const counts = uniqueCountRows(activeCounts, recentCounts);
-  const lineCountIds = Array.from(new Set([...counts.map((count) => Number(count.id)), ...openingIds]));
+  const lineCountIds = Array.from(new Set(counts.map((count) => Number(count.id))));
   const linesResult = lineCountIds.length
     ? await ctx.supabase
         .from('inventory_count_lines')
@@ -105,14 +120,10 @@ export default async function MasterInventoryPage() {
 
   if (linesResult.error) throw new Error(`No se pudieron cargar las líneas de conteo: ${linesResult.error.message}`);
 
-  const rawItems = (itemsResult.data ?? []) as InventoryItemRow[];
+  const workspace = (workspaceResult.data ?? { generated_at: new Date().toISOString(), items: [] }) as InventoryWorkspaceRow;
+  const rawItems = workspace.items ?? [];
   const itemNameById = new Map(rawItems.map((item) => [Number(item.id), inventoryDisplayText(item.name)]));
   const lines = (linesResult.data ?? []) as CountLineRow[];
-  const initializedItemIds = new Set(
-    lines
-      .filter((line) => openingIds.includes(Number(line.inventory_count_id)) && line.line_status === 'accepted')
-      .map((line) => Number(line.inventory_item_id)),
-  );
   const activeCountIdSet = new Set(activeCounts.map((count) => Number(count.id)));
   const pendingCountByItem = new Map<number, number>();
   const linesByCount = new Map<number, CountLineRow[]>();
@@ -128,10 +139,11 @@ export default async function MasterInventoryPage() {
   }
 
   const items: MasterInventoryItem[] = rawItems
-    .filter((item) => initializedItemIds.has(Number(item.id)))
+    .filter((item) => item.initialized)
     .map((item) => {
-      const stock = Number(item.current_stock_units);
+      const stock = Number(item.stock_units ?? 0);
       const threshold = item.low_stock_threshold == null ? null : Number(item.low_stock_threshold);
+      const lastCount = item.last_count;
       return {
         id: Number(item.id),
         name: inventoryDisplayText(item.name),
@@ -141,8 +153,15 @@ export default async function MasterInventoryPage() {
         lowStockThreshold: threshold,
         targetStockUnits: item.target_stock_units == null ? null : Number(item.target_stock_units),
         primaryCountFrequency: item.primary_count_frequency,
-        isLowStock: threshold != null && (item.low_stock_inclusive ? stock <= threshold : stock < threshold),
+        isLowStock: item.threshold_status === 'low' || item.threshold_status === 'out',
         pendingCountId: pendingCountByItem.get(Number(item.id)) ?? null,
+        lastCountId: lastCount == null ? null : Number(lastCount.inventory_count_id),
+        lastCountedUnits: lastCount?.counted_units == null ? null : Number(lastCount.counted_units),
+        lastCountedAt: lastCount?.counted_at ?? null,
+        lastCountedByName: lastCount?.counted_by_name
+          ? inventoryDisplayText(lastCount.counted_by_name)
+          : null,
+        lastCountAgeText: inventoryCountAgeText(lastCount?.counted_at ?? null, workspace.generated_at),
       };
     });
 

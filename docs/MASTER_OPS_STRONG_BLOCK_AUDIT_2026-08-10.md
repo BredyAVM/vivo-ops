@@ -115,18 +115,21 @@ mermas/averías y no configura políticas. Esas fronteras se mantienen.
 
 ### Pendientes dependientes de la evolución de inventario
 
-No se implementaron dentro de este bloque para evitar duplicar un modelo que aún
-está cambiando:
+Siguen pendientes y deben avanzar solamente sobre la lectura canónica ya
+estabilizada:
 
-1. mostrar en el adaptador, por ítem, último conteo físico, responsable y
-   antigüedad;
-2. mostrar existencia física, comprometida, disponible y proyección por fecha;
-3. resumir en el adaptador las entradas/producciones esperadas y su certeza;
-4. mostrar dependencias concretas entre una orden y una fuente futura;
-5. ofrecer la decisión estructurada de aprobar bajo riesgo o condicionar una
+1. mostrar existencia física, comprometida, disponible y proyección por fecha;
+2. resumir en el adaptador las entradas/producciones esperadas y su certeza;
+3. mostrar dependencias concretas entre una orden y una fuente futura;
+4. ofrecer la decisión estructurada de aprobar bajo riesgo o condicionar una
    orden a reposición/producción;
-6. agregar un contador compacto de alertas de inventario en la cabecera de
+5. agregar un contador compacto de alertas de inventario en la cabecera de
    Operación cuando la API final de alertas quede estabilizada.
+
+Implementado el 2026-08-10: el adaptador de inventario de Master consume
+`inventory_reporting_workspace_v1` para mostrar por ítem el último conteo
+físico, cantidad contada, responsable, fecha y antigüedad. El dato se calcula en
+la lectura canónica y solo se carga al abrir `/app/master/ops/inventory`.
 
 Hasta entonces, Master abre las superficies canónicas `Alertas activas` y
 `Entradas esperadas`; no se creó una copia local de esos datos.
@@ -136,14 +139,12 @@ Hasta entonces, Master abre las superficies canónicas `Alertas activas` y
 1. Ampliar la trazabilidad ya instalada para devoluciones de fondo al cambio
    entregado, devoluciones por cancelación y demás salidas monetarias ligadas a
    una orden, sin duplicar el movimiento contable.
-2. Último conteo físico, responsable y antigüedad por ítem en el adaptador de
-   inventario de Master.
-3. Existencia física, comprometida, disponible y proyección por fecha.
-4. Resumen de entradas/producciones esperadas y su certeza.
-5. Dependencias estructuradas entre órdenes y fuentes futuras.
-6. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
+2. Existencia física, comprometida, disponible y proyección por fecha.
+3. Resumen de entradas/producciones esperadas y su certeza.
+4. Dependencias estructuradas entre órdenes y fuentes futuras.
+5. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
    reposición/producción.
-7. Contador compacto de alertas de inventario en la cabecera de Operación cuando
+6. Contador compacto de alertas de inventario en la cabecera de Operación cuando
    la API final quede estabilizada.
 
 La configuración financiera, conciliaciones, cierres y auditoría contable
