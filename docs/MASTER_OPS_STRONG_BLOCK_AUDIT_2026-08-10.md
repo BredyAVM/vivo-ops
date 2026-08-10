@@ -118,9 +118,7 @@ estabilizada:
 
 1. mostrar dependencias concretas entre una orden y una fuente futura;
 2. ofrecer la decisión estructurada de aprobar bajo riesgo o condicionar una
-   orden a reposición/producción;
-3. agregar un contador compacto de alertas de inventario en la cabecera de
-   Operación cuando la API final de alertas quede estabilizada.
+   orden a reposición/producción.
 
 Auditado el 2026-08-10: la relación orden-fuente futura todavía no puede
 presentarse de forma honesta. `inventory_planned_flows.depends_on_flow_id`
@@ -159,6 +157,18 @@ recibida` y una producción `Planificada · no disponible`, porque ambas pueden
 mejorar la proyección pero solo una recepción o terminación física crea stock.
 El calendario y las acciones completas permanecen en `Entradas esperadas`.
 
+Implementado el 2026-08-10: la cabecera de Operación muestra junto a
+`Inventario` el total de alertas activas visibles para el usuario. El resumen se
+carga una vez después del primer render de cada entrada a Master Ops, de modo
+que no bloquea la pantalla, no se repite con cada refresco operativo ni descarga
+el reporte completo.
+`inventory_alert_summary_v1('inventory_center')` actualiza primero la detección
+canónica y devuelve solamente totales activos, abiertos, gestionados, críticos
+y con acción requerida; conserva los mismos permisos, políticas y rutas del
+centro de alertas. El detalle sigue abriéndose bajo demanda. Como control, la
+base viva devolvió 49 alertas activas, 20 críticas y 28 con acción requerida
+para un usuario Master, y rechazó la misma superficie para un Asesor.
+
 Para los frentes que siguen pendientes, Master abre las superficies canónicas
 `Alertas activas` y `Entradas esperadas`; no se creó una copia local de esos
 datos.
@@ -169,8 +179,6 @@ datos.
    la columna existe, pero hoy todos los compromisos de orden la dejan nula.
 2. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
    reposición/producción.
-3. Contador compacto de alertas de inventario en la cabecera de Operación cuando
-   la API final quede estabilizada.
 
 La configuración financiera, conciliaciones, cierres y auditoría contable
 completa continúan fuera de Master Ops. No son requisitos para cerrar su piloto
@@ -197,3 +205,5 @@ operativo ligero.
 5. Abrir `Pagos`, cambiar filtros, buscar una referencia y entrar a `Revisar pago`.
 6. Abrir `Inventario`, luego `Alertas activas` y `Entradas esperadas`; todas las
    rutas deben regresar a Master Ops para un usuario Master.
+7. Confirmar que `Inventario` muestra un contador cuando existen alertas activas
+   y que el acceso abre el control operativo sin cargarlo dentro de Operación.

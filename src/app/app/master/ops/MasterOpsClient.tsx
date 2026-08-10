@@ -82,6 +82,10 @@ import {
 } from "./actions";
 import type { CounterPickupChangeRequest } from "../../counter/pickup-contract";
 import type { MasterOpsInboxItem, MasterOpsInboxKind } from "./inbox-actions";
+import {
+  loadMasterOpsInventoryAlertSummaryAction,
+  type MasterOpsInventoryAlertSummary,
+} from "./inventory-alert-actions";
 import MasterOpsAlerts from "./MasterOpsAlerts";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
 import MasterOpsSignOutButton from "./MasterOpsSignOutButton";
@@ -3343,6 +3347,7 @@ export default function MasterOpsClient({
   const [actionError, setActionError] = useState<string | null>(null);
   const [inboxMode, setInboxMode] = useState<MasterOpsInboxKind | null>(null);
   const [inboxCounts, setInboxCounts] = useState({ actions: stats.actions, updates: stats.updates });
+  const [inventoryAlertSummary, setInventoryAlertSummary] = useState<MasterOpsInventoryAlertSummary | null>(null);
   const lastRefreshRequestAtRef = useRef(Date.now());
   const [isRefreshing, startTransition] = useTransition();
 
@@ -3356,6 +3361,22 @@ export default function MasterOpsClient({
   useEffect(() => {
     setInboxCounts({ actions: stats.actions, updates: stats.updates });
   }, [stats.actions, stats.updates]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadMasterOpsInventoryAlertSummaryAction()
+      .then((result) => {
+        if (!cancelled && result.ok) setInventoryAlertSummary(result.summary);
+      })
+      .catch(() => {
+        // The operational screen remains usable if the independent counter fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const requestOpsRefresh = useCallback(() => {
     lastRefreshRequestAtRef.current = Date.now();
@@ -4192,10 +4213,22 @@ export default function MasterOpsClient({
                 <Link
                   href="/app/master/ops/inventory"
                   prefetch={false}
-                  className="shrink-0 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
-                  title="Abrir el control operativo de inventario de Máster"
+                  className="flex shrink-0 items-center gap-1.5 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
+                  title={inventoryAlertSummary
+                    ? `Abrir inventario · ${inventoryAlertSummary.active} alertas activas · ${inventoryAlertSummary.critical} críticas`
+                    : "Abrir el control operativo de inventario de Máster"}
                 >
-                  Inventario
+                  <span>Inventario</span>
+                  {inventoryAlertSummary && inventoryAlertSummary.active > 0 ? (
+                    <span
+                      className={inventoryAlertSummary.critical > 0
+                        ? "rounded-full bg-red-400/20 px-1.5 py-0.5 text-[10px] tabular-nums text-red-200"
+                        : "rounded-full bg-amber-300/20 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-100"}
+                      aria-label={`${inventoryAlertSummary.active} alertas activas de inventario`}
+                    >
+                      {inventoryAlertSummary.active}
+                    </span>
+                  ) : null}
                 </Link>
 
                 <Link
