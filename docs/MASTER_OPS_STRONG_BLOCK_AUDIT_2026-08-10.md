@@ -59,6 +59,32 @@ La ruta nueva `/app/master/ops/finance`:
 Quedan deliberadamente fuera: configuración de cuentas, estados de cuenta,
 conciliaciones, cierres, líneas base y ajustes contables administrativos.
 
+### Pendiente: trazabilidad visual de salidas y devoluciones
+
+Cuando se devuelve al cliente dinero que tenía en fondo, la salida ya queda
+registrada en caja y en el libro contable, pero no aparece dentro de la orden
+usada como referencia con una presentación equivalente a la de los pagos. Eso
+impide que Master, Asesor y otros usuarios autorizados entiendan visualmente la
+secuencia completa sin consultar la contabilidad.
+
+La mejora futura debe:
+
+- mostrar en la orden las devoluciones de fondo ya confirmadas;
+- mostrar también el cambio entregado, devoluciones por cancelación y otras
+  salidas monetarias vinculadas a la orden;
+- indicar tipo de operación, moneda, monto, cuenta o caja, fecha de operación,
+  actor y nota;
+- distinguir claramente entradas, fondo aplicado y salidas al cliente;
+- compartir una proyección legible entre Master Ops y la vista autorizada del
+  Asesor;
+- reutilizar `money_movements` y sus vínculos existentes como fuente de verdad;
+- no crear un segundo pago, reporte ni movimiento solo para que aparezca en la
+  interfaz.
+
+Antes de implementarla se debe auditar cómo quedan enlazados actualmente el
+`order_id`, el cliente, la cuenta y las líneas de cambio/devolución en cada flujo.
+La ausencia actual es de trazabilidad visual, no de registro contable.
+
 ## Inventario: acciones de Master confirmadas
 
 El contrato canónico asigna a Master las siguientes capacidades y ya existe una
@@ -92,6 +118,25 @@ está cambiando:
 
 Hasta entonces, Master abre las superficies canónicas `Alertas activas` y
 `Entradas esperadas`; no se creó una copia local de esos datos.
+
+## Pendientes acumulados
+
+1. Trazabilidad visual de devoluciones de fondo, cambios y demás salidas
+   monetarias ligadas a una orden, visible para Master y Asesor sin duplicar el
+   movimiento contable.
+2. Último conteo físico, responsable y antigüedad por ítem en el adaptador de
+   inventario de Master.
+3. Existencia física, comprometida, disponible y proyección por fecha.
+4. Resumen de entradas/producciones esperadas y su certeza.
+5. Dependencias estructuradas entre órdenes y fuentes futuras.
+6. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
+   reposición/producción.
+7. Contador compacto de alertas de inventario en la cabecera de Operación cuando
+   la API final quede estabilizada.
+
+La configuración financiera, conciliaciones, cierres y auditoría contable
+completa continúan fuera de Master Ops. No son requisitos para cerrar su piloto
+operativo ligero.
 
 ## Verificación técnica
 
