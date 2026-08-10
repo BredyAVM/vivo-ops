@@ -4,7 +4,19 @@ import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
-type SearchParams = Promise<{ period?: string }>;
+type CommissionDetail =
+  | 'orders'
+  | 'payments'
+  | 'paid'
+  | 'pending'
+  | 'clients'
+  | 'clients-own'
+  | 'clients-assigned'
+  | 'products'
+  | 'gifts'
+  | 'deductions';
+
+type SearchParams = Promise<{ period?: string; detail?: string }>;
 
 type PeriodRow = {
   id: number | string;
@@ -31,7 +43,10 @@ type SnapshotOrder = {
 
 type SnapshotProduct = {
   orderId?: number | string | null;
+  orderNumber?: string | null;
+  clientName?: string | null;
   productName?: string | null;
+  productType?: string | null;
   qty?: number | string | null;
   lineBaseUsd?: number | string | null;
   commissionMode?: string | null;
@@ -47,6 +62,10 @@ type SnapshotClient = {
   clientName?: string | null;
   clientType?: string | null;
   orderId?: number | string | null;
+  orderNumber?: string | null;
+  billedUsd?: number | string | null;
+  totalUsd?: number | string | null;
+  createdAt?: string | null;
 };
 
 type DeductionRow = {
@@ -123,6 +142,26 @@ function commissionModeLabel(value: string | null | undefined) {
   return 'Normal';
 }
 
+function getCommissionDetail(value: string | null | undefined): CommissionDetail | null {
+  const details: CommissionDetail[] = [
+    'orders',
+    'payments',
+    'paid',
+    'pending',
+    'clients',
+    'clients-own',
+    'clients-assigned',
+    'products',
+    'gifts',
+    'deductions',
+  ];
+  return details.includes(value as CommissionDetail) ? (value as CommissionDetail) : null;
+}
+
+function commissionHref(periodId: number | string, detail?: CommissionDetail) {
+  return `/app/advisor/commissions?period=${periodId}${detail ? `&detail=${detail}#commission-detail` : ''}`;
+}
+
 export default async function AdvisorCommissionsPage({ searchParams }: { searchParams?: SearchParams }) {
   const ctx = await getAuthContext();
   if (!ctx) return null;
@@ -137,7 +176,10 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const periods = (periodData ?? []) as PeriodRow[];
   const requestedPeriodId = Number(params.period || 0);
   const selectedPeriod = periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
-  const returnTo = selectedPeriod ? `/app/advisor/commissions?period=${selectedPeriod.id}` : '/app/advisor/commissions';
+  const activeDetail = getCommissionDetail(params.detail);
+  const returnTo = selectedPeriod
+    ? commissionHref(selectedPeriod.id, activeDetail || undefined)
+    : '/app/advisor/commissions';
 
   let closure: ClosureRow | null = null;
   let closureError: string | null = null;
@@ -170,6 +212,8 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const products = Array.isArray(snapshot.products) ? snapshot.products : [];
   const gifts = Array.isArray(snapshot.gifts) ? snapshot.gifts : [];
   const deductions = Array.isArray(closure?.deductions) ? closure.deductions : [];
+  const ownClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'own');
+  const assignedClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'assigned');
   const status = closure ? closureStatus(closure.status) : null;
 
   const productsByName = new Map<string, { qty: number; baseUsd: number; rows: number }>();
@@ -191,6 +235,45 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
     current.rows.push(gift);
     giftsByName.set(name, current);
   }
+  const productQty = products.reduce((sum, product) => sum + numberValue(product.qty), 0);
+  const productBaseUsd = products.reduce((sum, product) => sum + numberValue(product.lineBaseUsd), 0);
+  const giftQty = gifts.reduce((sum, gift) => sum + numberValue(gift.qty), 0);
+  const paidTotalUsd = paidOrders.reduce((sum, order) => sum + numberValue(order.totalUsd), 0);
+  const orderById = new Map(orders.map((order) => [numberValue(order.orderId), order]));
+  const getClientFirstOrderTotal = (client: SnapshotClient) =>
+    numberValue(orderById.get(numberValue(client.orderId))?.totalUsd ?? client.totalUsd ?? client.billedUsd);
+  const ownClientsTotalUsd = ownClients.reduce((sum, client) => sum + getClientFirstOrderTotal(client), 0);
+  const assignedClientsTotalUsd = assignedClients.reduce((sum, client) => sum + getClientFirstOrderTotal(client), 0);
+  const detailOrders = activeDetail === 'paid' ? paidOrders : activeDetail === 'pending' ? pendingOrders : orders;
+  const detailClients = activeDetail === 'clients-own' ? ownClients : assignedClients;
+  const parentDetail: CommissionDetail | null =
+    activeDetail === 'paid' || activeDetail === 'pending'
+      ? 'payments'
+      : activeDetail === 'clients-own' || activeDetail === 'clients-assigned'
+        ? 'clients'
+        : null;
+  const detailTitle =
+    activeDetail === 'orders'
+      ? 'Órdenes facturadas'
+      : activeDetail === 'payments'
+        ? 'Pagos de clientes'
+        : activeDetail === 'paid'
+          ? 'Pagos puntuales'
+          : activeDetail === 'pending'
+            ? 'Pendientes por cobrar'
+            : activeDetail === 'clients'
+              ? 'Clientes nuevos'
+              : activeDetail === 'clients-own'
+                ? 'Clientes nuevos propios'
+                : activeDetail === 'clients-assigned'
+                  ? 'Clientes nuevos asignados'
+                  : activeDetail === 'products'
+                    ? 'Productos del período'
+                    : activeDetail === 'gifts'
+                      ? 'Obsequios entregados'
+                      : activeDetail === 'deductions'
+                        ? 'Deducibles aplicados'
+                        : '';
 
   return (
     <div className="space-y-4">
@@ -243,73 +326,293 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
           </div>
 
           <section className="grid grid-cols-2 gap-3">
-            <MetricCard label="Facturación" value={money(closure.billed_usd)} detail={`${closure.delivered_orders_count} órdenes entregadas.`} />
-            <MetricCard label="Comisión bruta" value={money(closure.gross_commission_usd)} detail={`Base general ${numberValue(closure.base_commission_pct).toFixed(2)}%.`} />
-            <MetricCard label="Deducciones" value={money(numberValue(closure.gift_deductions_usd) + numberValue(closure.manual_deductions_usd))} detail="Obsequios y deducibles aplicados." />
-            <MetricCard label="A pagar" value={money(closure.payable_usd)} detail={closure.status === 'paid' ? 'Pago registrado.' : 'Monto del cierre actual.'} />
+            <Link
+              href={commissionHref(selectedPeriod.id, 'orders')}
+              className={activeDetail === 'orders' ? 'rounded-[22px] ring-2 ring-[#F0D000]' : 'rounded-[22px]'}
+            >
+              <MetricCard
+                label="Facturación"
+                value={money(closure.billed_usd)}
+                detail={`${closure.delivered_orders_count} órdenes · Toca para ver`}
+              />
+            </Link>
+            <MetricCard
+              label="Comisión bruta"
+              value={money(closure.gross_commission_usd)}
+              detail={`Base general ${numberValue(closure.base_commission_pct).toFixed(2)}%.`}
+            />
+            <Link
+              href={commissionHref(selectedPeriod.id, 'deductions')}
+              className={activeDetail === 'deductions' ? 'rounded-[22px] ring-2 ring-[#F0D000]' : 'rounded-[22px]'}
+            >
+              <MetricCard
+                label="Deducibles"
+                value={money(closure.manual_deductions_usd)}
+                detail={`${deductions.length} registro${deductions.length === 1 ? '' : 's'} · Toca para ver`}
+              />
+            </Link>
+            <MetricCard
+              label="A pagar"
+              value={money(closure.payable_usd)}
+              detail={closure.status === 'paid' ? 'Pago registrado.' : 'Monto del cierre actual.'}
+            />
           </section>
 
-          <SectionCard title="Pagos de clientes" subtitle="Lectura usada para calcular el período.">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-[14px] bg-[#0D1017] px-2 py-3"><div className="text-lg font-semibold text-emerald-300">{paidOrders.length}</div><div className="text-[11px] text-[#8B93A7]">Puntuales</div></div>
-              <div className="rounded-[14px] bg-[#0D1017] px-2 py-3"><div className="text-lg font-semibold text-[#F7DA66]">{pendingOrders.length}</div><div className="text-[11px] text-[#8B93A7]">Pendientes</div></div>
-              <div className="rounded-[14px] bg-[#0D1017] px-2 py-3"><div className="text-lg font-semibold text-[#F5F7FB]">{newClients.length}</div><div className="text-[11px] text-[#8B93A7]">Nuevos</div></div>
+          <SectionCard title="Explorar el cierre" subtitle="Toca una tarjeta para mostrar solo ese detalle.">
+            <div className="grid grid-cols-2 gap-2.5">
+              <Link
+                href={commissionHref(selectedPeriod.id, 'payments')}
+                className={[
+                  'rounded-[16px] border px-3 py-3',
+                  activeDetail === 'payments' || activeDetail === 'paid' || activeDetail === 'pending'
+                    ? 'border-emerald-400 bg-[#102219]'
+                    : 'border-[#232632] bg-[#0D1017]',
+                ].join(' ')}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pagos de clientes</div>
+                <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{paidOrders.length + pendingOrders.length}</div>
+                <div className="mt-1 text-xs text-[#AAB2C5]">{paidOrders.length} puntuales · {pendingOrders.length} pendientes</div>
+              </Link>
+              <Link
+                href={commissionHref(selectedPeriod.id, 'clients')}
+                className={[
+                  'rounded-[16px] border px-3 py-3',
+                  activeDetail === 'clients' || activeDetail === 'clients-own' || activeDetail === 'clients-assigned'
+                    ? 'border-[#7EA6FF] bg-[#101827]'
+                    : 'border-[#232632] bg-[#0D1017]',
+                ].join(' ')}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Clientes nuevos</div>
+                <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{newClients.length}</div>
+                <div className="mt-1 text-xs text-[#AAB2C5]">{ownClients.length} propios · {assignedClients.length} asignados</div>
+              </Link>
+              <Link
+                href={commissionHref(selectedPeriod.id, 'products')}
+                className={[
+                  'rounded-[16px] border px-3 py-3',
+                  activeDetail === 'products' ? 'border-[#7EA6FF] bg-[#101827]' : 'border-[#232632] bg-[#0D1017]',
+                ].join(' ')}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Productos</div>
+                <div className="mt-1.5 text-xl font-semibold text-[#F5F7FB]">{productQty}</div>
+                <div className="mt-1 text-xs text-[#AAB2C5]">Base {money(productBaseUsd)}</div>
+              </Link>
+              <Link
+                href={commissionHref(selectedPeriod.id, 'gifts')}
+                className={[
+                  'rounded-[16px] border px-3 py-3',
+                  activeDetail === 'gifts' ? 'border-orange-400 bg-[#21150D]' : 'border-[#232632] bg-[#0D1017]',
+                ].join(' ')}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Obsequios</div>
+                <div className="mt-1.5 text-xl font-semibold text-orange-300">{giftQty}</div>
+                <div className="mt-1 text-xs text-[#AAB2C5]">-{money(closure.gift_deductions_usd)}</div>
+              </Link>
             </div>
-            {numberValue(closure.pending_collection_usd) > 0 ? (
-              <div className="mt-2 rounded-[14px] border border-[#564511] bg-[#151208] px-3 py-2 text-sm text-[#F7DA66]">
-                Pendiente por cobrar: {money(closure.pending_collection_usd)}
-              </div>
-            ) : null}
           </SectionCard>
 
-          <SectionCard title="Órdenes del período" subtitle={`${orders.length} orden${orders.length === 1 ? '' : 'es'} incluidas.`}>
-            <div className="space-y-2">
-              {orders.map((order, index) => {
-                const orderId = numberValue(order.orderId);
-                return (
-                  <article key={`${orderId}-${index}`} className="rounded-[16px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0"><div className="truncate text-sm font-medium text-[#F5F7FB]">{order.clientName || 'Cliente'}</div><div className="mt-1 text-xs text-[#8B93A7]">Orden {orderLabel(order)} · {dateLabel(order.deliveryDate)}</div></div>
-                      <div className="text-right"><div className="text-sm font-semibold text-[#F7DA66]">{money(order.commissionUsd)}</div><div className="text-[10px] text-[#8B93A7]">{commissionModeLabel(order.commissionMode)}</div></div>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-[#AAB2C5]"><span>Total {money(order.totalUsd)}</span><span>Pendiente {money(order.pendingUsd)}</span></div>
-                    {orderId > 0 ? <Link href={withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, returnTo)} className="mt-2 inline-flex h-8 items-center rounded-[11px] border border-[#2A3040] px-3 text-xs font-medium text-[#F5F7FB]">Abrir orden</Link> : null}
-                  </article>
-                );
-              })}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Productos" subtitle="Agrupados para facilitar la revisión.">
-            <div className="space-y-2">
-              {Array.from(productsByName.entries()).map(([name, product]) => (
-                <div key={name} className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
-                  <div className="min-w-0"><div className="truncate text-[#F5F7FB]">{name}</div><div className="text-xs text-[#8B93A7]">{product.rows} línea{product.rows === 1 ? '' : 's'}</div></div>
-                  <div className="text-right"><div className="font-semibold text-[#F5F7FB]">{product.qty}</div><div className="text-xs text-[#8B93A7]">Base {money(product.baseUsd)}</div></div>
+          {activeDetail ? (
+            <div id="commission-detail" className="scroll-mt-20">
+              <SectionCard
+                title={detailTitle}
+                subtitle="Detalle de solo lectura del cierre seleccionado."
+                action={
+                  <Link
+                    href={commissionHref(selectedPeriod.id, parentDetail || undefined)}
+                    className="inline-flex h-9 items-center rounded-[12px] border border-[#2A3040] px-3 text-xs font-medium text-[#F5F7FB]"
+                  >
+                    {parentDetail ? 'Volver' : 'Cerrar'}
+                  </Link>
+                }
+              >
+              {activeDetail === 'payments' ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'paid')}
+                    className="rounded-[16px] border border-emerald-500/40 bg-[#102219] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Puntuales</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-emerald-300">{paidOrders.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(paidTotalUsd)} · Ver órdenes</div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'pending')}
+                    className="rounded-[16px] border border-[#564511] bg-[#201B08] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Pendientes</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-[#F7DA66]">{pendingOrders.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(closure.pending_collection_usd)} · Ver órdenes</div>
+                  </Link>
                 </div>
-              ))}
-            </div>
-          </SectionCard>
+              ) : null}
 
-          <SectionCard title="Obsequios y deducibles" subtitle="Información de solo lectura definida en el cierre.">
-            <div className="space-y-2">
-              {giftsByName.size === 0 && deductions.length === 0 ? <EmptyBlock title="Sin deducciones" detail="Este cierre no contiene obsequios ni deducibles manuales." /> : null}
-              {Array.from(giftsByName.entries()).map(([name, gift]) => (
-                <details key={name} className="rounded-[14px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm"><span className="font-medium text-[#F5F7FB]">{name} · {gift.qty}</span><span className="text-orange-300">-{money(gift.deductionUsd)}</span></summary>
-                  <div className="mt-2 space-y-1.5 border-t border-[#232632] pt-2">
-                    {gift.rows.map((row, index) => <div key={`${row.orderId}-${index}`} className="flex justify-between gap-3 text-xs text-[#AAB2C5]"><span>{row.clientName || 'Cliente'} · Orden {formatOrderDisplayNumber(numberValue(row.orderId))}</span><span>{row.qty}</span></div>)}
+              {activeDetail === 'clients' ? (
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'clients-own')}
+                    className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Propios</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{ownClients.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(ownClientsTotalUsd)} · Ver clientes</div>
+                  </Link>
+                  <Link
+                    href={commissionHref(selectedPeriod.id, 'clients-assigned')}
+                    className="rounded-[16px] border border-[#314A74] bg-[#101827] px-3 py-3"
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Asignados</div>
+                    <div className="mt-1.5 text-2xl font-semibold text-[#F5F7FB]">{assignedClients.length}</div>
+                    <div className="mt-1 text-xs text-[#AAB2C5]">{money(assignedClientsTotalUsd)} · Ver clientes</div>
+                  </Link>
+                </div>
+              ) : null}
+
+              {activeDetail === 'orders' || activeDetail === 'paid' || activeDetail === 'pending' ? (
+                detailOrders.length === 0 ? (
+                  <EmptyBlock title="Sin órdenes" detail="No hay órdenes en esta categoría para el período." />
+                ) : (
+                  <div className="space-y-2">
+                    {detailOrders.map((order, index) => {
+                      const orderId = numberValue(order.orderId);
+                      return (
+                        <article key={`${orderId}-${index}`} className="rounded-[16px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-[#F5F7FB]">{order.clientName || 'Cliente'}</div>
+                              <div className="mt-1 text-xs text-[#8B93A7]">Orden {orderLabel(order)} · {dateLabel(order.deliveryDate)}</div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className="text-sm font-semibold text-[#F5F7FB]">{money(order.totalUsd)}</div>
+                              <div className="mt-0.5 text-[10px] text-[#8B93A7]">Comisión {money(order.commissionUsd)}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
+                            <span>{commissionModeLabel(order.commissionMode)}</span>
+                            <span className={numberValue(order.pendingUsd) > 0 ? 'text-[#F7DA66]' : 'text-emerald-300'}>
+                              {numberValue(order.pendingUsd) > 0 ? `Pendiente ${money(order.pendingUsd)}` : 'Pagada'}
+                            </span>
+                          </div>
+                          {orderId > 0 ? (
+                            <Link
+                              href={withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, returnTo)}
+                              className="mt-2 inline-flex h-8 items-center rounded-[11px] border border-[#2A3040] px-3 text-xs font-medium text-[#F5F7FB]"
+                            >
+                              Abrir orden
+                            </Link>
+                          ) : null}
+                        </article>
+                      );
+                    })}
                   </div>
-                </details>
-              ))}
-              {deductions.map((deduction) => (
-                <div key={deduction.id} className="rounded-[14px] border border-[#5A341F] bg-[#17110D] px-3 py-2.5">
-                  <div className="flex justify-between gap-3 text-sm"><span className="font-medium text-[#F5F7FB]">{deduction.description || 'Deducible'}</span><span className="font-semibold text-orange-300">-{money(deduction.amount_usd)}</span></div>
-                  {deduction.notes ? <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">{deduction.notes}</div> : null}
-                </div>
-              ))}
+                )
+              ) : null}
+
+              {activeDetail === 'clients-own' || activeDetail === 'clients-assigned' ? (
+                detailClients.length === 0 ? (
+                  <EmptyBlock title="Sin clientes" detail="No hay clientes nuevos de este tipo en el período." />
+                ) : (
+                  <div className="space-y-2">
+                    {detailClients.map((client, index) => {
+                      const orderId = numberValue(client.orderId);
+                      const firstOrderTotal = getClientFirstOrderTotal(client);
+                      return (
+                        <article key={`${client.clientId}-${index}`} className="rounded-[16px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-[#F5F7FB]">{client.clientName || 'Cliente'}</div>
+                              <div className="mt-1 text-xs text-[#8B93A7]">
+                                {activeDetail === 'clients-own' ? 'Cliente propio' : 'Cliente asignado'} · Alta {dateLabel(client.createdAt)}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-sm font-semibold text-[#F5F7FB]">{money(firstOrderTotal)}</div>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
+                            <span>Primera orden {client.orderNumber || (orderId > 0 ? formatOrderDisplayNumber(orderId) : 'sin número')}</span>
+                            {orderId > 0 ? (
+                              <Link
+                                href={withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, returnTo)}
+                                className="font-semibold text-[#F7DA66]"
+                              >
+                                Abrir
+                              </Link>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )
+              ) : null}
+
+              {activeDetail === 'products' ? (
+                productsByName.size === 0 ? (
+                  <EmptyBlock title="Sin productos" detail="El cierre no contiene líneas de producto." />
+                ) : (
+                  <div className="space-y-2">
+                    {Array.from(productsByName.entries()).map(([name, product]) => (
+                      <div key={name} className="flex items-center justify-between gap-3 rounded-[14px] bg-[#0D1017] px-3 py-2.5 text-sm">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-[#F5F7FB]">{name}</div>
+                          <div className="text-xs text-[#8B93A7]">{product.rows} orden{product.rows === 1 ? '' : 'es'}</div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="font-semibold text-[#F5F7FB]">{product.qty} ítems</div>
+                          <div className="text-xs text-[#8B93A7]">Base {money(product.baseUsd)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : null}
+
+              {activeDetail === 'gifts' ? (
+                giftsByName.size === 0 ? (
+                  <EmptyBlock title="Sin obsequios" detail="No se registraron obsequios en este período." />
+                ) : (
+                  <div className="space-y-2">
+                    {Array.from(giftsByName.entries()).map(([name, gift]) => (
+                      <details key={name} className="rounded-[14px] border border-[#232632] bg-[#0D1017] px-3 py-2.5">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm">
+                          <span className="font-medium text-[#F5F7FB]">{name} · {gift.qty} ítems</span>
+                          <span className="text-orange-300">-{money(gift.deductionUsd)}</span>
+                        </summary>
+                        <div className="mt-2 space-y-2 border-t border-[#232632] pt-2">
+                          {gift.rows.map((row, index) => {
+                            const orderId = numberValue(row.orderId);
+                            return (
+                              <div key={`${row.orderId}-${index}`} className="flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
+                                <span className="min-w-0 truncate">{row.clientName || 'Cliente'} · Orden {formatOrderDisplayNumber(orderId)}</span>
+                                <span className="shrink-0">{row.qty}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )
+              ) : null}
+
+              {activeDetail === 'deductions' ? (
+                deductions.length === 0 ? (
+                  <EmptyBlock title="Sin deducibles" detail="No se aplicaron deducibles manuales en este cierre." />
+                ) : (
+                  <div className="space-y-2">
+                    {deductions.map((deduction) => (
+                      <div key={deduction.id} className="rounded-[14px] border border-[#5A341F] bg-[#17110D] px-3 py-2.5">
+                        <div className="flex justify-between gap-3 text-sm">
+                          <span className="font-medium text-[#F5F7FB]">{deduction.description || 'Deducible'}</span>
+                          <span className="font-semibold text-orange-300">-{money(deduction.amount_usd)}</span>
+                        </div>
+                        {deduction.notes ? <div className="mt-1 text-xs leading-5 text-[#AAB2C5]">{deduction.notes}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : null}
+              </SectionCard>
             </div>
-          </SectionCard>
+          ) : null}
         </>
       ) : null}
     </div>
