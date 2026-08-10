@@ -122,6 +122,22 @@ estabilizada:
 3. agregar un contador compacto de alertas de inventario en la cabecera de
    Operación cuando la API final de alertas quede estabilizada.
 
+Auditado el 2026-08-10: la relación orden-fuente futura todavía no puede
+presentarse de forma honesta. `inventory_planned_flows.depends_on_flow_id`
+existe, pero `inventory_materialize_order_commitment_v1` crea cada
+`order_commitment` con ese campo en `null`. En la base viva hay 364 compromisos
+materializados (20 activos, 65 cancelados y 279 cumplidos) y ninguno conserva
+una dependencia explícita. El mismo campo sí se usa actualmente para enlazar
+una recepción esperada con la expectativa que reemplaza; no significa que una
+orden dependa de esa recepción.
+
+Por tanto, Master Ops no debe emparejar órdenes y suministros por producto,
+cantidad o fecha. Antes de implementar el punto 1, el contrato de inventario
+debe persistir la fuente elegida en el compromiso de orden —o en otra relación
+canónica equivalente— y definir su ciclo de vida cuando la fuente se reprograma,
+se cancela, se recibe o cambia la orden. La interfaz podrá leer ese vínculo una
+vez exista, sin reconstruirlo por inferencia.
+
 Implementado el 2026-08-10: el adaptador de inventario de Master consume
 `inventory_reporting_workspace_v1` para mostrar por ítem el último conteo
 físico, cantidad contada, responsable, fecha y antigüedad. El dato se calcula en
@@ -149,7 +165,8 @@ datos.
 
 ## Pendientes acumulados
 
-1. Dependencias estructuradas entre órdenes y fuentes futuras.
+1. Persistir canónicamente las dependencias entre órdenes y fuentes futuras;
+   la columna existe, pero hoy todos los compromisos de orden la dejan nula.
 2. Decisión estructurada de aprobar bajo riesgo o condicionar una orden a
    reposición/producción.
 3. Contador compacto de alertas de inventario en la cabecera de Operación cuando
