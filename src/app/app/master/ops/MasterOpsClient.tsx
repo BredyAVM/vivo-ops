@@ -14,7 +14,10 @@ import {
   isRecognizedBillingOrder,
   isScheduledClosingOrder,
 } from "@/lib/domain/order-domain";
-import type { OrderClientFundPayout } from "@/lib/finance/order-client-fund-payouts";
+import type {
+  OrderFinancialActivity,
+  OrderFinancialActivityType,
+} from "@/lib/finance/order-financial-activity";
 import { parseDecimalInput } from "@/lib/number-input";
 import {
   ORDER_STATUS_LABELS,
@@ -97,7 +100,7 @@ const MasterOpsInboxDrawer = dynamic(() => import("./MasterOpsInboxDrawer"), { s
 export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder & {
   clientFundUsedUsd: number;
-  clientFundPayouts?: OrderClientFundPayout[];
+  financialActivity?: OrderFinancialActivity[];
   pendingBs: number | null;
   paymentCollectionMode: string | null;
   paymentStateOperationDate: string | null;
@@ -732,52 +735,77 @@ function RowProcessTimeline({ order }: { order: MasterOpsOrder }) {
   );
 }
 
-function MasterOpsFundPayoutHistory({ payouts }: { payouts: OrderClientFundPayout[] }) {
-  if (payouts.length === 0) return null;
+const MASTER_OPS_ACTIVITY_LABEL: Record<OrderFinancialActivityType, string> = {
+  payment_received: "Pago recibido",
+  change_given: "Cambio entregado",
+  fund_stored: "Guardado en fondo",
+  fund_paid_out: "Fondo devuelto",
+  fund_applied: "Fondo aplicado",
+  fund_restored: "Fondo restaurado",
+  fund_reversed: "Fondo revertido",
+  refund_paid: "Devolución entregada",
+};
+
+const MASTER_OPS_ACTIVITY_TONE: Record<OrderFinancialActivityType, string> = {
+  payment_received: "border-emerald-500/25 bg-emerald-500/5",
+  change_given: "border-amber-500/25 bg-amber-500/5",
+  fund_stored: "border-violet-500/25 bg-violet-500/5",
+  fund_paid_out: "border-sky-500/25 bg-sky-500/5",
+  fund_applied: "border-emerald-500/25 bg-emerald-500/5",
+  fund_restored: "border-violet-500/25 bg-violet-500/5",
+  fund_reversed: "border-rose-500/25 bg-rose-500/5",
+  refund_paid: "border-sky-500/25 bg-sky-500/5",
+};
+
+function MasterOpsFinancialActivity({ activity }: { activity: OrderFinancialActivity[] }) {
+  if (activity.length === 0) return null;
 
   return (
-    <div className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
+    <div className="mt-3 rounded-xl border border-[#2A2A33] bg-[#101014] p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold text-[#F5F5F7]">Devoluciones de fondo</div>
+          <div className="text-sm font-semibold text-[#F5F5F7]">Movimientos confirmados</div>
           <div className="mt-1 text-[11px] text-[#8A8A96]">
-            Dinero del fondo del cliente entregado después del cobro.
+            Recorrido cronológico del dinero asociado a esta orden.
           </div>
         </div>
-        <span className="rounded-full border border-sky-500/30 bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-sky-200">
-          {payouts.length}
+        <span className="rounded-full border border-[#30303A] bg-[#0B0B0D] px-2 py-0.5 text-[11px] text-[#B7B7C2]">
+          {activity.length}
         </span>
       </div>
 
       <div className="mt-3 space-y-2">
-        {payouts.map((payout) => {
-          const amountLabel = payout.currencyCode === "VES"
-            ? formatMasterOrderBs(payout.amount)
-            : `${payout.currencyCode} ${payout.amount.toFixed(2)}`;
+        {activity.map((movement, index) => {
+          const amountLabel = movement.currencyCode === "VES"
+            ? formatMasterOrderBs(movement.amount)
+            : `${movement.currencyCode} ${movement.amount.toFixed(2)}`;
 
           return (
-            <div key={payout.id} className="rounded-lg border border-sky-500/20 bg-[#0B0B0D] px-3 py-3">
+            <div key={movement.key} className={`rounded-lg border px-3 py-3 ${MASTER_OPS_ACTIVITY_TONE[movement.type]}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-[#F5F5F7]">
-                    Fondo devuelto · {amountLabel}
-                    {payout.currencyCode !== "USD" ? ` · ${formatMasterOrderUSD(payout.amountUsd)}` : null}
+                    {index + 1}. {MASTER_OPS_ACTIVITY_LABEL[movement.type]} · {amountLabel}
+                    {movement.currencyCode !== "USD" ? ` · ${formatMasterOrderUSD(movement.amountUsd)}` : null}
                   </div>
                   <div className="mt-1 text-[11px] text-[#8A8A96]">
-                    {payout.moneyAccountName} · {formatMasterOrderDateTime(payout.createdAt)}
+                    {formatMasterOrderDateTime(movement.occurredAt)}
+                    {movement.moneyAccountName ? ` · ${movement.moneyAccountName}` : ""}
                   </div>
                 </div>
-                <span className="shrink-0 rounded-full bg-sky-400 px-2 py-0.5 text-[10px] font-semibold text-[#0B0B0D]">
-                  ENTREGADO
+                <span className="shrink-0 rounded-full border border-white/10 bg-[#0B0B0D] px-2 py-0.5 text-[10px] font-semibold text-[#D7D7DE]">
+                  CONFIRMADO
                 </span>
               </div>
               <div className="mt-2 grid gap-1 text-[11px] text-[#B7B7C2] sm:grid-cols-2">
-                <div>Registrado por: <span className="text-[#F5F5F7]">{payout.actorName}</span></div>
-                <div>Salida desde: <span className="text-[#F5F5F7]">{payout.moneyAccountName}</span></div>
+                <div>Registrado por: <span className="text-[#F5F5F7]">{movement.actorName}</span></div>
+                {movement.referenceCode ? (
+                  <div>Referencia: <span className="text-[#F5F5F7]">{movement.referenceCode}</span></div>
+                ) : null}
               </div>
-              {payout.notes ? (
+              {movement.notes ? (
                 <div className="mt-2 text-[11px] text-[#B7B7C2]">
-                  Nota: <span className="text-[#F5F5F7]">{payout.notes}</span>
+                  Nota: <span className="text-[#F5F5F7]">{movement.notes}</span>
                 </div>
               ) : null}
             </div>
@@ -1750,7 +1778,8 @@ function OrderDetailPanel({
                         />
                       </div>
 
-                      {order.clientFundUsedUsd > 0.005 ? (
+                      {order.clientFundUsedUsd > 0.005 &&
+                      !(order.financialActivity ?? []).some((movement) => movement.type === "fund_applied") ? (
                         <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -1768,7 +1797,7 @@ function OrderDetailPanel({
                         </div>
                       ) : null}
 
-                      <MasterOpsFundPayoutHistory payouts={order.clientFundPayouts ?? []} />
+                      <MasterOpsFinancialActivity activity={order.financialActivity ?? []} />
                     </>
                   ) : null}
                   <MasterOrderDetailBody

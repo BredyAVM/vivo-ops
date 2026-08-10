@@ -11,7 +11,10 @@ import {
 } from '@/lib/orders/order-labels';
 import { getOrderLineTotalBs, getOrderMoneySnapshot } from '@/lib/orders/order-money';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
-import { mapOrderClientFundPayouts } from '@/lib/finance/order-client-fund-payouts';
+import {
+  mapOrderFinancialActivity,
+  type OrderFinancialActivityType,
+} from '@/lib/finance/order-financial-activity';
 import {
   buildWhatsAppOrderSummaryText,
   cleanWhatsAppUnitsFromName,
@@ -194,6 +197,28 @@ const ACTION_EVENT_TYPES = new Set([
   'payment_rejected',
 ]);
 
+const ADVISOR_FINANCIAL_ACTIVITY_LABEL: Record<OrderFinancialActivityType, string> = {
+  payment_received: 'Pago recibido',
+  change_given: 'Cambio entregado',
+  fund_stored: 'Guardado en fondo',
+  fund_paid_out: 'Fondo devuelto',
+  fund_applied: 'Fondo aplicado',
+  fund_restored: 'Fondo restaurado',
+  fund_reversed: 'Fondo revertido',
+  refund_paid: 'Devolución entregada',
+};
+
+const ADVISOR_FINANCIAL_ACTIVITY_TONE: Record<OrderFinancialActivityType, string> = {
+  payment_received: 'border-emerald-500/25 bg-[#0D1712]',
+  change_given: 'border-amber-500/25 bg-[#17140C]',
+  fund_stored: 'border-violet-500/25 bg-[#130F1B]',
+  fund_paid_out: 'border-sky-500/25 bg-[#0C151C]',
+  fund_applied: 'border-emerald-500/25 bg-[#0D1712]',
+  fund_restored: 'border-violet-500/25 bg-[#130F1B]',
+  fund_reversed: 'border-rose-500/25 bg-[#190E12]',
+  refund_paid: 'border-sky-500/25 bg-[#0C151C]',
+};
+
 function safeText(value: unknown, fallback = 'Sin dato') {
   const text = String(value ?? '').trim();
   return text || fallback;
@@ -249,6 +274,14 @@ function paymentTone(status: PaymentReportRow['status']): 'warning' | 'success' 
   if (status === 'confirmed') return 'success';
   if (status === 'rejected') return 'danger';
   return 'warning';
+}
+
+function advisorFinancialActivityLabel(type: OrderFinancialActivityType) {
+  return ADVISOR_FINANCIAL_ACTIVITY_LABEL[type];
+}
+
+function advisorFinancialActivityTone(type: OrderFinancialActivityType) {
+  return ADVISOR_FINANCIAL_ACTIVITY_TONE[type];
 }
 
 function paymentMethodCopyLabel(value: string | null | undefined) {
@@ -858,7 +891,7 @@ export default async function AdvisorOrderDetailPage({
   const [
     itemsResult,
     paymentsResult,
-    fundPayoutsResult,
+    financialActivityResult,
     historyResults,
     exchangeRateResult,
   ] = await Promise.all([
@@ -874,7 +907,7 @@ export default async function AdvisorOrderDetailPage({
         )
         .eq('order_id', orderId)
         .order('created_at', { ascending: false }),
-      ctx.supabase.rpc('read_order_client_fund_payouts', {
+      ctx.supabase.rpc('read_order_financial_activity', {
         p_order_id: orderId,
       }),
       Promise.all([
@@ -900,10 +933,10 @@ export default async function AdvisorOrderDetailPage({
 
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const payments = (paymentsResult.data ?? []) as PaymentReportRow[];
-  if (fundPayoutsResult.error) {
-    console.warn('read_order_client_fund_payouts skipped in advisor order detail', fundPayoutsResult.error.message);
+  if (financialActivityResult.error) {
+    console.warn('read_order_financial_activity skipped in advisor order detail', financialActivityResult.error.message);
   }
-  const clientFundPayouts = mapOrderClientFundPayouts(fundPayoutsResult.data);
+  const financialActivity = mapOrderFinancialActivity(financialActivityResult.data);
   const [legacyEventsResult, timelineEventsResult] = historyResults;
   const rawTimeline = dedupeEvents([
     ...((legacyEventsResult.data ?? []) as RawTimelineEvent[]).map((event) => ({ ...event, source: 'legacy' as const })),
@@ -1410,9 +1443,10 @@ export default async function AdvisorOrderDetailPage({
           ) : null}
         </div>
 
-        {payments.length > 0 || clientFundUsedUsd > 0.005 || clientFundPayouts.length > 0 ? (
+        {payments.length > 0 || clientFundUsedUsd > 0.005 || financialActivity.length > 0 ? (
           <div className="mt-3 space-y-2.5">
-            {clientFundUsedUsd > 0.005 ? (
+            {clientFundUsedUsd > 0.005 &&
+            !financialActivity.some((movement) => movement.type === 'fund_applied') ? (
               <article className="rounded-[18px] border border-emerald-500/25 bg-[#0D1712] px-3.5 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1432,33 +1466,50 @@ export default async function AdvisorOrderDetailPage({
               </article>
             ) : null}
 
-            {clientFundPayouts.map((payout) => (
-              <article
-                key={`fund-payout-${payout.id}`}
-                className="rounded-[18px] border border-sky-500/25 bg-[#0C151C] px-3.5 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
+            {financialActivity.length > 0 ? (
+              <div className="rounded-[18px] border border-[#232632] bg-[#0B0F16] px-3.5 py-3">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-[#F5F7FB]">
-                      Fondo devuelto · {payout.currencyCode === 'VES'
-                        ? formatBs(payout.amount)
-                        : `${payout.currencyCode} ${payout.amount.toFixed(2)}`}
-                      {payout.currencyCode !== 'USD' ? ` · ${formatUsd(payout.amountUsd)}` : null}
-                    </div>
+                    <div className="text-sm font-medium text-[#F5F7FB]">Movimientos confirmados</div>
                     <div className="mt-1 text-xs text-[#8B93A7]">
-                      {payout.moneyAccountName} · {formatDateTime(payout.createdAt)}
+                      Recorrido cronológico del dinero asociado a la orden.
                     </div>
                   </div>
-                  <StatusBadge label="Entregado" tone="success" />
+                  <span className="rounded-full border border-[#303544] px-2 py-0.5 text-[11px] text-[#AAB2C5]">
+                    {financialActivity.length}
+                  </span>
                 </div>
-                <div className="mt-2 grid gap-1 text-xs leading-5 text-[#AAB2C5]">
-                  <div>Registrado por: {payout.actorName}</div>
-                  <div>Salida desde: {payout.moneyAccountName}</div>
-                  {payout.notes ? <div>Nota: {payout.notes}</div> : null}
-                  <div>Esta devolución reduce el fondo del cliente; no es un pago nuevo de la orden.</div>
+                <div className="mt-3 space-y-2">
+                  {financialActivity.map((movement, index) => (
+                    <article
+                      key={movement.key}
+                      className={`rounded-[15px] border px-3 py-2.5 ${advisorFinancialActivityTone(movement.type)}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-[#F5F7FB]">
+                            {index + 1}. {advisorFinancialActivityLabel(movement.type)} · {movement.currencyCode === 'VES'
+                              ? formatBs(movement.amount)
+                              : `${movement.currencyCode} ${movement.amount.toFixed(2)}`}
+                            {movement.currencyCode !== 'USD' ? ` · ${formatUsd(movement.amountUsd)}` : null}
+                          </div>
+                          <div className="mt-1 text-xs text-[#8B93A7]">
+                            {formatDateTime(movement.occurredAt)}
+                            {movement.moneyAccountName ? ` · ${movement.moneyAccountName}` : ''}
+                          </div>
+                        </div>
+                        <StatusBadge label="Confirmado" tone="success" />
+                      </div>
+                      <div className="mt-2 grid gap-1 text-xs leading-5 text-[#AAB2C5]">
+                        <div>Registrado por: {movement.actorName}</div>
+                        {movement.referenceCode ? <div>Referencia: {movement.referenceCode}</div> : null}
+                        {movement.notes ? <div>Nota: {movement.notes}</div> : null}
+                      </div>
+                    </article>
+                  ))}
                 </div>
-              </article>
-            ))}
+              </div>
+            ) : null}
 
             {payments.map((paymentReport) => (
               <article

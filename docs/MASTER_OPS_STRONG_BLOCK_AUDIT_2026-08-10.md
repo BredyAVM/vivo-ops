@@ -59,7 +59,7 @@ La ruta nueva `/app/master/ops/finance`:
 Quedan deliberadamente fuera: configuración de cuentas, estados de cuenta,
 conciliaciones, cierres, líneas base y ajustes contables administrativos.
 
-### Estado: devolución de fondo visible; otras salidas pendientes
+### Estado: trazabilidad financiera cronologica cerrada
 
 Cuando se devuelve al cliente dinero que tenía en fondo, la salida ya queda
 registrada en caja y en el libro contable, pero no aparece dentro de la orden
@@ -69,33 +69,31 @@ secuencia completa sin consultar la contabilidad.
 
 Implementado el 2026-08-10:
 
-- la devolución posterior de dinero guardado en fondo se proyecta desde
-  `client_fund_movements` con `reason_code = client_fund_payout`;
-- aparece dentro de la pestaña `Pagos` de la orden en Master Ops y en el detalle
-  autorizado del Asesor;
+- `read_order_financial_activity(bigint)` combina, sin mutar, hechos confirmados
+  de `money_movements` y `client_fund_movements`;
+- limita la lectura al Master/Admin o al asesor atribuido a la orden;
+- presenta en orden cronologico pagos recibidos, fondo aplicado, cambio
+  entregado, fondo neto guardado, restauraciones/reversiones, devoluciones por
+  cancelacion y devoluciones posteriores del fondo;
 - muestra moneda, monto original, equivalente USD cuando aplica, cuenta, fecha,
-  actor y nota;
-- `read_order_client_fund_payouts(bigint)` limita la lectura al Master/Admin o al
-  asesor atribuido a esa orden, sin abrir el resto del historial del fondo;
-- la proyección no crea pagos, reportes ni asientos nuevos y no altera el saldo
-  financiero de la orden.
+  actor, referencia y nota disponibles;
+- conserva los reportes de pago debajo como evidencia separada; la secuencia
+  muestra solo movimientos confirmados y no confunde un reporte pendiente con
+  dinero real;
+- no crea pagos, reportes ni asientos nuevos y no altera el saldo financiero de
+  la orden.
 
-Queda pendiente para una ampliación posterior:
+Caso de control `orders.id = 1744`:
 
-- mostrar también el cambio entregado, devoluciones por cancelación y otras
-  salidas monetarias vinculadas a la orden;
-- indicar tipo de operación, moneda, monto, cuenta o caja, fecha de operación,
-  actor y nota;
-- distinguir claramente entradas, fondo aplicado y salidas al cliente;
-- compartir una proyección legible entre Master Ops y la vista autorizada del
-  Asesor;
-- reutilizar `money_movements` y sus vínculos existentes como fuente de verdad;
-- no crear un segundo pago, reporte ni movimiento solo para que aparezca en la
-  interfaz.
+1. pago recibido: USD 100,00;
+2. cambio entregado: USD 20,00;
+3. excedente neto guardado en fondo: USD 40,40;
+4. fondo devuelto posteriormente: VES 30.608,66, equivalente a USD 40,40.
 
-Antes de implementarla se debe auditar cómo quedan enlazados actualmente el
-`order_id`, el cliente, la cuenta y las líneas de cambio/devolución en cada flujo.
-La ausencia actual es de trazabilidad visual, no de registro contable.
+Counter habia generado un credito temporal de USD 60,40 y una reversion de USD
+20,00 por el cambio fisico. La proyeccion agrupa ambos asientos del mismo momento
+y muestra el hecho de negocio correcto: USD 40,40 realmente guardados. La falla
+era de trazabilidad visual, no de persistencia contable.
 
 ## Inventario: acciones de Master confirmadas
 

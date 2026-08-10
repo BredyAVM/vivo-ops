@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireMasterOrAdminContext } from "@/lib/auth";
 import {
-  mapOrderClientFundPayouts,
-  type OrderClientFundPayout,
-} from "@/lib/finance/order-client-fund-payouts";
+  mapOrderFinancialActivity,
+  type OrderFinancialActivity,
+} from "@/lib/finance/order-financial-activity";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { getPhoneSearchTerms } from "@/lib/phone/normalize-phone";
@@ -56,7 +56,7 @@ export type MasterOpsOrderSearchResult = {
 export type MasterOpsOrderDetailPayload = {
   lines: MasterOrderDetailLine[];
   paymentReports: MasterOrderPaymentReport[];
-  clientFundPayouts: OrderClientFundPayout[];
+  financialActivity: OrderFinancialActivity[];
   events: MasterOrderEvent[];
   adminAdjustments: MasterOrderAdminAdjustment[];
   pickupChangeRequests: CounterPickupChangeRequest[];
@@ -179,7 +179,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       orderEventsResult,
       orderAdjustmentsResult,
       pickupChangeRequestsResult,
-      clientFundPayoutsResult,
+      financialActivityResult,
     ] = await Promise.all([
       supabase.from("orders").select("id, status").eq("id", orderId).maybeSingle(),
       loadOrderItems(),
@@ -216,7 +216,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       supabase.rpc("counter_read_pickup_change_requests", {
         p_order_id: orderId,
       }),
-      supabase.rpc("read_order_client_fund_payouts", {
+      supabase.rpc("read_order_financial_activity", {
         p_order_id: orderId,
       }),
     ]);
@@ -228,7 +228,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       orderEventsResult.error ??
       orderAdjustmentsResult.error ??
       pickupChangeRequestsResult.error ??
-      clientFundPayoutsResult.error;
+      financialActivityResult.error;
     if (firstError) throw new Error(firstError.message);
     if (!orderResult.data) throw new Error("No se pudo cargar la orden.");
 
@@ -256,7 +256,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
     const orderEvents = (orderEventsResult.data ?? []) as MasterOpsDetailEventRow[];
     const orderAdjustments = (orderAdjustmentsResult.data ?? []) as MasterOpsDetailAdjustmentRow[];
     const pickupChangeRequestRows = asOpsArray(pickupChangeRequestsResult.data);
-    const clientFundPayouts = mapOrderClientFundPayouts(clientFundPayoutsResult.data);
+    const financialActivity = mapOrderFinancialActivity(financialActivityResult.data);
     const productIds = Array.from(
       new Set(orderItems.map((item) => Number(item.product_id)).filter((id) => Number.isFinite(id) && id > 0))
     );
@@ -438,7 +438,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       detail: {
         lines,
         paymentReports: mappedPaymentReports,
-        clientFundPayouts,
+        financialActivity,
         events,
         adminAdjustments,
         pickupChangeRequests,
