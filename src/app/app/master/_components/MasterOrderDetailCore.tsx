@@ -481,12 +481,14 @@ export function MasterOrderDetailBody({
   actionLabel,
   showDeliveryProcessDetails = true,
   showPaymentExchangeRate = true,
+  renderPaymentReportAction,
 }: {
   order: MasterOrderDetailOrder;
   activeTab: MasterOrderDetailTab;
   actionLabel: string;
   showDeliveryProcessDetails?: boolean;
   showPaymentExchangeRate?: boolean;
+  renderPaymentReportAction?: (report: MasterOrderPaymentReport) => ReactNode;
 }) {
   const paymentLabel = masterOrderPaymentLabel(order);
   const paidTone = masterOrderPaymentTone(order);
@@ -674,18 +676,21 @@ export function MasterOrderDetailBody({
                         {report.moneyAccountName} - {report.createdAt ? formatMasterOrderDateTime(report.createdAt) : "--"}
                       </div>
                     </div>
-                    <span
-                      className={[
-                        "rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                        report.status === "pending"
-                          ? "bg-orange-500 text-[#0B0B0D]"
-                          : report.status === "confirmed"
-                            ? "bg-emerald-500 text-[#0B0B0D]"
-                            : "bg-red-500 text-[#0B0B0D]",
-                      ].join(" ")}
-                    >
-                      {report.status === "pending" ? "PENDIENTE" : report.status === "confirmed" ? "CONFIRMADO" : "RECHAZADO"}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {renderPaymentReportAction?.(report)}
+                      <span
+                        className={[
+                          "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          report.status === "pending"
+                            ? "bg-orange-500 text-[#0B0B0D]"
+                            : report.status === "confirmed"
+                              ? "bg-emerald-500 text-[#0B0B0D]"
+                              : "bg-red-500 text-[#0B0B0D]",
+                        ].join(" ")}
+                      >
+                        {report.status === "pending" ? "PENDIENTE" : report.status === "confirmed" ? "CONFIRMADO" : "RECHAZADO"}
+                      </span>
+                    </div>
                   </div>
                   <div className="mt-2 grid gap-1 text-[11px] text-[#B7B7C2] sm:grid-cols-2">
                     <div>Reportado por: <span className="text-[#F5F5F7]">{report.reporterName}</span></div>

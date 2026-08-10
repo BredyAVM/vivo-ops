@@ -80,6 +80,8 @@ import type { CounterPickupChangeRequest } from "../../counter/pickup-contract";
 import type { MasterOpsInboxItem, MasterOpsInboxKind } from "./inbox-actions";
 import MasterOpsAlerts from "./MasterOpsAlerts";
 import MasterOpsOrderEditor from "./MasterOpsOrderEditor";
+import MasterOpsSignOutButton from "./MasterOpsSignOutButton";
+import PaymentVerificationCopyButton from "./PaymentVerificationCopyButton";
 import {
   canAssignMasterOpsDelivery,
   canClearMasterOpsDeliveryAssignment,
@@ -1715,6 +1717,11 @@ function OrderDetailPanel({
                     order={order}
                     showDeliveryProcessDetails={false}
                     showPaymentExchangeRate={false}
+                    renderPaymentReportAction={(report) => (
+                      <PaymentVerificationCopyButton
+                        input={{ orderId: order.id, clientName: order.clientName, report }}
+                      />
+                    )}
                   />
                 </>
               )}
@@ -4120,6 +4127,7 @@ export default function MasterOpsClient({
                     </Link>
                   </div>
                 </div>
+                <MasterOpsSignOutButton />
               </div>
             </div>
           </div>
