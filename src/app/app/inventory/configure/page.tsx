@@ -61,7 +61,7 @@ type RawProductLink = {
 };
 
 type ConfigureView = 'edit' | 'activate' | 'create';
-type ConfigureSearchParams = Promise<{ view?: string }>;
+type ConfigureSearchParams = Promise<{ view?: string; itemId?: string }>;
 
 export default async function InventoryConfigurePage({
   searchParams,
@@ -77,7 +77,12 @@ export default async function InventoryConfigurePage({
     redirect('/app/inventory');
   }
 
-  const requestedView = (await searchParams)?.view;
+  const resolvedSearchParams = await searchParams;
+  const requestedView = resolvedSearchParams?.view;
+  const requestedItemId = Number(resolvedSearchParams?.itemId ?? 0);
+  const initialItemId = Number.isSafeInteger(requestedItemId) && requestedItemId > 0
+    ? requestedItemId
+    : null;
   const view: ConfigureView = requestedView === 'activate' || requestedView === 'create'
     ? requestedView
     : 'edit';
@@ -291,7 +296,9 @@ export default async function InventoryConfigurePage({
         </div>
       </section>
 
-      {view === 'edit' ? <InventoryAdministrationClient workspace={administrationWorkspace} /> : null}
+      {view === 'edit' ? (
+        <InventoryAdministrationClient workspace={administrationWorkspace} initialItemId={initialItemId} />
+      ) : null}
       {view === 'activate' ? (
         <InventoryActivationQueueClient
           queue={repairInventoryDisplayData(activationQueueResult.data as InventoryActivationQueue)}

@@ -208,12 +208,14 @@ function recipeKey(outputItemId: number, kind: AdminRecipe['recipe_kind']) {
 
 export default function InventoryAdministrationClient({
   workspace,
+  initialItemId = null,
 }: {
   workspace: InventoryAdminWorkspace;
+  initialItemId?: number | null;
 }) {
   const [editor, setEditor] = useState<Editor>('item');
   const [productId, setProductId] = useState('');
-  const [itemId, setItemId] = useState('');
+  const [itemId, setItemId] = useState(initialItemId ? String(initialItemId) : '');
   const [itemSearch, setItemSearch] = useState('');
   const [recipeOutputId, setRecipeOutputId] = useState('');
   const [recipeKind, setRecipeKind] = useState<AdminRecipe['recipe_kind']>('production');
