@@ -466,3 +466,29 @@ reversible están en:
 La certificación no convierte inventario en un veto. Los mínimos todavía no
 definidos, los conteos por adoptar y los ajustes posteriores de rutas de alerta
 son configuración operativa; ninguna de esas tareas puede frenar una orden.
+
+## 20. Fase 1 operativa de Inventario General
+
+La Fase 1 reorganiza exclusivamente el dominio administrativo `/app/inventory`.
+No modifica las pantallas de Máster, Cocina, Asesor, Counter ni Finanzas. La
+portada usa `inventory_reporting_workspace_v1(10)` como lectura única de saldo,
+compromisos, entradas, capacidad, mínimos y último conteo. La consulta se ejecuta
+al abrir Inventario General y no forma parte de la carga inicial de la dashboard.
+
+Cada ítem conserva una frecuencia principal en
+`inventory_items.primary_count_frequency`. Un valor nulo se presenta como
+`Solo por solicitud`: queda fuera de los cierres programados, pero puede contarse
+puntualmente. Una frecuencia programada requiere un responsable en
+`primary_count_role`.
+
+Los mínimos, objetivos, temporalidad y estados no crean otra entidad. Se
+reutilizan `low_stock_threshold`, `target_stock_units`, `is_temporary` e
+`is_active`. Las funciones `inventory_set_product_active_status_v1` e
+`inventory_set_item_active_status_v1` permiten un retiro reversible, conservan
+historial y saldo, validan dependencias activas y nunca bloquean órdenes. Los
+productos abiertos en órdenes existentes conservan su snapshot comercial.
+
+La siguiente fase pertenece a Máster: debe consumir una proyección reducida para
+monitorear, registrar entradas esperadas y decidir suspensiones comerciales
+explícitas. Después se adapta Cocina a sus listas por frecuencia. Esas fases no
+deben trasladar el configurador administrativo completo a sus módulos.
