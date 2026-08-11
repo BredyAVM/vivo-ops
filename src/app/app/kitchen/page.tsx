@@ -97,7 +97,7 @@ export default async function KitchenPage() {
     redirect(resolveHomePath(ctx.roles));
   }
 
-  const [profileResult, ordersResult] = await Promise.all([
+  const [profileResult, ordersResult, openInventoryCountsResult, expectedReceiptsResult] = await Promise.all([
     ctx.supabase
       .from('profiles')
       .select('full_name')
@@ -126,12 +126,29 @@ export default async function KitchenPage() {
       .order('sent_to_kitchen_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
       .limit(120),
+    ctx.supabase
+      .from('inventory_counts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open')
+      .eq('responsible_role', 'kitchen'),
+    ctx.supabase
+      .from('inventory_planned_flows')
+      .select('id', { count: 'exact', head: true })
+      .eq('flow_type', 'expected_receipt')
+      .eq('status', 'active'),
   ]);
   const { data: profile } = profileResult;
   const { data: ordersData, error: ordersError } = ordersResult;
 
   if (ordersError) {
     throw new Error(ordersError.message);
+  }
+
+  if (openInventoryCountsResult.error) {
+    console.warn('Kitchen inventory count badge unavailable', openInventoryCountsResult.error.message);
+  }
+  if (expectedReceiptsResult.error) {
+    console.warn('Kitchen expected receipt badge unavailable', expectedReceiptsResult.error.message);
   }
 
   const rawOrders = (ordersData ?? []) as unknown as RawKitchenOrder[];
@@ -353,6 +370,10 @@ export default async function KitchenPage() {
       orders={orders}
       changeAlerts={changeAlerts}
       incidentAlerts={incidentAlerts}
+      inventoryTaskCount={
+        Number(openInventoryCountsResult.count || 0)
+        + Number(expectedReceiptsResult.count || 0)
+      }
     />
   );
 }

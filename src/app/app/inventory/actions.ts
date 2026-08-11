@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireAuthContext, requireMasterOrAdminContext } from '@/lib/auth';
 import { notifyCanonicalCatalogPriceChangeAction } from '@/app/app/master/dashboard/actions';
+import { sendPushToRoleDevices } from '@/lib/push';
 
 type CountLineInput = {
   inventoryItemId: number;
@@ -136,6 +137,7 @@ function normalizeDateTime(value: unknown, label: string) {
 }
 
 function revalidateInventoryReceiptRoutes() {
+  revalidatePath('/app/kitchen');
   revalidatePath('/app/inventory');
   revalidatePath('/app/inventory/operations');
   revalidatePath('/app/kitchen/inventory/receipts');
@@ -184,6 +186,8 @@ function serializeLines(lines: CountLineInput[]) {
 }
 
 function revalidateInventoryCountRoutes(countId: number) {
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/kitchen/inventory/counts');
   revalidatePath('/app/inventory');
   revalidatePath('/app/inventory/opening');
   revalidatePath('/app/inventory/counts');
@@ -900,6 +904,22 @@ export async function reviewInventoryCountAction(input: {
   revalidateInventoryCountRoutes(countId);
   if (recountCountId != null) {
     revalidateInventoryCountRoutes(recountCountId);
+    try {
+      await sendPushToRoleDevices({
+        roles: ['kitchen'],
+        title: 'Reconteo solicitado',
+        body: `Master solicito revisar nuevamente el conteo #${countId}.`,
+        url: '/app/kitchen/inventory/counts',
+        tag: `kitchen-inventory-recount-${recountCountId}`,
+        tone: 'warning',
+        requireInteraction: true,
+      });
+    } catch (pushError) {
+      console.warn(
+        'kitchen inventory recount push skipped',
+        pushError instanceof Error ? pushError.message : 'unknown push error',
+      );
+    }
   }
 
   return { countId, recountCountId };
@@ -939,6 +959,22 @@ export async function saveInventoryExpectedReceiptAction(input: {
   const expectedFlowId = normalizeCountId(
     (data as { expected_flow_id?: unknown } | null)?.expected_flow_id,
   );
+  try {
+    await sendPushToRoleDevices({
+      roles: ['kitchen'],
+      title: 'Mercancia esperada',
+      body: 'Master registro una recepcion pendiente para Cocina.',
+      url: '/app/kitchen/inventory/receipts',
+      tag: `kitchen-inventory-receipt-${expectedFlowId}`,
+      tone: 'info',
+      requireInteraction: false,
+    });
+  } catch (pushError) {
+    console.warn(
+      'kitchen expected receipt push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
+  }
   revalidateInventoryReceiptRoutes();
   return { expectedFlowId };
 }

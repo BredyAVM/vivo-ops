@@ -7,6 +7,7 @@ export type KitchenConnectionState = 'connecting' | 'live' | 'fallback' | 'offli
 export type KitchenRefreshReason =
   | 'kitchen-event'
   | 'operational-event'
+  | 'inventory-event'
   | 'fallback'
   | 'resume'
   | 'online'
@@ -77,6 +78,11 @@ export function useKitchenLiveSync(
       requestRefresh(reason);
     };
 
+    const handleInventoryEvent = () => {
+      setLastRealtimeEventAt(new Date().toISOString());
+      requestRefresh('inventory-event');
+    };
+
     const channel = supabase
       .channel('kitchen-operational-events')
       .on(
@@ -98,6 +104,26 @@ export function useKitchenLiveSync(
           filter: 'target_role=eq.master',
         },
         (payload) => handleRecipient(payload, 'operational-event')
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory_counts',
+          filter: 'responsible_role=eq.kitchen',
+        },
+        handleInventoryEvent,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'inventory_planned_flows',
+          filter: 'flow_type=eq.expected_receipt',
+        },
+        handleInventoryEvent,
       )
       .subscribe((status) => {
         if (disposed) return;

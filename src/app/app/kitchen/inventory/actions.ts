@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireAuthContext } from '@/lib/auth';
 
 type KitchenCountKind = 'shift_change' | 'requested' | 'recount' | 'periodic';
+type KitchenShiftCode = 'shift_1' | 'shift_2';
 type KitchenLossKind = 'damage' | 'waste' | 'quality_taste';
 
 type CountLineInput = {
@@ -35,6 +36,25 @@ function optionalNote(value: unknown) {
     throw new Error('La nota admite hasta 1.000 caracteres.');
   }
   return normalized;
+}
+
+function businessDate(value: unknown) {
+  const normalized = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error('La fecha operativa no es valida.');
+  }
+  const date = new Date(`${normalized}T12:00:00-04:00`);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error('La fecha operativa no es valida.');
+  }
+  return normalized;
+}
+
+function shiftCode(value: unknown): KitchenShiftCode {
+  if (value !== 'shift_1' && value !== 'shift_2') {
+    throw new Error('Selecciona Turno 1 o Turno 2.');
+  }
+  return value;
 }
 
 function countLines(value: unknown): CountLineInput[] {
@@ -71,6 +91,7 @@ async function requireKitchenInventoryContext() {
 }
 
 function revalidateKitchenInventory() {
+  revalidatePath('/app/kitchen');
   revalidatePath('/app/kitchen/inventory');
   revalidatePath('/app/kitchen/inventory/receipts');
   revalidatePath('/app/kitchen/inventory/production');
@@ -82,6 +103,27 @@ function revalidateKitchenInventory() {
   revalidatePath('/app/inventory/reports');
   revalidatePath('/app/inventory/alerts');
   revalidatePath('/app/master/ops/inventory');
+}
+
+export async function openKitchenInventoryShiftAction(input: {
+  businessDate: string;
+  shiftCode: KitchenShiftCode;
+}) {
+  const ctx = await requireKitchenInventoryContext();
+  const { data, error } = await ctx.supabase.rpc('inventory_open_shift_count_v1', {
+    p_business_date: businessDate(input.businessDate),
+    p_shift_code: shiftCode(input.shiftCode),
+    p_notes: null,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const countId = positiveInteger(
+    (data as { inventory_count_id?: unknown } | null)?.inventory_count_id,
+    'El conteo abierto',
+  );
+  revalidateKitchenInventory();
+  return { countId };
 }
 
 export async function submitKitchenInventoryCountAction(input: {

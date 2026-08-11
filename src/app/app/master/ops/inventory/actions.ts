@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireMasterOrAdminContext } from '@/lib/auth';
+import { sendPushToRoleDevices } from '@/lib/push';
 
 function normalizeOperationId(value: unknown) {
   const normalized = String(value ?? '').trim().toLowerCase();
@@ -55,6 +56,7 @@ function normalizeNotes(value: unknown) {
 
 function revalidateMasterInventory(countId: number) {
   revalidatePath('/app/master/ops/inventory');
+  revalidatePath('/app/kitchen');
   revalidatePath('/app/kitchen/inventory/counts');
   revalidatePath('/app/inventory');
   revalidatePath('/app/inventory/counts');
@@ -87,6 +89,23 @@ export async function requestMasterInventoryCountAction(input: {
   const countId = Number((data as { inventory_count_id?: unknown } | null)?.inventory_count_id);
   if (!Number.isSafeInteger(countId) || countId <= 0) {
     throw new Error('Supabase no devolvió el conteo solicitado.');
+  }
+
+  try {
+    await sendPushToRoleDevices({
+      roles: ['kitchen'],
+      title: 'Nuevo conteo solicitado',
+      body: `Master solicito contar ${inventoryItemIds.length} item${inventoryItemIds.length === 1 ? '' : 's'}.`,
+      url: '/app/kitchen/inventory/counts',
+      tag: `kitchen-inventory-count-${countId}`,
+      tone: 'warning',
+      requireInteraction: true,
+    });
+  } catch (pushError) {
+    console.warn(
+      'kitchen inventory count push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
   }
 
   revalidateMasterInventory(countId);

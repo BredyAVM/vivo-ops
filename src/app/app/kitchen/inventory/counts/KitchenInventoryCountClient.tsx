@@ -3,7 +3,10 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseDecimalInput } from '@/lib/number-input';
-import { submitKitchenInventoryCountAction } from '../actions';
+import {
+  openKitchenInventoryShiftAction,
+  submitKitchenInventoryCountAction,
+} from '../actions';
 
 export type KitchenCountItem = {
   id: number;
@@ -23,6 +26,9 @@ export type KitchenOpenCount = {
   dueAt: string | null;
   notes: string | null;
   createdAt: string;
+  shiftBusinessDate: string | null;
+  shiftCode: 'shift_1' | 'shift_2' | null;
+  openedByName: string;
   items: Array<KitchenCountItem & { requestLineId: number }>;
 };
 
@@ -33,6 +39,10 @@ export type KitchenRecentCount = {
   createdAt: string;
   submittedAt: string | null;
   reviewedAt: string | null;
+  shiftBusinessDate: string | null;
+  shiftCode: 'shift_1' | 'shift_2' | null;
+  openedByName: string;
+  submittedByName: string;
 };
 
 type ItemDraft = {
@@ -83,6 +93,23 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function caracasDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'America/Caracas',
+  }).formatToParts(date);
+  const values = new Map(parts.map((part) => [part.type, part.value]));
+  return `${values.get('year')}-${values.get('month')}-${values.get('day')}`;
+}
+
+function shiftLabel(shiftCode: KitchenOpenCount['shiftCode']) {
+  if (shiftCode === 'shift_1') return 'Turno 1';
+  if (shiftCode === 'shift_2') return 'Turno 2';
+  return 'Turno sin identidad historica';
+}
+
 function usesPresentations(item: KitchenCountItem) {
   return item.presentations.some((presentation) => presentation.baseUnitsPerPresentation !== 1);
 }
@@ -121,6 +148,14 @@ export default function KitchenInventoryCountClient({
 }) {
   const router = useRouter();
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
+  const [shiftDateBounds] = useState(() => {
+    const now = Date.now();
+    return {
+      min: caracasDateKey(new Date(now - 24 * 60 * 60 * 1000)),
+      max: caracasDateKey(new Date(now)),
+    };
+  });
+  const [shiftBusinessDate, setShiftBusinessDate] = useState(() => shiftDateBounds.max);
   const [manualItemId, setManualItemId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, ItemDraft>>({});
   const [notes, setNotes] = useState('');
@@ -137,8 +172,8 @@ export default function KitchenInventoryCountClient({
     [items, manualItemId],
   );
   const activeItems = useMemo(
-    () => selectedRequest?.items ?? (manualItem ? [manualItem] : items),
-    [items, manualItem, selectedRequest],
+    () => selectedRequest?.items ?? (manualItem ? [manualItem] : []),
+    [manualItem, selectedRequest],
   );
   const groupedItems = useMemo(() => {
     const groups = new Map<string, KitchenCountItem[]>();
@@ -214,6 +249,34 @@ export default function KitchenInventoryCountClient({
     });
   }
 
+  function openShift(shiftCode: 'shift_1' | 'shift_2') {
+    const existing = openCounts.find(
+      (count) =>
+        count.countKind === 'shift_change'
+        && count.shiftBusinessDate === shiftBusinessDate
+        && count.shiftCode === shiftCode,
+    );
+    if (existing) {
+      chooseRequest(existing.id);
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const result = await openKitchenInventoryShiftAction({
+          businessDate: shiftBusinessDate,
+          shiftCode,
+        });
+        setSelectedRequestId(result.countId);
+        router.refresh();
+      } catch (openError) {
+        setError(openError instanceof Error ? openError.message : 'No se pudo abrir el turno.');
+      }
+    });
+  }
+
   return (
     <section>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -228,9 +291,64 @@ export default function KitchenInventoryCountClient({
         </span>
       </div>
 
+      <div className="mt-5 rounded-2xl border border-[#FEEF00]/30 bg-[#FEEF00]/5 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-bold text-[#FEEF00]">Cierre por turno</h3>
+            <p className="mt-1 text-xs leading-5 text-[#C4C4CE]">
+              Cada fecha admite un solo cierre para Turno 1 y otro para Turno 2. Abrirlo registra responsable y hora.
+            </p>
+          </div>
+          <label className="text-xs text-[#A6A6B2]">
+            <span className="mb-1.5 block">Fecha operativa</span>
+            <input
+              type="date"
+              value={shiftBusinessDate}
+              min={shiftDateBounds.min}
+              max={shiftDateBounds.max}
+              onChange={(event) => setShiftBusinessDate(event.target.value)}
+              disabled={isPending}
+              className={inputClass}
+            />
+          </label>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {(['shift_1', 'shift_2'] as const).map((code) => {
+            const existing = openCounts.find(
+              (count) =>
+                count.countKind === 'shift_change'
+                && count.shiftBusinessDate === shiftBusinessDate
+                && count.shiftCode === code,
+            );
+            const closed = recentCounts.find(
+              (count) =>
+                count.countKind === 'shift_change'
+                && count.shiftBusinessDate === shiftBusinessDate
+                && count.shiftCode === code
+                && ['submitted', 'accepted', 'recount_requested'].includes(count.status),
+            );
+            return (
+              <button
+                key={code}
+                type="button"
+                onClick={() => openShift(code)}
+                disabled={isPending || !shiftBusinessDate || Boolean(closed)}
+                className="min-h-14 rounded-xl border border-[#FEEF00]/35 bg-[#111117] px-3 py-2 text-sm font-black text-[#FEEF00] disabled:border-emerald-400/25 disabled:text-emerald-200 disabled:opacity-70"
+              >
+                {closed
+                  ? `${shiftLabel(code)} cerrado · #${closed.id}`
+                  : existing
+                    ? `Reanudar ${shiftLabel(code)} · #${existing.id}`
+                    : `Iniciar ${shiftLabel(code)}`}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {openCounts.length ? (
         <div className="mt-5 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-4">
-          <h3 className="font-bold text-amber-100">Solicitudes pendientes</h3>
+          <h3 className="font-bold text-amber-100">Conteos abiertos</h3>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {openCounts.map((count) => (
               <button
@@ -239,8 +357,15 @@ export default function KitchenInventoryCountClient({
                 onClick={() => chooseRequest(count.id)}
                 className="rounded-xl border border-amber-400/25 bg-[#111117] p-4 text-left"
               >
-                <div className="font-semibold">#{count.id} · {countKindLabels[count.countKind]}</div>
-                <div className="mt-1 text-xs text-[#B9B9C4]">{count.items.length} ítems · vence {formatDate(count.dueAt)}</div>
+                <div className="font-semibold">
+                  #{count.id} · {count.countKind === 'shift_change' ? shiftLabel(count.shiftCode) : countKindLabels[count.countKind]}
+                </div>
+                <div className="mt-1 text-xs text-[#B9B9C4]">
+                  {count.items.length} ítems
+                  {count.countKind === 'shift_change'
+                    ? ` · ${count.shiftBusinessDate || 'fecha histórica'} · abierto ${formatDate(count.createdAt)} por ${count.openedByName}`
+                    : ` · vence ${formatDate(count.dueAt)}`}
+                </div>
                 {count.notes ? <div className="mt-2 text-xs leading-5 text-amber-100/80">{count.notes}</div> : null}
               </button>
             ))}
@@ -253,15 +378,15 @@ export default function KitchenInventoryCountClient({
           <div className="text-xs uppercase tracking-wide text-[#858591]">Conteo activo</div>
           <div className="mt-1 font-bold">
             {selectedRequest
-              ? `#${selectedRequest.id} · ${countKindLabels[selectedRequest.countKind]}`
+              ? `#${selectedRequest.id} · ${selectedRequest.countKind === 'shift_change' ? shiftLabel(selectedRequest.shiftCode) : countKindLabels[selectedRequest.countKind]}`
               : manualItem
                 ? `Conteo puntual · ${manualItem.name}`
-                : 'Cierre o cambio de turno'}
+                : 'Selecciona un turno, solicitud o conteo puntual'}
           </div>
         </div>
         {selectedRequest ? (
           <button type="button" onClick={() => chooseRequest(null)} className="rounded-xl border border-[#3A3A48] px-3 py-2 text-sm">
-            Volver al conteo de turno
+            Cerrar vista
           </button>
         ) : (
           <label className="min-w-64 text-xs text-[#A6A6B2]">
@@ -278,7 +403,7 @@ export default function KitchenInventoryCountClient({
               disabled={isPending}
               className={inputClass}
             >
-              <option value="">Todos los ítems del turno</option>
+              <option value="">Sin conteo puntual</option>
               {items.map((item) => (
                 <option key={item.id} value={item.id}>Puntual · {item.name}</option>
               ))}
@@ -330,7 +455,11 @@ export default function KitchenInventoryCountClient({
             disabled={isPending || activeItems.length === 0}
             className="rounded-xl bg-[#FEEF00] px-5 py-3 font-black text-black disabled:opacity-40"
           >
-            {isPending ? 'Presentando…' : `Presentar ${activeItems.length} ítems`}
+            {isPending
+              ? 'Presentando…'
+              : activeItems.length
+                ? `Presentar ${activeItems.length} ítems`
+                : 'Selecciona un conteo'}
           </button>
         </div>
       </div>
@@ -425,8 +554,14 @@ function RecentCounts({ counts }: { counts: KitchenRecentCount[] }) {
         {counts.length ? counts.map((count) => (
           <div key={count.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#292938] bg-[#15151D] px-4 py-3 text-sm">
             <div>
-              <span className="font-semibold">#{count.id} · {countKindLabels[count.countKind] ?? count.countKind}</span>
-              <span className="ml-2 text-xs text-[#858591]">{formatDate(count.submittedAt ?? count.createdAt)}</span>
+              <div className="font-semibold">
+                #{count.id} · {count.countKind === 'shift_change' ? shiftLabel(count.shiftCode) : countKindLabels[count.countKind] ?? count.countKind}
+              </div>
+              <div className="mt-1 text-xs text-[#858591]">
+                {count.countKind === 'shift_change' && count.shiftBusinessDate
+                  ? `${count.shiftBusinessDate} · abierto por ${count.openedByName} ${formatDate(count.createdAt)} · cerrado por ${count.submittedByName} ${formatDate(count.submittedAt)}`
+                  : formatDate(count.submittedAt ?? count.createdAt)}
+              </div>
             </div>
             <span className="rounded-full border border-[#3A3A48] px-2.5 py-1 text-xs text-[#C4C4CE]">
               {statusLabels[count.status] ?? count.status}

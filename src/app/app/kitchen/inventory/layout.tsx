@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ModulePreference } from '../../ModulePreference';
+import { KitchenInventoryLiveSync } from './KitchenInventoryLiveSync';
 
 export default async function KitchenInventoryLayout({ children }: { children: ReactNode }) {
   const ctx = await getAuthContext();
@@ -14,6 +15,7 @@ export default async function KitchenInventoryLayout({ children }: { children: R
   return (
     <main className="kitchen-app min-h-screen bg-[#08090D] text-[#F5F5F7]">
       <ModulePreference moduleKey="kitchen" />
+      <KitchenInventoryLiveSync />
       <header className="kitchen-safe-header border-b border-[#242433] bg-[#0D0D12]">
         <div className="mx-auto max-w-[1180px] px-4 pb-4 sm:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
