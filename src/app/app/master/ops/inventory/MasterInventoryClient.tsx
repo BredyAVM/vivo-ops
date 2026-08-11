@@ -3,7 +3,11 @@
 import Link from 'next/link';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { requestMasterInventoryCountAction } from './actions';
+import {
+  cancelMasterInventoryExpectedReceiptAction,
+  requestMasterInventoryCountAction,
+  saveMasterInventoryExpectedReceiptAction,
+} from './actions';
 
 export type MasterInventoryItem = {
   id: number;
@@ -158,6 +162,16 @@ export default function MasterInventoryClient({
   const [createdCountId, setCreatedCountId] = useState<number | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isRefreshing, startRefresh] = useTransition();
+  const [receiptItemId, setReceiptItemId] = useState('');
+  const [receiptQuantity, setReceiptQuantity] = useState('');
+  const [receiptQuantityUnknown, setReceiptQuantityUnknown] = useState(false);
+  const [receiptEffectiveAt, setReceiptEffectiveAt] = useState('');
+  const [receiptSource, setReceiptSource] = useState('');
+  const [receiptNotes, setReceiptNotes] = useState('');
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [receiptSuccess, setReceiptSuccess] = useState<string | null>(null);
+  const [isSavingReceipt, startReceiptTransition] = useTransition();
+  const [cancellingSupplyId, setCancellingSupplyId] = useState<number | null>(null);
 
   const waitingKitchen = counts.filter((count) => count.status === 'open');
   const waitingMaster = counts.filter((count) => count.status === 'submitted');
@@ -227,6 +241,70 @@ export default function MasterInventoryClient({
         router.refresh();
       } catch (submissionError) {
         setError(submissionError instanceof Error ? submissionError.message : 'No se pudo solicitar el conteo.');
+      }
+    });
+  }
+
+  function submitExpectedReceipt() {
+    setReceiptError(null);
+    setReceiptSuccess(null);
+    const inventoryItemId = Number(receiptItemId);
+    const quantityUnits = Number(receiptQuantity);
+
+    if (!Number.isSafeInteger(inventoryItemId) || inventoryItemId <= 0) {
+      setReceiptError('Selecciona el producto que se espera recibir.');
+      return;
+    }
+    if (!receiptEffectiveAt) {
+      setReceiptError('Indica la fecha y hora estimada de llegada.');
+      return;
+    }
+    if (!receiptQuantityUnknown && (!Number.isFinite(quantityUnits) || quantityUnits <= 0)) {
+      setReceiptError('Indica una cantidad mayor que cero o marca que está por confirmar.');
+      return;
+    }
+
+    startReceiptTransition(async () => {
+      try {
+        const result = await saveMasterInventoryExpectedReceiptAction({
+          operationId: crypto.randomUUID(),
+          inventoryItemId,
+          effectiveAt: new Date(receiptEffectiveAt).toISOString(),
+          quantityUnits: receiptQuantityUnknown ? null : quantityUnits,
+          quantityUnknown: receiptQuantityUnknown,
+          sourceName: receiptSource,
+          notes: receiptNotes,
+        });
+        setReceiptSuccess(`Entrada esperada #${result.expectedFlowId} registrada.`);
+        setReceiptQuantity('');
+        setReceiptQuantityUnknown(false);
+        setReceiptEffectiveAt('');
+        setReceiptSource('');
+        setReceiptNotes('');
+        router.refresh();
+      } catch (submissionError) {
+        setReceiptError(submissionError instanceof Error ? submissionError.message : 'No se pudo registrar la entrada esperada.');
+      }
+    });
+  }
+
+  function cancelExpectedReceipt(supplyId: number) {
+    if (!window.confirm('¿Cancelar esta entrada esperada? La existencia física no cambiará.')) return;
+    setReceiptError(null);
+    setReceiptSuccess(null);
+    setCancellingSupplyId(supplyId);
+    startReceiptTransition(async () => {
+      try {
+        await cancelMasterInventoryExpectedReceiptAction({
+          expectedFlowId: supplyId,
+          notes: 'Cancelada desde el control operativo de Máster.',
+        });
+        setReceiptSuccess(`Entrada esperada #${supplyId} cancelada.`);
+        router.refresh();
+      } catch (submissionError) {
+        setReceiptError(submissionError instanceof Error ? submissionError.message : 'No se pudo cancelar la entrada esperada.');
+      } finally {
+        setCancellingSupplyId(null);
       }
     });
   }
@@ -331,6 +409,48 @@ export default function MasterInventoryClient({
       ) : null}
 
       {activeView === 'overview' ? (
+        <section className="rounded-2xl border border-violet-400/25 bg-violet-400/5 p-4 sm:p-5">
+          <div>
+            <h2 className="text-lg font-bold text-violet-100">Registrar una entrada esperada</h2>
+            <p className="mt-1 text-sm leading-6 text-[#B4AAC5]">Es una proyección para decidir pedidos futuros. Cocina confirmará después lo que realmente llegó.</p>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <label className="text-sm text-[#C5C5CE] xl:col-span-2">Producto o insumo
+              <select value={receiptItemId} onChange={(event) => setReceiptItemId(event.target.value)} className={`mt-1 ${inputClass}`}>
+                <option value="">Seleccionar</option>
+                {[...items].sort((left, right) => left.name.localeCompare(right.name, 'es')).map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} · {item.unitName}</option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-[#C5C5CE]">Fecha y hora estimada
+              <input type="datetime-local" value={receiptEffectiveAt} onChange={(event) => setReceiptEffectiveAt(event.target.value)} className={`mt-1 ${inputClass}`} />
+            </label>
+            <label className="text-sm text-[#C5C5CE]">Cantidad en unidad base
+              <input type="number" min="0.001" step="0.001" disabled={receiptQuantityUnknown} value={receiptQuantity} onChange={(event) => setReceiptQuantity(event.target.value)} className={`mt-1 ${inputClass} disabled:opacity-45`} placeholder="Ej. 500" />
+            </label>
+            <label className="text-sm text-[#C5C5CE]">Fuente opcional
+              <input value={receiptSource} onChange={(event) => setReceiptSource(event.target.value)} maxLength={160} className={`mt-1 ${inputClass}`} placeholder="Ej. Fábrica" />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#C5C5CE] md:col-span-2">
+              <input type="checkbox" checked={receiptQuantityUnknown} onChange={(event) => setReceiptQuantityUnknown(event.target.checked)} className="h-4 w-4 accent-violet-300" />
+              La cantidad todavía está por confirmar
+            </label>
+            <label className="text-sm text-[#C5C5CE] md:col-span-2 xl:col-span-3">Nota opcional
+              <input value={receiptNotes} onChange={(event) => setReceiptNotes(event.target.value)} maxLength={1000} className={`mt-1 ${inputClass}`} placeholder="Detalle útil para Cocina o para la decisión del pedido" />
+            </label>
+          </div>
+          {receiptError ? <div className="mt-3 rounded-xl border border-rose-400/35 bg-rose-400/10 p-3 text-sm text-rose-100">{receiptError}</div> : null}
+          {receiptSuccess ? <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100">{receiptSuccess}</div> : null}
+          <div className="mt-4 flex justify-end">
+            <button type="button" disabled={isSavingReceipt} onClick={submitExpectedReceipt} className="rounded-xl bg-violet-200 px-4 py-2.5 text-sm font-black text-violet-950 disabled:cursor-not-allowed disabled:opacity-50">
+              {isSavingReceipt ? 'Guardando…' : 'Registrar lo que viene'}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {activeView === 'overview' ? (
       <div className="rounded-2xl border border-sky-400/25 bg-sky-400/5 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -364,6 +484,16 @@ export default function MasterInventoryClient({
                 {supply.sourceName ? <div className="mt-2 text-xs text-[#A6B5C1]">Origen: {supply.sourceName}</div> : null}
                 {!supply.sourceName && supply.recipeId ? <div className="mt-2 text-xs text-[#A6B5C1]">Receta #{supply.recipeId}</div> : null}
                 {supply.notes ? <div className="mt-1 line-clamp-2 text-xs text-[#8395A3]">{supply.notes}</div> : null}
+                {supply.type === 'expected_receipt' ? (
+                  <button
+                    type="button"
+                    disabled={isSavingReceipt}
+                    onClick={() => cancelExpectedReceipt(supply.id)}
+                    className="mt-3 text-xs font-bold text-rose-200 hover:underline disabled:opacity-45"
+                  >
+                    {cancellingSupplyId === supply.id ? 'Cancelando…' : 'Cancelar expectativa'}
+                  </button>
+                ) : null}
               </article>
             ))}
           </div>

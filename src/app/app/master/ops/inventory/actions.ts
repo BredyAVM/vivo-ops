@@ -32,6 +32,30 @@ function normalizeItemIds(value: unknown) {
   return itemIds;
 }
 
+function normalizeItemId(value: unknown) {
+  const itemId = Number(value);
+  if (!Number.isSafeInteger(itemId) || itemId <= 0) {
+    throw new Error('El ítem seleccionado no es válido.');
+  }
+  return itemId;
+}
+
+function normalizePositiveQuantity(value: unknown) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error('La cantidad esperada debe ser mayor que cero.');
+  }
+  return quantity;
+}
+
+function normalizeOptionalText(value: unknown, label: string, maxLength: number) {
+  const normalized = String(value ?? '').trim();
+  if (normalized.length > maxLength) {
+    throw new Error(`${label} admite hasta ${maxLength.toLocaleString('es-VE')} caracteres.`);
+  }
+  return normalized || null;
+}
+
 function normalizeDueAt(value: unknown) {
   const normalized = String(value ?? '').trim();
   if (!normalized) return null;
@@ -63,6 +87,17 @@ function revalidateMasterInventory(countId: number) {
   revalidatePath(`/app/inventory/counts/${countId}`);
   revalidatePath('/app/inventory/reports');
   revalidatePath('/app/inventory/alerts');
+}
+
+function revalidateMasterInventoryWorkspace() {
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/master/ops/inventory');
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/operations');
+  revalidatePath('/app/inventory/reports');
+  revalidatePath('/app/inventory/alerts');
+  revalidatePath('/app/kitchen');
+  revalidatePath('/app/kitchen/inventory/receipts');
 }
 
 export async function requestMasterInventoryCountAction(input: {
@@ -110,4 +145,83 @@ export async function requestMasterInventoryCountAction(input: {
 
   revalidateMasterInventory(countId);
   return { countId };
+}
+
+export async function saveMasterInventoryExpectedReceiptAction(input: {
+  operationId: string;
+  inventoryItemId: number;
+  effectiveAt: string;
+  quantityUnits?: number | null;
+  quantityUnknown?: boolean;
+  sourceName?: string | null;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const inventoryItemId = normalizeItemId(input.inventoryItemId);
+  const effectiveAt = normalizeDueAt(input.effectiveAt);
+  if (!effectiveAt) throw new Error('Indica cuándo se espera la mercancía.');
+
+  const quantityUnknown = input.quantityUnknown === true;
+  const quantityUnits = quantityUnknown ? null : normalizePositiveQuantity(input.quantityUnits);
+  const sourceName = normalizeOptionalText(input.sourceName, 'La fuente', 160);
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_expected_receipt_v1', {
+    p_operation_id: operationId,
+    p_inventory_item_id: inventoryItemId,
+    p_effective_at: effectiveAt,
+    p_capture: {
+      quantity_unknown: quantityUnknown,
+      source_name: sourceName,
+      loose_units: quantityUnits ?? 0,
+      presentations: [],
+    },
+    p_notes: notes,
+    p_replaces_flow_id: null,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const expectedFlowId = normalizeItemId(
+    (data as { expected_flow_id?: unknown } | null)?.expected_flow_id,
+  );
+
+  try {
+    await sendPushToRoleDevices({
+      roles: ['kitchen'],
+      title: 'Mercancía esperada',
+      body: 'Máster registró una recepción pendiente para Cocina.',
+      url: '/app/kitchen/inventory/receipts',
+      tag: `kitchen-inventory-receipt-${expectedFlowId}`,
+      tone: 'info',
+      requireInteraction: false,
+    });
+  } catch (pushError) {
+    console.warn(
+      'kitchen expected receipt push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
+  }
+
+  revalidateMasterInventoryWorkspace();
+  return { expectedFlowId };
+}
+
+export async function cancelMasterInventoryExpectedReceiptAction(input: {
+  expectedFlowId: number;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const expectedFlowId = normalizeItemId(input.expectedFlowId);
+  const notes = normalizeNotes(input.notes);
+
+  const { error } = await ctx.supabase.rpc('inventory_cancel_expected_receipt_v1', {
+    p_expected_flow_id: expectedFlowId,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateMasterInventoryWorkspace();
+  return { expectedFlowId };
 }
