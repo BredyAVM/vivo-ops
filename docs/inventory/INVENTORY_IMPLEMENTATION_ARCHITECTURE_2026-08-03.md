@@ -523,3 +523,39 @@ consume `inventory_preview_order_commitment_v1`. La lectura es tolerante: un
 error del inventario no impide cargar el pedido ni ejecutar su flujo operativo.
 La certificación completa está en
 `INVENTORY_PHASE_2_MASTER_CERTIFICATION_2026-08-11.md`.
+
+## 22. Fase 3 operativa de Cocina
+
+Cocina consume la misma autoridad mediante rutas cargadas bajo demanda. La
+entrada prioriza el conteo y mantiene separadas recepción, producción, calidad
+y alertas. La cola `/app/kitchen` no precarga el centro de inventario.
+
+El programa de cada ítem continúa definido exclusivamente por
+`inventory_items.primary_count_frequency` y `primary_count_role`. Los turnos
+usan `per_shift`; los ciclos adicionales usan `daily`, `weekly`, `biweekly` o
+`monthly`. No existe una tabla paralela de calendarios. Un ítem con frecuencia
+nula queda disponible únicamente para conteo solicitado o puntual.
+
+Cada fecha operativa de Caracas admite un Turno 1 y un Turno 2. Su apertura es
+atómica e idempotente y captura quién abrió y quién presentó. El vencimiento
+genera una alerta de control, pero el conteo tardío continúa permitido. Los
+ciclos periódicos vencidos se agrupan por frecuencia y se resuelven al contar.
+
+La captura es ciega y exige una cantidad para todas las líneas; cero es válido.
+Las presentaciones y fracciones se convierten a la unidad canónica. Presentar
+ajusta inmediatamente el saldo y deja el reporte disponible para aceptación o
+reconteo selectivo de Máster.
+
+Las migraciones vigentes son:
+
+- `20260811153310_kitchen_inventory_shifts_v1.sql`;
+- `20260811153622_inventory_kitchen_count_schedule_v1.sql`.
+
+La certificación completa y su prueba reversible están en:
+
+- `INVENTORY_PHASE_3_KITCHEN_CERTIFICATION_2026-08-11.md`;
+- `INVENTORY_PHASE_3_KITCHEN_TRANSACTION_TESTS_2026-08-11.sql`.
+
+Esta fase no modifica órdenes, Counter, Asesor, Finanzas ni la dashboard
+heredada. Una diferencia, saldo negativo o conteo vencido sigue siendo una
+señal no bloqueante.
