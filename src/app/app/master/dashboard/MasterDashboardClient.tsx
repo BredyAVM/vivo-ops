@@ -1023,6 +1023,7 @@ type MasterInboxTask = {
 
 type MasterInboxEvent = {
   id: string;
+  eventType: string;
   orderId: number;
   label: string;
   deliveryText: string;
@@ -5662,6 +5663,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
           return {
             id: event.id,
+            eventType: event.eventType,
             orderId: order.id,
             label: `${order.id} · ${repairDisplayText(order.clientName)}`,
             deliveryText: `Entrega: ${fmtDeliveryTextES(order.deliveryAtISO)}`,
@@ -5694,6 +5696,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
 
         return {
           id: `notification-${notification.id}`,
+          eventType: kind || notification.type,
           orderId: order.id,
           label: `${order.id} · ${repairDisplayText(order.clientName)}`,
           deliveryText: `Entrega: ${fmtDeliveryTextES(order.deliveryAtISO)}`,
@@ -18422,6 +18425,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                       const isReviewed = inboxStatus === 'reviewed';
                       const isResolved = inboxStatus === 'resolved';
                       const isSaving = masterInboxSavingIds.has(item.id);
+                      const isKitchenIncident = item.eventType === 'kitchen_incident';
                       const stateItem: MasterInboxStateItemInput = {
                         itemId: item.id,
                         itemType: 'event',
@@ -18495,6 +18499,26 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                               type="button"
                             >
                               {isSaving ? '...' : inboxStatus ? 'Reabrir' : 'Revisada'}
+                            </button>
+                          ) : null}
+                          {isKitchenIncident && !isResolved ? (
+                            <button
+                              className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => void resolveMasterInboxItems([stateItem])}
+                              disabled={isSaving}
+                              type="button"
+                            >
+                              {isSaving ? '...' : 'Resolver'}
+                            </button>
+                          ) : null}
+                          {isKitchenIncident && isResolved ? (
+                            <button
+                              className="rounded-xl border border-orange-400/40 bg-orange-400/10 px-3 py-2 text-xs font-semibold text-orange-200 transition hover:border-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => void reopenMasterInboxItems([item.id])}
+                              disabled={isSaving}
+                              type="button"
+                            >
+                              {isSaving ? '...' : 'Reabrir'}
                             </button>
                           ) : null}
                         </div>

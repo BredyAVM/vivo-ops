@@ -5,6 +5,7 @@ import { getPublicVapidKey } from '@/lib/push';
 import KitchenClient, {
   type KitchenOrder,
   type KitchenOrderChangeAlert,
+  type KitchenIncidentAlert,
   type KitchenOrderItem,
 } from './KitchenClient';
 
@@ -58,6 +59,15 @@ type RawKitchenChangeEvent = {
 type RawKitchenChangeRecipient = {
   id: number | string;
   event_id: number | string;
+};
+
+type RawKitchenIncidentEvent = {
+  id: number | string;
+  order_id: number | string;
+  event_type: string;
+  message: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
 };
 
 function normalizeClient(order: RawKitchenOrder) {
@@ -127,7 +137,7 @@ export default async function KitchenPage() {
   const rawOrders = (ordersData ?? []) as unknown as RawKitchenOrder[];
   const orderIds = rawOrders.map((order) => order.id);
 
-  const [itemsResult, changeEventsResult] = await Promise.all([
+  const [itemsResult, changeEventsResult, incidentEventsResult] = await Promise.all([
     orderIds.length
       ? ctx.supabase
           .from('order_items')
@@ -144,15 +154,33 @@ export default async function KitchenPage() {
           .order('created_at', { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [], error: null }),
+    orderIds.length
+      ? ctx.supabase
+          .from('order_timeline_events')
+          .select('id, order_id, event_type, message, payload, created_at')
+          .in('order_id', orderIds)
+          .in('event_type', [
+            'kitchen_incident',
+            'kitchen_incident_reviewed',
+            'kitchen_incident_resolved',
+            'kitchen_incident_reopened',
+          ])
+          .order('created_at', { ascending: false })
+          .limit(200)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   const { data: itemsData, error: itemsError } = itemsResult;
   const { data: changeEventsData, error: changeEventsError } = changeEventsResult;
+  const { data: incidentEventsData, error: incidentEventsError } = incidentEventsResult;
 
   if (itemsError) {
     throw new Error(itemsError.message);
   }
   if (changeEventsError) {
     throw new Error(changeEventsError.message);
+  }
+  if (incidentEventsError) {
+    throw new Error(incidentEventsError.message);
   }
 
   const rawChangeEvents = (changeEventsData ?? []) as unknown as RawKitchenChangeEvent[];
@@ -271,6 +299,48 @@ export default async function KitchenPage() {
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
+  const rawIncidentEvents = (incidentEventsData ?? []) as unknown as RawKitchenIncidentEvent[];
+  const latestLifecycleByIncidentId = new Map<number, RawKitchenIncidentEvent>();
+  for (const event of rawIncidentEvents) {
+    if (event.event_type === 'kitchen_incident') continue;
+    const sourceIncidentEventId = Number(event.payload?.source_incident_event_id);
+    if (!Number.isFinite(sourceIncidentEventId) || sourceIncidentEventId <= 0) continue;
+    const current = latestLifecycleByIncidentId.get(sourceIncidentEventId);
+    if (!current || event.created_at > current.created_at) {
+      latestLifecycleByIncidentId.set(sourceIncidentEventId, event);
+    }
+  }
+
+  const incidentAlerts: KitchenIncidentAlert[] = rawIncidentEvents
+    .filter((event) => event.event_type === 'kitchen_incident')
+    .flatMap((event) => {
+      const eventId = Number(event.id);
+      const orderId = Number(event.order_id);
+      if (!Number.isFinite(eventId) || eventId <= 0 || !Number.isFinite(orderId) || orderId <= 0) {
+        return [];
+      }
+
+      const lifecycle = latestLifecycleByIncidentId.get(eventId);
+      const status: KitchenIncidentAlert['status'] =
+        lifecycle?.event_type === 'kitchen_incident_resolved'
+          ? 'resolved'
+          : lifecycle?.event_type === 'kitchen_incident_reviewed'
+            ? 'reviewed'
+            : lifecycle?.event_type === 'kitchen_incident_reopened'
+              ? 'reopened'
+              : 'reported';
+
+      return [{
+        eventId,
+        orderId,
+        message: event.message?.trim() || 'Cocina reporto una incidencia.',
+        status,
+        reportedAt: event.created_at,
+        updatedAt: lifecycle?.created_at || event.created_at,
+      }];
+    })
+    .sort((a, b) => b.reportedAt.localeCompare(a.reportedAt));
+
   return (
     <KitchenClient
       publicVapidKey={getPublicVapidKey()}
@@ -282,6 +352,7 @@ export default async function KitchenPage() {
       }
       orders={orders}
       changeAlerts={changeAlerts}
+      incidentAlerts={incidentAlerts}
     />
   );
 }

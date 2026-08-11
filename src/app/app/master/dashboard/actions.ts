@@ -662,6 +662,7 @@ type OrderEventRecipientInput = {
   targetRole?: NotificationRole | null;
   targetUserId?: string | null;
   requiresAction?: boolean;
+  notify?: boolean;
 };
 
 async function updateDashboardUserActionLegacy(input: {
@@ -838,20 +839,109 @@ function normalizeMasterInboxStateItems(input: unknown): MasterInboxStateItemInp
   return items;
 }
 
+function getTimelineEventId(itemId: string) {
+  const match = itemId.match(/^timeline-(\d+)$/);
+  if (!match) return null;
+  const eventId = Number(match[1]);
+  return Number.isFinite(eventId) && eventId > 0 ? eventId : null;
+}
+
+async function appendKitchenIncidentStateEvents(
+  supabase: Awaited<ReturnType<typeof createSupabaseServer>>,
+  actorUserId: string,
+  items: MasterInboxStateItemInput[],
+  state: 'reviewed' | 'resolved' | 'reopened',
+) {
+  const sourceEventIds = items
+    .filter((item) => item.itemType === 'event')
+    .map((item) => getTimelineEventId(item.itemId))
+    .filter((eventId): eventId is number => eventId != null);
+
+  if (sourceEventIds.length === 0) return;
+
+  const { data: sourceEvents, error } = await supabase
+    .from('order_timeline_events')
+    .select('id, order_id, event_type')
+    .in('id', sourceEventIds)
+    .eq('event_type', 'kitchen_incident');
+
+  if (error) throw new Error(error.message);
+
+  const presentation = {
+    reviewed: {
+      eventType: 'kitchen_incident_reviewed',
+      title: 'Master reviso la incidencia',
+      message: 'Master recibio y reviso el problema reportado por Cocina.',
+      severity: 'info' as const,
+    },
+    resolved: {
+      eventType: 'kitchen_incident_resolved',
+      title: 'Incidencia resuelta por Master',
+      message: 'Master marco como resuelto el problema reportado por Cocina.',
+      severity: 'info' as const,
+    },
+    reopened: {
+      eventType: 'kitchen_incident_reopened',
+      title: 'Incidencia reabierta por Master',
+      message: 'Master reabrio el seguimiento del problema reportado por Cocina.',
+      severity: 'warning' as const,
+    },
+  }[state];
+
+  for (const sourceEvent of sourceEvents ?? []) {
+    const orderId = Number(sourceEvent.order_id);
+    const sourceIncidentEventId = Number(sourceEvent.id);
+    if (!Number.isFinite(orderId) || orderId <= 0 || !Number.isFinite(sourceIncidentEventId)) continue;
+
+    await appendOrderEvent(supabase, {
+      orderId,
+      eventType: presentation.eventType,
+      eventGroup: 'kitchen',
+      title: presentation.title,
+      message: presentation.message,
+      severity: presentation.severity,
+      actorUserId,
+      payload: {
+        source_incident_event_id: sourceIncidentEventId,
+        incident_state: state,
+      },
+      recipients: [{ targetRole: 'kitchen', notify: true }],
+    });
+  }
+}
+
 async function saveMasterInboxItemsState(
   input: { items: MasterInboxStateItemInput[] },
   status: 'reviewed' | 'resolved'
 ) {
-  const { supabase, user, roles } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
   const items = normalizeMasterInboxStateItems(input.items);
 
   if (items.length === 0) return;
+
+  const { data: currentStates, error: currentStatesError } = await supabase
+    .from('master_inbox_item_states')
+    .select('item_id, status')
+    .in('item_id', items.map((item) => item.itemId));
+
+  if (currentStatesError) throw new Error(currentStatesError.message);
+
+  const currentStatusByItemId = new Map(
+    (currentStates ?? []).map((item) => [String(item.item_id), String(item.status)]),
+  );
+  const changedItems = items.filter((item) => {
+    const currentStatus = currentStatusByItemId.get(item.itemId);
+    if (status === 'reviewed' && currentStatus === 'resolved') return false;
+    return currentStatus !== status;
+  });
+
+  if (changedItems.length === 0) return;
 
   const now = new Date().toISOString();
   const { error } = await supabase
     .from('master_inbox_item_states')
     .upsert(
-      items.map((item) => ({
+      changedItems.map((item) => ({
         item_id: item.itemId,
         item_type: item.itemType,
         order_id: item.orderId,
@@ -871,7 +961,10 @@ async function saveMasterInboxItemsState(
     throw new Error(error.message);
   }
 
+  await appendKitchenIncidentStateEvents(supabase, user.id, changedItems, status);
+
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/kitchen');
 }
 
 export async function markMasterInboxItemsReviewedAction(input: { items: MasterInboxStateItemInput[] }) {
@@ -883,7 +976,7 @@ export async function resolveMasterInboxItemsAction(input: { items: MasterInboxS
 }
 
 export async function reopenMasterInboxItemsAction(input: { itemIds: string[] }) {
-  const { supabase } = await requireMasterOrAdmin();
+  const { supabase, user } = await requireMasterOrAdmin();
   const itemIds = Array.from(
     new Set(
       Array.isArray(input.itemIds)
@@ -894,13 +987,32 @@ export async function reopenMasterInboxItemsAction(input: { itemIds: string[] })
 
   if (itemIds.length === 0) return;
 
+  const { data: currentStates, error: currentStatesError } = await supabase
+    .from('master_inbox_item_states')
+    .select('item_id, item_type, order_id')
+    .in('item_id', itemIds);
+
+  if (currentStatesError) throw new Error(currentStatesError.message);
+
   const { error } = await supabase.from('master_inbox_item_states').delete().in('item_id', itemIds);
 
   if (error) {
     throw new Error(error.message);
   }
 
+  await appendKitchenIncidentStateEvents(
+    supabase,
+    user.id,
+    (currentStates ?? []).map((item) => ({
+      itemId: String(item.item_id),
+      itemType: item.item_type === 'event' ? 'event' : 'task',
+      orderId: item.order_id == null ? null : Number(item.order_id),
+    })),
+    'reopened',
+  );
+
   revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/kitchen');
 }
 
 export async function loadMasterOrderEventsAction(input: { orderId: number }) {
@@ -1283,8 +1395,9 @@ async function appendOrderEvent(
     }
 
     const rolePushTargets = new Set<string>();
-    const kitchenRequiresAction = (input.recipients ?? []).some(
-      (recipient) => recipient.targetRole === 'kitchen' && recipient.requiresAction,
+    const kitchenShouldNotify = (input.recipients ?? []).some(
+      (recipient) =>
+        recipient.targetRole === 'kitchen' && (recipient.requiresAction || recipient.notify),
     );
     const counterRequiresAction = (input.recipients ?? []).some(
       (recipient) => recipient.targetRole === 'counter' && recipient.requiresAction,
@@ -1319,18 +1432,19 @@ async function appendOrderEvent(
       }
     }
 
-    if (kitchenRequiresAction) {
+    if (kitchenShouldNotify) {
       try {
         const orderLabel = formatOrderDisplayLabel(input.orderId);
         const clientLabel = context?.clientName ? `${context.clientName}. ` : '';
         const isNewKitchenOrder = input.eventType === 'order_sent_to_kitchen';
+        const isResolvedIncident = input.eventType === 'kitchen_incident_resolved';
         await sendPushToRoleDevices({
           roles: ['kitchen'],
           title: isNewKitchenOrder ? `${orderLabel}: nueva orden en cola` : `${orderLabel}: ${input.title}`,
           body: `${clientLabel}${input.message || 'Hay una orden nueva para tomar en cocina.'}`,
           url: '/app/kitchen',
           tag: `kitchen-order-${input.orderId}-${input.eventType}`,
-          tone: isNewKitchenOrder ? 'critical' : 'warning',
+          tone: isNewKitchenOrder ? 'critical' : isResolvedIncident ? 'success' : 'warning',
           requireInteraction: isNewKitchenOrder || input.eventType === 'order_modified',
         });
       } catch (pushError) {

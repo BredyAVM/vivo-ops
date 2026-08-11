@@ -57,11 +57,21 @@ export type KitchenOrderChangeAlert = {
   createdAt: string;
 };
 
+export type KitchenIncidentAlert = {
+  eventId: number;
+  orderId: number;
+  message: string;
+  status: 'reported' | 'reviewed' | 'resolved' | 'reopened';
+  reportedAt: string;
+  updatedAt: string;
+};
+
 type KitchenClientProps = {
   publicVapidKey: string;
   fullName: string;
   orders: KitchenOrder[];
   changeAlerts: KitchenOrderChangeAlert[];
+  incidentAlerts: KitchenIncidentAlert[];
 };
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
@@ -434,11 +444,37 @@ function changeSectionLabel(section: string) {
   return labels[section] || section;
 }
 
+function incidentStatusPresentation(status: KitchenIncidentAlert['status']) {
+  if (status === 'resolved') {
+    return {
+      label: 'Resuelta por Master',
+      className: 'border-emerald-400/35 bg-emerald-400/10 text-emerald-100',
+    };
+  }
+  if (status === 'reviewed') {
+    return {
+      label: 'Recibida y revisada por Master',
+      className: 'border-[#FEEF00]/40 bg-[#FEEF00]/10 text-[#FEEF00]',
+    };
+  }
+  if (status === 'reopened') {
+    return {
+      label: 'Reabierta por Master',
+      className: 'border-orange-400/40 bg-orange-400/10 text-orange-100',
+    };
+  }
+  return {
+    label: 'Enviada a Master',
+    className: 'border-red-400/40 bg-red-400/10 text-red-100',
+  };
+}
+
 export default function KitchenClient({
   publicVapidKey,
   fullName,
   orders,
   changeAlerts,
+  incidentAlerts,
 }: KitchenClientProps) {
   const router = useRouter();
   const [supabase] = useState(() => createSupabaseBrowser());
@@ -629,15 +665,6 @@ export default function KitchenClient({
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, [requestRefresh]);
 
-  const ordersByStatus = useMemo(() => {
-    return new Map(
-      STATUS_COLUMNS.map((column) => [
-        column.key,
-        orders.filter((order) => order.status === column.key),
-      ])
-    );
-  }, [orders]);
-
   const changeAlertsByOrder = useMemo(() => {
     const alertsByOrder = new Map<number, KitchenOrderChangeAlert[]>();
     for (const alert of changeAlerts) {
@@ -648,9 +675,44 @@ export default function KitchenClient({
     return alertsByOrder;
   }, [changeAlerts]);
 
+  const incidentAlertsByOrder = useMemo(() => {
+    const alertsByOrder = new Map<number, KitchenIncidentAlert>();
+    for (const alert of incidentAlerts) {
+      if (!alertsByOrder.has(alert.orderId)) alertsByOrder.set(alert.orderId, alert);
+    }
+    return alertsByOrder;
+  }, [incidentAlerts]);
+
+  const ordersByStatus = useMemo(() => {
+    const priorityFor = (order: KitchenOrder) => {
+      if (changeAlertsByOrder.has(order.id)) return 0;
+      const incident = incidentAlertsByOrder.get(order.id);
+      if (incident && incident.status !== 'resolved') return 1;
+      const remaining = remainingPrepMinutes(order, currentTimeMs);
+      if (remaining != null && remaining < 0) return 2;
+      return 3;
+    };
+
+    return new Map(
+      STATUS_COLUMNS.map((column) => [
+        column.key,
+        orders
+          .filter((order) => order.status === column.key)
+          .sort((a, b) => priorityFor(a) - priorityFor(b)),
+      ])
+    );
+  }, [changeAlertsByOrder, currentTimeMs, incidentAlertsByOrder, orders]);
+
   const latestChangeAlert = changeAlerts[0] ?? null;
   const latestChangedOrder = latestChangeAlert
     ? orders.find((order) => order.id === latestChangeAlert.orderId) ?? null
+    : null;
+  const latestPendingIncident = incidentAlerts.find(
+    (incident) =>
+      incident.status !== 'resolved' && orders.some((order) => order.id === incident.orderId),
+  ) ?? null;
+  const latestIncidentOrder = latestPendingIncident
+    ? orders.find((order) => order.id === latestPendingIncident.orderId) ?? null
     : null;
 
   const activeColumn = STATUS_COLUMNS.find((column) => column.key === activeStatus) ?? STATUS_COLUMNS[0];
@@ -938,6 +1000,35 @@ export default function KitchenClient({
           </div>
         ) : null}
 
+        {latestPendingIncident && latestIncidentOrder ? (
+          <div
+            className="kitchen-enter mt-3 rounded-xl border border-red-400/45 bg-[#260F13] p-3"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs font-black uppercase tracking-[0.14em] text-red-200">
+                  Incidencia · Orden #{latestIncidentOrder.displayNumber}
+                </div>
+                <div className="mt-1 text-sm font-semibold text-red-50">
+                  {latestPendingIncident.message}
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full border border-red-300/40 bg-red-400/15 px-2 py-1 text-[11px] font-black text-red-100">
+                {incidentStatusPresentation(latestPendingIncident.status).label}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => focusOrder(latestPendingIncident.orderId)}
+              className="mt-3 h-10 w-full rounded-xl border border-red-300/40 bg-red-500/20 px-3 text-sm font-black text-red-50 active:scale-[0.98]"
+            >
+              Ver pedido afectado
+            </button>
+          </div>
+        ) : null}
+
         {newOrderNotice ? (
           <div
             className="kitchen-enter mt-3 rounded-xl border border-[#FEEF00]/55 bg-[#FEEF00]/12 p-3"
@@ -1044,6 +1135,10 @@ export default function KitchenClient({
               const orderChanges = changeAlertsByOrder.get(order.id) ?? [];
               const latestOrderChange = orderChanges[0] ?? null;
               const hasPendingChanges = orderChanges.length > 0;
+              const orderIncident = incidentAlertsByOrder.get(order.id) ?? null;
+              const incidentPresentation = orderIncident
+                ? incidentStatusPresentation(orderIncident.status)
+                : null;
 
               return (
                 <article
@@ -1053,6 +1148,8 @@ export default function KitchenClient({
                     'scroll-mt-44 rounded-xl border p-2.5 shadow-[0_12px_28px_rgba(0,0,0,0.16)]',
                     hasPendingChanges
                       ? 'border-orange-400 bg-[#26180C] ring-2 ring-orange-400/30'
+                      : orderIncident && orderIncident.status !== 'resolved'
+                        ? 'border-red-400/70 bg-[#1D1014] ring-1 ring-red-400/25'
                       : isNewOrder
                       ? 'kitchen-new-order border-[#FEEF00]/75 bg-[#1D1D19]'
                       : orderIndex % 2 === 0
@@ -1143,6 +1240,30 @@ export default function KitchenClient({
                             ? 'Marcando...'
                             : 'Cambio revisado'}
                         </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {orderIncident && incidentPresentation ? (
+                    <div className={`mt-2 rounded-xl border px-2.5 py-2 ${incidentPresentation.className}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs font-black uppercase tracking-[0.12em]">
+                            Incidencia reportada
+                          </div>
+                          <div className="mt-1 text-sm font-semibold leading-snug">
+                            {orderIncident.message}
+                          </div>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-current/30 px-2 py-0.5 text-[10px] font-black">
+                          {incidentPresentation.label}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[11px] opacity-70">
+                        Reportada {formatDateTime(orderIncident.reportedAt)}
+                        {orderIncident.updatedAt !== orderIncident.reportedAt
+                          ? ` · Actualizada ${formatDateTime(orderIncident.updatedAt)}`
+                          : ''}
                       </div>
                     </div>
                   ) : null}
