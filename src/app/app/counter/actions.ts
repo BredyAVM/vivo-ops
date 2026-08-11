@@ -554,7 +554,12 @@ export async function dispatchCounterDeliveryAction(
     p_notes: String(input.notes || '').trim() || null,
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.message.includes('counter_delivery_expected_collection_required')) {
+      throw new Error('La orden prescribe efectivo o cambio. Debes conservar el cobro esperado para abrir su liquidacion.');
+    }
+    throw new Error(error.message);
+  }
   const result = asRecord(data);
 
   revalidatePath('/app/counter');

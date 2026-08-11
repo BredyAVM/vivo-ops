@@ -178,21 +178,34 @@ function settlementStatusClass(status: CounterDeliverySettlementDetail['status']
   return 'border-orange-400/40 bg-orange-400/10 text-orange-100';
 }
 
+function dispatchSettlementVesRate(order: CounterOrder, activeBsRate: number) {
+  const pendingUsd = Number(order.paymentQuote.pendingUsd || 0);
+  const pendingBs = Number(order.paymentQuote.pendingBs || 0);
+  if (
+    order.paymentQuote.collectionMode === 'snapshot_quote'
+    && pendingUsd > 0.005
+    && pendingBs > 0.005
+  ) {
+    return pendingBs / pendingUsd;
+  }
+  return Number(order.paymentQuote.exchangeRate || 0) || activeBsRate;
+}
+
 function dispatchInitialExpected(order: CounterOrder): ValueDraft[] {
   const changeAmount = decimal(order.paymentChangeFor || '');
   const changeCurrency = order.paymentChangeCurrency === 'VES' ? 'VES' : 'USD';
   if (order.paymentRequiresChange && changeAmount > 0) {
     return [createValueDraft('expected', changeCurrency, String(roundMoney(changeAmount)))];
   }
-  if (order.paymentMethod === 'cash_usd' && order.balanceUsd > 0.005) {
-    return [createValueDraft('expected', 'USD', String(roundMoney(order.balanceUsd)))];
+  if (order.paymentMethod === 'cash_usd' && order.paymentQuote.pendingUsd > 0.005) {
+    return [createValueDraft('expected', 'USD', String(roundMoney(order.paymentQuote.pendingUsd)))];
   }
-  if (order.paymentMethod === 'cash_ves' && order.balanceUsd > 0.005 && order.fxRate > 0) {
+  if (order.paymentMethod === 'cash_ves' && order.paymentQuote.pendingBs > 0.005) {
     return [
       createValueDraft(
         'expected',
         'VES',
-        String(roundMoney(order.balanceUsd * order.fxRate))
+        String(roundMoney(order.paymentQuote.pendingBs))
       ),
     ];
   }
@@ -230,6 +243,7 @@ export function CounterDeliveryDispatchPanel({
   const [error, setError] = useState<string | null>(null);
   const requestKey = useRef<string | null>(null);
   const requiresMoneyHandling = requiresCounterDeliveryMoneyHandling(order);
+  const settlementVesRate = dispatchSettlementVesRate(order, activeBsRate);
   const advisorOwnsCollection =
     order.hasAdvisor && !requiresMoneyHandling && order.balanceUsd > 0.005;
 
@@ -239,20 +253,20 @@ export function CounterDeliveryDispatchPanel({
   }
 
   const expectedUsd = roundMoney(expectedLines.reduce(
-    (sum, line) => sum + amountUsd(line.currencyCode, decimal(line.amount), activeBsRate),
+    (sum, line) => sum + amountUsd(line.currencyCode, decimal(line.amount), settlementVesRate),
     0
   ));
   const cashChangeUsd = roundMoney(cashChangeLines.reduce((sum, line) => {
     const account = cashAccounts.find((item) => item.accountId === line.accountId);
     return sum + (account
-      ? amountUsd(account.currencyCode, decimal(line.amount), activeBsRate)
+      ? amountUsd(account.currencyCode, decimal(line.amount), settlementVesRate)
       : 0);
   }, 0));
   const digitalChangeUsd = roundMoney(digitalChangeLines.reduce(
-    (sum, line) => sum + amountUsd(line.currencyCode, decimal(line.amount), activeBsRate),
+    (sum, line) => sum + amountUsd(line.currencyCode, decimal(line.amount), settlementVesRate),
     0
   ));
-  const requiredChangeUsd = roundMoney(Math.max(expectedUsd - order.balanceUsd, 0));
+  const requiredChangeUsd = roundMoney(Math.max(expectedUsd - order.paymentQuote.pendingUsd, 0));
   const assignedChangeUsd = roundMoney(cashChangeUsd + digitalChangeUsd);
   const differenceUsd = roundMoney(requiredChangeUsd - assignedChangeUsd);
   const eta = Math.round(decimal(etaMinutes));
@@ -271,7 +285,7 @@ export function CounterDeliveryDispatchPanel({
       if (!Number.isFinite(eta) || eta < 1 || eta > 1440) {
         throw new Error('Indica un ETA entre 1 y 1440 minutos.');
       }
-      if (activeBsRate <= 0 && [
+      if (settlementVesRate <= 0 && [
         ...expectedLines.map((line) => line.currencyCode),
         ...digitalChangeLines.map((line) => line.currencyCode),
         ...cashChangeLines.map((line) =>
@@ -290,14 +304,17 @@ export function CounterDeliveryDispatchPanel({
 
       const expectedCollectionLines = expectedLines
         .filter((line) => decimal(line.amount) > 0)
-        .map((line) => valueDraftToIntent(line, activeBsRate));
+        .map((line) => valueDraftToIntent(line, settlementVesRate));
+      if (requiresMoneyHandling && expectedCollectionLines.length === 0) {
+        throw new Error('La orden prescribe efectivo o cambio. Debes conservar el cobro esperado.');
+      }
       const cashLines = cashChangeLines
         .filter((line) => decimal(line.amount) > 0)
-        .map((line) => cashDraftToIntent(line, cashAccounts, activeBsRate));
+        .map((line) => cashDraftToIntent(line, cashAccounts, settlementVesRate));
       const digitalLines = digitalChangeLines
         .filter((line) => decimal(line.amount) > 0)
         .map((line): CounterDeliveryDigitalChangeLine => ({
-          ...valueDraftToIntent(line, activeBsRate),
+          ...valueDraftToIntent(line, settlementVesRate),
           paymentMethodCode: line.paymentMethodCode,
         }));
 

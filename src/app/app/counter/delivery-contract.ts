@@ -9,12 +9,12 @@ export type CounterDeliveryPaymentPrescription = {
 export function requiresCounterDeliveryMoneyHandling(
   order: CounterDeliveryPaymentPrescription
 ) {
+  if (order.balanceUsd <= 0.005) return false;
   if (order.paymentRequiresChange) return true;
 
   const paymentMethod = String(order.paymentMethod || '').trim().toLowerCase();
   return (
-    order.balanceUsd > 0.005
-    && (paymentMethod === 'cash_usd' || paymentMethod === 'cash_ves')
+    paymentMethod === 'cash_usd' || paymentMethod === 'cash_ves'
   );
 }
 
