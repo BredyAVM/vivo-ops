@@ -555,10 +555,15 @@ export function CounterPaymentEngine({
         setError('Indica una tasa valida para cada pago en bolivares.');
         return null;
       }
+      const referenceCode = line.referenceCode.trim();
+      if (account.paymentMethodCode === 'pos' && !/^\d{4}$/.test(referenceCode)) {
+        setError('Indica los ultimos cuatro digitos de la referencia del punto.');
+        return null;
+      }
       const validationError = validatePaymentReportDetails({
         method: account.paymentMethodCode,
         operationDate: line.operationDate,
-        referenceCode: line.referenceCode.trim(),
+        referenceCode,
         bankName: line.bankName.trim(),
         holderName: line.payerName.trim(),
       });
@@ -574,7 +579,7 @@ export function CounterPaymentEngine({
         amount: roundMoney(amount),
         exchangeRateVesPerUsd: account.currencyCode === 'VES' ? rate : null,
         operationDate: line.operationDate,
-        referenceCode: line.referenceCode.trim() || null,
+        referenceCode: referenceCode || null,
         bankName: line.bankName.trim() || null,
         payerName: line.payerName.trim() || null,
         notes: line.notes.trim() || null,
@@ -803,6 +808,7 @@ export function CounterPaymentEngine({
         {paymentLines.map((line, index) => {
           const account = accountForPayment(line) ?? firstAccount;
           const requirements = getPaymentReportRequirements(account?.paymentMethodCode);
+          const isPosPayment = account?.paymentMethodCode === 'pos';
           const methodAccounts = account ? accountsForMethod(account.paymentMethodCode) : [];
           const immediate = isImmediateAccount(account);
           return (
@@ -898,11 +904,20 @@ export function CounterPaymentEngine({
                 ) : null}
               </div>
               <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                {requirements.requiresReference ? (
-                  <Field label="Referencia">
+                {requirements.requiresReference || isPosPayment ? (
+                  <Field label={isPosPayment ? 'Ultimos 4 del punto' : 'Referencia'}>
                     <input
                       value={line.referenceCode}
-                      onChange={(event) => updatePaymentLine(line.id, { referenceCode: event.target.value })}
+                      onChange={(event) => updatePaymentLine(line.id, {
+                        referenceCode: isPosPayment
+                          ? event.target.value.replace(/\D/g, '').slice(0, 4)
+                          : event.target.value,
+                      })}
+                      inputMode={isPosPayment ? 'numeric' : undefined}
+                      maxLength={isPosPayment ? 4 : undefined}
+                      pattern={isPosPayment ? '\\d{4}' : undefined}
+                      placeholder={isPosPayment ? 'Ej. 4821' : undefined}
+                      autoComplete="off"
                       className="counter-field"
                     />
                   </Field>
@@ -1135,6 +1150,17 @@ export function CounterPaymentEngine({
           {paymentSummary.pending > 0.005 ? (
             <div className="mt-2 rounded-[8px] border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-xs text-orange-100">
               {moneyUsd(paymentSummary.pending)} quedará pendiente de confirmación por Master.
+            </div>
+          ) : null}
+          {paymentLines.some((line) => accountForPayment(line)?.paymentMethodCode === 'pos') ? (
+            <div className="mt-2 rounded-[8px] border border-sky-300/25 bg-sky-300/5 px-3 py-2 text-xs text-sky-100">
+              {paymentLines
+                .filter((line) => accountForPayment(line)?.paymentMethodCode === 'pos')
+                .map((line) => {
+                  const account = accountForPayment(line);
+                  return `${account?.accountName || 'Punto'} · Ref. ${line.referenceCode}`;
+                })
+                .join(' · ')}
             </div>
           ) : null}
           {changeSummary.digital > 0.005 ? (

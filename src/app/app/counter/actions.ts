@@ -226,6 +226,7 @@ export async function applyCounterPaymentAction(
     const exchangeRate =
       currencyCode === 'VES' ? Number(line.exchangeRateVesPerUsd || 0) : null;
     const operationDate = String(line.operationDate || '').trim();
+    const referenceCode = String(line.referenceCode || '').trim();
 
     if (!lineKey || !Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
       throw new Error('Una linea de pago no tiene cuenta o identificador valido.');
@@ -239,6 +240,9 @@ export async function applyCounterPaymentAction(
     if (currencyCode === 'VES' && (!Number.isFinite(exchangeRate) || Number(exchangeRate) <= 0)) {
       throw new Error('Cada pago en bolivares requiere una tasa valida.');
     }
+    if (paymentMethod === 'pos' && !/^\d{4}$/.test(referenceCode)) {
+      throw new Error('Cada pago por punto requiere los ultimos cuatro digitos de la referencia.');
+    }
 
     return {
       line_key: lineKey,
@@ -248,7 +252,7 @@ export async function applyCounterPaymentAction(
       amount,
       exchange_rate_ves_per_usd: currencyCode === 'VES' ? Number(exchangeRate) : null,
       operation_date: operationDate,
-      reference_code: String(line.referenceCode || '').trim() || null,
+      reference_code: referenceCode || null,
       bank_name: String(line.bankName || '').trim() || null,
       payer_name: String(line.payerName || '').trim() || null,
       notes: String(line.notes || '').trim() || null,
