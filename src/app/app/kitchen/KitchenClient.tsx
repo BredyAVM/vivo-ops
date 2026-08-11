@@ -474,6 +474,27 @@ function incidentStatusPresentation(status: KitchenIncidentAlert['status']) {
   };
 }
 
+function printKitchenOrder(orderId: number) {
+  const orderElement = document.getElementById(`kitchen-order-${orderId}`);
+  const ticket = orderElement?.querySelector('.kitchen-print-ticket');
+  if (!(ticket instanceof HTMLElement)) return;
+
+  const printPortal = ticket.cloneNode(true) as HTMLElement;
+  printPortal.classList.remove('kitchen-print-ticket');
+  printPortal.classList.add('kitchen-print-portal');
+  printPortal.removeAttribute('aria-hidden');
+
+  const cleanup = () => {
+    document.body.classList.remove('kitchen-printing');
+    printPortal.remove();
+  };
+  document.body.appendChild(printPortal);
+  document.body.classList.add('kitchen-printing');
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.setTimeout(() => window.print(), 80);
+  window.setTimeout(cleanup, 5000);
+}
+
 export default function KitchenClient({
   publicVapidKey,
   fullName,
@@ -882,6 +903,14 @@ export default function KitchenClient({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Link
+                href="/app/kitchen/history"
+                prefetch={false}
+                aria-label="Abrir historial diario de Cocina"
+                className="flex h-10 items-center rounded-xl border border-[#2A2A38] bg-[#121218] px-2.5 text-xs font-semibold text-[#F5F5F7]"
+              >
+                Hist.
+              </Link>
+              <Link
                 href="/app/kitchen/inventory"
                 prefetch={false}
                 className="flex h-10 items-center rounded-xl border border-[#FEEF00]/40 bg-[#FEEF00]/10 px-3 text-xs font-semibold text-[#FEEF00]"
@@ -1168,6 +1197,33 @@ export default function KitchenClient({
                         : 'border-[#56566A] bg-[#282834] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.18)]',
                   ].join(' ')}
                 >
+                  <div className="kitchen-print-ticket" aria-hidden="true">
+                    <div className="kitchen-print-brand">VIVO OPS · COCINA</div>
+                    <div className="kitchen-print-order-number">Orden #{order.displayNumber}</div>
+                    <div>{order.clientName}</div>
+                    <div>{order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} · {scheduleLabel(order)}</div>
+                    <div className="kitchen-print-divider" />
+                    {order.items.map((item) => {
+                      const detailLines = parseDetailLines(item.notes);
+                      const hasCountedDetails = detailLines.some((line) => line.qty != null);
+                      const printQuantity = hasCountedDetails ? item.qty : getItemUnits(item);
+                      return (
+                        <div key={`print-${item.id}`} className="kitchen-print-line">
+                          <strong>{formatQty(printQuantity)} × {item.name}</strong>
+                          {detailLines.map((line, index) => (
+                            <div key={`print-${item.id}-${index}`}>
+                              {line.qty == null ? line.label : `${formatQty(line.qty)} × ${line.label}`}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    {order.notes?.trim() ? <div><strong>Nota:</strong> {order.notes.trim()}</div> : null}
+                    {order.deliveryAddress ? <div><strong>Dirección:</strong> {order.deliveryAddress}</div> : null}
+                    {order.etaMinutes ? <div><strong>ETA Cocina:</strong> {order.etaMinutes} min</div> : null}
+                    <div className="kitchen-print-divider" />
+                    <div>{formatDateTime(new Date(currentTimeMs).toISOString())}</div>
+                  </div>
                         <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-xl font-black leading-none tracking-tight text-[#FEEF00]">
@@ -1204,6 +1260,14 @@ export default function KitchenClient({
                           </span>
                       <div className="mt-1 text-2xl font-black text-[#F5F5F7]">{formatQty(totalUnits)}</div>
                       <div className="text-[10px] uppercase tracking-[0.12em] text-[#8A8A96]">piezas</div>
+                      <button
+                        type="button"
+                        onClick={() => printKitchenOrder(order.id)}
+                        className="kitchen-no-print mt-1.5 rounded-lg border border-[#3A3A4D] bg-[#0B0B10] px-2 py-1 text-[11px] font-semibold text-[#C9C9D4]"
+                        aria-label={`Imprimir orden ${order.displayNumber}`}
+                      >
+                        Imprimir
+                      </button>
                         </div>
                   </div>
 

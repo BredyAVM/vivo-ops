@@ -46,3 +46,72 @@ export function getKitchenShiftDateBounds(now: Date) {
     max: caracasDateKey(now),
   };
 }
+
+export function getKitchenDayRange(dayKey: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+    throw new Error('Fecha operativa invalida.');
+  }
+  const start = new Date(`${dayKey}T00:00:00-04:00`);
+  if (!Number.isFinite(start.getTime()) || caracasDateKey(start) !== dayKey) {
+    throw new Error('Fecha operativa invalida.');
+  }
+  return {
+    startISO: start.toISOString(),
+    endISO: new Date(start.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+export type KitchenPrepMetric = {
+  actualMinutes: number;
+  committedMinutes: number | null;
+  varianceMinutes: number | null;
+  onTime: boolean | null;
+};
+
+export function kitchenPrepMetric(input: {
+  startedAt: string | null;
+  readyAt: string | null;
+  etaMinutes: number | null;
+}): KitchenPrepMetric | null {
+  const startedAt = new Date(String(input.startedAt || '')).getTime();
+  const readyAt = new Date(String(input.readyAt || '')).getTime();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(readyAt) || readyAt < startedAt) return null;
+
+  const actualMinutes = Math.round(((readyAt - startedAt) / 60000) * 10) / 10;
+  const committedMinutes =
+    input.etaMinutes != null && Number.isFinite(input.etaMinutes) && input.etaMinutes > 0
+      ? input.etaMinutes
+      : null;
+  const varianceMinutes = committedMinutes == null
+    ? null
+    : Math.round((actualMinutes - committedMinutes) * 10) / 10;
+
+  return {
+    actualMinutes,
+    committedMinutes,
+    varianceMinutes,
+    onTime: varianceMinutes == null ? null : varianceMinutes <= 0,
+  };
+}
+
+export function summarizeKitchenPrepMetrics(metrics: KitchenPrepMetric[]) {
+  const measured = metrics.filter((metric) => Number.isFinite(metric.actualMinutes));
+  const committed = measured.filter((metric) => metric.varianceMinutes != null);
+  const averageActualMinutes = measured.length
+    ? Math.round((measured.reduce((sum, metric) => sum + metric.actualMinutes, 0) / measured.length) * 10) / 10
+    : null;
+  const averageVarianceMinutes = committed.length
+    ? Math.round((committed.reduce((sum, metric) => sum + Number(metric.varianceMinutes), 0) / committed.length) * 10) / 10
+    : null;
+  const onTimePct = committed.length
+    ? Math.round((committed.filter((metric) => metric.onTime).length / committed.length) * 100)
+    : null;
+
+  return {
+    measuredCount: measured.length,
+    committedCount: committed.length,
+    averageActualMinutes,
+    averageVarianceMinutes,
+    onTimePct,
+  };
+}

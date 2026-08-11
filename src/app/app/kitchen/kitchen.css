@@ -48,6 +48,59 @@
   animation: kitchen-enter 180ms ease-out;
 }
 
+.kitchen-print-ticket,
+.kitchen-print-portal {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+
+  body.kitchen-printing {
+    background: #fff !important;
+  }
+
+  body.kitchen-printing > *:not(.kitchen-print-portal) {
+    display: none !important;
+  }
+
+  body.kitchen-printing > .kitchen-print-portal {
+    display: block !important;
+    width: 72mm;
+    color: #000 !important;
+    background: #fff !important;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11pt;
+    line-height: 1.25;
+  }
+
+  .kitchen-print-portal .kitchen-print-brand {
+    font-size: 10pt;
+    font-weight: 800;
+    text-align: center;
+  }
+
+  .kitchen-print-portal .kitchen-print-order-number {
+    margin: 2mm 0;
+    font-size: 20pt;
+    font-weight: 900;
+    text-align: center;
+  }
+
+  .kitchen-print-portal .kitchen-print-divider {
+    margin: 2mm 0;
+    border-top: 1px dashed #000;
+  }
+
+  .kitchen-print-portal .kitchen-print-line {
+    margin-bottom: 2mm;
+    break-inside: avoid;
+  }
+}
+
 @keyframes kitchen-new-order {
   0%,
   100% {
