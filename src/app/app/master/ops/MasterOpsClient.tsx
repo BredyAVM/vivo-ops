@@ -831,10 +831,17 @@ function formatMasterInventoryUnits(value: number | null) {
   return new Intl.NumberFormat("es-VE", { maximumFractionDigits: 2 }).format(value);
 }
 
+function formatMasterInventoryQuantity(value: number | null, unitName: string) {
+  if (value == null) return "Por confirmar";
+  return `${formatMasterInventoryUnits(value)} ${unitName}`;
+}
+
 function MasterOpsOrderInventoryPanel({
   inventory,
+  onRefresh,
 }: {
   inventory: MasterOpsOrderInventoryPreview | undefined;
+  onRefresh: () => void;
 }) {
   if (!inventory || inventory.status === "unavailable") {
     return (
@@ -902,11 +909,27 @@ function MasterOpsOrderInventoryPanel({
   return (
     <div className="mt-4 space-y-3">
       <div className={`rounded-xl border p-4 ${decision.className}`}>
-        <div className="text-sm font-semibold">{decision.title}</div>
-        <div className="mt-1 text-xs leading-relaxed opacity-80">{decision.description}</div>
-        {inventory.effectiveAt ? (
-          <div className="mt-2 text-[11px] opacity-70">
-            Evaluado para {formatMasterOrderDateTime(inventory.effectiveAt)}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold">{decision.title}</div>
+            <div className="mt-1 text-xs leading-relaxed opacity-80">{decision.description}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="shrink-0 rounded-lg border border-current/30 bg-black/10 px-3 py-1.5 text-xs font-semibold"
+          >
+            Actualizar datos
+          </button>
+        </div>
+        {inventory.calculatedAt || inventory.effectiveAt ? (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] opacity-70">
+            {inventory.calculatedAt ? (
+              <span>Consulta realizada: {formatMasterOrderDateTime(inventory.calculatedAt)}</span>
+            ) : null}
+            {inventory.effectiveAt ? (
+              <span>Entrega evaluada: {formatMasterOrderDateTime(inventory.effectiveAt)}</span>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -916,7 +939,7 @@ function MasterOpsOrderInventoryPanel({
           <div>
             <div className="text-sm font-semibold text-[#F5F5F7]">Impacto físico de la orden</div>
             <div className="mt-1 text-[11px] text-[#8A8A96]">
-              Cantidades expresadas en la unidad base de cada ítem.
+              Cada cifra muestra su unidad física: UND, servicio, porción, envase o recipiente.
             </div>
           </div>
           <span className="rounded-full border border-[#343442] bg-[#0B0B0D] px-2 py-1 text-[10px] font-semibold text-[#B7B7C2]">
@@ -929,7 +952,14 @@ function MasterOpsOrderInventoryPanel({
             No hay consumo de inventario configurado para esta orden.
           </div>
         ) : (
-          <div className="mt-3 space-y-2">
+          <>
+            <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-3 text-[11px] leading-relaxed text-sky-100">
+              <strong>Libre para esta orden</strong> es lo máximo que puede asignarse sin dejar descubiertos
+              otros pedidos dentro de los próximos {inventory.horizonDays} días. Puede incluir entradas o
+              producciones esperadas; cuando dependa de ellas se indicará expresamente. La orden abierta no se
+              cuenta dentro de sus propios compromisos.
+            </div>
+            <div className="mt-3 space-y-2">
             {inventory.lines.map((line) => {
               const lineHasShortage = (line.shortageUnits ?? 0) > 0.0001;
               const tone = line.declaredUnavailable
@@ -957,7 +987,7 @@ function MasterOpsOrderInventoryPanel({
                     <div>
                       <div className="text-sm font-semibold text-[#F5F5F7]">{line.itemName}</div>
                       <div className="mt-1 text-xs text-[#B7B7C2]">
-                        Solicita {formatMasterInventoryUnits(line.requestedUnits)}
+                        Esta orden requiere {formatMasterInventoryQuantity(line.requestedUnits, line.unitName)}
                       </div>
                     </div>
                     <span className="rounded-full border border-current/30 px-2 py-1 text-[10px] font-semibold text-[#B7B7C2]">
@@ -967,33 +997,38 @@ function MasterOpsOrderInventoryPanel({
 
                   <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
                     <div className="rounded-lg bg-[#121218] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Existencia física</div>
+                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Existencia física ahora</div>
                       <div className="mt-1 font-semibold text-[#F5F5F7]">
-                        {formatMasterInventoryUnits(line.onHandUnits)}
+                        {formatMasterInventoryQuantity(line.onHandUnits, line.unitName)}
                       </div>
                     </div>
                     <div className="rounded-lg bg-[#121218] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Disponible sin afectar</div>
+                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Libre para esta orden</div>
                       <div className="mt-1 font-semibold text-[#F5F5F7]">
-                        {formatMasterInventoryUnits(line.availableUnits)}
+                        {formatMasterInventoryQuantity(line.availableUnits, line.unitName)}
                       </div>
                     </div>
                     <div className="rounded-lg bg-[#121218] px-3 py-2">
-                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Ya comprometido</div>
+                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">
+                        Otros pedidos protegidos ({inventory.horizonDays} días)
+                      </div>
                       <div className="mt-1 font-semibold text-[#F5F5F7]">
-                        {formatMasterInventoryUnits(line.committedThroughTargetUnits)}
+                        {formatMasterInventoryQuantity(
+                          line.committedHorizonUnits ?? line.committedThroughTargetUnits,
+                          line.unitName,
+                        )}
                       </div>
                     </div>
                   </div>
 
                   {line.reliesOnIncoming ? (
                     <div className="mt-2 text-[11px] text-sky-200">
-                      Cuenta con {formatMasterInventoryUnits(line.incomingThroughTargetUnits)} de reposición proyectada.
+                      Cuenta con {formatMasterInventoryQuantity(line.incomingThroughTargetUnits, line.unitName)} de reposición proyectada.
                     </div>
                   ) : null}
                   {lineHasShortage ? (
                     <div className="mt-2 text-[11px] text-amber-200">
-                      Faltante proyectado: {formatMasterInventoryUnits(line.shortageUnits)}.
+                      Faltante proyectado: {formatMasterInventoryQuantity(line.shortageUnits, line.unitName)}.
                     </div>
                   ) : null}
                   {line.declaredUnavailable ? (
@@ -1007,7 +1042,8 @@ function MasterOpsOrderInventoryPanel({
                 </div>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -1899,7 +1935,10 @@ function OrderDetailPanel({
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
             <div className="min-w-0">
               {activeTab === "inventario" ? (
-                <MasterOpsOrderInventoryPanel inventory={order.inventory} />
+                <MasterOpsOrderInventoryPanel
+                  inventory={order.inventory}
+                  onRefresh={onRetryDetail}
+                />
               ) : activeTab === "notas" ? (
                 <div className="mt-4 space-y-3">
                   <form
@@ -3665,6 +3704,17 @@ export default function MasterOpsClient({
     };
   }, [detailRequestVersion, orderDetails, selectedOrderId, snapshotAt]);
 
+  const refreshSelectedOrderDetail = useCallback(() => {
+    if (!selectedOrderId) return;
+    setOrderDetails((current) => {
+      if (!current[selectedOrderId]) return current;
+      const next = { ...current };
+      delete next[selectedOrderId];
+      return next;
+    });
+    setDetailRequestVersion((version) => version + 1);
+  }, [selectedOrderId]);
+
   const handleInboxCountChange = useCallback((kind: MasterOpsInboxKind, count: number) => {
     setInboxCounts((current) => current[kind] === count ? current : { ...current, [kind]: count });
   }, []);
@@ -4835,7 +4885,7 @@ export default function MasterOpsClient({
           actionError={actionError}
           runningAction={runningAction}
           onTabChange={setSelectedDetailTab}
-          onRetryDetail={() => setDetailRequestVersion((version) => version + 1)}
+          onRetryDetail={refreshSelectedOrderDetail}
           onClose={closeOrderDetail}
           onEditOrder={(order) => setEditingOrderId(order.id)}
           onDirectAction={runDirectOrderAction}

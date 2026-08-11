@@ -571,3 +571,31 @@ alias heredados `pieza`, `piezas`, `unidad` y `unidades` se presentan como
 La normalización es de presentación. No reescribe `unit_name`, movimientos ni
 historial en la base de datos y, por tanto, no reinterpreta cantidades ya
 registradas. Los nuevos ítems parten de `unidad` como valor predeterminado.
+
+## 24. Lectura vigente dentro de una orden de Máster
+
+La pestaña Inventario de `/app/master/ops` no conserva la disponibilidad que
+existía cuando el Asesor creó la orden. Cada carga invoca
+`inventory_preview_order_commitment_v1` y calcula nuevamente el resultado con
+la existencia, los compromisos y las reposiciones activas de ese momento. La
+respuesta distingue `calculated_at`, hora de la consulta, de `effective_at`,
+fecha y hora de entrega evaluada. Mientras el detalle permanece abierto la
+lectura queda en memoria; el control `Actualizar datos` fuerza una consulta
+nueva y muestra su hora.
+
+Cada línea usa la unidad canónica del ítem. Los alias de pieza se muestran como
+`UND`; un prefrito almacenado por servicio muestra `servicio`, y las salsas
+conservan `porción`, `envase` o `recipiente` según corresponda. Las etiquetas
+operativas significan:
+
+- `Esta orden requiere`: consumo físico resuelto exclusivamente para la orden;
+- `Existencia física ahora`: saldo actual del libro canónico;
+- `Libre para esta orden`: máximo asignable sin dejar descubiertos otros
+  compromisos dentro de la ventana de diez días, incluyendo reposiciones
+  activas cuando corresponda;
+- `Otros pedidos protegidos`: suma de compromisos de otras órdenes dentro de
+  esa ventana; la orden abierta se excluye para no contarse dos veces.
+
+La migración `20260811190121_clarify_master_order_inventory_preview.sql`
+amplía el JSON de la función existente. No crea tablas ni columnas, no congela
+un segundo saldo y no modifica la regla no bloqueante de las órdenes.

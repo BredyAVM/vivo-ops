@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { inventoryUnitLabel } from "@/app/app/inventory/display";
 import { requireMasterOrAdminContext } from "@/lib/auth";
 import {
   mapOrderFinancialActivity,
@@ -66,6 +67,7 @@ export type MasterOpsOrderDetailPayload = {
 export type MasterOpsOrderInventoryLine = {
   itemId: number;
   itemName: string;
+  unitName: string;
   status: string;
   requestedUnits: number;
   onHandUnits: number | null;
@@ -73,6 +75,7 @@ export type MasterOpsOrderInventoryLine = {
   availableWithoutIncomingUnits: number | null;
   shortageUnits: number | null;
   committedThroughTargetUnits: number | null;
+  committedHorizonUnits: number | null;
   incomingThroughTargetUnits: number | null;
   reliesOnIncoming: boolean;
   declaredUnavailable: boolean;
@@ -90,8 +93,10 @@ export type MasterOpsOrderInventoryPreview = {
     | "requires_opening"
     | "no_inventory_effect"
     | "unknown";
+  calculatedAt: string | null;
   effectiveAt: string | null;
   horizonDays: number;
+  horizonEndsAt: string | null;
   lines: MasterOpsOrderInventoryLine[];
   message: string | null;
 };
@@ -158,8 +163,10 @@ function mapMasterOpsOrderInventoryPreview(
     return {
       status: "unavailable",
       decision: "unknown",
+      calculatedAt: null,
       effectiveAt: null,
       horizonDays: 10,
+      horizonEndsAt: null,
       lines: [],
       message: "La lectura de inventario no estuvo disponible. La orden puede continuar normalmente.",
     };
@@ -183,6 +190,7 @@ function mapMasterOpsOrderInventoryPreview(
     return {
       itemId: Math.trunc(Number(line.inventory_item_id || 0)),
       itemName: cleanText(line.inventory_item_name, "Ítem de inventario"),
+      unitName: inventoryUnitLabel(String(line.unit_name || "unidad")),
       status: cleanText(line.status, "unknown"),
       requestedUnits: optionalOpsNumber(line.requested_quantity_units) ?? 0,
       onHandUnits: optionalOpsNumber(line.on_hand_units),
@@ -190,6 +198,7 @@ function mapMasterOpsOrderInventoryPreview(
       availableWithoutIncomingUnits: optionalOpsNumber(line.available_without_incoming),
       shortageUnits: optionalOpsNumber(line.shortage_quantity_units),
       committedThroughTargetUnits: optionalOpsNumber(line.committed_through_target),
+      committedHorizonUnits: optionalOpsNumber(line.committed_through_horizon),
       incomingThroughTargetUnits: optionalOpsNumber(line.incoming_through_target),
       reliesOnIncoming: Boolean(line.relies_on_incoming),
       declaredUnavailable: Boolean(line.declared_unavailable),
@@ -203,8 +212,10 @@ function mapMasterOpsOrderInventoryPreview(
   return {
     status: "ready",
     decision,
+    calculatedAt: preview.calculated_at ? String(preview.calculated_at) : null,
     effectiveAt: preview.effective_at ? String(preview.effective_at) : null,
     horizonDays: Math.max(1, Math.trunc(Number(preview.horizon_days || 10))),
+    horizonEndsAt: preview.horizon_ends_at ? String(preview.horizon_ends_at) : null,
     lines,
     message: null,
   };
