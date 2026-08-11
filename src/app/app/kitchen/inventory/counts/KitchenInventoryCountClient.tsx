@@ -80,12 +80,12 @@ const periodicPrograms: Array<{
   frequency: KitchenPeriodicFrequency;
   label: string;
   shortLabel: string;
-  intervalDays: number;
+  intervalDays: number | null;
 }> = [
   { frequency: 'daily', label: 'Inventario diario', shortLabel: 'Diario', intervalDays: 1 },
   { frequency: 'weekly', label: 'Inventario semanal', shortLabel: 'Semanal', intervalDays: 7 },
   { frequency: 'biweekly', label: 'Inventario quincenal', shortLabel: 'Quincenal', intervalDays: 14 },
-  { frequency: 'monthly', label: 'Inventario mensual', shortLabel: 'Mensual', intervalDays: 30 },
+  { frequency: 'monthly', label: 'Inventario mensual', shortLabel: 'Mensual', intervalDays: null },
 ];
 
 const statusLabels: Record<string, string> = {
@@ -113,6 +113,16 @@ function formatDate(value: string | null) {
     timeStyle: 'short',
     timeZone: 'America/Caracas',
   }).format(new Date(value));
+}
+
+function periodicDueAt(countedAt: string, intervalDays: number | null) {
+  const dueAt = new Date(countedAt);
+  if (!Number.isFinite(dueAt.getTime())) return Number.NaN;
+  if (intervalDays == null) {
+    dueAt.setUTCMonth(dueAt.getUTCMonth() + 1);
+    return dueAt.getTime();
+  }
+  return dueAt.getTime() + intervalDays * 24 * 60 * 60 * 1000;
 }
 
 function usesPresentations(item: KitchenCountItem) {
@@ -223,9 +233,8 @@ export default function KitchenInventoryCountClient({
         itemCount: programItems.length,
         dueCount: programItems.filter((item) => {
           if (!item.lastCountedAt) return true;
-          const countedAt = new Date(item.lastCountedAt).getTime();
-          return !Number.isFinite(countedAt)
-            || countedAt + program.intervalDays * 24 * 60 * 60 * 1000 < scheduleNow;
+          const dueAt = periodicDueAt(item.lastCountedAt, program.intervalDays);
+          return !Number.isFinite(dueAt) || dueAt < scheduleNow;
         }).length,
       };
     }),
@@ -519,6 +528,9 @@ export default function KitchenInventoryCountClient({
         )}
       </div>
 
+      {error ? <Feedback tone="danger">{error}</Feedback> : null}
+      {message ? <Feedback tone="good">{message}</Feedback> : null}
+
       {activeItems.length ? (
         <div className="mt-4 rounded-2xl border border-[#292938] bg-[#111117] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -570,59 +582,63 @@ export default function KitchenInventoryCountClient({
         </div>
       ) : null}
 
-      <div className="mt-4 space-y-4">
-        {visibleGroups.map(([group, groupItems]) => (
-          <details key={group} open className="overflow-hidden rounded-2xl border border-[#292938] bg-[#111117]">
-            <summary className="cursor-pointer bg-[#171720] px-4 py-3 font-bold">
-              {groupLabels[group] ?? group} · {groupItems.length}
-            </summary>
-            <div className="divide-y divide-[#292938]">
-              {groupItems.map((item) => (
-                <CountItemEditor
-                  key={item.id}
-                  item={item}
-                  draft={draftFor(item.id)}
-                  onChange={(patch) => updateDraft(item.id, patch)}
-                  disabled={isPending}
-                />
-              ))}
-            </div>
-          </details>
-        ))}
-      </div>
+      {activeItems.length ? (
+        <>
+          <div className="mt-4 space-y-4">
+            {visibleGroups.map(([group, groupItems]) => (
+              <details key={group} open className="overflow-hidden rounded-2xl border border-[#292938] bg-[#111117]">
+                <summary className="cursor-pointer bg-[#171720] px-4 py-3 font-bold">
+                  {groupLabels[group] ?? group} · {groupItems.length}
+                </summary>
+                <div className="divide-y divide-[#292938]">
+                  {groupItems.map((item) => (
+                    <CountItemEditor
+                      key={item.id}
+                      item={item}
+                      draft={draftFor(item.id)}
+                      onChange={(patch) => updateDraft(item.id, patch)}
+                      disabled={isPending}
+                    />
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
 
-      <div className="mt-5 rounded-2xl border border-[#292938] bg-[#111117] p-5">
-        <label className="block text-sm text-[#C4C4CE]">
-          <span className="mb-2 block">Nota general opcional</span>
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            maxLength={1000}
-            rows={3}
-            disabled={isPending}
-            className={inputClass}
-            placeholder="Ej.: una bolsa parecía traer menos piezas y fue recontada."
-          />
-        </label>
-        {error ? <Feedback tone="danger">{error}</Feedback> : null}
-        {message ? <Feedback tone="good">{message}</Feedback> : null}
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={submitCount}
-            disabled={isPending || activeItems.length === 0 || countedItemCount !== activeItems.length}
-            className="rounded-xl bg-[#FEEF00] px-5 py-3 font-black text-black disabled:opacity-40"
-          >
-            {isPending
-              ? 'Presentando…'
-              : activeItems.length && countedItemCount === activeItems.length
-                ? `Presentar ${activeItems.length} ítems`
-                : activeItems.length
-                  ? `Faltan ${activeItems.length - countedItemCount} ítems`
-                  : 'Selecciona un conteo'}
-          </button>
+          <div className="mt-5 rounded-2xl border border-[#292938] bg-[#111117] p-5">
+            <label className="block text-sm text-[#C4C4CE]">
+              <span className="mb-2 block">Nota general opcional</span>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                maxLength={1000}
+                rows={3}
+                disabled={isPending}
+                className={inputClass}
+                placeholder="Ej.: una bolsa parecía traer menos piezas y fue recontada."
+              />
+            </label>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={submitCount}
+                disabled={isPending || countedItemCount !== activeItems.length}
+                className="rounded-xl bg-[#FEEF00] px-5 py-3 font-black text-black disabled:opacity-40"
+              >
+                {isPending
+                  ? 'Presentando…'
+                  : countedItemCount === activeItems.length
+                    ? `Presentar ${activeItems.length} ítems`
+                    : `Faltan ${activeItems.length - countedItemCount} ítems`}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-dashed border-[#343444] px-4 py-8 text-center text-sm text-[#858591]">
+          Selecciona un turno, un ciclo configurado, una solicitud abierta o un conteo puntual para comenzar.
         </div>
-      </div>
+      )}
 
       <RecentCounts counts={recentCounts} />
     </section>
