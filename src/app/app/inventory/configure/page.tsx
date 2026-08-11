@@ -40,6 +40,7 @@ type RawProduct = {
   is_temporary: boolean;
   detail_units_limit: number;
   inventory_policy: ConfiguratorProduct['inventoryPolicy'];
+  inventory_configuration_status: string;
 };
 
 type RawProductComponent = {
@@ -106,7 +107,8 @@ export default async function InventoryConfigurePage({
         allows_half_service,
         is_temporary,
         detail_units_limit,
-        inventory_policy
+        inventory_policy,
+        inventory_configuration_status
       `)
       .order('name', { ascending: true }),
     ctx.supabase
@@ -205,28 +207,69 @@ export default async function InventoryConfigurePage({
   const rawAdministrationWorkspace = repairInventoryDisplayData(
     administrationResult.data as InventoryAdminWorkspace,
   );
-  const administrationWorkspace: InventoryAdminWorkspace = {
-    ...rawAdministrationWorkspace,
-    products: rawAdministrationWorkspace.products.map((product) => {
-      const commercial = commercialByProductId.get(product.id);
+  const mappedWorkspaceProducts: InventoryAdminWorkspace['products'] = rawAdministrationWorkspace.products.map((product) => {
+    const commercial = commercialByProductId.get(product.id);
+    const rawProduct = rawProductById.get(product.id);
+    const revision = Number(rawProduct?.extra_fields?.inventory_physical_revision ?? 1);
+    const history = rawProduct?.extra_fields?.inventory_physical_history;
+    return {
+      ...product,
+      source_price_amount: commercial?.sourcePriceAmount ?? 0,
+      source_price_currency: commercial?.sourcePriceCurrency ?? 'USD',
+      commission_mode: commercial?.commissionMode ?? 'default',
+      commission_value: commercial?.commissionValue ?? null,
+      commission_notes: commercial?.commissionNotes ?? null,
+      advisor_gift_cost_usd: commercial?.advisorGiftCostUsd ?? null,
+      internal_rider_pay_usd: commercial?.internalRiderPayUsd ?? null,
+      links: linksByProductId.get(product.id) ?? [],
+      components: componentsByParentId.get(product.id) ?? [],
+      physical_revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 1,
+      physical_history_count: Array.isArray(history) ? history.length : 0,
+    };
+  });
+  const mappedProductIds = new Set(mappedWorkspaceProducts.map((product) => product.id));
+  const inactiveReadyProducts: InventoryAdminWorkspace['products'] = products
+    .filter((product) => {
       const rawProduct = rawProductById.get(product.id);
-      const revision = Number(rawProduct?.extra_fields?.inventory_physical_revision ?? 1);
-      const history = rawProduct?.extra_fields?.inventory_physical_history;
+      return !mappedProductIds.has(product.id)
+        && rawProduct?.inventory_configuration_status === 'ready';
+    })
+    .map((product) => {
+      const rawProduct = rawProductById.get(product.id)!;
+      const revision = Number(rawProduct.extra_fields?.inventory_physical_revision ?? 1);
+      const history = rawProduct.extra_fields?.inventory_physical_history;
       return {
-        ...product,
-        source_price_amount: commercial?.sourcePriceAmount ?? 0,
-        source_price_currency: commercial?.sourcePriceCurrency ?? 'USD',
-        commission_mode: commercial?.commissionMode ?? 'default',
-        commission_value: commercial?.commissionValue ?? null,
-        commission_notes: commercial?.commissionNotes ?? null,
-        advisor_gift_cost_usd: commercial?.advisorGiftCostUsd ?? null,
-        internal_rider_pay_usd: commercial?.internalRiderPayUsd ?? null,
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        type: product.type,
+        is_active: product.isActive,
+        units_per_service: product.unitsPerService,
+        allows_half_service: product.allowsHalfService,
+        is_temporary: product.isTemporary,
+        detail_units_limit: product.detailUnitsLimit,
+        source_price_amount: product.sourcePriceAmount,
+        source_price_currency: product.sourcePriceCurrency,
+        commission_mode: product.commissionMode,
+        commission_value: product.commissionValue,
+        commission_notes: product.commissionNotes,
+        advisor_gift_cost_usd: product.advisorGiftCostUsd,
+        internal_rider_pay_usd: product.internalRiderPayUsd,
+        inventory_policy: product.inventoryPolicy,
+        inventory_configuration_status: rawProduct.inventory_configuration_status,
+        order_reference_count: 0,
+        open_order_reference_count: 0,
+        parent_product_count: 0,
         links: linksByProductId.get(product.id) ?? [],
         components: componentsByParentId.get(product.id) ?? [],
         physical_revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 1,
         physical_history_count: Array.isArray(history) ? history.length : 0,
       };
-    }),
+    });
+  const administrationWorkspace: InventoryAdminWorkspace = {
+    ...rawAdministrationWorkspace,
+    products: [...mappedWorkspaceProducts, ...inactiveReadyProducts]
+      .sort((left, right) => left.name.localeCompare(right.name, 'es')),
   };
 
   return (

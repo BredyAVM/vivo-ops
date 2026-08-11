@@ -7,6 +7,8 @@ import { parseDecimalInput } from '@/lib/number-input';
 import {
   activateInventoryRecipeAction,
   saveInventoryRecipeDraftAction,
+  setInventoryItemActiveStatusAction,
+  setInventoryProductActiveStatusAction,
   updateInventoryItemControlsAction,
   updateInventoryProductIdentityAction,
   updateInventoryProductPhysicalConfigurationAction,
@@ -283,7 +285,7 @@ export default function InventoryAdministrationClient({
 
       {editor === 'product' ? (
         <div className="mt-5">
-          <Field label="Producto activo">
+          <Field label="Producto comercial">
             <select
               value={productId}
               onChange={(event) => setProductId(event.target.value)}
@@ -292,7 +294,7 @@ export default function InventoryAdministrationClient({
               <option value="">Selecciona un producto…</option>
               {workspace.products.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} · {candidate.sku ?? 'sin SKU'}
+                  {candidate.name} · {candidate.sku ?? 'sin SKU'} · {candidate.is_active ? 'activo' : 'inactivo'}
                 </option>
               ))}
             </select>
@@ -422,6 +424,7 @@ function ProductEditor({
   const [internalRiderPayUsd, setInternalRiderPayUsd] = useState(
     product.internal_rider_pay_usd == null ? '' : String(product.internal_rider_pay_usd),
   );
+  const [lifecycleNote, setLifecycleNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -455,8 +458,66 @@ function ProductEditor({
     });
   }
 
+  function toggleProductStatus() {
+    setMessage(null);
+    setError(null);
+    const nextIsActive = !product.is_active;
+    const accepted = window.confirm(
+      nextIsActive
+        ? `¿Reactivar ${product.name} en el catálogo?`
+        : `¿Desactivar ${product.name}? No aparecerá en ventas nuevas, pero las órdenes abiertas conservarán el producto.`,
+    );
+    if (!accepted) return;
+
+    startTransition(async () => {
+      try {
+        const result = await setInventoryProductActiveStatusAction({
+          productId: product.id,
+          nextIsActive,
+          note: lifecycleNote.trim() || null,
+        });
+        setMessage(
+          nextIsActive
+            ? 'Producto reactivado en el catálogo.'
+            : `Producto desactivado sin bloquear órdenes${result?.open_order_count ? `; conserva ${result.open_order_count} orden(es) abierta(s)` : ''}.`,
+        );
+        router.refresh();
+      } catch (statusError) {
+        setError(statusError instanceof Error ? statusError.message : 'No se pudo cambiar el estado del producto.');
+      }
+    });
+  }
+
   return (
     <div className="mt-4 space-y-4">
+      <div className={`rounded-xl border p-4 ${product.is_active ? 'border-emerald-400/25 bg-emerald-400/5' : 'border-amber-400/25 bg-amber-400/5'}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-semibold">Estado del producto</h3>
+              <StatusBadge tone={product.is_active ? 'good' : 'warn'}>
+                {product.is_active ? 'Activo para ventas nuevas' : 'Inactivo / fuera de temporada'}
+              </StatusBadge>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#A5A5B0]">
+              Desactivar no borra el producto, no cambia existencias y no impide completar órdenes que ya lo contienen.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[minmax(260px,1fr)_auto]">
+            <input
+              value={lifecycleNote}
+              onChange={(event) => setLifecycleNote(event.target.value)}
+              maxLength={500}
+              placeholder="Motivo o temporada (opcional)"
+              className={INPUT_CLASS}
+            />
+            <button type="button" onClick={toggleProductStatus} disabled={isPending} className={SECONDARY_BUTTON}>
+              {product.is_active ? 'Desactivar producto' : 'Reactivar producto'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="rounded-xl border border-[#292938] bg-[#14141C] p-4">
         <div className="grid gap-4 md:grid-cols-2">
@@ -566,7 +627,7 @@ function ProductEditor({
           </div>
         </div>
         <Feedback message={message} error={error} />
-        <button type="button" onClick={save} disabled={isPending} className={`mt-4 ${PRIMARY_BUTTON}`}>
+        <button type="button" onClick={save} disabled={isPending || !product.is_active} className={`mt-4 ${PRIMARY_BUTTON}`}>
           {isPending ? 'Guardando…' : 'Guardar datos comerciales'}
         </button>
       </div>
@@ -592,7 +653,13 @@ function ProductEditor({
       </ImpactCard>
       </div>
 
-      <PhysicalConfigurationEditor product={product} products={products} items={items} />
+      {product.is_active ? (
+        <PhysicalConfigurationEditor product={product} products={products} items={items} />
+      ) : (
+        <div className="rounded-xl border border-dashed border-[#3A3A48] px-4 py-5 text-sm text-[#9898A5]">
+          Reactiva el producto para modificar su descuento físico. Su configuración e historial siguen conservados.
+        </div>
+      )}
     </div>
   );
 }
@@ -803,6 +870,7 @@ function ItemEditor({ item }: { item: AdminItem }) {
   const [countFrequency, setCountFrequency] = useState(item.primary_count_frequency ?? '');
   const [countRole, setCountRole] = useState(item.primary_count_role ?? '');
   const [notes, setNotes] = useState(item.notes ?? '');
+  const [lifecycleNote, setLifecycleNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -835,6 +903,32 @@ function ItemEditor({ item }: { item: AdminItem }) {
     });
   }
 
+  function toggleItemStatus() {
+    setMessage(null);
+    setError(null);
+    const nextIsActive = !item.is_active;
+    const accepted = window.confirm(
+      nextIsActive
+        ? `¿Reactivar ${item.name} en inventario?`
+        : `¿Retirar ${item.name} de conteos y alertas? Su saldo e historial se conservarán.`,
+    );
+    if (!accepted) return;
+
+    startTransition(async () => {
+      try {
+        await setInventoryItemActiveStatusAction({
+          inventoryItemId: item.id,
+          nextIsActive,
+          note: lifecycleNote.trim() || null,
+        });
+        setMessage(nextIsActive ? 'Ítem reactivado.' : 'Ítem retirado de conteos y alertas sin cambiar su saldo.');
+        router.refresh();
+      } catch (statusError) {
+        setError(statusError instanceof Error ? statusError.message : 'No se pudo cambiar el estado del ítem.');
+      }
+    });
+  }
+
   return (
     <div className="mt-4 space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -842,6 +936,29 @@ function ItemEditor({ item }: { item: AdminItem }) {
         <ProfileFact label="Familia" value={item.inventory_group} />
         <ProfileFact label="Unidad base" value={item.unit_name} />
         <ProfileFact label="Existencia actual" value={`${quantity(item.current_stock_units)} ${item.unit_name}`} />
+      </div>
+
+      <div className={`rounded-xl border p-4 ${item.is_active ? 'border-emerald-400/20 bg-emerald-400/5' : 'border-amber-400/25 bg-amber-400/5'}`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Participación en el inventario</h3>
+            <p className="mt-1 text-xs leading-5 text-[#9494A0]">
+              Un ítem inactivo no aparece en conteos ni genera alertas. El sistema impedirá retirarlo si todavía lo usa un producto, receta o flujo activo.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[minmax(260px,1fr)_auto]">
+            <input
+              value={lifecycleNote}
+              onChange={(event) => setLifecycleNote(event.target.value)}
+              maxLength={500}
+              placeholder="Motivo del cambio (opcional)"
+              className={INPUT_CLASS}
+            />
+            <button type="button" onClick={toggleItemStatus} disabled={isPending} className={SECONDARY_BUTTON}>
+              {item.is_active ? 'Retirar del inventario' : 'Reactivar ítem'}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -864,10 +981,10 @@ function ItemEditor({ item }: { item: AdminItem }) {
               <option value="scheduled_recipe">Preparación con tiempo</option>
             </select>
           </Field>
-          <Field label="Encender alerta desde">
+          <Field label="Punto mínimo para alertar">
             <input inputMode="decimal" value={lowStockThreshold} onChange={(event) => setLowStockThreshold(event.target.value)} className={INPUT_CLASS} />
           </Field>
-          <Field label="Stock objetivo">
+          <Field label="Objetivo después de reponer">
             <input inputMode="decimal" value={targetStockUnits} onChange={(event) => setTargetStockUnits(event.target.value)} className={INPUT_CLASS} />
           </Field>
           <Field label="Vida útil en días">
@@ -902,7 +1019,7 @@ function ItemEditor({ item }: { item: AdminItem }) {
           </div>
         </div>
         <Feedback message={message} error={error} />
-        <button type="button" onClick={save} disabled={isPending} className={`mt-4 ${PRIMARY_BUTTON}`}>
+        <button type="button" onClick={save} disabled={isPending || !item.is_active} className={`mt-4 ${PRIMARY_BUTTON}`}>
           {isPending ? 'Guardando…' : 'Guardar controles del ítem'}
         </button>
         </div>

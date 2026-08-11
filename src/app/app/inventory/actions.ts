@@ -524,6 +524,13 @@ export async function updateInventoryItemControlsAction(input: {
   if (input.primaryCountFrequency && !input.primaryCountRole) {
     throw new Error('Un conteo programado debe tener un responsable.');
   }
+  if (
+    lowStockThreshold != null
+    && targetStockUnits != null
+    && targetStockUnits < lowStockThreshold
+  ) {
+    throw new Error('El stock objetivo no puede ser menor que el punto mínimo.');
+  }
 
   const { data, error } = await ctx.supabase.rpc('inventory_update_item_controls_v1', {
     p_configuration: {
@@ -543,6 +550,64 @@ export async function updateInventoryItemControlsAction(input: {
   if (error) throw new Error(error.message);
   revalidateInventoryConfigurationRoutes();
   return data as { status?: string; inventory_item_id?: number } | null;
+}
+
+export async function setInventoryItemActiveStatusAction(input: {
+  inventoryItemId: number;
+  nextIsActive: boolean;
+  note: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede cambiar el estado de un ítem.');
+  }
+
+  const inventoryItemId = normalizeCountId(input.inventoryItemId);
+  const note = normalizeNotes(input.note);
+  const { data, error } = await ctx.supabase.rpc('inventory_set_item_active_status_v1', {
+    p_inventory_item_id: inventoryItemId,
+    p_is_active: input.nextIsActive === true,
+    p_note: note,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateInventoryConfigurationRoutes();
+  return data as {
+    status?: string;
+    inventory_item_id?: number;
+    is_active?: boolean;
+    stock_changed?: boolean;
+    orders_blocked?: boolean;
+  } | null;
+}
+
+export async function setInventoryProductActiveStatusAction(input: {
+  productId: number;
+  nextIsActive: boolean;
+  note: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede cambiar el estado de un producto.');
+  }
+
+  const productId = normalizeCountId(input.productId);
+  const note = normalizeNotes(input.note);
+  const { data, error } = await ctx.supabase.rpc('inventory_set_product_active_status_v1', {
+    p_product_id: productId,
+    p_is_active: input.nextIsActive === true,
+    p_note: note,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateInventoryConfigurationRoutes();
+  return data as {
+    status?: string;
+    product_id?: number;
+    is_active?: boolean;
+    open_order_count?: number;
+    orders_blocked?: boolean;
+  } | null;
 }
 
 export async function saveInventoryRecipeDraftAction(input: {

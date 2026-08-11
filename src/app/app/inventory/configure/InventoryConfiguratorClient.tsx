@@ -240,6 +240,11 @@ export default function InventoryConfiguratorClient({
   }
 
   function validateBeforeSubmit() {
+    const minimum = optionalNumber(item.lowStockThreshold);
+    const target = optionalNumber(item.targetStockUnits);
+    if (minimum != null && target != null && target < minimum) {
+      return 'El objetivo de reposición no puede ser menor que el punto mínimo.';
+    }
     if (entryKind === 'item') {
       if (!item.name.trim()) return 'Escribe el nombre del ítem interno.';
       if (!item.unitName.trim()) return 'Escribe la unidad base del ítem.';
@@ -760,8 +765,8 @@ function ItemEditor({ item, setItem, disabled }: { item: ItemDraft; setItem: Rea
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Field label="Alerta desde"><input type="number" min="0" step="0.01" value={item.lowStockThreshold} onChange={(event) => update('lowStockThreshold', event.target.value)} disabled={disabled} className={inputClass} /></Field>
-        <Field label="Stock objetivo"><input type="number" min="0" step="0.01" value={item.targetStockUnits} onChange={(event) => update('targetStockUnits', event.target.value)} disabled={disabled} className={inputClass} /></Field>
+        <Field label="Punto mínimo para alertar"><input type="number" min="0" step="0.01" value={item.lowStockThreshold} onChange={(event) => update('lowStockThreshold', event.target.value)} disabled={disabled} className={inputClass} /></Field>
+        <Field label="Objetivo después de reponer"><input type="number" min="0" step="0.01" value={item.targetStockUnits} onChange={(event) => update('targetStockUnits', event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Vida útil (días)"><input type="number" min="0" step="1" value={item.shelfLifeDays} onChange={(event) => update('shelfLifeDays', event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Frecuencia principal">
           <select value={item.primaryCountFrequency} onChange={(event) => update('primaryCountFrequency', event.target.value as ItemDraft['primaryCountFrequency'])} disabled={disabled} className={inputClass}>
