@@ -1,4 +1,4 @@
--- Phase 2 / Master: explicit commercial suspensions.
+-- Phase 2 / Máster: explicit commercial suspensions.
 -- Reuses inventory_planned_flows.declared_unavailability, which has existed
 -- since the inventory foundation. Physical stock and existing orders remain
 -- untouched; the override only affects dated availability reads.

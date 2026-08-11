@@ -492,3 +492,34 @@ La siguiente fase pertenece a Máster: debe consumir una proyección reducida pa
 monitorear, registrar entradas esperadas y decidir suspensiones comerciales
 explícitas. Después se adapta Cocina a sus listas por frecuencia. Esas fases no
 deben trasladar el configurador administrativo completo a sus módulos.
+
+## 21. Fase 2 operativa del Módulo Máster
+
+Máster consume una adaptación reducida del centro canónico. Su pantalla inicial
+prioriza decisiones: riesgo actual, disponibilidad sin afectar compromisos,
+entradas esperadas y conteos pendientes. La configuración estructural de
+productos, recetas, frecuencias, mínimos y ciclos de vida permanece en
+Inventario General.
+
+Las reposiciones esperadas reutilizan `inventory_planned_flows` y nunca suman
+existencia física. Cocina confirma después la cantidad que realmente ingresó.
+Una expectativa con cantidad desconocida comunica una fecha posible, pero no
+crea capacidad ilimitada.
+
+La indisponibilidad declarada reutiliza el tipo existente
+`declared_unavailability`. Es la única señal capaz de producir
+`inventory_blocks_submission = true`, y solo cuando Máster o Administración la
+crean explícitamente. Los saldos bajos, cero o negativos, faltantes proyectados,
+aperturas pendientes y dependencias de reposición continúan siendo avisos no
+bloqueantes.
+
+La suspensión se evalúa para la fecha objetivo, se propaga a componentes fijos
+obligatorios, conserva el saldo físico y no cancela órdenes existentes. Asesor
+y Counter deberán consumir este indicador en sus propias fases visuales; la
+Fase 2 no modifica sus interfaces.
+
+El detalle de orden de `/app/master/ops` incorpora una pestaña Inventario que
+consume `inventory_preview_order_commitment_v1`. La lectura es tolerante: un
+error del inventario no impide cargar el pedido ni ejecutar su flujo operativo.
+La certificación completa está en
+`INVENTORY_PHASE_2_MASTER_CERTIFICATION_2026-08-11.md`.
