@@ -9,6 +9,7 @@ import {
   calculateOrderLineSnapshot,
   calculateOrderTotalsSnapshot,
 } from '@/lib/pricing/order-snapshots';
+import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import {
   searchCounterClientsAction,
   type CounterClientSearchResult,
@@ -28,6 +29,14 @@ type CounterQuickSaleCartItem = {
   qty: string;
   notes: string;
   editableDetailLines: string[];
+};
+
+type CounterProductAvailability = {
+  product_id: number;
+  availability_state: string;
+  message: string;
+  requires_master_review: boolean;
+  inventory_blocks_submission: false;
 };
 
 const QUICK_SALE_PAYMENT_METHODS = [
@@ -75,6 +84,29 @@ function qtyLabel(value: number) {
   return value.toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
 
+function availabilityLabel(availability: CounterProductAvailability | null) {
+  switch (availability?.availability_state) {
+    case 'available': return 'Disponible';
+    case 'low': return 'Quedan pocos';
+    case 'unavailable': return 'Sin disponibilidad protegida';
+    case 'relies_on_incoming': return 'Depende de reposición';
+    case 'outside_horizon': return 'Fuera de 10 días';
+    case 'selection_required': return 'Depende de la selección';
+    case 'not_tracked': return 'No inventariable';
+    default: return availability ? 'Revisión de Máster' : 'Sin lectura';
+  }
+}
+
+function availabilityTone(availability: CounterProductAvailability | null) {
+  if (availability?.availability_state === 'available') {
+    return 'border-emerald-400/35 bg-emerald-400/10 text-emerald-100';
+  }
+  if (availability?.availability_state === 'not_tracked' || !availability) {
+    return 'border-sky-400/30 bg-sky-400/10 text-sky-100';
+  }
+  return 'border-amber-300/35 bg-amber-300/10 text-amber-100';
+}
+
 export function CounterQuickSalePanel({
   products,
   productComponents,
@@ -92,6 +124,7 @@ export function CounterQuickSalePanel({
   onCancel: () => void;
   onSubmit: (input: CounterDirectSaleIntent) => void;
 }) {
+  const supabase = useMemo(() => createSupabaseBrowser(), []);
   const [clientSearch, setClientSearch] = useState('');
   const [clientSearchResults, setClientSearchResults] = useState<CounterClientSearchResult[]>([]);
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
@@ -136,6 +169,9 @@ export function CounterQuickSalePanel({
   const [qty, setQty] = useState('1');
   const [itemNotes, setItemNotes] = useState('');
   const [cartItems, setCartItems] = useState<CounterQuickSaleCartItem[]>([]);
+  const [availabilityByProductId, setAvailabilityByProductId] = useState<Map<number, CounterProductAvailability>>(new Map());
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [configProductId, setConfigProductId] = useState<number | null>(null);
   const [configAlias, setConfigAlias] = useState('');
   const [configSelections, setConfigSelections] = useState<Array<{
@@ -165,6 +201,11 @@ export function CounterQuickSalePanel({
     return map;
   }, [productComponents]);
   const selectedProduct = selectedProductId ? productsById.get(Number(selectedProductId)) ?? null : null;
+  const availabilityTargetAt = useMemo(() => {
+    if (scheduleMode === 'now') return new Date().toISOString();
+    if (!scheduledDate || !/^\d{2}:\d{2}$/.test(scheduledTime)) return null;
+    return `${scheduledDate}T${scheduledTime}:00-04:00`;
+  }, [scheduleMode, scheduledDate, scheduledTime]);
   const configProduct = configProductId ? productsById.get(configProductId) ?? null : null;
   const configComponents = configProductId ? componentsByParentId.get(configProductId) ?? [] : [];
   const configSelectableComponents = configComponents.filter(
@@ -185,6 +226,40 @@ export function CounterQuickSalePanel({
       )
       .slice(0, 80);
   }, [productSearch, products]);
+
+  useEffect(() => {
+    if (!availabilityTargetAt || products.length === 0) {
+      setAvailabilityByProductId(new Map());
+      setAvailabilityError(null);
+      setAvailabilityLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setAvailabilityLoading(true);
+      setAvailabilityError(null);
+      const { data, error } = await supabase.rpc('inventory_catalog_availability_v1', {
+        p_target_at: availabilityTargetAt,
+        p_product_ids: products.map((product) => product.id).slice(0, 200),
+        p_surface: 'counter_inventory',
+      });
+      if (cancelled) return;
+      if (error) {
+        setAvailabilityByProductId(new Map());
+        setAvailabilityError('No se pudo consultar inventario. La venta puede continuar y Máster revisará la solicitud.');
+      } else {
+        const rows = Array.isArray(data?.products) ? data.products as CounterProductAvailability[] : [];
+        setAvailabilityByProductId(new Map(rows.map((row) => [Number(row.product_id), row])));
+      }
+      setAvailabilityLoading(false);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [availabilityTargetAt, products, supabase]);
   const lineRows = useMemo(() => {
     return cartItems.map((item) => {
       const product = productsById.get(item.productId) ?? null;
@@ -630,6 +705,75 @@ export function CounterQuickSalePanel({
         </div>
 
         <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
+          <h3 className="text-sm font-semibold">Cuándo se necesita</h3>
+          <p className="text-xs text-[#9FA0AA]">
+            La fecha se define antes de escoger productos para consultar el inventario correcto.
+          </p>
+          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-2">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setScheduleMode('now')}
+                className={[
+                  'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
+                  scheduleMode === 'now'
+                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                    : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
+                ].join(' ')}
+              >
+                Ahora
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleMode('scheduled')}
+                className={[
+                  'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
+                  scheduleMode === 'scheduled'
+                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
+                    : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
+                ].join(' ')}
+              >
+                Agendar
+              </button>
+            </div>
+            {scheduleMode === 'scheduled' ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="text-sm text-[#9FA0AA]">
+                  Fecha
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    min={getTodayKey()}
+                    onChange={(event) => setScheduledDate(event.target.value)}
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+                <label className="text-sm text-[#9FA0AA]">
+                  Hora
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(event) => setScheduledTime(event.target.value)}
+                    className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-[#9FA0AA]">Se enviará a cocina con la hora actual.</div>
+            )}
+          </div>
+          <div className="rounded-[8px] border border-sky-400/25 bg-sky-400/5 px-3 py-2 text-xs leading-5 text-sky-100">
+            {availabilityLoading
+              ? 'Consultando disponibilidad…'
+              : availabilityError
+                ? availabilityError
+                : availabilityTargetAt
+                  ? 'Fecha lista. Las señales son informativas y no impiden crear la venta.'
+                  : 'Completa fecha y hora para abrir el catálogo.'}
+          </div>
+        </div>
+
+        <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">Pedido</h3>
             <span className="text-sm font-semibold text-[#F5F5F7]">{cartItems.length} item(s)</span>
@@ -638,8 +782,9 @@ export function CounterQuickSalePanel({
             <input
               value={productSearch}
               onChange={(event) => setProductSearch(event.target.value)}
-              placeholder="Buscar producto"
-              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+              disabled={!availabilityTargetAt}
+              placeholder={availabilityTargetAt ? 'Buscar producto' : 'Primero define fecha y hora'}
+              className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70 disabled:cursor-not-allowed disabled:opacity-55"
             />
             <input
               value={qty}
@@ -666,11 +811,23 @@ export function CounterQuickSalePanel({
                       selectedProductId === String(product.id) ? 'bg-[#1A1A22]' : '',
                     ].join(' ')}
                   >
-                    <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
-                    <div className="mt-0.5 text-xs text-[#9FA0AA]">
-                      {product.unitsPerService > 0 ? `${product.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
-                      {moneyUsd(product.basePriceUsd)} / {moneyBs(product.basePriceBs)}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-[#F5F5F7]">{product.name}</div>
+                        <div className="mt-0.5 text-xs text-[#9FA0AA]">
+                          {product.unitsPerService > 0 ? `${product.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
+                          {moneyUsd(product.basePriceUsd)} / {moneyBs(product.basePriceBs)}
+                        </div>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${availabilityTone(availabilityByProductId.get(product.id) ?? null)}`}>
+                        {availabilityLoading ? 'Consultando…' : availabilityLabel(availabilityByProductId.get(product.id) ?? null)}
+                      </span>
                     </div>
+                    {availabilityByProductId.get(product.id)?.message ? (
+                      <div className="mt-1.5 text-xs leading-5 text-[#C7C8D1]">
+                        {availabilityByProductId.get(product.id)?.message}
+                      </div>
+                    ) : null}
                   </button>
                 ))
               )}
@@ -694,6 +851,15 @@ export function CounterQuickSalePanel({
               <div className="mt-1 text-xs text-emerald-100/75">
                 {selectedProduct.unitsPerService > 0 ? `${selectedProduct.unitsPerService} und/serv` : 'Sin unidades'} -{' '}
                 {moneyUsd(selectedProduct.basePriceUsd)} / {moneyBs(selectedProduct.basePriceBs)}
+              </div>
+              <div className={`mt-2 rounded-[8px] border px-3 py-2 text-xs leading-5 ${availabilityTone(availabilityByProductId.get(selectedProduct.id) ?? null)}`}>
+                <div className="font-semibold">
+                  {availabilityLoading ? 'Consultando inventario…' : availabilityLabel(availabilityByProductId.get(selectedProduct.id) ?? null)}
+                </div>
+                <div className="mt-0.5">
+                  {availabilityByProductId.get(selectedProduct.id)?.message
+                    ?? 'La lectura no está disponible; puedes continuar y Máster revisará la venta.'}
+                </div>
               </div>
             </div>
           ) : null}
@@ -801,6 +967,12 @@ export function CounterQuickSalePanel({
                             <li key={`${row.item.id}-${detailIdx}`}>• {detail}</li>
                           ))}
                         </ul>
+                      ) : null}
+                      {availabilityByProductId.get(row.item.productId)?.requires_master_review ? (
+                        <div className="mt-2 rounded-[8px] border border-amber-300/30 bg-amber-300/10 px-2 py-1.5 text-xs leading-5 text-amber-100">
+                          {availabilityByProductId.get(row.item.productId)?.message}
+                          <div className="font-semibold">La venta puede crearse; Máster decide la confirmación final.</div>
+                        </div>
                       ) : null}
                     </div>
                     <div className="text-sm font-semibold sm:text-right">
@@ -916,58 +1088,6 @@ export function CounterQuickSalePanel({
               ) : null}
             </div>
           ) : null}
-          <div className="rounded-[8px] border border-[#303044] bg-[#111118] p-2">
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setScheduleMode('now')}
-                className={[
-                  'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
-                  scheduleMode === 'now'
-                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                    : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
-                ].join(' ')}
-              >
-                Ahora
-              </button>
-              <button
-                type="button"
-                onClick={() => setScheduleMode('scheduled')}
-                className={[
-                  'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
-                  scheduleMode === 'scheduled'
-                    ? 'border-[#FEEF00] bg-[#FEEF00]/10 text-[#FEEF00]'
-                    : 'border-[#303044] bg-[#0B0B0D] text-[#C7C8D1]',
-                ].join(' ')}
-              >
-                Agendar
-              </button>
-            </div>
-            {scheduleMode === 'scheduled' ? (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <label className="text-sm text-[#9FA0AA]">
-                  Fecha
-                  <input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(event) => setScheduledDate(event.target.value)}
-                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                  />
-                </label>
-                <label className="text-sm text-[#9FA0AA]">
-                  Hora
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(event) => setScheduledTime(event.target.value)}
-                  className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-                  />
-                </label>
-              </div>
-            ) : (
-              <div className="mt-3 text-xs text-[#9FA0AA]">Se envia a cocina con la hora actual.</div>
-            )}
-          </div>
           <label className="text-xs text-[#9FA0AA]">
             Nota de orden
             <input
@@ -1214,4 +1334,3 @@ export function CounterQuickSalePanel({
     </section>
   );
 }
-
