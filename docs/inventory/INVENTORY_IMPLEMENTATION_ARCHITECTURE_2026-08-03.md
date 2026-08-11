@@ -440,3 +440,29 @@ reproduce la misma operación y evita descuentos dobles. La migración canónica
 del archivo histórico no aplicado
 `20260807214500_inventory_non_blocking_order_policy_v1.sql`, que no debe
 ejecutarse porque todavía contenía una guarda de existencia insuficiente.
+
+## 19. Contexto automático de entrega y certificación V1
+
+La autorización del comando público de consumo tiene dos fronteras distintas.
+Una llamada RPC manual conserva la restricción por rol: Administración y Master
+pueden conciliar una venta entregada, y Counter únicamente su retiro `walk_in`
+propio. La llamada que nace dentro del trigger de transición a `delivered` no es
+una acción manual: debe registrar el hecho físico para cualquier origen de orden
+que el flujo comercial haya autorizado.
+
+La función distingue ambos contextos mediante la profundidad real del trigger.
+Esto no otorga a Counter acceso manual sobre órdenes de Asesor; solamente evita
+que la identidad de quien ejecutó la entrega impida el asiento automático. El
+actor real se conserva en el movimiento. La migración vigente es
+`20260811014500_inventory_order_sale_trigger_context_v3.sql`.
+
+El Bloque 33 certificó la arquitectura para el piloto V1 y concilió las nueve
+entregas históricas afectadas por la frontera anterior. La evidencia y el guion
+reversible están en:
+
+- `INVENTORY_BLOCK_33_V1_CERTIFICATION_2026-08-10.md`;
+- `INVENTORY_BLOCK_33_TRANSACTION_TESTS_2026-08-10.sql`.
+
+La certificación no convierte inventario en un veto. Los mínimos todavía no
+definidos, los conteos por adoptar y los ajustes posteriores de rutas de alerta
+son configuración operativa; ninguna de esas tareas puede frenar una orden.
