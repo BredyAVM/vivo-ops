@@ -356,7 +356,7 @@ export default function InventoryProductionWorkspaceClient({
                   </div>
                   {workspace.permissions.can_complete ? (
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <Field label="Salida física real">
+                      <Field label={`Salida física real (${batch.output_unit_name})`}>
                         <input
                           value={draft.actualOutputUnits}
                           onChange={(event) => setBatchDrafts((current) => ({
@@ -458,9 +458,9 @@ export default function InventoryProductionWorkspaceClient({
                   <tr key={batch.id}>
                     <td className="px-4 py-3 font-medium">{batch.output_name}</td>
                     <td className="px-4 py-3">{statusLabel(batch.status)}</td>
-                    <td className="px-4 py-3">{quantity(batch.expected_output_units)}</td>
-                    <td className="px-4 py-3">{batch.actual_output_units == null ? '—' : quantity(batch.actual_output_units)}</td>
-                    <td className="px-4 py-3">{batch.difference_quantity_units == null ? '—' : quantity(batch.difference_quantity_units)}</td>
+                    <td className="px-4 py-3">{quantity(batch.expected_output_units)} {batch.output_unit_name}</td>
+                    <td className="px-4 py-3">{batch.actual_output_units == null ? '—' : `${quantity(batch.actual_output_units)} ${batch.output_unit_name}`}</td>
+                    <td className="px-4 py-3">{batch.difference_quantity_units == null ? '—' : `${quantity(batch.difference_quantity_units)} ${batch.output_unit_name}`}</td>
                     <td className="px-4 py-3 text-[#A6A6B2]">{batch.resolved_at ? formatDate(batch.resolved_at) : '—'}</td>
                   </tr>
                 ))}
@@ -530,7 +530,7 @@ function RecipeSection({
                       <span>{component.name}</span>
                       <span className="text-right text-[#A6A6B2]">
                         {quantity(component.quantity_units * (Number.isFinite(multiplier) ? multiplier : 0))} {component.unit_name}
-                        {' · '}hay {quantity(component.current_stock_units)}
+                        {' · '}hay {quantity(component.current_stock_units)} {component.unit_name}
                       </span>
                     </li>
                   ))}

@@ -2,7 +2,7 @@ import InventoryProductsClient, {
   type InventoryProductRow,
 } from './InventoryProductsClient';
 import { getAuthContext } from '@/lib/auth';
-import { inventoryDisplayText } from '../display';
+import { inventoryDisplayText, inventoryUnitLabel } from '../display';
 
 type RawProduct = {
   id: number;
@@ -79,7 +79,7 @@ export default async function InventoryProductsPage() {
       {
         ...item,
         name: inventoryDisplayText(item.name),
-        unit_name: inventoryDisplayText(item.unit_name, 'unidad'),
+        unit_name: inventoryUnitLabel(item.unit_name),
       },
     ]),
   );
@@ -99,7 +99,7 @@ export default async function InventoryProductsPage() {
     productLinks.push({
       inventoryItemId: Number(link.inventory_item_id),
       inventoryItemName: item?.name ?? `Ítem #${link.inventory_item_id}`,
-      unitName: item?.unit_name ?? 'unidad',
+      unitName: inventoryUnitLabel(item?.unit_name),
       quantityUnits: Number(link.quantity_units),
       deductionStage: link.deduction_stage,
     });

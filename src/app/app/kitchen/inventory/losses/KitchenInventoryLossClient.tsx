@@ -33,12 +33,12 @@ const lossKinds: Array<{
   {
     value: 'damage',
     title: 'Avería',
-    detail: 'Pieza que se frió y no cumple el estándar de calidad.',
+    detail: 'Unidad que se frió y no cumple el estándar de calidad.',
   },
   {
     value: 'waste',
     title: 'Merma',
-    detail: 'Pieza cruda apartada antes de freír por su aspecto.',
+    detail: 'Unidad cruda apartada antes de freír por su aspecto.',
   },
   {
     value: 'quality_taste',

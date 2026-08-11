@@ -181,8 +181,12 @@ export default function InventoryGeneralOverviewClient({
                       <div className="mt-1 text-xs text-[#777784]">{item.incoming_count ? shortDate(item.next_incoming_at) : 'Sin entrada prevista'}</div>
                     </td>
                     <td className="px-4 py-4">
-                      <div>Mínimo: {quantity(item.low_stock_threshold)}</div>
-                      <div className="mt-1 text-xs text-[#777784]">Objetivo: {quantity(item.target_stock_units)}</div>
+                      <div>
+                        Mínimo: {item.low_stock_threshold == null ? 'Sin definir' : `${quantity(item.low_stock_threshold)} ${item.unit_name}`}
+                      </div>
+                      <div className="mt-1 text-xs text-[#777784]">
+                        Objetivo: {item.target_stock_units == null ? 'Sin definir' : `${quantity(item.target_stock_units)} ${item.unit_name}`}
+                      </div>
                     </td>
                     <td className="px-4 py-4">
                       <div>{item.last_count ? shortDate(item.last_count.counted_at) : 'Sin conteo'}</div>

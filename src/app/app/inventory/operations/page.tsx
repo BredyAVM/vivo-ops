@@ -2,7 +2,7 @@ import { getAuthContext } from '@/lib/auth';
 import InventoryReceiptWorkspaceClient, {
   type InventoryReceiptWorkspace,
 } from './InventoryReceiptWorkspaceClient';
-import { repairInventoryDisplayData } from '../display';
+import { inventoryUnitLabel, repairInventoryDisplayData } from '../display';
 import InventoryEventWorkspaceClient, {
   type InventoryEventDispatch,
   type InventoryEventDispatchLine,
@@ -139,6 +139,7 @@ export default async function InventoryOperationsPage() {
   const items = (itemsResult.data ?? []) as InventoryItemRow[];
   const movements = (movementsResult.data ?? []) as CanonicalMovementRow[];
   const itemNameById = new Map(items.map((item) => [item.id, item.name]));
+  const itemUnitById = new Map(items.map((item) => [item.id, inventoryUnitLabel(item.unit_name)]));
   const openingStatus = (openingStatusResult.data ?? {}) as {
     eligible_count?: unknown;
     accepted_count?: unknown;
@@ -164,7 +165,7 @@ export default async function InventoryOperationsPage() {
     .map((item) => ({
       id: Number(item.id),
       name: item.name,
-      unitName: item.unit_name,
+      unitName: inventoryUnitLabel(item.unit_name),
       currentStockUnits: Number(item.current_stock_units),
     }));
   const eventOrders: InventoryEventOrder[] = ((eventOrdersResult.data ?? []) as EventOrderRow[]).map((order) => ({
@@ -195,7 +196,7 @@ export default async function InventoryOperationsPage() {
             return {
               inventoryItemId: Number(line.inventory_item_id),
               inventoryItemName: String(line.inventory_item_name ?? `Ítem #${line.inventory_item_id}`),
-              unitName: String(line.unit_name ?? 'unidad'),
+              unitName: inventoryUnitLabel(String(line.unit_name ?? 'unidad')),
               dispatchedQuantityUnits: Number(line.dispatched_quantity_units ?? 0),
               committedQuantityUnits: Number(line.committed_quantity_units ?? 0),
               reservedExcessUnits: Number(line.reserved_excess_units ?? 0),
@@ -304,7 +305,7 @@ export default async function InventoryOperationsPage() {
                     <td className="px-4 py-3">
                       {movementLabels[movement.movement_type] ?? movement.movement_type}
                     </td>
-                    <td className="px-4 py-3 font-semibold">{formatQuantity(movement.quantity_units)}</td>
+                    <td className="px-4 py-3 font-semibold">{formatQuantity(movement.quantity_units)} {itemUnitById.get(movement.inventory_item_id) ?? 'UND'}</td>
                     <td className="px-4 py-3 text-[#A6A6B2]">{movement.reason_code ?? '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-[#8F8F9C]">
                       {movement.operation_id.slice(0, 8)}

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { unstable_noStore as noStore } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
-import { inventoryDisplayText } from '@/app/app/inventory/display';
+import { inventoryDisplayText, inventoryUnitLabel } from '@/app/app/inventory/display';
 import MasterInventoryClient, {
   type MasterInventoryAlert,
   type MasterInventoryCount,
@@ -198,7 +198,7 @@ export default async function MasterInventoryPage() {
         type: flow.flow_type === 'planned_production' ? 'planned_production' as const : 'expected_receipt' as const,
         inventoryItemId: Number(flow.inventory_item_id),
         itemName: inventoryDisplayText(flow.inventory_item_name),
-        unitName: inventoryDisplayText(flow.unit_name),
+        unitName: inventoryUnitLabel(flow.unit_name),
         quantityUnits: Number(flow.quantity_units ?? 0),
         effectiveAt: flow.effective_at,
         sourceName: sourceName ? inventoryDisplayText(sourceName) : null,
@@ -231,7 +231,7 @@ export default async function MasterInventoryPage() {
       return {
         id: Number(item.id),
         name: inventoryDisplayText(item.name),
-        unitName: inventoryDisplayText(item.unit_name),
+        unitName: inventoryUnitLabel(item.unit_name),
         inventoryGroup: item.inventory_group,
         currentStockUnits: stock,
         commitmentUnits: Number(item.commitment_units ?? 0),

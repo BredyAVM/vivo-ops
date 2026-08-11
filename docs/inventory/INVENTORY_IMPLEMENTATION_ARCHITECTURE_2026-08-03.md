@@ -559,3 +559,15 @@ La certificación completa y su prueba reversible están en:
 Esta fase no modifica órdenes, Counter, Asesor, Finanzas ni la dashboard
 heredada. Una diferencia, saldo negativo o conteo vencido sigue siendo una
 señal no bloqueante.
+
+## 23. Semántica visible de cantidades
+
+Inventario muestra siempre la unidad junto a mínimos, objetivos, saldos,
+compromisos, entradas, diferencias, movimientos y cantidades de receta. Los
+alias heredados `pieza`, `piezas`, `unidad` y `unidades` se presentan como
+`UND`; las demás unidades conservan su nombre, por ejemplo `servicio`, `kg`,
+`envase` o `galón`.
+
+La normalización es de presentación. No reescribe `unit_name`, movimientos ni
+historial en la base de datos y, por tanto, no reinterpreta cantidades ya
+registradas. Los nuevos ítems parten de `unidad` como valor predeterminado.

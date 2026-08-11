@@ -72,7 +72,7 @@ function formatQuantity(value: number) {
 
 function thresholdText(item: InventoryCatalogRow) {
   if (item.lowStockThreshold == null) return 'Sin umbral';
-  return `${item.lowStockInclusive ? '≤' : '<'} ${formatQuantity(item.lowStockThreshold)}`;
+  return `${item.lowStockInclusive ? '≤' : '<'} ${formatQuantity(item.lowStockThreshold)} ${item.unitName}`;
 }
 
 export default function InventoryCatalogClient({
@@ -222,7 +222,7 @@ export default function InventoryCatalogClient({
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-[#C9C9D2]">
-                  <div>Objetivo: {item.targetStockUnits == null ? '—' : formatQuantity(item.targetStockUnits)}</div>
+                  <div>Objetivo: {item.targetStockUnits == null ? 'Sin definir' : `${formatQuantity(item.targetStockUnits)} ${item.unitName}`}</div>
                   <div className="mt-1 text-xs text-[#7F7F8C]">Alerta: {thresholdText(item)}</div>
                 </td>
                 <td className="px-4 py-3 text-[#C9C9D2]">

@@ -529,7 +529,7 @@ function ProductEditor({
           <Field label="SKU">
             <input value={sku} onChange={(event) => setSku(event.target.value)} maxLength={64} className={INPUT_CLASS} />
           </Field>
-          <Field label="Piezas o unidades por servicio">
+          <Field label="Unidades por servicio">
             <input type="number" min="0" step="1" value={unitsPerService} onChange={(event) => setUnitsPerService(event.target.value)} className={INPUT_CLASS} />
           </Field>
           <Field label="Límite de selección (solo productos flexibles)">
@@ -643,7 +643,7 @@ function ProductEditor({
           <div className="text-xs font-semibold text-[#B7B7C1]">Descuento físico (solo lectura)</div>
           {product.links.length ? product.links.map((link) => (
             <div key={`${product.id}:${link.inventory_item_id}`} className="mt-2 text-xs leading-5 text-[#9797A4]">
-              {quantity(link.quantity_units)} de {link.item_name}
+              {quantity(link.quantity_units)} {items.find((item) => item.id === link.inventory_item_id)?.unit_name ?? 'UND'} de {link.item_name}
               {link.deduction_stage ? ` · ${link.deduction_stage}` : ''}
             </div>
           )) : <div className="mt-2 text-xs text-[#858591]">No tiene enlace directo; se resuelve por composición o no descuenta.</div>}
@@ -791,7 +791,7 @@ function PhysicalConfigurationEditor({
           </select>
         </Field>
         {policy === 'components' ? (
-          <Field label="Piezas seleccionables por unidad vendida">
+          <Field label="Unidades seleccionables por unidad vendida">
             <input type="number" min="0" step="1" value={detailUnitsLimit} onChange={(event) => setDetailUnitsLimit(event.target.value)} className={INPUT_CLASS} />
           </Field>
         ) : <div />}
@@ -799,13 +799,15 @@ function PhysicalConfigurationEditor({
 
       {policy === 'self' || policy === 'direct' ? (
         <div className="mt-4 space-y-3">
-          {links.slice(0, policy === 'self' ? 1 : links.length).map((line, index) => (
-            <div key={line.key} className="grid gap-2 rounded-xl border border-[#373322] bg-[#11100B] p-3 md:grid-cols-[1fr_150px_180px_auto]">
+          {links.slice(0, policy === 'self' ? 1 : links.length).map((line, index) => {
+            const linkedItem = items.find((item) => item.id === Number(line.inventoryItemId));
+            const quantityLabel = `Cantidad descontada (${linkedItem?.unit_name ?? 'unidad base'})`;
+            return <div key={line.key} className="grid gap-2 rounded-xl border border-[#373322] bg-[#11100B] p-3 md:grid-cols-[1fr_150px_180px_auto]">
               <select value={line.inventoryItemId} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} className={INPUT_CLASS}>
                 <option value="">Selecciona el ítem físico…</option>
                 {selectableItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.unit_name}</option>)}
               </select>
-              <input inputMode="decimal" value={line.quantityUnits} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} className={INPUT_CLASS} aria-label="Cantidad descontada" />
+              <input inputMode="decimal" value={line.quantityUnits} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} className={INPUT_CLASS} aria-label={quantityLabel} placeholder={quantityLabel} />
               <select value={line.deductionStage} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, deductionStage: event.target.value as PhysicalLinkLine['deductionStage'] } : candidate))} className={INPUT_CLASS}>
                 <option value="fulfillment">Al entregar</option>
                 <option value="kitchen">En cocina</option>
@@ -813,8 +815,8 @@ function PhysicalConfigurationEditor({
                 <option value="packing">Al empacar</option>
               </select>
               {policy === 'direct' ? <button type="button" onClick={() => setLinks((current) => current.filter((candidate) => candidate.key !== line.key))} className={SECONDARY_BUTTON}>Quitar</button> : <span className="self-center text-xs text-[#8E8A75]">#{index + 1}</span>}
-            </div>
-          ))}
+            </div>;
+          })}
           {policy === 'direct' ? (
             <button type="button" onClick={() => setLinks((current) => [...current, { key: crypto.randomUUID(), inventoryItemId: '', quantityUnits: '1', deductionStage: 'fulfillment' }])} className={SECONDARY_BUTTON}>Agregar consumo físico</button>
           ) : null}
@@ -849,7 +851,7 @@ function PhysicalConfigurationEditor({
 
       <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
         <Field label="Motivo del cambio (recomendado)">
-          <input value={changeNote} onChange={(event) => setChangeNote(event.target.value)} maxLength={1000} placeholder="Ej. La nueva presentación de Bombys trae 10 piezas" className={INPUT_CLASS} />
+          <input value={changeNote} onChange={(event) => setChangeNote(event.target.value)} maxLength={1000} placeholder="Ej. La nueva presentación de Bombys trae 10 unidades" className={INPUT_CLASS} />
         </Field>
         <button type="button" onClick={savePhysicalConfiguration} disabled={isPending} className={PRIMARY_BUTTON}>
           {isPending ? 'Guardando revisión…' : 'Guardar nueva revisión física'}
@@ -983,10 +985,10 @@ function ItemEditor({ item }: { item: AdminItem }) {
               <option value="scheduled_recipe">Preparación con tiempo</option>
             </select>
           </Field>
-          <Field label="Punto mínimo para alertar">
+          <Field label={`Punto mínimo para alertar (${item.unit_name})`}>
             <input inputMode="decimal" value={lowStockThreshold} onChange={(event) => setLowStockThreshold(event.target.value)} className={INPUT_CLASS} />
           </Field>
-          <Field label="Objetivo después de reponer">
+          <Field label={`Objetivo después de reponer (${item.unit_name})`}>
             <input inputMode="decimal" value={targetStockUnits} onChange={(event) => setTargetStockUnits(event.target.value)} className={INPUT_CLASS} />
           </Field>
           <Field label="Vida útil en días">
@@ -1184,29 +1186,32 @@ function RecipeEditor({
           </div>
 
           <div className="mt-3 space-y-3">
-            {lines.map((line, index) => (
+            {lines.map((line, index) => {
+              const inputItem = items.find((candidate) => candidate.id === Number(line.inputInventoryItemId));
+              return (
               <div key={line.key} className="grid gap-2 rounded-xl border border-[#292938] bg-[#101016] p-3 md:grid-cols-[1fr_180px_auto] md:items-end">
                 <Field label={`Insumo ${index + 1}`}>
                   <select value={line.inputInventoryItemId} onChange={(event) => setLines((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, inputInventoryItemId: event.target.value } : candidate))} className={INPUT_CLASS}>
                     <option value="">Selecciona un ítem…</option>
                     {items.filter((candidate) => candidate.tracking_mode === 'transactional' && candidate.id !== outputItem.id).map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>{candidate.name} · disponible {quantity(candidate.current_stock_units)}</option>
+                      <option key={candidate.id} value={candidate.id}>{candidate.name} · disponible {quantity(candidate.current_stock_units)} {candidate.unit_name}</option>
                     ))}
                   </select>
                 </Field>
-                <Field label="Cantidad consumida">
+                <Field label={`Cantidad consumida (${inputItem?.unit_name ?? 'unidad base'})`}>
                   <input inputMode="decimal" value={line.quantityUnits} onChange={(event) => setLines((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} className={INPUT_CLASS} />
                 </Field>
                 <button type="button" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))} className={`${SECONDARY_BUTTON} text-[#FB7185]`}>
                   Quitar
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="mt-4">
             <Field label="Explicación del cambio">
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={1000} rows={3} className={INPUT_CLASS} placeholder="Ej. nueva presentación de 10 Bombys; consume 10 piezas crudas." />
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={1000} rows={3} className={INPUT_CLASS} placeholder="Ej. nueva presentación de 10 Bombys; consume 10 unidades crudas." />
             </Field>
           </div>
           <Feedback message={message} error={error} />
@@ -1261,7 +1266,7 @@ function RecipeEditor({
             <ImpactCard title="Historial conservado">
               {history.map((recipe) => (
                 <div key={recipe.id} className="border-b border-[#292938] py-2 text-xs text-[#A4A4AF] last:border-0">
-                  v{recipe.version} · {quantity(recipe.output_quantity_units)} de salida · {recipe.lead_time_minutes} min
+                  v{recipe.version} · {quantity(recipe.output_quantity_units)} {recipe.output_unit_name} de salida · {recipe.lead_time_minutes} min
                 </div>
               ))}
             </ImpactCard>
@@ -1280,7 +1285,7 @@ function RecipeSummary({ title, recipe }: { title: string; recipe: AdminRecipe }
       <div className="mt-1 text-xs text-[#9595A2]">Tiempo: {recipe.lead_time_minutes} min · múltiplo {quantity(recipe.production_multiple)}</div>
       <div className="mt-2 space-y-1 text-xs text-[#B0B0BB]">
         {recipe.components.map((component) => (
-          <div key={`${recipe.id}:${component.input_inventory_item_id}`}>{quantity(component.quantity_units)} de {component.input_name}</div>
+          <div key={`${recipe.id}:${component.input_inventory_item_id}`}>{quantity(component.quantity_units)} {component.unit_name} de {component.input_name}</div>
         ))}
       </div>
     </div>

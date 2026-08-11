@@ -43,7 +43,25 @@ export function inventoryDisplayText(value: string | null | undefined, fallback 
     if (repaired === before) break;
   }
 
-  return repaired;
+  return repaired
+    .replace(/\bpiezas\b/gi, (match) => match[0] === 'P' ? 'Unidades' : 'unidades')
+    .replace(/\bpieza\b/gi, (match) => match[0] === 'P' ? 'Unidad' : 'unidad');
+}
+
+const unitAliases = new Set([
+  'pieza',
+  'piezas',
+  'unidad',
+  'unidades',
+  'und',
+  'unds',
+  'ud',
+  'uds',
+]);
+
+export function inventoryUnitLabel(value: string | null | undefined, fallback = 'UND') {
+  const repaired = inventoryDisplayText(value, fallback).trim() || fallback;
+  return unitAliases.has(repaired.toLocaleLowerCase('es')) ? 'UND' : repaired;
 }
 
 export function repairInventoryDisplayData<T>(value: T): T {
@@ -55,7 +73,12 @@ export function repairInventoryDisplayData<T>(value: T): T {
   }
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, repairInventoryDisplayData(entry)]),
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        typeof entry === 'string' && (key === 'unit_name' || key.endsWith('_unit_name'))
+          ? inventoryUnitLabel(entry)
+          : repairInventoryDisplayData(entry),
+      ]),
     ) as T;
   }
   return value;

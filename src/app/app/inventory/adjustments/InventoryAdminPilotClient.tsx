@@ -21,6 +21,7 @@ export type InventoryAdminPilotMovement = {
   id: number;
   inventoryItemId: number;
   inventoryItemName: string;
+  unitName: string;
   movementType: 'manual_adjustment' | 'stock_count';
   quantityUnits: number;
   reasonCode: string | null;
@@ -209,7 +210,7 @@ export default function InventoryAdminPilotClient({
                     <div className="mt-1 text-xs text-[#92929F]">{dateTime(movement.createdAt)} · {movement.movementType === 'stock_count' ? 'Conteo físico' : 'Ajuste administrativo'}</div>
                   </div>
                   <div className={`font-semibold ${movement.quantityUnits < 0 ? 'text-red-300' : movement.quantityUnits > 0 ? 'text-emerald-300' : 'text-[#A6A6B2]'}`}>
-                    {movement.quantityUnits > 0 ? '+' : ''}{quantity(movement.quantityUnits)}
+                    {movement.quantityUnits > 0 ? '+' : ''}{quantity(movement.quantityUnits)} {movement.unitName}
                   </div>
                 </div>
                 <div className="mt-2 text-xs text-[#A6A6B2]">{movement.notes || movement.reasonCode || 'Sin nota adicional'}</div>

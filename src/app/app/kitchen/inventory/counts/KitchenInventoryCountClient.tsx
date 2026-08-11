@@ -615,7 +615,7 @@ export default function KitchenInventoryCountClient({
                 rows={3}
                 disabled={isPending}
                 className={inputClass}
-                placeholder="Ej.: una bolsa parecía traer menos piezas y fue recontada."
+                placeholder="Ej.: una bolsa parecía traer menos unidades y fue recontada."
               />
             </label>
             <div className="mt-4 flex justify-end">
@@ -669,7 +669,7 @@ function CountItemEditor({
         <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {presentationMode ? item.presentations.map((presentation) => (
             <label key={presentation.id} className="text-xs text-[#A6A6B2]">
-              <span className="mb-1.5 block">{presentation.name} × {formatQuantity(presentation.baseUnitsPerPresentation)}</span>
+              <span className="mb-1.5 block">{presentation.name} × {formatQuantity(presentation.baseUnitsPerPresentation)} {item.unitName}</span>
               <input
                 value={draft.presentationQuantities[presentation.id] ?? ''}
                 onChange={(event) => onChange({

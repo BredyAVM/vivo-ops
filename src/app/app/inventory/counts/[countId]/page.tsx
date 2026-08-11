@@ -5,7 +5,7 @@ import InventoryCountDetailClient, {
   type InventoryCountDetailLine,
 } from './InventoryCountDetailClient';
 import { getAuthContext } from '@/lib/auth';
-import { inventoryDisplayText } from '../../display';
+import { inventoryDisplayText, inventoryUnitLabel } from '../../display';
 
 type PageProps = {
   params: Promise<{ countId: string }>;
@@ -84,7 +84,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
       id: Number(rawLine.id),
       inventoryItemId,
       itemName: inventoryDisplayText(String(inventoryItem?.name ?? `Ítem #${inventoryItemId}`)),
-      unitName: inventoryDisplayText(String(inventoryItem?.unit_name ?? 'unidad')),
+      unitName: inventoryUnitLabel(String(inventoryItem?.unit_name ?? 'unidad')),
       expectedQuantityUnits: toNullableNumber(rawLine.expected_quantity_units) ?? 0,
       countedQuantityUnits: toNullableNumber(rawLine.counted_quantity_units),
       differenceQuantityUnits: toNullableNumber(rawLine.difference_quantity_units),

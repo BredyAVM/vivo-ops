@@ -1,5 +1,5 @@
 import { getAuthContext } from '@/lib/auth';
-import { inventoryDisplayText } from '@/app/app/inventory/display';
+import { inventoryDisplayText, inventoryUnitLabel } from '@/app/app/inventory/display';
 import KitchenInventoryCountClient, {
   type KitchenCountItem,
   type KitchenOpenCount,
@@ -140,7 +140,7 @@ export default async function KitchenInventoryCountsPage() {
     .map((item) => ({
       id: Number(item.id),
       name: inventoryDisplayText(item.name),
-      unitName: inventoryDisplayText(item.unit_name),
+      unitName: inventoryUnitLabel(item.unit_name),
       inventoryGroup: item.inventory_group,
       countFrequency: item.primary_count_frequency,
       countRole: item.primary_count_role,

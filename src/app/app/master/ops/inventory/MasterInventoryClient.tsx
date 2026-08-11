@@ -757,7 +757,7 @@ export default function MasterInventoryClient({
                         <div className="font-semibold">{item.name}</div>
                         <div className="mt-1 flex items-center gap-2 text-xs text-[#8F8F9C]">
                           <span>{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</span>
-                          {item.lowStockThreshold == null ? null : <span>Umbral {formatQuantity(item.lowStockThreshold)}</span>}
+                          {item.lowStockThreshold == null ? null : <span>Umbral {formatQuantity(item.lowStockThreshold)} {item.unitName}</span>}
                           {item.isLowStock ? <span className="rounded-full border border-amber-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">STOCK BAJO</span> : null}
                         </div>
                       </td>
@@ -781,7 +781,7 @@ export default function MasterInventoryClient({
                           {item.projectedAvailableUnits == null ? '—' : `${formatQuantity(item.projectedAvailableUnits)} ${item.unitName}`}
                         </div>
                         {item.dependsOnIncoming ? <div className="mt-1 text-xs font-semibold text-amber-300">Depende de reposición</div> : null}
-                        {item.minimumProjectedAt && (item.commitmentCount > 0 || item.dependsOnIncoming || (item.projectedAvailableUnits ?? 1) <= 0.005) ? <div className="mt-1 text-xs text-[#858591]">Mínimo: {formatDate(item.minimumProjectedAt)}</div> : null}
+                        {item.minimumProjectedAt && (item.commitmentCount > 0 || item.dependsOnIncoming || (item.projectedAvailableUnits ?? 1) <= 0.005) ? <div className="mt-1 text-xs text-[#858591]">Momento más crítico: {formatDate(item.minimumProjectedAt)}</div> : null}
                       </td>
                       <td className="px-4 py-3">
                         {item.lastCountId && item.lastCountedAt ? (

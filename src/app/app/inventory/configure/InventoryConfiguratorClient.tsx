@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
 import { saveInventoryCatalogDraftAction } from '../actions';
+import { inventoryUnitLabel } from '../display';
 
 export type ConfiguratorInventoryItem = {
   id: number;
@@ -81,7 +82,7 @@ function emptyItemDraft(): ItemDraft {
     name: '',
     inventoryKind: 'finished_stock',
     inventoryGroup: 'other',
-    unitName: 'pieza',
+    unitName: 'unidad',
     trackingMode: 'transactional',
     availabilityMode: 'on_hand_only',
     consumptionTriggers: ['sale'],
@@ -715,6 +716,8 @@ function Checkbox({ checked, onChange, label, disabled }: { checked: boolean; on
 }
 
 function ItemEditor({ item, setItem, disabled }: { item: ItemDraft; setItem: React.Dispatch<React.SetStateAction<ItemDraft>>; disabled: boolean }) {
+  const unitLabel = inventoryUnitLabel(item.unitName, 'unidad base');
+
   function update<K extends keyof ItemDraft>(key: K, value: ItemDraft[K]) {
     setItem((current) => ({ ...current, [key]: value }));
   }
@@ -732,7 +735,7 @@ function ItemEditor({ item, setItem, disabled }: { item: ItemDraft; setItem: Rea
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-3">
         <Field label="Nombre físico"><input value={item.name} onChange={(event) => update('name', event.target.value)} disabled={disabled} maxLength={160} className={inputClass} /></Field>
-        <Field label="Unidad base"><input value={item.unitName} onChange={(event) => update('unitName', event.target.value)} disabled={disabled} maxLength={40} placeholder="pieza, kg, envase" className={inputClass} /></Field>
+        <Field label="Unidad base"><input value={item.unitName} onChange={(event) => update('unitName', event.target.value)} disabled={disabled} maxLength={40} placeholder="unidad, kg, envase" className={inputClass} /></Field>
         <Field label="Tipo físico">
           <select value={item.inventoryKind} onChange={(event) => update('inventoryKind', event.target.value as ItemDraft['inventoryKind'])} disabled={disabled} className={inputClass}>
             <option value="raw_material">Materia prima</option><option value="prepared_base">Base preparada</option><option value="finished_stock">Stock terminado</option><option value="packaging">Empaque/consumible</option>
@@ -765,8 +768,8 @@ function ItemEditor({ item, setItem, disabled }: { item: ItemDraft; setItem: Rea
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Field label="Punto mínimo para alertar"><input type="number" min="0" step="0.01" value={item.lowStockThreshold} onChange={(event) => update('lowStockThreshold', event.target.value)} disabled={disabled} className={inputClass} /></Field>
-        <Field label="Objetivo después de reponer"><input type="number" min="0" step="0.01" value={item.targetStockUnits} onChange={(event) => update('targetStockUnits', event.target.value)} disabled={disabled} className={inputClass} /></Field>
+        <Field label={`Punto mínimo para alertar (${unitLabel})`}><input type="number" min="0" step="0.01" value={item.lowStockThreshold} onChange={(event) => update('lowStockThreshold', event.target.value)} disabled={disabled} className={inputClass} /></Field>
+        <Field label={`Objetivo después de reponer (${unitLabel})`}><input type="number" min="0" step="0.01" value={item.targetStockUnits} onChange={(event) => update('targetStockUnits', event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Vida útil (días)"><input type="number" min="0" step="1" value={item.shelfLifeDays} onChange={(event) => update('shelfLifeDays', event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Frecuencia principal">
           <select value={item.primaryCountFrequency} onChange={(event) => update('primaryCountFrequency', event.target.value as ItemDraft['primaryCountFrequency'])} disabled={disabled} className={inputClass}>
@@ -788,7 +791,7 @@ function PresentationsEditor({ presentations, setPresentations, disabled }: { pr
   return (
     <div className="mt-5 rounded-xl border border-[#2A2A38] bg-[#0D0D12] p-4">
       <div className="flex items-center justify-between gap-3">
-        <div><div className="font-semibold">Presentaciones de entrada</div><div className="mt-1 text-xs text-[#7F7F8C]">Ejemplo: bolsa = 200 piezas. Siempre también se admiten unidades individuales.</div></div>
+        <div><div className="font-semibold">Presentaciones de entrada</div><div className="mt-1 text-xs text-[#7F7F8C]">Ejemplo: bolsa = 200 UND. Siempre también se admiten unidades individuales.</div></div>
         <button type="button" onClick={() => setPresentations((current) => [...current, { key: createKey(), name: '', baseUnits: '', allowsFractionalQuantity: false }])} disabled={disabled || presentations.length >= 20} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FEEF00] disabled:opacity-40">Agregar</button>
       </div>
       <div className="mt-4 space-y-3">
@@ -807,6 +810,11 @@ function PresentationsEditor({ presentations, setPresentations, disabled }: { pr
 }
 
 function SelfPolicyEditor({ mode, setMode, inventoryItems, inventoryItemId, setInventoryItemId, quantity, setQuantity, deductionStage, setDeductionStage, item, setItem, presentations, setPresentations, disabled }: { mode: 'existing' | 'new'; setMode: (value: 'existing' | 'new') => void; inventoryItems: ConfiguratorInventoryItem[]; inventoryItemId: string; setInventoryItemId: (value: string) => void; quantity: string; setQuantity: (value: string) => void; deductionStage: DirectLinkDraft['deductionStage']; setDeductionStage: (value: DirectLinkDraft['deductionStage']) => void; item: ItemDraft; setItem: React.Dispatch<React.SetStateAction<ItemDraft>>; presentations: PresentationDraft[]; setPresentations: React.Dispatch<React.SetStateAction<PresentationDraft[]>>; disabled: boolean }) {
+  const selectedItem = inventoryItems.find((candidate) => candidate.id === Number(inventoryItemId));
+  const unitLabel = mode === 'existing'
+    ? inventoryUnitLabel(selectedItem?.unitName)
+    : inventoryUnitLabel(item.unitName, 'unidad base');
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
@@ -823,7 +831,7 @@ function SelfPolicyEditor({ mode, setMode, inventoryItems, inventoryItemId, setI
         <><ItemEditor item={item} setItem={setItem} disabled={disabled} /><PresentationsEditor presentations={presentations} setPresentations={setPresentations} disabled={disabled} /></>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Cantidad por producto vendido"><input type="number" min="0.0001" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={disabled} className={inputClass} /></Field>
+        <Field label={`Cantidad por producto vendido (${unitLabel})`}><input type="number" min="0.0001" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Etapa del descuento"><StageSelect value={deductionStage} onChange={setDeductionStage} disabled={disabled} /></Field>
       </div>
     </div>
@@ -834,7 +842,11 @@ function DirectPolicyEditor({ rows, setRows, inventoryItems, disabled }: { rows:
   return (
     <div>
       <div className="flex items-center justify-between"><div className="text-sm text-[#AFAFBA]">Ítems físicos consumidos por una unidad vendida</div><button type="button" onClick={() => setRows((current) => [...current, { key: createKey(), inventoryItemId: '', quantityUnits: '1', deductionStage: 'kitchen' }])} disabled={disabled || rows.length >= 50} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FEEF00]">Agregar ítem</button></div>
-      <div className="mt-4 space-y-3">{rows.map((row) => <div key={row.key} className="grid gap-2 lg:grid-cols-[1fr_180px_200px_auto]"><select aria-label="Ítem de consumo" value={row.inventoryItemId} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} disabled={disabled} className={inputClass}><option value="">Seleccionar ítem</option>{inventoryItems.map((inventoryItem) => <option key={inventoryItem.id} value={inventoryItem.id}>{inventoryItem.name} · {inventoryItem.unitName}</option>)}</select><input aria-label="Cantidad consumida" type="number" min="0.0001" step="0.01" value={row.quantityUnits} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} disabled={disabled} className={inputClass} /><StageSelect value={row.deductionStage} onChange={(value) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, deductionStage: value } : candidate))} disabled={disabled} /><button type="button" onClick={() => setRows((current) => current.filter((candidate) => candidate.key !== row.key))} disabled={disabled} className="rounded-lg border border-red-400/25 px-3 py-2 text-xs text-red-200">Quitar</button></div>)}</div>
+      <div className="mt-4 space-y-3">{rows.map((row) => {
+        const selectedItem = inventoryItems.find((item) => item.id === Number(row.inventoryItemId));
+        const quantityLabel = `Cantidad consumida (${inventoryUnitLabel(selectedItem?.unitName)})`;
+        return <div key={row.key} className="grid gap-2 lg:grid-cols-[1fr_180px_200px_auto]"><select aria-label="Ítem de consumo" value={row.inventoryItemId} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} disabled={disabled} className={inputClass}><option value="">Seleccionar ítem</option>{inventoryItems.map((inventoryItem) => <option key={inventoryItem.id} value={inventoryItem.id}>{inventoryItem.name} · {inventoryItem.unitName}</option>)}</select><input aria-label={quantityLabel} placeholder={quantityLabel} type="number" min="0.0001" step="0.01" value={row.quantityUnits} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} disabled={disabled} className={inputClass} /><StageSelect value={row.deductionStage} onChange={(value) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, deductionStage: value } : candidate))} disabled={disabled} /><button type="button" onClick={() => setRows((current) => current.filter((candidate) => candidate.key !== row.key))} disabled={disabled} className="rounded-lg border border-red-400/25 px-3 py-2 text-xs text-red-200">Quitar</button></div>;
+      })}</div>
     </div>
   );
 }

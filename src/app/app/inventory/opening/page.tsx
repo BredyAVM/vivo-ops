@@ -1,6 +1,6 @@
 import InventoryOpeningClient, { type InventoryOpeningItem } from './InventoryOpeningClient';
 import { getAuthContext } from '@/lib/auth';
-import { inventoryDisplayText } from '../display';
+import { inventoryDisplayText, inventoryUnitLabel } from '../display';
 import {
   CERTIFIED_OPENING_LABEL,
   CERTIFIED_OPENING_LINES,
@@ -38,7 +38,7 @@ function parseOpeningItems(value: unknown): InventoryOpeningItem[] {
       id,
       name: inventoryDisplayText(rawName),
       inventoryGroup: String(item.inventory_group ?? 'other'),
-      unitName: inventoryDisplayText(String(item.unit_name ?? 'unidad')),
+      unitName: inventoryUnitLabel(String(item.unit_name ?? 'unidad')),
       trackingMode: String(item.tracking_mode ?? 'transactional'),
       openingStatus: rawStatus as InventoryOpeningItem['openingStatus'],
       inventoryCountId:

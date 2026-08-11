@@ -12,7 +12,7 @@ import InventoryActivationQueueClient, {
 import InventoryAdministrationClient, {
   type InventoryAdminWorkspace,
 } from './InventoryAdministrationClient';
-import { inventoryDisplayText, repairInventoryDisplayData } from '../display';
+import { inventoryDisplayText, inventoryUnitLabel, repairInventoryDisplayData } from '../display';
 
 type RawInventoryItem = {
   id: number;
@@ -143,7 +143,7 @@ export default async function InventoryConfigurePage({
     (item) => ({
       id: Number(item.id),
       name: inventoryDisplayText(item.name),
-      unitName: inventoryDisplayText(item.unit_name, 'unidad'),
+      unitName: inventoryUnitLabel(item.unit_name),
       trackingMode: item.tracking_mode,
       isActive: item.is_active,
     }),

@@ -332,10 +332,10 @@ export default function InventoryReceiptWorkspaceClient({
         const difference = result.differenceQuantityUnits;
         setMessage(
           difference == null
-            ? `Recepción #${result.inventoryLotId}: ingresaron ${formatQuantity(result.receivedQuantityUnits)} unidades.`
+            ? `Recepción #${result.inventoryLotId}: ingresaron ${formatQuantity(result.receivedQuantityUnits)} ${selectedReceiptItem.unit_name}.`
             : difference === 0
               ? `Recepción #${result.inventoryLotId} conciliada exactamente.`
-              : `Recepción #${result.inventoryLotId}: diferencia de ${formatQuantity(difference)} frente a lo esperado; la expectativa quedó cerrada.`,
+              : `Recepción #${result.inventoryLotId}: diferencia de ${formatQuantity(difference)} ${selectedReceiptItem.unit_name} frente a lo esperado; la expectativa quedó cerrada.`,
         );
         setReceiptExpectationId('');
         setReceiptItemId('');
@@ -703,7 +703,7 @@ function ReceiptDifferenceBadge({ receipt }: { receipt: RecentReceipt }) {
   }
   return (
     <span className="rounded-full border border-amber-400/30 px-2.5 py-1 text-xs text-amber-200">
-      Diferencia {formatQuantity(receipt.difference_quantity_units)}
+      Diferencia {formatQuantity(receipt.difference_quantity_units)} {receipt.unit_name}
     </span>
   );
 }

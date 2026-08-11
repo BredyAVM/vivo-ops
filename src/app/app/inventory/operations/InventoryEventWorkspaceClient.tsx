@@ -159,7 +159,7 @@ function DispatchForm({ items, orders }: { items: InventoryEventItem[]; orders: 
             <div key={line.key} className="grid gap-2 md:grid-cols-[1fr_180px_auto]">
               <select value={line.inventoryItemId} onChange={(event) => setLines((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} disabled={isPending} className={INPUT_CLASS}>
                 <option value="">Ítem físico…</option>
-                {items.map((item) => <option key={item.id} value={item.id}>{item.name} · disponible {quantity(item.currentStockUnits)}</option>)}
+                {items.map((item) => <option key={item.id} value={item.id}>{item.name} · disponible {quantity(item.currentStockUnits)} {item.unitName}</option>)}
               </select>
               <input value={line.quantityUnits} onChange={(event) => setLines((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} inputMode="decimal" placeholder={selectedItem ? `Cantidad (${selectedItem.unitName})` : 'Cantidad'} disabled={isPending} className={INPUT_CLASS} />
               <button type="button" onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))} disabled={isPending || lines.length === 1} className={SECONDARY_BUTTON}>Quitar</button>
@@ -249,7 +249,7 @@ function ReconciliationForm({ dispatch }: { dispatch: InventoryEventDispatch }) 
           return (
             <div key={source.inventoryItemId} className="rounded-xl border border-[#302D3F] bg-[#101016] p-3">
               <div className="text-sm font-semibold">{source.inventoryItemName}</div>
-              <div className="mt-1 text-xs text-[#8E8E9B]">Despachado: {quantity(source.dispatchedQuantityUnits)} {source.unitName} · Comprometido: {quantity(source.committedQuantityUnits)}</div>
+              <div className="mt-1 text-xs text-[#8E8E9B]">Despachado: {quantity(source.dispatchedQuantityUnits)} {source.unitName} · Comprometido: {quantity(source.committedQuantityUnits)} {source.unitName}</div>
               <div className="mt-3 grid gap-2 md:grid-cols-3">
                 <input value={line.returned} onChange={(event) => setLines((current) => current.map((candidate) => candidate.inventoryItemId === source.inventoryItemId ? { ...candidate, returned: event.target.value } : candidate))} inputMode="decimal" placeholder="Devuelto utilizable" className={INPUT_CLASS} />
                 <input value={line.lost} onChange={(event) => setLines((current) => current.map((candidate) => candidate.inventoryItemId === source.inventoryItemId ? { ...candidate, lost: event.target.value } : candidate))} inputMode="decimal" placeholder="Pérdida" className={INPUT_CLASS} />

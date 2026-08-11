@@ -64,11 +64,13 @@ export default async function InventoryAdjustmentsPage() {
       currentStockUnits: Number(item.stock_units ?? 0),
     }));
   const itemNameById = new Map(items.map((item) => [item.id, item.name]));
+  const itemUnitById = new Map(items.map((item) => [item.id, item.unitName]));
   const movements: InventoryAdminPilotMovement[] = ((movementsResult.data ?? []) as MovementRow[])
     .map((movement) => ({
       id: Number(movement.id),
       inventoryItemId: Number(movement.inventory_item_id),
       inventoryItemName: itemNameById.get(Number(movement.inventory_item_id)) ?? `Ítem #${movement.inventory_item_id}`,
+      unitName: itemUnitById.get(Number(movement.inventory_item_id)) ?? 'UND',
       movementType: movement.movement_type,
       quantityUnits: Number(movement.quantity_units),
       reasonCode: movement.reason_code,
