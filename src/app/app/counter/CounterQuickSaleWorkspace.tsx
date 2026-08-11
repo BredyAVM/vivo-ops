@@ -368,6 +368,11 @@ export function CounterQuickSalePanel({
     setLocalError(null);
   }
 
+  function changeScheduleMode(nextMode: 'now' | 'scheduled') {
+    setScheduleMode(nextMode);
+    setOpenPaymentAfterCreate(nextMode === 'now');
+  }
+
   function addCartItem() {
     const productId = Number(selectedProductId || 0);
     const product = productsById.get(productId);
@@ -713,7 +718,7 @@ export function CounterQuickSalePanel({
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setScheduleMode('now')}
+                onClick={() => changeScheduleMode('now')}
                 className={[
                   'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
                   scheduleMode === 'now'
@@ -725,7 +730,7 @@ export function CounterQuickSalePanel({
               </button>
               <button
                 type="button"
-                onClick={() => setScheduleMode('scheduled')}
+                onClick={() => changeScheduleMode('scheduled')}
                 className={[
                   'rounded-[8px] border px-3 py-1.5 text-sm font-semibold',
                   scheduleMode === 'scheduled'
@@ -1100,7 +1105,12 @@ export function CounterQuickSalePanel({
         </div>
 
         <div className="space-y-2 rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
-          <h3 className="text-sm font-semibold">Pago esperado</h3>
+          <div>
+            <h3 className="text-sm font-semibold">Pago previsto y documentos</h3>
+            <p className="mt-1 text-xs text-[#9FA0AA]">
+              El metodo indica como se espera cobrar. Crear la orden no registra dinero por si solo.
+            </p>
+          </div>
           <div className="grid gap-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3 sm:grid-cols-2">
             <label className="flex items-center gap-2 text-sm text-[#F5F5F7]">
               <input
@@ -1314,12 +1324,27 @@ export function CounterQuickSalePanel({
               className="mt-0.5"
             />
             <span>
-              Abrir cobro al crear
+              {scheduleMode === 'scheduled' ? 'Cobrar ahora despues de agendar' : 'Abrir cobro al crear'}
               <span className="mt-0.5 block text-xs font-normal text-[#9FA0AA]">
-                La orden se crea primero y luego usa el mismo motor de pagos mixtos de Mostrador.
+                {scheduleMode === 'scheduled'
+                  ? 'Es opcional. Si no lo marcas, la agenda queda pendiente de pago para seguimiento de Master o del asesor asignado.'
+                  : 'La orden entra a cocina y luego abre el motor de pagos mixtos de Mostrador.'}
               </span>
             </span>
           </label>
+
+          {scheduleMode === 'scheduled' ? (
+            <div className={[
+              'rounded-[8px] border px-3 py-2 text-xs leading-5',
+              openPaymentAfterCreate
+                ? 'border-sky-300/30 bg-sky-300/10 text-sky-100'
+                : 'border-amber-300/30 bg-amber-300/10 text-amber-100',
+            ].join(' ')}>
+              {openPaymentAfterCreate
+                ? 'La agenda se crea primero y el cobro se abre despues; el pago no es requisito para guardar el pedido.'
+                : 'La agenda se guardara sin cobro. La orden conservara su saldo pendiente y podra pagarse mas adelante.'}
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -1327,7 +1352,13 @@ export function CounterQuickSalePanel({
             disabled={isWorking || activeBsRate <= 0 || cartItems.length === 0}
             className="w-full rounded-[8px] border border-[#FEEF00]/70 bg-[#FEEF00] px-5 py-2.5 text-sm font-bold text-black transition hover:bg-[#fff45c] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isWorking ? 'Creando...' : scheduleMode === 'scheduled' ? 'Crear agenda' : 'Crear y enviar a cocina'}
+            {isWorking
+              ? 'Creando...'
+              : scheduleMode === 'scheduled'
+                ? openPaymentAfterCreate
+                  ? 'Crear agenda y abrir cobro'
+                  : 'Crear agenda sin cobrar'
+                : 'Crear y enviar a cocina'}
           </button>
         </div>
       </div>

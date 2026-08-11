@@ -1693,8 +1693,12 @@ export default function CounterClient({
         setMessage({
           tone: 'success',
           text: result.sentToKitchen
-            ? `Venta creada y enviada a cocina. Orden #${result.id}.`
-            : `Pedido agendado para master. Orden #${result.id}.`,
+            ? result.openPaymentAfterCreate
+              ? `Venta creada y enviada a cocina. Orden #${result.id}. Abriendo cobro.`
+              : `Venta creada y enviada a cocina. Orden #${result.id}. Cobro pendiente.`
+            : result.openPaymentAfterCreate
+              ? `Pedido agendado para Master. Orden #${result.id}. Abriendo cobro opcional.`
+              : `Pedido agendado para Master. Orden #${result.id}. Quedo pendiente de pago.`,
         });
         setWorkspace('orders');
         await refreshCounter();
