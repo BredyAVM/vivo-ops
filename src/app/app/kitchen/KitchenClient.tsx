@@ -66,6 +66,11 @@ type KitchenClientProps = {
 
 type PushState = 'checking' | 'unsupported' | 'denied' | 'ready' | 'subscribed' | 'error';
 
+type PushTestResult = {
+  tone: 'success' | 'error';
+  message: string;
+};
+
 type NewOrderNotice = {
   ids: number[];
   displayNumbers: string[];
@@ -196,6 +201,16 @@ function formatKitchenToday() {
     day: '2-digit',
     month: '2-digit',
     year: '2-digit',
+    timeZone: 'America/Caracas',
+  });
+}
+
+function formatSignalTime(value: string | null) {
+  if (!value) return 'aun no recibida';
+  return new Date(value).toLocaleTimeString('es-VE', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
     timeZone: 'America/Caracas',
   });
 }
@@ -439,6 +454,9 @@ export default function KitchenClient({
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
   const [pushState, setPushState] = useState<PushState>('checking');
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushTestBusy, setPushTestBusy] = useState(false);
+  const [pushTestResult, setPushTestResult] = useState<PushTestResult | null>(null);
+  const [lastPushAt, setLastPushAt] = useState<string | null>(null);
   const [newOrderNotice, setNewOrderNotice] = useState<NewOrderNotice | null>(null);
   const [newOrderIds, setNewOrderIds] = useState<Set<number>>(() => new Set());
   const previousOrderIdsRef = useRef<Set<number> | null>(null);
@@ -449,7 +467,10 @@ export default function KitchenClient({
   const refreshOrders = useCallback(() => {
     startRefreshTransition(() => router.refresh());
   }, [router]);
-  const { connectionState, requestRefresh } = useKitchenLiveSync(supabase, refreshOrders);
+  const { connectionState, lastRealtimeEventAt, requestRefresh } = useKitchenLiveSync(
+    supabase,
+    refreshOrders,
+  );
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setCurrentTimeMs(Date.now()), 30000);
@@ -594,9 +615,13 @@ export default function KitchenClient({
     if (!('serviceWorker' in navigator)) return;
 
     const onMessage = (event: MessageEvent) => {
-      const data = event.data && typeof event.data === 'object' ? event.data as { type?: string; payload?: { url?: string; tone?: string } } : null;
+      const data = event.data && typeof event.data === 'object' ? event.data as { type?: string; payload?: { url?: string; tone?: string; tag?: string } } : null;
       if (data?.type !== 'vivo-push') return;
       if (!String(data.payload?.url || '').startsWith('/app/kitchen')) return;
+      setLastPushAt(new Date().toISOString());
+      if (data.payload?.tag === 'user-push-test') {
+        setPushTestResult({ tone: 'success', message: 'Push recibido correctamente en Cocina.' });
+      }
       requestRefresh('push', true);
     };
 
@@ -726,6 +751,56 @@ export default function KitchenClient({
     }
   }
 
+  async function testPush() {
+    if (pushTestBusy) return;
+
+    setPushTestBusy(true);
+    setPushTestResult(null);
+    setErrorMessage(null);
+
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token || '';
+      if (error || !accessToken) {
+        throw new Error('La sesion vencio. Ingresa de nuevo para probar las alertas.');
+      }
+
+      const response = await withTimeout(
+        fetch('/api/push-notifications/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accessToken,
+            scope: 'kitchen',
+            url: '/app/kitchen',
+          }),
+        }),
+        'La prueba push tardo demasiado.',
+      );
+      const payload = (await response.json().catch(() => null)) as {
+        delivered?: number;
+        failures?: string[];
+        error?: string;
+      } | null;
+
+      if (!response.ok || !payload?.delivered) {
+        throw new Error(payload?.error || payload?.failures?.[0] || 'No se pudo entregar la prueba push.');
+      }
+
+      setPushTestResult({
+        tone: 'success',
+        message: `Prueba enviada a ${payload.delivered} dispositivo${payload.delivered === 1 ? '' : 's'} de Cocina.`,
+      });
+    } catch (error) {
+      setPushTestResult({
+        tone: 'error',
+        message: error instanceof Error ? error.message : 'No se pudo probar el push.',
+      });
+    } finally {
+      setPushTestBusy(false);
+    }
+  }
+
   return (
     <main className="kitchen-app min-h-screen overflow-x-hidden bg-[#08090D] text-[#F5F5F7]">
       <ModulePreference moduleKey="kitchen" />
@@ -770,14 +845,15 @@ export default function KitchenClient({
               <button
                 type="button"
                 onClick={() => {
-                  if (pushState !== 'subscribed') void enablePush();
+                  if (pushState === 'subscribed') void testPush();
+                  else void enablePush();
                 }}
                 disabled={
                   pushBusy ||
+                  pushTestBusy ||
                   pushState === 'checking' ||
                   pushState === 'unsupported' ||
-                  pushState === 'denied' ||
-                  pushState === 'subscribed'
+                  pushState === 'denied'
                 }
                 className={[
                   'h-9 rounded-xl border px-2.5 text-xs font-semibold',
@@ -786,7 +862,7 @@ export default function KitchenClient({
                     : 'border-[#FEEF00]/40 bg-[#FEEF00]/10 text-[#FEEF00]',
                 ].join(' ')}
               >
-                {pushLabel}
+                {pushTestBusy ? 'Probando...' : pushState === 'subscribed' ? 'Probar push' : pushLabel}
               </button>
               <button
                 type="button"
@@ -797,6 +873,11 @@ export default function KitchenClient({
                 {isRefreshPending ? 'Actualizando...' : 'Actualizar'}
               </button>
             </div>
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 px-0.5 text-[11px] text-[#8A8A96]">
+            <span>En vivo: {formatSignalTime(lastRealtimeEventAt)}</span>
+            <span>Push: {formatSignalTime(lastPushAt)}</span>
           </div>
 
           <nav className="mt-2 grid grid-cols-3 gap-2">
@@ -885,6 +966,27 @@ export default function KitchenClient({
                 Entendido
               </button>
             </div>
+          </div>
+        ) : null}
+
+        {pushTestResult ? (
+          <div
+            className={[
+              'mt-3 flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm',
+              pushTestResult.tone === 'success'
+                ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-100'
+                : 'border-red-500/40 bg-red-500/10 text-red-100',
+            ].join(' ')}
+            role="status"
+          >
+            <span>{pushTestResult.message}</span>
+            <button
+              type="button"
+              onClick={() => setPushTestResult(null)}
+              className="shrink-0 rounded-lg border border-current/30 px-2 py-1 text-xs font-semibold"
+            >
+              Cerrar
+            </button>
           </div>
         ) : null}
 

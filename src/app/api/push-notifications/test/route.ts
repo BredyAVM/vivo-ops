@@ -25,8 +25,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing push environment variables' }, { status: 503 });
     }
 
-    const body = (await req.json()) as { accessToken?: string; url?: string };
+    const body = (await req.json()) as { accessToken?: string; url?: string; scope?: string };
     const accessToken = String(body.accessToken || '').trim();
+    const scope = String(body.scope || '').trim().toLowerCase();
     if (!accessToken) return NextResponse.json({ error: 'Missing accessToken' }, { status: 401 });
 
     const supa = serverSupabase();
@@ -35,11 +36,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
     }
 
-    const { data: rows, error } = await supa
+    let subscriptionsQuery = supa
       .from('user_push_subscriptions')
       .select('endpoint, p256dh, auth')
       .eq('user_id', userRes.user.id)
       .eq('is_active', true);
+
+    if (scope) subscriptionsQuery = subscriptionsQuery.eq('scope', scope);
+
+    const { data: rows, error } = await subscriptionsQuery;
 
     if (error) {
       if (isMissingTableError(error.message)) {
@@ -62,6 +67,7 @@ export async function POST(req: Request) {
       body: 'Notificaciones activas para este usuario.',
       url: String(body.url || '/app/master/dashboard'),
       tag: 'user-push-test',
+      tone: 'info',
     });
 
     const results = await Promise.allSettled(

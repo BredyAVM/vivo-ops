@@ -1,9 +1,13 @@
-const CACHE_NAME = 'vivo-ops-app-v1';
+const CACHE_NAME = 'vivo-ops-app-v2';
 const PRECACHE_URLS = [
   '/pwa/advisor-180.png',
   '/pwa/advisor-192.png',
   '/pwa/advisor-512.png',
   '/pwa/advisor-512-maskable.png',
+  '/pwa/kitchen-180.png',
+  '/pwa/kitchen-192.png',
+  '/pwa/kitchen-512.png',
+  '/pwa/kitchen-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -76,16 +80,27 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'VIVO OPS';
+  const targetUrl = payload.url || '/app/master/dashboard';
+  const isKitchenPush = String(targetUrl).startsWith('/app/kitchen');
+  const vibration = isKitchenPush
+    ? payload.tone === 'critical'
+      ? [260, 90, 260, 90, 460]
+      : payload.tone === 'warning'
+        ? [210, 80, 210]
+        : [140, 70, 140]
+    : payload.tone === 'critical'
+      ? [120, 60, 120]
+      : [80];
   const options = {
     body: payload.body || 'Tienes una actualizacion nueva.',
-    icon: '/pwa/advisor-192.png',
-    badge: '/pwa/advisor-192.png',
+    icon: isKitchenPush ? '/pwa/kitchen-192.png' : '/pwa/advisor-192.png',
+    badge: isKitchenPush ? '/pwa/kitchen-192.png' : '/pwa/advisor-192.png',
     renotify: true,
     silent: false,
     requireInteraction: Boolean(payload.requireInteraction),
-    vibrate: payload.tone === 'critical' ? [120, 60, 120] : [80],
+    vibrate: vibration,
     data: {
-      url: payload.url || '/app/master/dashboard',
+      url: targetUrl,
     },
     tag: payload.tag || 'vivo-notification',
   };
