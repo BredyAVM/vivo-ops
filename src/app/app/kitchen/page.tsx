@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 import { getPublicVapidKey } from '@/lib/push';
+import { kitchenIncidentStatusFromLifecycle } from '@/lib/kitchen/operations';
 import KitchenClient, {
   type KitchenOrder,
   type KitchenOrderChangeAlert,
@@ -338,14 +339,9 @@ export default async function KitchenPage() {
       }
 
       const lifecycle = latestLifecycleByIncidentId.get(eventId);
-      const status: KitchenIncidentAlert['status'] =
-        lifecycle?.event_type === 'kitchen_incident_resolved'
-          ? 'resolved'
-          : lifecycle?.event_type === 'kitchen_incident_reviewed'
-            ? 'reviewed'
-            : lifecycle?.event_type === 'kitchen_incident_reopened'
-              ? 'reopened'
-              : 'reported';
+      const status: KitchenIncidentAlert['status'] = kitchenIncidentStatusFromLifecycle(
+        lifecycle?.event_type,
+      );
 
       return [{
         eventId,

@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { getWhatsAppLineUnits } from '@/lib/orders/whatsapp-summary';
+import {
+  kitchenOrderPriority,
+  type KitchenIncidentStatus,
+} from '@/lib/kitchen/operations';
 import { ModulePreference } from '../ModulePreference';
 import {
   useKitchenLiveSync,
@@ -61,7 +65,7 @@ export type KitchenIncidentAlert = {
   eventId: number;
   orderId: number;
   message: string;
-  status: 'reported' | 'reviewed' | 'resolved' | 'reopened';
+  status: KitchenIncidentStatus;
   reportedAt: string;
   updatedAt: string;
 };
@@ -687,12 +691,12 @@ export default function KitchenClient({
 
   const ordersByStatus = useMemo(() => {
     const priorityFor = (order: KitchenOrder) => {
-      if (changeAlertsByOrder.has(order.id)) return 0;
       const incident = incidentAlertsByOrder.get(order.id);
-      if (incident && incident.status !== 'resolved') return 1;
-      const remaining = remainingPrepMinutes(order, currentTimeMs);
-      if (remaining != null && remaining < 0) return 2;
-      return 3;
+      return kitchenOrderPriority({
+        hasPendingChanges: changeAlertsByOrder.has(order.id),
+        hasPendingIncident: Boolean(incident && incident.status !== 'resolved'),
+        remainingPrepMinutes: remainingPrepMinutes(order, currentTimeMs),
+      });
     };
 
     return new Map(

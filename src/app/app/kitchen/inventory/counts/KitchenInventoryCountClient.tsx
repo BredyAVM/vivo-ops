@@ -4,6 +4,11 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseDecimalInput } from '@/lib/number-input';
 import {
+  getKitchenShiftDateBounds,
+  kitchenShiftLabel,
+  type KitchenShiftCode,
+} from '@/lib/kitchen/operations';
+import {
   openKitchenInventoryShiftAction,
   submitKitchenInventoryCountAction,
 } from '../actions';
@@ -27,7 +32,7 @@ export type KitchenOpenCount = {
   notes: string | null;
   createdAt: string;
   shiftBusinessDate: string | null;
-  shiftCode: 'shift_1' | 'shift_2' | null;
+  shiftCode: KitchenShiftCode | null;
   openedByName: string;
   items: Array<KitchenCountItem & { requestLineId: number }>;
 };
@@ -40,7 +45,7 @@ export type KitchenRecentCount = {
   submittedAt: string | null;
   reviewedAt: string | null;
   shiftBusinessDate: string | null;
-  shiftCode: 'shift_1' | 'shift_2' | null;
+  shiftCode: KitchenShiftCode | null;
   openedByName: string;
   submittedByName: string;
 };
@@ -93,23 +98,6 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function caracasDateKey(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: 'America/Caracas',
-  }).formatToParts(date);
-  const values = new Map(parts.map((part) => [part.type, part.value]));
-  return `${values.get('year')}-${values.get('month')}-${values.get('day')}`;
-}
-
-function shiftLabel(shiftCode: KitchenOpenCount['shiftCode']) {
-  if (shiftCode === 'shift_1') return 'Turno 1';
-  if (shiftCode === 'shift_2') return 'Turno 2';
-  return 'Turno sin identidad historica';
-}
-
 function usesPresentations(item: KitchenCountItem) {
   return item.presentations.some((presentation) => presentation.baseUnitsPerPresentation !== 1);
 }
@@ -148,13 +136,7 @@ export default function KitchenInventoryCountClient({
 }) {
   const router = useRouter();
   const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null);
-  const [shiftDateBounds] = useState(() => {
-    const now = Date.now();
-    return {
-      min: caracasDateKey(new Date(now - 24 * 60 * 60 * 1000)),
-      max: caracasDateKey(new Date(now)),
-    };
-  });
+  const [shiftDateBounds] = useState(() => getKitchenShiftDateBounds(new Date(Date.now())));
   const [shiftBusinessDate, setShiftBusinessDate] = useState(() => shiftDateBounds.max);
   const [manualItemId, setManualItemId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, ItemDraft>>({});
@@ -249,7 +231,7 @@ export default function KitchenInventoryCountClient({
     });
   }
 
-  function openShift(shiftCode: 'shift_1' | 'shift_2') {
+  function openShift(shiftCode: KitchenShiftCode) {
     const existing = openCounts.find(
       (count) =>
         count.countKind === 'shift_change'
@@ -336,10 +318,10 @@ export default function KitchenInventoryCountClient({
                 className="min-h-14 rounded-xl border border-[#FEEF00]/35 bg-[#111117] px-3 py-2 text-sm font-black text-[#FEEF00] disabled:border-emerald-400/25 disabled:text-emerald-200 disabled:opacity-70"
               >
                 {closed
-                  ? `${shiftLabel(code)} cerrado · #${closed.id}`
+                  ? `${kitchenShiftLabel(code)} cerrado · #${closed.id}`
                   : existing
-                    ? `Reanudar ${shiftLabel(code)} · #${existing.id}`
-                    : `Iniciar ${shiftLabel(code)}`}
+                    ? `Reanudar ${kitchenShiftLabel(code)} · #${existing.id}`
+                    : `Iniciar ${kitchenShiftLabel(code)}`}
               </button>
             );
           })}
@@ -358,7 +340,7 @@ export default function KitchenInventoryCountClient({
                 className="rounded-xl border border-amber-400/25 bg-[#111117] p-4 text-left"
               >
                 <div className="font-semibold">
-                  #{count.id} · {count.countKind === 'shift_change' ? shiftLabel(count.shiftCode) : countKindLabels[count.countKind]}
+                  #{count.id} · {count.countKind === 'shift_change' ? kitchenShiftLabel(count.shiftCode) : countKindLabels[count.countKind]}
                 </div>
                 <div className="mt-1 text-xs text-[#B9B9C4]">
                   {count.items.length} ítems
@@ -378,7 +360,7 @@ export default function KitchenInventoryCountClient({
           <div className="text-xs uppercase tracking-wide text-[#858591]">Conteo activo</div>
           <div className="mt-1 font-bold">
             {selectedRequest
-              ? `#${selectedRequest.id} · ${selectedRequest.countKind === 'shift_change' ? shiftLabel(selectedRequest.shiftCode) : countKindLabels[selectedRequest.countKind]}`
+              ? `#${selectedRequest.id} · ${selectedRequest.countKind === 'shift_change' ? kitchenShiftLabel(selectedRequest.shiftCode) : countKindLabels[selectedRequest.countKind]}`
               : manualItem
                 ? `Conteo puntual · ${manualItem.name}`
                 : 'Selecciona un turno, solicitud o conteo puntual'}
@@ -555,7 +537,7 @@ function RecentCounts({ counts }: { counts: KitchenRecentCount[] }) {
           <div key={count.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#292938] bg-[#15151D] px-4 py-3 text-sm">
             <div>
               <div className="font-semibold">
-                #{count.id} · {count.countKind === 'shift_change' ? shiftLabel(count.shiftCode) : countKindLabels[count.countKind] ?? count.countKind}
+                #{count.id} · {count.countKind === 'shift_change' ? kitchenShiftLabel(count.shiftCode) : countKindLabels[count.countKind] ?? count.countKind}
               </div>
               <div className="mt-1 text-xs text-[#858591]">
                 {count.countKind === 'shift_change' && count.shiftBusinessDate
