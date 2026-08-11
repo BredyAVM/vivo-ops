@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, useTransition, type ReactNode } from 'react';
 import { getPaymentMethodLabel } from '@/lib/orders/order-labels';
 import {
   getPaymentReportRequirements,
@@ -9,6 +9,7 @@ import {
 import type {
   CounterOrder,
   CounterPaymentAccountOption,
+  CounterPaymentQuote,
 } from './CounterClient';
 import type {
   CounterChangeLineInput,
@@ -103,6 +104,14 @@ function moneyUsd(value: number) {
   }).format(Number(value || 0));
 }
 
+function moneyBs(value: number) {
+  return new Intl.NumberFormat('es-VE', {
+    style: 'currency',
+    currency: 'VES',
+    minimumFractionDigits: 2,
+  }).format(Number(value || 0));
+}
+
 function todayCaracas() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Caracas',
@@ -114,10 +123,31 @@ function todayCaracas() {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-function nativeAmount(currency: 'USD' | 'VES', usd: number, rate: number) {
+function amountForCurrency(currency: 'USD' | 'VES', usd: number, rate: number) {
   return currency === 'VES'
     ? roundMoney(Math.max(0, usd) * Math.max(rate, 0)).toFixed(2)
     : roundMoney(Math.max(0, usd)).toFixed(2);
+}
+
+function canonicalPaymentAmount(currency: 'USD' | 'VES', quote: CounterPaymentQuote) {
+  return currency === 'VES'
+    ? roundMoney(Math.max(0, quote.pendingBs)).toFixed(2)
+    : roundMoney(Math.max(0, quote.pendingUsd)).toFixed(2);
+}
+
+function paymentValueRate(quote: CounterPaymentQuote) {
+  if (quote.collectionMode === 'post_delivery_usd') return quote.exchangeRate;
+  return quote.snapshotRate || quote.exchangeRate;
+}
+
+function quoteDescription(quote: CounterPaymentQuote) {
+  if (quote.collectionMode === 'post_delivery_usd') {
+    return 'Pago posterior a la entrega: el saldo USD se valora con la tasa de la fecha de operación.';
+  }
+  if (quote.collectionMode === 'snapshot_quote') {
+    return 'Monto protegido por el snapshot del pedido; no se reconstruye desde el total en USD.';
+  }
+  return 'La orden no tiene saldo pendiente.';
 }
 
 function isDirectCashAccount(account: CounterPaymentAccountOption) {
@@ -130,11 +160,16 @@ export function CounterPaymentEngine({
   paymentAccounts,
   isWorking,
   onSubmit,
+  onLoadPaymentQuote,
 }: {
   order: CounterOrder;
   paymentAccounts: CounterPaymentAccountOption[];
   isWorking: boolean;
   onSubmit: (intent: CounterPaymentIntent) => Promise<CounterPaymentOperationResult>;
+  onLoadPaymentQuote: (input: {
+    orderId: number;
+    operationDate: string;
+  }) => Promise<CounterPaymentQuote>;
 }) {
   const reportAccounts = useMemo(() => (
     paymentAccounts
@@ -192,13 +227,18 @@ export function CounterPaymentEngine({
   const nextPaymentId = useRef(2);
   const nextChangeId = useRef(1);
   const idempotencyKey = useRef<string | null>(null);
+  const paymentQuoteRequestId = useRef(0);
+  const [paymentQuote, setPaymentQuote] = useState(order.paymentQuote);
+  const [quoteLoading, startQuoteTransition] = useTransition();
   const [paymentLines, setPaymentLines] = useState<PaymentDraft[]>(() =>
     firstAccount
       ? [{
           id: 'payment-1',
           accountKey: paymentAccountKey(firstAccount),
-          amount: nativeAmount(firstAccount.currencyCode, order.balanceUsd, order.fxRate),
-          exchangeRate: firstAccount.currencyCode === 'VES' ? String(roundMoney(order.fxRate)) : '',
+          amount: canonicalPaymentAmount(firstAccount.currencyCode, order.paymentQuote),
+          exchangeRate: firstAccount.currencyCode === 'VES'
+            ? String(roundMoney(order.paymentQuote.exchangeRate))
+            : '',
           operationDate: todayCaracas(),
           referenceCode: '',
           bankName: '',
@@ -251,13 +291,27 @@ export function CounterPaymentEngine({
       : null;
   }
 
+  const canonicalPendingUsd = paymentQuote.pendingUsd;
+  const canonicalPendingBs = paymentQuote.pendingBs;
+  const canonicalValueRate = paymentValueRate(paymentQuote);
+
   const paymentSummary = paymentLines.reduce(
     (summary, line) => {
       const account = accountForPayment(line);
       const amount = decimal(line.amount);
-      const rate = account?.currencyCode === 'VES' ? decimal(line.exchangeRate) : null;
       if (!account) return summary;
-      const usd = amountUsd(amount, account.currencyCode, rate);
+      const isWholeCanonicalVesPayment =
+        account.currencyCode === 'VES'
+        && paymentLines.length === 1
+        && canonicalPendingUsd > 0.005
+        && Math.abs(amount - canonicalPendingBs) <= 0.01;
+      const usd = isWholeCanonicalVesPayment
+        ? canonicalPendingUsd
+        : amountUsd(
+            amount,
+            account.currencyCode,
+            account.currencyCode === 'VES' ? canonicalValueRate : null
+          );
       summary.reported += usd;
       if (account.canConfirmPayment && account.autoConfirmsReport && !account.reviewRequired) {
         summary.confirmed += usd;
@@ -285,11 +339,11 @@ export function CounterPaymentEngine({
 
   const totalChangeUsd = roundMoney(changeSummary.cash + changeSummary.digital);
   const registeredNetUsd = roundMoney(paymentSummary.reported - totalChangeUsd);
-  const remainingToRegisterUsd = Math.max(0, roundMoney(order.balanceUsd - registeredNetUsd));
-  const unallocatedOverpaymentUsd = Math.max(0, roundMoney(registeredNetUsd - order.balanceUsd));
+  const remainingToRegisterUsd = Math.max(0, roundMoney(canonicalPendingUsd - registeredNetUsd));
+  const unallocatedOverpaymentUsd = Math.max(0, roundMoney(registeredNetUsd - canonicalPendingUsd));
   const projectedNetConfirmedUsd = roundMoney(paymentSummary.confirmed - totalChangeUsd);
-  const projectedPendingUsd = Math.max(0, roundMoney(order.balanceUsd - projectedNetConfirmedUsd));
-  const projectedOverpaidUsd = Math.max(0, roundMoney(projectedNetConfirmedUsd - order.balanceUsd));
+  const projectedPendingUsd = Math.max(0, roundMoney(canonicalPendingUsd - projectedNetConfirmedUsd));
+  const projectedOverpaidUsd = Math.max(0, roundMoney(projectedNetConfirmedUsd - canonicalPendingUsd));
   const fundCreditUsd = fundRemainderAccepted ? projectedOverpaidUsd : 0;
   const firstPaymentLine = paymentLines[0] ?? null;
   const firstPaymentAccount = firstPaymentLine ? accountForPayment(firstPaymentLine) : null;
@@ -308,14 +362,17 @@ export function CounterPaymentEngine({
   function addPaymentLine() {
     invalidateIntent();
     if (!firstAccount) return;
-    const remaining = remainingToRegisterUsd;
     const id = `payment-${nextPaymentId.current}`;
     nextPaymentId.current += 1;
     setPaymentLines((current) => [...current, {
       id,
       accountKey: paymentAccountKey(firstAccount),
-      amount: nativeAmount(firstAccount.currencyCode, remaining, order.fxRate),
-      exchangeRate: firstAccount.currencyCode === 'VES' ? String(roundMoney(order.fxRate)) : '',
+      // A second tender must be entered by the cashier. It is not safe to
+      // derive a VES remainder locally for a mixed order.
+      amount: '',
+      exchangeRate: firstAccount.currencyCode === 'VES'
+        ? String(roundMoney(paymentQuote.exchangeRate))
+        : '',
       operationDate: todayCaracas(),
       referenceCode: '',
       bankName: '',
@@ -330,20 +387,14 @@ export function CounterPaymentEngine({
     invalidateIntent();
     setPaymentLines((current) => current.map((line) => {
       if (line.id !== id) return line;
-      const currentAccount = accountForPayment(line);
-      const currentUsd = currentAccount
-        ? amountUsd(
-            decimal(line.amount),
-            currentAccount.currencyCode,
-            currentAccount.currencyCode === 'VES' ? decimal(line.exchangeRate) : null
-          )
-        : remainingToRegisterUsd;
-      const suggestedUsd = currentUsd > 0 ? currentUsd : remainingToRegisterUsd;
+      const isOnlyTender = current.length === 1;
       return {
         ...line,
         accountKey: paymentAccountKey(account),
-        amount: nativeAmount(account.currencyCode, suggestedUsd, order.fxRate),
-        exchangeRate: account.currencyCode === 'VES' ? String(roundMoney(order.fxRate)) : '',
+        amount: isOnlyTender ? canonicalPaymentAmount(account.currencyCode, paymentQuote) : '',
+        exchangeRate: account.currencyCode === 'VES'
+          ? String(roundMoney(paymentQuote.exchangeRate))
+          : '',
         operationDate: todayCaracas(),
         referenceCode: '',
         bankName: '',
@@ -361,10 +412,52 @@ export function CounterPaymentEngine({
       if (patch.accountKey) {
         const account =
           reportAccounts.find((item) => paymentAccountKey(item) === patch.accountKey) ?? null;
-        next.exchangeRate = account?.currencyCode === 'VES' ? String(roundMoney(order.fxRate)) : '';
+        next.amount = paymentLines.length === 1 && account
+          ? canonicalPaymentAmount(account.currencyCode, paymentQuote)
+          : '';
+        next.exchangeRate = account?.currencyCode === 'VES'
+          ? String(roundMoney(paymentQuote.exchangeRate))
+          : '';
       }
       return next;
     }));
+  }
+
+  function refreshPaymentQuote(paymentLineId: string, operationDate: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) return;
+
+    const requestId = paymentQuoteRequestId.current + 1;
+    paymentQuoteRequestId.current = requestId;
+    startQuoteTransition(async () => {
+      try {
+        const nextQuote = await onLoadPaymentQuote({
+          orderId: order.id,
+          operationDate,
+        });
+        if (paymentQuoteRequestId.current !== requestId) return;
+        invalidateIntent();
+        setPaymentQuote(nextQuote);
+        setPaymentLines((current) => current.map((line) => {
+          if (line.id !== paymentLineId) return line;
+          const account = accountForPayment(line);
+          if (account?.currencyCode !== 'VES') return line;
+          return {
+            ...line,
+            amount: current.length === 1
+              ? canonicalPaymentAmount('VES', nextQuote)
+              : line.amount,
+            exchangeRate: String(roundMoney(nextQuote.exchangeRate)),
+          };
+        }));
+      } catch (quoteError) {
+        if (paymentQuoteRequestId.current !== requestId) return;
+        setError(
+          quoteError instanceof Error
+            ? quoteError.message
+            : 'No se pudo actualizar la cotización canónica.'
+        );
+      }
+    });
   }
 
   function addChangeLine(
@@ -402,9 +495,9 @@ export function CounterPaymentEngine({
       mode,
       optionKey,
       amount: suggestedUsd > 0
-        ? nativeAmount(currencyCode, suggestedUsd, order.fxRate)
+        ? amountForCurrency(currencyCode, suggestedUsd, paymentQuote.exchangeRate)
         : '',
-      exchangeRate: String(roundMoney(order.fxRate)),
+      exchangeRate: String(roundMoney(paymentQuote.exchangeRate)),
       notes: '',
     }]);
   }
@@ -435,7 +528,9 @@ export function CounterPaymentEngine({
           }
           return digitalChangeOptions.find((item) => item.key === next.optionKey) ?? null;
         })();
-        next.exchangeRate = option?.currencyCode === 'VES' ? String(roundMoney(order.fxRate)) : '';
+        next.exchangeRate = option?.currencyCode === 'VES'
+          ? String(roundMoney(paymentQuote.exchangeRate))
+          : '';
       }
       return next;
     }));
@@ -536,7 +631,7 @@ export function CounterPaymentEngine({
     const handling =
       preparedChange.length > 0
         ? 'change_given'
-        : fundRemainderAccepted && paymentSummary.confirmed > order.balanceUsd + 0.005
+        : fundRemainderAccepted && paymentSummary.confirmed > canonicalPendingUsd + 0.005
           ? 'store_fund'
           : null;
 
@@ -617,10 +712,33 @@ export function CounterPaymentEngine({
         </div>
       </div>
 
+      <div className="mt-4 rounded-[8px] border border-sky-300/25 bg-sky-300/5 px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-100">
+            Base canónica {paymentQuote.operationDate ? `· ${paymentQuote.operationDate}` : ''}
+          </div>
+          {quoteLoading ? (
+            <span className="text-xs font-semibold text-sky-200">Actualizando monto...</span>
+          ) : null}
+        </div>
+        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <div className="text-sm text-sky-100">{quoteDescription(paymentQuote)}</div>
+          <div className="text-base font-semibold text-[#F5F5F7]">
+            {moneyBs(canonicalPendingBs)}
+          </div>
+        </div>
+        <div className="mt-1 text-xs text-sky-100/65">
+          Tasa de operación: {paymentQuote.exchangeRate > 0 ? moneyBs(paymentQuote.exchangeRate) : 'Sin tasa'}
+          {paymentQuote.collectionMode === 'snapshot_quote' && paymentQuote.snapshotRate > 0
+            ? ` · Tasa del snapshot: ${moneyBs(paymentQuote.snapshotRate)}`
+            : ''}
+        </div>
+      </div>
+
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <ReceiptMetric label="Falta por cobrar" value={moneyUsd(order.balanceUsd)} />
+        <ReceiptMetric label="Falta por cobrar" value={moneyUsd(canonicalPendingUsd)} />
         <ReceiptMetric label="Registrado ahora" value={moneyUsd(registeredNetUsd)} />
-        <ReceiptMetric label="Falta registrar" value={moneyUsd(remainingToRegisterUsd)} />
+        <ReceiptMetric label="Falta registrar (estimado)" value={moneyUsd(remainingToRegisterUsd)} />
         <ReceiptMetric label="Master debe revisar" value={moneyUsd(paymentSummary.pending)} />
       </div>
 
@@ -648,7 +766,7 @@ export function CounterPaymentEngine({
                   key={method}
                   type="button"
                   onClick={() => selectPaymentMethod(firstPaymentLine.id, method)}
-                  disabled={isWorking}
+                  disabled={isWorking || quoteLoading}
                   className={[
                     'min-h-16 rounded-[8px] border px-3 py-2 text-left transition disabled:opacity-50',
                     selected
@@ -675,6 +793,7 @@ export function CounterPaymentEngine({
           <button
             type="button"
             onClick={addPaymentLine}
+            disabled={quoteLoading}
             className="rounded-full border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-3 py-1.5 text-xs font-semibold text-[#FEEF00]"
           >
             + Otro método
@@ -751,13 +870,13 @@ export function CounterPaymentEngine({
                     className="counter-field text-lg font-semibold"
                   />
                 </Field>
-                {account?.currencyCode === 'VES' && (!immediate || order.fxRate <= 0) ? (
-                  <Field label="Tasa Bs">
+                {account?.currencyCode === 'VES' ? (
+                  <Field label="Tasa Bs (canónica)">
                     <input
                       value={line.exchangeRate}
-                      onChange={(event) => updatePaymentLine(line.id, { exchangeRate: event.target.value })}
-                      inputMode="decimal"
-                      className="counter-field"
+                      readOnly
+                      aria-label="Tasa en bolívares definida por el servidor"
+                      className="counter-field cursor-not-allowed text-[#9FA0AA]"
                     />
                   </Field>
                 ) : <div />}
@@ -766,7 +885,13 @@ export function CounterPaymentEngine({
                     <input
                       type="date"
                       value={line.operationDate}
-                      onChange={(event) => updatePaymentLine(line.id, { operationDate: event.target.value })}
+                      onChange={(event) => {
+                        const operationDate = event.target.value;
+                        updatePaymentLine(line.id, { operationDate });
+                        if (account?.currencyCode === 'VES') {
+                          refreshPaymentQuote(line.id, operationDate);
+                        }
+                      }}
                       className="counter-field"
                     />
                   </Field>
@@ -1040,7 +1165,7 @@ export function CounterPaymentEngine({
           <button
             type="button"
             onClick={openReview}
-            disabled={isWorking || paymentLines.length === 0}
+            disabled={isWorking || quoteLoading || paymentLines.length === 0}
             className="rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-5 py-3 text-sm font-bold text-black disabled:cursor-wait disabled:opacity-60"
           >
             Revisar y cobrar

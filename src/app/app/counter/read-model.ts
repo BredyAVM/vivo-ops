@@ -14,6 +14,7 @@ import type {
   CounterOrder,
   CounterOrderItem,
   CounterPaymentAccountOption,
+  CounterPaymentQuote,
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
@@ -163,6 +164,23 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function mapCounterPaymentQuote(value: unknown): CounterPaymentQuote {
+  const quote = asRecord(value);
+  const collectionMode = String(quote.collectionMode || 'closed');
+
+  return {
+    operationDate: String(quote.operationDate || ''),
+    pendingUsd: roundOrderMoney(quote.pendingUsd),
+    pendingBs: roundOrderMoney(quote.pendingBs),
+    exchangeRate: toNumber(quote.exchangeRate, 0),
+    snapshotRate: toNumber(quote.snapshotRate, 0),
+    collectionMode:
+      collectionMode === 'snapshot_quote' || collectionMode === 'post_delivery_usd'
+        ? collectionMode
+        : 'closed',
+  };
+}
+
 function mapPickupPreviewItem(value: unknown): CounterPickupChangePreviewItem {
   const item = asRecord(value);
   return {
@@ -296,6 +314,14 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     fxRate: moneySnapshot.fxRate,
     confirmedPaidUsd,
     balanceUsd: roundingClosure.isClosed ? 0 : pendingUsd,
+    paymentQuote: {
+      operationDate: '',
+      pendingUsd: roundingClosure.isClosed ? 0 : pendingUsd,
+      pendingBs: 0,
+      exchangeRate: 0,
+      snapshotRate: moneySnapshot.fxRate,
+      collectionMode: pendingUsd <= 0.005 ? 'closed' : 'snapshot_quote',
+    },
     paymentStatus: String(row.payment_status || (pendingUsd <= 0.005 ? 'paid' : 'unpaid')),
     pendingReportsUsd: roundOrderMoney(row.pending_reports_usd),
     overpaidUsd: roundOrderMoney(row.overpaid_usd),
@@ -363,21 +389,45 @@ export async function loadCounterOrderDetailRead(
   supabase: CounterReadClient,
   orderId: number
 ): Promise<CounterOrder> {
-  const [detailData, pickupRequestsData] = await Promise.all([
+  const [detailData, pickupRequestsData, paymentQuoteData] = await Promise.all([
     readRpcJson(supabase, 'counter_read_order_detail', {
       p_order_id: orderId,
     }),
     readRpcJson(supabase, 'counter_read_pickup_change_requests', {
       p_order_id: orderId,
     }),
+    readRpcJson(supabase, 'counter_read_payment_quote', {
+      p_order_id: orderId,
+      p_operation_date: null,
+    }),
   ]);
   const order = mapCounterOrder(asRecord(detailData) as unknown as CounterReadOrderRow);
   return {
     ...order,
+    paymentQuote: mapCounterPaymentQuote(paymentQuoteData),
     pickupChangeRequests: asArray(pickupRequestsData)
       .map(mapPickupChangeRequest)
       .filter((request) => request.id > 0),
   };
+}
+
+export async function loadCounterPaymentQuoteRead(
+  supabase: CounterReadClient,
+  input: { orderId: number; operationDate: string }
+): Promise<CounterPaymentQuote> {
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const operationDate = String(input.operationDate || '').trim();
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) {
+    throw new Error('Indica una fecha de operacion valida.');
+  }
+
+  return mapCounterPaymentQuote(await readRpcJson(supabase, 'counter_read_payment_quote', {
+    p_order_id: orderId,
+    p_operation_date: operationDate,
+  }));
 }
 
 export async function loadCounterCatalogRead(

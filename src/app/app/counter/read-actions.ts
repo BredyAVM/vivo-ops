@@ -8,6 +8,7 @@ import {
   loadCounterCatalogRead,
   loadCounterDeliverySettlementDetailRead,
   loadCounterOrderDetailRead,
+  loadCounterPaymentQuoteRead,
   loadCounterPendingSettlementsRead,
   type CounterPendingSettlementCursor,
 } from './read-model';
@@ -25,6 +26,14 @@ export async function loadCounterOrderDetailAction(input: { orderId: number }) {
     throw new Error('La orden indicada no es valida.');
   }
   return loadCounterOrderDetailRead(ctx.supabase, orderId);
+}
+
+export async function loadCounterPaymentQuoteAction(input: {
+  orderId: number;
+  operationDate: string;
+}) {
+  const ctx = await requireCounterOperatorContext();
+  return loadCounterPaymentQuoteRead(ctx.supabase, input);
 }
 
 export async function loadCounterCatalogAction() {

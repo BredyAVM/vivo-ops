@@ -66,6 +66,7 @@ import {
   loadCounterCashSnapshotAction,
   loadCounterCatalogAction,
   loadCounterOrderDetailAction,
+  loadCounterPaymentQuoteAction,
   refreshCounterQueueAction,
 } from './read-actions';
 
@@ -209,6 +210,15 @@ export type CounterOrderItem = {
   notes: string | null;
 };
 
+export type CounterPaymentQuote = {
+  operationDate: string;
+  pendingUsd: number;
+  pendingBs: number;
+  exchangeRate: number;
+  snapshotRate: number;
+  collectionMode: 'snapshot_quote' | 'post_delivery_usd' | 'closed';
+};
+
 export type CounterOrder = {
   id: number;
   orderNumber: string;
@@ -256,6 +266,7 @@ export type CounterOrder = {
   fxRate: number;
   confirmedPaidUsd: number;
   balanceUsd: number;
+  paymentQuote: CounterPaymentQuote;
   paymentStatus: string;
   pendingReportsUsd: number;
   overpaidUsd: number;
@@ -1973,6 +1984,7 @@ export default function CounterClient({
           ]);
         }}
         onCreatePaymentReport={handleCreatePaymentReport}
+        onLoadPaymentQuote={loadCounterPaymentQuoteAction}
         onRequestRefund={handleRequestRefund}
         onExecuteRefund={handleExecuteRefund}
         onChangePickupItems={handleChangePickupItems}

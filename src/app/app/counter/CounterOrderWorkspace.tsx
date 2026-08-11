@@ -39,6 +39,7 @@ import type {
 import type {
   CounterOrder,
   CounterPaymentAccountOption,
+  CounterPaymentQuote,
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
@@ -455,6 +456,7 @@ export function OrderDetail({
   onPrimaryDeliveryAction,
   onDeliverySettlementChanged,
   onCreatePaymentReport,
+  onLoadPaymentQuote,
   onRequestRefund,
   onExecuteRefund,
   onChangePickupItems,
@@ -482,6 +484,10 @@ export function OrderDetail({
     order: CounterOrder,
     input: CounterPaymentIntent
   ) => Promise<CounterPaymentOperationResult>;
+  onLoadPaymentQuote: (input: {
+    orderId: number;
+    operationDate: string;
+  }) => Promise<CounterPaymentQuote>;
   onRequestRefund: (
     order: CounterOrder,
     input: CounterRefundRequestIntent
@@ -801,11 +807,12 @@ export function OrderDetail({
           {paymentOpen && !isCancelled ? (
             <div ref={paymentSectionRef} className="scroll-mt-4">
               <CounterPaymentEngine
-                key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.reports.pending}`}
+                key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.paymentQuote.operationDate}-${order.paymentQuote.pendingBs}-${order.paymentQuote.collectionMode}-${order.reports.pending}`}
                 order={order}
                 paymentAccounts={paymentAccounts}
                 isWorking={isWorking}
                 onSubmit={(input) => onCreatePaymentReport(order, input)}
+                onLoadPaymentQuote={onLoadPaymentQuote}
               />
             </div>
           ) : null}
