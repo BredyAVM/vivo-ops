@@ -76,6 +76,7 @@ import {
   settleMasterOpsClientFundPayoutAction,
   searchMasterOpsOrdersAction,
   type MasterOpsOrderDetailPayload,
+  type MasterOpsOrderInventoryPreview,
   type MasterOpsPaymentSuggestion,
   type MasterOpsOrderSearchResult,
   updateMasterOpsExchangeRateAction,
@@ -105,6 +106,7 @@ export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder & {
   clientFundUsedUsd: number;
   financialActivity?: OrderFinancialActivity[];
+  inventory?: MasterOpsOrderInventoryPreview;
   pendingBs: number | null;
   paymentCollectionMode: string | null;
   paymentStateOperationDate: string | null;
@@ -188,7 +190,11 @@ type Props = {
 };
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
-type DetailTab = MasterOrderDetailTab;
+type DetailTab = MasterOrderDetailTab | "inventario";
+const MASTER_OPS_ORDER_DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
+  ...MASTER_ORDER_DETAIL_TABS,
+  { key: "inventario", label: "Inventario" },
+];
 type DirectActionKey =
   | "approve"
   | "reapprove"
@@ -815,6 +821,198 @@ function MasterOpsFinancialActivity({ activity }: { activity: OrderFinancialActi
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function formatMasterInventoryUnits(value: number | null) {
+  if (value == null) return "Por confirmar";
+  return new Intl.NumberFormat("es-VE", { maximumFractionDigits: 2 }).format(value);
+}
+
+function MasterOpsOrderInventoryPanel({
+  inventory,
+}: {
+  inventory: MasterOpsOrderInventoryPreview | undefined;
+}) {
+  if (!inventory || inventory.status === "unavailable") {
+    return (
+      <div className="mt-4 rounded-xl border border-amber-500/35 bg-amber-500/5 p-4">
+        <div className="text-sm font-semibold text-amber-100">Lectura temporalmente no disponible</div>
+        <div className="mt-1 text-xs leading-relaxed text-[#B7B7C2]">
+          {inventory?.message ?? "No se pudo consultar el inventario de esta orden."}
+        </div>
+        <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+          Esto no bloquea la aprobación, preparación ni entrega de la orden.
+        </div>
+      </div>
+    );
+  }
+
+  const hasSuspension = inventory.lines.some((line) => line.declaredUnavailable);
+  const hasShortage = inventory.lines.some(
+    (line) =>
+      !line.declaredUnavailable &&
+      (line.shortageUnits ?? 0) > 0.0001
+  );
+  const reliesOnIncoming = inventory.lines.some((line) => line.reliesOnIncoming);
+  const decision = hasSuspension
+    ? {
+        title: "Hay una venta detenida por Máster",
+        description: "La orden contiene al menos un ítem cuya venta nueva fue suspendida explícitamente.",
+        className: "border-red-500/40 bg-red-500/10 text-red-100",
+      }
+    : hasShortage || inventory.decision === "insufficient"
+      ? {
+          title: "Requiere revisión de Máster",
+          description: "La cantidad solicitada supera la disponibilidad proyectada sin afectar compromisos confirmados.",
+          className: "border-amber-500/40 bg-amber-500/10 text-amber-100",
+        }
+      : reliesOnIncoming || inventory.decision === "relies_on_incoming"
+        ? {
+            title: "Esta orden depende de una reposición",
+            description: "La cobertura proyectada incluye mercancía o producción esperada antes de la entrega.",
+            className: "border-sky-500/40 bg-sky-500/10 text-sky-100",
+          }
+        : inventory.decision === "outside_horizon"
+          ? {
+              title: "Entrega fuera de la ventana de lectura",
+              description: `El cálculo detallado cubre los próximos ${inventory.horizonDays} días. La orden se revisará al entrar en esa ventana.`,
+              className: "border-violet-500/40 bg-violet-500/10 text-violet-100",
+            }
+          : inventory.decision === "requires_opening"
+            ? {
+                title: "Falta una apertura física",
+                description: "Uno o más ítems todavía no tienen un saldo físico inicial aceptado.",
+                className: "border-amber-500/40 bg-amber-500/10 text-amber-100",
+              }
+            : inventory.decision === "no_inventory_effect"
+              ? {
+                  title: "Esta orden no consume inventario",
+                  description: "Los productos actuales no generan movimientos en el centro canónico.",
+                  className: "border-[#343442] bg-[#121218] text-[#F5F5F7]",
+                }
+              : {
+                  title: "Cubierta sin afectar pedidos confirmados",
+                  description: "La proyección actual alcanza para esta orden dentro de la ventana operativa.",
+                  className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-100",
+                };
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className={`rounded-xl border p-4 ${decision.className}`}>
+        <div className="text-sm font-semibold">{decision.title}</div>
+        <div className="mt-1 text-xs leading-relaxed opacity-80">{decision.description}</div>
+        {inventory.effectiveAt ? (
+          <div className="mt-2 text-[11px] opacity-70">
+            Evaluado para {formatMasterOrderDateTime(inventory.effectiveAt)}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-[#F5F5F7]">Impacto físico de la orden</div>
+            <div className="mt-1 text-[11px] text-[#8A8A96]">
+              Cantidades expresadas en la unidad base de cada ítem.
+            </div>
+          </div>
+          <span className="rounded-full border border-[#343442] bg-[#0B0B0D] px-2 py-1 text-[10px] font-semibold text-[#B7B7C2]">
+            {inventory.lines.length} {inventory.lines.length === 1 ? "ÍTEM" : "ÍTEMS"}
+          </span>
+        </div>
+
+        {inventory.lines.length === 0 ? (
+          <div className="mt-3 rounded-lg border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-sm text-[#B7B7C2]">
+            No hay consumo de inventario configurado para esta orden.
+          </div>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {inventory.lines.map((line) => {
+              const lineHasShortage = (line.shortageUnits ?? 0) > 0.0001;
+              const tone = line.declaredUnavailable
+                ? "border-red-500/35"
+                : lineHasShortage
+                  ? "border-amber-500/35"
+                  : line.reliesOnIncoming
+                    ? "border-sky-500/35"
+                    : "border-[#242433]";
+              const label = line.declaredUnavailable
+                ? "VENTA DETENIDA"
+                : lineHasShortage
+                  ? "REVISAR"
+                  : line.reliesOnIncoming
+                    ? "USA REPOSICIÓN"
+                    : line.status === "outside_horizon"
+                      ? "FUERA DE VENTANA"
+                      : line.status === "requires_opening"
+                        ? "SIN APERTURA"
+                        : "CUBIERTO";
+
+              return (
+                <div key={line.itemId} className={`rounded-lg border bg-[#0B0B0D] p-3 ${tone}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">{line.itemName}</div>
+                      <div className="mt-1 text-xs text-[#B7B7C2]">
+                        Solicita {formatMasterInventoryUnits(line.requestedUnits)}
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-current/30 px-2 py-1 text-[10px] font-semibold text-[#B7B7C2]">
+                      {label}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                    <div className="rounded-lg bg-[#121218] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Existencia física</div>
+                      <div className="mt-1 font-semibold text-[#F5F5F7]">
+                        {formatMasterInventoryUnits(line.onHandUnits)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-[#121218] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Disponible sin afectar</div>
+                      <div className="mt-1 font-semibold text-[#F5F5F7]">
+                        {formatMasterInventoryUnits(line.availableUnits)}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-[#121218] px-3 py-2">
+                      <div className="text-[10px] uppercase tracking-wide text-[#8A8A96]">Ya comprometido</div>
+                      <div className="mt-1 font-semibold text-[#F5F5F7]">
+                        {formatMasterInventoryUnits(line.committedThroughTargetUnits)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {line.reliesOnIncoming ? (
+                    <div className="mt-2 text-[11px] text-sky-200">
+                      Cuenta con {formatMasterInventoryUnits(line.incomingThroughTargetUnits)} de reposición proyectada.
+                    </div>
+                  ) : null}
+                  {lineHasShortage ? (
+                    <div className="mt-2 text-[11px] text-amber-200">
+                      Faltante proyectado: {formatMasterInventoryUnits(line.shortageUnits)}.
+                    </div>
+                  ) : null}
+                  {line.declaredUnavailable ? (
+                    <div className="mt-2 text-[11px] leading-relaxed text-red-200">
+                      {line.unavailableUntil
+                        ? `Suspendido hasta ${formatMasterOrderDateTime(line.unavailableUntil)}.`
+                        : "Suspendido sin fecha de reanudación."}
+                      {line.unavailabilityNotes ? ` ${line.unavailabilityNotes}` : ""}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-3 py-3 text-xs leading-relaxed text-[#B7B7C2]">
+        Esta lectura ayuda a Máster a decidir. Nunca impide avanzar, preparar o entregar una orden ya creada.
       </div>
     </div>
   );
@@ -1653,7 +1851,7 @@ function OrderDetailPanel({
           </div>
 
           <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
-            {MASTER_ORDER_DETAIL_TABS.map((tab) => (
+            {MASTER_OPS_ORDER_DETAIL_TABS.map((tab) => (
               <button
                 key={tab.key}
                 className={[
@@ -1700,7 +1898,9 @@ function OrderDetailPanel({
           ) : (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
             <div className="min-w-0">
-              {activeTab === "notas" ? (
+              {activeTab === "inventario" ? (
+                <MasterOpsOrderInventoryPanel inventory={order.inventory} />
+              ) : activeTab === "notas" ? (
                 <div className="mt-4 space-y-3">
                   <form
                     className="rounded-xl border border-[#242433] bg-[#121218] p-3"
@@ -3726,7 +3926,7 @@ export default function MasterOpsClient({
     if (!order) return;
 
     const requestedTab = searchParams.get("tab");
-    const openTab = MASTER_ORDER_DETAIL_TABS.some((tab) => tab.key === requestedTab)
+    const openTab = MASTER_OPS_ORDER_DETAIL_TABS.some((tab) => tab.key === requestedTab)
       ? requestedTab as DetailTab
       : "detalle";
     const routeKey = `${openOrderId}:${openTab}`;

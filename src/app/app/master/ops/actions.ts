@@ -60,6 +60,40 @@ export type MasterOpsOrderDetailPayload = {
   events: MasterOrderEvent[];
   adminAdjustments: MasterOrderAdminAdjustment[];
   pickupChangeRequests: CounterPickupChangeRequest[];
+  inventory: MasterOpsOrderInventoryPreview;
+};
+
+export type MasterOpsOrderInventoryLine = {
+  itemId: number;
+  itemName: string;
+  status: string;
+  requestedUnits: number;
+  onHandUnits: number | null;
+  availableUnits: number | null;
+  availableWithoutIncomingUnits: number | null;
+  shortageUnits: number | null;
+  committedThroughTargetUnits: number | null;
+  incomingThroughTargetUnits: number | null;
+  reliesOnIncoming: boolean;
+  declaredUnavailable: boolean;
+  unavailableUntil: string | null;
+  unavailabilityNotes: string | null;
+};
+
+export type MasterOpsOrderInventoryPreview = {
+  status: "ready" | "unavailable";
+  decision:
+    | "available"
+    | "insufficient"
+    | "relies_on_incoming"
+    | "outside_horizon"
+    | "requires_opening"
+    | "no_inventory_effect"
+    | "unknown";
+  effectiveAt: string | null;
+  horizonDays: number;
+  lines: MasterOpsOrderInventoryLine[];
+  message: string | null;
 };
 
 type MasterOpsDetailItemRow = {
@@ -108,6 +142,72 @@ type MasterOpsDetailAdjustmentRow = {
 
 function asOpsArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function optionalOpsNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mapMasterOpsOrderInventoryPreview(
+  value: unknown,
+  errorMessage: string | null
+): MasterOpsOrderInventoryPreview {
+  if (errorMessage) {
+    return {
+      status: "unavailable",
+      decision: "unknown",
+      effectiveAt: null,
+      horizonDays: 10,
+      lines: [],
+      message: "La lectura de inventario no estuvo disponible. La orden puede continuar normalmente.",
+    };
+  }
+
+  const preview = asOpsRecord(value);
+  const rawDecision = String(preview.decision || "unknown");
+  const decision: MasterOpsOrderInventoryPreview["decision"] = [
+    "available",
+    "insufficient",
+    "relies_on_incoming",
+    "outside_horizon",
+    "requires_opening",
+    "no_inventory_effect",
+  ].includes(rawDecision)
+    ? rawDecision as MasterOpsOrderInventoryPreview["decision"]
+    : "unknown";
+
+  const lines = asOpsArray(preview.lines).map((value): MasterOpsOrderInventoryLine => {
+    const line = asOpsRecord(value);
+    return {
+      itemId: Math.trunc(Number(line.inventory_item_id || 0)),
+      itemName: cleanText(line.inventory_item_name, "Ítem de inventario"),
+      status: cleanText(line.status, "unknown"),
+      requestedUnits: optionalOpsNumber(line.requested_quantity_units) ?? 0,
+      onHandUnits: optionalOpsNumber(line.on_hand_units),
+      availableUnits: optionalOpsNumber(line.available_without_affecting_commitments),
+      availableWithoutIncomingUnits: optionalOpsNumber(line.available_without_incoming),
+      shortageUnits: optionalOpsNumber(line.shortage_quantity_units),
+      committedThroughTargetUnits: optionalOpsNumber(line.committed_through_target),
+      incomingThroughTargetUnits: optionalOpsNumber(line.incoming_through_target),
+      reliesOnIncoming: Boolean(line.relies_on_incoming),
+      declaredUnavailable: Boolean(line.declared_unavailable),
+      unavailableUntil: line.unavailable_until ? String(line.unavailable_until) : null,
+      unavailabilityNotes: line.unavailability_notes
+        ? cleanText(line.unavailability_notes)
+        : null,
+    };
+  });
+
+  return {
+    status: "ready",
+    decision,
+    effectiveAt: preview.effective_at ? String(preview.effective_at) : null,
+    horizonDays: Math.max(1, Math.trunc(Number(preview.horizon_days || 10))),
+    lines,
+    message: null,
+  };
 }
 
 function mapMasterOpsPickupPreviewItem(value: unknown): CounterPickupChangePreviewItem {
@@ -180,6 +280,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       orderAdjustmentsResult,
       pickupChangeRequestsResult,
       financialActivityResult,
+      inventoryPreviewResult,
     ] = await Promise.all([
       supabase.from("orders").select("id, status").eq("id", orderId).maybeSingle(),
       loadOrderItems(),
@@ -217,6 +318,9 @@ export async function loadMasterOpsOrderDetailAction(input: {
         p_order_id: orderId,
       }),
       supabase.rpc("read_order_financial_activity", {
+        p_order_id: orderId,
+      }),
+      supabase.rpc("inventory_preview_order_commitment_v1", {
         p_order_id: orderId,
       }),
     ]);
@@ -432,6 +536,10 @@ export async function loadMasterOpsOrderDetailAction(input: {
         },
       };
     });
+    const inventoryPreview = mapMasterOpsOrderInventoryPreview(
+      inventoryPreviewResult.data,
+      inventoryPreviewResult.error?.message ?? null
+    );
 
     return {
       ok: true,
@@ -442,6 +550,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
         events,
         adminAdjustments,
         pickupChangeRequests,
+        inventory: inventoryPreview,
       },
     };
   } catch (error) {
