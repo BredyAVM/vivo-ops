@@ -469,6 +469,9 @@ export default function MasterOpsOrderEditor({
   }, [calculatedItems, form?.discountEnabled, form?.discountPct, form?.hasInvoice, form?.invoiceTaxPct, fxRate]);
 
   const isAdvancedOrderEdit = form && !isCreateMode ? !["created", "queued"].includes(form.status) : false;
+  const canAssignResponsibleAdvisor = Boolean(
+    form?.source === "advisor" || (!isCreateMode && form?.source === "walk_in")
+  );
   const requiresEditReason = Boolean(
     isAdvancedOrderEdit ||
     (!isCreateMode && form?.isPriceProtected && pricingChanged)
@@ -894,7 +897,10 @@ export default function MasterOpsOrderEditor({
       const itemsPayload = orderedItems.map((item) => recalculateItem(item, fxRate));
       const orderPayload = {
         source: form.source,
-        attributedAdvisorUserId: form.source === "advisor" ? form.attributedAdvisorUserId : null,
+        attributedAdvisorUserId:
+          form.source === "advisor" || form.source === "walk_in"
+            ? form.attributedAdvisorUserId
+            : null,
         fulfillment: form.fulfillment,
         selectedClientId: form.selectedClientId,
         newClientName: form.selectedClientId ? "" : newClientName,
@@ -1111,8 +1117,8 @@ export default function MasterOpsOrderEditor({
                             <option value="walk_in">Mostrador</option>
                           </select>
                         </Field>
-                        {form.source === "advisor" ? (
-                          <Field label="Asesor">
+                        {canAssignResponsibleAdvisor ? (
+                          <Field label={form.source === "walk_in" ? "Asesor responsable" : "Asesor"}>
                             <select
                               className={fieldClass()}
                               value={form.attributedAdvisorUserId ?? ""}
@@ -1128,6 +1134,48 @@ export default function MasterOpsOrderEditor({
                           </Field>
                         ) : null}
                       </div>
+                      {!isCreateMode && form.source === "walk_in" ? (
+                        <div className={[
+                          "rounded-xl border px-3 py-2 text-xs",
+                          form.attributedAdvisorUserId
+                            ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                            : form.advisorSuggestion?.isActive
+                              ? "border-sky-300/25 bg-sky-300/10 text-sky-100"
+                              : "border-amber-300/25 bg-amber-300/10 text-amber-100",
+                        ].join(" ")}>
+                          {form.attributedAdvisorUserId ? (
+                            <>
+                              La orden conserva su origen en Mostrador y el asesor seleccionado quedará responsable del seguimiento.
+                            </>
+                          ) : form.advisorSuggestion ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <span className="font-semibold">
+                                  {form.advisorSuggestion.source === "primary" ? "Asesor habitual" : "Último asesor"}: {form.advisorSuggestion.fullName}
+                                </span>
+                                <span className="mt-0.5 block opacity-80">
+                                  {form.advisorSuggestion.isActive
+                                    ? "Es una sugerencia; Master decide si lo asigna."
+                                    : "El asesor ya no está activo. Selecciona otro responsable."}
+                                </span>
+                              </div>
+                              {form.advisorSuggestion.isActive ? (
+                                <button
+                                  type="button"
+                                  onClick={() => patchForm({ attributedAdvisorUserId: form.advisorSuggestion?.userId ?? null })}
+                                  className="rounded-lg border border-sky-200/35 bg-sky-200/10 px-2.5 py-1.5 font-semibold text-sky-50 hover:bg-sky-200/15"
+                                >
+                                  Usar sugerencia
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <>
+                              Cliente sin asesor identificado. Master debe seleccionar quién dará seguimiento al pedido y a su cobranza.
+                            </>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </Section>
 

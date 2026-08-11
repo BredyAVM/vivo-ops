@@ -1565,6 +1565,7 @@ type RawOrderEditRow = {
         delivery_note_document_id: string | null;
         delivery_note_address: string | null;
         delivery_note_phone: string | null;
+        primary_advisor_id: string | null;
       }
     | Array<{
         id: number | string | null;
@@ -1581,6 +1582,7 @@ type RawOrderEditRow = {
         delivery_note_document_id: string | null;
         delivery_note_address: string | null;
         delivery_note_phone: string | null;
+        primary_advisor_id: string | null;
       }>
     | null;
 };
@@ -1618,6 +1620,7 @@ type RawOrderClientEditRow = {
   delivery_note_document_id: string | null;
   delivery_note_address: string | null;
   delivery_note_phone: string | null;
+  primary_advisor_id: string | null;
 };
 
 type RawCatalogEditRow = {
@@ -1704,6 +1707,13 @@ export type MasterOpsEditAdvisor = {
   fullName: string;
 };
 
+export type MasterOpsAdvisorSuggestion = {
+  userId: string;
+  fullName: string;
+  source: "primary" | "last_order";
+  isActive: boolean;
+};
+
 export type MasterOpsEditOrderItem = {
   orderItemId: number | null;
   localId: string;
@@ -1730,6 +1740,7 @@ export type MasterOpsEditOrder = {
   isPriceProtected: boolean;
   source: "advisor" | "master" | "walk_in";
   attributedAdvisorUserId: string | null;
+  advisorSuggestion: MasterOpsAdvisorSuggestion | null;
   fulfillment: "pickup" | "delivery";
   selectedClientId: number | null;
   client: MasterOpsEditClient | null;
@@ -2119,7 +2130,7 @@ async function prepareMasterOpsOrderSave(
         .order("effective_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      input.source === "advisor"
+      input.source === "advisor" || Boolean(String(input.attributedAdvisorUserId || "").trim())
         ? ctx.supabase.rpc("get_advisor_profiles")
         : Promise.resolve({ data: [], error: null }),
       Number(input.selectedClientId || 0) > 0
@@ -2186,8 +2197,8 @@ async function prepareMasterOpsOrderSave(
     }
   }
 
-  if (input.source === "advisor") {
-    const attributedAdvisorUserId = String(input.attributedAdvisorUserId || "").trim();
+  const attributedAdvisorUserId = String(input.attributedAdvisorUserId || "").trim();
+  if (attributedAdvisorUserId) {
     const advisorIsActive = ((advisorsResult.data ?? []) as Array<{
       user_id: string | null;
       is_active: boolean | null;
@@ -2468,7 +2479,102 @@ export async function createMasterOpsOrderAction(input: MasterOpsOrderCreateInpu
 
 export async function updateMasterOpsOrderAction(input: MasterOpsOrderUpdateInput) {
   const prepared = await prepareMasterOpsOrderSave("edit", input);
-  return updateOrderAction(prepared as DashboardUpdateOrderInput);
+  const ctx = await requireMasterOrAdminContext();
+  const orderId = Number(input.orderId);
+  const { data: beforeOrder, error: beforeOrderError } = await ctx.supabase
+    .from("orders")
+    .select("id, order_number, attributed_advisor_id, extra_fields")
+    .eq("id", orderId)
+    .single();
+
+  if (beforeOrderError) throw new Error(beforeOrderError.message);
+
+  const result = await updateOrderAction(prepared as DashboardUpdateOrderInput);
+  if (result && "ok" in result && !result.ok) return result;
+
+  if (prepared.source === "walk_in") {
+    const desiredAdvisorUserId = String(prepared.attributedAdvisorUserId || "").trim() || null;
+    const { data: savedOrder, error: savedOrderError } = await ctx.supabase
+      .from("orders")
+      .select("extra_fields")
+      .eq("id", orderId)
+      .single();
+
+    if (savedOrderError) throw new Error(savedOrderError.message);
+
+    const beforeExtraFields =
+      beforeOrder.extra_fields && typeof beforeOrder.extra_fields === "object" && !Array.isArray(beforeOrder.extra_fields)
+        ? beforeOrder.extra_fields as Record<string, unknown>
+        : {};
+    const savedExtraFields =
+      savedOrder.extra_fields && typeof savedOrder.extra_fields === "object" && !Array.isArray(savedOrder.extra_fields)
+        ? savedOrder.extra_fields as Record<string, unknown>
+        : {};
+    const nowIso = new Date().toISOString();
+    const { error: alignAdvisorError } = await ctx.supabase
+      .from("orders")
+      .update({
+        attributed_advisor_id: desiredAdvisorUserId,
+        extra_fields: { ...beforeExtraFields, ...savedExtraFields },
+        last_modified_at: nowIso,
+        last_modified_by: ctx.user.id,
+      })
+      .eq("id", orderId);
+
+    if (alignAdvisorError) throw new Error(alignAdvisorError.message);
+
+    const previousAdvisorUserId = String(beforeOrder.attributed_advisor_id || "").trim() || null;
+    if (previousAdvisorUserId !== desiredAdvisorUserId) {
+      const selectedAdvisor = desiredAdvisorUserId
+        ? ((await ctx.supabase.rpc("get_advisor_profiles")).data ?? []).find(
+            (advisor: { user_id?: string | null }) => String(advisor.user_id || "") === desiredAdvisorUserId
+          ) as { full_name?: string | null } | undefined
+        : null;
+      const advisorName = cleanText(selectedAdvisor?.full_name, "asesor seleccionado");
+      const { data: event, error: eventError } = await ctx.supabase
+        .from("order_timeline_events")
+        .insert({
+          order_id: orderId,
+          order_number: beforeOrder.order_number == null ? null : String(beforeOrder.order_number),
+          event_type: desiredAdvisorUserId ? "order_advisor_assigned" : "order_advisor_unassigned",
+          event_group: "assignment",
+          title: desiredAdvisorUserId ? "Asesor responsable asignado" : "Orden sin asesor responsable",
+          message: desiredAdvisorUserId
+            ? `Master asignó a ${advisorName} para el seguimiento de la orden de Mostrador.`
+            : "Master dejó la orden de Mostrador pendiente de asignación de asesor.",
+          severity: desiredAdvisorUserId ? "info" : "warning",
+          actor_user_id: ctx.user.id,
+          payload: {
+            source: "master_ops",
+            previous_advisor_user_id: previousAdvisorUserId,
+            next_advisor_user_id: desiredAdvisorUserId,
+          },
+        })
+        .select("id")
+        .single();
+
+      if (eventError) {
+        console.warn("master ops advisor assignment event skipped", eventError.message);
+      } else if (desiredAdvisorUserId && event?.id) {
+        const { error: recipientError } = await ctx.supabase
+          .from("order_timeline_event_recipients")
+          .insert({
+            event_id: Number(event.id),
+            target_user_id: desiredAdvisorUserId,
+            requires_action: true,
+          });
+        if (recipientError) {
+          console.warn("master ops advisor assignment recipient skipped", recipientError.message);
+        }
+      }
+    }
+  }
+
+  revalidatePath("/app/master/ops");
+  revalidatePath("/app/advisor");
+  revalidatePath("/app/advisor/orders");
+  revalidatePath("/app/advisor/inbox");
+  return result;
 }
 
 async function loadMasterOpsOrderComposerLookups(
@@ -2622,6 +2728,7 @@ export async function loadMasterOpsOrderCreateDataAction(
       isPriceProtected: false,
       source: "master",
       attributedAdvisorUserId: null,
+      advisorSuggestion: null,
       fulfillment: "pickup",
       selectedClientId: null,
       client: null,
@@ -2709,7 +2816,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
           delivery_note_name,
           delivery_note_document_id,
           delivery_note_address,
-          delivery_note_phone
+          delivery_note_phone,
+          primary_advisor_id
         )
       `
       )
@@ -2870,6 +2978,50 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
     .filter((advisor) => advisor.id.trim())
     .sort((a, b) => a.fullName.localeCompare(b.fullName, "es-VE"));
 
+  let advisorSuggestion: MasterOpsAdvisorSuggestion | null = null;
+  if (!orderRow.attributed_advisor_id && clientRow?.id) {
+    const activeAdvisorIds = advisors.map((advisor) => advisor.id);
+    const primaryAdvisorUserId = String(clientRow.primary_advisor_id || "").trim();
+    let suggestedAdvisorUserId = activeAdvisorIds.includes(primaryAdvisorUserId)
+      ? primaryAdvisorUserId
+      : "";
+    let suggestionSource: MasterOpsAdvisorSuggestion["source"] = "primary";
+
+    if (!suggestedAdvisorUserId && activeAdvisorIds.length > 0) {
+      const { data: lastAttributedOrder, error: lastAttributedOrderError } = await ctx.supabase
+        .from("orders")
+        .select("attributed_advisor_id")
+        .eq("client_id", Number(clientRow.id))
+        .neq("id", orderId)
+        .in("attributed_advisor_id", activeAdvisorIds)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastAttributedOrderError) throw new Error(lastAttributedOrderError.message);
+      suggestedAdvisorUserId = String(lastAttributedOrder?.attributed_advisor_id || "").trim();
+      suggestionSource = "last_order";
+    }
+
+    if (suggestedAdvisorUserId) {
+      const advisorProfile = ((advisorsResult.data ?? []) as Array<{
+        user_id: string | null;
+        full_name: string | null;
+        is_active: boolean | null;
+      }>).find((row) => String(row.user_id || "") === suggestedAdvisorUserId);
+
+      if (advisorProfile) {
+        advisorSuggestion = {
+          userId: suggestedAdvisorUserId,
+          fullName: cleanText(advisorProfile.full_name, "Asesor"),
+          source: suggestionSource,
+          isActive: advisorProfile.is_active !== false,
+        };
+      }
+    }
+  }
+
   const fxRate = toNumber(pricing.fx_rate, toNumber(activeRateResult.data?.rate_bs_per_usd, 0));
 
   let isPriceProtected = Boolean(orderRow.is_price_locked);
@@ -2927,6 +3079,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       isPriceProtected,
       source: orderRow.source,
       attributedAdvisorUserId: orderRow.attributed_advisor_id ?? null,
+      advisorSuggestion,
       fulfillment: orderRow.fulfillment,
       selectedClientId: client?.id ?? (orderRow.client_id == null ? null : Number(orderRow.client_id)),
       client,
