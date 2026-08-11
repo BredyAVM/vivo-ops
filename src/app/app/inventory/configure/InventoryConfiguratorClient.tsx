@@ -243,6 +243,9 @@ export default function InventoryConfiguratorClient({
     if (entryKind === 'item') {
       if (!item.name.trim()) return 'Escribe el nombre del ítem interno.';
       if (!item.unitName.trim()) return 'Escribe la unidad base del ítem.';
+      if (item.primaryCountFrequency && !item.primaryCountRole) {
+        return 'Selecciona quién realizará el conteo programado.';
+      }
       return null;
     }
 
@@ -275,6 +278,9 @@ export default function InventoryConfiguratorClient({
       }
       if (selfItemMode === 'new' && !item.name.trim() && !productName.trim()) {
         return 'Escribe el nombre del nuevo ítem físico.';
+      }
+      if (selfItemMode === 'new' && item.primaryCountFrequency && !item.primaryCountRole) {
+        return 'Selecciona quién realizará el conteo programado del nuevo ítem.';
       }
     }
     if (policy === 'direct' && directLinks.length === 0) {
@@ -759,7 +765,7 @@ function ItemEditor({ item, setItem, disabled }: { item: ItemDraft; setItem: Rea
         <Field label="Vida útil (días)"><input type="number" min="0" step="1" value={item.shelfLifeDays} onChange={(event) => update('shelfLifeDays', event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Frecuencia principal">
           <select value={item.primaryCountFrequency} onChange={(event) => update('primaryCountFrequency', event.target.value as ItemDraft['primaryCountFrequency'])} disabled={disabled} className={inputClass}>
-            <option value="">Sin definir</option><option value="per_shift">Por turno</option><option value="daily">Diaria</option><option value="weekly">Semanal</option><option value="biweekly">Quincenal</option><option value="monthly">Mensual</option>
+            <option value="">Solo por solicitud</option><option value="per_shift">Por turno</option><option value="daily">Diaria</option><option value="weekly">Semanal</option><option value="biweekly">Quincenal</option><option value="monthly">Mensual</option>
           </select>
         </Field>
         <Field label="Responsable principal">

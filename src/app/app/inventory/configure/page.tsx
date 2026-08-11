@@ -232,12 +232,12 @@ export default async function InventoryConfigurePage({
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-[#2C2C3A] bg-[#101016] p-5">
-        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">Reglas y catálogo</div>
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">Productos e inventario</div>
         <h2 className="mt-1 text-xl font-semibold">¿Qué necesitas hacer?</h2>
-        <p className="mt-2 text-sm text-[#9898A5]">Solo se abre una tarea a la vez para mantener clara la configuración.</p>
+        <p className="mt-2 text-sm text-[#9898A5]">Cada opción abre una sola tarea. Nada de esta pantalla modifica el saldo físico por sí solo.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <ConfigureLink active={view === 'edit'} href="/app/inventory/configure?view=edit" title="Modificar lo existente">
-            Nombre, precio, comisión, mínimos, conteos, receta o descuento físico.
+          <ConfigureLink active={view === 'edit'} href="/app/inventory/configure?view=edit" title="Ver o modificar un perfil">
+            Frecuencia, responsable, mínimos, precio, comisión, receta o descuento físico.
           </ConfigureLink>
           <ConfigureLink active={view === 'activate'} href="/app/inventory/configure?view=activate" title="Revisar y activar">
             Borradores listos, bloqueos y activación controlada.

@@ -521,6 +521,9 @@ export async function updateInventoryItemControlsAction(input: {
   if (shelfLifeDays != null && !Number.isSafeInteger(shelfLifeDays)) {
     throw new Error('La vida útil debe expresarse en días enteros.');
   }
+  if (input.primaryCountFrequency && !input.primaryCountRole) {
+    throw new Error('Un conteo programado debe tener un responsable.');
+  }
 
   const { data, error } = await ctx.supabase.rpc('inventory_update_item_controls_v1', {
     p_configuration: {

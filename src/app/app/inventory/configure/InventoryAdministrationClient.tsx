@@ -160,6 +160,29 @@ const availabilityLabels: Record<NonNullable<AdminItem['availability_mode']>, st
   scheduled_recipe: 'Preparación con tiempo',
 };
 
+const frequencyLabels: Record<NonNullable<AdminItem['primary_count_frequency']>, string> = {
+  per_shift: 'Por turno',
+  daily: 'Diaria',
+  weekly: 'Semanal',
+  biweekly: 'Quincenal',
+  monthly: 'Mensual',
+};
+
+const roleLabels: Record<NonNullable<AdminItem['primary_count_role']>, string> = {
+  admin: 'Administración',
+  master: 'Máster',
+  kitchen: 'Cocina',
+  counter: 'Counter',
+};
+
+function frequencyLabel(value: NonNullable<AdminItem['primary_count_frequency']>) {
+  return frequencyLabels[value];
+}
+
+function roleLabel(value: AdminItem['primary_count_role']) {
+  return value ? roleLabels[value] : 'Pendiente de asignar';
+}
+
 function quantity(value: unknown) {
   return new Intl.NumberFormat('es-VE', { maximumFractionDigits: 3 }).format(Number(value ?? 0));
 }
@@ -186,9 +209,10 @@ export default function InventoryAdministrationClient({
 }: {
   workspace: InventoryAdminWorkspace;
 }) {
-  const [editor, setEditor] = useState<Editor>('product');
+  const [editor, setEditor] = useState<Editor>('item');
   const [productId, setProductId] = useState('');
   const [itemId, setItemId] = useState('');
+  const [itemSearch, setItemSearch] = useState('');
   const [recipeOutputId, setRecipeOutputId] = useState('');
   const [recipeKind, setRecipeKind] = useState<AdminRecipe['recipe_kind']>('production');
 
@@ -204,19 +228,27 @@ export default function InventoryAdministrationClient({
   );
   const activeRecipe = recipeVersions.find((recipe) => recipe.lifecycle === 'active') ?? null;
   const draftRecipe = recipeVersions.find((recipe) => recipe.lifecycle === 'draft') ?? null;
+  const visibleItems = useMemo(() => {
+    const query = itemSearch.trim().toLocaleLowerCase('es');
+    if (!query) return workspace.items;
+    return workspace.items.filter((candidate) =>
+      `${candidate.name} ${candidate.inventory_group} ${candidate.inventory_kind}`
+        .toLocaleLowerCase('es')
+        .includes(query),
+    );
+  }, [itemSearch, workspace.items]);
 
   return (
     <section className="rounded-2xl border border-[#2C2C3A] bg-[#101016] p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#FEEF00]">
-            Administración segura
+            Perfil de inventario
           </div>
-          <h2 className="mt-1 text-xl font-semibold">Modificar lo existente</h2>
+          <h2 className="mt-1 text-xl font-semibold">Configurar un producto o ítem existente</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[#9898A5]">
-            Cada editor cambia una sola capa. Los nombres y controles se actualizan sin tocar
-            existencias; las fórmulas generan una versión nueva y la receta vigente continúa
-            operando hasta que actives el borrador.
+            Empieza por el ítem físico para definir cómo se cuenta. Cambia a producto comercial
+            para precio y comisión, o a receta para modificar lo que consume o produce.
           </p>
         </div>
         <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/5 px-4 py-3 text-xs leading-5 text-emerald-100">
@@ -226,26 +258,26 @@ export default function InventoryAdministrationClient({
       </div>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-3">
-        <RuleCard number="1" title="Producto comercial">
-          Identidad, precio, comisión y condiciones comerciales. No cambia descuentos físicos.
+        <RuleCard number="1" title="Ítem e inventario">
+          Frecuencia, responsable, alertas, objetivo y disponibilidad física.
         </RuleCard>
-        <RuleCard number="2" title="Ítem físico">
-          Alertas, objetivo, conteo y disponibilidad. No cambia unidad, tipo ni saldo.
+        <RuleCard number="2" title="Producto y venta">
+          Nombre comercial, precio, comisión y forma de descontar.
         </RuleCard>
-        <RuleCard number="3" title="Receta versionada">
+        <RuleCard number="3" title="Preparación">
           Insumos, rendimiento y tiempo. Se compara y se activa explícitamente.
         </RuleCard>
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2" role="tablist" aria-label="Tipo de configuración">
-        <EditorButton active={editor === 'product'} onClick={() => setEditor('product')}>
-          Editar producto
-        </EditorButton>
         <EditorButton active={editor === 'item'} onClick={() => setEditor('item')}>
-          Editar ítem físico
+          Inventario del ítem
+        </EditorButton>
+        <EditorButton active={editor === 'product'} onClick={() => setEditor('product')}>
+          Datos y descuento del producto
         </EditorButton>
         <EditorButton active={editor === 'recipe'} onClick={() => setEditor('recipe')}>
-          Versionar receta
+          Receta o preparación
         </EditorButton>
       </div>
 
@@ -278,20 +310,33 @@ export default function InventoryAdministrationClient({
 
       {editor === 'item' ? (
         <div className="mt-5">
-          <Field label="Ítem físico">
-            <select
-              value={itemId}
-              onChange={(event) => setItemId(event.target.value)}
-              className={INPUT_CLASS}
-            >
-              <option value="">Selecciona un ítem…</option>
-              {workspace.items.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} · {candidate.is_active ? 'activo' : 'borrador'}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Buscar por nombre, familia o tipo">
+              <input
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                placeholder="Ej. Bombys, bebidas o prefrito"
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Ítem físico">
+              <select
+                value={itemId}
+                onChange={(event) => setItemId(event.target.value)}
+                className={INPUT_CLASS}
+              >
+                <option value="">Selecciona un ítem…</option>
+                {visibleItems.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} · {candidate.inventory_group} · {candidate.is_active ? 'activo' : 'borrador'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <p className="mt-2 text-xs text-[#777784]">
+            {visibleItems.length} de {workspace.items.length} ítems visibles. Cualquier ítem puede contarse por solicitud aunque no tenga calendario.
+          </p>
           {item ? <ItemEditor key={item.id} item={item} /> : <EmptyEditor />}
         </div>
       ) : null}
@@ -764,6 +809,10 @@ function ItemEditor({ item }: { item: AdminItem }) {
   function save() {
     setMessage(null);
     setError(null);
+    if (countFrequency && !countRole) {
+      setError('Selecciona quién realiza el conteo programado.');
+      return;
+    }
     startTransition(async () => {
       try {
         await updateInventoryItemControlsAction({
@@ -787,8 +836,22 @@ function ItemEditor({ item }: { item: AdminItem }) {
   }
 
   return (
-    <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="rounded-xl border border-[#292938] bg-[#14141C] p-4">
+    <div className="mt-4 space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ProfileFact label="Estado" value={item.is_active ? 'Activo' : 'Borrador'} tone={item.is_active ? 'good' : 'neutral'} />
+        <ProfileFact label="Familia" value={item.inventory_group} />
+        <ProfileFact label="Unidad base" value={item.unit_name} />
+        <ProfileFact label="Existencia actual" value={`${quantity(item.current_stock_units)} ${item.unit_name}`} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-xl border border-[#292938] bg-[#14141C] p-4">
+          <div className="mb-4">
+            <h3 className="font-semibold">Cómo se controla este ítem</h3>
+            <p className="mt-1 text-xs leading-5 text-[#858592]">
+              La frecuencia decide en qué lista programada aparecerá. “Solo por solicitud” lo mantiene disponible para conteos puntuales sin ensuciar los cierres.
+            </p>
+          </div>
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Nombre del ítem">
             <input value={name} onChange={(event) => setName(event.target.value)} maxLength={160} className={INPUT_CLASS} />
@@ -812,7 +875,7 @@ function ItemEditor({ item }: { item: AdminItem }) {
           </Field>
           <Field label="Frecuencia principal de conteo">
             <select value={countFrequency} onChange={(event) => setCountFrequency(event.target.value as typeof countFrequency)} className={INPUT_CLASS}>
-              <option value="">Sin frecuencia</option>
+              <option value="">Solo por solicitud</option>
               <option value="per_shift">Por turno</option>
               <option value="daily">Diaria</option>
               <option value="weekly">Semanal</option>
@@ -822,7 +885,7 @@ function ItemEditor({ item }: { item: AdminItem }) {
           </Field>
           <Field label="Responsable del conteo">
             <select value={countRole} onChange={(event) => setCountRole(event.target.value as typeof countRole)} className={INPUT_CLASS}>
-              <option value="">Sin responsable</option>
+              <option value="">Seleccionar responsable</option>
               <option value="kitchen">Cocina</option>
               <option value="master">Máster</option>
               <option value="admin">Administración</option>
@@ -842,11 +905,25 @@ function ItemEditor({ item }: { item: AdminItem }) {
         <button type="button" onClick={save} disabled={isPending} className={`mt-4 ${PRIMARY_BUTTON}`}>
           {isPending ? 'Guardando…' : 'Guardar controles del ítem'}
         </button>
-      </div>
+        </div>
 
-      <ImpactCard title="Estructura protegida">
+        <ImpactCard title="Qué significa esta configuración">
+          <ImpactLine
+            label="Lista principal"
+            value={item.primary_count_frequency ? frequencyLabel(item.primary_count_frequency) : 'Solo conteo solicitado'}
+          />
+          <ImpactLine label="Responsable" value={roleLabel(item.primary_count_role)} />
+          <ImpactLine
+            label="Alerta de mínimo"
+            value={item.low_stock_threshold == null ? 'Pendiente de definir' : `${quantity(item.low_stock_threshold)} ${item.unit_name}`}
+          />
+          <ImpactLine
+            label="Objetivo"
+            value={item.target_stock_units == null ? 'Pendiente de definir' : `${quantity(item.target_stock_units)} ${item.unit_name}`}
+          />
+          <div className="my-3 border-t border-[#30303D]" />
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#777784]">Estructura protegida</div>
         <ImpactLine label="Estado" value={item.is_active ? 'Activo' : 'Borrador'} />
-        <ImpactLine label="Saldo actual" value={`${quantity(item.current_stock_units)} ${item.unit_name}`} />
         <ImpactLine label="Disponibilidad" value={item.availability_mode ? availabilityLabels[item.availability_mode] : 'Sin definir'} />
         <ImpactLine label="Unidad base" value={item.unit_name} />
         <ImpactLine label="Tipo" value={item.inventory_kind} />
@@ -857,7 +934,8 @@ function ItemEditor({ item }: { item: AdminItem }) {
         <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs leading-5 text-amber-100">
           Unidad, tipo, grupo y seguimiento quedan bloqueados aquí porque cambiarlos reinterpretaría movimientos históricos.
         </div>
-      </ImpactCard>
+        </ImpactCard>
+      </div>
     </div>
   );
 }
@@ -1135,6 +1213,23 @@ function ImpactCard({ title, children }: { title: string; children: ReactNode })
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="mt-3">{children}</div>
     </aside>
+  );
+}
+
+function ProfileFact({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'good' | 'neutral';
+}) {
+  return (
+    <div className={`rounded-xl border p-3 ${tone === 'good' ? 'border-emerald-400/25 bg-emerald-400/5' : 'border-[#292938] bg-[#14141C]'}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#858591]">{label}</div>
+      <div className={`mt-1 text-sm font-semibold ${tone === 'good' ? 'text-emerald-200' : 'text-white'}`}>{value}</div>
+    </div>
   );
 }
 
