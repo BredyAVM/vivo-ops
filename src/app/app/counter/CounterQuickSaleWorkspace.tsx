@@ -107,6 +107,12 @@ function availabilityTone(availability: CounterProductAvailability | null) {
   return 'border-amber-300/35 bg-amber-300/10 text-amber-100';
 }
 
+function clientAdvisorLabel(client: CounterClientSearchResult) {
+  if (!client.advisorName) return 'Sin asesor identificado';
+  if (client.advisorSource === 'primary') return `Asesor habitual: ${client.advisorName}`;
+  return `Ultimo asesor: ${client.advisorName}`;
+}
+
 export function CounterQuickSalePanel({
   products,
   productComponents,
@@ -645,6 +651,12 @@ export function CounterQuickSalePanel({
                   <div className="mt-0.5 text-xs text-[#9FA0AA]">
                     {client.phone || 'Sin telefono'} - {client.clientType || 'sin tipo'} - Fondo {moneyUsd(client.fundBalanceUsd)}
                   </div>
+                  <div className={[
+                    'mt-1 text-xs font-semibold',
+                    client.advisorName ? 'text-sky-200' : 'text-amber-200',
+                  ].join(' ')}>
+                    {clientAdvisorLabel(client)}
+                  </div>
                 </button>
               ))}
             </div>
@@ -654,6 +666,19 @@ export function CounterQuickSalePanel({
               <div className="text-sm font-semibold text-emerald-100">{selectedClient.fullName}</div>
               <div className="mt-1 text-xs text-emerald-100/75">
                 {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
+              </div>
+              <div className={[
+                'rounded-[8px] border px-2.5 py-2 text-xs font-semibold',
+                selectedClient.advisorName
+                  ? 'border-sky-300/25 bg-sky-300/10 text-sky-100'
+                  : 'border-amber-300/25 bg-amber-300/10 text-amber-100',
+              ].join(' ')}>
+                {clientAdvisorLabel(selectedClient)}
+                {!selectedClient.advisorName ? (
+                  <span className="mt-0.5 block font-normal">
+                    Master podra asignar un responsable si la orden queda para seguimiento.
+                  </span>
+                ) : null}
               </div>
               <label className="block text-xs text-emerald-100/75">
                 Teléfono confirmado para esta venta
@@ -670,6 +695,9 @@ export function CounterQuickSalePanel({
           {newClientMode ? (
             <div className="space-y-2 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#9FA0AA]">Cliente nuevo</div>
+              <div className="rounded-[8px] border border-amber-300/25 bg-amber-300/10 px-2.5 py-2 text-xs text-amber-100">
+                Este cliente aun no tiene asesor. Master podra asignarlo cuando revise una orden agendada.
+              </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="text-xs text-[#9FA0AA]">
                   Nombre

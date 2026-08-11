@@ -36,6 +36,11 @@ export type CounterClientSearchResult = {
   phone: string | null;
   clientType: string | null;
   fundBalanceUsd: number;
+  advisorUserId: string | null;
+  advisorName: string | null;
+  advisorSource: 'primary' | 'last_order' | 'none';
+  advisorIsActive: boolean | null;
+  advisorLastOrderAt: string | null;
 };
 
 type CounterCashMovementInput = {
@@ -1006,9 +1011,30 @@ export async function searchCounterClientsAction(input: { query: string }): Prom
   if (error) throw new Error(error.message);
 
   const payload = data && typeof data === 'object' && !Array.isArray(data)
-    ? data as { results?: CounterClientSearchResult[] }
+    ? data as { results?: unknown[] }
     : {};
-  return Array.isArray(payload.results) ? payload.results : [];
+  return Array.isArray(payload.results)
+    ? payload.results.map(asRecord).map((client) => {
+        const advisorSource = String(client.advisorSource || 'none');
+        return {
+          id: Math.trunc(toSafeNumber(client.id, 0)),
+          fullName: String(client.fullName || 'Cliente'),
+          phone: client.phone == null ? null : String(client.phone),
+          clientType: client.clientType == null ? null : String(client.clientType),
+          fundBalanceUsd: roundCounterMoney(client.fundBalanceUsd),
+          advisorUserId: client.advisorUserId == null ? null : String(client.advisorUserId),
+          advisorName: client.advisorName == null ? null : String(client.advisorName),
+          advisorSource:
+            advisorSource === 'primary' || advisorSource === 'last_order'
+              ? advisorSource
+              : 'none',
+          advisorIsActive:
+            client.advisorIsActive == null ? null : Boolean(client.advisorIsActive),
+          advisorLastOrderAt:
+            client.advisorLastOrderAt == null ? null : String(client.advisorLastOrderAt),
+        } satisfies CounterClientSearchResult;
+      }).filter((client) => client.id > 0)
+    : [];
 }
 
 export async function searchCounterHistoricalOrdersAction(input: {
