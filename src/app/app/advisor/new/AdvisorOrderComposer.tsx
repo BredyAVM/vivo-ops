@@ -75,6 +75,30 @@ type ProductRow = {
   detail_units_limit: number | null;
 };
 
+type ProductAvailability = {
+  product_id: number;
+  availability_state:
+    | 'not_tracked'
+    | 'outside_horizon'
+    | 'inventory_not_active'
+    | 'configuration_pending'
+    | 'selection_required'
+    | 'requires_opening'
+    | 'availability_unknown'
+    | 'unavailable'
+    | 'relies_on_incoming'
+    | 'low'
+    | 'available';
+  severity: 'info' | 'warning';
+  message: string;
+  available_without_affecting_confirmed: number | null;
+  available_without_planned_incoming: number | null;
+  depends_on_incoming: boolean;
+  next_available_at: string | null;
+  requires_master_review: boolean;
+  inventory_blocks_submission: false;
+};
+
 type ProductComponentRow = {
   parent_product_id: number;
   component_product_id: number;
@@ -422,6 +446,30 @@ function from12hTo24h(hour12: string, minute: string, ampm: 'AM' | 'PM') {
   }
 
   return `${pad2(hour)}:${pad2(mins)}`;
+}
+
+function availabilityTone(availability: ProductAvailability | null) {
+  if (!availability || availability.availability_state === 'not_tracked') {
+    return 'border-[#2A3040] bg-[#151925] text-[#CCD3E2]';
+  }
+  if (availability.availability_state === 'available') {
+    return 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]';
+  }
+  return 'border-[#564511] bg-[#2A2209] text-[#F7DA66]';
+}
+
+function availabilityLabel(availability: ProductAvailability | null) {
+  if (!availability) return 'Sin lectura';
+  switch (availability.availability_state) {
+    case 'available': return 'Disponible';
+    case 'low': return 'Quedan pocos';
+    case 'unavailable': return 'Sin disponibilidad protegida';
+    case 'relies_on_incoming': return 'Depende de reposición';
+    case 'outside_horizon': return 'Fuera de 10 días';
+    case 'selection_required': return 'Depende de la selección';
+    case 'not_tracked': return 'No inventariable';
+    default: return 'Revisión de Máster';
+  }
 }
 
 function parseStoredTime12(value: string | null | undefined, fallback: { hour12: string; minute: string; ampm: 'AM' | 'PM' }) {
@@ -1346,6 +1394,9 @@ export default function AdvisorOrderComposer({
   const [recentProductIds, setRecentProductIds] = useState<number[]>([]);
   const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
   const [productUsageById, setProductUsageById] = useState<Record<string, number>>({});
+  const [availabilityByProductId, setAvailabilityByProductId] = useState<Map<number, ProductAvailability>>(new Map());
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [qty, setQty] = useState('1');
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
 
@@ -1570,6 +1621,20 @@ export default function AdvisorOrderComposer({
       return false;
     }
   }, [deliveryAmPm, deliveryDate, deliveryHour12, deliveryMinute, isAsap, isEditingOrder, scheduleReady]);
+  const availabilityTargetAt = useMemo(() => {
+    if (!scheduleReady || advisorScheduleIsPast) return null;
+    if (isAsap) return new Date().toISOString();
+    try {
+      const time24 = from12hTo24h(
+        deliveryHour12.trim(),
+        deliveryMinute.trim(),
+        deliveryAmPm,
+      );
+      return `${deliveryDate.trim()}T${time24}:00-04:00`;
+    } catch {
+      return null;
+    }
+  }, [advisorScheduleIsPast, deliveryAmPm, deliveryDate, deliveryHour12, deliveryMinute, isAsap, scheduleReady]);
 
   const baseCreateReady =
     draftItems.length > 0 &&
@@ -1627,6 +1692,48 @@ export default function AdvisorOrderComposer({
       .slice(0, 40)
       .map((row) => row.product);
   }, [deferredProductSearch, favoriteProductIds, productUsageById, products, recentProductIds]);
+
+  useEffect(() => {
+    if (!availabilityTargetAt || products.length === 0) {
+      setAvailabilityByProductId(new Map());
+      setAvailabilityError(null);
+      setAvailabilityLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const productIds = products
+      .filter((product) => product.is_active !== false && product.extra_fields?.inventory_component_only !== true)
+      .map((product) => product.id)
+      .slice(0, 200);
+
+    setAvailabilityLoading(true);
+    setAvailabilityError(null);
+    const timer = window.setTimeout(async () => {
+      const { data, error: availabilityQueryError } = await supabase.rpc(
+        'inventory_catalog_availability_v1',
+        {
+          p_target_at: availabilityTargetAt,
+          p_product_ids: productIds,
+          p_surface: 'advisor_availability',
+        },
+      );
+      if (cancelled) return;
+      if (availabilityQueryError) {
+        setAvailabilityByProductId(new Map());
+        setAvailabilityError('No se pudo consultar el inventario. Puedes continuar; Máster revisará la solicitud.');
+      } else {
+        const rows = Array.isArray(data?.products) ? data.products as ProductAvailability[] : [];
+        setAvailabilityByProductId(new Map(rows.map((row) => [Number(row.product_id), row])));
+      }
+      setAvailabilityLoading(false);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [availabilityTargetAt, products, supabase]);
 
   useEffect(() => {
     if (!deferredProductSearch.trim()) {
@@ -3677,12 +3784,79 @@ export default function AdvisorOrderComposer({
           ) : null}
         </Section>
 
-        <Section title="2. Pedido" subtitle="Misma logica base de master, compacta para telefono.">
+        <Section title="2. Fecha y hora" subtitle="Primero define cuándo se necesita el pedido; después verás la disponibilidad para ese momento.">
+          <button
+            type="button"
+            onClick={() => {
+              setIsAsap((current) => {
+                const next = !current;
+                if (next) {
+                  setDeliveryDate(getTodayInputValue());
+                  setDeliveryHour12(rounded.hour12);
+                  setDeliveryMinute(rounded.minute);
+                  setDeliveryAmPm(rounded.ampm);
+                }
+                return next;
+              });
+            }}
+            className={[
+              'h-10 rounded-[14px] border px-4 text-sm font-medium',
+              isAsap ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]',
+            ].join(' ')}
+          >
+            Lo antes posible
+          </button>
+
+          <Field label="Fecha">
+            <div className="min-w-0 overflow-hidden rounded-[16px]">
+              <input
+                type="date"
+                value={deliveryDate}
+                min={isEditingOrder ? undefined : getCaracasCurrentMinuteKey().slice(0, 10)}
+                aria-invalid={advisorScheduleIsPast}
+                onChange={(e) => {
+                  setDeliveryDate(e.target.value);
+                  setIsAsap(false);
+                }}
+                className={`${inputClass()} advisor-date-input min-w-0 max-w-full overflow-hidden [color-scheme:dark]`}
+              />
+            </div>
+          </Field>
+
+          <Field label="Hora">
+            <div className="grid grid-cols-[72px_72px_minmax(92px,1fr)] gap-2">
+              <input value={deliveryHour12} onChange={(e) => { setDeliveryHour12(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+              <input value={deliveryMinute} onChange={(e) => { setDeliveryMinute(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
+              <select value={deliveryAmPm} onChange={(e) => { setDeliveryAmPm(e.target.value as 'AM' | 'PM'); setIsAsap(false); }} className={inputClass()}>
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+            {advisorScheduleIsPast ? (
+              <p className="mt-2 text-xs text-[#FF7A45]" role="alert">
+                La fecha y hora no pueden ser anteriores al momento actual.
+              </p>
+            ) : null}
+          </Field>
+
+          <div className="rounded-[16px] border border-[#2A3040] bg-[#0F131B] px-3.5 py-3 text-sm text-[#AAB2C5]">
+            {availabilityLoading
+              ? 'Consultando disponibilidad para esta fecha…'
+              : availabilityError
+                ? availabilityError
+                : availabilityTargetAt
+                  ? 'Fecha lista. Las señales aparecerán junto a cada producto y nunca impedirán enviar la solicitud.'
+                  : 'Completa la fecha y la hora para consultar el inventario.'}
+          </div>
+        </Section>
+
+        <Section title="3. Pedido" subtitle="Catálogo con disponibilidad informativa para la fecha seleccionada.">
           <div className="relative">
             <Field label="Producto">
               <input
                 value={productSearch}
                 aria-busy={productSearchIsPending}
+                disabled={!availabilityTargetAt}
                 onChange={(e) => {
                   setProductSearch(e.target.value);
                   setProductActiveIndex(-1);
@@ -3719,8 +3893,8 @@ export default function AdvisorOrderComposer({
                     chooseProduct(selected);
                   }
                 }}
-                className={inputClass()}
-                placeholder="Escribe nombre o codigo"
+                className={`${inputClass()} disabled:cursor-not-allowed disabled:opacity-55`}
+                placeholder={availabilityTargetAt ? 'Escribe nombre o código' : 'Primero define fecha y hora'}
               />
             </Field>
 
@@ -3752,6 +3926,11 @@ export default function AdvisorOrderComposer({
                           </div>
                         </div>
                         <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                          {availabilityTargetAt ? (
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${availabilityTone(availabilityByProductId.get(product.id) ?? null)}`}>
+                              {availabilityLoading ? 'Consultando…' : availabilityLabel(availabilityByProductId.get(product.id) ?? null)}
+                            </span>
+                          ) : null}
                           {favoriteProductIds.includes(product.id) ? (
                             <span className="rounded-full border border-[#564511] bg-[#2A2209] px-2 py-0.5 text-[10px] font-medium text-[#F7DA66]">
                               Favorito
@@ -3769,6 +3948,11 @@ export default function AdvisorOrderComposer({
                           ) : null}
                         </div>
                       </div>
+                      {availabilityTargetAt && availabilityByProductId.get(product.id)?.message ? (
+                        <div className="mt-2 text-xs leading-5 text-[#AAB2C5]">
+                          {availabilityByProductId.get(product.id)?.message}
+                        </div>
+                      ) : null}
                       <div className="mt-2 text-[10px] uppercase tracking-[0.18em] text-[#6F7890]">
                         Enter para elegir
                       </div>
@@ -3778,6 +3962,18 @@ export default function AdvisorOrderComposer({
               </div>
             ) : null}
           </div>
+
+          {selectedProduct && availabilityTargetAt ? (
+            <div className={`rounded-[16px] border px-3.5 py-3 text-sm ${availabilityTone(availabilityByProductId.get(selectedProduct.id) ?? null)}`}>
+              <div className="font-semibold">
+                {availabilityLoading ? 'Consultando inventario…' : availabilityLabel(availabilityByProductId.get(selectedProduct.id) ?? null)}
+              </div>
+              <div className="mt-1 text-xs leading-5 opacity-90">
+                {availabilityByProductId.get(selectedProduct.id)?.message
+                  ?? 'La lectura no está disponible; puedes continuar y Máster revisará la solicitud.'}
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-[1fr_156px] gap-2">
             <div className="rounded-[16px] border border-[#232632] bg-[#0F131B] px-3.5 py-3 text-sm text-[#F5F7FB]">
@@ -3910,6 +4106,13 @@ export default function AdvisorOrderComposer({
                     </div>
                   ) : null}
 
+                  {availabilityTargetAt && availabilityByProductId.get(item.product_id)?.requires_master_review ? (
+                    <div className="mt-2 rounded-[12px] border border-[#564511] bg-[#151208] px-3 py-2 text-xs leading-5 text-[#F7DA66]">
+                      {availabilityByProductId.get(item.product_id)?.message}
+                      <div className="mt-1 font-semibold">La orden puede enviarse; Máster tomará la decisión final.</div>
+                    </div>
+                  ) : null}
+
                   <div className="mt-3 flex gap-2">
                     {item.editable_detail_lines.length > 0 ? (
                       <button type="button" onClick={() => openEditConfig(item)} className="h-9 rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB]">
@@ -4030,7 +4233,7 @@ export default function AdvisorOrderComposer({
           )}
         </Section>
 
-        <Section title="3. Entrega" subtitle="Con soporte para fecha fija o lo antes posible.">
+        <Section title="4. Entrega" subtitle="Define retiro o delivery y los datos de recepción.">
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setFulfillment('pickup')} className={['h-10 rounded-[14px] border px-4 text-sm font-medium', fulfillment === 'pickup' ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]'].join(' ')}>
               Retiro
@@ -4039,60 +4242,6 @@ export default function AdvisorOrderComposer({
               Delivery
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setIsAsap((current) => {
-                const next = !current;
-                if (next) {
-                  setDeliveryDate(getTodayInputValue());
-                  setDeliveryHour12(rounded.hour12);
-                  setDeliveryMinute(rounded.minute);
-                  setDeliveryAmPm(rounded.ampm);
-                }
-                return next;
-              });
-            }}
-            className={[
-              'h-10 rounded-[14px] border px-4 text-sm font-medium',
-              isAsap ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]' : 'border-[#232632] text-[#F5F7FB]',
-            ].join(' ')}
-          >
-            Lo antes posible
-          </button>
-
-          <Field label="Fecha">
-            <div className="min-w-0 overflow-hidden rounded-[16px]">
-              <input
-                type="date"
-                value={deliveryDate}
-                min={isEditingOrder ? undefined : getCaracasCurrentMinuteKey().slice(0, 10)}
-                aria-invalid={advisorScheduleIsPast}
-                onChange={(e) => {
-                  setDeliveryDate(e.target.value);
-                  setIsAsap(false);
-                }}
-                className={`${inputClass()} advisor-date-input min-w-0 max-w-full overflow-hidden [color-scheme:dark]`}
-              />
-            </div>
-          </Field>
-
-          <Field label="Hora">
-            <div className="grid grid-cols-[72px_72px_minmax(92px,1fr)] gap-2">
-              <input value={deliveryHour12} onChange={(e) => { setDeliveryHour12(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
-              <input value={deliveryMinute} onChange={(e) => { setDeliveryMinute(e.target.value); setIsAsap(false); }} className={inputClass()} inputMode="numeric" />
-              <select value={deliveryAmPm} onChange={(e) => { setDeliveryAmPm(e.target.value as 'AM' | 'PM'); setIsAsap(false); }} className={inputClass()}>
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
-              </select>
-            </div>
-            {advisorScheduleIsPast ? (
-              <p className="mt-2 text-xs text-[#FF7A45]" role="alert">
-                La fecha y hora no pueden ser anteriores al momento actual.
-              </p>
-            ) : null}
-          </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Recibe">
