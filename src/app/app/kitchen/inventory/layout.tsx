@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ModulePreference } from '../../ModulePreference';
 import { KitchenInventoryLiveSync } from './KitchenInventoryLiveSync';
+import { InventoryNavigation } from './InventoryNavigation';
 
 export default async function KitchenInventoryLayout({ children }: { children: ReactNode }) {
   const ctx = await getAuthContext();
@@ -37,29 +38,10 @@ export default async function KitchenInventoryLayout({ children }: { children: R
             </Link>
           </div>
 
-          <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-6">
-            <InventoryNavLink href="/app/kitchen/inventory">Guía</InventoryNavLink>
-            <InventoryNavLink href="/app/kitchen/inventory/receipts">Entradas</InventoryNavLink>
-            <InventoryNavLink href="/app/kitchen/inventory/production">Preparación</InventoryNavLink>
-            <InventoryNavLink href="/app/kitchen/inventory/counts">Conteos</InventoryNavLink>
-            <InventoryNavLink href="/app/kitchen/inventory/losses">Calidad</InventoryNavLink>
-            <InventoryNavLink href="/app/kitchen/inventory/alerts">Alertas</InventoryNavLink>
-          </nav>
+          <InventoryNavigation />
         </div>
       </header>
       <div className="kitchen-safe-content mx-auto max-w-[1180px] px-4 py-5 sm:px-6">{children}</div>
     </main>
-  );
-}
-
-function InventoryNavLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      prefetch={false}
-      className="flex min-h-11 items-center justify-center rounded-xl border border-[#30303F] bg-[#15151D] px-3 text-center text-sm font-semibold text-[#E6E6EC] hover:border-[#FEEF00]/60 hover:text-[#FEEF00]"
-    >
-      {children}
-    </Link>
   );
 }
