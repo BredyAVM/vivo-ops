@@ -225,3 +225,54 @@ export async function cancelMasterInventoryExpectedReceiptAction(input: {
   revalidateMasterInventoryWorkspace();
   return { expectedFlowId };
 }
+
+export async function saveMasterInventorySuspensionAction(input: {
+  operationId: string;
+  inventoryItemId: number;
+  availableFrom?: string | null;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const inventoryItemId = normalizeItemId(input.inventoryItemId);
+  const availableFrom = input.availableFrom == null || String(input.availableFrom).trim() === ''
+    ? null
+    : normalizeDueAt(input.availableFrom);
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_declared_unavailability_v1', {
+    p_operation_id: operationId,
+    p_inventory_item_id: inventoryItemId,
+    p_available_from: availableFrom,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+  const suspensionId = normalizeItemId(
+    (data as { unavailability_flow_id?: unknown } | null)?.unavailability_flow_id,
+  );
+  revalidateMasterInventoryWorkspace();
+  revalidatePath('/app/advisor/new');
+  revalidatePath('/app/counter');
+  return { suspensionId };
+}
+
+export async function cancelMasterInventorySuspensionAction(input: {
+  suspensionId: number;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const suspensionId = normalizeItemId(input.suspensionId);
+  const notes = normalizeNotes(input.notes);
+
+  const { error } = await ctx.supabase.rpc('inventory_cancel_declared_unavailability_v1', {
+    p_unavailability_flow_id: suspensionId,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateMasterInventoryWorkspace();
+  revalidatePath('/app/advisor/new');
+  revalidatePath('/app/counter');
+  return { suspensionId };
+}

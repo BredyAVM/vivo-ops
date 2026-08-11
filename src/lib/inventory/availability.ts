@@ -16,6 +16,7 @@ export type InventoryAvailabilityState =
   | 'requires_opening'
   | 'availability_unknown'
   | 'unavailable'
+  | 'declared_unavailable'
   | 'relies_on_incoming'
   | 'low'
   | 'available';
@@ -40,7 +41,7 @@ export type InventoryProductAvailability = {
   product_type: string;
   inventory_policy: 'none' | 'self' | 'direct' | 'components';
   availability_state: InventoryAvailabilityState;
-  severity: 'info' | 'warning';
+  severity: 'info' | 'warning' | 'critical';
   message: string;
   target_at: string;
   unit_label: 'unidad' | 'servicio';
@@ -55,7 +56,10 @@ export type InventoryProductAvailability = {
   has_optional_components: boolean;
   requires_master_review: boolean;
   review_reason_codes: InventoryAvailabilityState[];
-  inventory_blocks_submission: false;
+  inventory_blocks_submission: boolean;
+  is_commercially_suspended?: boolean;
+  suspended_until?: string;
+  suspended_inventory_items?: string[];
   internal_details?: {
     inventory_item_count: number;
     configuration_status: string;
@@ -81,6 +85,7 @@ export type InventoryCatalogAvailability = {
     requires_master_review_count: number;
     selection_required_count: number;
     available_count: number;
+    commercially_suspended_count?: number;
   };
   products: InventoryProductAvailability[];
 };

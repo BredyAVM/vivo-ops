@@ -5,8 +5,10 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   cancelMasterInventoryExpectedReceiptAction,
+  cancelMasterInventorySuspensionAction,
   requestMasterInventoryCountAction,
   saveMasterInventoryExpectedReceiptAction,
+  saveMasterInventorySuspensionAction,
 } from './actions';
 
 export type MasterInventoryItem = {
@@ -72,6 +74,16 @@ export type MasterInventoryAlert = {
   title: string;
   message: string | null;
   lastDetectedAt: string;
+};
+
+export type MasterInventorySuspension = {
+  id: number;
+  inventoryItemId: number;
+  itemName: string;
+  unitName: string;
+  availableFrom: string | null;
+  notes: string | null;
+  createdAt: string;
 };
 
 type MasterInventoryView = 'overview' | 'stock' | 'counts';
@@ -145,11 +157,13 @@ export default function MasterInventoryClient({
   counts,
   supplies,
   alerts,
+  suspensions,
 }: {
   items: MasterInventoryItem[];
   counts: MasterInventoryCount[];
   supplies: MasterInventorySupply[];
   alerts: MasterInventoryAlert[];
+  suspensions: MasterInventorySuspension[];
 }) {
   const router = useRouter();
   const [activeView, setActiveView] = useState<MasterInventoryView>('overview');
@@ -172,6 +186,14 @@ export default function MasterInventoryClient({
   const [receiptSuccess, setReceiptSuccess] = useState<string | null>(null);
   const [isSavingReceipt, startReceiptTransition] = useTransition();
   const [cancellingSupplyId, setCancellingSupplyId] = useState<number | null>(null);
+  const [suspensionItemId, setSuspensionItemId] = useState('');
+  const [suspensionIndefinite, setSuspensionIndefinite] = useState(false);
+  const [suspensionAvailableFrom, setSuspensionAvailableFrom] = useState('');
+  const [suspensionNotes, setSuspensionNotes] = useState('');
+  const [suspensionError, setSuspensionError] = useState<string | null>(null);
+  const [suspensionSuccess, setSuspensionSuccess] = useState<string | null>(null);
+  const [isSavingSuspension, startSuspensionTransition] = useTransition();
+  const [cancellingSuspensionId, setCancellingSuspensionId] = useState<number | null>(null);
 
   const waitingKitchen = counts.filter((count) => count.status === 'open');
   const waitingMaster = counts.filter((count) => count.status === 'submitted');
@@ -309,6 +331,60 @@ export default function MasterInventoryClient({
     });
   }
 
+  function submitSuspension() {
+    setSuspensionError(null);
+    setSuspensionSuccess(null);
+    const inventoryItemId = Number(suspensionItemId);
+    if (!Number.isSafeInteger(inventoryItemId) || inventoryItemId <= 0) {
+      setSuspensionError('Selecciona el producto que se va a detener.');
+      return;
+    }
+    if (!suspensionIndefinite && !suspensionAvailableFrom) {
+      setSuspensionError('Indica cuándo se reanudarán las ventas o marca la suspensión como indefinida.');
+      return;
+    }
+
+    startSuspensionTransition(async () => {
+      try {
+        const result = await saveMasterInventorySuspensionAction({
+          operationId: crypto.randomUUID(),
+          inventoryItemId,
+          availableFrom: suspensionIndefinite ? null : new Date(suspensionAvailableFrom).toISOString(),
+          notes: suspensionNotes,
+        });
+        setSuspensionSuccess(`Suspensión #${result.suspensionId} activada.`);
+        setSuspensionItemId('');
+        setSuspensionIndefinite(false);
+        setSuspensionAvailableFrom('');
+        setSuspensionNotes('');
+        router.refresh();
+      } catch (submissionError) {
+        setSuspensionError(submissionError instanceof Error ? submissionError.message : 'No se pudo suspender la disponibilidad comercial.');
+      }
+    });
+  }
+
+  function cancelSuspension(suspensionId: number) {
+    if (!window.confirm('¿Reanudar las ventas de este producto desde ahora?')) return;
+    setSuspensionError(null);
+    setSuspensionSuccess(null);
+    setCancellingSuspensionId(suspensionId);
+    startSuspensionTransition(async () => {
+      try {
+        await cancelMasterInventorySuspensionAction({
+          suspensionId,
+          notes: 'Ventas reanudadas desde el control operativo de Máster.',
+        });
+        setSuspensionSuccess(`Suspensión #${suspensionId} finalizada.`);
+        router.refresh();
+      } catch (submissionError) {
+        setSuspensionError(submissionError instanceof Error ? submissionError.message : 'No se pudo reanudar la disponibilidad comercial.');
+      } finally {
+        setCancellingSuspensionId(null);
+      }
+    });
+  }
+
   return (
     <section className="space-y-5">
       <div className="flex flex-col gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/5 p-4 text-sm leading-6 text-emerald-100 sm:flex-row sm:items-center sm:justify-between">
@@ -336,11 +412,12 @@ export default function MasterInventoryClient({
         ))}
       </nav>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Ítems operativos" value={items.length} detail={dependsOnIncomingCount ? `${dependsOnIncomingCount} dependen de reposición` : 'sin dependencia de reposición'} tone={dependsOnIncomingCount ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Cocina" value={waitingKitchen.length} detail="solicitudes abiertas" tone={waitingKitchen.length ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Máster" value={waitingMaster.length} detail="reportes por decidir" tone={waitingMaster.length ? 'danger' : 'default'} />
         <SummaryCard label="Stock bajo" value={lowStockCount} detail="según umbral configurado" tone={lowStockCount ? 'warning' : 'default'} />
+        <SummaryCard label="Ventas detenidas" value={suspensions.length} detail="solo por decisión explícita" tone={suspensions.length ? 'danger' : 'default'} />
       </div>
 
       {activeView === 'overview' ? (
@@ -446,6 +523,79 @@ export default function MasterInventoryClient({
             <button type="button" disabled={isSavingReceipt} onClick={submitExpectedReceipt} className="rounded-xl bg-violet-200 px-4 py-2.5 text-sm font-black text-violet-950 disabled:cursor-not-allowed disabled:opacity-50">
               {isSavingReceipt ? 'Guardando…' : 'Registrar lo que viene'}
             </button>
+          </div>
+        </section>
+      ) : null}
+
+      {activeView === 'overview' ? (
+        <section className="rounded-2xl border border-rose-400/25 bg-rose-400/5 p-4 sm:p-5">
+          <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+            <div>
+              <h2 className="text-lg font-bold text-rose-100">Detener ventas temporalmente</h2>
+              <p className="mt-1 text-sm leading-6 text-[#C7A8AE]">Esta es una decisión explícita de Máster. No cambia el stock ni cancela pedidos ya creados.</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm text-[#D1C2C5] sm:col-span-2">Producto o insumo físico
+                  <select value={suspensionItemId} onChange={(event) => setSuspensionItemId(event.target.value)} className={`mt-1 ${inputClass}`}>
+                    <option value="">Seleccionar</option>
+                    {[...items].sort((left, right) => left.name.localeCompare(right.name, 'es')).map((item) => (
+                      <option key={item.id} value={item.id}>{item.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm text-[#D1C2C5]">Disponible nuevamente
+                  <input type="datetime-local" disabled={suspensionIndefinite} value={suspensionAvailableFrom} onChange={(event) => setSuspensionAvailableFrom(event.target.value)} className={`mt-1 ${inputClass} disabled:opacity-45`} />
+                </label>
+                <label className="flex items-end gap-2 pb-2 text-sm text-[#D1C2C5]">
+                  <input type="checkbox" checked={suspensionIndefinite} onChange={(event) => setSuspensionIndefinite(event.target.checked)} className="h-4 w-4 accent-rose-300" />
+                  Sin fecha definida
+                </label>
+                <label className="text-sm text-[#D1C2C5] sm:col-span-2">Nota opcional
+                  <input value={suspensionNotes} onChange={(event) => setSuspensionNotes(event.target.value)} maxLength={1000} className={`mt-1 ${inputClass}`} placeholder="Ej. Fábrica confirmó reposición para el jueves" />
+                </label>
+              </div>
+              {suspensionError ? <div className="mt-3 rounded-xl border border-rose-400/35 bg-rose-400/10 p-3 text-sm text-rose-100">{suspensionError}</div> : null}
+              {suspensionSuccess ? <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100">{suspensionSuccess}</div> : null}
+              <div className="mt-4 flex justify-end">
+                <button type="button" disabled={isSavingSuspension} onClick={submitSuspension} className="rounded-xl bg-rose-200 px-4 py-2.5 text-sm font-black text-rose-950 disabled:cursor-not-allowed disabled:opacity-50">
+                  {isSavingSuspension ? 'Guardando…' : 'Detener ventas'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-white">Suspensiones activas</h3>
+                  <p className="mt-1 text-xs leading-5 text-[#A99196]">Al llegar la fecha indicada, la lectura vuelve a permitir el producto automáticamente.</p>
+                </div>
+                <span className="rounded-full border border-rose-300/25 px-2.5 py-1 text-xs text-rose-100">{suspensions.length}</span>
+              </div>
+              <div className="mt-4 space-y-2">
+                {suspensions.length ? suspensions.map((suspension) => (
+                  <article key={suspension.id} className="rounded-xl border border-rose-300/20 bg-[#160D11] p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-white">{suspension.itemName}</div>
+                        <div className="mt-1 text-xs font-semibold text-rose-200">
+                          {suspension.availableFrom ? `Hasta ${formatDate(suspension.availableFrom)}` : 'Sin fecha de reanudación'}
+                        </div>
+                        {suspension.notes ? <p className="mt-2 text-xs leading-5 text-[#AD969B]">{suspension.notes}</p> : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isSavingSuspension}
+                        onClick={() => cancelSuspension(suspension.id)}
+                        className="shrink-0 text-xs font-black text-emerald-200 hover:underline disabled:opacity-45"
+                      >
+                        {cancellingSuspensionId === suspension.id ? 'Reanudando…' : 'Reanudar ahora'}
+                      </button>
+                    </div>
+                  </article>
+                )) : (
+                  <div className="rounded-xl border border-dashed border-emerald-300/20 px-4 py-5 text-sm text-emerald-100">No hay ventas detenidas por Máster.</div>
+                )}
+              </div>
+            </div>
           </div>
         </section>
       ) : null}
