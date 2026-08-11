@@ -600,6 +600,18 @@ El Bloque 12 completó la certificación técnica:
 La salida operativa solo espera un usuario Counter puro y la aceptación visual
 autenticada en el monitor real del local. No existe un Bloque 13.
 
+## Actualización del 2026-08-10
+
+La agenda posterior de doce mejoras quedó cerrada y certificada en
+`docs/COUNTER_IMPROVEMENTS_CERTIFICATION_2026-08-10.md`.
+
+Esta actualización incorpora cotización canónica de pagos, referencia POS,
+agenda sin cobro obligatorio, contexto y asignación de asesor, fecha antes del
+catálogo, edición directa de pickup, despacho delivery condicionado por la
+prescripción real de efectivo/cambio, histórico diario y la recertificación de
+sincronización, privilegios e invariantes. `/app/master/dashboard` permaneció
+fuera del alcance y sin modificaciones.
+
 ## Prompt sugerido para abrir el chat nuevo
 
 ```text
