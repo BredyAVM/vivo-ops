@@ -58,6 +58,20 @@ export type MasterInventorySupply = {
   notes: string | null;
 };
 
+export type MasterInventoryAlert = {
+  id: number;
+  category: string;
+  type: string;
+  severity: 'warning' | 'critical';
+  inventoryItemId: number | null;
+  inventoryItemName: string | null;
+  title: string;
+  message: string | null;
+  lastDetectedAt: string;
+};
+
+type MasterInventoryView = 'overview' | 'stock' | 'counts';
+
 const groupLabels: Record<string, string> = {
   raw: 'Crudos',
   fried: 'Fritos',
@@ -126,12 +140,15 @@ export default function MasterInventoryClient({
   items,
   counts,
   supplies,
+  alerts,
 }: {
   items: MasterInventoryItem[];
   counts: MasterInventoryCount[];
   supplies: MasterInventorySupply[];
+  alerts: MasterInventoryAlert[];
 }) {
   const router = useRouter();
+  const [activeView, setActiveView] = useState<MasterInventoryView>('overview');
   const [search, setSearch] = useState('');
   const [stockSearch, setStockSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -147,6 +164,13 @@ export default function MasterInventoryClient({
   const recentCounts = counts.filter((count) => !['open', 'submitted'].includes(count.status)).slice(0, 12);
   const lowStockCount = items.filter((item) => item.isLowStock).length;
   const dependsOnIncomingCount = items.filter((item) => item.dependsOnIncoming).length;
+  const attentionItems = useMemo(
+    () => [...items]
+      .filter((item) => inventoryRiskRank(item) > 0)
+      .sort((left, right) => inventoryRiskRank(right) - inventoryRiskRank(left) || left.name.localeCompare(right.name, 'es'))
+      .slice(0, 8),
+    [items],
+  );
   const selectableItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('es');
     return items.filter((item) => {
@@ -216,6 +240,24 @@ export default function MasterInventoryClient({
         </button>
       </div>
 
+      <nav aria-label="Secciones del inventario de Máster" className="flex gap-2 overflow-x-auto rounded-2xl border border-[#292938] bg-[#111117] p-2">
+        {([
+          ['overview', 'Resumen'],
+          ['stock', 'Existencias y compromisos'],
+          ['counts', 'Conteos y revisiones'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={activeView === key}
+            onClick={() => setActiveView(key)}
+            className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition ${activeView === key ? 'bg-[#FEEF00] text-black' : 'text-[#B8B8C4] hover:bg-[#1A1A23] hover:text-white'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Ítems operativos" value={items.length} detail={dependsOnIncomingCount ? `${dependsOnIncomingCount} dependen de reposición` : 'sin dependencia de reposición'} tone={dependsOnIncomingCount ? 'warning' : 'default'} />
         <SummaryCard label="Esperando a Cocina" value={waitingKitchen.length} detail="solicitudes abiertas" tone={waitingKitchen.length ? 'warning' : 'default'} />
@@ -223,6 +265,72 @@ export default function MasterInventoryClient({
         <SummaryCard label="Stock bajo" value={lowStockCount} detail="según umbral configurado" tone={lowStockCount ? 'warning' : 'default'} />
       </div>
 
+      {activeView === 'overview' ? (
+        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+          <section className="rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-amber-100">Atención del Máster</h2>
+                <p className="mt-1 text-sm leading-6 text-[#BFB18C]">Solo decisiones operativas vigentes, sin duplicar avisos informativos.</p>
+              </div>
+              <Link href="/app/inventory/alerts" prefetch={false} className="shrink-0 text-xs font-bold text-amber-200 hover:underline">Ver centro</Link>
+            </div>
+            <div className="mt-4 space-y-2">
+              {alerts.length ? alerts.map((alert) => (
+                <article key={alert.id} className={`rounded-xl border p-3 ${alert.severity === 'critical' ? 'border-rose-400/30 bg-rose-400/5' : 'border-amber-300/20 bg-[#15130D]'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-white">{alert.title}</div>
+                      {alert.message ? <p className="mt-1 text-xs leading-5 text-[#B8B1A0]">{alert.message}</p> : null}
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${alert.severity === 'critical' ? 'bg-rose-400/15 text-rose-200' : 'bg-amber-300/15 text-amber-100'}`}>
+                      {alert.severity === 'critical' ? 'CRÍTICA' : 'ATENCIÓN'}
+                    </span>
+                  </div>
+                </article>
+              )) : (
+                <div className="rounded-xl border border-dashed border-emerald-300/20 px-4 py-5 text-sm text-emerald-100">No hay decisiones de inventario pendientes para Máster.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[#292938] bg-[#111117] p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold">Productos que conviene revisar</h2>
+                <p className="mt-1 text-sm leading-6 text-[#A6A6B2]">Ordenados por riesgo de compromisos, reposición y umbral.</p>
+              </div>
+              <button type="button" onClick={() => setActiveView('stock')} className="shrink-0 text-xs font-bold text-[#FEEF00] hover:underline">Ver todos</button>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {attentionItems.length ? attentionItems.map((item) => (
+                <article key={item.id} className="rounded-xl border border-[#30303F] bg-[#0D0D12] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-white">{item.name}</div>
+                      <div className="mt-1 text-xs text-[#8F8F9C]">{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</div>
+                    </div>
+                    <span className={`shrink-0 text-sm font-black ${inventoryValueClass(item.availableWithoutIncomingUnits, item.dependsOnIncoming)}`}>
+                      {item.availableWithoutIncomingUnits == null ? '—' : formatQuantity(item.availableWithoutIncomingUnits)}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-[#A6A6B2]">
+                    {item.dependsOnIncoming
+                      ? 'Este saldo depende de una entrada o producción esperada.'
+                      : item.commitmentUnits > 0
+                        ? `${formatQuantity(item.commitmentUnits)} ${item.unitName} comprometidos.`
+                        : 'Está dentro o por debajo del umbral configurado.'}
+                  </div>
+                </article>
+              )) : (
+                <div className="sm:col-span-2 rounded-xl border border-dashed border-emerald-300/20 px-4 py-5 text-sm text-emerald-100">No hay existencias en riesgo dentro del horizonte.</div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {activeView === 'overview' ? (
       <div className="rounded-2xl border border-sky-400/25 bg-sky-400/5 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -267,8 +375,9 @@ export default function MasterInventoryClient({
 
         {supplies.length > 12 ? <div className="mt-3 text-xs text-[#93A8B8]">Mostrando 12 de {supplies.length}. Abre Operaciones para ver el calendario completo.</div> : null}
       </div>
+      ) : null}
 
-      {waitingMaster.length ? (
+      {activeView !== 'stock' && waitingMaster.length ? (
         <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-4">
           <h2 className="text-lg font-bold text-rose-100">Reportes que requieren decisión</h2>
           <p className="mt-1 text-sm text-[#C8AEB4]">Abre el reporte completo para aceptarlo o solicitar reconteos de ítems específicos.</p>
@@ -280,7 +389,8 @@ export default function MasterInventoryClient({
         </div>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.35fr]">
+      <div className="space-y-5">
+        {activeView === 'counts' ? (
         <div className="rounded-2xl border border-[#292938] bg-[#111117] p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -334,7 +444,9 @@ export default function MasterInventoryClient({
             </button>
           </div>
         </div>
+        ) : null}
 
+        {activeView === 'stock' ? (
         <div className="rounded-2xl border border-[#292938] bg-[#111117] p-4 sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -415,9 +527,10 @@ export default function MasterInventoryClient({
             Libre sin entradas descuenta los compromisos activos sin contar reposiciones futuras. La proyección incorpora entradas y producciones conocidas dentro de los próximos 10 días; es informativa y no mueve inventario.
           </p>
         </div>
+        ) : null}
       </div>
 
-      {waitingKitchen.length ? (
+      {activeView === 'counts' && waitingKitchen.length ? (
         <div className="rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4 sm:p-5">
           <h2 className="text-lg font-bold text-amber-100">Conteos que debe responder Cocina</h2>
           <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
@@ -426,6 +539,7 @@ export default function MasterInventoryClient({
         </div>
       ) : null}
 
+      {activeView === 'counts' ? (
       <div className="rounded-2xl border border-[#292938] bg-[#111117] p-4 sm:p-5">
         <div className="flex items-center justify-between gap-3">
           <div><h2 className="text-lg font-bold">Actividad reciente</h2><p className="mt-1 text-sm text-[#92929F]">Trazabilidad resumida; el detalle conserva cada diferencia y decisión.</p></div>
@@ -435,6 +549,7 @@ export default function MasterInventoryClient({
           {recentCounts.length ? recentCounts.map((count) => <CountCard key={count.id} count={count} actionLabel="Abrir reporte" />) : <div className="text-sm text-[#8F8F9C]">Todavía no hay actividad cerrada.</div>}
         </div>
       </div>
+      ) : null}
     </section>
   );
 }

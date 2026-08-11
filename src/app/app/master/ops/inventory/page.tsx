@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 import { inventoryDisplayText } from '@/app/app/inventory/display';
 import MasterInventoryClient, {
+  type MasterInventoryAlert,
   type MasterInventoryCount,
   type MasterInventoryItem,
 } from './MasterInventoryClient';
@@ -42,6 +43,24 @@ type InventoryWorkspaceRow = {
   generated_at: string;
   items: InventoryItemRow[];
   projection_events: InventoryProjectionEventRow[];
+};
+
+type InventoryAlertRow = {
+  id: number | string;
+  alert_category: string;
+  alert_type: string;
+  severity: string;
+  requires_action: boolean;
+  status: string;
+  inventory_item_id: number | string | null;
+  inventory_item_name: string | null;
+  title: string;
+  message: string | null;
+  last_detected_at: string;
+};
+
+type InventoryAlertWorkspaceRow = {
+  alerts: InventoryAlertRow[];
 };
 
 type InventoryProjectionEventRow = {
@@ -116,8 +135,12 @@ export default async function MasterInventoryPage() {
   if (!ctx) redirect('/login');
   if (!isMasterOrAdminRole(ctx.roles)) redirect(resolveHomePath(ctx.roles));
 
-  const [workspaceResult, activeCountsResult, recentCountsResult] = await Promise.all([
+  const [workspaceResult, alertWorkspaceResult, activeCountsResult, recentCountsResult] = await Promise.all([
     ctx.supabase.rpc('inventory_reporting_workspace_v1', { p_horizon_days: 10 }),
+    ctx.supabase.rpc('inventory_alert_workspace_v1', {
+      p_surface: 'master_inventory',
+      p_include_resolved: false,
+    }),
     ctx.supabase
       .from('inventory_counts')
       .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at')
@@ -130,7 +153,7 @@ export default async function MasterInventoryPage() {
       .limit(40),
   ]);
 
-  const firstError = workspaceResult.error ?? activeCountsResult.error ?? recentCountsResult.error;
+  const firstError = workspaceResult.error ?? alertWorkspaceResult.error ?? activeCountsResult.error ?? recentCountsResult.error;
   if (firstError) throw new Error(`No se pudo cargar el control operativo de inventario: ${firstError.message}`);
 
   const activeCounts = (activeCountsResult.data ?? []) as CountHeaderRow[];
@@ -148,6 +171,7 @@ export default async function MasterInventoryPage() {
   if (linesResult.error) throw new Error(`No se pudieron cargar las líneas de conteo: ${linesResult.error.message}`);
 
   const workspace = (workspaceResult.data ?? { generated_at: new Date().toISOString(), items: [], projection_events: [] }) as InventoryWorkspaceRow;
+  const alertWorkspace = (alertWorkspaceResult.data ?? { alerts: [] }) as InventoryAlertWorkspaceRow;
   const rawItems = workspace.items ?? [];
   const supplies = (workspace.projection_events ?? [])
     .filter((flow) => flow.flow_type === 'expected_receipt' || flow.flow_type === 'planned_production')
@@ -246,6 +270,35 @@ export default async function MasterInventoryPage() {
     })
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
 
+  const activeItemIds = new Set(items.map((item) => item.id));
+  const alertKeys = new Set<string>();
+  const alerts: MasterInventoryAlert[] = (alertWorkspace.alerts ?? [])
+    .filter((alert) => {
+      if (!alert.requires_action || !['open', 'managed'].includes(alert.status)) return false;
+      const itemId = alert.inventory_item_id == null ? null : Number(alert.inventory_item_id);
+      if (itemId != null && !activeItemIds.has(itemId)) return false;
+      const key = `${alert.alert_category}:${itemId ?? 'general'}`;
+      if (alertKeys.has(key)) return false;
+      alertKeys.add(key);
+      return true;
+    })
+    .map((alert) => ({
+      id: Number(alert.id),
+      category: alert.alert_category,
+      type: alert.alert_type,
+      severity: alert.severity === 'critical' ? 'critical' as const : 'warning' as const,
+      inventoryItemId: alert.inventory_item_id == null ? null : Number(alert.inventory_item_id),
+      inventoryItemName: alert.inventory_item_name ? inventoryDisplayText(alert.inventory_item_name) : null,
+      title: inventoryDisplayText(alert.title),
+      message: alert.message ? inventoryDisplayText(alert.message) : null,
+      lastDetectedAt: alert.last_detected_at,
+    }))
+    .sort((left, right) => {
+      const severityDelta = Number(right.severity === 'critical') - Number(left.severity === 'critical');
+      return severityDelta || new Date(right.lastDetectedAt).getTime() - new Date(left.lastDetectedAt).getTime();
+    })
+    .slice(0, 8);
+
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <header className="border-b border-[#242433] bg-[#101014]">
@@ -275,7 +328,7 @@ export default async function MasterInventoryPage() {
       </header>
 
       <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
-        <MasterInventoryClient items={items} counts={countSummaries} supplies={supplies} />
+        <MasterInventoryClient items={items} counts={countSummaries} supplies={supplies} alerts={alerts} />
       </div>
     </main>
   );
