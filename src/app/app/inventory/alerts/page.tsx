@@ -32,8 +32,11 @@ export default async function InventoryAlertsPage() {
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
+  const isAdmin = ctx.roles.includes('admin');
+  const surface = isAdmin ? 'inventory_center' : 'master_inventory';
+
   const { data, error } = await ctx.supabase.rpc('inventory_alert_workspace_v1', {
-    p_surface: 'inventory_center',
+    p_surface: surface,
     p_include_resolved: true,
   });
 
@@ -45,5 +48,5 @@ export default async function InventoryAlertsPage() {
     (data ?? EMPTY_WORKSPACE) as InventoryAlertWorkspace,
   );
 
-  return <InventoryAlertsClient workspace={workspace} />;
+  return <InventoryAlertsClient workspace={workspace} canManage />;
 }

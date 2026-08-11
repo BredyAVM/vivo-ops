@@ -20,6 +20,7 @@ type AdvisorShellProps = {
 const navItems = [
   { href: '/app/advisor', label: 'Inicio' },
   { href: '/app/advisor/orders', label: 'Pedidos' },
+  { href: '/app/advisor/inventory', label: 'Disponibilidad' },
   { href: '/app/advisor/drafts', label: 'Borradores' },
   { href: '/app/advisor/payments', label: 'Pagos' },
   { href: '/app/advisor/commissions', label: 'Comisiones' },

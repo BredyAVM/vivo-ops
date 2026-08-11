@@ -152,8 +152,10 @@ function statusLabel(status: InventoryAlert['status']) {
 
 export default function InventoryAlertsClient({
   workspace,
+  canManage = true,
 }: {
   workspace: InventoryAlertWorkspace;
+  canManage?: boolean;
 }) {
   const router = useRouter();
   const [section, setSection] = useState<'alerts' | 'configuration'>('alerts');
@@ -203,14 +205,16 @@ export default function InventoryAlertsClient({
             La configuración define quién puede ver cada categoría y en qué ubicación.
           </p>
         </div>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_CLASS}
-          disabled={isPending}
-          onClick={() => runAction('refresh', 'Las alertas fueron recalculadas.', refreshInventoryAlertsAction)}
-        >
-          {pendingKey === 'refresh' ? 'Actualizando…' : 'Actualizar señales'}
-        </button>
+        {canManage ? (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_CLASS}
+            disabled={isPending}
+            onClick={() => runAction('refresh', 'Las alertas fueron recalculadas.', refreshInventoryAlertsAction)}
+          >
+            {pendingKey === 'refresh' ? 'Actualizando…' : 'Actualizar señales'}
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Secciones de alertas">
@@ -248,6 +252,7 @@ export default function InventoryAlertsClient({
           categoryFilter={categoryFilter}
           isPending={isPending}
           pendingKey={pendingKey}
+          canManage={canManage}
           onSearch={setSearch}
           onStatusFilter={setStatusFilter}
           onCategoryFilter={setCategoryFilter}
@@ -268,6 +273,7 @@ function AlertsPanel({
   categoryFilter,
   isPending,
   pendingKey,
+  canManage,
   onSearch,
   onStatusFilter,
   onCategoryFilter,
@@ -280,6 +286,7 @@ function AlertsPanel({
   categoryFilter: 'all' | InventoryAlertCategory;
   isPending: boolean;
   pendingKey: string | null;
+  canManage: boolean;
   onSearch: (value: string) => void;
   onStatusFilter: (value: 'active' | 'all' | InventoryAlert['status']) => void;
   onCategoryFilter: (value: 'all' | InventoryAlertCategory) => void;
@@ -342,7 +349,7 @@ function AlertsPanel({
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   {alert.order_id ? <Link href={`/app/master/ops?openOrder=${alert.order_id}&tab=eventos`} prefetch={false} className={SECONDARY_BUTTON_CLASS}>Ver orden {alert.order_number ?? `#${alert.order_id}`}</Link> : null}
-                  {alert.status === 'open' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`manage-${alert.id}`, 'La alerta quedó en gestión.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'manage' }))}>{pendingKey === `manage-${alert.id}` ? 'Guardando…' : 'Tomar gestión'}</button> : null}
+                  {canManage && alert.status === 'open' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`manage-${alert.id}`, 'La alerta quedó en gestión.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'manage' }))}>{pendingKey === `manage-${alert.id}` ? 'Guardando…' : 'Tomar gestión'}</button> : null}
                   {workspace.configuration.can_configure && alert.status !== 'resolved' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`resolve-${alert.id}`, 'La alerta fue resuelta manualmente.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'resolve' }))}>{pendingKey === `resolve-${alert.id}` ? 'Guardando…' : 'Resolver'}</button> : null}
                   {workspace.configuration.can_configure && alert.status === 'resolved' ? <button type="button" className={SECONDARY_BUTTON_CLASS} disabled={isPending} onClick={() => onRunAction(`reopen-${alert.id}`, 'La alerta fue reabierta.', () => updateInventoryAlertStatusAction({ alertId: alert.id, action: 'reopen' }))}>{pendingKey === `reopen-${alert.id}` ? 'Guardando…' : 'Reabrir'}</button> : null}
                 </div>

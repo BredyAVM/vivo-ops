@@ -35,12 +35,13 @@ export default async function KitchenInventoryLayout({ children }: { children: R
             </Link>
           </div>
 
-          <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-6">
             <InventoryNavLink href="/app/kitchen/inventory">Guía</InventoryNavLink>
             <InventoryNavLink href="/app/kitchen/inventory/receipts">Entradas</InventoryNavLink>
             <InventoryNavLink href="/app/kitchen/inventory/production">Preparación</InventoryNavLink>
             <InventoryNavLink href="/app/kitchen/inventory/counts">Conteos</InventoryNavLink>
             <InventoryNavLink href="/app/kitchen/inventory/losses">Calidad</InventoryNavLink>
+            <InventoryNavLink href="/app/kitchen/inventory/alerts">Alertas</InventoryNavLink>
           </nav>
         </div>
       </header>

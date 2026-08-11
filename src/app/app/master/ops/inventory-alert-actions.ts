@@ -35,7 +35,7 @@ export async function loadMasterOpsInventoryAlertSummaryAction(): Promise<
   }
 
   const { data, error } = await ctx.supabase.rpc("inventory_alert_summary_v1", {
-    p_surface: "inventory_center",
+    p_surface: "master_inventory",
   });
 
   if (error) {
