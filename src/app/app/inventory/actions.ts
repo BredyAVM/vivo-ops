@@ -736,6 +736,81 @@ export async function submitInventoryOpeningAction(input: {
   return { countId };
 }
 
+export async function submitInventoryAdministrativeCountAction(input: {
+  operationId: string;
+  lines: CountLineInput[];
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede registrar este conteo físico puntual.');
+  }
+
+  const operationId = normalizeOperationId(input.operationId);
+  const lines = normalizeLines(input.lines);
+  const notes = normalizeNotes(input.notes);
+  const { data, error } = await ctx.supabase.rpc('inventory_submit_count_v1', {
+    p_operation_id: operationId,
+    p_count_kind: 'requested',
+    p_lines: serializeLines(lines),
+    p_notes: notes,
+    p_parent_count_id: null,
+    p_existing_count_id: null,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const countId = normalizeCountId(
+    (data as { inventory_count_id?: unknown } | null)?.inventory_count_id,
+  );
+  revalidateInventoryCountRoutes(countId);
+  revalidatePath('/app/inventory/adjustments');
+  return { countId };
+}
+
+export async function adjustInventoryStockAction(input: {
+  operationId: string;
+  inventoryItemId: number;
+  targetQuantityUnits: number;
+  reasonCode: string;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede crear ajustes directos de inventario.');
+  }
+
+  const operationId = normalizeOperationId(input.operationId);
+  const inventoryItemId = normalizeCountId(input.inventoryItemId);
+  const targetQuantityUnits = Number(input.targetQuantityUnits);
+  if (!Number.isFinite(targetQuantityUnits) || targetQuantityUnits < 0) {
+    throw new Error('La existencia objetivo debe ser un número mayor o igual a cero.');
+  }
+  const reasonCode = String(input.reasonCode ?? '').trim();
+  if (!reasonCode || reasonCode.length > 80) {
+    throw new Error('Selecciona un motivo válido para el ajuste.');
+  }
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_adjust_stock_v1', {
+    p_operation_id: operationId,
+    p_inventory_item_id: inventoryItemId,
+    p_target_quantity_units: targetQuantityUnits,
+    p_reason_code: reasonCode,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/app/inventory');
+  revalidatePath('/app/inventory/adjustments');
+  revalidatePath('/app/inventory/operations');
+  revalidatePath('/app/inventory/reports');
+  revalidatePath('/app/inventory/alerts');
+  revalidatePath('/app/master/ops/inventory');
+  return data as Record<string, unknown> | null;
+}
+
 export async function submitInventoryOpenCountAction(input: {
   operationId: string;
   countId: number;

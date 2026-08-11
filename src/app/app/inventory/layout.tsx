@@ -47,6 +47,7 @@ export default async function InventoryLayout({ children }: { children: ReactNod
               {ctx.roles.includes('admin') ? (
                 <NavGroup label="Administrar">
                   <NavLink href="/app/inventory/configure">Reglas y catálogo</NavLink>
+                  <NavLink href="/app/inventory/adjustments">Ajustes y pruebas</NavLink>
                   <NavLink href="/app/inventory/readiness">Auditoría</NavLink>
                 </NavGroup>
               ) : null}
