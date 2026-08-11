@@ -18,6 +18,9 @@ export type KitchenCountItem = {
   name: string;
   unitName: string;
   inventoryGroup: string;
+  countFrequency: string | null;
+  countRole: string | null;
+  lastCountedAt: string | null;
   presentations: Array<{
     id: number;
     name: string;
@@ -56,6 +59,8 @@ type ItemDraft = {
   note: string;
 };
 
+type KitchenPeriodicFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
+
 const groupLabels: Record<string, string> = {
   raw: 'Crudos',
   prefried: 'Prefritos',
@@ -70,6 +75,18 @@ const countKindLabels: Record<string, string> = {
   recount: 'Reconteo',
   periodic: 'Conteo periódico',
 };
+
+const periodicPrograms: Array<{
+  frequency: KitchenPeriodicFrequency;
+  label: string;
+  shortLabel: string;
+  intervalDays: number;
+}> = [
+  { frequency: 'daily', label: 'Inventario diario', shortLabel: 'Diario', intervalDays: 1 },
+  { frequency: 'weekly', label: 'Inventario semanal', shortLabel: 'Semanal', intervalDays: 7 },
+  { frequency: 'biweekly', label: 'Inventario quincenal', shortLabel: 'Quincenal', intervalDays: 14 },
+  { frequency: 'monthly', label: 'Inventario mensual', shortLabel: 'Mensual', intervalDays: 30 },
+];
 
 const statusLabels: Record<string, string> = {
   submitted: 'En revisión',
@@ -139,6 +156,9 @@ export default function KitchenInventoryCountClient({
   const [shiftDateBounds] = useState(() => getKitchenShiftDateBounds(new Date(Date.now())));
   const [shiftBusinessDate, setShiftBusinessDate] = useState(() => shiftDateBounds.max);
   const [manualItemId, setManualItemId] = useState<number | null>(null);
+  const [selectedFrequency, setSelectedFrequency] = useState<KitchenPeriodicFrequency | null>(null);
+  const [activeGroup, setActiveGroup] = useState('all');
+  const [scheduleNow] = useState(() => Date.now());
   const [drafts, setDrafts] = useState<Record<number, ItemDraft>>({});
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -153,9 +173,19 @@ export default function KitchenInventoryCountClient({
     () => items.find((item) => item.id === manualItemId) ?? null,
     [items, manualItemId],
   );
+  const shiftItems = useMemo(
+    () => items.filter((item) => item.countFrequency === 'per_shift' && item.countRole === 'kitchen'),
+    [items],
+  );
+  const periodicItems = useMemo(
+    () => selectedFrequency
+      ? items.filter((item) => item.countFrequency === selectedFrequency && item.countRole === 'kitchen')
+      : [],
+    [items, selectedFrequency],
+  );
   const activeItems = useMemo(
-    () => selectedRequest?.items ?? (manualItem ? [manualItem] : []),
-    [manualItem, selectedRequest],
+    () => selectedRequest?.items ?? (manualItem ? [manualItem] : periodicItems),
+    [manualItem, periodicItems, selectedRequest],
   );
   const groupedItems = useMemo(() => {
     const groups = new Map<string, KitchenCountItem[]>();
@@ -166,6 +196,41 @@ export default function KitchenInventoryCountClient({
     }
     return Array.from(groups.entries());
   }, [activeItems]);
+  const visibleGroups = useMemo(
+    () => activeGroup === 'all'
+      ? groupedItems
+      : groupedItems.filter(([group]) => group === activeGroup),
+    [activeGroup, groupedItems],
+  );
+  const countedItemCount = useMemo(
+    () => activeItems.filter((item) => {
+      const total = countedTotal(item, drafts[item.id] ?? emptyDraft());
+      return total != null && Number.isFinite(total) && total >= 0;
+    }).length,
+    [activeItems, drafts],
+  );
+  const availableGroups = useMemo(
+    () => Array.from(new Set(activeItems.map((item) => item.inventoryGroup))),
+    [activeItems],
+  );
+  const configuredPeriodicPrograms = useMemo(
+    () => periodicPrograms.map((program) => {
+      const programItems = items.filter(
+        (item) => item.countFrequency === program.frequency && item.countRole === 'kitchen',
+      );
+      return {
+        ...program,
+        itemCount: programItems.length,
+        dueCount: programItems.filter((item) => {
+          if (!item.lastCountedAt) return true;
+          const countedAt = new Date(item.lastCountedAt).getTime();
+          return !Number.isFinite(countedAt)
+            || countedAt + program.intervalDays * 24 * 60 * 60 * 1000 < scheduleNow;
+        }).length,
+      };
+    }),
+    [items, scheduleNow],
+  );
 
   function draftFor(itemId: number) {
     return drafts[itemId] ?? emptyDraft();
@@ -181,6 +246,19 @@ export default function KitchenInventoryCountClient({
   function chooseRequest(countId: number | null) {
     setSelectedRequestId(countId);
     setManualItemId(null);
+    setSelectedFrequency(null);
+    setActiveGroup('all');
+    setDrafts({});
+    setNotes('');
+    setError(null);
+    setMessage(null);
+  }
+
+  function choosePeriodicProgram(frequency: KitchenPeriodicFrequency) {
+    setSelectedRequestId(null);
+    setManualItemId(null);
+    setSelectedFrequency(frequency);
+    setActiveGroup('all');
     setDrafts({});
     setNotes('');
     setError(null);
@@ -214,7 +292,8 @@ export default function KitchenInventoryCountClient({
       try {
         const result = await submitKitchenInventoryCountAction({
           operationId: crypto.randomUUID(),
-          countKind: selectedRequest?.countKind ?? (manualItem ? 'requested' : 'shift_change'),
+          countKind: selectedRequest?.countKind ?? (manualItem ? 'requested' : 'periodic'),
+          countFrequency: selectedRequest || manualItem ? null : selectedFrequency,
           countId: selectedRequest?.id ?? null,
           lines,
           notes,
@@ -224,6 +303,8 @@ export default function KitchenInventoryCountClient({
         setNotes('');
         setSelectedRequestId(null);
         setManualItemId(null);
+        setSelectedFrequency(null);
+        setActiveGroup('all');
         router.refresh();
       } catch (submissionError) {
         setError(submissionError instanceof Error ? submissionError.message : 'No se pudo presentar el conteo.');
@@ -265,11 +346,11 @@ export default function KitchenInventoryCountClient({
         <div>
           <h2 className="text-xl font-bold">Conteos ciegos</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A6A6B2]">
-            El saldo esperado permanece oculto. Puedes contar presentaciones completas y unidades sueltas; el sistema convierte todo a la unidad canónica.
+            Primero selecciona el tipo de inventario. Solo aparecerán los ítems configurados para ese momento y el saldo esperado permanecerá oculto.
           </p>
         </div>
         <span className="rounded-full border border-[#343444] px-3 py-1.5 text-sm text-[#C4C4CE]">
-          {items.length} ítems por turno
+          {shiftItems.length} ítems por turno
         </span>
       </div>
 
@@ -328,6 +409,39 @@ export default function KitchenInventoryCountClient({
         </div>
       </div>
 
+      <div className="mt-5 rounded-2xl border border-[#292938] bg-[#111117] p-4">
+        <div>
+          <h3 className="font-bold">Otros ciclos configurados</h3>
+          <p className="mt-1 text-xs leading-5 text-[#A6A6B2]">
+            Diario, semanal, quincenal o mensual. Cada opción toma automáticamente los ítems que Administración haya asignado a ese ciclo.
+          </p>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {configuredPeriodicPrograms.map((program) => (
+            <button
+              key={program.frequency}
+              type="button"
+              onClick={() => choosePeriodicProgram(program.frequency)}
+              disabled={isPending || program.itemCount === 0}
+              className={[
+                'rounded-xl border p-3 text-left transition',
+                selectedFrequency === program.frequency
+                  ? 'border-[#FEEF00] bg-[#FEEF00]/10'
+                  : 'border-[#30303F] bg-[#15151D] hover:border-[#FEEF00]/50',
+                'disabled:cursor-not-allowed disabled:opacity-45',
+              ].join(' ')}
+            >
+              <div className="font-semibold text-[#F5F5F7]">{program.shortLabel}</div>
+              <div className="mt-1 text-xs text-[#A6A6B2]">
+                {program.itemCount === 0
+                  ? 'Sin ítems configurados'
+                  : `${program.itemCount} ítems · ${program.dueCount} pendientes`}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {openCounts.length ? (
         <div className="mt-5 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-4">
           <h3 className="font-bold text-amber-100">Conteos abiertos</h3>
@@ -339,8 +453,15 @@ export default function KitchenInventoryCountClient({
                 onClick={() => chooseRequest(count.id)}
                 className="rounded-xl border border-amber-400/25 bg-[#111117] p-4 text-left"
               >
-                <div className="font-semibold">
-                  #{count.id} · {count.countKind === 'shift_change' ? kitchenShiftLabel(count.shiftCode) : countKindLabels[count.countKind]}
+                <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
+                  <span>
+                    #{count.id} · {count.countKind === 'shift_change' ? kitchenShiftLabel(count.shiftCode) : countKindLabels[count.countKind]}
+                  </span>
+                  {count.dueAt && new Date(count.dueAt).getTime() < scheduleNow ? (
+                    <span className="rounded-full border border-red-400/35 bg-red-400/10 px-2 py-0.5 text-[11px] text-red-100">
+                      Vencido
+                    </span>
+                  ) : null}
                 </div>
                 <div className="mt-1 text-xs text-[#B9B9C4]">
                   {count.items.length} ítems
@@ -363,10 +484,12 @@ export default function KitchenInventoryCountClient({
               ? `#${selectedRequest.id} · ${selectedRequest.countKind === 'shift_change' ? kitchenShiftLabel(selectedRequest.shiftCode) : countKindLabels[selectedRequest.countKind]}`
               : manualItem
                 ? `Conteo puntual · ${manualItem.name}`
-                : 'Selecciona un turno, solicitud o conteo puntual'}
+                : selectedFrequency
+                  ? periodicPrograms.find((program) => program.frequency === selectedFrequency)?.label
+                  : 'Selecciona el tipo de inventario'}
           </div>
         </div>
-        {selectedRequest ? (
+        {selectedRequest || selectedFrequency ? (
           <button type="button" onClick={() => chooseRequest(null)} className="rounded-xl border border-[#3A3A48] px-3 py-2 text-sm">
             Cerrar vista
           </button>
@@ -377,6 +500,8 @@ export default function KitchenInventoryCountClient({
               value={manualItemId ?? ''}
               onChange={(event) => {
                 setManualItemId(event.target.value ? Number(event.target.value) : null);
+                setSelectedFrequency(null);
+                setActiveGroup('all');
                 setDrafts({});
                 setNotes('');
                 setError(null);
@@ -394,8 +519,59 @@ export default function KitchenInventoryCountClient({
         )}
       </div>
 
+      {activeItems.length ? (
+        <div className="mt-4 rounded-2xl border border-[#292938] bg-[#111117] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[#F5F5F7]">
+                Progreso: {countedItemCount} de {activeItems.length}
+              </div>
+              <div className="mt-1 text-xs text-[#858591]">
+                Escribe 0 cuando no haya existencia. Puedes cambiar de familia sin perder lo contado.
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveGroup('all')}
+                className={activeGroup === 'all'
+                  ? 'rounded-full border border-[#FEEF00] bg-[#FEEF00] px-3 py-1.5 text-xs font-bold text-black'
+                  : 'rounded-full border border-[#343444] px-3 py-1.5 text-xs text-[#C4C4CE]'}
+              >
+                Todas
+              </button>
+              {availableGroups.map((group) => {
+                const groupItems = activeItems.filter((item) => item.inventoryGroup === group);
+                const completed = groupItems.filter((item) => {
+                  const total = countedTotal(item, drafts[item.id] ?? emptyDraft());
+                  return total != null && Number.isFinite(total) && total >= 0;
+                }).length;
+                return (
+                  <button
+                    key={group}
+                    type="button"
+                    onClick={() => setActiveGroup(group)}
+                    className={activeGroup === group
+                      ? 'rounded-full border border-[#FEEF00] bg-[#FEEF00] px-3 py-1.5 text-xs font-bold text-black'
+                      : 'rounded-full border border-[#343444] px-3 py-1.5 text-xs text-[#C4C4CE]'}
+                  >
+                    {groupLabels[group] ?? group} {completed}/{groupItems.length}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#242433]">
+            <div
+              className="h-full rounded-full bg-[#FEEF00] transition-all"
+              style={{ width: `${activeItems.length ? (countedItemCount / activeItems.length) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 space-y-4">
-        {groupedItems.map(([group, groupItems]) => (
+        {visibleGroups.map(([group, groupItems]) => (
           <details key={group} open className="overflow-hidden rounded-2xl border border-[#292938] bg-[#111117]">
             <summary className="cursor-pointer bg-[#171720] px-4 py-3 font-bold">
               {groupLabels[group] ?? group} · {groupItems.length}
@@ -434,14 +610,16 @@ export default function KitchenInventoryCountClient({
           <button
             type="button"
             onClick={submitCount}
-            disabled={isPending || activeItems.length === 0}
+            disabled={isPending || activeItems.length === 0 || countedItemCount !== activeItems.length}
             className="rounded-xl bg-[#FEEF00] px-5 py-3 font-black text-black disabled:opacity-40"
           >
             {isPending
               ? 'Presentando…'
-              : activeItems.length
+              : activeItems.length && countedItemCount === activeItems.length
                 ? `Presentar ${activeItems.length} ítems`
-                : 'Selecciona un conteo'}
+                : activeItems.length
+                  ? `Faltan ${activeItems.length - countedItemCount} ítems`
+                  : 'Selecciona un conteo'}
           </button>
         </div>
       </div>

@@ -54,6 +54,11 @@ type CountLineRow = {
   note: string | null;
 };
 
+type RecentCountLineRow = {
+  inventory_item_id: number;
+  counted_at: string | null;
+};
+
 export default async function KitchenInventoryCountsPage() {
   const ctx = await getAuthContext();
   if (!ctx) return null;
@@ -84,10 +89,30 @@ export default async function KitchenInventoryCountsPage() {
       .limit(12),
   ]);
 
-  const firstError = itemsResult.error ?? receiptResult.error ?? openCountsResult.error ?? recentCountsResult.error;
+  const firstError = itemsResult.error
+    ?? receiptResult.error
+    ?? openCountsResult.error
+    ?? recentCountsResult.error;
   if (firstError) throw new Error(`No se pudieron cargar los conteos de Cocina: ${firstError.message}`);
 
   const rawItems = (itemsResult.data ?? []) as InventoryItemRow[];
+  const periodicItemIds = rawItems
+    .filter((item) => item.primary_count_role === 'kitchen' && ['daily', 'weekly', 'biweekly', 'monthly'].includes(item.primary_count_frequency ?? ''))
+    .map((item) => Number(item.id));
+  const recentCountLinesResult = periodicItemIds.length
+    ? await ctx.supabase
+        .from('inventory_count_lines')
+        .select('inventory_item_id,counted_at')
+        .in('inventory_item_id', periodicItemIds)
+        .not('counted_at', 'is', null)
+        .order('counted_at', { ascending: false })
+        .limit(1000)
+    : { data: [], error: null };
+
+  if (recentCountLinesResult.error) {
+    throw new Error(`No se pudo determinar el vencimiento de los conteos: ${recentCountLinesResult.error.message}`);
+  }
+
   const receiptWorkspace = (receiptResult.data ?? {}) as ReceiptWorkspaceRow;
   const initializedIds = new Set(
     (receiptWorkspace.items ?? []).filter((item) => item.initialized).map((item) => Number(item.id)),
@@ -102,6 +127,13 @@ export default async function KitchenInventoryCountsPage() {
     });
     presentationsByItem.set(Number(presentation.inventory_item_id), itemPresentations);
   }
+  const lastCountedAtByItem = new Map<number, string>();
+  for (const line of (recentCountLinesResult.data ?? []) as RecentCountLineRow[]) {
+    const itemId = Number(line.inventory_item_id);
+    if (line.counted_at && !lastCountedAtByItem.has(itemId)) {
+      lastCountedAtByItem.set(itemId, line.counted_at);
+    }
+  }
 
   const allItems: KitchenCountItem[] = rawItems
     .filter((item) => initializedIds.has(Number(item.id)))
@@ -110,14 +142,11 @@ export default async function KitchenInventoryCountsPage() {
       name: inventoryDisplayText(item.name),
       unitName: inventoryDisplayText(item.unit_name),
       inventoryGroup: item.inventory_group,
+      countFrequency: item.primary_count_frequency,
+      countRole: item.primary_count_role,
+      lastCountedAt: lastCountedAtByItem.get(Number(item.id)) ?? null,
       presentations: presentationsByItem.get(Number(item.id)) ?? [],
     }));
-  const countProgramIds = new Set(
-    rawItems
-      .filter((item) => item.primary_count_frequency === 'per_shift' && item.primary_count_role === 'kitchen')
-      .map((item) => Number(item.id)),
-  );
-  const items = allItems.filter((item) => countProgramIds.has(item.id));
   const itemById = new Map(allItems.map((item) => [item.id, item]));
 
   const rawOpenCounts = (openCountsResult.data ?? []) as CountHeaderRow[];
@@ -180,5 +209,5 @@ export default async function KitchenInventoryCountsPage() {
     ),
   }));
 
-  return <KitchenInventoryCountClient items={items} openCounts={openCounts} recentCounts={recentCounts} />;
+  return <KitchenInventoryCountClient items={allItems} openCounts={openCounts} recentCounts={recentCounts} />;
 }

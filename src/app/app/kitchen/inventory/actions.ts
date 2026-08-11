@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { requireAuthContext } from '@/lib/auth';
 
 type KitchenCountKind = 'shift_change' | 'requested' | 'recount' | 'periodic';
+type KitchenCountFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
 type KitchenShiftCode = 'shift_1' | 'shift_2';
 type KitchenLossKind = 'damage' | 'waste' | 'quality_taste';
 
@@ -129,6 +130,7 @@ export async function openKitchenInventoryShiftAction(input: {
 export async function submitKitchenInventoryCountAction(input: {
   operationId: string;
   countKind: KitchenCountKind;
+  countFrequency?: KitchenCountFrequency | null;
   countId?: number | null;
   lines: CountLineInput[];
   notes?: string | null;
@@ -148,8 +150,42 @@ export async function submitKitchenInventoryCountAction(input: {
   }
 
   const countId = input.countId == null ? null : positiveInteger(input.countId, 'El conteo');
-  if (countId == null && !['shift_change', 'requested'].includes(input.countKind)) {
-    throw new Error('Los conteos solicitados deben partir de una solicitud abierta.');
+  if (countId == null && !['requested', 'periodic'].includes(input.countKind)) {
+    throw new Error('Este conteo debe partir de una sesión abierta.');
+  }
+  const allowedFrequencies = new Set<KitchenCountFrequency>([
+    'daily',
+    'weekly',
+    'biweekly',
+    'monthly',
+  ]);
+  const countFrequency = input.countFrequency ?? null;
+  if (countId == null && input.countKind === 'periodic') {
+    if (!countFrequency || !allowedFrequencies.has(countFrequency)) {
+      throw new Error('Selecciona la frecuencia del conteo periódico.');
+    }
+
+    const itemIds = normalizedLines.map((line) => line.inventoryItemId);
+    const { data: configuredItems, error: configuredItemsError } = await ctx.supabase
+      .from('inventory_items')
+      .select('id,primary_count_frequency,primary_count_role,is_active,tracking_mode,merged_into_item_id')
+      .in('id', itemIds);
+
+    if (configuredItemsError) throw new Error(configuredItemsError.message);
+    if (
+      (configuredItems ?? []).length !== itemIds.length
+      || (configuredItems ?? []).some((item) =>
+        !item.is_active
+        || item.merged_into_item_id != null
+        || !['transactional', 'periodic_count'].includes(item.tracking_mode)
+        || item.primary_count_role !== 'kitchen'
+        || item.primary_count_frequency !== countFrequency
+      )
+    ) {
+      throw new Error('Los ítems ya no coinciden con el programa periódico seleccionado. Actualiza la pantalla.');
+    }
+  } else if (countFrequency != null) {
+    throw new Error('La frecuencia solo se envía en un conteo periódico nuevo.');
   }
 
   const serializedLines = normalizedLines.map((line) => ({
