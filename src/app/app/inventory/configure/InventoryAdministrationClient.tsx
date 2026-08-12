@@ -222,6 +222,7 @@ export default function InventoryAdministrationClient({
 }) {
   const [editor, setEditor] = useState<Editor>('item');
   const [productId, setProductId] = useState('');
+  const [productSearch, setProductSearch] = useState('');
   const [itemId, setItemId] = useState(initialItemId ? String(initialItemId) : '');
   const [itemSearch, setItemSearch] = useState('');
   const [recipeOutputId, setRecipeOutputId] = useState('');
@@ -248,6 +249,20 @@ export default function InventoryAdministrationClient({
         .includes(query),
     );
   }, [itemSearch, workspace.items]);
+  const visibleProducts = useMemo(() => {
+    const query = productSearch.trim().toLocaleLowerCase('es');
+    if (!query) return workspace.products;
+    const terms = query.split(/\s+/).filter(Boolean);
+    return workspace.products.filter((candidate) => {
+      const searchable = `${candidate.name} ${candidate.sku ?? ''} ${candidate.is_active ? 'activo' : 'inactivo'}`
+        .toLocaleLowerCase('es');
+      return terms.every((term) => searchable.includes(term));
+    });
+  }, [productSearch, workspace.products]);
+  const adjustedComboCount = workspace.products.filter((candidate) =>
+    candidate.name.toLocaleLowerCase('es').includes('combo')
+    && candidate.name.toLocaleLowerCase('es').includes('ajustado'),
+  ).length;
 
   return (
     <section className="rounded-2xl border border-[#2C2C3A] bg-[#101016] p-5">
@@ -294,20 +309,47 @@ export default function InventoryAdministrationClient({
 
       {editor === 'product' ? (
         <div className="mt-5">
-          <Field label="Producto comercial">
-            <select
-              value={productId}
-              onChange={(event) => setProductId(event.target.value)}
-              className={INPUT_CLASS}
-            >
-              <option value="">Selecciona un producto…</option>
-              {workspace.products.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} · {candidate.sku ?? 'sin SKU'} · {candidate.is_active ? 'activo' : 'inactivo'}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]">
+            <Field label="Buscar producto">
+              <input
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                placeholder="Ej. combo ajustado, Baby o SEXYMIX"
+                className={INPUT_CLASS}
+              />
+            </Field>
+            <Field label="Producto comercial">
+              <select
+                value={productId}
+                onChange={(event) => setProductId(event.target.value)}
+                className={INPUT_CLASS}
+              >
+                <option value="">Selecciona un producto…</option>
+                {visibleProducts.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} · {candidate.sku ?? 'sin SKU'} · {candidate.is_active ? 'activo' : 'inactivo'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#858591]">
+            <span>{visibleProducts.length} de {workspace.products.length} productos visibles.</span>
+            {adjustedComboCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setProductSearch('combo ajustado')}
+                className="rounded-full border border-[#FEEF00]/30 px-2.5 py-1 font-semibold text-[#FEEF00]"
+              >
+                Ver combos ajustados ({adjustedComboCount})
+              </button>
+            ) : null}
+            {productSearch ? (
+              <button type="button" onClick={() => setProductSearch('')} className="font-semibold text-[#B8B8C4] underline">
+                Mostrar todos
+              </button>
+            ) : null}
+          </div>
           {product ? (
             <ProductEditor
               key={product.id}
@@ -669,13 +711,12 @@ function ProductEditor({
       </ImpactCard>
       </div>
 
-      {product.is_active ? (
-        <PhysicalConfigurationEditor product={product} products={products} items={items} />
-      ) : (
-        <div className="rounded-xl border border-dashed border-[#3A3A48] px-4 py-5 text-sm text-[#9898A5]">
-          Reactiva el producto para modificar su descuento físico. Su configuración e historial siguen conservados.
+      {!product.is_active ? (
+        <div className="rounded-xl border border-sky-400/25 bg-sky-400/5 px-4 py-3 text-sm leading-6 text-sky-100">
+          Puedes preparar y guardar la composición mientras el producto sigue inactivo. No aparecerá en ventas hasta que lo reactives explícitamente arriba.
         </div>
-      )}
+      ) : null}
+      <PhysicalConfigurationEditor product={product} products={products} items={items} />
     </div>
   );
 }
@@ -741,6 +782,20 @@ function PhysicalConfigurationEditor({
   const selectableProducts = products.filter(
     (candidate) => candidate.id !== product.id && candidate.inventory_configuration_status === 'ready',
   );
+  const fixedServiceUnits = components.reduce((total, line) => {
+    if (line.componentMode !== 'fixed') return total;
+    const componentProduct = products.find((candidate) => candidate.id === Number(line.componentProductId));
+    if (componentProduct?.type !== 'service') return total;
+    const componentQuantity = Number(String(line.quantity).replace(',', '.'));
+    return total + (Number.isFinite(componentQuantity) ? componentQuantity : 0);
+  }, 0);
+  const otherFixedUnits = components.reduce((total, line) => {
+    if (line.componentMode !== 'fixed') return total;
+    const componentProduct = products.find((candidate) => candidate.id === Number(line.componentProductId));
+    if (!componentProduct || componentProduct.type === 'service') return total;
+    const componentQuantity = Number(String(line.quantity).replace(',', '.'));
+    return total + (Number.isFinite(componentQuantity) ? componentQuantity : 0);
+  }, 0);
 
   function savePhysicalConfiguration() {
     setMessage(null);
@@ -848,6 +903,11 @@ function PhysicalConfigurationEditor({
 
       {policy === 'components' ? (
         <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap gap-2 rounded-xl border border-[#373322] bg-[#11100B] px-3 py-2 text-xs">
+            <span className="font-semibold text-white">Composición actual:</span>
+            <span className="text-[#FEEF00]">{quantity(fixedServiceUnits)} UND de productos</span>
+            {otherFixedUnits > 0 ? <span className="text-[#B7B39A]">+ {quantity(otherFixedUnits)} adicional(es)</span> : null}
+          </div>
           {components.map((line) => (
             <div key={line.key} className="rounded-xl border border-[#373322] bg-[#11100B] p-3">
               <div className="grid gap-2 md:grid-cols-[1fr_160px_140px_auto]">
