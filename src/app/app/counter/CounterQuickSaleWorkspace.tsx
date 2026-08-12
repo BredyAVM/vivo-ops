@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildComponentDetailLines,
   getVisibleEditableDetailLines,
@@ -22,6 +22,7 @@ import type {
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
+import { getCounterUiErrorMessage } from './ui-errors';
 
 type CounterQuickSaleCartItem = {
   id: string;
@@ -117,6 +118,18 @@ function clientAdvisorLabel(client: CounterClientSearchResult) {
   return `Ultimo asesor: ${client.advisorName}`;
 }
 
+function phoneMatchKey(value: string) {
+  const digits = value.replace(/\D/g, '');
+  return digits.length >= 7 ? digits.slice(-7) : null;
+}
+
+function clientsMatchingPhone(
+  key: string,
+  clients: CounterClientSearchResult[]
+) {
+  return clients.filter((client) => phoneMatchKey(client.phone || '') === key);
+}
+
 export function CounterQuickSalePanel({
   products,
   productComponents,
@@ -138,6 +151,12 @@ export function CounterQuickSalePanel({
   const [clientSearch, setClientSearch] = useState('');
   const [clientSearchResults, setClientSearchResults] = useState<CounterClientSearchResult[]>([]);
   const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [phoneLookupLoading, setPhoneLookupLoading] = useState(false);
+  const [phoneLookup, setPhoneLookup] = useState<{
+    key: string;
+    clients: CounterClientSearchResult[];
+  } | null>(null);
+  const phoneLookupRequestRef = useRef(0);
   const [selectedClient, setSelectedClient] = useState<CounterClientSearchResult | null>(null);
   const [newClientMode, setNewClientMode] = useState(false);
   const [clientName, setClientName] = useState('');
@@ -211,6 +230,12 @@ export function CounterQuickSalePanel({
     return map;
   }, [productComponents]);
   const selectedProduct = selectedProductId ? productsById.get(Number(selectedProductId)) ?? null : null;
+  const phoneCandidate = newClientMode ? clientPhone : clientSearch;
+  const currentPhoneMatchKey = phoneMatchKey(phoneCandidate);
+  const registeredPhoneClients =
+    currentPhoneMatchKey && phoneLookup?.key === currentPhoneMatchKey
+      ? phoneLookup.clients
+      : [];
   const availabilityTargetAt = useMemo(() => {
     if (scheduleMode === 'now') return new Date().toISOString();
     if (!scheduledDate || !/^\d{2}:\d{2}$/.test(scheduledTime)) return null;
@@ -326,6 +351,40 @@ export function CounterQuickSalePanel({
     if (discountRuleId && !selectedDiscountRule) setDiscountRuleId('');
   }, [discountRuleId, selectedDiscountRule]);
 
+  useEffect(() => {
+    const key = phoneMatchKey(phoneCandidate);
+    const requestId = ++phoneLookupRequestRef.current;
+    if (selectedClient || !key) {
+      setPhoneLookup(null);
+      setPhoneLookupLoading(false);
+      return;
+    }
+
+    setPhoneLookupLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const results = await searchCounterClientsAction({ query: phoneCandidate });
+        if (phoneLookupRequestRef.current !== requestId) return;
+        const matches = clientsMatchingPhone(key, results);
+        setPhoneLookup({ key, clients: matches });
+        if (matches.length > 0) {
+          setClientSearchResults(matches);
+          setLocalError(null);
+        }
+      } catch (error) {
+        if (phoneLookupRequestRef.current !== requestId) return;
+        setLocalError(getCounterUiErrorMessage(
+          error,
+          'No se pudo verificar el teléfono en la base de clientes. Intenta nuevamente.'
+        ));
+      } finally {
+        if (phoneLookupRequestRef.current === requestId) setPhoneLookupLoading(false);
+      }
+    }, 650);
+
+    return () => window.clearTimeout(timer);
+  }, [phoneCandidate, selectedClient]);
+
   async function handleClientSearch() {
     const query = clientSearch.trim();
     if (query.length < 2) {
@@ -338,6 +397,8 @@ export function CounterQuickSalePanel({
     try {
       const results = await searchCounterClientsAction({ query });
       setClientSearchResults(results);
+      const key = phoneMatchKey(query);
+      setPhoneLookup(key ? { key, clients: clientsMatchingPhone(key, results) } : null);
       if (results.length === 0) {
         setNewClientMode(true);
         setSelectedClient(null);
@@ -348,7 +409,10 @@ export function CounterQuickSalePanel({
         }
       }
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'No se pudo buscar el cliente.');
+      setLocalError(getCounterUiErrorMessage(
+        error,
+        'No se pudo buscar el cliente. Intenta nuevamente.'
+      ));
     } finally {
       setClientSearchLoading(false);
     }
@@ -358,6 +422,7 @@ export function CounterQuickSalePanel({
     setSelectedClient(client);
     setNewClientMode(false);
     setClientSearchResults([]);
+    setPhoneLookup(null);
     setClientName(client.fullName);
     setClientPhone(client.phone || '');
     setClientType(
@@ -368,8 +433,38 @@ export function CounterQuickSalePanel({
     setLocalError(null);
   }
 
-  function startNewClient() {
+  async function startNewClient() {
     const query = clientSearch.trim();
+    const key = phoneMatchKey(clientPhone || query);
+    if (key) {
+      const knownMatches = phoneLookup?.key === key ? phoneLookup.clients : [];
+      if (knownMatches.length > 0) {
+        setLocalError(`Ese teléfono ya está registrado a nombre de ${knownMatches[0].fullName}. Usa el cliente existente.`);
+        return;
+      }
+
+      setClientSearchLoading(true);
+      setLocalError(null);
+      try {
+        const results = await searchCounterClientsAction({ query: clientPhone || query });
+        const matches = clientsMatchingPhone(key, results);
+        setPhoneLookup({ key, clients: matches });
+        if (matches.length > 0) {
+          setClientSearchResults(matches);
+          setLocalError(`Ese teléfono ya está registrado a nombre de ${matches[0].fullName}. Usa el cliente existente.`);
+          return;
+        }
+      } catch (error) {
+        setLocalError(getCounterUiErrorMessage(
+          error,
+          'No se pudo verificar el teléfono. Intenta nuevamente antes de crear el cliente.'
+        ));
+        return;
+      } finally {
+        setClientSearchLoading(false);
+      }
+    }
+
     setSelectedClient(null);
     setNewClientMode(true);
     setClientSearchResults([]);
@@ -541,6 +636,14 @@ export function CounterQuickSalePanel({
       setLocalError('Indica el telefono del cliente.');
       return;
     }
+    if (newClientMode && phoneLookupLoading) {
+      setLocalError('Espera un momento mientras verificamos si el teléfono ya está registrado.');
+      return;
+    }
+    if (newClientMode && registeredPhoneClients.length > 0) {
+      setLocalError(`Ese teléfono ya está registrado a nombre de ${registeredPhoneClients[0].fullName}. Selecciona el cliente existente.`);
+      return;
+    }
     if (fulfillment === 'delivery' && !deliveryAddress.trim()) {
       setLocalError('Indica la direccion para delivery.');
       return;
@@ -643,7 +746,10 @@ export function CounterQuickSalePanel({
           <div className="grid gap-2 md:grid-cols-[1fr_120px_145px]">
             <input
               value={clientSearch}
-              onChange={(event) => setClientSearch(event.target.value)}
+              onChange={(event) => {
+                setClientSearch(event.target.value);
+                setLocalError(null);
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
@@ -663,14 +769,60 @@ export function CounterQuickSalePanel({
             </button>
             <button
               type="button"
-              onClick={startNewClient}
-              className="rounded-[8px] border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-sm font-semibold text-[#FEEF00] hover:bg-[#FEEF00]/15"
+              onClick={() => void startNewClient()}
+              disabled={clientSearchLoading || phoneLookupLoading || registeredPhoneClients.length > 0}
+              className="rounded-[8px] border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-sm font-semibold text-[#FEEF00] hover:bg-[#FEEF00]/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Crear cliente
+              {registeredPhoneClients.length > 0 ? 'Cliente ya existe' : 'Crear cliente'}
             </button>
           </div>
-          {clientSearchResults.length > 0 ? (
+
+          {phoneLookupLoading ? (
+            <div role="status" className="rounded-[8px] border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-sm text-sky-100">
+              Verificando si este teléfono ya está registrado...
+            </div>
+          ) : null}
+
+          {registeredPhoneClients.length > 0 ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-[8px] border border-emerald-300/45 bg-emerald-300/10 p-3"
+            >
+              <div className="text-sm font-bold text-emerald-100">Cliente ya registrado</div>
+              <p className="mt-1 text-sm leading-5 text-emerald-100/85">
+                {registeredPhoneClients.length === 1 ? (
+                  <>
+                    El número <strong>{phoneCandidate}</strong> ya está en la base de datos, registrado a nombre de{' '}
+                    <strong>{registeredPhoneClients[0].fullName}</strong>.
+                  </>
+                ) : (
+                  <>
+                    Los últimos siete dígitos de <strong>{phoneCandidate}</strong> coinciden con clientes registrados.
+                    Selecciona el nombre correcto antes de continuar.
+                  </>
+                )}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {registeredPhoneClients.map((client) => (
+                  <button
+                    key={client.id}
+                    type="button"
+                    onClick={() => selectClient(client)}
+                    className="min-h-11 rounded-[8px] border border-emerald-200/45 bg-emerald-200/15 px-3 py-2 text-left text-sm font-semibold text-emerald-50 hover:bg-emerald-200/20"
+                  >
+                    Usar cliente: {client.fullName}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {clientSearchResults.length > 0 && registeredPhoneClients.length === 0 ? (
             <div className="max-h-[180px] overflow-y-auto rounded-[8px] border border-[#242433] bg-[#111118]">
+              <div className="border-b border-[#242433] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#9FA0AA]">
+                Clientes encontrados en la base de datos
+              </div>
               {clientSearchResults.map((client) => (
                 <button
                   key={client.id}
@@ -678,7 +830,10 @@ export function CounterQuickSalePanel({
                   onClick={() => selectClient(client)}
                   className="w-full border-b border-[#242433] px-3 py-2 text-left last:border-b-0 hover:bg-[#1A1A22]"
                 >
-                  <div className="text-sm font-semibold text-[#F5F5F7]">{client.fullName}</div>
+                  <div className="text-xs font-semibold text-emerald-200">Cliente registrado</div>
+                  <div className="mt-0.5 text-sm font-semibold text-[#F5F5F7]">
+                    Registrado como: {client.fullName}
+                  </div>
                   <div className="mt-0.5 text-xs text-[#9FA0AA]">
                     {client.phone || 'Sin telefono'} - {client.clientType || 'sin tipo'} - Fondo {moneyUsd(client.fundBalanceUsd)}
                   </div>
@@ -694,8 +849,13 @@ export function CounterQuickSalePanel({
           ) : null}
           {selectedClient ? (
             <div className="space-y-2 rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
-              <div className="text-sm font-semibold text-emerald-100">{selectedClient.fullName}</div>
-              <div className="mt-1 text-xs text-emerald-100/75">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-100/70">
+                Cliente registrado seleccionado
+              </div>
+              <div className="text-sm text-emerald-100">
+                Este número está registrado a nombre de <strong>{selectedClient.fullName}</strong>.
+              </div>
+              <div className="text-xs text-emerald-100/75">
                 {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
               </div>
               <div className={[
@@ -742,10 +902,16 @@ export function CounterQuickSalePanel({
                   Telefono
                   <input
                     value={clientPhone}
-                    onChange={(event) => setClientPhone(event.target.value)}
+                    onChange={(event) => {
+                      setClientPhone(event.target.value);
+                      setLocalError(null);
+                    }}
                     inputMode="tel"
                     className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
                   />
+                  <span className="mt-1 block text-[11px] text-[#777988]">
+                    Al completar el número verificaremos automáticamente los últimos siete dígitos.
+                  </span>
                 </label>
               </div>
               <label className="text-xs text-[#9FA0AA]">

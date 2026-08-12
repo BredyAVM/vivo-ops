@@ -69,6 +69,7 @@ import {
   loadCounterPaymentQuoteAction,
   refreshCounterQueueAction,
 } from './read-actions';
+import { getCounterUiErrorMessage } from './ui-errors';
 
 const CounterCashPanel = dynamic(
   () => import('./CounterCashWorkspace').then((module) => module.CounterCashPanel),
@@ -951,7 +952,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo actualizar la cola del mostrador.',
+          text: getCounterUiErrorMessage(error, 'No se pudo actualizar la cola del mostrador. Intenta nuevamente.'),
         });
       } finally {
         setQueueRefreshing(false);
@@ -999,7 +1000,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo cargar el detalle de la orden.',
+          text: getCounterUiErrorMessage(error, 'No se pudo cargar el detalle de la orden. Intenta nuevamente.'),
         });
         return null;
       } finally {
@@ -1029,7 +1030,7 @@ export default function CounterClient({
     } catch (error) {
       setMessage({
         tone: 'error',
-        text: error instanceof Error ? error.message : 'No se pudo cargar el catalogo.',
+        text: getCounterUiErrorMessage(error, 'No se pudo cargar el catálogo de productos. Cierra Nueva venta e intenta nuevamente.'),
       });
       return false;
     } finally {
@@ -1047,7 +1048,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo cargar la caja.',
+          text: getCounterUiErrorMessage(error, 'No se pudo cargar la caja. Intenta nuevamente.'),
         });
         return false;
       } finally {
@@ -1382,7 +1383,7 @@ export default function CounterClient({
       setPushState((current) => current === 'denied' ? 'denied' : 'error');
       setMessage({
         tone: 'error',
-        text: error instanceof Error ? error.message : 'No se pudo activar alertas.',
+        text: getCounterUiErrorMessage(error, 'No se pudieron activar las alertas en este equipo.'),
       });
     } finally {
       setPushBusy(false);
@@ -1475,7 +1476,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo abrir el expediente de la orden.',
+          text: getCounterUiErrorMessage(error, 'No se pudo abrir el expediente de la orden. Intenta nuevamente.'),
         });
       } finally {
         setDetailLoadingOrderId((current) => current === orderId ? null : current);
@@ -1605,7 +1606,7 @@ export default function CounterClient({
     } catch (error) {
       setMessage({
         tone: 'error',
-        text: error instanceof Error ? error.message : 'No se pudo completar la accion.',
+        text: getCounterUiErrorMessage(error, 'No se pudo completar la acción. Revisa los datos e intenta nuevamente.'),
       });
       if (dispatchIntent) throw error;
       return null;
@@ -1641,7 +1642,7 @@ export default function CounterClient({
       ]);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo registrar el cobro.';
+      const message = getCounterUiErrorMessage(error, 'No se pudo registrar el cobro. Revisa los datos e intenta nuevamente.');
       setMessage({ tone: 'error', text: message });
       throw error;
     } finally {
@@ -1663,7 +1664,7 @@ export default function CounterClient({
       await refreshCounterOrder(order.id);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo solicitar la devolucion.';
+      const message = getCounterUiErrorMessage(error, 'No se pudo solicitar la devolución. Intenta nuevamente.');
       setMessage({ tone: 'error', text: message });
       throw error;
     } finally {
@@ -1689,7 +1690,7 @@ export default function CounterClient({
       ]);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo ejecutar la devolucion.';
+      const message = getCounterUiErrorMessage(error, 'No se pudo ejecutar la devolución. Intenta nuevamente.');
       setMessage({ tone: 'error', text: message });
       throw error;
     } finally {
@@ -1721,7 +1722,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo crear la venta.',
+          text: getCounterUiErrorMessage(error, 'No se pudo crear la venta. Revisa los datos e intenta nuevamente.'),
         });
       } finally {
         setWorkingOrderId(null);
@@ -1752,7 +1753,7 @@ export default function CounterClient({
       ]);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo modificar el pickup.';
+      const message = getCounterUiErrorMessage(error, 'No se pudo modificar el pickup. Revisa los datos e intenta nuevamente.');
       setMessage({ tone: 'error', text: message });
       throw error;
     } finally {
@@ -1780,7 +1781,7 @@ export default function CounterClient({
       ]);
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo corregir el pickup.';
+      const message = getCounterUiErrorMessage(error, 'No se pudo corregir el pickup. Intenta nuevamente.');
       setMessage({ tone: 'error', text: message });
       throw error;
     } finally {
@@ -1807,7 +1808,7 @@ export default function CounterClient({
         if (!cursor) setHistoricalResults([]);
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo consultar el historial.',
+          text: getCounterUiErrorMessage(error, 'No se pudo consultar el historial. Intenta nuevamente.'),
         });
       }
     });
@@ -1844,7 +1845,7 @@ export default function CounterClient({
         }
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo consultar el historial de hoy.',
+          text: getCounterUiErrorMessage(error, 'No se pudieron consultar las entregas de hoy. Intenta nuevamente.'),
         });
       }
     });
@@ -1914,7 +1915,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo registrar el movimiento.',
+          text: getCounterUiErrorMessage(error, 'No se pudo registrar el movimiento de caja. Revisa los datos e intenta nuevamente.'),
         });
         resolve(false);
       } finally {
@@ -1942,7 +1943,7 @@ export default function CounterClient({
       } catch (error) {
         setMessage({
           tone: 'error',
-          text: error instanceof Error ? error.message : 'No se pudo registrar el cierre.',
+          text: getCounterUiErrorMessage(error, 'No se pudo registrar el cierre. Revisa los datos e intenta nuevamente.'),
         });
         resolve(false);
       } finally {

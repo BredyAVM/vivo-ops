@@ -1034,14 +1034,24 @@ export async function searchCounterClientsAction(input: { query: string }): Prom
 
   const query = String(input.query || '').trim();
   if (query.length < 2) return [];
+  const queryDigits = query.replace(/\D/g, '');
+  const isPhoneQuery = queryDigits.length >= 7 && !/[a-záéíóúñ]/i.test(query);
+  const normalizedQuery = isPhoneQuery ? queryDigits.slice(-7) : query;
 
   const { data, error } = await ctx.supabase.rpc('counter_search_clients', {
-    p_query: query,
+    p_query: normalizedQuery,
     p_cursor_id: null,
     p_limit: 10,
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'counter_client_search_failed',
+      error: error.message,
+    }));
+    throw new Error('No se pudo consultar la base de clientes. Intenta nuevamente.');
+  }
 
   const payload = data && typeof data === 'object' && !Array.isArray(data)
     ? data as { results?: unknown[] }
