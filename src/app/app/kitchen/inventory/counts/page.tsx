@@ -36,7 +36,6 @@ type CountHeaderRow = {
   submitted_at?: string | null;
   reviewed_at?: string | null;
   shift_business_date: string | null;
-  shift_code: string | null;
   created_by:
     | { full_name: string | null }[]
     | { full_name: string | null }
@@ -75,18 +74,18 @@ export default async function KitchenInventoryCountsPage() {
     ctx.supabase.rpc('inventory_receipt_workspace_v1'),
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,due_at,notes,created_at,shift_business_date,shift_code,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
+      .select('id,count_kind,status,due_at,notes,created_at,shift_business_date,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
       .eq('status', 'open')
       .eq('responsible_role', 'kitchen')
       .in('count_kind', ['requested', 'recount', 'periodic', 'shift_change'])
       .order('created_at', { ascending: true }),
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,due_at,notes,created_at,submitted_at,reviewed_at,shift_business_date,shift_code,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
+      .select('id,count_kind,status,due_at,notes,created_at,submitted_at,reviewed_at,shift_business_date,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
       .eq('responsible_role', 'kitchen')
       .neq('status', 'open')
       .order('created_at', { ascending: false })
-      .limit(12),
+      .limit(50),
   ]);
 
   const firstError = itemsResult.error
@@ -176,10 +175,6 @@ export default async function KitchenInventoryCountsPage() {
     notes: count.notes == null ? null : inventoryDisplayText(count.notes),
     createdAt: count.created_at,
     shiftBusinessDate: count.shift_business_date,
-    shiftCode:
-      count.shift_code === 'shift_1' || count.shift_code === 'shift_2'
-        ? count.shift_code
-        : null,
     openedByName: inventoryDisplayText(
       (Array.isArray(count.created_by) ? count.created_by[0] : count.created_by)?.full_name || 'Cocina',
     ),
@@ -197,10 +192,6 @@ export default async function KitchenInventoryCountsPage() {
     submittedAt: count.submitted_at ?? null,
     reviewedAt: count.reviewed_at ?? null,
     shiftBusinessDate: count.shift_business_date,
-    shiftCode:
-      count.shift_code === 'shift_1' || count.shift_code === 'shift_2'
-        ? count.shift_code
-        : null,
     openedByName: inventoryDisplayText(
       (Array.isArray(count.created_by) ? count.created_by[0] : count.created_by)?.full_name || 'Cocina',
     ),

@@ -34,7 +34,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
   const [countResult, linesResult, childrenResult] = await Promise.all([
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,responsible_role,parent_count_id,notes,created_at,submitted_at,reviewed_at')
+      .select('id,count_kind,status,responsible_role,parent_count_id,notes,created_at,submitted_at,reviewed_at,shift_business_date')
       .eq('id', countId)
       .maybeSingle(),
     ctx.supabase
@@ -75,6 +75,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
     createdAt: String(rawCount.created_at),
     submittedAt: rawCount.submitted_at == null ? null : String(rawCount.submitted_at),
     reviewedAt: rawCount.reviewed_at == null ? null : String(rawCount.reviewed_at),
+    shiftBusinessDate: rawCount.shift_business_date == null ? null : String(rawCount.shift_business_date),
   };
 
   const lines: InventoryCountDetailLine[] = (linesResult.data ?? []).map((rawLine) => {

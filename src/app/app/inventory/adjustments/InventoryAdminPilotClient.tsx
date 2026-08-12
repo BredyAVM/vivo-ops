@@ -99,7 +99,7 @@ export default function InventoryAdminPilotClient({
             }],
             notes: notes || 'Conteo físico puntual registrado desde el piloto administrativo.',
           });
-          setMessage(`Conteo #${result.countId} registrado. El saldo ya refleja ${quantity(parsedQuantity)} ${selectedItem.unitName}.`);
+          setMessage(`Folio INV-${String(result.countId).padStart(4, '0')} registrado. El saldo ya refleja ${quantity(parsedQuantity)} ${selectedItem.unitName}.`);
         } else {
           await adjustInventoryStockAction({
             operationId: crypto.randomUUID(),

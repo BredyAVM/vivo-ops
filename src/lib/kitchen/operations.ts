@@ -24,9 +24,8 @@ export function isKitchenShiftCode(value: unknown): value is KitchenShiftCode {
 }
 
 export function kitchenShiftLabel(shiftCode: KitchenShiftCode | null) {
-  if (shiftCode === 'shift_1') return 'Turno 1';
-  if (shiftCode === 'shift_2') return 'Turno 2';
-  return 'Turno sin identidad historica';
+  if (shiftCode === 'shift_1' || shiftCode === 'shift_2') return 'Conteo por turno';
+  return 'Conteo por turno';
 }
 
 function caracasDateKey(date: Date) {

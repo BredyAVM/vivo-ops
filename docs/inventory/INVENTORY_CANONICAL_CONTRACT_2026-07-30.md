@@ -1794,9 +1794,19 @@ Programa inicial confirmado `Cierre por turno`:
 - salsas a granel y porcionadas;
 - bebidas.
 
+`Por turno` identifica el momento operativo del conteo, no un calendario rígido
+de Turno 1 y Turno 2. Cocina inicia un conteo cada vez que ocurre una entrega o
+cambio de guardia. Una fecha puede tener uno, dos, tres o más conteos, según lo
+que realmente ocurrió. Solo puede existir uno abierto a la vez para la misma
+fecha; al presentarlo puede iniciarse el siguiente.
+
+El sistema no alerta por un supuesto segundo o tercer turno faltante. Al terminar
+la fecha operativa, únicamente alerta si no se registró ningún conteo por turno.
+La omisión continúa siendo informativa y nunca bloquea órdenes.
+
 Al confirmar este programa, Master recibe una notificación que abre el reporte
 completo del cierre, incluso cuando no haya diferencias. No se muestra solamente
-una lista de alertas. El encabezado identifica turno, área, responsable, hora de
+una lista de alertas. El encabezado identifica fecha operativa, área, responsable, hora de
 inicio, hora de cierre y estado de revisión. La tabla contiene todos los ítems
 inventariados y, por cada uno:
 

@@ -109,6 +109,7 @@ type CountHeaderRow = {
   reviewed_at: string | null;
   notes: string | null;
   created_at: string;
+  shift_business_date: string | null;
 };
 
 type CountLineRow = {
@@ -178,12 +179,12 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
       .order('name', { ascending: true }),
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at')
+      .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at,shift_business_date')
       .in('status', ['open', 'submitted', 'recount_requested'])
       .order('created_at', { ascending: false }),
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at')
+      .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at,shift_business_date')
       .order('created_at', { ascending: false })
       .limit(40),
   ]);
@@ -338,6 +339,7 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
         reviewedAt: count.reviewed_at,
         notes: count.notes == null ? null : inventoryDisplayText(count.notes),
         createdAt: count.created_at,
+        shiftBusinessDate: count.shift_business_date,
         lineCount: countLines.length,
         varianceCount: countLines.filter((line) => line.counted_quantity_units != null && Number(line.difference_quantity_units) !== 0).length,
         itemNames,

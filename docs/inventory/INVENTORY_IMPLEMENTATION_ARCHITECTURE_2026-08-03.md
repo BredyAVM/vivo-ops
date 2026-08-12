@@ -536,10 +536,13 @@ usan `per_shift`; los ciclos adicionales usan `daily`, `weekly`, `biweekly` o
 `monthly`. No existe una tabla paralela de calendarios. Un ítem con frecuencia
 nula queda disponible únicamente para conteo solicitado o puntual.
 
-Cada fecha operativa de Caracas admite un Turno 1 y un Turno 2. Su apertura es
-atómica e idempotente y captura quién abrió y quién presentó. El vencimiento
-genera una alerta de control, pero el conteo tardío continúa permitido. Los
-ciclos periódicos vencidos se agrupan por frecuencia y se resuelven al contar.
+Los conteos por turno siguen los cambios de guardia reales y no una numeración
+fija. Cada fecha operativa de Caracas admite tantos conteos como hayan ocurrido;
+solo puede permanecer uno abierto a la vez. Su apertura es atómica e idempotente
+y captura quién abrió y quién presentó. Si una fecha termina sin ningún conteo,
+se genera una única alerta de control. No existen alertas por un supuesto Turno
+1 o Turno 2 faltante. El conteo tardío continúa permitido y los ciclos periódicos
+vencidos se agrupan por frecuencia y se resuelven al contar.
 
 La captura es ciega y exige una cantidad para todas las líneas; cero es válido.
 Las presentaciones y fracciones se convierten a la unidad canónica. Presentar
@@ -549,12 +552,13 @@ reconteo selectivo de Máster.
 Las migraciones vigentes son:
 
 - `20260811153310_kitchen_inventory_shifts_v1.sql`;
-- `20260811153622_inventory_kitchen_count_schedule_v1.sql`.
+- `20260811153622_inventory_kitchen_count_schedule_v1.sql`;
+- `20260812183525_inventory_flexible_shift_counts_v1.sql`.
 
 La certificación completa y su prueba reversible están en:
 
 - `INVENTORY_PHASE_3_KITCHEN_CERTIFICATION_2026-08-11.md`;
-- `INVENTORY_PHASE_3_KITCHEN_TRANSACTION_TESTS_2026-08-11.sql`.
+- `INVENTORY_FLEXIBLE_SHIFT_TRANSACTION_TESTS_2026-08-12.sql`.
 
 Esta fase no modifica órdenes, Counter, Asesor, Finanzas ni la dashboard
 heredada. Una diferencia, saldo negativo o conteo vencido sigue siendo una

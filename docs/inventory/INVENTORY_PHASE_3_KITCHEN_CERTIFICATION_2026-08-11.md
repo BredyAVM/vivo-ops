@@ -14,7 +14,7 @@ Cocina dispone de:
 - una entrada simple que prioriza **Hacer inventario**;
 - navegación con sección activa: Inicio, Inventariar, Entradas, Producción,
   Calidad y Alertas;
-- un conteo por cada Turno 1 y Turno 2 de la fecha operativa;
+- tantos conteos por turno como entregas o cambios de guardia ocurran en la fecha operativa;
 - selección futura de inventarios diario, semanal, quincenal y mensual;
 - listas derivadas de la frecuencia y responsable configurados por
   Administración;
@@ -43,15 +43,17 @@ en la lista correspondiente después de su apertura física.
 
 ## Calendario y alertas
 
-`20260811153310_kitchen_inventory_shifts_v1.sql` completa la identidad auditable
-del turno con fecha Caracas, código de turno y usuario que presenta. Abrir el
-mismo turno dos veces reanuda el encabezado existente; no genera un duplicado.
+`20260811153310_kitchen_inventory_shifts_v1.sql` introdujo la identidad auditable
+histórica de los turnos. `20260812183525_inventory_flexible_shift_counts_v1.sql`
+la reemplaza operativamente por conteos no numerados: fecha Caracas, horas y
+usuarios identifican cada cierre. Solo puede existir uno abierto por fecha; una
+vez presentado, Cocina puede iniciar otro para la misma fecha.
 
 `20260811153622_inventory_kitchen_count_schedule_v1.sql` reutiliza las
 frecuencias del ítem y agrega:
 
-- vencimiento del turno al terminar su fecha operativa en Caracas;
-- alerta si un Turno 1 o Turno 2 no fue registrado;
+- vencimiento del conteo abierto al terminar su fecha operativa en Caracas;
+- una sola alerta si toda la fecha terminó sin ningún conteo por turno;
 - alerta agregada cuando un programa diario, semanal, quincenal o mensual vence;
 - resolución automática al completar el conteo.
 

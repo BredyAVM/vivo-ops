@@ -22,7 +22,7 @@ Probar en el único dispositivo instalado de Cocina:
 5. Incidencia: reportarla, marcarla revisada/resuelta/reabierta desde Master y comprobar cada estado en la tarjeta correcta.
 6. Sin red: las acciones deben bloquearse sin duplicar; al recuperar conexión la cola debe reconciliarse.
 7. Push: tocar `Probar push`; solo la suscripción con alcance `kitchen` debe recibirlo.
-8. Inventario: abrir Turno 1, salir y reanudar; cerrar y confirmar que no admite un segundo cierre. Repetir con Turno 2.
+8. Inventario: abrir un **Conteo por turno**, salir y reanudarlo; presentarlo y abrir otro para la misma fecha. Confirmar que cada cierre conserva fecha, hora y responsables sin numerar turnos.
 9. Solicitudes: crear conteo, reconteo y recepción esperada desde Master; Cocina debe recibir push, contador y actualización en vivo.
 
 Registrar fecha, usuario, dispositivo, versión desplegada y resultado de cada punto. La prueba física no se considera aprobada hasta observarla en Android; el build por sí solo no la sustituye.

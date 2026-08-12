@@ -4,6 +4,11 @@ import Link from 'next/link';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  inventoryCountFolio,
+  inventoryCountKindLabels,
+  inventoryCountTitle,
+} from '@/app/app/inventory/count-presentation';
+import {
   cancelMasterInventoryExpectedReceiptAction,
   cancelMasterInventorySuspensionAction,
   requestMasterInventoryCountAction,
@@ -47,6 +52,7 @@ export type MasterInventoryCount = {
   reviewedAt: string | null;
   notes: string | null;
   createdAt: string;
+  shiftBusinessDate: string | null;
   lineCount: number;
   varianceCount: number;
   itemNames: string[];
@@ -109,13 +115,7 @@ const groupLabels: Record<string, string> = {
   other: 'Otros productos',
 };
 
-const countKindLabels: Record<string, string> = {
-  opening: 'Apertura física',
-  shift_change: 'Cambio de turno',
-  requested: 'Conteo solicitado',
-  recount: 'Reconteo',
-  periodic: 'Conteo periódico',
-};
+const countKindLabels = inventoryCountKindLabels;
 
 const statusLabels: Record<string, string> = {
   open: 'Esperando a Cocina',
@@ -473,8 +473,8 @@ export default function MasterInventoryClient({
                   prefetch={false}
                   className="rounded-xl border border-rose-200/20 bg-[#170E12] p-3 transition hover:border-rose-200/45"
                 >
-                  <div className="font-bold text-white">Inventario #{count.id}</div>
-                  <div className="mt-1 text-xs text-[#C5A5AB]">{countItemSummary(count)}</div>
+                  <div className="font-bold text-white">{inventoryCountTitle({ countKind: count.countKind, createdAt: count.createdAt, shiftBusinessDate: count.shiftBusinessDate })}</div>
+                  <div className="mt-1 text-xs text-[#C5A5AB]">{inventoryCountFolio(count.id)} · {countItemSummary(count)}</div>
                 </Link>
               ))}
             </div>
@@ -934,11 +934,11 @@ function CountCard({ count, actionLabel }: { count: MasterInventoryCount; action
   return (
     <article className="rounded-xl border border-[#30303F] bg-[#111117] p-4">
       <div className="flex items-start justify-between gap-3">
-        <div><div className="text-xs uppercase tracking-wide text-[#90909D]">{countKindLabels[count.countKind] ?? count.countKind}</div><h3 className="mt-1 font-bold">Conteo #{count.id}</h3></div>
+        <div><div className="text-xs uppercase tracking-wide text-[#90909D]">{countKindLabels[count.countKind] ?? count.countKind}</div><h3 className="mt-1 font-bold">{inventoryCountTitle({ countKind: count.countKind, createdAt: count.createdAt, shiftBusinessDate: count.shiftBusinessDate })}</h3></div>
         <span className="rounded-full border border-[#3A3A49] px-2.5 py-1 text-[11px] text-[#D0D0D8]">{statusLabels[count.status] ?? count.status}</span>
       </div>
       <p className="mt-3 text-sm leading-5 text-[#B5B5C0]">{countItemSummary(count)}</p>
-      <div className="mt-2 text-xs text-[#858591]">{count.lineCount} ítems · {count.varianceCount} diferencias · {count.status === 'open' ? `vence ${formatDate(count.dueAt)}` : formatDate(count.submittedAt ?? count.reviewedAt ?? count.createdAt)}</div>
+      <div className="mt-2 text-xs text-[#858591]">{inventoryCountFolio(count.id)} · {count.lineCount} ítems · {count.varianceCount} diferencias · {count.status === 'open' ? `vence ${formatDate(count.dueAt)}` : formatDate(count.submittedAt ?? count.reviewedAt ?? count.createdAt)}</div>
       {count.notes ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-[#A6A6B2]">{count.notes}</p> : null}
       <Link href={`/app/inventory/counts/${count.id}`} prefetch={false} className="mt-3 inline-flex text-sm font-bold text-[#FEEF00] hover:underline">{actionLabel} →</Link>
     </article>

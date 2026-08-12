@@ -6,6 +6,11 @@ import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
 import { reviewInventoryCountAction, submitInventoryOpenCountAction } from '../../actions';
 import { displayLabel, inventoryRoleLabels } from '../../display';
+import {
+  inventoryCountFolio,
+  inventoryCountKindLabels,
+  inventoryCountTitle,
+} from '../../count-presentation';
 
 export type InventoryCountDetail = {
   id: number;
@@ -17,6 +22,7 @@ export type InventoryCountDetail = {
   createdAt: string;
   submittedAt: string | null;
   reviewedAt: string | null;
+  shiftBusinessDate: string | null;
 };
 
 export type InventoryCountDetailLine = {
@@ -43,13 +49,7 @@ type Props = {
   isAdmin: boolean;
 };
 
-const kindLabels: Record<string, string> = {
-  opening: 'Apertura física',
-  shift_change: 'Cambio de turno',
-  requested: 'Solicitado',
-  recount: 'Reconteo',
-  periodic: 'Periódico',
-};
+const kindLabels = inventoryCountKindLabels;
 
 const statusLabels: Record<string, string> = {
   open: 'Abierto',
@@ -173,9 +173,9 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-sm text-[#8F8F9C]">{kindLabels[count.countKind] ?? count.countKind}</div>
-          <h2 className="mt-1 text-2xl font-semibold">Conteo #{count.id}</h2>
+          <h2 className="mt-1 text-2xl font-semibold">{inventoryCountTitle({ countKind: count.countKind, createdAt: count.createdAt, shiftBusinessDate: count.shiftBusinessDate })}</h2>
           <p className="mt-2 text-sm text-[#9696A3]">
-            Creado {formatDate(count.createdAt)} · Responsable{' '}
+            Folio {inventoryCountFolio(count.id)} · Creado {formatDate(count.createdAt)} · Responsable{' '}
             {displayLabel(inventoryRoleLabels, count.responsibleRole)}
           </p>
         </div>
@@ -203,12 +203,12 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
         <div className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-[#242433] bg-[#111117] p-4 text-sm">
           {count.parentCountId != null ? (
             <Link href={`/app/inventory/counts/${count.parentCountId}`} prefetch={false} className="text-[#FEEF00]">
-              Conteo padre #{count.parentCountId}
+              Conteo padre · {inventoryCountFolio(count.parentCountId)}
             </Link>
           ) : null}
           {childrenCounts.map((child) => (
             <Link key={child.id} href={`/app/inventory/counts/${child.id}`} prefetch={false} className="text-sky-300">
-              Reconteo #{child.id} · {statusLabels[child.status] ?? child.status}
+              Reconteo · {inventoryCountFolio(child.id)} · {statusLabels[child.status] ?? child.status}
             </Link>
           ))}
         </div>

@@ -1,6 +1,11 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { displayLabel, inventoryRoleLabels } from '../display';
+import {
+  inventoryCountFolio,
+  inventoryCountKindLabels,
+  inventoryCountTitle,
+} from '../count-presentation';
 
 type InventoryCountRow = {
   id: number;
@@ -11,15 +16,10 @@ type InventoryCountRow = {
   submitted_at: string | null;
   reviewed_at: string | null;
   created_at: string;
+  shift_business_date: string | null;
 };
 
-const kindLabels: Record<string, string> = {
-  opening: 'Apertura física',
-  shift_change: 'Cambio de turno',
-  requested: 'Solicitado',
-  recount: 'Reconteo',
-  periodic: 'Periódico',
-};
+const kindLabels = inventoryCountKindLabels;
 
 const statusLabels: Record<string, string> = {
   open: 'Abierto',
@@ -48,7 +48,7 @@ export default async function InventoryCountsPage() {
 
   const { data, error } = await ctx.supabase
     .from('inventory_counts')
-    .select('id,count_kind,status,responsible_role,due_at,submitted_at,reviewed_at,created_at')
+    .select('id,count_kind,status,responsible_role,due_at,submitted_at,reviewed_at,created_at,shift_business_date')
     .order('created_at', { ascending: false })
     .limit(100);
 
@@ -111,8 +111,13 @@ export default async function InventoryCountsPage() {
                         prefetch={false}
                         className="text-[#FEEF00] hover:underline"
                       >
-                        #{count.id}
+                        {inventoryCountTitle({
+                          countKind: count.count_kind,
+                          createdAt: count.created_at,
+                          shiftBusinessDate: count.shift_business_date,
+                        })}
                       </Link>
+                      <div className="mt-1 text-xs font-normal text-[#858591]">Folio {inventoryCountFolio(count.id)}</div>
                     </td>
                     <td className="px-4 py-3">{kindLabels[count.count_kind] ?? count.count_kind}</td>
                     <td className="px-4 py-3">{statusLabels[count.status] ?? count.status}</td>

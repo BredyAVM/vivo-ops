@@ -4,6 +4,11 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useDeferredValue, useState, useTransition } from 'react';
 import { loadInventoryKardexPageAction } from '../actions';
+import {
+  inventoryCountFolio,
+  inventoryCountKindLabels,
+  inventoryCountTitle,
+} from '../count-presentation';
 
 type InventoryProductReference = {
   id: number;
@@ -86,6 +91,7 @@ type InventoryCountReport = {
   submitted_at: string | null;
   reviewed_at: string | null;
   created_at: string;
+  shift_business_date?: string | null;
   created_by_name: string | null;
   reviewed_by_name: string | null;
   line_count: number;
@@ -150,13 +156,7 @@ const GROUP_LABELS: Record<string, string> = {
   other: 'Otros',
 };
 
-const COUNT_KIND_LABELS: Record<string, string> = {
-  opening: 'Apertura',
-  shift_change: 'Cambio de turno',
-  periodic: 'Periódico',
-  requested: 'Solicitado',
-  recount: 'Reconteo',
-};
+const COUNT_KIND_LABELS = inventoryCountKindLabels;
 
 const MOVEMENT_LABELS: Record<string, string> = {
   inbound: 'Entrada',
@@ -353,7 +353,7 @@ function ProjectionReport({ events, horizonEndsAt }: { events: InventoryProjecti
 
 function CountsReport({ counts }: { counts: InventoryCountReport[] }) {
   if (counts.length === 0) return <EmptyState text="Todavía no existen sesiones de conteo canónicas. La apertura física será el primer reporte." />;
-  return <div className="mt-5 space-y-3">{counts.map((count) => <article key={count.id} className="rounded-2xl border border-[#242433] bg-[#111117] p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="text-xs uppercase tracking-wide text-[#858591]">{COUNT_KIND_LABELS[count.count_kind] ?? count.count_kind}</div><h3 className="mt-2 font-semibold text-white">Conteo #{count.id}</h3><p className="mt-1 text-sm text-[#B6B6C2]">{count.line_count} líneas · {count.variance_count} diferencias</p><p className="mt-1 text-xs text-[#858591]">Responsable: {count.created_by_name ?? count.responsible_role}</p></div><div className="lg:text-right"><div className="text-sm text-white">{formatDate(count.created_at)}</div><div className="mt-1 text-xs text-[#858591]">Estado: {count.status}</div><Link href={`/app/inventory/counts/${count.id}`} prefetch={false} className="mt-2 inline-block text-sm font-semibold text-[#FEEF00] hover:underline">Abrir reporte</Link></div></div></article>)}</div>;
+  return <div className="mt-5 space-y-3">{counts.map((count) => <article key={count.id} className="rounded-2xl border border-[#242433] bg-[#111117] p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="text-xs uppercase tracking-wide text-[#858591]">{COUNT_KIND_LABELS[count.count_kind] ?? count.count_kind}</div><h3 className="mt-2 font-semibold text-white">{inventoryCountTitle({ countKind: count.count_kind, createdAt: count.created_at, shiftBusinessDate: count.shift_business_date })}</h3><p className="mt-1 text-sm text-[#B6B6C2]">{inventoryCountFolio(count.id)} · {count.line_count} líneas · {count.variance_count} diferencias</p><p className="mt-1 text-xs text-[#858591]">Responsable: {count.created_by_name ?? count.responsible_role}</p></div><div className="lg:text-right"><div className="text-sm text-white">{formatDate(count.created_at)}</div><div className="mt-1 text-xs text-[#858591]">Estado: {count.status}</div><Link href={`/app/inventory/counts/${count.id}`} prefetch={false} className="mt-2 inline-block text-sm font-semibold text-[#FEEF00] hover:underline">Abrir reporte</Link></div></div></article>)}</div>;
 }
 
 function KardexReport({ inventoryItems, initialPage }: { inventoryItems: InventoryReportItem[]; initialPage: InventoryKardexPage }) {

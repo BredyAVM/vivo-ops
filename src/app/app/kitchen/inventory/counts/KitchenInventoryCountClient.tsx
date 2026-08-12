@@ -3,11 +3,11 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseDecimalInput } from '@/lib/number-input';
+import { getKitchenShiftDateBounds } from '@/lib/kitchen/operations';
 import {
-  getKitchenShiftDateBounds,
-  kitchenShiftLabel,
-  type KitchenShiftCode,
-} from '@/lib/kitchen/operations';
+  inventoryCountFolio,
+  inventoryCountTitle,
+} from '@/app/app/inventory/count-presentation';
 import {
   openKitchenInventoryShiftAction,
   submitKitchenInventoryCountAction,
@@ -35,7 +35,6 @@ export type KitchenOpenCount = {
   notes: string | null;
   createdAt: string;
   shiftBusinessDate: string | null;
-  shiftCode: KitchenShiftCode | null;
   openedByName: string;
   items: Array<KitchenCountItem & { requestLineId: number }>;
 };
@@ -48,7 +47,6 @@ export type KitchenRecentCount = {
   submittedAt: string | null;
   reviewedAt: string | null;
   shiftBusinessDate: string | null;
-  shiftCode: KitchenShiftCode | null;
   openedByName: string;
   submittedByName: string;
 };
@@ -70,7 +68,7 @@ const groupLabels: Record<string, string> = {
 };
 
 const countKindLabels: Record<string, string> = {
-  shift_change: 'Cambio de turno',
+  shift_change: 'Conteo por turno',
   requested: 'Conteo solicitado',
   recount: 'Reconteo',
   periodic: 'Conteo periódico',
@@ -240,6 +238,20 @@ export default function KitchenInventoryCountClient({
     }),
     [items, scheduleNow],
   );
+  const openShiftCount = useMemo(
+    () => openCounts.find(
+      (count) => count.countKind === 'shift_change' && count.shiftBusinessDate === shiftBusinessDate,
+    ) ?? null,
+    [openCounts, shiftBusinessDate],
+  );
+  const completedShiftCounts = useMemo(
+    () => recentCounts.filter(
+      (count) => count.countKind === 'shift_change'
+        && count.shiftBusinessDate === shiftBusinessDate
+        && ['submitted', 'accepted', 'recount_requested'].includes(count.status),
+    ),
+    [recentCounts, shiftBusinessDate],
+  );
 
   function draftFor(itemId: number) {
     return drafts[itemId] ?? emptyDraft();
@@ -307,7 +319,7 @@ export default function KitchenInventoryCountClient({
           lines,
           notes,
         });
-        setMessage(`Conteo #${result.countId} enviado a revisión. La existencia ya quedó ajustada a lo contado.`);
+        setMessage(`${inventoryCountFolio(result.countId)} enviado a revisión. La existencia ya quedó ajustada a lo contado.`);
         setDrafts({});
         setNotes('');
         setSelectedRequestId(null);
@@ -321,15 +333,9 @@ export default function KitchenInventoryCountClient({
     });
   }
 
-  function openShift(shiftCode: KitchenShiftCode) {
-    const existing = openCounts.find(
-      (count) =>
-        count.countKind === 'shift_change'
-        && count.shiftBusinessDate === shiftBusinessDate
-        && count.shiftCode === shiftCode,
-    );
-    if (existing) {
-      chooseRequest(existing.id);
+  function openShift() {
+    if (openShiftCount) {
+      chooseRequest(openShiftCount.id);
       return;
     }
 
@@ -338,13 +344,13 @@ export default function KitchenInventoryCountClient({
     startTransition(async () => {
       try {
         const result = await openKitchenInventoryShiftAction({
+          operationId: crypto.randomUUID(),
           businessDate: shiftBusinessDate,
-          shiftCode,
         });
         setSelectedRequestId(result.countId);
         router.refresh();
       } catch (openError) {
-        setError(openError instanceof Error ? openError.message : 'No se pudo abrir el turno.');
+        setError(openError instanceof Error ? openError.message : 'No se pudo abrir el conteo por turno.');
       }
     });
   }
@@ -366,9 +372,9 @@ export default function KitchenInventoryCountClient({
       <div className="mt-5 rounded-2xl border border-[#FEEF00]/30 bg-[#FEEF00]/5 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h3 className="font-bold text-[#FEEF00]">Cierre por turno</h3>
+            <h3 className="font-bold text-[#FEEF00]">Conteo por turno</h3>
             <p className="mt-1 text-xs leading-5 text-[#C4C4CE]">
-              Cada fecha admite un solo cierre para Turno 1 y otro para Turno 2. Abrirlo registra responsable y hora.
+              Inícialo en cada cambio de guardia. Puedes registrar tantos como ocurran durante el día; cada uno conserva fecha, hora y responsables.
             </p>
           </div>
           <label className="text-xs text-[#A6A6B2]">
@@ -384,37 +390,20 @@ export default function KitchenInventoryCountClient({
             />
           </label>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {(['shift_1', 'shift_2'] as const).map((code) => {
-            const existing = openCounts.find(
-              (count) =>
-                count.countKind === 'shift_change'
-                && count.shiftBusinessDate === shiftBusinessDate
-                && count.shiftCode === code,
-            );
-            const closed = recentCounts.find(
-              (count) =>
-                count.countKind === 'shift_change'
-                && count.shiftBusinessDate === shiftBusinessDate
-                && count.shiftCode === code
-                && ['submitted', 'accepted', 'recount_requested'].includes(count.status),
-            );
-            return (
-              <button
-                key={code}
-                type="button"
-                onClick={() => openShift(code)}
-                disabled={isPending || !shiftBusinessDate || Boolean(closed)}
-                className="min-h-14 rounded-xl border border-[#FEEF00]/35 bg-[#111117] px-3 py-2 text-sm font-black text-[#FEEF00] disabled:border-emerald-400/25 disabled:text-emerald-200 disabled:opacity-70"
-              >
-                {closed
-                  ? `${kitchenShiftLabel(code)} cerrado · #${closed.id}`
-                  : existing
-                    ? `Reanudar ${kitchenShiftLabel(code)} · #${existing.id}`
-                    : `Iniciar ${kitchenShiftLabel(code)}`}
-              </button>
-            );
-          })}
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={openShift}
+            disabled={isPending || !shiftBusinessDate}
+            className="min-h-14 flex-1 rounded-xl border border-[#FEEF00]/35 bg-[#111117] px-4 py-3 text-sm font-black text-[#FEEF00] disabled:opacity-50"
+          >
+            {openShiftCount ? 'Continuar conteo por turno' : 'Iniciar conteo por turno'}
+          </button>
+          <div className="rounded-xl border border-[#343444] bg-[#111117] px-4 py-3 text-sm text-[#C4C4CE]">
+            {completedShiftCounts.length === 0
+              ? 'Ningún conteo presentado en esta fecha'
+              : `${completedShiftCounts.length} ${completedShiftCounts.length === 1 ? 'conteo presentado' : 'conteos presentados'} en esta fecha`}
+          </div>
         </div>
       </div>
 
@@ -464,7 +453,11 @@ export default function KitchenInventoryCountClient({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
                   <span>
-                    #{count.id} · {count.countKind === 'shift_change' ? kitchenShiftLabel(count.shiftCode) : countKindLabels[count.countKind]}
+                    {inventoryCountTitle({
+                      countKind: count.countKind,
+                      createdAt: count.createdAt,
+                      shiftBusinessDate: count.shiftBusinessDate,
+                    })}
                   </span>
                   {count.dueAt && new Date(count.dueAt).getTime() < scheduleNow ? (
                     <span className="rounded-full border border-red-400/35 bg-red-400/10 px-2 py-0.5 text-[11px] text-red-100">
@@ -475,7 +468,7 @@ export default function KitchenInventoryCountClient({
                 <div className="mt-1 text-xs text-[#B9B9C4]">
                   {count.items.length} ítems
                   {count.countKind === 'shift_change'
-                    ? ` · ${count.shiftBusinessDate || 'fecha histórica'} · abierto ${formatDate(count.createdAt)} por ${count.openedByName}`
+                    ? ` · ${inventoryCountFolio(count.id)} · abierto por ${count.openedByName}`
                     : ` · vence ${formatDate(count.dueAt)}`}
                 </div>
                 {count.notes ? <div className="mt-2 text-xs leading-5 text-amber-100/80">{count.notes}</div> : null}
@@ -490,7 +483,11 @@ export default function KitchenInventoryCountClient({
           <div className="text-xs uppercase tracking-wide text-[#858591]">Conteo activo</div>
           <div className="mt-1 font-bold">
             {selectedRequest
-              ? `#${selectedRequest.id} · ${selectedRequest.countKind === 'shift_change' ? kitchenShiftLabel(selectedRequest.shiftCode) : countKindLabels[selectedRequest.countKind]}`
+              ? inventoryCountTitle({
+                  countKind: selectedRequest.countKind,
+                  createdAt: selectedRequest.createdAt,
+                  shiftBusinessDate: selectedRequest.shiftBusinessDate,
+                })
               : manualItem
                 ? `Conteo puntual · ${manualItem.name}`
                 : selectedFrequency
@@ -636,7 +633,7 @@ export default function KitchenInventoryCountClient({
         </>
       ) : (
         <div className="mt-4 rounded-2xl border border-dashed border-[#343444] px-4 py-8 text-center text-sm text-[#858591]">
-          Selecciona un turno, un ciclo configurado, una solicitud abierta o un conteo puntual para comenzar.
+          Selecciona un conteo por turno, un ciclo configurado, una solicitud abierta o un conteo puntual para comenzar.
         </div>
       )}
 
@@ -731,12 +728,16 @@ function RecentCounts({ counts }: { counts: KitchenRecentCount[] }) {
           <div key={count.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#292938] bg-[#15151D] px-4 py-3 text-sm">
             <div>
               <div className="font-semibold">
-                #{count.id} · {count.countKind === 'shift_change' ? kitchenShiftLabel(count.shiftCode) : countKindLabels[count.countKind] ?? count.countKind}
+                {inventoryCountTitle({
+                  countKind: count.countKind,
+                  createdAt: count.createdAt,
+                  shiftBusinessDate: count.shiftBusinessDate,
+                })}
               </div>
               <div className="mt-1 text-xs text-[#858591]">
                 {count.countKind === 'shift_change' && count.shiftBusinessDate
-                  ? `${count.shiftBusinessDate} · abierto por ${count.openedByName} ${formatDate(count.createdAt)} · cerrado por ${count.submittedByName} ${formatDate(count.submittedAt)}`
-                  : formatDate(count.submittedAt ?? count.createdAt)}
+                  ? `${inventoryCountFolio(count.id)} · abierto por ${count.openedByName} · presentado por ${count.submittedByName} ${formatDate(count.submittedAt)}`
+                  : `${inventoryCountFolio(count.id)} · ${formatDate(count.submittedAt ?? count.createdAt)}`}
               </div>
             </div>
             <span className="rounded-full border border-[#3A3A48] px-2.5 py-1 text-xs text-[#C4C4CE]">

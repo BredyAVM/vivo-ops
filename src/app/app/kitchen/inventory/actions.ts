@@ -5,7 +5,6 @@ import { requireAuthContext } from '@/lib/auth';
 
 type KitchenCountKind = 'shift_change' | 'requested' | 'recount' | 'periodic';
 type KitchenCountFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
-type KitchenShiftCode = 'shift_1' | 'shift_2';
 type KitchenLossKind = 'damage' | 'waste' | 'quality_taste';
 
 type CountLineInput = {
@@ -49,13 +48,6 @@ function businessDate(value: unknown) {
     throw new Error('La fecha operativa no es valida.');
   }
   return normalized;
-}
-
-function shiftCode(value: unknown): KitchenShiftCode {
-  if (value !== 'shift_1' && value !== 'shift_2') {
-    throw new Error('Selecciona Turno 1 o Turno 2.');
-  }
-  return value;
 }
 
 function countLines(value: unknown): CountLineInput[] {
@@ -107,13 +99,13 @@ function revalidateKitchenInventory() {
 }
 
 export async function openKitchenInventoryShiftAction(input: {
+  operationId: string;
   businessDate: string;
-  shiftCode: KitchenShiftCode;
 }) {
   const ctx = await requireKitchenInventoryContext();
-  const { data, error } = await ctx.supabase.rpc('inventory_open_shift_count_v1', {
+  const { data, error } = await ctx.supabase.rpc('inventory_open_shift_count_v2', {
+    p_operation_id: operationId(input.operationId),
     p_business_date: businessDate(input.businessDate),
-    p_shift_code: shiftCode(input.shiftCode),
     p_notes: null,
   });
 

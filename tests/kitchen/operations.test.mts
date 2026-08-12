@@ -41,12 +41,13 @@ test('derives the Kitchen-visible lifecycle from canonical incident events', () 
   assert.equal(kitchenIncidentStatusFromLifecycle('kitchen_incident_reopened'), 'reopened');
 });
 
-test('accepts exactly two canonical inventory shifts', () => {
+test('preserves historical shift codes without exposing numbered shifts', () => {
   assert.equal(isKitchenShiftCode('shift_1'), true);
   assert.equal(isKitchenShiftCode('shift_2'), true);
   assert.equal(isKitchenShiftCode('shift_3'), false);
-  assert.equal(kitchenShiftLabel('shift_1'), 'Turno 1');
-  assert.equal(kitchenShiftLabel('shift_2'), 'Turno 2');
+  assert.equal(kitchenShiftLabel('shift_1'), 'Conteo por turno');
+  assert.equal(kitchenShiftLabel('shift_2'), 'Conteo por turno');
+  assert.equal(kitchenShiftLabel(null), 'Conteo por turno');
 });
 
 test('computes operating dates in Caracas rather than the machine timezone', () => {
