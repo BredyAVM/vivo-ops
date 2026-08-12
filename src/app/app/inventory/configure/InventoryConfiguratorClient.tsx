@@ -45,7 +45,7 @@ type CommissionMode = ConfiguratorProduct['commissionMode'];
 type ItemDraft = {
   name: string;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
-  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other';
   unitName: string;
   trackingMode: 'transactional' | 'periodic_count' | 'not_tracked';
   availabilityMode: '' | 'on_hand_only' | 'immediate_recipe' | 'scheduled_recipe';
@@ -774,7 +774,7 @@ function ItemEditor({ item, setItem, disabled }: { item: ItemDraft; setItem: Rea
         </Field>
         <Field label="Grupo">
           <select value={item.inventoryGroup} onChange={(event) => update('inventoryGroup', event.target.value as ItemDraft['inventoryGroup'])} disabled={disabled} className={inputClass}>
-            <option value="raw">Crudo</option><option value="fried">Frito</option><option value="prefried">Prefrito</option><option value="sauces">Salsas</option><option value="packaging">Empaque</option><option value="other">Otro</option>
+            <option value="raw">Crudo</option><option value="fried">Frito</option><option value="prefried">Prefrito</option><option value="sauces">Salsas</option><option value="beverages">Bebidas</option><option value="packaging">Empaque</option><option value="other">Otro</option>
           </select>
         </Field>
         <Field label="Modo de control">

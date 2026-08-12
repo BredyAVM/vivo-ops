@@ -665,3 +665,34 @@ La propagación comercial sigue la composición existente del catálogo:
 Migración vigente:
 
 - `20260812141855_inventory_product_commercial_suspensions_v1.sql`.
+
+## 27. Reconteos complementarios y lectura compacta de Máster
+
+Un conteo presentado conserva una lista inmutable. Si Máster detecta después
+que omitió otro ítem, la corrección continúa dentro de la misma genealogía:
+
+- si existe un reconteo hijo `open`, el ítem aceptado se agrega a ese hijo;
+- si el hijo ya fue presentado, se crea otro hijo complementario del mismo
+  padre sin modificar el primero;
+- el padre permanece `recount_requested` hasta que todos sus hijos y líneas
+  pendientes hayan sido aceptados;
+- cada reconteo fija la existencia física contada; nunca suma la cantidad
+  escrita al saldo anterior.
+
+La implementación reutiliza `inventory_counts.parent_count_id` e
+`inventory_count_lines.recounted_from_line_id`. No agrega tablas ni columnas.
+Las migraciones vigentes son
+`20260812193754_inventory_supplemental_recounts_v1.sql` y
+`20260812194947_inventory_supplemental_recount_utf8_v1.sql`; la segunda solo
+normaliza los mensajes de la misma función y no cambia la regla.
+
+La familia `beverages` reutiliza `inventory_group` y separa las 21 bebidas
+activas que antes estaban mezcladas en `other`. La misma opción queda disponible
+para productos futuros desde el configurador universal. La migración vigente es
+`20260812194355_inventory_beverage_group_v1.sql`.
+
+Máster ve el saldo del sistema al seleccionar una solicitud de conteo. Su vista
+de existencias agrupa por familia y separa: saldo actual, pedidos dentro de diez
+días, pedidos posteriores, saldo libre sin reposiciones y proyección con
+entradas conocidas. `Entradas esperadas` permanece dentro del control operativo
+de Máster y no redirige al Centro general.

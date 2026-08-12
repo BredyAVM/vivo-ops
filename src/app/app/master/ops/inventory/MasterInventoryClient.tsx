@@ -25,6 +25,7 @@ export type MasterInventoryItem = {
   currentStockUnits: number;
   commitmentUnits: number;
   commitmentCount: number;
+  laterCommitmentUnits: number;
   availableWithoutIncomingUnits: number | null;
   projectedAvailableUnits: number | null;
   minimumProjectedAt: string | null;
@@ -103,7 +104,9 @@ export type MasterInventoryProduct = {
   inventoryPolicy: string | null;
 };
 
-type MasterInventoryView = 'overview' | 'stock' | 'counts';
+type MasterInventoryView = 'overview' | 'stock' | 'supplies' | 'counts';
+
+const groupOrder = ['raw', 'fried', 'prefried', 'sauces', 'beverages', 'packaging', 'other'];
 
 const groupLabels: Record<string, string> = {
   raw: 'Crudos',
@@ -183,7 +186,9 @@ export default function MasterInventoryClient({
   const router = useRouter();
   const [activeView, setActiveView] = useState<MasterInventoryView>(initialView);
   const [search, setSearch] = useState('');
+  const [requestGroup, setRequestGroup] = useState('all');
   const [stockSearch, setStockSearch] = useState('');
+  const [stockGroup, setStockGroup] = useState('all');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [dueAt, setDueAt] = useState('');
   const [notes, setNotes] = useState('');
@@ -229,19 +234,40 @@ export default function MasterInventoryClient({
   const selectableItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('es');
     return items.filter((item) => {
+      if (requestGroup !== 'all' && item.inventoryGroup !== requestGroup) return false;
       if (!query) return true;
       return `${item.name} ${groupLabels[item.inventoryGroup] ?? item.inventoryGroup}`.toLocaleLowerCase('es').includes(query);
     });
-  }, [items, search]);
+  }, [items, requestGroup, search]);
+  const availableGroups = useMemo(
+    () => groupOrder.filter((group) => items.some((item) => item.inventoryGroup === group)),
+    [items],
+  );
   const visibleStock = useMemo(() => {
     const query = stockSearch.trim().toLocaleLowerCase('es');
     return [...items]
+      .filter((item) => stockGroup === 'all' || item.inventoryGroup === stockGroup)
       .filter((item) => !query || `${item.name} ${groupLabels[item.inventoryGroup] ?? item.inventoryGroup}`.toLocaleLowerCase('es').includes(query))
-      .sort((left, right) => inventoryRiskRank(right) - inventoryRiskRank(left) || left.name.localeCompare(right.name, 'es'));
-  }, [items, stockSearch]);
+      .sort((left, right) => left.name.localeCompare(right.name, 'es'));
+  }, [items, stockGroup, stockSearch]);
+  const stockSections = useMemo(
+    () => availableGroups
+      .map((group) => ({
+        group,
+        label: groupLabels[group] ?? group,
+        items: visibleStock.filter((item) => item.inventoryGroup === group),
+      }))
+      .filter((section) => section.items.length > 0),
+    [availableGroups, visibleStock],
+  );
 
   function toggleItem(itemId: number) {
     setSelectedIds((current) => current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]);
+  }
+
+  function showView(view: MasterInventoryView) {
+    setActiveView(view);
+    window.history.replaceState(null, '', `/app/master/ops/inventory?view=${view}`);
   }
 
   function selectVisible() {
@@ -424,14 +450,15 @@ export default function MasterInventoryClient({
       <nav aria-label="Secciones del inventario de Máster" className="flex gap-2 overflow-x-auto rounded-2xl border border-[#292938] bg-[#111117] p-2">
         {([
           ['overview', 'Resumen'],
-          ['stock', 'Existencias y compromisos'],
+          ['stock', 'Existencias'],
+          ['supplies', 'Entradas esperadas'],
           ['counts', 'Revisar inventarios'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
             aria-pressed={activeView === key}
-            onClick={() => setActiveView(key)}
+            onClick={() => showView(key)}
             className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition ${activeView === key ? 'bg-[#FEEF00] text-black' : 'text-[#B8B8C4] hover:bg-[#1A1A23] hover:text-white'}`}
           >
             <span className="flex items-center gap-2">
@@ -525,7 +552,7 @@ export default function MasterInventoryClient({
                 <h2 className="text-lg font-bold">Productos que conviene revisar</h2>
                 <p className="mt-1 text-sm leading-6 text-[#A6A6B2]">Ordenados por riesgo de compromisos, reposición y umbral.</p>
               </div>
-              <button type="button" onClick={() => setActiveView('stock')} className="shrink-0 text-xs font-bold text-[#FEEF00] hover:underline">Ver todos</button>
+              <button type="button" onClick={() => showView('stock')} className="shrink-0 text-xs font-bold text-[#FEEF00] hover:underline">Ver todos</button>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {attentionItems.length ? attentionItems.map((item) => (
@@ -555,8 +582,8 @@ export default function MasterInventoryClient({
         </div>
       ) : null}
 
-      {activeView === 'overview' ? (
-        <section className="rounded-2xl border border-violet-400/25 bg-violet-400/5 p-4 sm:p-5">
+      {activeView === 'supplies' ? (
+        <section id="master-expected-receipts" className="scroll-mt-4 rounded-2xl border border-violet-400/25 bg-violet-400/5 p-4 sm:p-5">
           <div>
             <h2 className="text-lg font-bold text-violet-100">Registrar una entrada esperada</h2>
             <p className="mt-1 text-sm leading-6 text-[#B4AAC5]">Es una proyección para decidir pedidos futuros. Cocina confirmará después lo que realmente llegó.</p>
@@ -703,7 +730,7 @@ export default function MasterInventoryClient({
         </section>
       ) : null}
 
-      {activeView === 'overview' ? (
+      {activeView === 'supplies' ? (
       <div className="rounded-2xl border border-sky-400/25 bg-sky-400/5 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -712,9 +739,9 @@ export default function MasterInventoryClient({
               Entradas y producciones activas incluidas en la proyección de los próximos 10 días. Todavía no son existencia física.
             </p>
           </div>
-          <Link href="/app/inventory/operations" prefetch={false} className="rounded-xl border border-sky-300/30 px-3 py-2 text-xs font-bold text-sky-100 hover:border-sky-300/60">
-            Ver operaciones
-          </Link>
+          <span className="rounded-full border border-sky-300/25 px-3 py-1.5 text-xs font-bold text-sky-100">
+            {supplies.length} programada{supplies.length === 1 ? '' : 's'}
+          </span>
         </div>
 
         {supplies.length ? (
@@ -756,7 +783,7 @@ export default function MasterInventoryClient({
           </div>
         )}
 
-        {supplies.length > 12 ? <div className="mt-3 text-xs text-[#93A8B8]">Mostrando 12 de {supplies.length}. Abre Operaciones para ver el calendario completo.</div> : null}
+        {supplies.length > 12 ? <div className="mt-3 text-xs text-[#93A8B8]">Mostrando las 12 entradas o producciones más próximas.</div> : null}
       </div>
       ) : null}
 
@@ -776,6 +803,19 @@ export default function MasterInventoryClient({
             <button type="button" onClick={selectVisible} className="shrink-0 rounded-xl border border-[#3A3A49] px-3 text-xs font-semibold hover:border-[#FEEF00]/60">Seleccionar visibles</button>
           </div>
 
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Filtrar conteo por familia">
+            {['all', ...availableGroups].map((group) => (
+              <button
+                key={group}
+                type="button"
+                onClick={() => setRequestGroup(group)}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${requestGroup === group ? 'border-[#FEEF00] bg-[#FEEF00] text-black' : 'border-[#343444] text-[#B8B8C4]'}`}
+              >
+                {group === 'all' ? 'Todos' : groupLabels[group] ?? group}
+              </button>
+            ))}
+          </div>
+
           <div className="mt-3 max-h-[340px] space-y-2 overflow-y-auto pr-1">
             {selectableItems.map((item) => {
               const selected = selectedIds.includes(item.id);
@@ -783,10 +823,16 @@ export default function MasterInventoryClient({
               return (
                 <label key={item.id} className={`flex items-start gap-3 rounded-xl border p-3 ${disabled ? 'cursor-not-allowed border-[#242433] opacity-55' : selected ? 'border-[#FEEF00]/55 bg-[#FEEF00]/5' : 'border-[#292938] bg-[#0D0D12]'}`}>
                   <input type="checkbox" checked={selected} disabled={disabled} onChange={() => toggleItem(item.id)} className="mt-1 h-4 w-4 accent-[#FEEF00]" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold">{item.name}</span>
-                    <span className="mt-0.5 block text-xs text-[#92929F]">{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</span>
-                    {disabled ? <span className="mt-1 block text-xs text-amber-300">Ya está en el conteo #{item.pendingCountId}</span> : null}
+                  <span className="flex min-w-0 flex-1 items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block font-semibold">{item.name}</span>
+                      <span className="mt-0.5 block text-xs text-[#92929F]">{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</span>
+                      {disabled ? <span className="mt-1 block text-xs text-amber-300">Ya está en {inventoryCountFolio(item.pendingCountId!)}</span> : null}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[10px] font-bold uppercase tracking-wide text-[#777784]">Sistema</span>
+                      <span className="mt-0.5 block font-black text-white">{formatQuantity(item.currentStockUnits)} {item.unitName}</span>
+                    </span>
                   </span>
                 </label>
               );
@@ -805,7 +851,7 @@ export default function MasterInventoryClient({
           {error ? <div className="mt-3 rounded-xl border border-rose-400/35 bg-rose-400/10 p-3 text-sm text-rose-100">{error}</div> : null}
           {createdCountId ? (
             <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100">
-              Solicitud #{createdCountId} enviada a Cocina. <Link href={`/app/inventory/counts/${createdCountId}`} prefetch={false} className="font-bold underline">Abrir registro</Link>
+              {inventoryCountFolio(createdCountId)} enviado a Cocina. <Link href={`/app/inventory/counts/${createdCountId}`} prefetch={false} className="font-bold underline">Abrir registro</Link>
             </div>
           ) : null}
 
@@ -822,80 +868,76 @@ export default function MasterInventoryClient({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-lg font-bold">Saldo del sistema</h2>
-              <p className="mt-1 text-sm text-[#A6A6B2]">Último conteo aceptado, entradas, producción, ventas y salidas registradas.</p>
+              <p className="mt-1 text-sm text-[#A6A6B2]">Existencias y pedidos separados por familia.</p>
             </div>
             <input aria-label="Buscar en el saldo del sistema" value={stockSearch} onChange={(event) => setStockSearch(event.target.value)} className={`${inputClass} sm:max-w-xs`} placeholder="Buscar existencia" />
           </div>
 
-          <div className="mt-4 overflow-hidden rounded-xl border border-[#292938]">
-            <div className="max-h-[610px] overflow-auto">
-              <table className="w-full min-w-[1160px] text-left text-sm">
-                <thead className="sticky top-0 bg-[#171720] text-xs uppercase tracking-wide text-[#92929F]">
-                  <tr>
-                    <th className="px-4 py-3">Ítem</th>
-                    <th className="px-4 py-3 text-right">Existencia</th>
-                    <th className="px-4 py-3 text-right">Comprometido</th>
-                    <th className="px-4 py-3 text-right">Libre sin entradas</th>
-                    <th className="px-4 py-3 text-right">Proyección 10 días</th>
-                    <th className="px-4 py-3">Último conteo</th>
-                    <th className="px-4 py-3">Conteo pendiente</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#292938]">
-                  {visibleStock.map((item) => (
-                    <tr key={item.id} className={item.isLowStock ? 'bg-amber-400/5' : ''}>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold">{item.name}</div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-[#8F8F9C]">
-                          <span>{groupLabels[item.inventoryGroup] ?? item.inventoryGroup}</span>
-                          {item.lowStockThreshold == null ? null : <span>Umbral {formatQuantity(item.lowStockThreshold)} {item.unitName}</span>}
-                          {item.isLowStock ? <span className="rounded-full border border-amber-400/30 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">STOCK BAJO</span> : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="font-bold text-white">{formatQuantity(item.currentStockUnits)}</span>{' '}
-                        <span className="text-xs text-[#8F8F9C]">{item.unitName}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {item.commitmentUnits > 0.005 ? (
-                          <>
-                            <div className="font-semibold text-violet-200">{formatQuantity(item.commitmentUnits)} {item.unitName}</div>
-                            <div className="mt-1 text-xs text-[#858591]">{item.commitmentCount} compromiso{item.commitmentCount === 1 ? '' : 's'}</div>
-                          </>
-                        ) : <span className="text-[#777784]">—</span>}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-bold ${inventoryValueClass(item.availableWithoutIncomingUnits)}`}>
-                        {item.availableWithoutIncomingUnits == null ? '—' : `${formatQuantity(item.availableWithoutIncomingUnits)} ${item.unitName}`}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className={`font-bold ${inventoryValueClass(item.projectedAvailableUnits, item.dependsOnIncoming)}`}>
-                          {item.projectedAvailableUnits == null ? '—' : `${formatQuantity(item.projectedAvailableUnits)} ${item.unitName}`}
-                        </div>
-                        {item.dependsOnIncoming ? <div className="mt-1 text-xs font-semibold text-amber-300">Depende de reposición</div> : null}
-                        {item.minimumProjectedAt && (item.commitmentCount > 0 || item.dependsOnIncoming || (item.projectedAvailableUnits ?? 1) <= 0.005) ? <div className="mt-1 text-xs text-[#858591]">Momento más crítico: {formatDate(item.minimumProjectedAt)}</div> : null}
-                      </td>
-                      <td className="px-4 py-3">
-                        {item.lastCountId && item.lastCountedAt ? (
-                          <div className="min-w-[190px]">
-                            <Link href={`/app/inventory/counts/${item.lastCountId}`} prefetch={false} className="font-semibold text-[#FEEF00] hover:underline">
-                              {formatDate(item.lastCountedAt)}
-                            </Link>
-                            <div className="mt-1 text-xs text-[#A6A6B2]">
-                              {item.lastCountedUnits == null ? 'Cantidad no disponible' : `${formatQuantity(item.lastCountedUnits)} ${item.unitName}`} · {item.lastCountAgeText}
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1" aria-label="Filtrar existencias por familia">
+            {['all', ...availableGroups].map((group) => (
+              <button
+                key={group}
+                type="button"
+                onClick={() => setStockGroup(group)}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${stockGroup === group ? 'border-[#FEEF00] bg-[#FEEF00] text-black' : 'border-[#343444] text-[#B8B8C4]'}`}
+              >
+                {group === 'all' ? 'Todos' : groupLabels[group] ?? group}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-4 max-h-[640px] space-y-4 overflow-auto pr-1">
+            {stockSections.map((section) => (
+              <section key={section.group} className="overflow-hidden rounded-xl border border-[#292938]">
+                <div className="sticky top-0 z-10 flex items-center justify-between bg-[#1A1A23] px-4 py-2.5">
+                  <h3 className="font-black text-white">{section.label}</h3>
+                  <span className="text-xs text-[#92929F]">{section.items.length}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[920px] text-left text-sm">
+                    <thead className="bg-[#14141B] text-[10px] uppercase tracking-wide text-[#858591]">
+                      <tr>
+                        <th className="px-4 py-2">Producto</th>
+                        <th className="px-4 py-2 text-right">Sistema</th>
+                        <th className="px-4 py-2 text-right">Pedidos 10 días</th>
+                        <th className="px-4 py-2 text-right">Pedidos &gt;10 días</th>
+                        <th className="px-4 py-2 text-right">Libre 10 días</th>
+                        <th className="px-4 py-2 text-right">Con entradas</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#242433]">
+                      {section.items.map((item) => (
+                        <tr key={item.id} className={item.isLowStock ? 'bg-amber-400/5' : 'bg-[#101015]'}>
+                          <td className="px-4 py-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-semibold text-white">{item.name}</span>
+                              {item.isLowStock ? <span className="rounded-full bg-amber-300/10 px-2 py-0.5 text-[10px] font-black text-amber-300">BAJO</span> : null}
+                              {item.pendingCountId ? <Link href={`/app/inventory/counts/${item.pendingCountId}`} prefetch={false} className="rounded-full bg-sky-300/10 px-2 py-0.5 text-[10px] font-black text-sky-200">EN CONTEO</Link> : null}
                             </div>
-                            <div className="mt-0.5 text-xs text-[#858591]">Por: {item.lastCountedByName ?? 'Sin responsable'}</div>
-                          </div>
-                        ) : <span className="text-[#777784]">Sin conteo</span>}
-                      </td>
-                      <td className="px-4 py-3">{item.pendingCountId ? <Link href={`/app/inventory/counts/${item.pendingCountId}`} prefetch={false} className="font-semibold text-amber-300 hover:underline">#{item.pendingCountId}</Link> : <span className="text-[#777784]">Sin pendiente</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                            <div className="mt-1 text-[11px] text-[#777784]">
+                              {item.lastCountedAt ? `${item.lastCountAgeText} · ${item.lastCountedByName ?? 'Sin responsable'}` : 'Sin conteo físico'}
+                              {item.lowStockThreshold == null ? '' : ` · Mín. ${formatQuantity(item.lowStockThreshold)} ${item.unitName}`}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-black text-white">{formatQuantity(item.currentStockUnits)} <span className="text-[11px] font-normal text-[#858591]">{item.unitName}</span></td>
+                          <td className="px-4 py-2.5 text-right text-violet-200">{formatQuantity(item.commitmentUnits)} <span className="text-[11px] text-[#858591]">{item.unitName}</span></td>
+                          <td className="px-4 py-2.5 text-right text-[#B8B8C4]">{formatQuantity(item.laterCommitmentUnits)} <span className="text-[11px] text-[#858591]">{item.unitName}</span></td>
+                          <td className={`px-4 py-2.5 text-right font-black ${inventoryValueClass(item.availableWithoutIncomingUnits)}`}>{item.availableWithoutIncomingUnits == null ? '—' : `${formatQuantity(item.availableWithoutIncomingUnits)} ${item.unitName}`}</td>
+                          <td className={`px-4 py-2.5 text-right font-black ${inventoryValueClass(item.projectedAvailableUnits, item.dependsOnIncoming)}`}>
+                            {item.projectedAvailableUnits == null ? '—' : `${formatQuantity(item.projectedAvailableUnits)} ${item.unitName}`}
+                            {item.dependsOnIncoming ? <div className="text-[10px] font-semibold text-amber-300">USA REPOSICIÓN</div> : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ))}
+            {stockSections.length === 0 ? <div className="rounded-xl border border-dashed border-[#343444] p-6 text-center text-sm text-[#858591]">No hay productos para este filtro.</div> : null}
           </div>
           <p className="mt-3 text-xs leading-5 text-[#858591]">
-            Libre sin entradas descuenta los compromisos activos sin contar reposiciones futuras. La proyección incorpora entradas y producciones conocidas dentro de los próximos 10 días; es informativa y no mueve inventario.
+            Libre 10 días: lo que queda después de los pedidos próximos, sin sumar reposiciones. Con entradas: proyección que sí suma las entradas y producciones esperadas.
           </p>
         </div>
         ) : null}

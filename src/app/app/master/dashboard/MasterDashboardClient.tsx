@@ -1124,7 +1124,7 @@ type CatalogItem = {
   packagingSize: number | null;
   currentStockUnits: number;
   lowStockThreshold: number | null;
-  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other';
 };
 
 type InventoryItem = {
@@ -1132,7 +1132,7 @@ type InventoryItem = {
   sku?: string;
   name: string;
   inventoryKind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
-  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other';
+  inventoryGroup: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other';
   unitName: string;
   packagingName: string | null;
   packagingSize: number | null;
@@ -4410,7 +4410,7 @@ export default function MasterDashboardClient({
   });
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryGroupFilter, setInventoryGroupFilter] = useState<
-    '' | 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
+    '' | 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other'
   >('');
   const [selectedInventoryProductId, setSelectedInventoryProductId] = useState<number | null>(null);
   const [inventoryItemCreateOpen, setInventoryItemCreateOpen] = useState(false);
@@ -4637,7 +4637,7 @@ const [newInternalRiderPayUsd, setNewInternalRiderPayUsd] = useState('');
 const [newInventoryEnabled, setNewInventoryEnabled] = useState(false);
 const [newInventoryKind, setNewInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
 const [newInventoryGroup, setNewInventoryGroup] = useState<
-  'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
+  'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other'
 >('other');
 const [newInventoryDeductionMode, setNewInventoryDeductionMode] = useState<'self' | 'composition'>('self');
   const [newInventoryUnitName, setNewInventoryUnitName] = useState('pieza');
@@ -4665,7 +4665,7 @@ const [editIsActive, setEditIsActive] = useState(true);
   const [editInventoryEnabled, setEditInventoryEnabled] = useState(false);
   const [editInventoryKind, setEditInventoryKind] = useState<'raw_material' | 'prepared_base' | 'finished_good'>('finished_good');
   const [editInventoryGroup, setEditInventoryGroup] = useState<
-    'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
+    'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other'
   >('other');
   const [editInventoryDeductionMode, setEditInventoryDeductionMode] = useState<'self' | 'composition'>('self');
   const [editInventoryUnitName, setEditInventoryUnitName] = useState('pieza');
@@ -6274,17 +6274,19 @@ const INVENTORY_GROUP_OPTIONS = [
   { value: 'fried', label: 'Fritos' },
   { value: 'prefried', label: 'Prefritos' },
   { value: 'sauces', label: 'Salsas' },
+  { value: 'beverages', label: 'Bebidas' },
   { value: 'packaging', label: 'Envases' },
 ] as const;
 
 const INVENTORY_GROUP_LABEL: Record<
-  'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other',
+  'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other',
   string
 > = {
   raw: 'Crudos',
   fried: 'Fritos',
   prefried: 'Prefritos',
   sauces: 'Salsas',
+  beverages: 'Bebidas',
   packaging: 'Envases',
   other: 'Otros',
 };
@@ -17083,7 +17085,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           value={inventoryGroupFilter}
           onChange={(value) =>
             setInventoryGroupFilter(
-              (value || '') as '' | 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other'
+              (value || '') as '' | 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other'
             )
           }
           options={[

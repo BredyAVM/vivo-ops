@@ -1025,6 +1025,59 @@ export async function reviewInventoryCountAction(input: {
   return { countId, recountCountId };
 }
 
+export async function requestSupplementalInventoryRecountAction(input: {
+  countId: number;
+  lineIds: number[];
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const countId = normalizeCountId(input.countId);
+  const notes = normalizeNotes(input.notes);
+  if (!Array.isArray(input.lineIds) || input.lineIds.length === 0) {
+    throw new Error('Selecciona al menos un ítem para ampliar el reconteo.');
+  }
+  const lineIds = Array.from(new Set(input.lineIds.map(normalizeCountId)));
+  if (lineIds.length !== input.lineIds.length) {
+    throw new Error('Una línea no puede repetirse en el reconteo complementario.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('inventory_request_supplemental_recount_v1', {
+    p_parent_count_id: countId,
+    p_line_ids: lineIds,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const recountCountId = normalizeCountId(
+    (data as { recount_inventory_count_id?: unknown } | null)?.recount_inventory_count_id,
+  );
+  const addedLineCount = Number(
+    (data as { added_line_count?: unknown } | null)?.added_line_count ?? lineIds.length,
+  );
+
+  revalidateInventoryCountRoutes(countId);
+  revalidateInventoryCountRoutes(recountCountId);
+  try {
+    await sendPushToRoleDevices({
+      roles: ['kitchen'],
+      title: 'Reconteo actualizado',
+      body: `Máster agregó ${addedLineCount} ítem${addedLineCount === 1 ? '' : 's'} para revisar.`,
+      url: '/app/kitchen/inventory/counts',
+      tag: `kitchen-inventory-recount-${recountCountId}`,
+      tone: 'warning',
+      requireInteraction: true,
+    });
+  } catch (pushError) {
+    console.warn(
+      'kitchen supplemental recount push skipped',
+      pushError instanceof Error ? pushError.message : 'unknown push error',
+    );
+  }
+
+  return { countId, recountCountId, addedLineCount };
+}
+
 export async function saveInventoryExpectedReceiptAction(input: {
   operationId: string;
   inventoryItemId: number;

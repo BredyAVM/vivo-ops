@@ -14,8 +14,9 @@ const GROUP_LABELS: Record<string, string> = {
   fried: 'Fritos',
   prefried: 'Prefritos',
   sauces: 'Salsas y aderezos',
+  beverages: 'Bebidas',
   packaging: 'Empaques y consumibles',
-  other: 'Bebidas y otros',
+  other: 'Otros',
 };
 
 const FREQUENCY_LABELS: Record<string, string> = {

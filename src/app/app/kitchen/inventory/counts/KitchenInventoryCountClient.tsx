@@ -64,14 +64,7 @@ const groupLabels: Record<string, string> = {
   prefried: 'Prefritos',
   sauces: 'Salsas y bases',
   beverages: 'Bebidas',
-  other: 'Bebidas y otros productos',
-};
-
-const countKindLabels: Record<string, string> = {
-  shift_change: 'Conteo por turno',
-  requested: 'Conteo solicitado',
-  recount: 'Reconteo',
-  periodic: 'Conteo periódico',
+  other: 'Otros productos',
 };
 
 const periodicPrograms: Array<{

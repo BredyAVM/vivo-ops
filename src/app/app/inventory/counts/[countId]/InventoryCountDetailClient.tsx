@@ -4,7 +4,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
-import { reviewInventoryCountAction, submitInventoryOpenCountAction } from '../../actions';
+import {
+  requestSupplementalInventoryRecountAction,
+  reviewInventoryCountAction,
+  submitInventoryOpenCountAction,
+} from '../../actions';
 import { displayLabel, inventoryRoleLabels } from '../../display';
 import {
   inventoryCountFolio,
@@ -31,6 +35,7 @@ export type InventoryCountDetailLine = {
   itemName: string;
   unitName: string;
   expectedQuantityUnits: number;
+  currentStockUnits: number;
   countedQuantityUnits: number | null;
   differenceQuantityUnits: number | null;
   lineStatus: string;
@@ -47,6 +52,8 @@ type Props = {
   lines: InventoryCountDetailLine[];
   childrenCounts: InventoryCountChild[];
   isAdmin: boolean;
+  canReview: boolean;
+  returnHref: string;
 };
 
 const kindLabels = inventoryCountKindLabels;
@@ -79,7 +86,7 @@ function differenceClass(value: number | null) {
   return value > 0 ? 'text-emerald-300' : 'text-red-300';
 }
 
-export default function InventoryCountDetailClient({ count, lines, childrenCounts, isAdmin }: Props) {
+export default function InventoryCountDetailClient({ count, lines, childrenCounts, isAdmin, canReview, returnHref }: Props) {
   const router = useRouter();
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(() => new Set());
   const [quantities, setQuantities] = useState<Record<number, string>>({});
@@ -95,6 +102,11 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
     isAdmin &&
     count.status === 'open' &&
     ['recount', 'requested', 'periodic', 'shift_change'].includes(count.countKind);
+  const canRequestInitialRecount = canReview && count.status === 'submitted';
+  const canRequestSupplementalRecount =
+    canReview && ['accepted', 'recount_requested'].includes(count.status);
+  const canSelectRecountLines = canRequestInitialRecount || canRequestSupplementalRecount;
+  const openChildRecount = childrenCounts.find((child) => child.status === 'open') ?? null;
 
   function toggleLine(lineId: number) {
     setSelectedLineIds((current) => {
@@ -168,6 +180,28 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
     });
   }
 
+  function handleSupplementalRecount() {
+    setError(null);
+    if (selectedLineIds.size === 0) {
+      setError('Selecciona al menos un ítem para ampliar el reconteo.');
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const result = await requestSupplementalInventoryRecountAction({
+          countId: count.id,
+          lineIds: Array.from(selectedLineIds),
+          notes,
+        });
+        router.push(`/app/inventory/counts/${result.recountCountId}`);
+        router.refresh();
+      } catch (reviewError) {
+        setError(reviewError instanceof Error ? reviewError.message : 'No se pudo ampliar el reconteo.');
+      }
+    });
+  }
+
   return (
     <section>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -184,11 +218,11 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
             {statusLabels[count.status] ?? count.status}
           </span>
           <Link
-            href="/app/inventory/counts"
+            href={returnHref}
             prefetch={false}
             className="rounded-xl border border-[#343444] px-3 py-1.5 text-sm text-[#B7B7C2]"
           >
-            Historial
+            {returnHref.startsWith('/app/master') ? 'Volver a Máster' : 'Historial'}
           </Link>
         </div>
       </div>
@@ -219,10 +253,10 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead className="bg-[#16161F] text-xs uppercase tracking-wide text-[#8F8F9C]">
               <tr>
-                {count.status === 'submitted' ? <th className="w-12 px-4 py-3">Recontar</th> : null}
+                {canSelectRecountLines ? <th className="w-12 px-4 py-3">Revisar</th> : null}
                 <th className="px-4 py-3">Ítem</th>
                 <th className="px-4 py-3">Unidad</th>
-                <th className="px-4 py-3 text-right">Sistema</th>
+                <th className="px-4 py-3 text-right">{canRequestSupplementalRecount ? 'Sistema ahora' : 'Sistema al abrir'}</th>
                 <th className="px-4 py-3 text-right">Contado</th>
                 <th className="px-4 py-3 text-right">Diferencia</th>
                 <th className="px-4 py-3">Estado</th>
@@ -232,14 +266,19 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
             <tbody className="divide-y divide-[#242433]">
               {lines.map((line) => (
                 <tr key={line.id} className="hover:bg-[#15151D]">
-                  {count.status === 'submitted' ? (
+                  {canSelectRecountLines ? (
                     <td className="px-4 py-3">
                       <input
                         type="checkbox"
                         aria-label={`Solicitar reconteo de ${line.itemName}`}
                         checked={selectedLineIds.has(line.id)}
                         onChange={() => toggleLine(line.id)}
-                        disabled={line.lineStatus !== 'submitted' || isPending}
+                        disabled={
+                          isPending
+                          || (canRequestInitialRecount
+                            ? line.lineStatus !== 'submitted'
+                            : line.lineStatus !== 'accepted')
+                        }
                         className="h-4 w-4 accent-[#FEEF00]"
                       />
                     </td>
@@ -247,7 +286,17 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
                   <td className="px-4 py-3 font-semibold">{line.itemName}</td>
                   <td className="px-4 py-3 text-[#A6A6B2]">{line.unitName}</td>
                   <td className="px-4 py-3 text-right text-[#A6A6B2]">
-                    {count.status === 'open' ? 'Oculto' : formatQuantity(line.expectedQuantityUnits)}
+                    {count.status === 'open' ? 'Oculto' : canRequestSupplementalRecount ? (
+                      <>
+                        <div className="font-semibold text-white">{formatQuantity(line.currentStockUnits)} {line.unitName}</div>
+                        <div className="mt-0.5 text-[11px] text-[#777784]">Al abrir: {formatQuantity(line.expectedQuantityUnits)}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="font-semibold text-white">{formatQuantity(line.expectedQuantityUnits)} {line.unitName}</div>
+                        <div className="mt-0.5 text-[11px] text-[#777784]">Ahora: {formatQuantity(line.currentStockUnits)}</div>
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right font-semibold">
                     {canSubmitOpen ? (
@@ -284,7 +333,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
         </div>
       ) : null}
 
-      {canSubmitOpen || count.status === 'submitted' ? (
+      {canSubmitOpen || canRequestInitialRecount || canRequestSupplementalRecount ? (
         <div className="mt-5 rounded-2xl border border-[#242433] bg-[#111117] p-5">
           <label className="block text-sm">
             <span className="mb-2 block text-[#A6A6B2]">Nota de esta acción (opcional)</span>
@@ -315,7 +364,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
                 {isPending ? 'Presentando…' : 'Presentar reconteo'}
               </button>
             ) : null}
-            {count.status === 'submitted' ? (
+            {canRequestInitialRecount ? (
               <>
                 <button
                   type="button"
@@ -334,6 +383,20 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
                   {isPending ? 'Procesando…' : 'Aceptar conteo completo'}
                 </button>
               </>
+            ) : null}
+            {canRequestSupplementalRecount ? (
+              <button
+                type="button"
+                onClick={handleSupplementalRecount}
+                disabled={isPending || selectedLineIds.size === 0}
+                className="rounded-xl border border-sky-400/40 bg-sky-400/5 px-4 py-2.5 text-sm font-semibold text-sky-200 disabled:opacity-40"
+              >
+                {isPending
+                  ? 'Preparando…'
+                  : openChildRecount
+                    ? `Agregar al reconteo abierto (${selectedLineIds.size})`
+                    : `Crear reconteo complementario (${selectedLineIds.size})`}
+              </button>
             ) : null}
           </div>
         </div>

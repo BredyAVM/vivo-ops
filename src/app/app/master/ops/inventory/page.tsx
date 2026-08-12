@@ -32,6 +32,8 @@ type InventoryItemRow = {
   stock_units: number | string | null;
   commitment_units: number | string;
   commitment_count: number | string;
+  outside_horizon_commitment_units: number | string;
+  outside_horizon_commitment_count: number | string;
   available_without_incoming_units: number | string | null;
   projected_available_units: number | string | null;
   minimum_projected_at: string | null;
@@ -238,7 +240,11 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
     const countLines = linesByCount.get(countId) ?? [];
     countLines.push(line);
     linesByCount.set(countId, countLines);
-    if (activeCountIdSet.has(countId) && !pendingCountByItem.has(Number(line.inventory_item_id))) {
+    if (
+      activeCountIdSet.has(countId)
+      && ['pending', 'submitted', 'recount_requested'].includes(line.line_status)
+      && !pendingCountByItem.has(Number(line.inventory_item_id))
+    ) {
       pendingCountByItem.set(Number(line.inventory_item_id), countId);
     }
   }
@@ -257,6 +263,7 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
         currentStockUnits: stock,
         commitmentUnits: Number(item.commitment_units ?? 0),
         commitmentCount: Number(item.commitment_count ?? 0),
+        laterCommitmentUnits: Number(item.outside_horizon_commitment_units ?? 0),
         availableWithoutIncomingUnits:
           item.available_without_incoming_units == null
             ? null
@@ -391,7 +398,7 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
             <Link href="/app/inventory/alerts" prefetch={false} className="rounded-xl border border-amber-400/35 bg-amber-400/5 px-4 py-2.5 text-sm font-semibold text-amber-200">
               Alertas activas
             </Link>
-            <Link href="/app/inventory/operations" prefetch={false} className="rounded-xl border border-sky-400/35 bg-sky-400/5 px-4 py-2.5 text-sm font-semibold text-sky-200">
+            <Link href="/app/master/ops/inventory?view=supplies" prefetch={false} className="rounded-xl border border-sky-400/35 bg-sky-400/5 px-4 py-2.5 text-sm font-semibold text-sky-200">
               Entradas esperadas
             </Link>
             <Link href="/app/inventory/counts" prefetch={false} className="rounded-xl border border-[#343442] bg-[#15151D] px-4 py-2.5 text-sm font-semibold">
@@ -406,7 +413,7 @@ export default async function MasterInventoryPage({ searchParams }: { searchPara
 
       <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
         <MasterInventoryClient
-          initialView={query.view === 'counts' ? 'counts' : 'overview'}
+          initialView={query.view === 'counts' || query.view === 'stock' || query.view === 'supplies' ? query.view : 'overview'}
           products={products}
           items={items}
           counts={countSummaries}

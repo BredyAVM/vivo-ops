@@ -51,7 +51,8 @@ const groupLabels: Record<string, string> = {
   raw: 'Crudos',
   prefried: 'Prefritos',
   sauces: 'Salsas y bases',
-  other: 'Bebidas y otros',
+  beverages: 'Bebidas',
+  other: 'Otros',
 };
 
 const inputClass = 'w-full rounded-xl border border-[#343444] bg-[#0B0B10] px-3 py-2.5 text-white outline-none focus:border-[#FEEF00]/70';

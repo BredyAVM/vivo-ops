@@ -20,7 +20,7 @@ function toNullableNumber(value: unknown) {
 function toInventoryItem(value: unknown) {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw || typeof raw !== 'object') return null;
-  return raw as { name?: unknown; unit_name?: unknown };
+  return raw as { name?: unknown; unit_name?: unknown; current_stock_units?: unknown };
 }
 
 export default async function InventoryCountDetailPage({ params }: PageProps) {
@@ -47,7 +47,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
         difference_quantity_units,
         line_status,
         note,
-        inventory_items!inventory_count_lines_inventory_item_id_fkey(name,unit_name)
+        inventory_items!inventory_count_lines_inventory_item_id_fkey(name,unit_name,current_stock_units)
       `)
       .eq('inventory_count_id', countId)
       .order('id', { ascending: true }),
@@ -87,6 +87,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
       itemName: inventoryDisplayText(String(inventoryItem?.name ?? `Ítem #${inventoryItemId}`)),
       unitName: inventoryUnitLabel(String(inventoryItem?.unit_name ?? 'unidad')),
       expectedQuantityUnits: toNullableNumber(rawLine.expected_quantity_units) ?? 0,
+      currentStockUnits: toNullableNumber(inventoryItem?.current_stock_units) ?? 0,
       countedQuantityUnits: toNullableNumber(rawLine.counted_quantity_units),
       differenceQuantityUnits: toNullableNumber(rawLine.difference_quantity_units),
       lineStatus: String(rawLine.line_status),
@@ -105,6 +106,8 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
       lines={lines}
       childrenCounts={childrenCounts}
       isAdmin={ctx.roles.includes('admin')}
+      canReview={ctx.roles.includes('admin') || ctx.roles.includes('master')}
+      returnHref={ctx.roles.includes('master') ? '/app/master/ops/inventory?view=counts' : '/app/inventory/counts'}
     />
   );
 }

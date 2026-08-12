@@ -508,14 +508,14 @@ type RawProductRow = {
   packaging_size: number | string | null;
   current_stock_units: number | string | null;
   low_stock_threshold: number | string | null;
-  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other' | null;
+  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other' | null;
 };
 
 type RawInventoryItemRow = {
   id: number;
   name: string;
   inventory_kind: 'raw_material' | 'prepared_base' | 'finished_stock' | 'packaging';
-  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'packaging' | 'other' | null;
+  inventory_group: 'raw' | 'fried' | 'prefried' | 'sauces' | 'beverages' | 'packaging' | 'other' | null;
   unit_name: string;
   packaging_name: string | null;
   packaging_size: number | string | null;
@@ -3022,6 +3022,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       p.inventory_group === 'fried' ||
       p.inventory_group === 'prefried' ||
       p.inventory_group === 'sauces' ||
+      p.inventory_group === 'beverages' ||
       p.inventory_group === 'packaging'
         ? p.inventory_group
         : ('other' as const),
@@ -3043,6 +3044,7 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
       row.inventory_group === 'fried' ||
       row.inventory_group === 'prefried' ||
       row.inventory_group === 'sauces' ||
+      row.inventory_group === 'beverages' ||
       row.inventory_group === 'packaging'
         ? row.inventory_group
         : ('other' as const),
