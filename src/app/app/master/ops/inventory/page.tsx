@@ -7,6 +7,7 @@ import MasterInventoryClient, {
   type MasterInventoryAlert,
   type MasterInventoryCount,
   type MasterInventoryItem,
+  type MasterInventoryProduct,
   type MasterInventorySuspension,
 } from './MasterInventoryClient';
 
@@ -84,6 +85,15 @@ type InventorySuspensionRow = {
   effective_at: string | null;
   notes: string | null;
   created_at: string;
+  capture_details: unknown;
+};
+
+type InventoryProductRow = {
+  id: number | string;
+  sku: string | null;
+  name: string;
+  type: string;
+  inventory_policy: string | null;
 };
 
 type CountHeaderRow = {
@@ -144,7 +154,7 @@ export default async function MasterInventoryPage() {
   if (!ctx) redirect('/login');
   if (!isMasterOrAdminRole(ctx.roles)) redirect(resolveHomePath(ctx.roles));
 
-  const [workspaceResult, alertWorkspaceResult, suspensionResult, activeCountsResult, recentCountsResult] = await Promise.all([
+  const [workspaceResult, alertWorkspaceResult, suspensionResult, productResult, activeCountsResult, recentCountsResult] = await Promise.all([
     ctx.supabase.rpc('inventory_reporting_workspace_v1', { p_horizon_days: 10 }),
     ctx.supabase.rpc('inventory_alert_workspace_v1', {
       p_surface: 'master_inventory',
@@ -152,10 +162,17 @@ export default async function MasterInventoryPage() {
     }),
     ctx.supabase
       .from('inventory_planned_flows')
-      .select('id,inventory_item_id,effective_at,notes,created_at')
+      .select('id,inventory_item_id,effective_at,notes,created_at,capture_details')
       .eq('flow_type', 'declared_unavailability')
       .eq('status', 'active')
       .order('created_at', { ascending: false }),
+    ctx.supabase
+      .from('products')
+      .select('id,sku,name,type,inventory_policy')
+      .eq('is_active', true)
+      .eq('inventory_configuration_status', 'ready')
+      .neq('inventory_policy', 'none')
+      .order('name', { ascending: true }),
     ctx.supabase
       .from('inventory_counts')
       .select('id,count_kind,status,responsible_role,parent_count_id,due_at,submitted_at,reviewed_at,notes,created_at')
@@ -168,7 +185,7 @@ export default async function MasterInventoryPage() {
       .limit(40),
   ]);
 
-  const firstError = workspaceResult.error ?? alertWorkspaceResult.error ?? suspensionResult.error ?? activeCountsResult.error ?? recentCountsResult.error;
+  const firstError = workspaceResult.error ?? alertWorkspaceResult.error ?? suspensionResult.error ?? productResult.error ?? activeCountsResult.error ?? recentCountsResult.error;
   if (firstError) throw new Error(`No se pudo cargar el control operativo de inventario: ${firstError.message}`);
 
   const activeCounts = (activeCountsResult.data ?? []) as CountHeaderRow[];
@@ -262,6 +279,15 @@ export default async function MasterInventoryPage() {
     });
 
   const itemById = new Map(items.map((item) => [item.id, item]));
+  const products: MasterInventoryProduct[] = ((productResult.data ?? []) as InventoryProductRow[])
+    .map((product) => ({
+      id: Number(product.id),
+      sku: product.sku ? inventoryDisplayText(product.sku) : null,
+      name: inventoryDisplayText(product.name),
+      type: product.type,
+      inventoryPolicy: product.inventory_policy,
+    }));
+  const productById = new Map(products.map((product) => [product.id, product]));
   const generatedAtMs = new Date(workspace.generated_at).getTime();
   const suspensions: MasterInventorySuspension[] = ((suspensionResult.data ?? []) as InventorySuspensionRow[])
     .filter((flow) => {
@@ -272,10 +298,19 @@ export default async function MasterInventoryPage() {
     .map((flow) => {
       const itemId = Number(flow.inventory_item_id);
       const item = itemById.get(itemId);
+      const details = inventoryObject(flow.capture_details);
+      const isProductScope = details.unavailability_scope === 'product';
+      const productId = isProductScope ? Number(details.product_id ?? 0) : null;
+      const product = productId ? productById.get(productId) : null;
       return {
         id: Number(flow.id),
+        scope: isProductScope ? 'product' as const : 'inventory_item' as const,
+        productId,
         inventoryItemId: itemId,
-        itemName: item?.name ?? `Ítem #${itemId}`,
+        itemName: product?.name
+          ?? (details.product_name ? inventoryDisplayText(String(details.product_name)) : null)
+          ?? item?.name
+          ?? `Ítem #${itemId}`,
         unitName: item?.unitName ?? 'unidad',
         availableFrom: flow.effective_at,
         notes: flow.notes ? inventoryDisplayText(flow.notes) : null,
@@ -365,7 +400,7 @@ export default async function MasterInventoryPage() {
       </header>
 
       <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
-        <MasterInventoryClient items={items} counts={countSummaries} supplies={supplies} alerts={alerts} suspensions={suspensions} />
+        <MasterInventoryClient products={products} items={items} counts={countSummaries} supplies={supplies} alerts={alerts} suspensions={suspensions} />
       </div>
     </main>
   );

@@ -60,6 +60,7 @@ export type InventoryProductAvailability = {
   is_commercially_suspended?: boolean;
   suspended_until?: string;
   suspended_inventory_items?: string[];
+  suspended_products?: string[];
   internal_details?: {
     inventory_item_count: number;
     configuration_status: string;

@@ -387,10 +387,16 @@ export async function updateInventoryProductPhysicalConfigurationAction(input: {
   inventoryPolicy: 'self' | 'direct' | 'components' | 'none';
   detailUnitsLimit: number;
   changeNote: string | null;
-  links: Array<{
-    inventoryItemId: number;
-    quantityUnits: number;
-    deductionStage: 'kitchen' | 'production' | 'packing' | 'fulfillment' | null;
+  routes: Array<{
+    key: string;
+    name: string;
+    mode: 'primary' | 'master_fallback';
+    links: Array<{
+      inventoryItemId: number;
+      quantityUnits: number;
+      halfQuantityUnits: number | null;
+      deductionStage: 'kitchen' | 'production' | 'packing' | 'fulfillment' | null;
+    }>;
   }>;
   components: Array<{
     componentProductId: number;
@@ -413,27 +419,53 @@ export async function updateInventoryProductPhysicalConfigurationAction(input: {
   if (!Number.isSafeInteger(detailUnitsLimit) || detailUnitsLimit < 0) {
     throw new Error('El límite seleccionable debe ser un entero mayor o igual a cero.');
   }
-  if (!Array.isArray(input.links) || input.links.length > 50) {
-    throw new Error('La configuración admite hasta 50 consumos directos.');
+  if (!Array.isArray(input.routes) || input.routes.length > 10) {
+    throw new Error('La configuración admite hasta 10 rutas físicas.');
   }
   if (!Array.isArray(input.components) || input.components.length > 100) {
     throw new Error('La configuración admite hasta 100 componentes.');
   }
 
-  const seenItems = new Set<number>();
-  const links = input.links.map((line) => {
-    const inventoryItemId = normalizeCountId(line.inventoryItemId);
-    if (seenItems.has(inventoryItemId)) {
-      throw new Error('Un ítem físico no puede repetirse.');
+  const seenRouteKeys = new Set<string>();
+  const routes = input.routes.map((route) => {
+    const routeKey = String(route.key ?? '').trim().toLowerCase();
+    const routeName = String(route.name ?? '').trim();
+    if (!/^[a-z][a-z0-9_]{0,47}$/.test(routeKey) || seenRouteKeys.has(routeKey)) {
+      throw new Error('Las claves de las rutas no son válidas o están repetidas.');
     }
-    seenItems.add(inventoryItemId);
-    if (line.deductionStage != null && !['kitchen', 'production', 'packing', 'fulfillment'].includes(line.deductionStage)) {
-      throw new Error('La etapa de descuento no es válida.');
+    seenRouteKeys.add(routeKey);
+    if (!routeName || routeName.length > 100) {
+      throw new Error('Cada ruta requiere un nombre de hasta 100 caracteres.');
     }
+    if (!['primary', 'master_fallback'].includes(route.mode)) {
+      throw new Error('El modo de la ruta no es válido.');
+    }
+    if (!Array.isArray(route.links) || route.links.length < 1 || route.links.length > 50) {
+      throw new Error('Cada ruta requiere entre 1 y 50 consumos físicos.');
+    }
+    const seenItems = new Set<number>();
     return {
-      inventory_item_id: inventoryItemId,
-      quantity_units: normalizePositiveQuantity(line.quantityUnits, 'La cantidad descontada'),
-      deduction_stage: line.deductionStage,
+      key: routeKey,
+      name: routeName,
+      mode: route.mode,
+      links: route.links.map((line) => {
+        const inventoryItemId = normalizeCountId(line.inventoryItemId);
+        if (seenItems.has(inventoryItemId)) {
+          throw new Error('Un ítem físico no puede repetirse dentro de la misma ruta.');
+        }
+        seenItems.add(inventoryItemId);
+        if (line.deductionStage != null && !['kitchen', 'production', 'packing', 'fulfillment'].includes(line.deductionStage)) {
+          throw new Error('La etapa de descuento no es válida.');
+        }
+        return {
+          inventory_item_id: inventoryItemId,
+          quantity_units: normalizePositiveQuantity(line.quantityUnits, 'La cantidad descontada'),
+          half_quantity_units: line.halfQuantityUnits == null
+            ? null
+            : normalizePositiveQuantity(line.halfQuantityUnits, 'La cantidad del medio servicio'),
+          deduction_stage: line.deductionStage,
+        };
+      }),
     };
   });
 
@@ -458,14 +490,14 @@ export async function updateInventoryProductPhysicalConfigurationAction(input: {
   });
 
   const { data, error } = await ctx.supabase.rpc(
-    'inventory_update_product_physical_configuration_v1',
+    'inventory_update_product_routes_v1',
     {
       p_configuration: {
         product_id: productId,
         inventory_policy: input.inventoryPolicy,
         detail_units_limit: detailUnitsLimit,
         change_note: normalizeNotes(input.changeNote),
-        links: input.inventoryPolicy === 'self' || input.inventoryPolicy === 'direct' ? links : [],
+        routes: input.inventoryPolicy === 'self' || input.inventoryPolicy === 'direct' ? routes : [],
         components: input.inventoryPolicy === 'components' ? components : [],
       },
     },

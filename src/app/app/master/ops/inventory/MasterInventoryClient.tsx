@@ -8,6 +8,7 @@ import {
   cancelMasterInventorySuspensionAction,
   requestMasterInventoryCountAction,
   saveMasterInventoryExpectedReceiptAction,
+  saveMasterInventoryProductSuspensionAction,
   saveMasterInventorySuspensionAction,
 } from './actions';
 
@@ -78,12 +79,22 @@ export type MasterInventoryAlert = {
 
 export type MasterInventorySuspension = {
   id: number;
+  scope: 'product' | 'inventory_item';
+  productId: number | null;
   inventoryItemId: number;
   itemName: string;
   unitName: string;
   availableFrom: string | null;
   notes: string | null;
   createdAt: string;
+};
+
+export type MasterInventoryProduct = {
+  id: number;
+  sku: string | null;
+  name: string;
+  type: string;
+  inventoryPolicy: string | null;
 };
 
 type MasterInventoryView = 'overview' | 'stock' | 'counts';
@@ -153,12 +164,14 @@ function countItemSummary(count: MasterInventoryCount) {
 }
 
 export default function MasterInventoryClient({
+  products,
   items,
   counts,
   supplies,
   alerts,
   suspensions,
 }: {
+  products: MasterInventoryProduct[];
   items: MasterInventoryItem[];
   counts: MasterInventoryCount[];
   supplies: MasterInventorySupply[];
@@ -187,6 +200,8 @@ export default function MasterInventoryClient({
   const [isSavingReceipt, startReceiptTransition] = useTransition();
   const [cancellingSupplyId, setCancellingSupplyId] = useState<number | null>(null);
   const [suspensionItemId, setSuspensionItemId] = useState('');
+  const [suspensionScope, setSuspensionScope] = useState<'product' | 'inventory_item'>('product');
+  const [suspensionProductId, setSuspensionProductId] = useState('');
   const [suspensionIndefinite, setSuspensionIndefinite] = useState(false);
   const [suspensionAvailableFrom, setSuspensionAvailableFrom] = useState('');
   const [suspensionNotes, setSuspensionNotes] = useState('');
@@ -334,8 +349,13 @@ export default function MasterInventoryClient({
   function submitSuspension() {
     setSuspensionError(null);
     setSuspensionSuccess(null);
+    const productId = Number(suspensionProductId);
     const inventoryItemId = Number(suspensionItemId);
-    if (!Number.isSafeInteger(inventoryItemId) || inventoryItemId <= 0) {
+    if (
+      suspensionScope === 'product'
+        ? (!Number.isSafeInteger(productId) || productId <= 0)
+        : (!Number.isSafeInteger(inventoryItemId) || inventoryItemId <= 0)
+    ) {
       setSuspensionError('Selecciona el producto que se va a detener.');
       return;
     }
@@ -346,13 +366,16 @@ export default function MasterInventoryClient({
 
     startSuspensionTransition(async () => {
       try {
-        const result = await saveMasterInventorySuspensionAction({
+        const common = {
           operationId: crypto.randomUUID(),
-          inventoryItemId,
           availableFrom: suspensionIndefinite ? null : new Date(suspensionAvailableFrom).toISOString(),
           notes: suspensionNotes,
-        });
+        };
+        const result = suspensionScope === 'product'
+          ? await saveMasterInventoryProductSuspensionAction({ ...common, productId })
+          : await saveMasterInventorySuspensionAction({ ...common, inventoryItemId });
         setSuspensionSuccess(`Suspensión #${result.suspensionId} activada.`);
+        setSuspensionProductId('');
         setSuspensionItemId('');
         setSuspensionIndefinite(false);
         setSuspensionAvailableFrom('');
@@ -532,16 +555,46 @@ export default function MasterInventoryClient({
           <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
             <div>
               <h2 className="text-lg font-bold text-rose-100">Detener ventas temporalmente</h2>
-              <p className="mt-1 text-sm leading-6 text-[#C7A8AE]">Esta es una decisión explícita de Máster. No cambia el stock ni cancela pedidos ya creados.</p>
+              <p className="mt-1 text-sm leading-6 text-[#C7A8AE]">
+                Detener un producto también detiene los combos que lo llevan fijo. Si es seleccionable,
+                solo se deshabilita esa opción. No cambia el stock ni cancela pedidos ya creados.
+              </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <label className="text-sm text-[#D1C2C5] sm:col-span-2">Producto o insumo físico
-                  <select value={suspensionItemId} onChange={(event) => setSuspensionItemId(event.target.value)} className={`mt-1 ${inputClass}`}>
-                    <option value="">Seleccionar</option>
-                    {[...items].sort((left, right) => left.name.localeCompare(right.name, 'es')).map((item) => (
-                      <option key={item.id} value={item.id}>{item.name}</option>
-                    ))}
-                  </select>
-                </label>
+                <div className="flex gap-2 sm:col-span-2">
+                  <button
+                    type="button"
+                    onClick={() => setSuspensionScope('product')}
+                    className={`rounded-xl border px-3 py-2 text-xs font-bold ${suspensionScope === 'product' ? 'border-rose-200 bg-rose-200 text-rose-950' : 'border-rose-300/25 text-rose-100'}`}
+                  >
+                    Producto del catálogo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSuspensionScope('inventory_item')}
+                    className={`rounded-xl border px-3 py-2 text-xs font-bold ${suspensionScope === 'inventory_item' ? 'border-rose-200 bg-rose-200 text-rose-950' : 'border-rose-300/25 text-rose-100'}`}
+                  >
+                    Insumo físico
+                  </button>
+                </div>
+                {suspensionScope === 'product' ? (
+                  <label className="text-sm text-[#D1C2C5] sm:col-span-2">Producto que dejará de venderse
+                    <select value={suspensionProductId} onChange={(event) => setSuspensionProductId(event.target.value)} className={`mt-1 ${inputClass}`}>
+                      <option value="">Seleccionar producto</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>{product.name}{product.sku ? ` · ${product.sku}` : ''}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <label className="text-sm text-[#D1C2C5] sm:col-span-2">Insumo físico que detendrá todos sus consumidores
+                    <select value={suspensionItemId} onChange={(event) => setSuspensionItemId(event.target.value)} className={`mt-1 ${inputClass}`}>
+                      <option value="">Seleccionar insumo</option>
+                      {[...items].sort((left, right) => left.name.localeCompare(right.name, 'es')).map((item) => (
+                        <option key={item.id} value={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label className="text-sm text-[#D1C2C5]">Disponible nuevamente
                   <input type="datetime-local" disabled={suspensionIndefinite} value={suspensionAvailableFrom} onChange={(event) => setSuspensionAvailableFrom(event.target.value)} className={`mt-1 ${inputClass} disabled:opacity-45`} />
                 </label>
@@ -576,6 +629,9 @@ export default function MasterInventoryClient({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="font-semibold text-white">{suspension.itemName}</div>
+                        <div className="mt-1 text-[10px] font-black uppercase tracking-wide text-[#A99196]">
+                          {suspension.scope === 'product' ? 'Producto del catálogo' : 'Insumo físico'}
+                        </div>
                         <div className="mt-1 text-xs font-semibold text-rose-200">
                           {suspension.availableFrom ? `Hasta ${formatDate(suspension.availableFrom)}` : 'Sin fecha de reanudación'}
                         </div>

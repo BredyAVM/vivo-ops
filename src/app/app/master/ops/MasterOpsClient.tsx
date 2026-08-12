@@ -73,6 +73,7 @@ import {
   decideCounterPickupChangeAction,
   loadMasterOpsOrderDetailAction,
   loadMasterOpsPaymentSuggestionAction,
+  selectMasterOpsOrderInventoryRouteAction,
   settleMasterOpsClientFundPayoutAction,
   searchMasterOpsOrdersAction,
   type MasterOpsOrderDetailPayload,
@@ -843,6 +844,29 @@ function MasterOpsOrderInventoryPanel({
   inventory: MasterOpsOrderInventoryPreview | undefined;
   onRefresh: () => void;
 }) {
+  const [isRoutePending, startRouteTransition] = useTransition();
+  const [pendingRouteKey, setPendingRouteKey] = useState<string | null>(null);
+  const [routeError, setRouteError] = useState<string | null>(null);
+
+  function selectRoute(orderItemId: number, routeKey: string) {
+    const actionKey = `${orderItemId}:${routeKey}`;
+    setPendingRouteKey(actionKey);
+    setRouteError(null);
+    startRouteTransition(async () => {
+      const result = await selectMasterOpsOrderInventoryRouteAction({
+        orderItemId,
+        routeKey,
+      });
+      if (!result.ok) {
+        setRouteError(result.message);
+        setPendingRouteKey(null);
+        return;
+      }
+      setPendingRouteKey(null);
+      onRefresh();
+    });
+  }
+
   if (!inventory || inventory.status === "unavailable") {
     return (
       <div className="mt-4 rounded-xl border border-amber-500/35 bg-amber-500/5 p-4">
@@ -933,6 +957,92 @@ function MasterOpsOrderInventoryPanel({
           </div>
         ) : null}
       </div>
+
+      {inventory.routeOptions.length > 0 ? (
+        <div className="rounded-xl border border-[#343442] bg-[#121218] p-3">
+          <div className="text-sm font-semibold text-[#F5F5F7]">Fuente física a utilizar</div>
+          <div className="mt-1 text-[11px] leading-relaxed text-[#8A8A96]">
+            La ruta principal se aplica automáticamente. Máster puede elegir una alternativa operativa
+            para esta orden; esto cambia de cuál existencia se compromete y descuenta, pero nunca convierte
+            un producto en otro ni bloquea el proceso.
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {inventory.routeOptions.map((option) => (
+              <div key={option.orderItemId} className="rounded-lg border border-[#242433] bg-[#0B0B0D] p-3">
+                <div className="text-sm font-semibold text-[#F5F5F7]">{option.productName}</div>
+                <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                  {option.routes.map((route) => {
+                    const selected = option.selectedRouteKey === route.key;
+                    const actionKey = `${option.orderItemId}:${route.key}`;
+                    const routeBusy = isRoutePending && pendingRouteKey === actionKey;
+                    const routeTone = selected
+                      ? "border-emerald-400/45 bg-emerald-400/5"
+                      : route.mode === "master_fallback"
+                        ? "border-amber-400/30 bg-amber-400/5"
+                        : "border-[#343442] bg-[#121218]";
+
+                    return (
+                      <div key={route.key} className={`rounded-lg border p-3 ${routeTone}`}>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-semibold text-[#F5F5F7]">{route.name}</div>
+                            <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[#8A8A96]">
+                              {route.mode === "primary" ? "Ruta principal" : "Alternativa de Máster"}
+                            </div>
+                          </div>
+                          <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${
+                            selected
+                              ? "border-emerald-400/40 text-emerald-200"
+                              : route.decision === "insufficient"
+                                ? "border-amber-400/40 text-amber-200"
+                                : "border-[#343442] text-[#B7B7C2]"
+                          }`}>
+                            {selected
+                              ? "SELECCIONADA"
+                              : route.decision === "insufficient"
+                                ? "REVISAR EXISTENCIA"
+                                : "DISPONIBLE PARA ELEGIR"}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 space-y-1.5">
+                          {route.lines.map((line) => (
+                            <div
+                              key={line.itemId}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-black/20 px-2.5 py-2 text-[11px]"
+                            >
+                              <span className="text-[#D7D7DE]">{line.itemName}</span>
+                              <span className="font-semibold text-[#F5F5F7]">
+                                {formatMasterInventoryQuantity(line.requestedUnits, line.unitName)} requeridas
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={selected || isRoutePending}
+                          onClick={() => selectRoute(option.orderItemId, route.key)}
+                          className="mt-3 w-full rounded-lg border border-[#FEEF00]/60 px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:bg-[#FEEF00]/10 disabled:cursor-not-allowed disabled:border-[#343442] disabled:text-[#8A8A96]"
+                        >
+                          {selected ? "Ruta aplicada" : routeBusy ? "Aplicando..." : "Usar esta ruta"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {routeError ? (
+            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-200">
+              {routeError}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-[#242433] bg-[#121218] p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">

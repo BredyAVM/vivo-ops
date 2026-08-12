@@ -86,17 +86,18 @@ type ProductAvailability = {
     | 'requires_opening'
     | 'availability_unknown'
     | 'unavailable'
+    | 'declared_unavailable'
     | 'relies_on_incoming'
     | 'low'
     | 'available';
-  severity: 'info' | 'warning';
+  severity: 'info' | 'warning' | 'critical';
   message: string;
   available_without_affecting_confirmed: number | null;
   available_without_planned_incoming: number | null;
   depends_on_incoming: boolean;
   next_available_at: string | null;
   requires_master_review: boolean;
-  inventory_blocks_submission: false;
+  inventory_blocks_submission: boolean;
 };
 
 type ProductComponentRow = {
@@ -121,6 +122,8 @@ type ConfigOption = ProductRow & {
   isRequired: boolean;
   countsTowardDetailLimit: boolean;
   sortOrder: number;
+  inventoryBlocked: boolean;
+  inventoryMessage: string | null;
 };
 
 type DraftItem = {
@@ -455,6 +458,9 @@ function availabilityTone(availability: ProductAvailability | null) {
   if (availability.availability_state === 'available') {
     return 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]';
   }
+  if (availability.availability_state === 'declared_unavailable') {
+    return 'border-red-500/45 bg-red-500/10 text-red-100';
+  }
   return 'border-[#564511] bg-[#2A2209] text-[#F7DA66]';
 }
 
@@ -464,6 +470,7 @@ function availabilityLabel(availability: ProductAvailability | null) {
     case 'available': return 'Disponible';
     case 'low': return 'Quedan pocos';
     case 'unavailable': return 'Sin disponibilidad protegida';
+    case 'declared_unavailable': return 'Venta detenida por Máster';
     case 'relies_on_incoming': return 'Depende de reposición';
     case 'outside_horizon': return 'Fuera de 10 días';
     case 'selection_required': return 'Depende de la selección';
@@ -1214,9 +1221,14 @@ function ConfigSheet(props: {
   if (!props.open) return null;
 
   const remaining = props.totalLimit > 0 ? props.totalLimit - props.totalSelected : 0;
-  const canConfirm =
-    props.options.length === 0 ||
-    (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : true);
+  const hasBlockedSelection = props.selections.some((selection) =>
+    selection.qty > 0
+    && props.options.some((option) => option.id === selection.componentProductId && option.inventoryBlocked),
+  );
+  const canConfirm = !hasBlockedSelection && (
+    props.options.length === 0
+    || (props.totalLimit > 0 ? props.totalSelected === props.totalLimit : true)
+  );
 
   return (
     <div className="advisor-fade-in fixed inset-0 z-40 bg-[#040507]/84 backdrop-blur-sm">
@@ -1284,16 +1296,19 @@ function ConfigSheet(props: {
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium text-[#F5F7FB]">{option.name}</div>
-                        <div className="mt-1 text-xs text-[#8B93A7]">
-                          {isOptionalFixed ? 'Opcional' : option.sku || 'Sin codigo'}
+                        <div className={`mt-1 text-xs ${option.inventoryBlocked ? 'text-red-300' : 'text-[#8B93A7]'}`}>
+                          {option.inventoryBlocked
+                            ? option.inventoryMessage ?? 'Venta detenida por Máster'
+                            : isOptionalFixed ? 'Opcional' : option.sku || 'Sin codigo'}
                         </div>
                       </div>
                       {isOptionalFixed ? (
                         <button
                           type="button"
+                          disabled={option.inventoryBlocked}
                           onClick={() => props.onChangeQty(option, currentQty > 0 ? 0 : option.componentQuantity || 1)}
                           className={[
-                            'h-11 rounded-[14px] border px-3 text-sm font-semibold',
+                            'h-11 rounded-[14px] border px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-45',
                             currentQty > 0
                               ? 'border-[#F0D000] bg-[#201B08] text-[#F7DA66]'
                               : 'border-[#232632] bg-[#12151d] text-[#F5F7FB]',
@@ -1305,22 +1320,25 @@ function ConfigSheet(props: {
                         <div className="grid grid-cols-[38px_minmax(44px,1fr)_38px] gap-2">
                           <button
                             type="button"
+                            disabled={option.inventoryBlocked}
                             onClick={() => props.onChangeQty(option, Math.max(0, currentQty - 1))}
-                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB] disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             -
                           </button>
                           <input
+                            disabled={option.inventoryBlocked}
                             value={String(currentQty)}
                             onChange={(e) => props.onChangeQty(option, Number(e.target.value || 0))}
                             onFocus={(e) => e.currentTarget.select()}
-                            className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80]"
+                            className="h-11 min-w-0 w-full rounded-[14px] border border-[#232632] bg-[#12151d] px-0 text-center text-base font-semibold text-[#F5F7FB] placeholder:text-[#636C80] disabled:cursor-not-allowed disabled:opacity-45"
                             inputMode="numeric"
                           />
                           <button
                             type="button"
+                            disabled={option.inventoryBlocked}
                             onClick={() => props.onChangeQty(option, currentQty + 1)}
-                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB]"
+                            className="h-11 rounded-[14px] border border-[#232632] bg-[#12151d] text-base font-semibold text-[#F5F7FB] disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             +
                           </button>
@@ -1579,10 +1597,13 @@ export default function AdvisorOrderComposer({
           isRequired: Boolean(row.is_required),
           countsTowardDetailLimit: row.counts_toward_detail_limit !== false,
           sortOrder: Number(row.sort_order || 0),
+          inventoryBlocked: !isEditingOrder
+            && Boolean(availabilityByProductId.get(product.id)?.inventory_blocks_submission),
+          inventoryMessage: availabilityByProductId.get(product.id)?.message ?? null,
         } satisfies ConfigOption;
       })
       .filter((row): row is ConfigOption => !!row);
-  }, [configProductId, productById, productComponents]);
+  }, [availabilityByProductId, configProductId, isEditingOrder, productById, productComponents]);
 
   const configBaseLimit = Number(configProduct?.detail_units_limit || 0);
   const configTotalLimit = configBaseLimit > 0 ? configBaseLimit * Math.max(1, configQty) : 0;
@@ -2886,6 +2907,13 @@ export default function AdvisorOrderComposer({
       setError('Selecciona un producto.');
       return;
     }
+    if (!isEditingOrder && availabilityByProductId.get(selectedProduct.id)?.inventory_blocks_submission) {
+      setError(
+        availabilityByProductId.get(selectedProduct.id)?.message
+          ?? 'Máster detuvo temporalmente la venta de este producto.',
+      );
+      return;
+    }
 
     const quantity = parseQuantityValue(qty);
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -2960,6 +2988,16 @@ export default function AdvisorOrderComposer({
   function confirmConfig() {
     if (!configProduct) {
       setError('No se encontro el producto a configurar.');
+      return;
+    }
+
+    const blockedSelection = !isEditingOrder && configSelections.find(
+      (selection) =>
+        selection.qty > 0
+        && availabilityByProductId.get(selection.componentProductId)?.inventory_blocks_submission,
+    );
+    if (blockedSelection) {
+      setError(`${blockedSelection.name} está detenido temporalmente por Máster.`);
       return;
     }
 
@@ -3374,6 +3412,17 @@ export default function AdvisorOrderComposer({
 
     clearMessages();
 
+    const blockedDraft = draftItems.find((item) =>
+      availabilityByProductId.get(item.product_id)?.inventory_blocks_submission,
+    );
+    if (!isEditingOrder && blockedDraft) {
+      setError(
+        availabilityByProductId.get(blockedDraft.product_id)?.message
+          ?? `${blockedDraft.product_name_snapshot} está detenido temporalmente por Máster.`,
+      );
+      return;
+    }
+
     if (!createReady) {
       if (!scheduleReady) {
         setError('Falta colocar la fecha y la hora de entrega.');
@@ -3408,6 +3457,37 @@ export default function AdvisorOrderComposer({
     if (!isEditingOrder && !isAsap && isPastAdvisorSchedule(deliveryDate.trim(), deliveryTime24)) {
       setError('No puedes crear una orden con fecha y hora anteriores al momento actual.');
       return;
+    }
+
+    if (!isEditingOrder && availabilityTargetAt) {
+      const selectedComponentIds = draftItems.flatMap((item) =>
+        item.editable_detail_lines.flatMap((line) => {
+          const match = line.match(/^@sel\|([1-9][0-9]*)\|/);
+          return match ? [Number(match[1])] : [];
+        }),
+      );
+      const productIds = Array.from(new Set([
+        ...draftItems.map((item) => item.product_id),
+        ...selectedComponentIds,
+      ])).slice(0, 200);
+      const { data: currentAvailability, error: availabilityValidationError } = await supabase.rpc(
+        'inventory_catalog_availability_v1',
+        {
+          p_target_at: availabilityTargetAt,
+          p_product_ids: productIds,
+          p_surface: 'advisor_availability',
+        },
+      );
+      if (!availabilityValidationError) {
+        const blocked = Array.isArray(currentAvailability?.products)
+          ? (currentAvailability.products as ProductAvailability[])
+            .find((product) => product.inventory_blocks_submission)
+          : null;
+        if (blocked) {
+          setError(blocked.message || 'Máster detuvo temporalmente uno de los productos para esa fecha.');
+          return;
+        }
+      }
     }
 
     if (advisorRecalculationMode) {

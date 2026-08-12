@@ -36,7 +36,7 @@ type CounterProductAvailability = {
   availability_state: string;
   message: string;
   requires_master_review: boolean;
-  inventory_blocks_submission: false;
+  inventory_blocks_submission: boolean;
 };
 
 const QUICK_SALE_PAYMENT_METHODS = [
@@ -89,6 +89,7 @@ function availabilityLabel(availability: CounterProductAvailability | null) {
     case 'available': return 'Disponible';
     case 'low': return 'Quedan pocos';
     case 'unavailable': return 'Sin disponibilidad protegida';
+    case 'declared_unavailable': return 'Venta detenida por Máster';
     case 'relies_on_incoming': return 'Depende de reposición';
     case 'outside_horizon': return 'Fuera de 10 días';
     case 'selection_required': return 'Depende de la selección';
@@ -100,6 +101,9 @@ function availabilityLabel(availability: CounterProductAvailability | null) {
 function availabilityTone(availability: CounterProductAvailability | null) {
   if (availability?.availability_state === 'available') {
     return 'border-emerald-400/35 bg-emerald-400/10 text-emerald-100';
+  }
+  if (availability?.availability_state === 'declared_unavailable') {
+    return 'border-red-500/45 bg-red-500/10 text-red-100';
   }
   if (availability?.availability_state === 'not_tracked' || !availability) {
     return 'border-sky-400/30 bg-sky-400/10 text-sky-100';
@@ -389,6 +393,13 @@ export function CounterQuickSalePanel({
       setLocalError('Selecciona un producto valido.');
       return;
     }
+    if (availabilityByProductId.get(product.id)?.inventory_blocks_submission) {
+      setLocalError(
+        availabilityByProductId.get(product.id)?.message
+          ?? 'Máster detuvo temporalmente la venta de este producto.',
+      );
+      return;
+    }
     if (!Number.isFinite(itemQty) || itemQty <= 0) {
       setLocalError('Indica una cantidad valida.');
       return;
@@ -465,6 +476,16 @@ export function CounterQuickSalePanel({
   function confirmProductConfig() {
     if (!configProduct) return;
 
+    const suspendedSelection = configSelections.find(
+      (selection) =>
+        selection.qty > 0
+        && availabilityByProductId.get(selection.componentProductId)?.inventory_blocks_submission,
+    );
+    if (suspendedSelection) {
+      setLocalError(`${suspendedSelection.componentName} está detenido temporalmente por Máster.`);
+      return;
+    }
+
     const limit = Number(configProduct.detailUnitsLimit || 0);
     if (limit > 0 && configSelectedUnits !== limit) {
       setLocalError(`Debes seleccionar exactamente ${limit} piezas.`);
@@ -530,6 +551,16 @@ export function CounterQuickSalePanel({
     }
     if (cartItems.length === 0) {
       setLocalError('Agrega al menos un producto.');
+      return;
+    }
+    const blockedItem = cartItems.find((item) =>
+      availabilityByProductId.get(item.productId)?.inventory_blocks_submission,
+    );
+    if (blockedItem) {
+      setLocalError(
+        availabilityByProductId.get(blockedItem.productId)?.message
+          ?? 'Máster detuvo temporalmente uno de los productos de la venta.',
+      );
       return;
     }
 
@@ -925,6 +956,9 @@ export function CounterQuickSalePanel({
                 {configSelectableComponents.map((component) => {
                   const currentQty =
                     configSelections.find((row) => row.componentProductId === component.componentProductId)?.qty ?? 0;
+                  const componentSuspended = Boolean(
+                    availabilityByProductId.get(component.componentProductId)?.inventory_blocks_submission,
+                  );
 
                   return (
                     <label
@@ -935,6 +969,7 @@ export function CounterQuickSalePanel({
                         <span className="font-semibold">{component.componentName}</span>
                         <input
                           value={currentQty ? String(currentQty) : ''}
+                          disabled={componentSuspended}
                           onChange={(event) =>
                             setConfigSelectionQty(
                               component.componentProductId,
@@ -943,11 +978,13 @@ export function CounterQuickSalePanel({
                             )
                           }
                           inputMode="numeric"
-                          className="h-9 w-20 rounded-[8px] border border-[#303044] bg-[#111118] px-2 text-right text-sm outline-none focus:border-[#FEEF00]/70"
+                          className="h-9 w-20 rounded-[8px] border border-[#303044] bg-[#111118] px-2 text-right text-sm outline-none focus:border-[#FEEF00]/70 disabled:cursor-not-allowed disabled:opacity-45"
                         />
                       </div>
                       <div className="mt-1 text-[11px] text-[#9FA0AA]">
-                        {component.componentMode === 'fixed' ? 'Fijo opcional' : 'Seleccionable'}
+                        {componentSuspended
+                          ? 'No disponible por decisión de Máster'
+                          : component.componentMode === 'fixed' ? 'Fijo opcional' : 'Seleccionable'}
                         {component.countsTowardDetailLimit ? ' · cuenta para limite' : ''}
                       </div>
                     </label>

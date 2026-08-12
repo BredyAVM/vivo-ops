@@ -257,6 +257,37 @@ export async function saveMasterInventorySuspensionAction(input: {
   return { suspensionId };
 }
 
+export async function saveMasterInventoryProductSuspensionAction(input: {
+  operationId: string;
+  productId: number;
+  availableFrom?: string | null;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const operationId = normalizeOperationId(input.operationId);
+  const productId = normalizeItemId(input.productId);
+  const availableFrom = input.availableFrom == null || String(input.availableFrom).trim() === ''
+    ? null
+    : normalizeDueAt(input.availableFrom);
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_save_product_unavailability_v1', {
+    p_operation_id: operationId,
+    p_product_id: productId,
+    p_available_from: availableFrom,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+  const suspensionId = normalizeItemId(
+    (data as { unavailability_flow_id?: unknown } | null)?.unavailability_flow_id,
+  );
+  revalidateMasterInventoryWorkspace();
+  revalidatePath('/app/advisor/new');
+  revalidatePath('/app/counter');
+  return { suspensionId };
+}
+
 export async function cancelMasterInventorySuspensionAction(input: {
   suspensionId: number;
   notes?: string | null;

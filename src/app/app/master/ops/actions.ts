@@ -83,6 +83,32 @@ export type MasterOpsOrderInventoryLine = {
   unavailabilityNotes: string | null;
 };
 
+export type MasterOpsOrderInventoryRouteLine = {
+  itemId: number;
+  itemName: string;
+  unitName: string;
+  requestedUnits: number;
+  onHandUnits: number | null;
+  availableUnits: number | null;
+};
+
+export type MasterOpsOrderInventoryRoute = {
+  key: string;
+  name: string;
+  mode: "primary" | "master_fallback";
+  selected: boolean;
+  decision: string;
+  lines: MasterOpsOrderInventoryRouteLine[];
+};
+
+export type MasterOpsOrderInventoryRouteOption = {
+  orderItemId: number;
+  productId: number;
+  productName: string;
+  selectedRouteKey: string;
+  routes: MasterOpsOrderInventoryRoute[];
+};
+
 export type MasterOpsOrderInventoryPreview = {
   status: "ready" | "unavailable";
   decision:
@@ -98,6 +124,7 @@ export type MasterOpsOrderInventoryPreview = {
   horizonDays: number;
   horizonEndsAt: string | null;
   lines: MasterOpsOrderInventoryLine[];
+  routeOptions: MasterOpsOrderInventoryRouteOption[];
   message: string | null;
 };
 
@@ -168,6 +195,7 @@ function mapMasterOpsOrderInventoryPreview(
       horizonDays: 10,
       horizonEndsAt: null,
       lines: [],
+      routeOptions: [],
       message: "La lectura de inventario no estuvo disponible. La orden puede continuar normalmente.",
     };
   }
@@ -217,8 +245,43 @@ function mapMasterOpsOrderInventoryPreview(
     horizonDays: Math.max(1, Math.trunc(Number(preview.horizon_days || 10))),
     horizonEndsAt: preview.horizon_ends_at ? String(preview.horizon_ends_at) : null,
     lines,
+    routeOptions: [],
     message: null,
   };
+}
+
+function mapMasterOpsOrderInventoryRouteOptions(value: unknown): MasterOpsOrderInventoryRouteOption[] {
+  const payload = asOpsRecord(value);
+  return asOpsArray(payload.options).map((optionValue) => {
+    const option = asOpsRecord(optionValue);
+    return {
+      orderItemId: Math.trunc(Number(option.order_item_id || 0)),
+      productId: Math.trunc(Number(option.product_id || 0)),
+      productName: cleanText(option.product_name, "Producto"),
+      selectedRouteKey: cleanText(option.selected_route_key, "primary"),
+      routes: asOpsArray(option.routes).map((routeValue) => {
+        const route = asOpsRecord(routeValue);
+        return {
+          key: cleanText(route.key),
+          name: cleanText(route.name, "Ruta física"),
+          mode: route.mode === "master_fallback" ? "master_fallback" : "primary",
+          selected: Boolean(route.selected),
+          decision: cleanText(route.decision, "unknown"),
+          lines: asOpsArray(route.lines).map((lineValue) => {
+            const line = asOpsRecord(lineValue);
+            return {
+              itemId: Math.trunc(Number(line.inventory_item_id || 0)),
+              itemName: cleanText(line.inventory_item_name, "Ítem de inventario"),
+              unitName: inventoryUnitLabel(String(line.unit_name || "unidad")),
+              requestedUnits: optionalOpsNumber(line.requested_quantity_units) ?? 0,
+              onHandUnits: optionalOpsNumber(line.on_hand_units),
+              availableUnits: optionalOpsNumber(line.available_without_affecting_commitments),
+            };
+          }),
+        };
+      }),
+    };
+  });
 }
 
 function mapMasterOpsPickupPreviewItem(value: unknown): CounterPickupChangePreviewItem {
@@ -292,6 +355,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
       pickupChangeRequestsResult,
       financialActivityResult,
       inventoryPreviewResult,
+      inventoryRouteOptionsResult,
     ] = await Promise.all([
       supabase.from("orders").select("id, status").eq("id", orderId).maybeSingle(),
       loadOrderItems(),
@@ -332,6 +396,9 @@ export async function loadMasterOpsOrderDetailAction(input: {
         p_order_id: orderId,
       }),
       supabase.rpc("inventory_preview_order_commitment_v1", {
+        p_order_id: orderId,
+      }),
+      supabase.rpc("inventory_order_route_options_v1", {
         p_order_id: orderId,
       }),
     ]);
@@ -551,6 +618,11 @@ export async function loadMasterOpsOrderDetailAction(input: {
       inventoryPreviewResult.data,
       inventoryPreviewResult.error?.message ?? null
     );
+    if (!inventoryRouteOptionsResult.error) {
+      inventoryPreview.routeOptions = mapMasterOpsOrderInventoryRouteOptions(
+        inventoryRouteOptionsResult.data
+      );
+    }
 
     return {
       ok: true,
@@ -568,6 +640,53 @@ export async function loadMasterOpsOrderDetailAction(input: {
     return {
       ok: false,
       message: error instanceof Error ? error.message : "No se pudo cargar el detalle de la orden.",
+    };
+  }
+}
+
+export async function selectMasterOpsOrderInventoryRouteAction(input: {
+  orderItemId: number;
+  routeKey: string;
+}): Promise<
+  | { ok: true; orderId: number; message: string }
+  | { ok: false; message: string }
+> {
+  try {
+    const { supabase } = await requireMasterOrAdminContext();
+    const orderItemId = Math.trunc(Number(input.orderItemId || 0));
+    const routeKey = String(input.routeKey || "").trim().toLowerCase();
+
+    if (!Number.isSafeInteger(orderItemId) || orderItemId <= 0) {
+      throw new Error("La línea de la orden no es válida.");
+    }
+    if (!/^[a-z][a-z0-9_]{0,47}$/.test(routeKey)) {
+      throw new Error("La ruta física no es válida.");
+    }
+
+    const { data, error } = await supabase.rpc("inventory_select_order_item_route_v1", {
+      p_order_item_id: orderItemId,
+      p_route_key: routeKey,
+      p_note: null,
+    });
+    if (error) throw new Error(error.message);
+
+    const result = asOpsRecord(data);
+    const orderId = Math.trunc(Number(result.order_id || 0));
+    if (!Number.isSafeInteger(orderId) || orderId <= 0) {
+      throw new Error("Supabase no devolvió la orden actualizada.");
+    }
+
+    revalidatePath("/app/master/ops");
+    revalidatePath(`/orders/${orderId}`);
+    return {
+      ok: true,
+      orderId,
+      message: "La fuente física quedó actualizada sin bloquear la orden.",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "No se pudo actualizar la ruta física.",
     };
   }
 }

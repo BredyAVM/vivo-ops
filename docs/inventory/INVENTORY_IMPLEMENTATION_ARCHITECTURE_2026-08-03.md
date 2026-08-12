@@ -599,3 +599,65 @@ operativas significan:
 La migración `20260811190121_clarify_master_order_inventory_preview.sql`
 amplía el JSON de la función existente. No crea tablas ni columnas, no congela
 un segundo saldo y no modifica la regla no bloqueante de las órdenes.
+
+## 25. Rutas físicas alternativas por producto
+
+Un producto con política `direct` puede declarar varias formas válidas de
+cumplir su consumo físico. Siempre existe exactamente una ruta `primary`; esa
+ruta continúa reflejada en `product_inventory_links` para conservar como centro
+de verdad todos los reportes, alertas, compromisos y productos existentes. Las
+rutas adicionales son `master_fallback` y requieren una decisión explícita de
+Máster o Administración sobre una línea concreta de una orden.
+
+No se crea una tabla ni una columna paralela. La configuración validada se
+guarda en `products.extra_fields.inventory_routes_v1`, y la elección de la
+orden en `orders.extra_fields.inventory_route_selections`. El historial físico
+existente conserva también las rutas de la revisión anterior. Cada consumo
+declara su unidad completa y, cuando corresponda, la cantidad exacta de medio
+servicio.
+
+La selección no transforma inventario entre estados y no suma saldos de rutas.
+Por ejemplo, una Cachita Frita usa normalmente 20 UND de Cachitas Crudas; si
+Máster selecciona `Terminar desde prefrito`, consume 1 servicio de Cachitas
+Pre-Fritas. Medio servicio consume respectivamente 10 UND o 0,5 servicio. El
+resolver, el compromiso proyectado y el `sale_out` final utilizan solamente la
+ruta seleccionada.
+
+La pestaña Inventario de `/app/master/ops` muestra todas las alternativas con
+su unidad física y capacidad vigente. Cambiar la fuente reconstruye el
+compromiso cuando la orden ya está aprobada, deja trazabilidad en el timeline y
+sigue siendo informativo: una insuficiencia nunca bloquea la aprobación,
+preparación ni entrega.
+
+Migraciones vigentes:
+
+- `20260811193731_inventory_product_fulfillment_routes_v1.sql`;
+- `20260811193902_inventory_product_fulfillment_routes_orders_timestamp_fix.sql`.
+
+## 26. Suspensión comercial explícita por producto
+
+El saldo cero, negativo o bajo continúa siendo informativo y no bloquea
+órdenes. El único bloqueo comercial es una decisión explícita de Máster o
+Administración desde `/app/master/ops/inventory`, con reanudación inmediata,
+programada o indefinida. La suspensión afecta solamente órdenes nuevas; nunca
+cancela, frena ni modifica una orden ya creada.
+
+No se agregan tablas ni columnas. La decisión reutiliza
+`inventory_planned_flows` con `flow_type = declared_unavailability` y declara
+su alcance en `capture_details.unavailability_scope = product`. Así se mantiene
+separada de una suspensión de un ítem físico y no modifica su saldo.
+
+La propagación comercial sigue la composición existente del catálogo:
+
+- el producto suspendido no puede agregarse a una venta nueva;
+- todo padre que lo incluya como componente `fixed` y obligatorio también se
+  suspende;
+- un padre armable con componente `selectable` continúa disponible, pero esa
+  opción concreta queda deshabilitada;
+- Asesor y Counter vuelven a consultar la disponibilidad al enviar una venta
+  nueva para evitar utilizar una lectura anterior;
+- la edición y el flujo operativo de órdenes existentes permanecen abiertos.
+
+Migración vigente:
+
+- `20260812141855_inventory_product_commercial_suspensions_v1.sql`.

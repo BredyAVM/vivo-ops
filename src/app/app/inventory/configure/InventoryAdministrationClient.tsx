@@ -13,13 +13,25 @@ import {
   updateInventoryProductIdentityAction,
   updateInventoryProductPhysicalConfigurationAction,
 } from '../actions';
+import InventoryRouteEditor, {
+  newPrimaryRoute,
+  type InventoryRouteDraft,
+} from './InventoryRouteEditor';
 
 type ProductLink = {
   inventory_item_id: number;
   item_name: string;
   quantity_units: number;
+  half_quantity_units: number | null;
   deduction_mode: string;
   deduction_stage: string | null;
+};
+
+type ProductRoute = {
+  key: string;
+  name: string;
+  mode: 'primary' | 'master_fallback';
+  links: ProductLink[];
 };
 
 type ProductComponent = {
@@ -54,6 +66,7 @@ export type AdminProduct = {
   open_order_reference_count: number;
   parent_product_count: number;
   links: ProductLink[];
+  routes: ProductRoute[];
   components: ProductComponent[];
   physical_revision: number;
   physical_history_count: number;
@@ -126,12 +139,6 @@ type RecipeLine = {
   key: string;
   inputInventoryItemId: string;
   quantityUnits: string;
-};
-type PhysicalLinkLine = {
-  key: string;
-  inventoryItemId: string;
-  quantityUnits: string;
-  deductionStage: 'kitchen' | 'production' | 'packing' | 'fulfillment';
 };
 type PhysicalComponentLine = {
   key: string;
@@ -640,13 +647,20 @@ function ProductEditor({
         <ImpactLine label="Órdenes abiertas" value={quantity(product.open_order_reference_count)} />
         <ImpactLine label="Usado dentro de productos" value={quantity(product.parent_product_count)} />
         <div className="mt-3 border-t border-[#2B2B38] pt-3">
-          <div className="text-xs font-semibold text-[#B7B7C1]">Descuento físico (solo lectura)</div>
-          {product.links.length ? product.links.map((link) => (
-            <div key={`${product.id}:${link.inventory_item_id}`} className="mt-2 text-xs leading-5 text-[#9797A4]">
-              {quantity(link.quantity_units)} {items.find((item) => item.id === link.inventory_item_id)?.unit_name ?? 'UND'} de {link.item_name}
-              {link.deduction_stage ? ` · ${link.deduction_stage}` : ''}
+          <div className="text-xs font-semibold text-[#B7B7C1]">Rutas físicas (solo lectura)</div>
+          {product.routes.length ? product.routes.map((route) => (
+            <div key={`${product.id}:${route.key}`} className="mt-3 rounded-lg border border-[#2B2B38] px-3 py-2">
+              <div className="text-xs font-semibold text-[#D7D7DF]">
+                {route.name} · {route.mode === 'primary' ? 'principal' : 'decisión del Máster'}
+              </div>
+              {route.links.map((link) => (
+                <div key={`${route.key}:${link.inventory_item_id}`} className="mt-1 text-xs leading-5 text-[#9797A4]">
+                  {quantity(link.quantity_units)} {items.find((item) => item.id === link.inventory_item_id)?.unit_name ?? 'UND'} de {link.item_name}
+                  {link.half_quantity_units != null ? ` · medio: ${quantity(link.half_quantity_units)}` : ''}
+                </div>
+              ))}
             </div>
-          )) : <div className="mt-2 text-xs text-[#858591]">No tiene enlace directo; se resuelve por composición o no descuenta.</div>}
+          )) : <div className="mt-2 text-xs text-[#858591]">Se resuelve por composición o no descuenta inventario.</div>}
         </div>
         <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-2 text-xs leading-5 text-sky-100">
           Este editor modifica identidad, precio y condiciones comerciales. No modifica componentes,
@@ -682,15 +696,22 @@ function PhysicalConfigurationEditor({
   );
   const [detailUnitsLimit, setDetailUnitsLimit] = useState(String(product.detail_units_limit));
   const [changeNote, setChangeNote] = useState('');
-  const [links, setLinks] = useState<PhysicalLinkLine[]>(() =>
-    product.links.length
-      ? product.links.map((link, index) => ({
-          key: `${link.inventory_item_id}:${index}`,
-          inventoryItemId: String(link.inventory_item_id),
-          quantityUnits: String(link.quantity_units),
-          deductionStage: (link.deduction_stage || 'fulfillment') as PhysicalLinkLine['deductionStage'],
+  const [routes, setRoutes] = useState<InventoryRouteDraft[]>(() =>
+    product.routes.length
+      ? product.routes.map((route) => ({
+          key: crypto.randomUUID(),
+          routeKey: route.key,
+          name: route.name,
+          mode: route.mode,
+          links: route.links.map((link) => ({
+            key: crypto.randomUUID(),
+            inventoryItemId: String(link.inventory_item_id),
+            quantityUnits: String(link.quantity_units),
+            halfQuantityUnits: link.half_quantity_units == null ? '' : String(link.half_quantity_units),
+            deductionStage: (link.deduction_stage || 'fulfillment') as InventoryRouteDraft['links'][number]['deductionStage'],
+          })),
         }))
-      : [{ key: 'initial-link', inventoryItemId: '', quantityUnits: '1', deductionStage: 'fulfillment' }],
+      : [newPrimaryRoute()],
   );
   const [components, setComponents] = useState<PhysicalComponentLine[]>(() =>
     product.components.length
@@ -737,11 +758,21 @@ function PhysicalConfigurationEditor({
           inventoryPolicy: policy,
           detailUnitsLimit: Number(detailUnitsLimit),
           changeNote,
-          links: policy === 'self' || policy === 'direct'
-            ? links.map((line) => ({
-                inventoryItemId: Number(line.inventoryItemId),
-                quantityUnits: parseDecimalInput(line.quantityUnits),
-                deductionStage: line.deductionStage,
+          routes: policy === 'self' || policy === 'direct'
+            ? routes
+              .filter((route) => policy === 'direct' || route.mode === 'primary')
+              .map((route) => ({
+                key: route.routeKey,
+                name: route.name,
+                mode: route.mode,
+                links: route.links.slice(0, policy === 'direct' ? route.links.length : 1).map((line) => ({
+                  inventoryItemId: Number(line.inventoryItemId),
+                  quantityUnits: parseDecimalInput(line.quantityUnits),
+                  halfQuantityUnits: product.allows_half_service && line.halfQuantityUnits.trim()
+                    ? parseDecimalInput(line.halfQuantityUnits)
+                    : null,
+                  deductionStage: line.deductionStage || null,
+                })),
               }))
             : [],
           components: policy === 'components'
@@ -798,28 +829,20 @@ function PhysicalConfigurationEditor({
       </div>
 
       {policy === 'self' || policy === 'direct' ? (
-        <div className="mt-4 space-y-3">
-          {links.slice(0, policy === 'self' ? 1 : links.length).map((line, index) => {
-            const linkedItem = items.find((item) => item.id === Number(line.inventoryItemId));
-            const quantityLabel = `Cantidad descontada (${linkedItem?.unit_name ?? 'unidad base'})`;
-            return <div key={line.key} className="grid gap-2 rounded-xl border border-[#373322] bg-[#11100B] p-3 md:grid-cols-[1fr_150px_180px_auto]">
-              <select value={line.inventoryItemId} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} className={INPUT_CLASS}>
-                <option value="">Selecciona el ítem físico…</option>
-                {selectableItems.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.unit_name}</option>)}
-              </select>
-              <input inputMode="decimal" value={line.quantityUnits} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} className={INPUT_CLASS} aria-label={quantityLabel} placeholder={quantityLabel} />
-              <select value={line.deductionStage} onChange={(event) => setLinks((current) => current.map((candidate) => candidate.key === line.key ? { ...candidate, deductionStage: event.target.value as PhysicalLinkLine['deductionStage'] } : candidate))} className={INPUT_CLASS}>
-                <option value="fulfillment">Al entregar</option>
-                <option value="kitchen">En cocina</option>
-                <option value="production">En producción</option>
-                <option value="packing">Al empacar</option>
-              </select>
-              {policy === 'direct' ? <button type="button" onClick={() => setLinks((current) => current.filter((candidate) => candidate.key !== line.key))} className={SECONDARY_BUTTON}>Quitar</button> : <span className="self-center text-xs text-[#8E8A75]">#{index + 1}</span>}
-            </div>;
-          })}
-          {policy === 'direct' ? (
-            <button type="button" onClick={() => setLinks((current) => [...current, { key: crypto.randomUUID(), inventoryItemId: '', quantityUnits: '1', deductionStage: 'fulfillment' }])} className={SECONDARY_BUTTON}>Agregar consumo físico</button>
-          ) : null}
+        <div className="mt-4">
+          <InventoryRouteEditor
+            routes={routes}
+            setRoutes={setRoutes}
+            inventoryItems={selectableItems.map((item) => ({
+              id: item.id,
+              name: item.name,
+              unitName: item.unit_name,
+            }))}
+            allowsHalfService={product.allows_half_service}
+            allowFallbacks={policy === 'direct'}
+            allowMultipleLinks={policy === 'direct'}
+            disabled={isPending}
+          />
         </div>
       ) : null}
 

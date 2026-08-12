@@ -6,6 +6,10 @@ import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
 import { saveInventoryCatalogDraftAction } from '../actions';
 import { inventoryUnitLabel } from '../display';
+import InventoryRouteEditor, {
+  newPrimaryRoute,
+  type InventoryRouteDraft,
+} from './InventoryRouteEditor';
 
 export type ConfiguratorInventoryItem = {
   id: number;
@@ -160,7 +164,7 @@ export default function InventoryConfiguratorClient({
   const [selfInventoryItemId, setSelfInventoryItemId] = useState('');
   const [selfQuantity, setSelfQuantity] = useState('1');
   const [selfDeductionStage, setSelfDeductionStage] = useState<DirectLinkDraft['deductionStage']>('fulfillment');
-  const [directLinks, setDirectLinks] = useState<DirectLinkDraft[]>([]);
+  const [directRoutes, setDirectRoutes] = useState<InventoryRouteDraft[]>(() => [newPrimaryRoute()]);
   const [components, setComponents] = useState<ComponentDraft[]>([]);
   const [detailUnitsLimit, setDetailUnitsLimit] = useState('0');
   const [error, setError] = useState<string | null>(null);
@@ -203,7 +207,7 @@ export default function InventoryConfiguratorClient({
     setSelfInventoryItemId('');
     setSelfQuantity('1');
     setSelfDeductionStage('fulfillment');
-    setDirectLinks([]);
+    setDirectRoutes([newPrimaryRoute()]);
     setComponents([]);
     setDetailUnitsLimit('0');
     setError(null);
@@ -289,8 +293,16 @@ export default function InventoryConfiguratorClient({
         return 'Selecciona quién realizará el conteo programado del nuevo ítem.';
       }
     }
-    if (policy === 'direct' && directLinks.length === 0) {
-      return 'Agrega al menos un ítem de consumo directo.';
+    if (policy === 'direct') {
+      if (directRoutes.length === 0 || directRoutes.some((route) => route.links.length === 0)) {
+        return 'Cada ruta debe incluir al menos un ítem físico.';
+      }
+      if (directRoutes.some((route) => !route.name.trim())) {
+        return 'Escribe el nombre de cada ruta física.';
+      }
+      if (directRoutes.some((route) => route.links.some((link) => !link.inventoryItemId))) {
+        return 'Selecciona todos los ítems físicos de las rutas.';
+      }
     }
     if (policy === 'components' && components.length === 0) {
       return 'Agrega al menos un producto componente.';
@@ -365,10 +377,24 @@ export default function InventoryConfiguratorClient({
                 deduction_stage: selfDeductionStage || null,
               };
       } else if (policy === 'direct') {
-        configuration.links = directLinks.map((link) => ({
+        const primaryRoute = directRoutes.find((route) => route.mode === 'primary');
+        configuration.links = (primaryRoute?.links ?? []).map((link) => ({
           inventory_item_id: Number(link.inventoryItemId),
           quantity_units: optionalNumber(link.quantityUnits),
           deduction_stage: link.deductionStage || null,
+        }));
+        configuration.routes = directRoutes.map((route) => ({
+          key: route.routeKey,
+          name: route.name.trim(),
+          mode: route.mode,
+          links: route.links.map((link) => ({
+            inventory_item_id: Number(link.inventoryItemId),
+            quantity_units: optionalNumber(link.quantityUnits),
+            half_quantity_units: allowsHalfService
+              ? optionalNumber(link.halfQuantityUnits)
+              : null,
+            deduction_stage: link.deductionStage || null,
+          })),
         }));
       } else if (policy === 'components') {
         configuration.components = components.map((component) => ({
@@ -566,7 +592,7 @@ export default function InventoryConfiguratorClient({
             </div>
           </Section>
 
-          <Section title="3. Política de inventario" description="Esta elección define la única ruta canónica de consumo del producto.">
+          <Section title="3. Política de inventario" description="Define qué consume el producto y, cuando aplique, las rutas alternativas que puede autorizar el Máster.">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {([
                 ['self', 'Se descuenta a sí mismo'],
@@ -612,10 +638,15 @@ export default function InventoryConfiguratorClient({
                 />
               ) : null}
               {policy === 'direct' ? (
-                <DirectPolicyEditor
-                  rows={directLinks}
-                  setRows={setDirectLinks}
-                  inventoryItems={inventoryItems}
+                <InventoryRouteEditor
+                  routes={directRoutes}
+                  setRoutes={setDirectRoutes}
+                  inventoryItems={inventoryItems.map((inventoryItem) => ({
+                    id: inventoryItem.id,
+                    name: inventoryItem.name,
+                    unitName: inventoryItem.unitName,
+                  }))}
+                  allowsHalfService={allowsHalfService}
                   disabled={isPending}
                 />
               ) : null}
@@ -834,19 +865,6 @@ function SelfPolicyEditor({ mode, setMode, inventoryItems, inventoryItemId, setI
         <Field label={`Cantidad por producto vendido (${unitLabel})`}><input type="number" min="0.0001" step="0.01" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={disabled} className={inputClass} /></Field>
         <Field label="Etapa del descuento"><StageSelect value={deductionStage} onChange={setDeductionStage} disabled={disabled} /></Field>
       </div>
-    </div>
-  );
-}
-
-function DirectPolicyEditor({ rows, setRows, inventoryItems, disabled }: { rows: DirectLinkDraft[]; setRows: React.Dispatch<React.SetStateAction<DirectLinkDraft[]>>; inventoryItems: ConfiguratorInventoryItem[]; disabled: boolean }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between"><div className="text-sm text-[#AFAFBA]">Ítems físicos consumidos por una unidad vendida</div><button type="button" onClick={() => setRows((current) => [...current, { key: createKey(), inventoryItemId: '', quantityUnits: '1', deductionStage: 'kitchen' }])} disabled={disabled || rows.length >= 50} className="rounded-lg border border-[#41414F] px-3 py-2 text-xs text-[#FEEF00]">Agregar ítem</button></div>
-      <div className="mt-4 space-y-3">{rows.map((row) => {
-        const selectedItem = inventoryItems.find((item) => item.id === Number(row.inventoryItemId));
-        const quantityLabel = `Cantidad consumida (${inventoryUnitLabel(selectedItem?.unitName)})`;
-        return <div key={row.key} className="grid gap-2 lg:grid-cols-[1fr_180px_200px_auto]"><select aria-label="Ítem de consumo" value={row.inventoryItemId} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, inventoryItemId: event.target.value } : candidate))} disabled={disabled} className={inputClass}><option value="">Seleccionar ítem</option>{inventoryItems.map((inventoryItem) => <option key={inventoryItem.id} value={inventoryItem.id}>{inventoryItem.name} · {inventoryItem.unitName}</option>)}</select><input aria-label={quantityLabel} placeholder={quantityLabel} type="number" min="0.0001" step="0.01" value={row.quantityUnits} onChange={(event) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, quantityUnits: event.target.value } : candidate))} disabled={disabled} className={inputClass} /><StageSelect value={row.deductionStage} onChange={(value) => setRows((current) => current.map((candidate) => candidate.key === row.key ? { ...candidate, deductionStage: value } : candidate))} disabled={disabled} /><button type="button" onClick={() => setRows((current) => current.filter((candidate) => candidate.key !== row.key))} disabled={disabled} className="rounded-lg border border-red-400/25 px-3 py-2 text-xs text-red-200">Quitar</button></div>;
-      })}</div>
     </div>
   );
 }

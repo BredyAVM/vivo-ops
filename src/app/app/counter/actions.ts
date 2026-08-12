@@ -168,6 +168,7 @@ function directSaleErrorMessage(message: string) {
     ['counter_schedule_invalid', 'Indica una fecha y hora válidas para agendar.'],
     ['counter_items_count_invalid', 'La venta debe tener entre uno y cien productos.'],
     ['counter_product_unavailable', 'Uno de los productos o componentes ya no está disponible.'],
+    ['counter_product_suspended', 'Máster detuvo temporalmente uno de los productos o componentes para esa fecha.'],
     ['counter_configurable_product_quantity_must_be_one', 'Los productos configurables se agregan uno por uno.'],
     ['counter_item_component_unavailable', 'La configuración contiene un componente no disponible.'],
     ['counter_item_fixed_component_quantity_invalid', 'La cantidad de un componente fijo cambió. Vuelve a armar el producto.'],
@@ -702,6 +703,33 @@ export async function createCounterQuickSaleAction(
     deliveryNotePhone: String(input.deliveryNotePhone || '').trim(),
     items,
   };
+
+  const inventoryProductIds = Array.from(new Set([
+    ...items.map((item) => item.productId),
+    ...items.flatMap((item) => item.editableDetailLines.flatMap((line) => {
+      const match = line.match(/^@sel\|([1-9][0-9]*)\|/);
+      return match ? [Number(match[1])] : [];
+    })),
+  ])).slice(0, 200);
+  const targetAt = input.scheduleAsap
+    ? new Date().toISOString()
+    : `${String(input.scheduledDate || '').trim()}T${String(input.scheduledTime || '').trim()}:00-04:00`;
+  const { data: availabilityData, error: availabilityError } = await ctx.supabase.rpc(
+    'inventory_catalog_availability_v1',
+    {
+      p_target_at: targetAt,
+      p_product_ids: inventoryProductIds,
+      p_surface: 'counter_inventory',
+    },
+  );
+  if (!availabilityError) {
+    const availabilityRows = Array.isArray(availabilityData?.products)
+      ? availabilityData.products as Array<{ inventory_blocks_submission?: boolean }>
+      : [];
+    if (availabilityRows.some((row) => row.inventory_blocks_submission === true)) {
+      throw new Error(directSaleErrorMessage('counter_product_suspended'));
+    }
+  }
 
   const { data, error } = await ctx.supabase.rpc('counter_create_direct_sale', {
     p_idempotency_key: idempotencyKey,

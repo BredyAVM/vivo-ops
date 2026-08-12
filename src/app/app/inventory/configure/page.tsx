@@ -60,6 +60,58 @@ type RawProductLink = {
   deduction_stage: string | null;
 };
 
+function mapProductRoutes(
+  rawProduct: RawProduct | undefined,
+  primaryLinks: InventoryAdminWorkspace['products'][number]['links'],
+  itemNameById: Map<number, string>,
+): InventoryAdminWorkspace['products'][number]['routes'] {
+  const rawRoutes = rawProduct?.extra_fields?.inventory_routes_v1;
+  if (Array.isArray(rawRoutes)) {
+    const mapped = rawRoutes.flatMap((rawRoute) => {
+      if (!rawRoute || typeof rawRoute !== 'object' || Array.isArray(rawRoute)) return [];
+      const route = rawRoute as Record<string, unknown>;
+      const routeKey = String(route.key ?? '').trim();
+      const routeName = String(route.name ?? '').trim();
+      const routeMode: 'primary' | 'master_fallback' =
+        route.mode === 'master_fallback' ? 'master_fallback' : 'primary';
+      if (!routeKey || !routeName || !Array.isArray(route.links)) return [];
+      const links = route.links.flatMap((rawLink) => {
+        if (!rawLink || typeof rawLink !== 'object' || Array.isArray(rawLink)) return [];
+        const link = rawLink as Record<string, unknown>;
+        const inventoryItemId = Number(link.inventory_item_id);
+        const quantityUnits = Number(link.quantity_units);
+        const halfQuantityUnits = link.half_quantity_units == null
+          ? null
+          : Number(link.half_quantity_units);
+        if (!Number.isSafeInteger(inventoryItemId) || inventoryItemId <= 0 || !(quantityUnits > 0)) return [];
+        return [{
+          inventory_item_id: inventoryItemId,
+          item_name: itemNameById.get(inventoryItemId) ?? `Ítem #${inventoryItemId}`,
+          quantity_units: quantityUnits,
+          half_quantity_units: halfQuantityUnits != null && Number.isFinite(halfQuantityUnits)
+            ? halfQuantityUnits
+            : null,
+          deduction_mode: routeMode === 'primary' ? 'recipe' : 'route_fallback',
+          deduction_stage: link.deduction_stage == null ? null : String(link.deduction_stage),
+        }];
+      });
+      if (links.length === 0) return [];
+      return [{ key: routeKey, name: routeName, mode: routeMode, links }];
+    });
+    if (mapped.length > 0) return mapped;
+  }
+
+  if ((rawProduct?.inventory_policy === 'self' || rawProduct?.inventory_policy === 'direct') && primaryLinks.length) {
+    return [{
+      key: 'primary',
+      name: rawProduct.inventory_policy === 'self' ? 'Se descuenta a sí mismo' : 'Ruta principal',
+      mode: 'primary',
+      links: primaryLinks,
+    }];
+  }
+  return [];
+}
+
 type ConfigureView = 'edit' | 'activate' | 'create';
 type ConfigureSearchParams = Promise<{ view?: string; itemId?: string }>;
 
@@ -190,6 +242,7 @@ export default async function InventoryConfigurePage({
       inventory_item_id: Number(link.inventory_item_id),
       item_name: itemNameById.get(Number(link.inventory_item_id)) ?? `Ítem #${link.inventory_item_id}`,
       quantity_units: Number(link.quantity_units),
+      half_quantity_units: null,
       deduction_mode: link.deduction_mode,
       deduction_stage: link.deduction_stage,
     });
@@ -217,6 +270,7 @@ export default async function InventoryConfigurePage({
     const rawProduct = rawProductById.get(product.id);
     const revision = Number(rawProduct?.extra_fields?.inventory_physical_revision ?? 1);
     const history = rawProduct?.extra_fields?.inventory_physical_history;
+    const links = linksByProductId.get(product.id) ?? [];
     return {
       ...product,
       source_price_amount: commercial?.sourcePriceAmount ?? 0,
@@ -226,7 +280,8 @@ export default async function InventoryConfigurePage({
       commission_notes: commercial?.commissionNotes ?? null,
       advisor_gift_cost_usd: commercial?.advisorGiftCostUsd ?? null,
       internal_rider_pay_usd: commercial?.internalRiderPayUsd ?? null,
-      links: linksByProductId.get(product.id) ?? [],
+      links,
+      routes: mapProductRoutes(rawProduct, links, itemNameById),
       components: componentsByParentId.get(product.id) ?? [],
       physical_revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 1,
       physical_history_count: Array.isArray(history) ? history.length : 0,
@@ -243,6 +298,7 @@ export default async function InventoryConfigurePage({
       const rawProduct = rawProductById.get(product.id)!;
       const revision = Number(rawProduct.extra_fields?.inventory_physical_revision ?? 1);
       const history = rawProduct.extra_fields?.inventory_physical_history;
+      const links = linksByProductId.get(product.id) ?? [];
       return {
         id: product.id,
         sku: product.sku,
@@ -265,7 +321,8 @@ export default async function InventoryConfigurePage({
         order_reference_count: 0,
         open_order_reference_count: 0,
         parent_product_count: 0,
-        links: linksByProductId.get(product.id) ?? [],
+        links,
+        routes: mapProductRoutes(rawProduct, links, itemNameById),
         components: componentsByParentId.get(product.id) ?? [],
         physical_revision: Number.isSafeInteger(revision) && revision > 0 ? revision : 1,
         physical_history_count: Array.isArray(history) ? history.length : 0,
