@@ -219,6 +219,13 @@ export type CounterPaymentQuote = {
   collectionMode: 'snapshot_quote' | 'post_delivery_usd' | 'closed';
 };
 
+export type CounterInvoiceSnapshot = {
+  companyName: string | null;
+  taxId: string | null;
+  address: string | null;
+  phone: string | null;
+};
+
 export type CounterOrder = {
   id: number;
   orderNumber: string;
@@ -246,6 +253,12 @@ export type CounterOrder = {
   deliveryAssigneeName: string | null;
   externalReference: string | null;
   notes: string | null;
+  hasInvoice: boolean;
+  invoiceDataNote: string | null;
+  invoiceSnapshot: CounterInvoiceSnapshot | null;
+  invoiceTaxPct: number;
+  invoiceTaxAmountUsd: number;
+  invoiceTaxAmountBs: number;
   createdAt: string;
   sentToKitchenAt: string | null;
   kitchenStartedAt: string | null;
@@ -2455,6 +2468,11 @@ function CounterOrderCard({
         {order.paymentRequiresChange ? (
           <span className="rounded-full border border-orange-300/40 bg-orange-300/10 px-2 py-0.5 text-xs font-semibold text-orange-200">
             Cambio
+          </span>
+        ) : null}
+        {order.hasInvoice ? (
+          <span className="rounded-full border border-sky-300/40 bg-sky-300/10 px-2 py-0.5 text-xs font-semibold text-sky-100">
+            Factura
           </span>
         ) : null}
         {order.fulfillment === 'delivery' ? (

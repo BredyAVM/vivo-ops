@@ -85,8 +85,21 @@ type CounterReadOrderRow = {
       fx_rate?: number | string | null;
       total_usd?: number | string | null;
       total_bs?: number | string | null;
+      invoice_tax_pct?: number | string | null;
+      invoice_tax_amount_usd?: number | string | null;
+      invoice_tax_amount_bs?: number | string | null;
       rounding_closed_usd?: number | string | null;
       rounding_gain_closed_usd?: number | string | null;
+    } | null;
+    documents?: {
+      has_invoice?: boolean | null;
+      invoice_data_note?: string | null;
+      invoice_snapshot?: {
+        company_name?: string | null;
+        tax_id?: string | null;
+        address?: string | null;
+        phone?: string | null;
+      } | null;
     } | null;
   } | null;
   client_name: string | null;
@@ -245,6 +258,23 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
   const orderId = Math.trunc(toNumber(row.id, 0));
   const schedule = row.extra_fields?.schedule;
   const payment = row.extra_fields?.payment;
+  const pricing = row.extra_fields?.pricing;
+  const documents = row.extra_fields?.documents;
+  const invoiceSource = documents?.invoice_snapshot;
+  const invoiceSnapshot = invoiceSource
+    ? {
+        companyName: invoiceSource.company_name?.trim() || null,
+        taxId: invoiceSource.tax_id?.trim() || null,
+        address: invoiceSource.address?.trim() || null,
+        phone: invoiceSource.phone?.trim() || null,
+      }
+    : null;
+  const invoiceDataNote = documents?.invoice_data_note?.trim() || null;
+  const hasInvoice = Boolean(
+    documents?.has_invoice
+    || invoiceDataNote
+    || invoiceSnapshot && Object.values(invoiceSnapshot).some(Boolean)
+  );
   const refundAuthorizations: CounterRefundAuthorization[] = asArray(row.refund_authorizations).map((authorizationValue) => {
     const authorization = asRecord(authorizationValue);
     const rawStatus = String(authorization.status || '');
@@ -292,6 +322,12 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     deliveryAssigneeName: row.delivery_assignee_name?.trim() || null,
     externalReference: row.external_reference || null,
     notes: row.notes || null,
+    hasInvoice,
+    invoiceDataNote,
+    invoiceSnapshot,
+    invoiceTaxPct: toNumber(pricing?.invoice_tax_pct, 0),
+    invoiceTaxAmountUsd: roundOrderMoney(pricing?.invoice_tax_amount_usd),
+    invoiceTaxAmountBs: roundOrderMoney(pricing?.invoice_tax_amount_bs),
     createdAt: row.created_at,
     sentToKitchenAt: row.sent_to_kitchen_at || null,
     kitchenStartedAt: row.kitchen_started_at || null,

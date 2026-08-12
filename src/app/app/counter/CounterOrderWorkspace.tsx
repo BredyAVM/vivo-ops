@@ -667,6 +667,11 @@ export function OrderDetail({
               <span className="rounded-full border border-[#303044] px-2.5 py-0.5 text-xs text-[#C7C8D1]">
                 {fulfillmentLabel(order.fulfillment)}
               </span>
+              {order.hasInvoice ? (
+                <span className="rounded-full border border-sky-300/40 bg-sky-300/10 px-2.5 py-0.5 text-xs font-semibold text-sky-100">
+                  Factura solicitada
+                </span>
+              ) : null}
             </div>
             <div className="mt-1 truncate text-sm text-[#9FA0AA]">
               {order.clientName}
@@ -733,6 +738,8 @@ export function OrderDetail({
               )}
             </div>
           </div>
+
+          {order.hasInvoice ? <CounterInvoiceCard order={order} /> : null}
 
           <details className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <summary className="min-h-11 cursor-pointer select-none py-2 font-semibold text-[#C7C8D1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]">
@@ -995,6 +1002,65 @@ export function OrderDetail({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CounterInvoiceCard({ order }: { order: CounterOrder }) {
+  const invoiceFields = [
+    { label: 'Razón social', value: order.invoiceSnapshot?.companyName },
+    { label: 'RIF o documento', value: order.invoiceSnapshot?.taxId },
+    { label: 'Dirección fiscal', value: order.invoiceSnapshot?.address },
+    { label: 'Teléfono fiscal', value: order.invoiceSnapshot?.phone },
+  ];
+  const hasSnapshotData = invoiceFields.some((field) => Boolean(field.value));
+
+  return (
+    <section
+      aria-label="Datos para emitir la factura"
+      className="rounded-[8px] border border-sky-300/40 bg-sky-950/20 p-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-sky-100">Factura solicitada</h3>
+          <p className="mt-0.5 text-xs text-sky-100/70">
+            Prepara la factura de esta orden con los datos fiscales guardados.
+          </p>
+        </div>
+        {order.invoiceTaxPct > 0 ? (
+          <span className="rounded-full border border-sky-300/35 px-2.5 py-1 text-xs font-semibold text-sky-100">
+            IVA {order.invoiceTaxPct.toLocaleString('es-VE', { maximumFractionDigits: 2 })}%
+          </span>
+        ) : null}
+      </div>
+
+      {hasSnapshotData ? (
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          {invoiceFields.map((field) => (
+            <div key={field.label} className="rounded-[8px] border border-sky-300/20 bg-[#0B0B0D]/70 p-3">
+              <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-100/60">
+                {field.label}
+              </dt>
+              <dd className={['mt-1 break-words text-sm font-semibold', field.value ? 'text-[#F5F5F7]' : 'text-orange-200'].join(' ')}>
+                {field.value || 'No indicado'}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="mt-3 rounded-[8px] border border-orange-300/35 bg-orange-950/20 p-3 text-sm text-orange-100">
+          {order.invoiceDataNote || 'La factura fue solicitada, pero la orden no tiene datos fiscales guardados.'}
+        </div>
+      )}
+
+      {order.invoiceTaxAmountUsd > 0.005 || order.invoiceTaxAmountBs > 0.5 ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-sky-300/20 pt-3 text-sm">
+          <span className="text-sky-100/70">IVA incluido en el total</span>
+          <span className="font-semibold text-sky-100">
+            {moneyUsd(order.invoiceTaxAmountUsd)} · {moneyBs(order.invoiceTaxAmountBs)}
+          </span>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
