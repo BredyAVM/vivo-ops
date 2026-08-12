@@ -164,6 +164,7 @@ function countItemSummary(count: MasterInventoryCount) {
 }
 
 export default function MasterInventoryClient({
+  initialView,
   products,
   items,
   counts,
@@ -171,6 +172,7 @@ export default function MasterInventoryClient({
   alerts,
   suspensions,
 }: {
+  initialView: MasterInventoryView;
   products: MasterInventoryProduct[];
   items: MasterInventoryItem[];
   counts: MasterInventoryCount[];
@@ -179,7 +181,7 @@ export default function MasterInventoryClient({
   suspensions: MasterInventorySuspension[];
 }) {
   const router = useRouter();
-  const [activeView, setActiveView] = useState<MasterInventoryView>('overview');
+  const [activeView, setActiveView] = useState<MasterInventoryView>(initialView);
   const [search, setSearch] = useState('');
   const [stockSearch, setStockSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -211,7 +213,9 @@ export default function MasterInventoryClient({
   const [cancellingSuspensionId, setCancellingSuspensionId] = useState<number | null>(null);
 
   const waitingKitchen = counts.filter((count) => count.status === 'open');
-  const waitingMaster = counts.filter((count) => count.status === 'submitted');
+  const waitingMaster = counts
+    .filter((count) => count.status === 'submitted')
+    .sort((left, right) => new Date(left.submittedAt ?? left.createdAt).getTime() - new Date(right.submittedAt ?? right.createdAt).getTime());
   const recentCounts = counts.filter((count) => !['open', 'submitted'].includes(count.status)).slice(0, 12);
   const lowStockCount = items.filter((item) => item.isLowStock).length;
   const dependsOnIncomingCount = items.filter((item) => item.dependsOnIncoming).length;
@@ -421,7 +425,7 @@ export default function MasterInventoryClient({
         {([
           ['overview', 'Resumen'],
           ['stock', 'Existencias y compromisos'],
-          ['counts', 'Conteos y revisiones'],
+          ['counts', 'Revisar inventarios'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -430,10 +434,53 @@ export default function MasterInventoryClient({
             onClick={() => setActiveView(key)}
             className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition ${activeView === key ? 'bg-[#FEEF00] text-black' : 'text-[#B8B8C4] hover:bg-[#1A1A23] hover:text-white'}`}
           >
-            {label}
+            <span className="flex items-center gap-2">
+              {label}
+              {key === 'counts' && waitingMaster.length > 0 ? (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] tabular-nums ${activeView === key ? 'bg-black/15 text-black' : 'bg-rose-400/20 text-rose-100'}`}>
+                  {waitingMaster.length}
+                </span>
+              ) : null}
+            </span>
           </button>
         ))}
       </nav>
+
+      {waitingMaster.length ? (
+        <section id="inventory-reviews" className="scroll-mt-4 rounded-2xl border border-rose-300/45 bg-rose-400/10 p-4 shadow-[0_0_30px_rgba(251,113,133,0.08)] sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-xs font-black uppercase tracking-[0.16em] text-rose-200">Decisión pendiente</div>
+              <h2 className="mt-1 text-xl font-black text-white">
+                {waitingMaster.length} inventario{waitingMaster.length === 1 ? '' : 's'} cargado{waitingMaster.length === 1 ? '' : 's'} por Cocina
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-[#D8B8BE]">Revisa las diferencias, acepta el conteo o solicita reconteos específicos.</p>
+            </div>
+            <Link
+              href={`/app/inventory/counts/${waitingMaster[0].id}`}
+              prefetch={false}
+              className="shrink-0 rounded-xl bg-rose-200 px-4 py-2.5 text-center text-sm font-black text-rose-950 hover:bg-rose-100"
+            >
+              Revisar ahora
+            </Link>
+          </div>
+          {waitingMaster.length > 1 ? (
+            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {waitingMaster.slice(0, 6).map((count) => (
+                <Link
+                  key={count.id}
+                  href={`/app/inventory/counts/${count.id}`}
+                  prefetch={false}
+                  className="rounded-xl border border-rose-200/20 bg-[#170E12] p-3 transition hover:border-rose-200/45"
+                >
+                  <div className="font-bold text-white">Inventario #{count.id}</div>
+                  <div className="mt-1 text-xs text-[#C5A5AB]">{countItemSummary(count)}</div>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Ítems operativos" value={items.length} detail={dependsOnIncomingCount ? `${dependsOnIncomingCount} dependen de reposición` : 'sin dependencia de reposición'} tone={dependsOnIncomingCount ? 'warning' : 'default'} />
@@ -711,18 +758,6 @@ export default function MasterInventoryClient({
 
         {supplies.length > 12 ? <div className="mt-3 text-xs text-[#93A8B8]">Mostrando 12 de {supplies.length}. Abre Operaciones para ver el calendario completo.</div> : null}
       </div>
-      ) : null}
-
-      {activeView !== 'stock' && waitingMaster.length ? (
-        <div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 p-4">
-          <h2 className="text-lg font-bold text-rose-100">Reportes que requieren decisión</h2>
-          <p className="mt-1 text-sm text-[#C8AEB4]">Abre el reporte completo para aceptarlo o solicitar reconteos de ítems específicos.</p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {waitingMaster.map((count) => (
-              <CountCard key={count.id} count={count} actionLabel="Revisar reporte" />
-            ))}
-          </div>
-        </div>
       ) : null}
 
       <div className="space-y-5">

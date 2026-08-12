@@ -14,6 +14,8 @@ import MasterInventoryClient, {
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+type SearchParams = Promise<{ view?: string }>;
+
 type InventoryLastCountRow = {
   inventory_count_id: number | string;
   counted_units: number | string | null;
@@ -148,8 +150,9 @@ function inventoryObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-export default async function MasterInventoryPage() {
+export default async function MasterInventoryPage({ searchParams }: { searchParams: SearchParams }) {
   noStore();
+  const query = await searchParams;
   const ctx = await getAuthContext();
   if (!ctx) redirect('/login');
   if (!isMasterOrAdminRole(ctx.roles)) redirect(resolveHomePath(ctx.roles));
@@ -400,7 +403,15 @@ export default async function MasterInventoryPage() {
       </header>
 
       <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
-        <MasterInventoryClient products={products} items={items} counts={countSummaries} supplies={supplies} alerts={alerts} suspensions={suspensions} />
+        <MasterInventoryClient
+          initialView={query.view === 'counts' ? 'counts' : 'overview'}
+          products={products}
+          items={items}
+          counts={countSummaries}
+          supplies={supplies}
+          alerts={alerts}
+          suspensions={suspensions}
+        />
       </div>
     </main>
   );

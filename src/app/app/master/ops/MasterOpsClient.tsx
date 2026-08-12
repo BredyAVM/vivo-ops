@@ -3725,7 +3725,7 @@ export default function MasterOpsClient({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [snapshotAt]);
 
   const requestOpsRefresh = useCallback(() => {
     lastRefreshRequestAtRef.current = Date.now();
@@ -4590,6 +4590,22 @@ export default function MasterOpsClient({
                     </span>
                   ) : null}
                 </Link>
+
+                {inventoryAlertSummary && inventoryAlertSummary.pendingReviews > 0 ? (
+                  <Link
+                    href={inventoryAlertSummary.pendingReviews === 1 && inventoryAlertSummary.nextPendingReviewId
+                      ? `/app/inventory/counts/${inventoryAlertSummary.nextPendingReviewId}`
+                      : "/app/master/ops/inventory?view=counts#inventory-reviews"}
+                    prefetch={false}
+                    className="flex shrink-0 items-center gap-2 rounded-2xl border border-rose-300/55 bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-100 transition hover:border-rose-200 hover:bg-rose-400/15"
+                    title={`${inventoryAlertSummary.pendingReviews} inventario${inventoryAlertSummary.pendingReviews === 1 ? '' : 's'} de Cocina por revisar`}
+                  >
+                    <span>Inventarios por aprobar</span>
+                    <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] tabular-nums text-rose-950">
+                      {inventoryAlertSummary.pendingReviews}
+                    </span>
+                  </Link>
+                ) : null}
 
                 <Link
                   href="/app/master/ops/finance"
