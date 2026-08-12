@@ -658,6 +658,12 @@ prefrita. Se venden en presentaciones de 6, 3 o 1 pieza y también participan en
 combos y Vivo Box. Cada venta o componente debe consumir del mismo inventario
 crudo canónico la cantidad exacta de piezas incluida.
 
+En el centro de inventario, el único saldo físico se identifica como `Dondys
+Crudos`, pertenece a la familia `Crudos`, se cuenta en UND y admite la
+presentación de entrada `Bolsa de 30`. En el catálogo, `Dondys`, `Dondy (und)` y
+sus variantes promocionales pertenecen a la familia comercial `Fritos`. Esta
+distinción no crea dos existencias: todos descuentan del mismo Dondy crudo.
+
 El producto de 3 piezas corresponde a medio servicio del producto `Dondys` de 6.
 La presentación de 1 pieza es otro producto comercial independiente (`Dondy
 (und)`), aunque ambos descuentan del mismo inventario crudo.

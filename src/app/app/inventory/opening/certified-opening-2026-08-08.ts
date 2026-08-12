@@ -48,7 +48,7 @@ export const CERTIFIED_OPENING_LINES: readonly CertifiedOpeningLine[] = [
   { inventoryItemId: 44, inventoryItemName: 'Coca-Cola Sin Azúcar 1 Lt', countedQuantityUnits: 0 },
   { inventoryItemId: 45, inventoryItemName: 'Coca-Cola Sin Azúcar 2 Lts', countedQuantityUnits: 0 },
   { inventoryItemId: 46, inventoryItemName: 'Jugo del Valle 1,5 Lts', countedQuantityUnits: 0 },
-  { inventoryItemId: 47, inventoryItemName: 'Dondys', countedQuantityUnits: 125 },
+  { inventoryItemId: 47, inventoryItemName: 'Dondys Crudos', countedQuantityUnits: 125 },
   { inventoryItemId: 68, inventoryItemName: 'Salsa Tártara Galón', countedQuantityUnits: 0 },
   { inventoryItemId: 76, inventoryItemName: 'Fanta Naranja 1,5 Lts', countedQuantityUnits: 6 },
   { inventoryItemId: 78, inventoryItemName: 'Aderezo Mostaza Miel a granel (envase 1 kg)', countedQuantityUnits: 0.25 },
@@ -69,4 +69,3 @@ export function certifiedOpeningQuantity(
   if (!line || line.inventoryItemName !== inventoryItemName) return null;
   return line.countedQuantityUnits;
 }
-
