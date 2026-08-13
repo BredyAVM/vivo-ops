@@ -6,6 +6,10 @@ import {
   needsOrderReapproval,
 } from "@/lib/domain/order-domain";
 import { requireMasterOrAdminContext } from "@/lib/auth";
+import {
+  formatOrderChangeDetailCompact,
+  sanitizeOrderChangeDetails,
+} from "@/lib/orders/order-change-detail";
 import { normalizeRemoteSearchValue } from "@/lib/search/normalize-search";
 import {
   markMasterInboxItemsReviewedAction,
@@ -16,7 +20,7 @@ import { canAssignMasterOpsDelivery } from "./operational-rules";
 export type MasterOpsInboxKind = "actions" | "updates";
 export type MasterOpsInboxStatus = "reviewed" | "resolved" | null;
 export type MasterOpsInboxCategory = "approval" | "payments" | "changes" | "kitchen" | "delivery";
-export type MasterOpsInboxTab = "detalle" | "entrega" | "pagos" | "eventos" | "notas" | "ajustes";
+export type MasterOpsInboxTab = "detalle" | "entrega" | "pagos" | "eventos" | "notas" | "ajustes" | "cambios";
 
 export type MasterOpsInboxItem = {
   id: string;
@@ -156,6 +160,7 @@ function getOrderDisplay(order: InboxOrderRow) {
 function getEventDetailLines(payloadInput: unknown) {
   const payload = record(payloadInput);
   const lines: string[] = [];
+  const changeDetails = sanitizeOrderChangeDetails(payload.change_details);
   const reason = text(payload.reason, text(payload.review_notes, text(payload.rejection_reason)));
   const notes = text(payload.notes);
   const etaMinutes = Number(payload.eta_minutes);
@@ -166,6 +171,9 @@ function getEventDetailLines(payloadInput: unknown) {
   if (reason) lines.push(`Motivo: ${reason}`);
   if (notes && notes !== reason) lines.push(notes);
   if (Number.isFinite(etaMinutes) && etaMinutes > 0) lines.push(`ETA: ${etaMinutes} min`);
+  if (changeDetails.length > 0) {
+    lines.push(...changeDetails.slice(0, 3).map(formatOrderChangeDetailCompact));
+  }
   if (changedFields.length > 0) lines.push(`Cambios: ${changedFields.slice(0, 4).join(", ")}`);
   return lines.slice(0, 4);
 }
@@ -186,7 +194,8 @@ function getInboxCategory(input: { eventGroup?: unknown; title?: unknown; messag
 function tabForCategory(category: MasterOpsInboxCategory): MasterOpsInboxTab {
   if (category === "payments") return "pagos";
   if (category === "delivery") return "entrega";
-  if (category === "changes" || category === "kitchen") return "eventos";
+  if (category === "changes") return "cambios";
+  if (category === "kitchen") return "eventos";
   return "detalle";
 }
 
@@ -250,7 +259,7 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
     )
   `;
   const activeStatuses = ["created", "queued", "confirmed", "in_kitchen", "ready", "out_for_delivery"];
-  const [activeOrdersResult, pendingPaymentsResult, fundRequestsResult] = await Promise.all([
+  const [activeOrdersResult, pendingPaymentsResult, fundRequestsResult, modificationEventsResult] = await Promise.all([
     supabase
       .from("orders")
       .select(orderSelect)
@@ -269,9 +278,19 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
       .eq("event_type", "client_fund_application_requested")
       .order("created_at", { ascending: false })
       .limit(Math.min(60, Math.max(20, limit))),
+    supabase
+      .from("order_timeline_events")
+      .select("id, order_id, title, message, payload, created_at")
+      .eq("event_type", "order_modified")
+      .order("created_at", { ascending: false })
+      .limit(Math.min(160, Math.max(80, limit * 4))),
   ]);
 
-  const queryError = activeOrdersResult.error ?? pendingPaymentsResult.error ?? fundRequestsResult.error;
+  const queryError =
+    activeOrdersResult.error ??
+    pendingPaymentsResult.error ??
+    fundRequestsResult.error ??
+    modificationEventsResult.error;
   if (queryError) throw new Error(queryError.message);
 
   const ordersById = new Map<number, InboxOrderRow>();
@@ -300,8 +319,31 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
     }
   }
 
+  const latestModificationByOrder = new Map<
+    number,
+    { id: string; message: string; payload: unknown; createdAt: string }
+  >();
+  for (const row of modificationEventsResult.data ?? []) {
+    const payload = record(row.payload);
+    if (text(payload.source) !== "advisor_mobile" && !Boolean(payload.submitted_for_master_review)) {
+      continue;
+    }
+    const orderId = validId(row.order_id);
+    if (orderId && !latestModificationByOrder.has(orderId)) {
+      latestModificationByOrder.set(orderId, {
+        id: text(row.id),
+        message: text(row.message, "La orden fue modificada y requiere una nueva revision."),
+        payload,
+        createdAt: text(row.created_at),
+      });
+    }
+  }
+
   const supplementalOrderIds = Array.from(
-    new Set([...pendingPaymentCreatedAtByOrder.keys(), ...latestFundRequestByOrder.keys()])
+    new Set([
+      ...pendingPaymentCreatedAtByOrder.keys(),
+      ...latestFundRequestByOrder.keys(),
+    ])
   ).filter((orderId) => !ordersById.has(orderId));
 
   if (supplementalOrderIds.length > 0) {
@@ -348,26 +390,31 @@ async function loadActionItems(limit: number): Promise<MasterOpsInboxPayload> {
       queuedNeedsReapproval: Boolean(order.queued_needs_reapproval),
       returnedToAdvisor: Boolean(review.returned_to_advisor),
     };
+    const latestModification = latestModificationByOrder.get(orderId);
 
     if (needsInitialOrderApproval(processInput)) {
       items.push(makeActionItem({
-        id: `n-ap-${orderId}`,
+        id: latestModification ? `n-re-${orderId}-${latestModification.id}` : `n-ap-${orderId}`,
         order,
-        title: "Orden por aprobar",
-        message: "La orden está pendiente de aprobación del máster.",
-        badge: "Aprobar",
-        category: "approval",
+        title: latestModification ? "Orden por re-aprobar" : "Orden por aprobar",
+        message: latestModification?.message ?? "La orden está pendiente de aprobación del máster.",
+        badge: latestModification ? "Re-aprobar" : "Aprobar",
+        category: latestModification ? "changes" : "approval",
+        createdAt: latestModification?.createdAt,
+        detailLines: latestModification ? getEventDetailLines(latestModification.payload) : [],
       }));
     }
 
     if (needsOrderReapproval(processInput)) {
       items.push(makeActionItem({
-        id: `n-re-${orderId}`,
+        id: `n-re-${orderId}${latestModification ? `-${latestModification.id}` : ""}`,
         order,
         title: "Orden por re-aprobar",
-        message: "La orden fue modificada y requiere una nueva revisión.",
+        message: latestModification?.message ?? "La orden fue modificada y requiere una nueva revisión.",
         badge: "Re-aprobar",
         category: "changes",
+        createdAt: latestModification?.createdAt,
+        detailLines: latestModification ? getEventDetailLines(latestModification.payload) : [],
       }));
     }
 

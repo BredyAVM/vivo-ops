@@ -4,6 +4,12 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import {
+  sanitizeOrderChangeDetails,
+  summarizeOrderChangeDetails,
+  type OrderChangeDetail,
+  type OrderChangeSection,
+} from '@/lib/orders/order-change-detail';
 import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { sendPushToRoleDevices } from '@/lib/push';
 
@@ -97,9 +103,266 @@ function sanitizePlainObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function sanitizeStringList(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 20);
+function nestedRecord(source: Record<string, unknown>, key: string) {
+  return sanitizePlainObject(source[key]);
+}
+
+function comparableChangeValue(value: unknown) {
+  if (value == null) return '';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(Number(value.toFixed(4))) : '';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return String(value).replace(/\s+/g, ' ').trim();
+}
+
+function readableText(value: unknown) {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return normalized || 'Sin indicar';
+}
+
+function readableBoolean(value: unknown) {
+  return Boolean(value) ? 'Si' : 'No';
+}
+
+function readableNumber(value: unknown, prefix = '') {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 'Sin indicar';
+  const formatted = new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(amount);
+  return `${prefix}${formatted}`;
+}
+
+function readableDate(value: unknown) {
+  const normalized = String(value ?? '').trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : readableText(normalized);
+}
+
+function readableFulfillment(value: unknown) {
+  return String(value || '') === 'delivery' ? 'Delivery' : 'Retiro en local';
+}
+
+function readablePaymentMethod(value: unknown) {
+  const normalized = String(value || '').trim();
+  const labels: Record<string, string> = {
+    pending: 'Por definir',
+    cash: 'Efectivo',
+    cash_usd: 'Efectivo USD',
+    cash_ves: 'Efectivo VES',
+    payment_mobile: 'Pago movil',
+    transfer: 'Transferencia',
+    pos: 'Punto de venta',
+    zelle: 'Zelle',
+    wallet_usd: 'Wallet USD',
+    mixed: 'Pago mixto',
+  };
+  return labels[normalized] ?? readableText(normalized);
+}
+
+function appendOrderChangeDetail(
+  details: OrderChangeDetail[],
+  input: {
+    section: OrderChangeSection;
+    field: string;
+    label: string;
+    before: unknown;
+    after: unknown;
+    format?: (value: unknown) => string;
+  }
+) {
+  if (comparableChangeValue(input.before) === comparableChangeValue(input.after)) return;
+
+  const beforeComparable = comparableChangeValue(input.before);
+  const afterComparable = comparableChangeValue(input.after);
+  const format = input.format ?? readableText;
+  details.push({
+    section: input.section,
+    field: input.field,
+    label: input.label,
+    kind: !beforeComparable ? 'added' : !afterComparable ? 'removed' : 'changed',
+    before: beforeComparable ? format(input.before) : null,
+    after: afterComparable ? format(input.after) : null,
+  });
+}
+
+function buildAdvisorHeaderChangeDetails(input: {
+  order: {
+    client_id: number | string | null;
+    fulfillment: string | null;
+    delivery_address: string | null;
+    receiver_name: string | null;
+    receiver_phone: string | null;
+    notes: string | null;
+    total_usd: number | string | null;
+    total_bs_snapshot: number | string | null;
+    extra_fields: Record<string, unknown> | null;
+  };
+  payload: AdvisorOrderHeaderInput['payload'];
+  clientNameById: Map<number, string>;
+}) {
+  const { order, payload, clientNameById } = input;
+  const details: OrderChangeDetail[] = [];
+  const previousExtra = sanitizePlainObject(order.extra_fields);
+  const nextExtra = sanitizePlainObject(payload.extra_fields);
+  const previousSchedule = nestedRecord(previousExtra, 'schedule');
+  const nextSchedule = nestedRecord(nextExtra, 'schedule');
+  const previousDelivery = nestedRecord(previousExtra, 'delivery');
+  const nextDelivery = nestedRecord(nextExtra, 'delivery');
+  const previousPayment = nestedRecord(previousExtra, 'payment');
+  const nextPayment = nestedRecord(nextExtra, 'payment');
+  const previousPricing = nestedRecord(previousExtra, 'pricing');
+  const nextPricing = nestedRecord(nextExtra, 'pricing');
+  const previousDocuments = nestedRecord(previousExtra, 'documents');
+  const nextDocuments = nestedRecord(nextExtra, 'documents');
+  const previousInvoice = nestedRecord(previousDocuments, 'invoice_snapshot');
+  const nextInvoice = nestedRecord(nextDocuments, 'invoice_snapshot');
+  const previousDeliveryNote = nestedRecord(previousDocuments, 'delivery_note_snapshot');
+  const nextDeliveryNote = nestedRecord(nextDocuments, 'delivery_note_snapshot');
+  const previousClientId = Number(order.client_id || 0);
+  const nextClientId = Number(payload.client_id || 0);
+  const clientLabel = (value: unknown) => {
+    const id = Number(value || 0);
+    return id > 0 ? clientNameById.get(id) ?? `Cliente #${id}` : 'Sin indicar';
+  };
+
+  appendOrderChangeDetail(details, { section: 'cliente', field: 'client_id', label: 'Cliente', before: previousClientId, after: nextClientId, format: clientLabel });
+  appendOrderChangeDetail(details, { section: 'entrega', field: 'fulfillment', label: 'Tipo de entrega', before: order.fulfillment, after: payload.fulfillment, format: readableFulfillment });
+  appendOrderChangeDetail(details, { section: 'entrega', field: 'schedule.date', label: 'Fecha de entrega', before: previousSchedule.date, after: nextSchedule.date, format: readableDate });
+  appendOrderChangeDetail(details, { section: 'entrega', field: 'schedule.time_12', label: 'Hora de entrega', before: previousSchedule.time_12, after: nextSchedule.time_12 });
+  appendOrderChangeDetail(details, { section: 'entrega', field: 'schedule.asap', label: 'Entrega lo antes posible', before: Boolean(previousSchedule.asap), after: Boolean(nextSchedule.asap), format: readableBoolean });
+  appendOrderChangeDetail(details, { section: 'entrega', field: 'receiver_name', label: 'Persona que recibe', before: order.receiver_name, after: payload.receiver_name });
+  appendOrderChangeDetail(details, { section: 'entrega', field: 'receiver_phone', label: 'Telefono de quien recibe', before: order.receiver_phone, after: payload.receiver_phone });
+  appendOrderChangeDetail(details, { section: 'direccion', field: 'delivery_address', label: 'Direccion de entrega', before: order.delivery_address ?? previousDelivery.address, after: payload.delivery_address ?? nextDelivery.address });
+  appendOrderChangeDetail(details, { section: 'direccion', field: 'delivery.gps_url', label: 'Ubicacion GPS', before: previousDelivery.gps_url, after: nextDelivery.gps_url });
+  appendOrderChangeDetail(details, { section: 'pago', field: 'payment.method', label: 'Metodo de pago', before: previousPayment.method, after: nextPayment.method, format: readablePaymentMethod });
+  appendOrderChangeDetail(details, { section: 'pago', field: 'payment.currency', label: 'Moneda de pago', before: previousPayment.currency, after: nextPayment.currency });
+  appendOrderChangeDetail(details, { section: 'pago', field: 'payment.requires_change', label: 'Solicita cambio', before: Boolean(previousPayment.requires_change), after: Boolean(nextPayment.requires_change), format: readableBoolean });
+  appendOrderChangeDetail(details, { section: 'pago', field: 'payment.change_for', label: 'Cambio para', before: previousPayment.change_for, after: nextPayment.change_for, format: readableNumber });
+  appendOrderChangeDetail(details, { section: 'pago', field: 'payment.change_currency', label: 'Moneda del cambio', before: previousPayment.change_currency, after: nextPayment.change_currency });
+  appendOrderChangeDetail(details, { section: 'pago', field: 'payment.notes', label: 'Nota de pago', before: previousPayment.notes, after: nextPayment.notes });
+  appendOrderChangeDetail(details, { section: 'precio', field: 'pricing.fx_rate', label: 'Tasa de la orden', before: previousPricing.fx_rate, after: nextPricing.fx_rate, format: (value) => readableNumber(value, 'Bs ') });
+  appendOrderChangeDetail(details, { section: 'precio', field: 'pricing.discount_pct', label: 'Descuento', before: Number(previousPricing.discount_pct || 0), after: Number(nextPricing.discount_pct || 0), format: (value) => `${readableNumber(value)}%` });
+  appendOrderChangeDetail(details, { section: 'precio', field: 'total_usd', label: 'Total USD', before: order.total_usd, after: payload.total_usd, format: (value) => readableNumber(value, '$') });
+  appendOrderChangeDetail(details, { section: 'precio', field: 'total_bs_snapshot', label: 'Total VES', before: order.total_bs_snapshot, after: payload.total_bs_snapshot, format: (value) => readableNumber(value, 'Bs ') });
+  appendOrderChangeDetail(details, { section: 'factura', field: 'documents.has_invoice', label: 'Factura', before: Boolean(previousDocuments.has_invoice), after: Boolean(nextDocuments.has_invoice), format: readableBoolean });
+  appendOrderChangeDetail(details, { section: 'factura', field: 'invoice.company_name', label: 'Razon social', before: previousInvoice.company_name, after: nextInvoice.company_name });
+  appendOrderChangeDetail(details, { section: 'factura', field: 'invoice.tax_id', label: 'RIF', before: previousInvoice.tax_id, after: nextInvoice.tax_id });
+  appendOrderChangeDetail(details, { section: 'factura', field: 'invoice.address', label: 'Direccion fiscal', before: previousInvoice.address, after: nextInvoice.address });
+  appendOrderChangeDetail(details, { section: 'factura', field: 'invoice.phone', label: 'Telefono fiscal', before: previousInvoice.phone, after: nextInvoice.phone });
+  appendOrderChangeDetail(details, { section: 'nota_entrega', field: 'documents.has_delivery_note', label: 'Nota de entrega', before: Boolean(previousDocuments.has_delivery_note), after: Boolean(nextDocuments.has_delivery_note), format: readableBoolean });
+  appendOrderChangeDetail(details, { section: 'nota_entrega', field: 'delivery_note.name', label: 'Nombre en nota de entrega', before: previousDeliveryNote.name, after: nextDeliveryNote.name });
+  appendOrderChangeDetail(details, { section: 'nota_entrega', field: 'delivery_note.document_id', label: 'Documento en nota de entrega', before: previousDeliveryNote.document_id, after: nextDeliveryNote.document_id });
+  appendOrderChangeDetail(details, { section: 'nota_entrega', field: 'delivery_note.address', label: 'Direccion en nota de entrega', before: previousDeliveryNote.address, after: nextDeliveryNote.address });
+  appendOrderChangeDetail(details, { section: 'nota_entrega', field: 'delivery_note.phone', label: 'Telefono en nota de entrega', before: previousDeliveryNote.phone, after: nextDeliveryNote.phone });
+  appendOrderChangeDetail(details, { section: 'nota', field: 'notes', label: 'Nota del pedido', before: order.notes, after: payload.notes });
+
+  return sanitizeOrderChangeDetails(details);
+}
+
+type AdvisorComparableOrderItem = {
+  productId: number;
+  productName: string;
+  qty: number;
+  unitPriceUsd: number;
+  detailLines: string[];
+};
+
+function normalizeItemDetailLines(value: unknown) {
+  const lines = Array.isArray(value)
+    ? value
+    : String(value ?? '').split('\n');
+  return lines
+    .map((line) => String(line || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function advisorItemSignature(item: AdvisorComparableOrderItem) {
+  return `${item.productId}|${item.detailLines.map((line) => line.toLocaleLowerCase('es-VE')).join('|')}`;
+}
+
+function itemQuantityText(item: AdvisorComparableOrderItem) {
+  const quantity = readableNumber(item.qty);
+  return item.detailLines.length > 0
+    ? `x${quantity} (${item.detailLines.join('; ')})`
+    : `x${quantity}`;
+}
+
+function buildAdvisorItemChangeDetails(
+  previousItems: AdvisorComparableOrderItem[],
+  nextItems: AdvisorComparableOrderItem[]
+) {
+  const aggregate = (items: AdvisorComparableOrderItem[]) => {
+    const result = new Map<string, AdvisorComparableOrderItem>();
+    for (const item of items) {
+      const key = advisorItemSignature(item);
+      const existing = result.get(key);
+      if (existing) {
+        existing.qty += item.qty;
+        continue;
+      }
+      result.set(key, { ...item, detailLines: [...item.detailLines] });
+    }
+    return result;
+  };
+  const previousBySignature = aggregate(previousItems);
+  const nextBySignature = aggregate(nextItems);
+  const signatures = Array.from(new Set([...previousBySignature.keys(), ...nextBySignature.keys()]));
+  const details: OrderChangeDetail[] = [];
+
+  for (const signature of signatures) {
+    const previous = previousBySignature.get(signature);
+    const next = nextBySignature.get(signature);
+    const visible = next ?? previous;
+    if (!visible) continue;
+    const fieldKey = signature.slice(0, 80);
+
+    if (!previous || !next) {
+      appendOrderChangeDetail(details, {
+        section: 'pedido',
+        field: `item.${fieldKey}`,
+        label: visible.productName,
+        before: previous ? itemQuantityText(previous) : null,
+        after: next ? itemQuantityText(next) : null,
+      });
+      continue;
+    }
+
+    appendOrderChangeDetail(details, {
+      section: 'pedido',
+      field: `item.${fieldKey}.qty`,
+      label: `Cantidad · ${visible.productName}`,
+      before: previous.qty,
+      after: next.qty,
+      format: readableNumber,
+    });
+    appendOrderChangeDetail(details, {
+      section: 'pedido',
+      field: `item.${fieldKey}.unit_price_usd`,
+      label: `Precio unitario · ${visible.productName}`,
+      before: previous.unitPriceUsd,
+      after: next.unitPriceUsd,
+      format: (value) => readableNumber(value, '$'),
+    });
+  }
+
+  return sanitizeOrderChangeDetails(details);
+}
+
+function mergePendingOrderChangeDetails(existingInput: unknown, incomingInput: unknown) {
+  const existing = sanitizeOrderChangeDetails(existingInput);
+  const incoming = sanitizeOrderChangeDetails(incomingInput);
+  const byField = new Map(existing.map((detail) => [`${detail.section}:${detail.field}`, detail]));
+
+  for (const detail of incoming) {
+    const key = `${detail.section}:${detail.field}`;
+    const previous = byField.get(key);
+    const merged = previous
+      ? { ...detail, before: previous.before }
+      : detail;
+    if (merged.before === merged.after) byField.delete(key);
+    else byField.set(key, merged);
+  }
+
+  return sanitizeOrderChangeDetails(Array.from(byField.values()));
 }
 
 async function clearAdvisorReviewActionRecipients(
@@ -139,10 +402,13 @@ async function appendAdvisorCorrectionSubmittedEvent(params: {
   orderId: number;
   orderNumber: string | number | null;
   advisorUserId: string;
-  changeSummary?: AdvisorOrderChangeSummaryInput | null;
+  changeDetails?: OrderChangeDetail[] | null;
 }) {
-  const summary = sanitizeStringList(params.changeSummary?.summary);
-  const sections = sanitizeStringList(params.changeSummary?.sections);
+  const changeDetails = sanitizeOrderChangeDetails(params.changeDetails);
+  const sections = Array.from(new Set(changeDetails.map((detail) => detail.section)));
+  const summary = changeDetails.length > 0
+    ? [summarizeOrderChangeDetails(changeDetails)]
+    : [];
   const message = summary.length > 0
     ? summary.join(' ')
     : 'El asesor corrigio la orden y la reenvio para aprobacion.';
@@ -159,6 +425,7 @@ async function appendAdvisorCorrectionSubmittedEvent(params: {
       severity: 'warning',
       actor_user_id: params.advisorUserId,
       payload: {
+        change_details: changeDetails,
         changed_sections: sections,
         change_summary: summary,
         source: 'advisor_mobile',
@@ -187,8 +454,8 @@ async function appendAdvisorCorrectionSubmittedEvent(params: {
     await sendPushToRoleDevices({
       roles: ['master', 'admin'],
       title: `${orderLabel}: Correccion reenviada`,
-      body: 'Un asesor corrigio una orden devuelta y requiere aprobacion.',
-      url: '/app/master/dashboard',
+      body: message,
+      url: `/app/master/ops?openOrder=${params.orderId}&tab=cambios`,
       tag: `master-order-${params.orderId}-advisor-correction`,
       tone: 'critical',
       requireInteraction: true,
@@ -433,7 +700,7 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
 
   const { data: order, error: orderError } = await ctx.supabase
     .from('orders')
-    .select('id, attributed_advisor_id, status, last_modified_at, extra_fields')
+    .select('id, client_id, attributed_advisor_id, status, last_modified_at, fulfillment, delivery_address, receiver_name, receiver_phone, notes, total_usd, total_bs_snapshot, extra_fields')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -469,10 +736,42 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
       ? { ...(payload.extra_fields as Record<string, unknown>) }
       : {};
   const incomingReview = sanitizePlainObject(nextExtraFields.review);
+  const clientIds = Array.from(
+    new Set([Number(order.client_id || 0), Number(payload.client_id || 0)].filter((id) => id > 0))
+  );
+  const clientNameById = new Map<number, string>();
+  if (clientIds.length > 0) {
+    const { data: clients, error: clientsError } = await adminSupabase
+      .from('clients')
+      .select('id, full_name')
+      .in('id', clientIds);
+    if (clientsError) throw new Error(clientsError.message);
+    for (const client of clients ?? []) {
+      clientNameById.set(Number(client.id), String(client.full_name || '').trim() || `Cliente #${client.id}`);
+    }
+  }
+  const headerChangeDetails = buildAdvisorHeaderChangeDetails({
+    order,
+    payload,
+    clientNameById,
+  });
+  const pendingChangeDetails = mergePendingOrderChangeDetails(
+    existingReview.advisor_pending_change_details,
+    headerChangeDetails
+  );
   if (Object.keys(existingReview).length > 0 || Object.keys(incomingReview).length > 0) {
     nextExtraFields.review = {
       ...existingReview,
       ...incomingReview,
+      advisor_pending_change_details: pendingChangeDetails,
+      advisor_pending_change_started_at: nowIso,
+      advisor_pending_change_started_by: ctx.user.id,
+    };
+  } else {
+    nextExtraFields.review = {
+      advisor_pending_change_details: pendingChangeDetails,
+      advisor_pending_change_started_at: nowIso,
+      advisor_pending_change_started_by: ctx.user.id,
     };
   }
   let updateOrderQuery = adminSupabase
@@ -508,6 +807,7 @@ export async function updateAdvisorOrderHeaderAction(input: AdvisorOrderHeaderIn
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
   revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/ops');
   revalidatePath('/app/master/dashboard');
 
   return { ok: true as const, lastModifiedAt: nowIso };
@@ -547,6 +847,7 @@ export async function submitAdvisorOrderCorrectionForReviewAction(input: {
   const extraFields = sanitizePlainObject(order.extra_fields);
   const review = sanitizePlainObject(extraFields.review);
   const wasReturnedToAdvisor = Boolean(review.returned_to_advisor);
+  const changeDetails = sanitizeOrderChangeDetails(review.advisor_pending_change_details);
 
   if (wasReturnedToAdvisor) {
     const { error: clearReturnError } = await adminSupabase
@@ -577,12 +878,38 @@ export async function submitAdvisorOrderCorrectionForReviewAction(input: {
     orderId,
     orderNumber: order.order_number ?? null,
     advisorUserId: ctx.user.id,
-    changeSummary: input.changeSummary,
+    changeDetails,
   });
+
+  const clearedReview: Record<string, unknown> = {
+    ...review,
+    ...(wasReturnedToAdvisor
+      ? {
+          returned_to_advisor: false,
+          returned_to_advisor_corrected_at: nowIso,
+          returned_to_advisor_corrected_by: ctx.user.id,
+        }
+      : {}),
+  };
+  delete clearedReview.advisor_pending_change_details;
+  delete clearedReview.advisor_pending_change_started_at;
+  delete clearedReview.advisor_pending_change_started_by;
+  const { error: clearPendingDetailsError } = await adminSupabase
+    .from('orders')
+    .update({
+      extra_fields: {
+        ...extraFields,
+        review: clearedReview,
+      },
+    })
+    .eq('id', orderId)
+    .eq('attributed_advisor_id', ctx.user.id);
+  if (clearPendingDetailsError) throw new Error(clearPendingDetailsError.message);
 
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
   revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/master/ops');
   revalidatePath('/app/master/dashboard');
 }
 
@@ -639,7 +966,7 @@ export async function replaceAdvisorOrderItemsAction(input: {
 
   const { data: existingItems, error: existingItemsError } = await adminSupabase
     .from('order_items')
-    .select('id')
+    .select('id, product_id, product_name_snapshot, qty, unit_price_usd_snapshot, notes')
     .eq('order_id', orderId);
 
   if (existingItemsError) {
@@ -669,7 +996,43 @@ export async function replaceAdvisorOrderItemsAction(input: {
     }
   }
 
+  const previousComparableItems: AdvisorComparableOrderItem[] = (existingItems ?? []).map((item) => ({
+    productId: Number(item.product_id || 0),
+    productName: String(item.product_name_snapshot || '').trim() || 'Item',
+    qty: toFiniteNumber(item.qty),
+    unitPriceUsd: toFiniteNumber(item.unit_price_usd_snapshot),
+    detailLines: normalizeItemDetailLines(item.notes),
+  }));
+  const nextComparableItems: AdvisorComparableOrderItem[] = itemsPayload.map((item) => ({
+    productId: Number(item.product_id || 0),
+    productName: String(item.product_name_snapshot || '').trim() || 'Item',
+    qty: toFiniteNumber(item.qty),
+    unitPriceUsd: toFiniteNumber(item.unit_price_usd_snapshot),
+    detailLines: normalizeItemDetailLines(item.notes),
+  }));
+  const itemChangeDetails = buildAdvisorItemChangeDetails(previousComparableItems, nextComparableItems);
+  const extraFields = sanitizePlainObject(order.extra_fields);
+  const review = sanitizePlainObject(extraFields.review);
+  const headerChangeDetails = sanitizeOrderChangeDetails(review.advisor_pending_change_details);
+  const mergedChangeDetails = mergePendingOrderChangeDetails(headerChangeDetails, itemChangeDetails);
+  const { error: reviewUpdateError } = await adminSupabase
+    .from('orders')
+    .update({
+      extra_fields: {
+        ...extraFields,
+        review: {
+          ...review,
+          advisor_pending_change_details: mergedChangeDetails,
+        },
+      },
+    })
+    .eq('id', orderId)
+    .eq('attributed_advisor_id', ctx.user.id);
+
+  if (reviewUpdateError) throw new Error(reviewUpdateError.message);
+
   revalidatePath(`/app/advisor/orders/${orderId}`);
   revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/master/ops');
   revalidatePath('/app/master/dashboard');
 }

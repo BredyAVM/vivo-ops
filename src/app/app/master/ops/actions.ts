@@ -8,6 +8,10 @@ import {
   type OrderFinancialActivity,
 } from "@/lib/finance/order-financial-activity";
 import { getVisibleEditableDetailLines } from "@/lib/orders/order-composer";
+import {
+  sanitizeOrderChangeDetails,
+  type OrderChangeDetail,
+} from "@/lib/orders/order-change-detail";
 import { getPaymentReportCurrency } from "@/lib/payments/payment-report-rules";
 import { getPhoneSearchTerms } from "@/lib/phone/normalize-phone";
 import { calculateOrderLineSnapshot, calculateOrderTotalsSnapshot } from "@/lib/pricing/order-snapshots";
@@ -59,9 +63,20 @@ export type MasterOpsOrderDetailPayload = {
   paymentReports: MasterOrderPaymentReport[];
   financialActivity: OrderFinancialActivity[];
   events: MasterOrderEvent[];
+  changes: MasterOpsOrderChangeEvent[];
   adminAdjustments: MasterOrderAdminAdjustment[];
   pickupChangeRequests: CounterPickupChangeRequest[];
   inventory: MasterOpsOrderInventoryPreview;
+};
+
+export type MasterOpsOrderChangeEvent = {
+  id: string;
+  title: string;
+  message: string | null;
+  actorName: string;
+  createdAt: string;
+  details: OrderChangeDetail[];
+  isDetailed: boolean;
 };
 
 export type MasterOpsOrderInventoryLine = {
@@ -156,10 +171,12 @@ type MasterOpsDetailPaymentRow = {
 
 type MasterOpsDetailEventRow = {
   id: number | string;
+  event_type: string | null;
   title: string | null;
   message: string | null;
   severity: "info" | "warning" | "critical" | null;
   actor_user_id: string | null;
+  payload: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -380,7 +397,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
         .order("created_at", { ascending: false }),
       supabase
         .from("order_timeline_events")
-        .select("id, title, message, severity, actor_user_id, created_at")
+        .select("id, event_type, title, message, severity, actor_user_id, payload, created_at")
         .eq("order_id", orderId)
         .order("created_at", { ascending: false })
         .limit(250),
@@ -570,6 +587,23 @@ export async function loadMasterOpsOrderDetailAction(input: {
         "Sistema",
       createdAt: event.created_at,
     }));
+    const changes: MasterOpsOrderChangeEvent[] = orderEvents
+      .filter((event) => event.event_type === "order_modified")
+      .map((event) => {
+        const payload = asOpsRecord(event.payload);
+        const details = sanitizeOrderChangeDetails(payload.change_details);
+        return {
+          id: String(event.id),
+          title: cleanText(event.title, "Modificacion de la orden"),
+          message: event.message ?? null,
+          actorName:
+            (event.actor_user_id ? profileNameById.get(event.actor_user_id) : null) ??
+            "Sistema",
+          createdAt: event.created_at,
+          details,
+          isDetailed: details.length > 0,
+        };
+      });
     const adminAdjustments: MasterOrderAdminAdjustment[] = orderAdjustments.map((adjustment) => ({
       id: Number(adjustment.id),
       adjustmentType: masterOpsAdjustmentLabel(adjustment.adjustment_type),
@@ -631,6 +665,7 @@ export async function loadMasterOpsOrderDetailAction(input: {
         paymentReports: mappedPaymentReports,
         financialActivity,
         events,
+        changes,
         adminAdjustments,
         pickupChangeRequests,
         inventory: inventoryPreview,

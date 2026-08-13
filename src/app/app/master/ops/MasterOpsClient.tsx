@@ -77,6 +77,7 @@ import {
   settleMasterOpsClientFundPayoutAction,
   searchMasterOpsOrdersAction,
   type MasterOpsOrderDetailPayload,
+  type MasterOpsOrderChangeEvent,
   type MasterOpsOrderInventoryPreview,
   type MasterOpsPaymentSuggestion,
   type MasterOpsOrderSearchResult,
@@ -107,6 +108,7 @@ export type PaymentVerify = MasterOrderPaymentVerify;
 export type MasterOpsOrder = MasterOrderDetailOrder & {
   clientFundUsedUsd: number;
   financialActivity?: OrderFinancialActivity[];
+  changes?: MasterOpsOrderChangeEvent[];
   inventory?: MasterOpsOrderInventoryPreview;
   pendingBs: number | null;
   paymentCollectionMode: string | null;
@@ -191,10 +193,11 @@ type Props = {
 };
 
 type MasterTray = "all" | "pending_created" | "reapproval" | "queued" | "kitchen" | "delivery" | "finalized";
-type DetailTab = MasterOrderDetailTab | "inventario";
+type DetailTab = MasterOrderDetailTab | "inventario" | "cambios";
 const MASTER_OPS_ORDER_DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   ...MASTER_ORDER_DETAIL_TABS,
   { key: "inventario", label: "Inventario" },
+  { key: "cambios", label: "Cambios" },
 ];
 type DirectActionKey =
   | "approve"
@@ -1164,6 +1167,92 @@ function MasterOpsOrderInventoryPanel({
   );
 }
 
+function MasterOpsOrderChangesPanel({ changes }: { changes: MasterOpsOrderChangeEvent[] | undefined }) {
+  const modificationEvents = changes ?? [];
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="rounded-xl border border-[#343442] bg-[#121218] p-4">
+        <div className="text-sm font-semibold text-[#F5F5F7]">Modificaciones de la orden</div>
+        <div className="mt-1 text-xs leading-relaxed text-[#8A8A96]">
+          Muestra que cambio el asesor antes de reenviar la orden para aprobacion.
+        </div>
+      </div>
+
+      {modificationEvents.length === 0 ? (
+        <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] px-4 py-5 text-sm text-[#B7B7C2]">
+          No hay modificaciones registradas para esta orden.
+        </div>
+      ) : (
+        modificationEvents.map((event) => (
+          <article key={event.id} className="rounded-xl border border-[#242433] bg-[#121218] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-[#F5F5F7]">{event.title}</div>
+                {event.message ? (
+                  <div className="mt-1 text-xs leading-relaxed text-[#B7B7C2]">{event.message}</div>
+                ) : null}
+              </div>
+              <div className="shrink-0 text-right text-[11px] text-[#8A8A96]">
+                <div>{event.actorName}</div>
+                <div className="mt-0.5">{formatMasterOrderDateTime(event.createdAt)}</div>
+              </div>
+            </div>
+
+            {event.isDetailed ? (
+              <div className="mt-4 space-y-2">
+                {event.details.map((detail, index) => {
+                  const badge =
+                    detail.kind === "added"
+                      ? { label: "AGREGADO", className: "border-emerald-500/35 bg-emerald-500/10 text-emerald-200" }
+                      : detail.kind === "removed"
+                        ? { label: "ELIMINADO", className: "border-red-500/35 bg-red-500/10 text-red-200" }
+                        : { label: "CAMBIADO", className: "border-amber-500/35 bg-amber-500/10 text-amber-100" };
+
+                  return (
+                    <div
+                      key={`${event.id}-${detail.field}-${index}`}
+                      className="rounded-lg border border-[#2D2D39] bg-[#0B0B0D] p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-[#F5F5F7]">{detail.label}</div>
+                        <span className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+
+                      {detail.kind === "changed" ? (
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <div className="rounded-md border border-red-500/15 bg-red-500/5 px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8A8A96]">Antes</div>
+                            <div className="mt-1 break-words text-xs text-red-100">{detail.before ?? "Sin indicar"}</div>
+                          </div>
+                          <div className="rounded-md border border-emerald-500/15 bg-emerald-500/5 px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8A8A96]">Ahora</div>
+                            <div className="mt-1 break-words text-xs text-emerald-100">{detail.after ?? "Sin indicar"}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 break-words text-xs text-[#D7D7DE]">
+                          {detail.kind === "added" ? detail.after : detail.before}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-[#2D2D39] bg-[#0B0B0D] px-3 py-3 text-xs leading-relaxed text-[#8A8A96]">
+                Esta modificacion pertenece al historial anterior y no tiene desglose campo por campo.
+              </div>
+            )}
+          </article>
+        ))
+      )}
+    </div>
+  );
+}
+
 function OrderDetailPanel({
   order,
   activeRate,
@@ -2065,6 +2154,8 @@ function OrderDetailPanel({
                   inventory={order.inventory}
                   onRefresh={onRetryDetail}
                 />
+              ) : activeTab === "cambios" ? (
+                <MasterOpsOrderChangesPanel changes={order.changes} />
               ) : activeTab === "notas" ? (
                 <div className="mt-4 space-y-3">
                   <form
