@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   getOperationalStatusLabel,
   getPaymentMethodLabel,
@@ -43,6 +43,72 @@ import type {
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
 } from './CounterClient';
+
+function CounterOperationDialog({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    document.body.style.overflow = 'hidden';
+    closeButtonRef.current?.focus();
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') onCloseRef.current();
+    }
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div className="flex max-h-[96dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-[#303044] bg-[#101014] shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#242433] px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <div className="truncate text-base font-semibold text-[#F5F5F7]">{title}</div>
+            <div className="truncate text-xs text-[#9FA0AA]">{subtitle}</div>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            className="min-h-10 shrink-0 rounded-full border border-[#303044] px-4 py-2 text-xs font-semibold text-[#C7C8D1] hover:border-[#FEEF00]/60 hover:text-[#FEEF00]"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto p-3 sm:p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 type StableCommandKey = {
   fingerprint: string;
@@ -579,7 +645,6 @@ export function OrderDetail({
   const [addItemsOpen, setAddItemsOpen] = useState(false);
   const [deliveryDispatchOpen, setDeliveryDispatchOpen] = useState(false);
   const [pickupConfirmationOpen, setPickupConfirmationOpen] = useState(false);
-  const paymentSectionRef = useRef<HTMLDivElement | null>(null);
   const currentAction = getCounterCurrentAction(order);
   const canModifyPickup =
     order.fulfillment === 'pickup' &&
@@ -620,11 +685,6 @@ export function OrderDetail({
   useEffect(() => {
     if (initialPaymentOpen) onInitialPaymentOpened();
   }, [initialPaymentOpen, onInitialPaymentOpened]);
-
-  useEffect(() => {
-    if (!paymentOpen) return;
-    paymentSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [paymentOpen]);
 
   function handlePrimaryActionClick() {
     if (pickupCheckoutRequired) {
@@ -812,7 +872,11 @@ export function OrderDetail({
           </div>
 
           {paymentOpen && !isCancelled ? (
-            <div ref={paymentSectionRef} className="scroll-mt-4">
+            <CounterOperationDialog
+              title="Cobrar pedido"
+              subtitle={`Orden #${order.displayNumber} · ${order.clientName}`}
+              onClose={() => setPaymentOpen(false)}
+            >
               <CounterPaymentEngine
                 key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.paymentQuote.operationDate}-${order.paymentQuote.pendingBs}-${order.paymentQuote.collectionMode}-${order.reports.pending}`}
                 order={order}
@@ -821,7 +885,7 @@ export function OrderDetail({
                 onSubmit={(input) => onCreatePaymentReport(order, input)}
                 onLoadPaymentQuote={onLoadPaymentQuote}
               />
-            </div>
+            </CounterOperationDialog>
           ) : null}
 
           {order.fulfillment === 'delivery' || order.deliveryAddress ? (
@@ -851,19 +915,25 @@ export function OrderDetail({
           ) : null}
 
           {deliveryDispatchOpen && isReadyDeliveryAction && !primaryActionBlocked ? (
-            <CounterDeliveryDispatchPanel
-              order={order}
-              paymentAccounts={paymentAccounts}
-              activeBsRate={activeBsRate}
-              isWorking={isWorking}
-              onCancel={() => setDeliveryDispatchOpen(false)}
-              onSubmit={async (intent) => {
-                const result = await onPrimaryDeliveryAction(order, intent);
-                if (!result) throw new Error('No se pudo confirmar la salida.');
-                setDeliveryDispatchOpen(false);
-                return result;
-              }}
-            />
+            <CounterOperationDialog
+              title="Entregar al motorizado"
+              subtitle={`Orden #${order.displayNumber} · ${order.deliveryAssigneeName || 'Sin asignar'}`}
+              onClose={() => setDeliveryDispatchOpen(false)}
+            >
+              <CounterDeliveryDispatchPanel
+                order={order}
+                paymentAccounts={paymentAccounts}
+                activeBsRate={activeBsRate}
+                isWorking={isWorking}
+                onCancel={() => setDeliveryDispatchOpen(false)}
+                onSubmit={async (intent) => {
+                  const result = await onPrimaryDeliveryAction(order, intent);
+                  if (!result) throw new Error('No se pudo confirmar la salida.');
+                  setDeliveryDispatchOpen(false);
+                  return result;
+                }}
+              />
+            </CounterOperationDialog>
           ) : null}
 
           {isDeliverySettlement ? (
@@ -937,7 +1007,7 @@ export function OrderDetail({
               disabled={isCancelled || isWorking}
               className="min-h-11 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {paymentOpen ? 'Ocultar pago' : 'Pago'}
+              Cobrar
             </button>
             <button
               type="button"
@@ -948,13 +1018,6 @@ export function OrderDetail({
               {catalogLoading ? 'Cargando...' : addItemsOpen ? 'Ocultar edicion' : 'Modificar'}
             </button>
           </div>
-          {order.paymentRequiresChange ? (
-            <ActionHint
-              title="Preparar cambio"
-              text={`El cliente pagará con ${order.paymentChangeFor || '-'} ${order.paymentChangeCurrency || ''}. Counter calcula la diferencia y registra el egreso al confirmar la salida.`}
-              tone="warn"
-            />
-          ) : null}
           {canModifyPickup ? (
             <ActionHint
               title="Modificar pickup"

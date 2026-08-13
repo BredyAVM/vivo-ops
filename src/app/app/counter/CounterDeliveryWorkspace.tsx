@@ -240,6 +240,7 @@ export function CounterDeliveryDispatchPanel({
   );
   const [cashChangeLines, setCashChangeLines] = useState<CashDraft[]>([]);
   const [digitalChangeLines, setDigitalChangeLines] = useState<DigitalDraft[]>([]);
+  const [step, setStep] = useState<'eta' | 'money' | 'review'>('eta');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const requestKey = useRef<string | null>(null);
@@ -283,9 +284,6 @@ export function CounterDeliveryDispatchPanel({
         .map((line) => amountLabel(decimal(line.amount), line.currencyCode))
         .join(' + ') || 'Sin monto válido'
     : 'No indicado';
-  const pendingCollectionLabel = expectedCurrency === 'VES' && order.paymentQuote.pendingBs > 0.005
-    ? amountLabel(order.paymentQuote.pendingBs, 'VES')
-    : moneyUsd(order.paymentQuote.pendingUsd);
   const requiredChangeLabel = expectedCurrency === 'VES' && settlementVesRate > 0
     ? amountLabel(requiredChangeUsd * settlementVesRate, 'VES')
     : moneyUsd(requiredChangeUsd);
@@ -301,9 +299,6 @@ export function CounterDeliveryDispatchPanel({
   const suggestedCashAmount = suggestedCashAccount?.currencyCode === 'VES'
     ? roundMoney(requiredChangeUsd * settlementVesRate)
     : requiredChangeUsd;
-  const suggestedCashLabel = suggestedCashAccount
-    ? amountLabel(suggestedCashAmount, suggestedCashAccount.currencyCode)
-    : requiredChangeLabel;
   const showChangeControls =
     requiresMoneyHandling
     && (
@@ -312,6 +307,7 @@ export function CounterDeliveryDispatchPanel({
       || cashChangeLines.length > 0
       || digitalChangeLines.length > 0
     );
+  const needsChangeStep = showChangeControls && requiredChangeUsd > 0.005;
 
   function prepareAllChangeInCash() {
     if (!suggestedCashAccount || suggestedCashAmount <= 0) return;
@@ -323,6 +319,39 @@ export function CounterDeliveryDispatchPanel({
       referenceCode: '',
     }]);
     setDigitalChangeLines([]);
+  }
+
+  function continueFromEta() {
+    if (!etaIsValid) {
+      setError('Selecciona un tiempo estimado para la entrega.');
+      return;
+    }
+    if (prescribedChangeIsInvalid) {
+      setError('Master debe corregir con cuánto pagará el cliente antes de enviar cambio.');
+      return;
+    }
+    setError(null);
+    if (needsChangeStep) {
+      if (cashChangeLines.length === 0 && digitalChangeLines.length === 0) {
+        prepareAllChangeInCash();
+      }
+      setStep('money');
+      return;
+    }
+    setStep('review');
+  }
+
+  function continueFromMoney() {
+    if (Math.abs(differenceUsd) > 0.02) {
+      setError(
+        differenceUsd > 0
+          ? `Falta preparar ${moneyUsd(differenceUsd)} de cambio.`
+          : `El cambio supera lo requerido por ${moneyUsd(Math.abs(differenceUsd))}.`
+      );
+      return;
+    }
+    setError(null);
+    setStep('review');
   }
 
   async function submit() {
@@ -388,255 +417,192 @@ export function CounterDeliveryDispatchPanel({
   }
 
   return (
-    <div className="rounded-[10px] border border-sky-400/35 bg-sky-950/20 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-base font-semibold text-sky-100">
-            Salida del delivery
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-sky-100/70">
-            {requiresMoneyHandling
-              ? 'Sigue los pasos: confirma el tiempo, prepara el cambio indicado y entrega al motorizado.'
-              : 'Confirma el tiempo estimado y entrega el pedido. Esta orden no autoriza sacar cambio de caja.'}
-          </p>
-        </div>
-        <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-semibold text-sky-100">
-          {order.deliveryAssigneeName || 'Sin asignar'}
-        </span>
+    <div>
+      <div className={`mb-4 grid gap-2 ${needsChangeStep ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        {([
+          ['eta', 'Tiempo'],
+          ...(needsChangeStep ? [['money', 'Cambio']] : []),
+          ['review', 'Confirmar'],
+        ] as Array<['eta' | 'money' | 'review', string]>).map(([key, label], index) => {
+          const active = step === key;
+          const completed =
+            (key === 'eta' && step !== 'eta')
+            || (key === 'money' && step === 'review');
+          return (
+            <div
+              key={key}
+              className={[
+                'rounded-[8px] border px-3 py-2 text-center text-xs font-semibold',
+                active
+                  ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
+                  : completed
+                    ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200'
+                    : 'border-[#303044] bg-[#111118] text-[#777988]',
+              ].join(' ')}
+            >
+              {index + 1}. {label}
+            </div>
+          );
+        })}
       </div>
 
-      <div className="mt-4 rounded-[10px] border border-[#FEEF00]/35 bg-[#FEEF00]/[0.06] p-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#FEEF00]/75">
-              Paso 1 · Tiempo de entrega
-            </div>
-            <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
-              ¿En cuánto tiempo llegará?
-            </div>
-            <p className="mt-1 text-xs text-[#C7C8D1]">
-              Pregúntale al motorizado y selecciona el estimado.
-            </p>
+      {step === 'eta' ? (
+        <div>
+          <div className="text-center">
+            <div className="text-lg font-semibold text-[#F5F5F7]">¿Cuánto tardará el motorizado?</div>
+            <div className="mt-1 text-xs text-[#9FA0AA]">Selecciona lo que él indique.</div>
           </div>
-          <div className="rounded-full border border-[#FEEF00]/40 bg-[#FEEF00]/10 px-3 py-1.5 text-sm font-bold text-[#FEEF00]">
-            {etaIsValid ? `${eta} min` : 'Sin tiempo'}
+          <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {DELIVERY_ETA_PRESETS.map((minutes) => {
+              const selected = eta === minutes;
+              return (
+                <button
+                  key={minutes}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => {
+                    invalidate();
+                    setEtaMinutes(String(minutes));
+                  }}
+                  className={[
+                    'min-h-12 rounded-[8px] border px-3 py-2 text-sm font-bold transition',
+                    selected
+                      ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
+                      : 'border-[#3A3A47] bg-[#111118] text-[#C7C8D1] hover:border-[#FEEF00]/60',
+                  ].join(' ')}
+                >
+                  {minutes} min
+                </button>
+              );
+            })}
           </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {DELIVERY_ETA_PRESETS.map((minutes) => {
-            const selected = eta === minutes;
-            return (
-              <button
-                key={minutes}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => {
+          <label className="mx-auto mt-4 block max-w-[200px] text-xs font-semibold text-[#C7C8D1]">
+            Otro tiempo
+            <div className="relative mt-1">
+              <input
+                value={etaMinutes}
+                onChange={(event) => {
                   invalidate();
-                  setEtaMinutes(String(minutes));
+                  setEtaMinutes(event.target.value);
                 }}
-                className={[
-                  'min-h-10 min-w-[64px] rounded-full border px-3 py-2 text-xs font-bold transition',
-                  selected
-                    ? 'border-[#FEEF00] bg-[#FEEF00] text-black'
-                    : 'border-[#3A3A47] bg-[#0B0B0D] text-[#C7C8D1] hover:border-[#FEEF00]/60 hover:text-[#FEEF00]',
-                ].join(' ')}
-              >
-                {minutes} min
-              </button>
-            );
-          })}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={1440}
+                aria-label="Tiempo estimado en minutos"
+                className="w-full rounded-[8px] border border-[#3A3A47] bg-[#111118] px-3 py-3 pr-12 text-center text-lg font-semibold text-[#F5F5F7] outline-none focus:border-[#FEEF00]"
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-[#9FA0AA]">min</span>
+            </div>
+          </label>
+          {prescribedChangeIsInvalid ? (
+            <div className="mt-4 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs text-red-100">
+              Master debe corregir con cuánto pagará el cliente antes de enviar cambio.
+            </div>
+          ) : null}
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button type="button" onClick={onCancel} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Cancelar</button>
+            <button type="button" onClick={continueFromEta} disabled={!etaIsValid || prescribedChangeIsInvalid} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">
+              {needsChangeStep ? 'Continuar al cambio' : 'Continuar'}
+            </button>
+          </div>
         </div>
+      ) : null}
 
-        <label className="mt-3 block text-xs font-semibold text-[#C7C8D1]">
-          Otro tiempo
-          <div className="relative mt-1 max-w-[180px]">
-            <input
-              value={etaMinutes}
+      {step === 'money' ? (
+        <div>
+          <div className="rounded-[10px] border border-orange-400/35 bg-orange-950/15 p-4 text-center">
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-orange-200/75">Entrega al motorizado</div>
+            <div className="mt-1 text-3xl font-bold text-[#FEEF00]">{requiredChangeLabel}</div>
+            <div className="mt-1 text-xs text-orange-100/75">El cliente entregará {expectedCollectionLabel}</div>
+          </div>
+
+          <DeliveryCashDrafts
+            title="¿De cuál caja sale?"
+            helper="Confirma la caja y el monto físico que llevará."
+            lines={cashChangeLines}
+            cashAccounts={cashAccounts}
+            onChange={(lines) => {
+              invalidate();
+              setCashChangeLines(lines);
+            }}
+            addLabel="Dividir entre otra caja"
+          />
+
+          <details className="mt-3 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-[#C7C8D1]">Una parte será cambio digital</summary>
+            <DeliveryDigitalDrafts
+              lines={digitalChangeLines}
+              onChange={(lines) => {
+                invalidate();
+                setDigitalChangeLines(lines);
+              }}
+            />
+          </details>
+
+          <div className="mt-3 text-center text-xs font-semibold text-orange-100">
+            {Math.abs(differenceUsd) <= 0.02
+              ? `Listo: ${assignedChangeLabel} preparados.`
+              : differenceUsd > 0
+                ? `Falta preparar ${moneyUsd(differenceUsd)}.`
+                : `Sobra ${moneyUsd(Math.abs(differenceUsd))}.`}
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setStep('eta')} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
+            <button type="button" onClick={continueFromMoney} disabled={Math.abs(differenceUsd) > 0.02} className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45">Continuar</button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 'review' ? (
+        <div>
+          <div className="rounded-[10px] border border-[#FEEF00]/35 bg-[#FEEF00]/[0.06] p-4">
+            <div className="text-center text-lg font-semibold text-[#F5F5F7]">Confirma la salida</div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <DeliveryMetric label="Motorizado" value={order.deliveryAssigneeName || 'Sin asignar'} />
+              <DeliveryMetric label="Tiempo estimado" value={`${eta} min`} />
+              {requiresMoneyHandling ? (
+                <DeliveryMetric label="Debe regresar" value={expectedCollectionLabel} />
+              ) : (
+                <DeliveryMetric
+                  label="Dinero"
+                  value="Sin manejo de caja"
+                  note={advisorOwnsCollection ? 'La cobranza sigue con el asesor' : undefined}
+                  tone="good"
+                />
+              )}
+              {needsChangeStep ? <DeliveryMetric label="Cambio enviado" value={assignedChangeLabel} /> : null}
+            </div>
+          </div>
+
+          <details className="mt-3 rounded-[8px] border border-[#303044] bg-[#111118] p-3">
+            <summary className="cursor-pointer text-xs font-semibold text-[#C7C8D1]">Agregar nota opcional</summary>
+            <textarea
+              value={notes}
               onChange={(event) => {
                 invalidate();
-                setEtaMinutes(event.target.value);
+                setNotes(event.target.value);
               }}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={1440}
-              aria-label="Tiempo estimado en minutos"
-              className="w-full rounded-[8px] border border-[#3A3A47] bg-[#0B0B0D] px-3 py-2.5 pr-12 text-base font-semibold text-[#F5F5F7] outline-none focus:border-[#FEEF00]"
+              rows={2}
+              className="mt-3 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
             />
-            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-[#9FA0AA]">
-              min
-            </span>
-          </div>
-        </label>
-      </div>
+          </details>
 
-      {requiresMoneyHandling ? (
-        <>
-          <div className="mt-4 rounded-[10px] border border-orange-400/35 bg-orange-950/15 p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-orange-200/75">
-                  Paso 2 · Dinero del delivery
-                </div>
-                <div className="mt-1 text-sm font-semibold text-orange-100">
-                  Instrucción registrada por asesor o Master
-                </div>
-              </div>
-              <span className="rounded-full border border-orange-300/30 bg-orange-300/10 px-2.5 py-1 text-[11px] font-semibold text-orange-100">
-                {order.paymentRequiresChange ? 'Lleva cambio' : 'Cobra en efectivo'}
-              </span>
-            </div>
-
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              <DeliveryMetric
-                label="Total de la orden"
-                value={moneyUsd(order.totalUsd)}
-                note={amountLabel(order.totalBs, 'VES')}
-              />
-              <DeliveryMetric label="Saldo que debe cubrir" value={pendingCollectionLabel} />
-              <DeliveryMetric label="Cliente entregará" value={expectedCollectionLabel} />
-              <DeliveryMetric
-                label="Cambio que debes enviar"
-                value={requiredChangeLabel}
-                tone={requiredChangeUsd > 0.005 ? 'warn' : 'good'}
-              />
-            </div>
-
-            <p className="mt-3 text-xs leading-relaxed text-orange-100/75">
-              La venta sigue siendo de {moneyUsd(order.totalUsd)}. El motorizado debe regresar el monto bruto que entregue el cliente: {expectedCollectionLabel}.
-            </p>
-
-            {order.paymentRequiresChange ? (
-              <div className="mt-3 rounded-[8px] border border-orange-300/25 bg-black/20 px-3 py-2 text-xs text-orange-50">
-                Si el saldo es {pendingCollectionLabel} y el cliente entrega {expectedCollectionLabel}, prepara {requiredChangeLabel}. No cambies aquí el monto informado por el cliente.
-              </div>
-            ) : null}
-
-            {prescribedChangeIsInvalid ? (
-              <div className="mt-3 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs leading-relaxed text-red-100">
-                La orden dice que requiere cambio, pero el monto &quot;cliente pagará con&quot; no supera el saldo. Pide a Master que corrija la instrucción antes de sacar dinero de caja.
-              </div>
-            ) : null}
-          </div>
-
-          {showChangeControls ? (
-            <>
-              {requiredChangeUsd > 0.005 && suggestedCashAccount ? (
-                <button
-                  type="button"
-                  onClick={prepareAllChangeInCash}
-                  className="mt-3 min-h-11 w-full rounded-[8px] border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-xs font-bold text-[#FEEF00] transition hover:bg-[#FEEF00]/15"
-                >
-                  Preparar todo en {suggestedCashAccount.accountName} · {suggestedCashLabel}
-                </button>
-              ) : null}
-              <DeliveryCashDrafts
-                title="Cambio físico que llevará el motorizado"
-                helper="Selecciona la caja real. Al confirmar la salida se registrará exactamente este egreso."
-                lines={cashChangeLines}
-                cashAccounts={cashAccounts}
-                onChange={(lines) => {
-                  invalidate();
-                  setCashChangeLines(lines);
-                }}
-                addLabel="Agregar cambio efectivo"
-              />
-
-              <DeliveryDigitalDrafts
-                lines={digitalChangeLines}
-                onChange={(lines) => {
-                  invalidate();
-                  setDigitalChangeLines(lines);
-                }}
-              />
-
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <DeliveryMetric label="Cambio calculado" value={requiredChangeLabel} />
-                <DeliveryMetric
-                  label="Cambio ya preparado"
-                  value={assignedChangeLabel}
-                  tone={Math.abs(differenceUsd) <= 0.02 ? 'good' : 'warn'}
-                />
-              </div>
-              {Math.abs(differenceUsd) > 0.02 ? (
-                <div className="mt-2 text-xs font-semibold text-orange-100">
-                  {differenceUsd > 0
-                    ? `Falta asignar ${moneyUsd(differenceUsd)}.`
-                    : `Sobra ${moneyUsd(Math.abs(differenceUsd))}.`}
-                </div>
-              ) : null}
-
-              {digitalChangeUsd > 0.005 ? (
-                <div className="mt-3 rounded-[8px] border border-violet-400/30 bg-violet-950/20 p-2.5 text-xs leading-relaxed text-violet-100">
-                  Counter solo registra el cambio digital: lo ejecuta el asesor asignado o Master si la orden no tiene asesor.
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </>
-      ) : (
-        <div className="mt-4 rounded-[10px] border border-emerald-400/30 bg-emerald-950/20 p-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200/75">
-            Paso 2 · Dinero del delivery
-          </div>
-          <div className="mt-1 text-sm font-semibold text-emerald-100">
-            No sacar dinero de caja
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-emerald-100/75">
-            {advisorOwnsCollection
-              ? `${order.advisorName || 'El asesor'} mantiene la cobranza. La orden no indica efectivo ni cambio para Mostrador.`
-              : 'La orden no indica efectivo ni cambio. Mostrador solo entrega el pedido y registra el ETA.'}
-          </p>
-          <div className="mt-3 rounded-[8px] border border-emerald-300/25 bg-black/20 p-3 text-xs leading-relaxed text-emerald-50">
-            Si te informaron por teléfono que el cliente necesita cambio, no lo envíes todavía. Pide a Master que abra la orden, seleccione el efectivo y registre <span className="font-semibold">con cuánto pagará el cliente</span>. Luego actualiza Counter y vuelve a abrir la salida.
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setStep(needsChangeStep ? 'money' : 'eta')} className="min-h-11 rounded-[8px] border border-[#303044] px-3 py-2 text-sm font-semibold text-[#C7C8D1]">Volver</button>
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={isWorking || !order.deliveryAssigneeName || !etaIsValid || prescribedChangeIsInvalid || Math.abs(differenceUsd) > 0.02}
+              className="min-h-11 rounded-[8px] bg-[#FEEF00] px-3 py-2 text-sm font-bold text-black disabled:opacity-45"
+            >
+              {isWorking ? 'Registrando...' : 'Entregar y marcar en camino'}
+            </button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      <label className="mt-3 block text-xs font-semibold text-[#C7C8D1]">
-        Nota de salida
-        <textarea
-          value={notes}
-          onChange={(event) => {
-            invalidate();
-            setNotes(event.target.value);
-          }}
-          rows={2}
-          className="mt-1 w-full rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-sky-300"
-        />
-      </label>
-
-      {error ? <div className="mt-3 text-xs font-semibold text-red-200">{error}</div> : null}
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isWorking}
-          className="min-h-11 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] disabled:opacity-50"
-        >
-          Cancelar
-        </button>
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={
-            isWorking
-            || !order.deliveryAssigneeName
-            || !etaIsValid
-            || prescribedChangeIsInvalid
-            || Math.abs(differenceUsd) > 0.02
-          }
-          className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-xs font-bold text-black transition hover:bg-[#FFF45B] disabled:cursor-not-allowed disabled:border-[#3A3A47] disabled:bg-[#24242D] disabled:text-[#777988]"
-        >
-          {isWorking
-            ? 'Registrando...'
-            : etaIsValid
-              ? `Paso 3 · Confirmar salida · ${eta} min`
-              : 'Indica el tiempo'}
-        </button>
-      </div>
+      {error ? <div className="mt-3 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs font-semibold text-red-100">{error}</div> : null}
     </div>
   );
 }

@@ -680,7 +680,21 @@ El catálogo y las reglas pueden cachearse por periodos razonables, pero toda
 acción que afecte precio, descuento, permisos o dinero debe revalidar en servidor
 contra datos vigentes.
 
-### 15.4 Exactitud con trazabilidad
+### 15.4 Operaciones progresivas
+
+Cobrar y despachar son operaciones enfocadas, no extensiones verticales del
+expediente. Al iniciarlas deben abrir una superficie propia y presentar una
+sola decisión principal por pantalla.
+
+- el cobro muestra primero método y monto;
+- el cambio solo aparece cuando corresponde o el operador lo solicita;
+- el despacho solicita primero el ETA;
+- la selección de caja aparece únicamente cuando realmente sale cambio;
+- toda operación termina con una confirmación breve;
+- pagos mixtos, cambio digital, varias cajas y notas permanecen disponibles
+  como opciones secundarias, sin competir con el camino normal.
+
+### 15.5 Exactitud con trazabilidad
 
 Los snapshots, cierres, acumulados o proyecciones pueden acelerar consultas, pero
 no sustituyen el historial canónico.
