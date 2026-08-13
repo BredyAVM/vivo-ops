@@ -504,6 +504,17 @@ Counter no marca el delivery como entregado al cliente final.
 
 ### 13.3 Cambio para delivery
 
+El cambio debe quedar prescrito en la orden antes del despacho. El asesor lo
+registra al tomar el pedido. Si la necesidad se conoce después por teléfono,
+Master corrige la instrucción de pago antes de que Counter entregue dinero al
+motorizado. Counter no crea una instrucción monetaria basándose solamente en
+una conversación externa al sistema.
+
+El campo canónico no guarda cuánto cambio se entregará. Guarda **con cuánto
+pagará el cliente**. Counter calcula la diferencia contra el saldo vigente de
+la orden y registra por separado el efectivo o cambio digital realmente
+asignado.
+
 Ejemplo:
 
 ```text
@@ -511,6 +522,11 @@ Total de la orden: USD 37
 Efectivo que entregará el cliente: USD 50
 Cambio requerido: USD 13
 ```
+
+La orden conserva un total comercial de USD 37. Los USD 50 son el cobro bruto
+que queda bajo custodia del motorizado y los USD 13 son una salida vinculada de
+cambio. Cuando el motorizado retorna los USD 50, el efecto neto de caja es USD
+37; la orden nunca se reescribe como una venta de USD 50.
 
 Si Counter entrega USD 10 en efectivo y el asesor enviará USD 3 por pago móvil:
 

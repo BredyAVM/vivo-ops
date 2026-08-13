@@ -346,6 +346,9 @@ export function CounterQuickSalePanel({
       invoiceTaxPct: hasInvoice ? toDecimalInput(invoiceTaxPct) : 0,
     });
   }, [cartSubtotal.bs, cartSubtotal.usd, hasInvoice, invoiceTaxPct, selectedDiscountRule]);
+  const customerCashAmount = toDecimalInput(paymentChangeFor);
+  const changeBaseAmount = paymentChangeCurrency === 'VES' ? totals.totalBs : totals.totalUsd;
+  const calculatedDeliveryChange = Math.max(customerCashAmount - changeBaseAmount, 0);
 
   useEffect(() => {
     if (discountRuleId && !selectedDiscountRule) setDiscountRuleId('');
@@ -654,6 +657,12 @@ export function CounterQuickSalePanel({
     }
     if (cartItems.length === 0) {
       setLocalError('Agrega al menos un producto.');
+      return;
+    }
+    if (paymentRequiresChange && customerCashAmount <= changeBaseAmount + 0.005) {
+      setLocalError(
+        'El monto que entregará el cliente debe ser mayor al total para que exista cambio.'
+      );
       return;
     }
     const blockedItem = cartItems.find((item) =>
@@ -1489,27 +1498,61 @@ export function CounterQuickSalePanel({
             <input
               type="checkbox"
               checked={paymentRequiresChange}
-              onChange={(event) => setPaymentRequiresChange(event.target.checked)}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setPaymentRequiresChange(checked);
+                if (checked) {
+                  const changeCurrency = paymentMethod === 'cash_usd'
+                    ? 'USD'
+                    : paymentMethod === 'cash_ves'
+                      ? 'VES'
+                      : paymentCurrency;
+                  const cashMethod = changeCurrency === 'VES' ? 'cash_ves' : 'cash_usd';
+                  setPaymentChangeCurrency(changeCurrency);
+                  setPaymentMethod(cashMethod);
+                  setPaymentCurrency(changeCurrency);
+                }
+              }}
             />
-            Requiere cambio
+            El cliente necesita cambio
           </label>
           {paymentRequiresChange ? (
-            <div className="grid grid-cols-[1fr_90px] gap-2">
-              <input
-                value={paymentChangeFor}
-                onChange={(event) => setPaymentChangeFor(event.target.value)}
-                placeholder="Cambio para"
-                inputMode="decimal"
-                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-              />
-              <select
-                value={paymentChangeCurrency}
-                onChange={(event) => setPaymentChangeCurrency(event.target.value === 'VES' ? 'VES' : 'USD')}
-                className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
-              >
-                <option value="USD">USD</option>
-                <option value="VES">VES</option>
-              </select>
+            <div className="rounded-[8px] border border-orange-400/30 bg-orange-950/15 p-3">
+              <div className="text-xs font-semibold text-orange-100">¿Con cuánto pagará el cliente?</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-orange-100/70">
+                Escribe el billete o monto que entregará, no el cambio. Ejemplo: venta $15, paga con $20.
+              </p>
+              <div className="mt-2 grid grid-cols-[1fr_90px] gap-2">
+                <input
+                  value={paymentChangeFor}
+                  onChange={(event) => setPaymentChangeFor(event.target.value)}
+                  placeholder="Monto que entrega"
+                  inputMode="decimal"
+                  aria-label="Monto con el que pagara el cliente"
+                  className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                />
+                <select
+                  value={paymentChangeCurrency}
+                  onChange={(event) => {
+                    const currency = event.target.value === 'VES' ? 'VES' : 'USD';
+                    setPaymentChangeCurrency(currency);
+                    setPaymentCurrency(currency);
+                    setPaymentMethod(currency === 'VES' ? 'cash_ves' : 'cash_usd');
+                  }}
+                  aria-label="Moneda del efectivo que entregara el cliente"
+                  className="rounded-[8px] border border-[#303044] bg-[#111118] px-3 py-2 text-sm text-[#F5F5F7] outline-none focus:border-[#FEEF00]/70"
+                >
+                  <option value="USD">USD</option>
+                  <option value="VES">VES</option>
+                </select>
+              </div>
+              {customerCashAmount > 0 ? (
+                <div className="mt-2 text-xs font-semibold text-[#FEEF00]">
+                  Cambio calculado: {paymentChangeCurrency === 'VES'
+                    ? moneyBs(calculatedDeliveryChange)
+                    : moneyUsd(calculatedDeliveryChange)}
+                </div>
+              ) : null}
             </div>
           ) : null}
           <label className="text-xs text-[#9FA0AA]">

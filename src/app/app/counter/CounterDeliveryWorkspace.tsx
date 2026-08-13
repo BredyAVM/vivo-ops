@@ -192,6 +192,7 @@ function dispatchSettlementVesRate(order: CounterOrder, activeBsRate: number) {
 }
 
 function dispatchInitialExpected(order: CounterOrder): ValueDraft[] {
+  if (order.paymentQuote.pendingUsd <= 0.005) return [];
   const changeAmount = decimal(order.paymentChangeFor || '');
   const changeCurrency = order.paymentChangeCurrency === 'VES' ? 'VES' : 'USD';
   if (order.paymentRequiresChange && changeAmount > 0) {
@@ -234,7 +235,7 @@ export function CounterDeliveryDispatchPanel({
     [paymentAccounts]
   );
   const [etaMinutes, setEtaMinutes] = useState('20');
-  const [expectedLines, setExpectedLines] = useState<ValueDraft[]>(
+  const [expectedLines] = useState<ValueDraft[]>(
     () => dispatchInitialExpected(order)
   );
   const [cashChangeLines, setCashChangeLines] = useState<CashDraft[]>([]);
@@ -271,6 +272,38 @@ export function CounterDeliveryDispatchPanel({
   const differenceUsd = roundMoney(requiredChangeUsd - assignedChangeUsd);
   const eta = Math.round(decimal(etaMinutes));
   const etaIsValid = Number.isFinite(eta) && eta >= 1 && eta <= 1440;
+  const expectedCurrency = expectedLines[0]?.currencyCode ?? (
+    order.paymentChangeCurrency === 'VES' || order.paymentMethod === 'cash_ves'
+      ? 'VES'
+      : 'USD'
+  );
+  const expectedCollectionLabel = expectedLines.length > 0
+    ? expectedLines
+        .filter((line) => decimal(line.amount) > 0)
+        .map((line) => amountLabel(decimal(line.amount), line.currencyCode))
+        .join(' + ') || 'Sin monto válido'
+    : 'No indicado';
+  const pendingCollectionLabel = expectedCurrency === 'VES' && order.paymentQuote.pendingBs > 0.005
+    ? amountLabel(order.paymentQuote.pendingBs, 'VES')
+    : moneyUsd(order.paymentQuote.pendingUsd);
+  const requiredChangeLabel = expectedCurrency === 'VES' && settlementVesRate > 0
+    ? amountLabel(requiredChangeUsd * settlementVesRate, 'VES')
+    : moneyUsd(requiredChangeUsd);
+  const assignedChangeLabel = expectedCurrency === 'VES' && settlementVesRate > 0
+    ? amountLabel(assignedChangeUsd * settlementVesRate, 'VES')
+    : moneyUsd(assignedChangeUsd);
+  const prescribedChangeIsInvalid = requiresMoneyHandling && order.paymentRequiresChange && (
+    expectedLines.length === 0 || requiredChangeUsd <= 0.005
+  );
+  const suggestedCashAccount = cashAccounts.find(
+    (account) => account.currencyCode === expectedCurrency
+  ) ?? cashAccounts[0] ?? null;
+  const suggestedCashAmount = suggestedCashAccount?.currencyCode === 'VES'
+    ? roundMoney(requiredChangeUsd * settlementVesRate)
+    : requiredChangeUsd;
+  const suggestedCashLabel = suggestedCashAccount
+    ? amountLabel(suggestedCashAmount, suggestedCashAccount.currencyCode)
+    : requiredChangeLabel;
   const showChangeControls =
     requiresMoneyHandling
     && (
@@ -279,6 +312,18 @@ export function CounterDeliveryDispatchPanel({
       || cashChangeLines.length > 0
       || digitalChangeLines.length > 0
     );
+
+  function prepareAllChangeInCash() {
+    if (!suggestedCashAccount || suggestedCashAmount <= 0) return;
+    invalidate();
+    setCashChangeLines([{
+      id: `cash-${crypto.randomUUID()}`,
+      accountId: suggestedCashAccount.accountId,
+      amount: String(suggestedCashAmount),
+      referenceCode: '',
+    }]);
+    setDigitalChangeLines([]);
+  }
 
   async function submit() {
     try {
@@ -299,6 +344,11 @@ export function CounterDeliveryDispatchPanel({
           differenceUsd > 0
             ? `Falta asignar ${moneyUsd(differenceUsd)} de cambio.`
             : `El cambio supera lo requerido por ${moneyUsd(Math.abs(differenceUsd))}.`
+        );
+      }
+      if (prescribedChangeIsInvalid) {
+        throw new Error(
+          'La instrucción de cambio no permite calcular una diferencia positiva. Master debe corregir con cuánto pagará el cliente.'
         );
       }
 
@@ -342,12 +392,12 @@ export function CounterDeliveryDispatchPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-base font-semibold text-sky-100">
-            {requiresMoneyHandling ? 'Despachar con cobro o cambio' : 'Entregar al motorizado'}
+            Salida del delivery
           </div>
           <p className="mt-1 text-xs leading-relaxed text-sky-100/70">
             {requiresMoneyHandling
-              ? 'Confirma el tiempo y prepara solamente el dinero indicado en la orden.'
-              : 'Confirma el tiempo estimado y registra la salida. No hay dinero a cargo de Mostrador.'}
+              ? 'Sigue los pasos: confirma el tiempo, prepara el cambio indicado y entrega al motorizado.'
+              : 'Confirma el tiempo estimado y entrega el pedido. Esta orden no autoriza sacar cambio de caja.'}
           </p>
         </div>
         <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-semibold text-sky-100">
@@ -359,7 +409,7 @@ export function CounterDeliveryDispatchPanel({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#FEEF00]/75">
-              Tiempo de entrega
+              Paso 1 · Tiempo de entrega
             </div>
             <div className="mt-1 text-sm font-semibold text-[#F5F5F7]">
               ¿En cuánto tiempo llegará?
@@ -423,31 +473,67 @@ export function CounterDeliveryDispatchPanel({
 
       {requiresMoneyHandling ? (
         <>
-          <div className="mt-4 rounded-[8px] border border-orange-400/30 bg-orange-950/15 px-3 py-2.5">
-            <div className="text-xs font-semibold text-orange-100">
-              Dinero indicado en la orden
+          <div className="mt-4 rounded-[10px] border border-orange-400/35 bg-orange-950/15 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-orange-200/75">
+                  Paso 2 · Dinero del delivery
+                </div>
+                <div className="mt-1 text-sm font-semibold text-orange-100">
+                  Instrucción registrada por asesor o Master
+                </div>
+              </div>
+              <span className="rounded-full border border-orange-300/30 bg-orange-300/10 px-2.5 py-1 text-[11px] font-semibold text-orange-100">
+                {order.paymentRequiresChange ? 'Lleva cambio' : 'Cobra en efectivo'}
+              </span>
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-orange-100/70">
-              Registra únicamente lo que el motorizado cobrará o el cambio que realmente lleva.
-            </p>
-          </div>
 
-          <DeliveryValueDrafts
-            title="Cobro esperado del cliente"
-            helper="Lo que el motorizado recibirá del cliente. El saldo restante puede continuar con el asesor."
-            lines={expectedLines}
-            onChange={(lines) => {
-              invalidate();
-              setExpectedLines(lines);
-            }}
-            addLabel="Agregar moneda"
-          />
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <DeliveryMetric
+                label="Total de la orden"
+                value={moneyUsd(order.totalUsd)}
+                note={amountLabel(order.totalBs, 'VES')}
+              />
+              <DeliveryMetric label="Saldo que debe cubrir" value={pendingCollectionLabel} />
+              <DeliveryMetric label="Cliente entregará" value={expectedCollectionLabel} />
+              <DeliveryMetric
+                label="Cambio que debes enviar"
+                value={requiredChangeLabel}
+                tone={requiredChangeUsd > 0.005 ? 'warn' : 'good'}
+              />
+            </div>
+
+            <p className="mt-3 text-xs leading-relaxed text-orange-100/75">
+              La venta sigue siendo de {moneyUsd(order.totalUsd)}. El motorizado debe regresar el monto bruto que entregue el cliente: {expectedCollectionLabel}.
+            </p>
+
+            {order.paymentRequiresChange ? (
+              <div className="mt-3 rounded-[8px] border border-orange-300/25 bg-black/20 px-3 py-2 text-xs text-orange-50">
+                Si el saldo es {pendingCollectionLabel} y el cliente entrega {expectedCollectionLabel}, prepara {requiredChangeLabel}. No cambies aquí el monto informado por el cliente.
+              </div>
+            ) : null}
+
+            {prescribedChangeIsInvalid ? (
+              <div className="mt-3 rounded-[8px] border border-red-400/35 bg-red-950/25 p-3 text-xs leading-relaxed text-red-100">
+                La orden dice que requiere cambio, pero el monto &quot;cliente pagará con&quot; no supera el saldo. Pide a Master que corrija la instrucción antes de sacar dinero de caja.
+              </div>
+            ) : null}
+          </div>
 
           {showChangeControls ? (
             <>
+              {requiredChangeUsd > 0.005 && suggestedCashAccount ? (
+                <button
+                  type="button"
+                  onClick={prepareAllChangeInCash}
+                  className="mt-3 min-h-11 w-full rounded-[8px] border border-[#FEEF00]/60 bg-[#FEEF00]/10 px-3 py-2 text-xs font-bold text-[#FEEF00] transition hover:bg-[#FEEF00]/15"
+                >
+                  Preparar todo en {suggestedCashAccount.accountName} · {suggestedCashLabel}
+                </button>
+              ) : null}
               <DeliveryCashDrafts
-                title="Cambio en efectivo que sale de caja"
-                helper="Este monto genera el egreso exacto y queda vinculado a la orden."
+                title="Cambio físico que llevará el motorizado"
+                helper="Selecciona la caja real. Al confirmar la salida se registrará exactamente este egreso."
                 lines={cashChangeLines}
                 cashAccounts={cashAccounts}
                 onChange={(lines) => {
@@ -466,10 +552,10 @@ export function CounterDeliveryDispatchPanel({
               />
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <DeliveryMetric label="Cambio requerido" value={moneyUsd(requiredChangeUsd)} />
+                <DeliveryMetric label="Cambio calculado" value={requiredChangeLabel} />
                 <DeliveryMetric
-                  label="Cambio asignado"
-                  value={moneyUsd(assignedChangeUsd)}
+                  label="Cambio ya preparado"
+                  value={assignedChangeLabel}
                   tone={Math.abs(differenceUsd) <= 0.02 ? 'good' : 'warn'}
                 />
               </div>
@@ -491,14 +577,20 @@ export function CounterDeliveryDispatchPanel({
         </>
       ) : (
         <div className="mt-4 rounded-[10px] border border-emerald-400/30 bg-emerald-950/20 p-3">
-          <div className="text-sm font-semibold text-emerald-100">
-            Sin liquidación de caja
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200/75">
+            Paso 2 · Dinero del delivery
+          </div>
+          <div className="mt-1 text-sm font-semibold text-emerald-100">
+            No sacar dinero de caja
           </div>
           <p className="mt-1 text-xs leading-relaxed text-emerald-100/75">
             {advisorOwnsCollection
-              ? `${order.advisorName || 'El asesor'} mantiene la cobranza. Mostrador solo entrega el pedido y registra el ETA.`
-              : 'Esta salida no requiere cobro ni cambio. Mostrador solo entrega el pedido y registra el ETA.'}
+              ? `${order.advisorName || 'El asesor'} mantiene la cobranza. La orden no indica efectivo ni cambio para Mostrador.`
+              : 'La orden no indica efectivo ni cambio. Mostrador solo entrega el pedido y registra el ETA.'}
           </p>
+          <div className="mt-3 rounded-[8px] border border-emerald-300/25 bg-black/20 p-3 text-xs leading-relaxed text-emerald-50">
+            Si te informaron por teléfono que el cliente necesita cambio, no lo envíes todavía. Pide a Master que abra la orden, seleccione el efectivo y registre <span className="font-semibold">con cuánto pagará el cliente</span>. Luego actualiza Counter y vuelve a abrir la salida.
+          </div>
         </div>
       )}
 
@@ -533,6 +625,7 @@ export function CounterDeliveryDispatchPanel({
             isWorking
             || !order.deliveryAssigneeName
             || !etaIsValid
+            || prescribedChangeIsInvalid
             || Math.abs(differenceUsd) > 0.02
           }
           className="min-h-11 rounded-[8px] border border-[#FEEF00] bg-[#FEEF00] px-3 py-2 text-xs font-bold text-black transition hover:bg-[#FFF45B] disabled:cursor-not-allowed disabled:border-[#3A3A47] disabled:bg-[#24242D] disabled:text-[#777988]"
@@ -540,7 +633,7 @@ export function CounterDeliveryDispatchPanel({
           {isWorking
             ? 'Registrando...'
             : etaIsValid
-              ? `Confirmar salida · ${eta} min`
+              ? `Paso 3 · Confirmar salida · ${eta} min`
               : 'Indica el tiempo'}
         </button>
       </div>

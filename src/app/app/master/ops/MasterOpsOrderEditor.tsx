@@ -1318,29 +1318,57 @@ export default function MasterOpsOrderEditor({
                           className="accent-[#FEEF00]"
                           type="checkbox"
                           checked={form.paymentRequiresChange}
-                          onChange={(event) => patchForm({ paymentRequiresChange: event.target.checked })}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            const currency = (getPaymentReportCurrency(form.paymentMethod)
+                              ?? form.paymentCurrency) as MasterOpsEditCurrency;
+                            patchForm({
+                              paymentRequiresChange: checked,
+                              ...(checked ? {
+                                paymentChangeCurrency: currency,
+                                paymentMethod: currency === "VES" ? "cash_ves" : "cash_usd",
+                                paymentCurrency: currency,
+                              } : {}),
+                            });
+                          }}
                         />
-                        Requiere cambio
+                        El cliente necesita cambio
                       </label>
                       {form.paymentRequiresChange ? (
-                        <div className="grid grid-cols-[1fr_0.7fr] gap-2">
-                          <input
-                            className={fieldClass()}
-                            value={form.paymentChangeFor}
-                            onChange={(event) => patchForm({ paymentChangeFor: event.target.value })}
-                            placeholder="Cambio para"
-                            inputMode="decimal"
-                          />
-                          <select
-                            className={fieldClass()}
-                            value={form.paymentChangeCurrency}
-                            onChange={(event) =>
-                              patchForm({ paymentChangeCurrency: event.target.value as MasterOpsEditCurrency })
-                            }
-                          >
-                            <option value="USD">USD</option>
-                            <option value="VES">VES</option>
-                          </select>
+                        <div className="rounded-xl border border-orange-400/30 bg-orange-950/15 p-3 sm:col-span-2">
+                          <div className="text-xs font-semibold text-orange-100">¿Con cuánto pagará el cliente?</div>
+                          <p className="mt-1 text-[11px] leading-relaxed text-orange-100/70">
+                            Escribe lo que entregará, no el cambio. Si la orden hace $15 y paga con $20, registra 20; Counter preparará $5.
+                          </p>
+                          <div className="mt-2 grid grid-cols-[1fr_0.7fr] gap-2">
+                            <input
+                              className={fieldClass()}
+                              value={form.paymentChangeFor}
+                              onChange={(event) => patchForm({ paymentChangeFor: event.target.value })}
+                              placeholder="Monto que entrega"
+                              inputMode="decimal"
+                              aria-label="Monto con el que pagara el cliente"
+                            />
+                            <select
+                              className={fieldClass()}
+                              value={form.paymentChangeCurrency}
+                              onChange={(event) => {
+                                const currency = event.target.value as MasterOpsEditCurrency;
+                                patchForm({
+                                  paymentChangeCurrency: currency,
+                                  paymentCurrency: currency,
+                                  paymentMethod: currency === "VES" ? "cash_ves" : "cash_usd",
+                                });
+                              }}
+                              aria-label="Moneda del efectivo que entregara el cliente"
+                            >
+                              <option value="USD">USD</option>
+                              <option value="VES">VES</option>
+                            </select>
+                          </div>
+                          <div className="mt-2 text-[11px] text-orange-100/70">
+                            Counter calculará la diferencia exacta contra el saldo vigente cuando vaya a despachar.
+                          </div>
                         </div>
                       ) : null}
                       <Field label="Nota pago" className="sm:col-span-2">

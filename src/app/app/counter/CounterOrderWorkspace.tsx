@@ -804,7 +804,7 @@ export function OrderDetail({
               <div>Tasa orden: {order.fxRate > 0 ? moneyBs(order.fxRate) : 'Sin tasa'}</div>
               {order.paymentRequiresChange ? (
                 <div className="sm:col-span-2">
-                  Cambio para: {order.paymentChangeFor || '-'} {order.paymentChangeCurrency || ''}
+                  El cliente pagará con: {order.paymentChangeFor || '-'} {order.paymentChangeCurrency || ''}
                 </div>
               ) : null}
               {order.paymentNote ? <div className="sm:col-span-2">Nota: {order.paymentNote}</div> : null}
@@ -951,7 +951,7 @@ export function OrderDetail({
           {order.paymentRequiresChange ? (
             <ActionHint
               title="Preparar cambio"
-              text={`Cambio para ${order.paymentChangeFor || '-'} ${order.paymentChangeCurrency || ''}. El egreso se registra al confirmar la salida.`}
+              text={`El cliente pagará con ${order.paymentChangeFor || '-'} ${order.paymentChangeCurrency || ''}. Counter calcula la diferencia y registra el egreso al confirmar la salida.`}
               tone="warn"
             />
           ) : null}
