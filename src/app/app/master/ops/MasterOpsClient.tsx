@@ -1207,6 +1207,8 @@ function OrderDetailPanel({
   const paymentLabel = masterOrderPaymentLabel(order);
   const paymentToneClass = paidTone === "green" ? "text-emerald-400" : "text-orange-400";
   const clientPortfolioLabel = masterOpsClientPortfolioLabel(order.clientType);
+  const receiverName = order.receiverName?.trim() || "";
+  const receiverPhone = order.receiverPhone?.trim() || "";
   const directActions = directActionsForOrder(order);
   const advancedLinks = advancedOperationalLinks(order);
   const [returnBoxOpen, setReturnBoxOpen] = useState(false);
@@ -1947,6 +1949,20 @@ function OrderDetailPanel({
                 <div className="mt-1 truncate text-[13px] text-[#B7B7C2]">
                   {order.advisorName} - {formatMasterOrderDateTime(order.deliveryAtISO)}
                 </div>
+                {receiverName ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+                    <span className="font-semibold text-[#FEEF00]">Recibe:</span>
+                    <span className="text-[#F5F5F7]">{receiverName}</span>
+                    {receiverPhone ? (
+                      <a
+                        className="text-sky-300 hover:underline"
+                        href={`tel:${receiverPhone}`}
+                      >
+                        {receiverPhone}
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                 <button

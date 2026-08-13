@@ -600,8 +600,10 @@ function mapOrder(
     isPriceLocked: Boolean(row.is_price_locked),
     address: row.delivery_address ?? null,
     notes: row.notes ?? null,
-    receiverName: row.extra_fields?.receiver?.name ?? row.receiver_name ?? null,
-    receiverPhone: row.extra_fields?.receiver?.phone ?? row.receiver_phone ?? null,
+    receiverName:
+      cleanText(row.extra_fields?.receiver?.name, cleanText(row.receiver_name, "")) || null,
+    receiverPhone:
+      cleanText(row.extra_fields?.receiver?.phone, cleanText(row.receiver_phone, "")) || null,
     deliveryGpsUrl: row.extra_fields?.delivery?.gps_url ?? null,
     deliveryDistanceKm:
       row.extra_fields?.delivery?.distance_km != null
