@@ -2441,7 +2441,12 @@ function CounterOrderCard({
       onClick={onSelect}
       data-counter-order-id={order.id}
       aria-pressed={selected}
-      aria-label={`Orden ${order.displayNumber}, ${order.clientName}, ${primaryCounterActionLabel(order)}`}
+      aria-label={[
+        `Orden ${order.displayNumber}`,
+        order.clientName,
+        order.receiverName ? `recibe ${order.receiverName}` : null,
+        primaryCounterActionLabel(order),
+      ].filter(Boolean).join(', ')}
       className={[
         'min-h-11 w-full rounded-[8px] border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FEEF00]',
         selected
@@ -2489,6 +2494,17 @@ function CounterOrderCard({
           </span>
         ) : null}
       </div>
+      {order.receiverName || order.receiverPhone ? (
+        <div className="mt-3 rounded-[8px] border border-amber-300/35 bg-amber-300/10 px-3 py-2">
+          <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-200/75">
+            {order.fulfillment === 'pickup' ? 'Retira otra persona' : 'Recibe otra persona'}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-semibold text-amber-50">{order.receiverName || 'Nombre no indicado'}</span>
+            {order.receiverPhone ? <span className="text-xs text-amber-100/75">{order.receiverPhone}</span> : null}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#242433] pt-2 text-xs">
         <span className="truncate text-[#9FA0AA]">Asesor: {order.advisorName || 'Sin asesor'}</span>
         <span className={['font-semibold', order.balanceUsd > 0.005 ? 'text-orange-300' : 'text-emerald-300'].join(' ')}>

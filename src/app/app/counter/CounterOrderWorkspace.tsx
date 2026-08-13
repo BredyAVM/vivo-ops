@@ -768,6 +768,8 @@ export function OrderDetail({
 
       <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3">
+          {order.receiverName || order.receiverPhone ? <CounterReceiverCard order={order} /> : null}
+
           <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold">Pedido</h3>
@@ -893,12 +895,6 @@ export function OrderDetail({
               <h3 className="font-semibold">Entrega</h3>
               <div className="mt-2 grid gap-2 text-xs text-[#C7C8D1] sm:grid-cols-2">
                 <div className="sm:col-span-2">{order.deliveryAddress || 'Sin direccion'}</div>
-                {order.receiverName || order.receiverPhone ? (
-                  <div className="sm:col-span-2">
-                    Recibe: {order.receiverName || 'Sin nombre'}
-                    {order.receiverPhone ? ` · ${order.receiverPhone}` : ''}
-                  </div>
-                ) : null}
                 {order.fulfillment === 'delivery' ? (
                   <>
                     <div>
@@ -984,7 +980,7 @@ export function OrderDetail({
             <div className="rounded-[8px] border border-orange-300/40 bg-orange-950/25 p-3 text-xs leading-relaxed text-orange-100">
               <div className="font-semibold">Confirma la entrega física</div>
               <div className="mt-1">
-                Verifica cliente, pedido y cualquier cambio pendiente. La segunda pulsación marcará el pickup como retirado.
+                Verifica a {order.receiverName || order.clientName}, el pedido y cualquier cambio pendiente. La segunda pulsación marcará el pickup como retirado.
               </div>
               <button
                 type="button"
@@ -1123,6 +1119,44 @@ function CounterInvoiceCard({ order }: { order: CounterOrder }) {
           </span>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function CounterReceiverCard({ order }: { order: CounterOrder }) {
+  const actionLabel = order.fulfillment === 'pickup' ? 'Retira otra persona' : 'Recibe otra persona';
+
+  return (
+    <section
+      aria-label="Persona autorizada para recibir el pedido"
+      className="rounded-[8px] border border-amber-300/45 bg-amber-950/25 p-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-amber-200/70">
+            {actionLabel}
+          </div>
+          <div className="mt-1 break-words text-lg font-bold text-amber-50">
+            {order.receiverName || 'Nombre no indicado'}
+          </div>
+          {order.receiverPhone ? (
+            <a
+              href={`tel:${order.receiverPhone}`}
+              className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-amber-100 underline decoration-amber-300/50 underline-offset-4 hover:text-white"
+            >
+              {order.receiverPhone}
+            </a>
+          ) : (
+            <div className="mt-1 text-sm text-orange-200">Teléfono no indicado</div>
+          )}
+        </div>
+        <span className="rounded-full border border-amber-300/35 bg-amber-300/10 px-2.5 py-1 text-xs font-semibold text-amber-100">
+          Verificar identidad
+        </span>
+      </div>
+      <div className="mt-2 border-t border-amber-300/20 pt-2 text-xs text-amber-100/70">
+        Cliente de la orden: <span className="font-semibold text-amber-50">{order.clientName}</span>
+      </div>
     </section>
   );
 }

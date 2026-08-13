@@ -474,6 +474,11 @@ Flujo normal:
 7. entrega físicamente;
 8. marca el pickup entregado.
 
+Cuando la orden indique que retira otra persona, Counter debe mostrar su nombre
+y teléfono de forma destacada tanto en la cola como en el detalle, y debe
+verificarla antes de confirmar la entrega. El receptor autorizado no sustituye
+la identidad del cliente titular de la orden.
+
 El estado “listo” significa preparado, no entregado.
 
 Las reglas de bloqueo de pago se aplican según el responsable de cobranza y el
@@ -492,6 +497,10 @@ tipo de pago, no mediante una equivalencia universal entre “pagado” y
 6. Counter pregunta y registra el ETA informado por el motorizado;
 7. la orden pasa a `en camino`;
 8. el ETA queda disponible para que el asesor informe al cliente.
+
+Si la orden tiene un receptor distinto, Counter debe ver claramente su nombre y
+teléfono antes de entregar el pedido al motorizado. Estos datos acompañan la
+instrucción de entrega sin cambiar al cliente titular de la orden.
 
 Sin motorizado o partner asignado, Counter no despacha la orden.
 

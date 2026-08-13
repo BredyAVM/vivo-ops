@@ -57,6 +57,10 @@ type CounterReadOrderRow = {
   receiver_name?: string | null;
   receiver_phone?: string | null;
   extra_fields: {
+    receiver?: {
+      name?: string | null;
+      phone?: string | null;
+    } | null;
     schedule?: {
       date?: string | null;
       time_12?: string | null;
@@ -258,6 +262,7 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
   const orderId = Math.trunc(toNumber(row.id, 0));
   const schedule = row.extra_fields?.schedule;
   const payment = row.extra_fields?.payment;
+  const receiver = row.extra_fields?.receiver;
   const pricing = row.extra_fields?.pricing;
   const documents = row.extra_fields?.documents;
   const invoiceSource = documents?.invoice_snapshot;
@@ -333,8 +338,8 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     kitchenStartedAt: row.kitchen_started_at || null,
     readyAt: row.ready_at || null,
     deliveredAt: row.delivered_at || null,
-    receiverName: row.receiver_name?.trim() || null,
-    receiverPhone: row.receiver_phone || null,
+    receiverName: row.receiver_name?.trim() || receiver?.name?.trim() || null,
+    receiverPhone: row.receiver_phone?.trim() || receiver?.phone?.trim() || null,
     scheduledDate: schedule?.date || null,
     scheduledTime: schedule?.asap
       ? 'Lo antes posible'
