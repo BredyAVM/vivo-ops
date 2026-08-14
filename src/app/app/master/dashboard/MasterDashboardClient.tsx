@@ -13544,20 +13544,6 @@ const selectedCreateOrderClientAddresses = useMemo(
     return grouped;
   }, [moneyMovements]);
 
-  const firstDeliveredOrderByClientId = useMemo(() => {
-    const map = new Map<number, Order>();
-
-    for (const order of deliveredOrders) {
-      if (!order.clientId) continue;
-      const current = map.get(order.clientId);
-      if (!current || new Date(order.deliveryAtISO).getTime() < new Date(current.deliveryAtISO).getTime()) {
-        map.set(order.clientId, order);
-      }
-    }
-
-    return map;
-  }, [deliveredOrders]);
-
   const advisorCalculatedData = useMemo(() => {
     const { start, end } = advisorCalcRange;
     const selectedSource = advisorCalcSource || null;
@@ -13614,11 +13600,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       }
     }
 
-    const newClientOrders = filteredDeliveredOrders.filter((order) => {
-      if (!order.clientId) return false;
-      const firstOrder = firstDeliveredOrderByClientId.get(order.clientId);
-      return firstOrder?.id === order.id;
-    });
+    const newClientOrders = filteredDeliveredOrders.filter((order) => order.isNewClient);
 
     const clientesNuevos = newClientOrders.length;
     let nuevosPropios = 0;
@@ -13732,7 +13714,6 @@ const selectedCreateOrderClientAddresses = useMemo(
     clientById,
     deliveredOrderMovementsByOrderId,
     deliveredOrders,
-    firstDeliveredOrderByClientId,
   ]);
 
   const commissionCalculatedData = useMemo(() => {
