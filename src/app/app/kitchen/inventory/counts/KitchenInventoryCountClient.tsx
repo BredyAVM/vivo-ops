@@ -120,27 +120,60 @@ function usesPresentations(item: KitchenCountItem) {
   return item.presentations.some((presentation) => presentation.baseUnitsPerPresentation !== 1);
 }
 
+function usesPrefriedServiceAndUnits(item: KitchenCountItem) {
+  return item.inventoryGroup === 'prefried' && usesPresentations(item);
+}
+
+function prefriedCountBreakdown(item: KitchenCountItem, total: number) {
+  const loosePresentation = item.presentations.find(
+    (presentation) => presentation.baseUnitsPerPresentation > 0
+      && presentation.baseUnitsPerPresentation < 1,
+  );
+  if (!loosePresentation) return null;
+
+  const unitsPerService = Math.round(1 / loosePresentation.baseUnitsPerPresentation);
+  if (
+    unitsPerService <= 1
+    || Math.abs(unitsPerService * loosePresentation.baseUnitsPerPresentation - 1) > 0.000001
+  ) return null;
+
+  let services = Math.floor(total + 0.000001);
+  let looseUnits = Math.round((total - services) * unitsPerService);
+  if (looseUnits >= unitsPerService) {
+    services += 1;
+    looseUnits -= unitsPerService;
+  }
+  return `${formatQuantity(services)} servicios + ${formatQuantity(looseUnits)} UND`;
+}
+
 function countedTotal(item: KitchenCountItem, draft: ItemDraft) {
   if (!usesPresentations(item)) {
     const raw = draft.baseUnits.trim();
     return raw ? parseDecimalInput(raw) : null;
   }
 
-  const hasValue = draft.baseUnits.trim() !== '' || item.presentations.some(
+  const prefriedServiceAndUnits = usesPrefriedServiceAndUnits(item);
+  const hasValue = (!prefriedServiceAndUnits && draft.baseUnits.trim() !== '') || item.presentations.some(
     (presentation) => String(draft.presentationQuantities[presentation.id] ?? '').trim() !== '',
   );
   if (!hasValue) return null;
 
-  const looseUnits = draft.baseUnits.trim() ? parseDecimalInput(draft.baseUnits) : 0;
-  if (!Number.isFinite(looseUnits)) return Number.NaN;
+  const looseCanonicalUnits = !prefriedServiceAndUnits && draft.baseUnits.trim()
+    ? parseDecimalInput(draft.baseUnits)
+    : 0;
+  if (!Number.isFinite(looseCanonicalUnits) || looseCanonicalUnits < 0) return Number.NaN;
 
   return item.presentations.reduce((total, presentation) => {
     const raw = String(draft.presentationQuantities[presentation.id] ?? '').trim();
     if (!raw) return total;
     const quantity = parseDecimalInput(raw);
-    if (!Number.isFinite(quantity)) return Number.NaN;
+    if (
+      !Number.isFinite(quantity)
+      || quantity < 0
+      || (prefriedServiceAndUnits && !Number.isSafeInteger(quantity))
+    ) return Number.NaN;
     return total + quantity * presentation.baseUnitsPerPresentation;
-  }, looseUnits);
+  }, looseCanonicalUnits);
 }
 
 export default function KitchenInventoryCountClient({
@@ -647,7 +680,16 @@ function CountItemEditor({
   disabled: boolean;
 }) {
   const presentationMode = usesPresentations(item);
+  const prefriedServiceAndUnits = usesPrefriedServiceAndUnits(item);
+  const orderedPresentations = prefriedServiceAndUnits
+    ? [...item.presentations].sort(
+        (left, right) => right.baseUnitsPerPresentation - left.baseUnitsPerPresentation,
+      )
+    : item.presentations;
   const total = countedTotal(item, draft);
+  const prefriedBreakdown = prefriedServiceAndUnits && total != null && Number.isFinite(total)
+    ? prefriedCountBreakdown(item, total)
+    : null;
 
   return (
     <article className="p-4">
@@ -657,9 +699,15 @@ function CountItemEditor({
           <div className="mt-1 text-xs text-[#858591]">Unidad canónica: {item.unitName}</div>
         </div>
         <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {presentationMode ? item.presentations.map((presentation) => (
+          {presentationMode ? orderedPresentations.map((presentation) => (
             <label key={presentation.id} className="text-xs text-[#A6A6B2]">
-              <span className="mb-1.5 block">{presentation.name} × {formatQuantity(presentation.baseUnitsPerPresentation)} {item.unitName}</span>
+              <span className="mb-1.5 block">
+                {prefriedServiceAndUnits
+                  ? presentation.baseUnitsPerPresentation === 1
+                    ? 'Servicios completos'
+                    : 'UND sueltas adicionales'
+                  : `${presentation.name} × ${formatQuantity(presentation.baseUnitsPerPresentation)} ${item.unitName}`}
+              </span>
               <input
                 value={draft.presentationQuantities[presentation.id] ?? ''}
                 onChange={(event) => onChange({
@@ -668,24 +716,28 @@ function CountItemEditor({
                     [presentation.id]: event.target.value,
                   },
                 })}
-                inputMode="decimal"
+                inputMode={prefriedServiceAndUnits ? 'numeric' : 'decimal'}
+                min="0"
+                step={prefriedServiceAndUnits ? '1' : 'any'}
                 disabled={disabled}
                 placeholder="0"
                 className={inputClass}
               />
             </label>
           )) : null}
-          <label className="text-xs text-[#A6A6B2]">
-            <span className="mb-1.5 block">{presentationMode ? `Sueltas (${item.unitName})` : `Cantidad (${item.unitName})`}</span>
-            <input
-              value={draft.baseUnits}
-              onChange={(event) => onChange({ baseUnits: event.target.value })}
-              inputMode="decimal"
-              disabled={disabled}
-              placeholder="0"
-              className={inputClass}
-            />
-          </label>
+          {!prefriedServiceAndUnits ? (
+            <label className="text-xs text-[#A6A6B2]">
+              <span className="mb-1.5 block">{presentationMode ? `Sueltas (${item.unitName})` : `Cantidad (${item.unitName})`}</span>
+              <input
+                value={draft.baseUnits}
+                onChange={(event) => onChange({ baseUnits: event.target.value })}
+                inputMode="decimal"
+                disabled={disabled}
+                placeholder="0"
+                className={inputClass}
+              />
+            </label>
+          ) : null}
           <label className="text-xs text-[#A6A6B2]">
             <span className="mb-1.5 block">Nota opcional</span>
             <input
@@ -699,7 +751,14 @@ function CountItemEditor({
         </div>
       </div>
       <div className="mt-3 text-right text-sm font-semibold text-[#FEEF00]">
-        Total contado: {total == null || !Number.isFinite(total) ? 'pendiente' : `${formatQuantity(total)} ${item.unitName}`}
+        Total contado: {total == null || !Number.isFinite(total)
+          ? 'pendiente'
+          : prefriedBreakdown ?? `${formatQuantity(total)} ${item.unitName}`}
+        {prefriedBreakdown && total != null ? (
+          <div className="mt-1 text-xs font-normal text-[#A6A6B2]">
+            Equivale a {formatQuantity(total)} servicios en el sistema.
+          </div>
+        ) : null}
       </div>
     </article>
   );
