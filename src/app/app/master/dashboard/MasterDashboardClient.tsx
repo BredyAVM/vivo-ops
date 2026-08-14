@@ -14551,9 +14551,11 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         <Chip active={calculationsTab === 'general'} onClick={() => setCalculationsTab('general')}>
           General
         </Chip>
-        <Chip active={calculationsTab === 'commissions'} onClick={() => setCalculationsTab('commissions')}>
-          Comisiones
-        </Chip>
+        {permissions.isAdmin ? (
+          <Chip active={false} onClick={() => router.push('/app/commissions')}>
+            Comisiones
+          </Chip>
+        ) : null}
         <Chip active={calculationsTab === 'deliveries'} onClick={() => setCalculationsTab('deliveries')}>
           Deliveries
         </Chip>
