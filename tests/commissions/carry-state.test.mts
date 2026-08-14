@@ -15,7 +15,7 @@ test('lee el arrastre explicito de un snapshot de liquidacion', () => {
     grossCommissionUsd: 200,
     giftDeductionsUsd: 0,
     directDeductionsUsd: 0,
-    payableUsd: 150,
+    pendingCollectionUsd: 0,
   });
 
   assert.deepEqual(state, {
@@ -31,7 +31,7 @@ test('infiere una comision retenida desde un cierre historico', () => {
     grossCommissionUsd: 200,
     giftDeductionsUsd: 10,
     directDeductionsUsd: 15,
-    payableUsd: 125,
+    pendingCollectionUsd: 50,
   });
 
   assert.deepEqual(state, {
@@ -47,7 +47,7 @@ test('infiere deuda propia cuando los deducibles superan la comision', () => {
     grossCommissionUsd: 30,
     giftDeductionsUsd: 5,
     directDeductionsUsd: 45,
-    payableUsd: -20,
+    pendingCollectionUsd: 25,
   });
 
   assert.deepEqual(state, {
@@ -63,7 +63,7 @@ test('no fabrica arrastre si un cierre historico ya libero todo su credito', () 
     grossCommissionUsd: 100,
     giftDeductionsUsd: 10,
     directDeductionsUsd: 5,
-    payableUsd: 85,
+    pendingCollectionUsd: 0,
   });
 
   assert.deepEqual(state, {

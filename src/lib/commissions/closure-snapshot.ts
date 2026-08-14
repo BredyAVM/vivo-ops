@@ -16,6 +16,7 @@ export type AdvisorCommissionClosureSnapshotV2 = JsonRecord & {
   };
   settlement: JsonRecord & {
     formulaVersion: typeof ADVISOR_COMMISSION_FORMULA_VERSION;
+    carrySource: 'none' | 'settlement' | 'legacy-inferred';
     calculationCutoffAt: string;
     scheduledLiquidationDate: string | null;
     carriedCommissionUsd: number;
@@ -31,6 +32,7 @@ export type AdvisorCommissionClosureSnapshotV2 = JsonRecord & {
 export type AdvisorCommissionSettlementSnapshotState = {
   snapshotVersion: number;
   formulaVersion: string;
+  carrySource: 'none' | 'settlement' | 'legacy-inferred' | 'unknown';
   calculationCutoffAt: string | null;
   scheduledLiquidationDate: string | null;
   carriedCommissionUsd: number;
@@ -76,6 +78,7 @@ export function writeAdvisorCommissionSettlementSnapshot(params: {
   calculation: AdvisorCommissionSettlementCalculation;
   calculationCutoffAt: string;
   scheduledLiquidationDate?: string | null;
+  carrySource?: 'none' | 'settlement' | 'legacy-inferred';
 }): AdvisorCommissionClosureSnapshotV2 {
   const currentSnapshot = asRecord(params.currentSnapshot);
   const currentTotals = asRecord(currentSnapshot.totals);
@@ -100,6 +103,7 @@ export function writeAdvisorCommissionSettlementSnapshot(params: {
     settlement: {
       ...currentSettlement,
       formulaVersion: ADVISOR_COMMISSION_FORMULA_VERSION,
+      carrySource: params.carrySource ?? 'none',
       calculationCutoffAt,
       scheduledLiquidationDate,
       carriedCommissionUsd: calculation.carriedCommissionUsd,
@@ -133,6 +137,12 @@ export function readAdvisorCommissionSettlementSnapshot(
       typeof settlement.formulaVersion === 'string'
         ? settlement.formulaVersion
         : 'legacy',
+    carrySource:
+      settlement.carrySource === 'none' ||
+      settlement.carrySource === 'settlement' ||
+      settlement.carrySource === 'legacy-inferred'
+        ? settlement.carrySource
+        : 'unknown',
     calculationCutoffAt,
     scheduledLiquidationDate,
     carriedCommissionUsd: money(settlement.carriedCommissionUsd),

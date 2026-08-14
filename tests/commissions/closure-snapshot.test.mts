@@ -34,6 +34,7 @@ test('enriquece el snapshot existente sin perder ordenes ni indicadores historic
     calculation,
     calculationCutoffAt: '2026-08-07T16:00:00-04:00',
     scheduledLiquidationDate: '2026-08-07',
+    carrySource: 'legacy-inferred',
   });
 
   assert.equal(snapshot.version, ADVISOR_COMMISSION_SNAPSHOT_VERSION);
@@ -48,6 +49,7 @@ test('enriquece el snapshot existente sin perder ordenes ni indicadores historic
   assert.equal(snapshot.totals.payableUsd, 280.79);
   assert.deepEqual(snapshot.settlement, {
     formulaVersion: ADVISOR_COMMISSION_FORMULA_VERSION,
+    carrySource: 'legacy-inferred',
     calculationCutoffAt: '2026-08-07T20:00:00.000Z',
     scheduledLiquidationDate: '2026-08-07',
     carriedCommissionUsd: 63.6,
@@ -87,6 +89,7 @@ test('lee snapshots historicos sin exigir campos nuevos', () => {
   assert.deepEqual(state, {
     snapshotVersion: 1,
     formulaVersion: 'legacy',
+    carrySource: 'unknown',
     calculationCutoffAt: null,
     scheduledLiquidationDate: null,
     carriedCommissionUsd: 0,

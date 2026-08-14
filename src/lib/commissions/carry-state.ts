@@ -11,7 +11,7 @@ type LegacyClosureMoney = {
   grossCommissionUsd: number;
   giftDeductionsUsd: number;
   directDeductionsUsd: number;
-  payableUsd: number;
+  pendingCollectionUsd: number;
 };
 
 function cents(value: number) {
@@ -39,13 +39,11 @@ export function getAdvisorCommissionCarryState(
   const grossCommission = cents(closure.grossCommissionUsd);
   const deductions =
     cents(closure.giftDeductionsUsd) + cents(closure.directDeductionsUsd);
-  const payable = cents(closure.payableUsd);
   const creditAfterDeductions = Math.max(0, grossCommission - deductions);
+  const pendingCollection = cents(closure.pendingCollectionUsd);
 
   return {
-    commissionCarryUsd: dollars(
-      Math.max(0, creditAfterDeductions - Math.min(payable, creditAfterDeductions))
-    ),
+    commissionCarryUsd: dollars(Math.min(creditAfterDeductions, pendingCollection)),
     advisorDebtCarryUsd: dollars(Math.max(0, deductions - grossCommission)),
     source: 'legacy-inferred',
   };
