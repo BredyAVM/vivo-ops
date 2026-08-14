@@ -2,11 +2,12 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
+import { calculateCommissionPeriodAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-type SearchParams = Promise<{ period?: string }>;
+type SearchParams = Promise<{ period?: string; notice?: string; error?: string }>;
 
 type CommissionPeriodRow = {
   id: number | string;
@@ -265,6 +266,17 @@ export default async function CommissionAdministrationPage({
       </header>
 
       <div className="mx-auto max-w-[1400px] space-y-5 px-5 py-6">
+        {params.notice ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {params.notice}
+          </div>
+        ) : null}
+        {params.error ? (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {params.error}
+          </div>
+        ) : null}
+
         <section className="rounded-3xl border border-[#25252E] bg-[#121217] p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -314,6 +326,54 @@ export default async function CommissionAdministrationPage({
               </span>
               {selectedPeriod.notes ? <span>{selectedPeriod.notes}</span> : null}
             </div>
+          ) : null}
+
+          {selectedPeriod ? (
+            <form
+              action={calculateCommissionPeriodAction}
+              className="mt-4 grid gap-3 border-t border-[#24242D] pt-4 md:grid-cols-[150px_190px_1fr_auto] md:items-end"
+            >
+              <input name="periodId" type="hidden" value={selectedPeriod.id} />
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
+                  Porcentaje base
+                </span>
+                <div className="relative mt-1">
+                  <input
+                    className="h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 pr-8 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                    defaultValue={numberValue(rows[0]?.closure.base_commission_pct) || 8}
+                    max="100"
+                    min="0"
+                    name="baseCommissionPct"
+                    required
+                    step="0.01"
+                    type="number"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
+                </div>
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
+                  Fecha prevista de pago
+                </span>
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  defaultValue={rows.find((row) => row.settlement.scheduledLiquidationDate)?.settlement.scheduledLiquidationDate ?? ''}
+                  name="scheduledLiquidationDate"
+                  type="date"
+                />
+              </label>
+              <p className="text-xs leading-5 text-[#92929E]">
+                Actualiza pedidos, pagos validados, deducibles y arrastres. Los cierres ya confirmados no se modifican.
+              </p>
+              <button
+                className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={selectedPeriod.status !== 'open'}
+                type="submit"
+              >
+                Calcular / actualizar
+              </button>
+            </form>
           ) : null}
         </section>
 
