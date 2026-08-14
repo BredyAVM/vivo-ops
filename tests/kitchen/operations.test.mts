@@ -10,6 +10,7 @@ import {
   kitchenShiftLabel,
   summarizeKitchenPrepMetrics,
 } from '../../src/lib/kitchen/operations.ts';
+import { getKitchenItemPresentation } from '../../src/lib/kitchen/order-presentation.ts';
 
 test('prioritizes modified, incident and late kitchen orders in that order', () => {
   assert.equal(kitchenOrderPriority({
@@ -90,4 +91,70 @@ test('measures preparation against the ETA committed by Kitchen', () => {
     averageVarianceMinutes: 1.5,
     onTimePct: 50,
   });
+});
+
+test('multiplies one configurable presentation when the order repeats it', () => {
+  const presentation = getKitchenItemPresentation({
+    qty: 2,
+    name: 'Single Pack (10 und)',
+    unitsPerService: 0,
+    notes: [
+      '5 Mini Tequeños Fritos',
+      '@sel|5|5',
+      '5 Cachitas Fritas',
+      '@sel|11|5',
+      '1 Salsa Tártara 1oz',
+      '@sel|2|1',
+    ].join('\n'),
+  });
+
+  assert.equal(presentation.repeatsSameConfiguration, true);
+  assert.equal(presentation.totalUnits, 20);
+  assert.equal(presentation.preparedUnits, 20);
+  assert.deepEqual(
+    presentation.detailLines.map((line) => ({
+      label: line.label,
+      qty: line.qty,
+      qtyPerPresentation: line.qtyPerPresentation,
+    })),
+    [
+      { label: 'Mini Tequeños Fritos', qty: 10, qtyPerPresentation: 5 },
+      { label: 'Cachitas Fritas', qty: 10, qtyPerPresentation: 5 },
+      { label: 'Salsa Tártara 1oz', qty: 2, qtyPerPresentation: 1 },
+    ],
+  );
+});
+
+test('does not multiply fixed combo details that already contain order totals', () => {
+  const presentation = getKitchenItemPresentation({
+    qty: 2,
+    name: 'Combo Sexy Mix Frito (50 und)',
+    unitsPerService: 0,
+    notes: [
+      '20 Mini Tequeños Fritos',
+      '20 Empanadas Fritas',
+      '20 Cachitas Fritas',
+      '20 Mandocas Fritas',
+      '20 Bombys Fritos',
+      '2 Salsa Tártara 5oz',
+    ].join('\n'),
+  });
+
+  assert.equal(presentation.repeatsSameConfiguration, false);
+  assert.equal(presentation.totalUnits, 100);
+  assert.equal(presentation.preparedUnits, 100);
+  assert.equal(presentation.detailLines[0]?.qty, 20);
+  assert.equal(presentation.detailLines[0]?.qtyPerPresentation, null);
+});
+
+test('keeps accessory products out of the prepared-pieces counter', () => {
+  const presentation = getKitchenItemPresentation({
+    qty: 3,
+    name: 'Salsa Tártara 1oz',
+    unitsPerService: 1,
+    notes: null,
+  });
+
+  assert.equal(presentation.totalUnits, 3);
+  assert.equal(presentation.preparedUnits, 0);
 });

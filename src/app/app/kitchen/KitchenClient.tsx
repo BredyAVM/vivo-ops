@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
-import { getWhatsAppLineUnits } from '@/lib/orders/whatsapp-summary';
 import {
   kitchenOrderPriority,
   type KitchenIncidentStatus,
 } from '@/lib/kitchen/operations';
+import { getKitchenItemPresentation } from '@/lib/kitchen/order-presentation';
 import { ModulePreference } from '../ModulePreference';
 import {
   useKitchenLiveSync,
@@ -101,7 +101,6 @@ const STATUS_COLUMNS: Array<{
   { key: 'ready', title: 'Listos', empty: 'Sin pedidos listos.' },
 ];
 
-const HIDDEN_DETAIL_PREFIX = '@sel|';
 const PUSH_TIMEOUT_MS = 12000;
 const NEW_ORDER_HIGHLIGHT_MS = 15000;
 const ETA_PRESETS = [10, 20];
@@ -127,11 +126,6 @@ const KITCHEN_INCIDENT_REASONS = [
     message: 'Cocina necesita que master revise una duda del pedido.',
   },
 ] as const;
-
-type KitchenDetailLine = {
-  label: string;
-  qty: number | null;
-};
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -275,77 +269,9 @@ function normalizeEtaMinutes(value: string) {
   return etaMinutes;
 }
 
-function toNumber(value: unknown, fallback = 0) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
-}
-
 function formatQty(value: number) {
   if (Math.abs(value - Math.round(value)) < 0.001) return String(Math.round(value));
   return value.toLocaleString('es-VE', { maximumFractionDigits: 2 });
-}
-
-function floorKitchenPieces(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  return Math.floor(value);
-}
-
-function extractUnitsPerService(name: string) {
-  const match = name.match(/(\d+(?:[.,]\d+)?)\s*(?:und|uds|unidad(?:es)?|pzs?|piezas?)/i);
-  if (!match) return 0;
-  return toNumber(match[1].replace(',', '.'), 0);
-}
-
-function isNonKitchenLine(name: string) {
-  return /\b(delivery|entrega|envio|envío)\b/i.test(name);
-}
-
-function isKitchenAccessoryLine(name: string) {
-  return /\b(salsa|salsas|refresco|refrescos|bebida|bebidas|agua|jugo|jugos|malta|coca|pepsi|chinotto|papel[oó]n|tequechicha)\b/i.test(name);
-}
-
-function isKitchenPreparedLine(name: string) {
-  return !isNonKitchenLine(name) && !isKitchenAccessoryLine(name);
-}
-
-function getItemUnits(item: KitchenOrderItem) {
-  if (isNonKitchenLine(item.name)) return 0;
-  const lineUnits = getWhatsAppLineUnits({
-    qty: item.qty,
-    name: item.name,
-    unitsPerService: item.unitsPerService,
-  });
-  if (lineUnits != null) return lineUnits;
-
-  const unitsPerService = extractUnitsPerService(item.name);
-  if (unitsPerService > 0) return floorKitchenPieces(item.qty * unitsPerService);
-  return item.qty;
-}
-
-function parseDetailLines(notes: string | null): KitchenDetailLine[] {
-  return String(notes || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith(HIDDEN_DETAIL_PREFIX))
-    .map((line) => {
-      const match = line.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-      if (!match) return { label: line, qty: null };
-      return {
-        label: match[2].trim(),
-        qty: floorKitchenPieces(toNumber(match[1].replace(',', '.'), 0)),
-      };
-    });
-}
-
-function getItemPreparedUnits(item: KitchenOrderItem) {
-  if (!isKitchenPreparedLine(item.name)) return 0;
-
-  const detailUnits = parseDetailLines(item.notes).reduce((sum, line) => {
-    if (line.qty == null || !isKitchenPreparedLine(line.label)) return sum;
-    return sum + line.qty;
-  }, 0);
-  if (detailUnits > 0) return detailUnits;
-  return getItemUnits(item);
 }
 
 function elapsedMinutes(value: string | null, nowMs = Date.now()) {
@@ -1162,7 +1088,10 @@ export default function KitchenClient({
                 KITCHEN_INCIDENT_REASONS.find((reason) => reason.key === incidentReasonKey) ??
                 KITCHEN_INCIDENT_REASONS[0];
               const incidentNote = incidentNoteByOrder[order.id] ?? '';
-              const totalUnits = order.items.reduce((sum, item) => sum + getItemPreparedUnits(item), 0);
+              const totalUnits = order.items.reduce(
+                (sum, item) => sum + getKitchenItemPresentation(item).preparedUnits,
+                0,
+              );
               const elapsed =
                 order.status === 'confirmed'
                   ? elapsedMinutes(order.sentToKitchenAt || order.createdAt, currentTimeMs)
@@ -1204,15 +1133,22 @@ export default function KitchenClient({
                     <div>{order.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'} · {scheduleLabel(order)}</div>
                     <div className="kitchen-print-divider" />
                     {order.items.map((item) => {
-                      const detailLines = parseDetailLines(item.notes);
-                      const hasCountedDetails = detailLines.some((line) => line.qty != null);
-                      const printQuantity = hasCountedDetails ? item.qty : getItemUnits(item);
+                      const presentation = getKitchenItemPresentation(item);
+                      const printQuantity = presentation.hasCountedDetails
+                        ? item.qty
+                        : presentation.totalUnits;
                       return (
                         <div key={`print-${item.id}`} className="kitchen-print-line">
                           <strong>{formatQty(printQuantity)} × {item.name}</strong>
-                          {detailLines.map((line, index) => (
+                          {presentation.detailLines.map((line, index) => (
                             <div key={`print-${item.id}-${index}`}>
-                              {line.qty == null ? line.label : `${formatQty(line.qty)} × ${line.label}`}
+                              {line.qty == null
+                                ? line.label
+                                : `${formatQty(line.qty)} × ${line.label}${
+                                    line.qtyPerPresentation != null
+                                      ? ` (${formatQty(line.qtyPerPresentation)} por presentación)`
+                                      : ''
+                                  }`}
                             </div>
                           ))}
                         </div>
@@ -1363,13 +1299,22 @@ export default function KitchenClient({
 
                         <div className="mt-2 space-y-1.5">
                     {order.items.map((item) => {
-                      const detailLines = parseDetailLines(item.notes);
-                      const hasComponentDetails = detailLines.some((line) => line.qty != null);
-                      const itemUnits = hasComponentDetails ? 0 : getItemUnits(item);
+                      const presentation = getKitchenItemPresentation(item);
+                      const detailLines = presentation.detailLines;
+                      const hasComponentDetails = presentation.hasCountedDetails;
+                      const itemUnits = hasComponentDetails ? 0 : presentation.totalUnits;
+                      const unitsPerPresentation = item.qty > 0
+                        ? presentation.totalUnits / item.qty
+                        : 0;
                       return (
                         <div key={item.id} className="rounded-lg border border-[#242433] bg-[#0B0B10] px-2.5 py-2">
                           <div className="flex items-start gap-2.5">
-                            {itemUnits > 0 ? (
+                            {hasComponentDetails && item.qty > 1 ? (
+                              <div className="w-[76px] shrink-0 rounded-lg border border-[#FEEF00]/50 bg-[#FEEF00]/10 px-2 py-1 text-center">
+                                <div className="text-2xl font-black leading-none text-[#FEEF00]">{formatQty(item.qty)}</div>
+                                <div className="text-[9px] uppercase tracking-[0.1em] text-[#B7B7C2]">present.</div>
+                              </div>
+                            ) : itemUnits > 0 ? (
                               <div className="w-[76px] shrink-0 rounded-lg border border-[#FEEF00]/35 bg-[#FEEF00]/10 px-2 py-1 text-center">
                                 <div className="text-2xl font-black leading-none text-[#FEEF00]">{formatQty(itemUnits)}</div>
                                 <div className="text-[10px] uppercase tracking-[0.12em] text-[#B7B7C2]">und</div>
@@ -1377,9 +1322,15 @@ export default function KitchenClient({
                             ) : null}
                             <div className="min-w-0 flex-1">
                               <div className="text-sm font-black leading-snug text-[#F5F5F7]">{item.name}</div>
-                              {itemUnits > 0 && Math.abs(itemUnits - item.qty) > 0.001 ? (
+                              {hasComponentDetails && item.qty > 1 ? (
+                                <div className="mt-0.5 text-xs font-semibold text-[#FEEF00]">
+                                  {presentation.repeatsSameConfiguration
+                                    ? `${formatQty(item.qty)} presentaciones iguales · ${formatQty(presentation.totalUnits)} und en total`
+                                    : `${formatQty(item.qty)} presentaciones · desglose total`}
+                                </div>
+                              ) : itemUnits > 0 && Math.abs(itemUnits - item.qty) > 0.001 ? (
                                 <div className="mt-0.5 text-xs text-[#8A8A96]">
-                                  {formatQty(item.qty)} serv. x {formatQty(item.unitsPerService || extractUnitsPerService(item.name))} und
+                                  {formatQty(item.qty)} serv. x {formatQty(unitsPerPresentation)} und
                                 </div>
                               ) : itemUnits > 0 ? (
                                 <div className="mt-0.5 text-xs text-[#8A8A96]">{formatQty(item.qty)} serv.</div>
@@ -1399,7 +1350,12 @@ export default function KitchenClient({
                                       <div className="text-[9px] uppercase tracking-[0.1em] text-[#8A8A96]">und</div>
                                     </div>
                                     <div className="min-w-0 flex-1 text-xs font-semibold leading-snug text-[#D9D9E3]">
-                                      {line.label}
+                                      <div>{line.label}</div>
+                                      {line.qtyPerPresentation != null ? (
+                                        <div className="mt-0.5 text-[10px] font-medium text-[#8A8A96]">
+                                          {formatQty(line.qtyPerPresentation)} por presentación × {formatQty(item.qty)}
+                                        </div>
+                                      ) : null}
                                     </div>
                                   </div>
                                 ) : (
