@@ -4593,8 +4593,8 @@ export default function MasterOpsClient({
     <div className="min-h-screen bg-[#0B0B0D] text-[#F5F5F7]">
       <div className="sticky top-0 z-50 border-b border-[#242433] bg-[#0B0B0D]/95 backdrop-blur">
         <div className="mx-auto max-w-[1400px] px-3 py-2.5 sm:px-5">
-          <div className="flex flex-col gap-2.5">
-            <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-x-4 xl:gap-y-2.5">
+            <div className="contents">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-base font-semibold leading-none">B. Master 3.0</h1>
 
@@ -4660,7 +4660,7 @@ export default function MasterOpsClient({
                 <MasterOpsAlerts publicVapidKey={publicVapidKey} onRefresh={requestOpsRefresh} />
               </div>
 
-              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5 xl:col-span-2 xl:row-start-2 xl:flex-nowrap xl:justify-between">
                 <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl border border-[#242433] bg-[#0F0F14] p-1">
                   <TopNavButton label="Operacion" active={inboxMode == null} onClick={closeInbox} />
                   <TopNavButton
@@ -4677,61 +4677,65 @@ export default function MasterOpsClient({
                   />
                 </div>
 
-                <Link
-                  href="/app/master/ops/inventory"
-                  prefetch={false}
-                  className="flex shrink-0 items-center gap-1.5 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
-                  title={inventoryAlertSummary
-                    ? `Abrir inventario · ${inventoryAlertSummary.active} alertas activas · ${inventoryAlertSummary.critical} críticas`
-                    : "Abrir el control operativo de inventario de Máster"}
-                >
-                  <span>Inventario</span>
-                  {inventoryAlertSummary && inventoryAlertSummary.active > 0 ? (
-                    <span
-                      className={inventoryAlertSummary.critical > 0
-                        ? "rounded-full bg-red-400/20 px-1.5 py-0.5 text-[10px] tabular-nums text-red-200"
-                        : "rounded-full bg-amber-300/20 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-100"}
-                      aria-label={`${inventoryAlertSummary.active} alertas activas de inventario`}
-                    >
-                      {inventoryAlertSummary.active}
-                    </span>
-                  ) : null}
-                </Link>
-
-                {inventoryAlertSummary && inventoryAlertSummary.pendingReviews > 0 ? (
+                <div className="contents xl:flex xl:min-w-0 xl:items-center xl:gap-2.5 xl:overflow-x-auto">
                   <Link
-                    href={inventoryAlertSummary.pendingReviews === 1 && inventoryAlertSummary.nextPendingReviewId
-                      ? `/app/inventory/counts/${inventoryAlertSummary.nextPendingReviewId}`
-                      : "/app/master/ops/inventory?view=counts#inventory-reviews"}
+                    href="/app/master/ops/inventory"
                     prefetch={false}
-                    className="flex shrink-0 items-center gap-2 rounded-2xl border border-rose-300/55 bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-100 transition hover:border-rose-200 hover:bg-rose-400/15"
-                    title={`${inventoryAlertSummary.pendingReviews} inventario${inventoryAlertSummary.pendingReviews === 1 ? '' : 's'} de Cocina por revisar`}
+                    className="flex shrink-0 items-center gap-1.5 rounded-2xl border border-[#FEEF00]/45 bg-[#17170F] px-3 py-2 text-xs font-semibold text-[#FEEF00] transition hover:border-[#FEEF00]"
+                    title={inventoryAlertSummary
+                      ? `Abrir inventario · ${inventoryAlertSummary.active} alertas activas · ${inventoryAlertSummary.critical} críticas`
+                      : "Abrir el control operativo de inventario de Máster"}
                   >
-                    <span>Inventarios por aprobar</span>
-                    <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] tabular-nums text-rose-950">
-                      {inventoryAlertSummary.pendingReviews}
-                    </span>
+                    <span>Inventario</span>
+                    {inventoryAlertSummary && inventoryAlertSummary.active > 0 ? (
+                      <span
+                        className={inventoryAlertSummary.critical > 0
+                          ? "rounded-full bg-red-400/20 px-1.5 py-0.5 text-[10px] tabular-nums text-red-200"
+                          : "rounded-full bg-amber-300/20 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-100"}
+                        aria-label={`${inventoryAlertSummary.active} alertas activas de inventario`}
+                      >
+                        {inventoryAlertSummary.active}
+                      </span>
+                    ) : null}
                   </Link>
-                ) : null}
 
-                <Link
-                  href="/app/master/ops/finance"
-                  prefetch={false}
-                  className="shrink-0 rounded-2xl border border-emerald-400/40 bg-emerald-400/5 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:border-emerald-300"
-                  title="Abrir pagos operativos sin cargar finanzas en la pantalla principal"
-                >
-                  Pagos
-                </Link>
+                  {inventoryAlertSummary && inventoryAlertSummary.pendingReviews > 0 ? (
+                    <Link
+                      href={inventoryAlertSummary.pendingReviews === 1 && inventoryAlertSummary.nextPendingReviewId
+                        ? `/app/inventory/counts/${inventoryAlertSummary.nextPendingReviewId}`
+                        : "/app/master/ops/inventory?view=counts#inventory-reviews"}
+                      prefetch={false}
+                      className="flex shrink-0 items-center gap-2 rounded-2xl border border-rose-300/55 bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-100 transition hover:border-rose-200 hover:bg-rose-400/15"
+                      title={`${inventoryAlertSummary.pendingReviews} inventario${inventoryAlertSummary.pendingReviews === 1 ? '' : 's'} de Cocina por revisar`}
+                    >
+                      <span>Inventarios por aprobar</span>
+                      <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] tabular-nums text-rose-950">
+                        {inventoryAlertSummary.pendingReviews}
+                      </span>
+                    </Link>
+                  ) : null}
 
-                <Link
-                  href="/app/master/ops/finance?movement=new"
-                  prefetch={false}
-                  className="shrink-0 rounded-2xl border border-[#FEEF00]/55 bg-[#FEEF00]/10 px-3 py-2 text-xs font-bold text-[#FEEF00] transition hover:border-[#FEEF00]"
-                  title="Registrar un ingreso o egreso operativo"
-                >
-                  Ingreso / Egreso
-                </Link>
+                  <Link
+                    href="/app/master/ops/finance"
+                    prefetch={false}
+                    className="shrink-0 rounded-2xl border border-emerald-400/40 bg-emerald-400/5 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:border-emerald-300"
+                    title="Abrir pagos operativos sin cargar finanzas en la pantalla principal"
+                  >
+                    Pagos
+                  </Link>
 
+                  <Link
+                    href="/app/master/ops/finance?movement=new"
+                    prefetch={false}
+                    className="shrink-0 rounded-2xl border border-[#FEEF00]/55 bg-[#FEEF00]/10 px-3 py-2 text-xs font-bold text-[#FEEF00] transition hover:border-[#FEEF00]"
+                    title="Registrar un ingreso o egreso operativo"
+                  >
+                    Ingreso / Egreso
+                  </Link>
+                </div>
+              </div>
+
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5 xl:col-start-2 xl:row-start-1 xl:flex-nowrap xl:justify-end">
                 <div className="w-full rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5 sm:w-[240px]">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
