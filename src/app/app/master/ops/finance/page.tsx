@@ -5,6 +5,9 @@ import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from "@/lib/auth
 import { formatOrderDisplayNumber } from "@/lib/orders/order-labels";
 import type { MasterOrderPaymentReport } from "../../_components/MasterOrderDetailCore";
 import PaymentVerificationCopyButton from "../PaymentVerificationCopyButton";
+import MasterOpsMoneyMovementForm, {
+  type MasterOpsMovementAccountOption,
+} from "./MasterOpsMoneyMovementForm";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -36,6 +39,22 @@ type OrderRow = {
   fulfillment: string;
   total_usd: number | string;
   client: Record<string, unknown> | Record<string, unknown>[] | null;
+};
+
+type MovementAccountRow = {
+  id: number | string;
+  name: string | null;
+  currency_code: string | null;
+  account_kind: string | null;
+  is_active: boolean | null;
+};
+
+type MovementAccessRuleRow = {
+  money_account_id: number | string;
+};
+
+type ActiveRateRow = {
+  rate_bs_per_usd: number | string | null;
 };
 
 type FinanceReport = {
@@ -102,6 +121,10 @@ function formatDateTime(value: string) {
   }).format(date);
 }
 
+function caracasDateKey() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Caracas" });
+}
+
 function statusLabel(status: PaymentStatus) {
   if (status === "pending") return "POR REVISAR";
   if (status === "confirmed") return "CONFIRMADO";
@@ -133,6 +156,8 @@ export default async function MasterOpsFinancePage({ searchParams }: { searchPar
     ? requestedStatus as StatusFilter
     : "pending";
   const query = firstParam(params.q).trim().slice(0, 80);
+  const movementOpen = firstParam(params.movement) === "new";
+  const isAdmin = ctx.roles.includes("admin");
 
   let reportsQuery = ctx.supabase
     .from("payment_reports")
@@ -143,16 +168,69 @@ export default async function MasterOpsFinancePage({ searchParams }: { searchPar
     .limit(status === "all" ? 400 : 320);
   if (status !== "all") reportsQuery = reportsQuery.eq("status", status);
 
+  const movementReferencesPromise = movementOpen
+    ? Promise.all([
+        ctx.supabase
+          .from("money_accounts")
+          .select("id,name,currency_code,account_kind,is_active")
+          .eq("is_active", true)
+          .order("account_kind", { ascending: true })
+          .order("id", { ascending: true }),
+        isAdmin
+          ? Promise.resolve({ data: [] as MovementAccessRuleRow[], error: null })
+          : ctx.supabase
+              .from("money_account_payment_rules")
+              .select("money_account_id")
+              .eq("role", "master")
+              .eq("can_view_account", true)
+              .eq("is_active", true),
+        ctx.supabase
+          .from("exchange_rates")
+          .select("rate_bs_per_usd")
+          .eq("is_active", true)
+          .order("effective_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+    : Promise.resolve([
+        { data: [] as MovementAccountRow[], error: null },
+        { data: [] as MovementAccessRuleRow[], error: null },
+        { data: null as ActiveRateRow | null, error: null },
+      ] as const);
+
   const [pendingCountResult, confirmedCountResult, rejectedCountResult, reportsResult] = await Promise.all([
     ctx.supabase.from("payment_reports").select("id", { count: "exact", head: true }).eq("status", "pending"),
     ctx.supabase.from("payment_reports").select("id", { count: "exact", head: true }).eq("status", "confirmed"),
     ctx.supabase.from("payment_reports").select("id", { count: "exact", head: true }).eq("status", "rejected"),
     reportsQuery,
   ]);
+  const [movementAccountsResult, movementRulesResult, activeRateResult] = await movementReferencesPromise;
 
   const countError = pendingCountResult.error ?? confirmedCountResult.error ?? rejectedCountResult.error;
   if (countError) throw new Error(`No se pudo cargar el resumen financiero: ${countError.message}`);
   if (reportsResult.error) throw new Error(`No se pudieron cargar los reportes: ${reportsResult.error.message}`);
+  const movementReferenceError = movementAccountsResult.error ?? movementRulesResult.error ?? activeRateResult.error;
+  if (movementReferenceError) {
+    throw new Error(`No se pudo preparar el registro de movimientos: ${movementReferenceError.message}`);
+  }
+
+  const masterAccountIds = new Set(
+    ((movementRulesResult.data ?? []) as MovementAccessRuleRow[]).map((rule) => Number(rule.money_account_id)),
+  );
+  const movementAccounts: MasterOpsMovementAccountOption[] = ((movementAccountsResult.data ?? []) as MovementAccountRow[])
+    .filter((account) => isAdmin || masterAccountIds.has(Number(account.id)))
+    .flatMap((account) => {
+      const currencyCode = String(account.currency_code || "").toUpperCase();
+      if (currencyCode !== "USD" && currencyCode !== "VES") return [];
+      return [{
+        id: Number(account.id),
+        name: String(account.name || `Cuenta #${account.id}`),
+        currencyCode,
+      }];
+    });
+  const activeRate = activeRateResult.data
+    ? numberValue((activeRateResult.data as ActiveRateRow).rate_bs_per_usd)
+    : 0;
 
   const reportRows = (reportsResult.data ?? []) as PaymentReportRow[];
   const orderIds = Array.from(new Set(reportRows.map((report) => Number(report.order_id)).filter((id) => id > 0)));
@@ -256,17 +334,49 @@ export default async function MasterOpsFinancePage({ searchParams }: { searchPar
               Cola de verificación e historial reciente. La confirmación y el rechazo siguen ejecutándose en el detalle canónico de la orden.
             </p>
           </div>
-          <Link
-            href="/app/master/ops"
-            prefetch={false}
-            className="w-fit rounded-xl border border-[#FEEF00]/50 bg-[#181812] px-4 py-2.5 text-sm font-semibold text-[#FEEF00]"
-          >
-            Volver a Máster
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={movementOpen ? filterHref(status, query) : `${filterHref(status, query)}&movement=new`}
+              prefetch={false}
+              className={[
+                "w-fit rounded-xl border px-4 py-2.5 text-sm font-bold",
+                movementOpen
+                  ? "border-[#343442] bg-[#0B0B0D] text-[#B7B7C2]"
+                  : "border-[#FEEF00] bg-[#FEEF00] text-[#0B0B0D]",
+              ].join(" ")}
+            >
+              {movementOpen ? "Cerrar registro" : "Ingreso / Egreso"}
+            </Link>
+            <Link
+              href="/app/master/ops"
+              prefetch={false}
+              className="w-fit rounded-xl border border-[#FEEF00]/50 bg-[#181812] px-4 py-2.5 text-sm font-semibold text-[#FEEF00]"
+            >
+              Volver a Máster
+            </Link>
+          </div>
         </div>
       </header>
 
       <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-6">
+        {movementOpen ? (
+          <section className="mb-4 rounded-2xl border border-[#FEEF00]/30 bg-[#121218] p-4 sm:p-5">
+            <div className="mb-4">
+              <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#FEEF00]">Movimiento operativo</div>
+              <h2 className="mt-1 text-xl font-black text-[#F5F5F7]">Registrar ingreso o egreso</h2>
+              <p className="mt-1 text-sm leading-6 text-[#9A9AA6]">
+                Se registra directamente en la cuenta seleccionada y conserva la trazabilidad financiera.
+              </p>
+            </div>
+            <MasterOpsMoneyMovementForm
+              accounts={movementAccounts}
+              activeRate={activeRate > 0 ? activeRate : null}
+              defaultDate={caracasDateKey()}
+              isAdmin={isAdmin}
+            />
+          </section>
+        ) : null}
+
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-orange-400/30 bg-orange-400/5 p-4">
             <div className="text-[11px] uppercase tracking-[0.14em] text-orange-200/70">Por revisar</div>

@@ -4723,6 +4723,15 @@ export default function MasterOpsClient({
                   Pagos
                 </Link>
 
+                <Link
+                  href="/app/master/ops/finance?movement=new"
+                  prefetch={false}
+                  className="shrink-0 rounded-2xl border border-[#FEEF00]/55 bg-[#FEEF00]/10 px-3 py-2 text-xs font-bold text-[#FEEF00] transition hover:border-[#FEEF00]"
+                  title="Registrar un ingreso o egreso operativo"
+                >
+                  Ingreso / Egreso
+                </Link>
+
                 <div className="w-full rounded-2xl border border-[#242433] bg-[#121218] px-3 py-1.5 sm:w-[240px]">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">

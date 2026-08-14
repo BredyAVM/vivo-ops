@@ -20,7 +20,7 @@ se abren mediante rutas separadas con `prefetch={false}`.
 | Inventario al editar | Cerrado en la frontera actual | Editar una orden no ejecuta un descuento físico. La sincronización de compromisos es informativa/no bloqueante y la venta física se registra al entregar. |
 | Cambio de operador | Cerrado | Botón `Cerrar sesión` en Master Ops; usa cierre local de Supabase y elimina la preferencia de módulo del equipo compartido. |
 | Copia para verificar pagos | Cerrado | Cada reporte del detalle tiene `Copiar` con orden, cliente, monto, hora, cuenta, pagador, referencia, reportante y notas; omite el estado pendiente. |
-| Finanzas operativas | Cerrado para este bloque | `/app/master/ops/finance` contiene cola, conteos, filtros, búsqueda, historial reciente y acceso al detalle para decidir. |
+| Finanzas operativas | Cerrado para el alcance actual | `/app/master/ops/finance` contiene cola, conteos, filtros, búsqueda, historial reciente, acceso al detalle y registro bajo demanda de ingresos/egresos en cuentas autorizadas. |
 | Inventario operativo | Cerrado parcialmente y auditado | El adaptador permite consultar saldo/stock bajo, solicitar conteo, aceptar y pedir reconteo. Enlaza alertas y recepciones esperadas canónicas. |
 
 ## Modificación avanzada: resultado de la auditoría
@@ -54,7 +54,14 @@ La ruta nueva `/app/master/ops/finance`:
 - muestra el equivalente USD como referencia, sin alterar el monto reportado;
 - reutiliza el mismo texto compacto de verificación;
 - abre `/app/master/ops?openOrder=...&tab=pagos` para confirmar o rechazar con la
-  semántica ya existente.
+  semántica ya existente;
+- desde el 2026-08-14 registra ingresos y egresos directamente en
+  `money_movements`, únicamente sobre cuentas que el Master ya puede ver;
+- confirma egresos de Master hasta USD 100,00 inclusive y deja los superiores
+  pendientes para Admin; el cálculo suma la comisión y convierte VES con la
+  tasa indicada;
+- no aplica ese umbral a traspasos ni a cambio entregado al cliente y no altera
+  `/app/master/dashboard`.
 
 Quedan deliberadamente fuera: configuración de cuentas, estados de cuenta,
 conciliaciones, cierres, líneas base y ajustes contables administrativos.

@@ -287,6 +287,14 @@ Distincion critica:
 | Resolver pendientes | Si, si no afecta saldo aprobado | Si |
 | Editar reglas de cierre | No | Si |
 
+Límite operativo vigente para Master Ops desde el 2026-08-14:
+
+- ingresos registrados por Master quedan confirmados;
+- egresos operativos de hasta USD 100,00 inclusive quedan confirmados;
+- egresos operativos superiores a USD 100,00 quedan pendientes de aprobación Admin;
+- para comparar el límite se suma la comisión y se usa el equivalente USD de la tasa indicada cuando la cuenta está en VES;
+- este límite no se reutiliza para traspasos entre cuentas ni para cambio entregado al cliente.
+
 Los permisos pueden flexibilizarse, pero nunca se debe permitir una correccion financiera sin motivo y auditoria.
 
 ## 9. Primer cierre o linea base
@@ -387,4 +395,3 @@ Estas reglas no deben romperse en futuras implementaciones:
 7. Revisar reportes para usar fecha de operacion en cierres y tasa.
 8. Crear vista de auditoria financiera por cuenta, orden y cierre.
 9. Migrar/regularizar el primer cierre como linea base.
-
