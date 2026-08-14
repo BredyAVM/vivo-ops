@@ -89,8 +89,12 @@ Counter / Mostrador debe encargarse de:
 
 Counter puede reportar pagos de cualquier metodo permitido por reglas, pero:
 
+- La forma indicada al crear la orden es orientativa: Counter registra el medio
+  realmente recibido, aunque el cliente lo cambie al pagar.
+- Puede cobrar cualquier orden no cancelada con saldo, incluida una orden
+  futura, delivery, antigua o ya entregada recuperada mediante busqueda.
 - Efectivo y punto pueden auto-confirmarse si la regla de cuenta lo permite.
-- Pago movil, transferencia, zelle y bancos deben quedar como reportes pendientes para confirmacion de master/admin.
+- Pago movil, transferencia, zelle, Binance, PayPal y demas cuentas digitales deben quedar como reportes pendientes para confirmacion de master/admin.
 - Counter solo debe mover directamente cajas DAR y puntos.
 - Los saldos de caja/punto deben reflejar todos los movimientos confirmados de la cuenta, sin importar si los hizo master, admin o counter.
 - `money_movements` es la fuente de verdad contable.
@@ -104,6 +108,10 @@ La pantalla debe mostrar solo:
 - Caja DAR USD.
 - Caja DAR VES.
 - Puntos de venta activos que el counter usa.
+
+Esta limitacion corresponde a saldos, cierres y movimientos directos de caja.
+El flujo `Cobrar` tambien muestra las cuentas digitales o bancarias que tengan
+una regla activa para que Counter pueda reportar pagos pendientes de revision.
 
 Debe mostrar:
 

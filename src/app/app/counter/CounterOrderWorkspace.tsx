@@ -858,9 +858,12 @@ export function OrderDetail({
 
           <div className="rounded-[8px] border border-[#242433] bg-[#0B0B0D] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold">Pago esperado</h3>
+              <h3 className="font-semibold">Forma indicada en la orden</h3>
               <span className="text-sm font-semibold text-[#F5F5F7]">{getPaymentMethodLabel(order.paymentMethod)}</span>
             </div>
+            <p className="mt-1 text-xs text-[#9FA0AA]">
+              Es una referencia. Al cobrar, registra el método que el cliente realmente utilice.
+            </p>
             <div className="mt-2 grid gap-2 text-xs text-[#9FA0AA] sm:grid-cols-2">
               <div>Moneda: {order.paymentCurrency || 'Sin definir'}</div>
               <div>Tasa orden: {order.fxRate > 0 ? moneyBs(order.fxRate) : 'Sin tasa'}</div>

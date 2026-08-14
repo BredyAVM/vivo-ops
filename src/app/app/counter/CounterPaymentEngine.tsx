@@ -718,7 +718,7 @@ export function CounterPaymentEngine({
             ? `${moneyUsd(receipt.pendingPaymentUsd)} quedó enviado a Master para confirmación.`
             : receipt.pendingUsd > 0.005
               ? `La operación quedó registrada y todavía faltan ${moneyUsd(receipt.pendingUsd)} por cobrar.`
-              : 'El pago quedó confirmado. Ya puedes continuar con la entrega del pickup.'}
+              : 'El pago quedó confirmado y aplicado a la orden.'}
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <ReceiptMetric label="Confirmado" value={moneyUsd(receipt.confirmedPaymentUsd)} />
@@ -777,7 +777,7 @@ export function CounterPaymentEngine({
             <div>
               <div className="text-sm font-semibold">¿Cómo está pagando?</div>
               <div className="mt-1 text-xs text-[#9FA0AA]">
-                Método esperado: {getPaymentMethodLabel(order.paymentMethod || 'pending')}
+                Indicado en la orden: {getPaymentMethodLabel(order.paymentMethod || 'pending')}. Puedes elegir el medio que realmente recibiste.
               </div>
             </div>
             {paymentLines.length > 1 ? (
@@ -980,8 +980,8 @@ export function CounterPaymentEngine({
           </div>
 
           {expectedMethodChanged ? (
-            <div className="mt-3 rounded-[8px] border border-orange-400/30 bg-orange-400/10 px-3 py-2 text-sm text-orange-100">
-              La orden esperaba {getPaymentMethodLabel(order.paymentMethod)}, pero estás registrando {getPaymentMethodLabel(selectedMethod)}.
+            <div className="mt-3 rounded-[8px] border border-sky-300/30 bg-sky-300/10 px-3 py-2 text-sm text-sky-100">
+              Cambio permitido: la orden indicaba {getPaymentMethodLabel(order.paymentMethod)}, pero registrarás {getPaymentMethodLabel(selectedMethod)} como pago real.
             </div>
           ) : null}
 

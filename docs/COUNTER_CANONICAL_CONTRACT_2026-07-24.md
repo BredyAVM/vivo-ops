@@ -365,9 +365,26 @@ Counter debe permitir:
 - uso de la tasa aplicable;
 - efectivo y punto;
 - pagos parciales;
-- pagos de órdenes antiguas;
+- pagos de órdenes futuras, activas, en delivery o ya entregadas;
+- pagos de órdenes antiguas recuperadas mediante la búsqueda;
 - excedente a fondo del cliente cuando corresponda;
 - cambio desde una o varias cuentas autorizadas.
+
+La forma de pago indicada al crear la orden es una **referencia operativa**, no
+una restricción del medio que Counter puede recibir. El cliente puede cambiarla
+al momento de pagar. Counter debe registrar el método, la cuenta, la moneda, el
+monto y la evidencia que realmente recibió, sin exigir que coincidan con la
+indicación original y sin reescribir el historial de la orden.
+
+Esta libertad aplica a toda orden no cancelada con saldo pendiente, sin importar
+su modalidad, fecha o estado operativo. Incluye pickup, delivery, órdenes
+agendadas, antiguas y entregadas. Una orden cancelada permanece fuera del cobro
+de Counter y cualquier regularización corresponde a Master/Administración.
+
+El cambio de método no cambia las reglas de confirmación. Efectivo y punto solo
+se confirman directamente cuando la cuenta y la regla vigentes lo permiten. Los
+pagos bancarios o digitales pueden ser cargados por Counter, pero permanecen
+pendientes hasta la confirmación de Master/Admin.
 
 Registrar un movimiento particular no obliga a cerrar financieramente toda la
 orden. Un cobro o una entrega de cambio puede quedar terminado mientras el saldo
@@ -390,7 +407,9 @@ Counter puede cargar datos y evidencia de:
 
 - pago móvil;
 - transferencia;
-- Zelle u otro método permitido;
+- Zelle;
+- wallets habilitadas, como Binance o PayPal;
+- cualquier otro método permitido por reglas vigentes;
 - cualquier cuenta reportable habilitada por reglas.
 
 Counter no confirma estos pagos. El reporte queda pendiente hasta que Master/Admin
