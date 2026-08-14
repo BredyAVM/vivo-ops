@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/commissions/settlement-engine.test.mts",
+    "test:commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/commissions/settlement-engine.test.mts tests/commissions/legacy-projection.test.mts",
     "test:kitchen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/kitchen/operations.test.mts"
   },
   "dependencies": {
