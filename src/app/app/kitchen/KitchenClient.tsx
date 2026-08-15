@@ -839,14 +839,19 @@ export default function KitchenClient({
               <Link
                 href="/app/kitchen/inventory"
                 prefetch={false}
-                className="flex h-10 items-center rounded-xl border border-[#FEEF00]/40 bg-[#FEEF00]/10 px-3 text-xs font-semibold text-[#FEEF00]"
+                aria-label={inventoryTaskCount > 0
+                  ? `Abrir Inventario: ${inventoryTaskCount} tareas pendientes`
+                  : 'Abrir Inventario'}
+                className="flex h-10 items-center rounded-xl border border-[#FEEF00]/40 bg-[#FEEF00]/10 px-2.5 text-xs font-semibold text-[#FEEF00]"
               >
-                Inventario
-                {inventoryTaskCount > 0 ? (
-                  <span className="ml-1.5 rounded-full bg-[#FEEF00] px-1.5 py-0.5 text-[10px] font-black text-black">
-                    {inventoryTaskCount > 99 ? '99+' : inventoryTaskCount}
-                  </span>
-                ) : null}
+                <span className="text-left leading-tight">
+                  <span className="block">Inventario</span>
+                  {inventoryTaskCount > 0 ? (
+                    <span className="block text-[9px] font-bold text-[#F5F5A8]">
+                      {inventoryTaskCount} pendientes
+                    </span>
+                  ) : null}
+                </span>
               </Link>
               <Link
                 href="/app"
