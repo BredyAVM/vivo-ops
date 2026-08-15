@@ -32,6 +32,10 @@ import type {
   MasterOrderPaymentReport,
 } from "../_components/MasterOrderDetailCore";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
+import {
+  isMasterOpsOrderPaymentMethod,
+  normalizeMasterOpsOrderPaymentMethod,
+} from "./order-editor-payment";
 import { canEditMasterOpsOrder } from "./operational-rules";
 import type {
   CounterPickupChangeDecisionResult,
@@ -2253,18 +2257,6 @@ type MasterOpsExistingSaveItemRow = {
   notes: string | null;
 };
 
-const MASTER_OPS_PAYMENT_METHODS = new Set([
-  "",
-  "cash_usd",
-  "cash_ves",
-  "payment_mobile",
-  "transfer",
-  "pos",
-  "zelle",
-  "wallet_usd",
-  "retention",
-]);
-
 function closeNumber(left: unknown, right: unknown, tolerance = 0.000001) {
   const leftNumber = Number(left);
   const rightNumber = Number(right);
@@ -2353,10 +2345,11 @@ async function prepareMasterOpsOrderSave(
   if (!["USD", "VES"].includes(String(input.paymentChangeCurrency || ""))) {
     throw new Error("La moneda del cambio no es válida.");
   }
-  if (!MASTER_OPS_PAYMENT_METHODS.has(String(input.paymentMethod || ""))) {
+  const paymentMethod = normalizeMasterOpsOrderPaymentMethod(input.paymentMethod);
+  if (!isMasterOpsOrderPaymentMethod(paymentMethod)) {
     throw new Error("El método de pago no es válido.");
   }
-  const requiredPaymentCurrency = getPaymentReportCurrency(input.paymentMethod);
+  const requiredPaymentCurrency = getPaymentReportCurrency(paymentMethod);
   if (requiredPaymentCurrency && input.paymentCurrency !== requiredPaymentCurrency) {
     throw new Error("La moneda no coincide con el método de pago.");
   }
@@ -2710,6 +2703,7 @@ async function prepareMasterOpsOrderSave(
   }));
   const validationIssues = getMasterOpsOrderEditorValidationIssues({
     ...input,
+    paymentMethod,
     items: recalculatedItems.map((item) => ({
       ...item,
       adminPriceOverrideUsd: item.validateOverride ? item.adminPriceOverrideUsd : null,
@@ -2741,6 +2735,7 @@ async function prepareMasterOpsOrderSave(
 
   return {
     ...input,
+    paymentMethod,
     fxRate: String(effectiveFxRate),
     items: recalculatedItems.map(stripMasterOpsOrderItem),
   };
@@ -3367,7 +3362,7 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       discountPct: cleanText(pricing.discount_pct, "0"),
       invoiceTaxPct: cleanText(pricing.invoice_tax_pct, "16"),
       fxRate: fxRate > 0 ? String(fxRate) : "",
-      paymentMethod: cleanText(payment.method),
+      paymentMethod: normalizeMasterOpsOrderPaymentMethod(payment.method),
       paymentCurrency: asCurrency(payment.currency, "USD"),
       paymentRequiresChange: Boolean(payment.requires_change ?? false),
       paymentChangeFor: payment.change_for == null ? "" : String(payment.change_for),

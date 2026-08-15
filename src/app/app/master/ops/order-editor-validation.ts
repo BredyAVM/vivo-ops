@@ -1,5 +1,6 @@
 import { parseEditableDetailLines } from "@/lib/orders/order-composer";
 import { parseDecimalInput } from "@/lib/number-input";
+import { isMasterOpsOrderPaymentMethod } from "./order-editor-payment";
 
 export type MasterOpsOrderEditorValidationIssue = {
   code:
@@ -16,6 +17,7 @@ export type MasterOpsOrderEditorValidationIssue = {
     | "rate"
     | "discount"
     | "tax"
+    | "payment_method"
     | "payment_change"
     | "client_fund"
     | "price_override"
@@ -60,6 +62,7 @@ export type MasterOpsOrderEditorValidationInput = {
   newClientName?: string | null;
   newClientPhone?: string | null;
   fulfillment: string;
+  paymentMethod?: string | null;
   deliveryDate?: string | null;
   deliveryHour12?: string | null;
   deliveryMinute?: string | null;
@@ -238,6 +241,13 @@ export function getMasterOpsOrderEditorValidationIssues(
     if (!hasDeliveryItem) {
       issues.push({ code: "delivery_item", message: "Agrega el producto de delivery al pedido." });
     }
+  }
+
+  if (!isMasterOpsOrderPaymentMethod(input.paymentMethod)) {
+    issues.push({
+      code: "payment_method",
+      message: "Selecciona un método de pago válido o déjalo sin definir.",
+    });
   }
 
   const fxRate = numberValue(input.fxRate);

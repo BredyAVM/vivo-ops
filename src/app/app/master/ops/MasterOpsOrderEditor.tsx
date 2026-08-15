@@ -27,6 +27,7 @@ import {
   type MasterOpsEditProductComponent,
 } from "./actions";
 import { getMasterOpsOrderEditorValidationIssues } from "./order-editor-validation";
+import { MASTER_OPS_ORDER_PAYMENT_METHODS } from "./order-editor-payment";
 
 type Props = {
   mode?: "create" | "edit";
@@ -76,17 +77,6 @@ type ConfigState = {
   alias: string;
   selections: ConfigSelection[];
 };
-
-const PAYMENT_METHODS = [
-  "cash_usd",
-  "cash_ves",
-  "payment_mobile",
-  "transfer",
-  "pos",
-  "zelle",
-  "wallet_usd",
-  "retention",
-];
 
 function toNumber(value: unknown, fallback = 0) {
   return parseDecimalInput(value, fallback);
@@ -495,6 +485,7 @@ export default function MasterOpsOrderEditor({
         newClientName,
         newClientPhone,
         fulfillment: form.fulfillment,
+        paymentMethod: form.paymentMethod,
         deliveryDate: form.deliveryDate,
         deliveryHour12: form.deliveryHour12,
         deliveryMinute: form.deliveryMinute,
@@ -1295,7 +1286,7 @@ export default function MasterOpsOrderEditor({
                           }}
                         >
                           <option value="">Sin definir</option>
-                          {PAYMENT_METHODS.map((method) => (
+                          {MASTER_OPS_ORDER_PAYMENT_METHODS.map((method) => (
                             <option key={method} value={method}>
                               {getPaymentMethodLabel(method) || method}
                             </option>
