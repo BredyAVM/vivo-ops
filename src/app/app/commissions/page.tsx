@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
+import { readAdvisorCommissionCarryOverride } from '@/lib/commissions/carry-state';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
 import {
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
@@ -15,6 +16,7 @@ import {
   deleteCommissionDeductionAction,
   registerCommissionPaymentAction,
   reopenCommissionClosureAction,
+  saveCommissionBootstrapAction,
 } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -291,6 +293,7 @@ export default async function CommissionAdministrationPage({
         storedManualDeductionsUsd - registeredManualDeductionsUsd
       );
       const settlement = readAdvisorCommissionSettlementSnapshot(closure.snapshot);
+      const carryOverride = readAdvisorCommissionCarryOverride(closure.snapshot);
       const workflow = readAdvisorCommissionWorkflowSnapshot(closure.snapshot);
       const payments = paymentsByClosureId.get(Number(closure.id)) ?? [];
       const paidUsd = roundMoney(
@@ -311,6 +314,7 @@ export default async function CommissionAdministrationPage({
         deductionDifferenceUsd,
         hasDeductionDifference: Math.abs(deductionDifferenceUsd) >= 0.01,
         settlement,
+        carryOverride,
         workflow,
         payments,
         paidUsd,
@@ -653,6 +657,10 @@ export default async function CommissionAdministrationPage({
                             <div className="rounded-xl border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-amber-100 sm:col-span-3">
                               Arrastre histórico inferido desde datos anteriores. Revísalo antes de registrar la conformidad.
                             </div>
+                          ) : row.settlement.carrySource === 'manual-bootstrap' ? (
+                            <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/5 px-3 py-2 text-emerald-100 sm:col-span-3">
+                              Saldo inicial histórico fijado manualmente a partir de la auditoría.
+                            </div>
                           ) : null}
                         </div>
                       ) : null}
@@ -723,6 +731,62 @@ export default async function CommissionAdministrationPage({
                             </label>
                             <button className="h-9 rounded-xl border border-[#F0D000]/45 px-4 text-xs font-semibold text-[#F7DA66]" type="submit">
                               Agregar
+                            </button>
+                          </form>
+                        </details>
+                      ) : null}
+
+                      {row.closure.status === 'preliminary' &&
+                      (!settlementIsCurrent ||
+                        row.settlement.carrySource === 'legacy-inferred' ||
+                        row.settlement.carrySource === 'manual-bootstrap') ? (
+                        <details className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
+                          <summary className="cursor-pointer text-xs font-semibold text-amber-100">
+                            Definir saldo inicial histórico auditado
+                          </summary>
+                          <p className="mt-3 border-t border-amber-400/15 pt-3 text-xs leading-5 text-[#B9B19C]">
+                            Úsalo solo para el arranque con periodos anteriores. Los periodos nuevos arrastran este saldo automáticamente.
+                          </p>
+                          <form action={saveCommissionBootstrapAction} className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <input name="closureId" type="hidden" value={row.closure.id} />
+                            <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
+                            <label className="block">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9F967E]">Comisión a favor</span>
+                              <input
+                                className="mt-1 h-9 w-full rounded-xl border border-[#4A4330] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-amber-400"
+                                defaultValue={(row.carryOverride?.commissionCarryUsd ?? row.settlement.carriedCommissionUsd).toFixed(2)}
+                                min="0"
+                                name="commissionCarryUsd"
+                                required
+                                step="0.01"
+                                type="number"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9F967E]">Deuda propia anterior</span>
+                              <input
+                                className="mt-1 h-9 w-full rounded-xl border border-[#4A4330] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-amber-400"
+                                defaultValue={(row.carryOverride?.advisorDebtCarryUsd ?? row.settlement.priorAdvisorDebtUsd).toFixed(2)}
+                                min="0"
+                                name="advisorDebtCarryUsd"
+                                required
+                                step="0.01"
+                                type="number"
+                              />
+                            </label>
+                            <label className="block sm:col-span-2">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9F967E]">Referencia de auditoría</span>
+                              <input
+                                className="mt-1 h-9 w-full rounded-xl border border-[#4A4330] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-amber-400"
+                                defaultValue={row.carryOverride?.note ?? ''}
+                                maxLength={500}
+                                name="note"
+                                placeholder="Ej. Saldo validado contra cierre de Julio 1"
+                                required
+                              />
+                            </label>
+                            <button className="h-9 rounded-xl border border-amber-400/35 px-4 text-xs font-semibold text-amber-100 sm:col-span-2" type="submit">
+                              Guardar saldo inicial y recalcular
                             </button>
                           </form>
                         </details>

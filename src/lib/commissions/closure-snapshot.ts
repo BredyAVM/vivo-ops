@@ -16,7 +16,7 @@ export type AdvisorCommissionClosureSnapshotV2 = JsonRecord & {
   };
   settlement: JsonRecord & {
     formulaVersion: typeof ADVISOR_COMMISSION_FORMULA_VERSION;
-    carrySource: 'none' | 'settlement' | 'legacy-inferred';
+    carrySource: 'none' | 'settlement' | 'legacy-inferred' | 'manual-bootstrap';
     calculationCutoffAt: string;
     scheduledLiquidationDate: string | null;
     carriedCommissionUsd: number;
@@ -32,7 +32,7 @@ export type AdvisorCommissionClosureSnapshotV2 = JsonRecord & {
 export type AdvisorCommissionSettlementSnapshotState = {
   snapshotVersion: number;
   formulaVersion: string;
-  carrySource: 'none' | 'settlement' | 'legacy-inferred' | 'unknown';
+  carrySource: 'none' | 'settlement' | 'legacy-inferred' | 'manual-bootstrap' | 'unknown';
   calculationCutoffAt: string | null;
   scheduledLiquidationDate: string | null;
   carriedCommissionUsd: number;
@@ -78,7 +78,7 @@ export function writeAdvisorCommissionSettlementSnapshot(params: {
   calculation: AdvisorCommissionSettlementCalculation;
   calculationCutoffAt: string;
   scheduledLiquidationDate?: string | null;
-  carrySource?: 'none' | 'settlement' | 'legacy-inferred';
+  carrySource?: 'none' | 'settlement' | 'legacy-inferred' | 'manual-bootstrap';
 }): AdvisorCommissionClosureSnapshotV2 {
   const currentSnapshot = asRecord(params.currentSnapshot);
   const currentTotals = asRecord(currentSnapshot.totals);
@@ -140,7 +140,8 @@ export function readAdvisorCommissionSettlementSnapshot(
     carrySource:
       settlement.carrySource === 'none' ||
       settlement.carrySource === 'settlement' ||
-      settlement.carrySource === 'legacy-inferred'
+      settlement.carrySource === 'legacy-inferred' ||
+      settlement.carrySource === 'manual-bootstrap'
         ? settlement.carrySource
         : 'unknown',
     calculationCutoffAt,

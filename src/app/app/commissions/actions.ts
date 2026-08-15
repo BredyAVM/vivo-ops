@@ -3,7 +3,11 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAuthContext } from '@/lib/auth';
-import { getAdvisorCommissionCarryState } from '@/lib/commissions/carry-state';
+import {
+  getAdvisorCommissionCarryState,
+  readAdvisorCommissionCarryOverride,
+  writeAdvisorCommissionCarryOverride,
+} from '@/lib/commissions/carry-state';
 import {
   readAdvisorCommissionSettlementSnapshot,
   writeAdvisorCommissionSettlementSnapshot,
@@ -211,24 +215,32 @@ async function applySettlementToPreliminaryClosures(input: {
           advisorDebtCarryUsd: 0,
           source: 'legacy-inferred' as const,
         };
+    const snapshotWithWorkflow = preserveAdvisorCommissionWorkflowSnapshot({
+      generatedSnapshot: closure.snapshot,
+      previousSnapshot: input.previousSnapshotsByAdvisor?.get(closure.advisor_user_id),
+    });
+    const carryOverride = readAdvisorCommissionCarryOverride(snapshotWithWorkflow);
+    const effectiveCarry = carryOverride
+      ? {
+          commissionCarryUsd: carryOverride.commissionCarryUsd,
+          advisorDebtCarryUsd: carryOverride.advisorDebtCarryUsd,
+          source: 'manual-bootstrap' as const,
+        }
+      : priorCarry;
     const calculation = calculateAdvisorCommissionSettlement({
-      carriedCommissionUsd: priorCarry.commissionCarryUsd,
-      priorAdvisorDebtUsd: priorCarry.advisorDebtCarryUsd,
+      carriedCommissionUsd: effectiveCarry.commissionCarryUsd,
+      priorAdvisorDebtUsd: effectiveCarry.advisorDebtCarryUsd,
       grossCommissionUsd: roundMoney(closure.gross_commission_usd),
       giftDeductionsUsd: roundMoney(closure.gift_deductions_usd),
       directDeductionsUsd: directDeductions,
       outstandingCustomerDebtUsd: roundMoney(closure.pending_collection_usd),
-    });
-    const snapshotWithWorkflow = preserveAdvisorCommissionWorkflowSnapshot({
-      generatedSnapshot: closure.snapshot,
-      previousSnapshot: input.previousSnapshotsByAdvisor?.get(closure.advisor_user_id),
     });
     const snapshot = writeAdvisorCommissionSettlementSnapshot({
       currentSnapshot: snapshotWithWorkflow,
       calculation,
       calculationCutoffAt,
       scheduledLiquidationDate: input.scheduledLiquidationDate,
-      carrySource: prior ? priorCarry.source : 'none',
+      carrySource: carryOverride ? 'manual-bootstrap' : prior ? priorCarry.source : 'none',
     });
 
     return {
@@ -836,6 +848,60 @@ export async function deleteCommissionDeductionAction(formData: FormData) {
   redirect(
     `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
       'Deducible eliminado y liquidación actualizada.'
+    )}`
+  );
+}
+
+export async function saveCommissionBootstrapAction(formData: FormData) {
+  const closureId = Number(formData.get('closureId') ?? 0);
+  const requestedPeriodId = Number(formData.get('periodId') ?? 0);
+
+  try {
+    const { supabase, user } = await requireCommissionAdmin();
+    const commissionCarryUsd = numberValue(formData.get('commissionCarryUsd'));
+    const advisorDebtCarryUsd = numberValue(formData.get('advisorDebtCarryUsd'));
+    const note = requiredText(formData.get('note'), 'La nota', 500);
+    if (!Number.isInteger(closureId) || closureId <= 0) {
+      throw new Error('Selecciona una liquidación válida.');
+    }
+    if (commissionCarryUsd < 0 || advisorDebtCarryUsd < 0) {
+      throw new Error('Los saldos iniciales no pueden ser negativos.');
+    }
+
+    const closure = await loadEditableClosure(supabase, closureId);
+    const now = new Date().toISOString();
+    const snapshot = writeAdvisorCommissionCarryOverride({
+      snapshot: closure.snapshot,
+      commissionCarryUsd,
+      advisorDebtCarryUsd,
+      note,
+      recordedAt: now,
+      recordedByUserId: user.id,
+    });
+    const { error: updateError } = await supabase
+      .from('advisor_commission_closures')
+      .update({ snapshot, updated_at: now })
+      .eq('id', closureId)
+      .eq('status', 'preliminary');
+
+    if (updateError) throw new Error(updateError.message);
+    await recalculateEditedClosure({
+      closureId,
+      periodId: Number(closure.period_id),
+      snapshot,
+    });
+  } catch (error) {
+    redirect(
+      `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&error=${encodeURIComponent(
+        actionMessage(error)
+      )}`
+    );
+  }
+
+  revalidatePath('/app/commissions');
+  redirect(
+    `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
+      'Saldo inicial histórico guardado y liquidación actualizada.'
     )}`
   );
 }

@@ -153,11 +153,14 @@ export function preserveAdvisorCommissionWorkflowSnapshot(input: {
   previousSnapshot: unknown;
 }) {
   const generatedSnapshot = record(input.generatedSnapshot);
-  const previousWorkflow = record(input.previousSnapshot).commissionWorkflow;
-  if (!isRecord(previousWorkflow)) return generatedSnapshot;
+  const previousSnapshot = record(input.previousSnapshot);
+  const previousWorkflow = previousSnapshot.commissionWorkflow;
+  const previousBootstrap = previousSnapshot.commissionBootstrap;
+  if (!isRecord(previousWorkflow) && !isRecord(previousBootstrap)) return generatedSnapshot;
 
   return {
     ...generatedSnapshot,
-    commissionWorkflow: previousWorkflow,
+    ...(isRecord(previousWorkflow) ? { commissionWorkflow: previousWorkflow } : {}),
+    ...(isRecord(previousBootstrap) ? { commissionBootstrap: previousBootstrap } : {}),
   };
 }
