@@ -963,6 +963,28 @@ export async function submitInventoryOpenCountAction(input: {
   return { countId: returnedCountId };
 }
 
+export async function cancelInventoryOpenCountAction(input: {
+  countId: number;
+  notes?: string | null;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  const countId = normalizeCountId(input.countId);
+  const notes = normalizeNotes(input.notes);
+
+  const { data, error } = await ctx.supabase.rpc('inventory_cancel_open_count_v1', {
+    p_inventory_count_id: countId,
+    p_notes: notes,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidateInventoryCountRoutes(countId);
+  return {
+    countId,
+    status: String((data as { count_status?: unknown } | null)?.count_status ?? 'cancelled'),
+  };
+}
+
 export async function reviewInventoryCountAction(input: {
   countId: number;
   action: 'accept' | 'request_recount';

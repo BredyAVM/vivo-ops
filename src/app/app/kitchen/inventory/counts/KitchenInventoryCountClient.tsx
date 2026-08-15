@@ -9,6 +9,7 @@ import {
   inventoryCountTitle,
 } from '@/app/app/inventory/count-presentation';
 import {
+  cancelKitchenInventoryOpenCountAction,
   openKitchenInventoryShiftAction,
   submitKitchenInventoryCountAction,
 } from '../actions';
@@ -36,6 +37,7 @@ export type KitchenOpenCount = {
   createdAt: string;
   shiftBusinessDate: string | null;
   openedByName: string;
+  canCancel: boolean;
   items: Array<KitchenCountItem & { requestLineId: number }>;
 };
 
@@ -381,6 +383,26 @@ export default function KitchenInventoryCountClient({
     });
   }
 
+  function cancelOpenCount(count: KitchenOpenCount) {
+    const folio = inventoryCountFolio(count.id);
+    if (!window.confirm(`¿Eliminar ${folio}? Se quitará de los conteos abiertos y no modificará las existencias.`)) {
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        await cancelKitchenInventoryOpenCountAction({ countId: count.id });
+        if (selectedRequestId === count.id) chooseRequest(null);
+        setMessage(`${folio} fue eliminado de los conteos abiertos.`);
+        router.refresh();
+      } catch (cancelError) {
+        setError(cancelError instanceof Error ? cancelError.message : 'No se pudo eliminar el conteo abierto.');
+      }
+    });
+  }
+
   return (
     <section>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -471,10 +493,8 @@ export default function KitchenInventoryCountClient({
           <h3 className="font-bold text-amber-100">Conteos abiertos</h3>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             {openCounts.map((count) => (
-              <button
+              <div
                 key={count.id}
-                type="button"
-                onClick={() => chooseRequest(count.id)}
                 className="rounded-xl border border-amber-400/25 bg-[#111117] p-4 text-left"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
@@ -498,7 +518,27 @@ export default function KitchenInventoryCountClient({
                     : ` · vence ${formatDate(count.dueAt)}`}
                 </div>
                 {count.notes ? <div className="mt-2 text-xs leading-5 text-amber-100/80">{count.notes}</div> : null}
-              </button>
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {count.canCancel ? (
+                    <button
+                      type="button"
+                      onClick={() => cancelOpenCount(count)}
+                      disabled={isPending}
+                      className="rounded-lg border border-red-400/35 px-3 py-2 text-xs font-semibold text-red-200 disabled:opacity-40"
+                    >
+                      Eliminar
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => chooseRequest(count.id)}
+                    disabled={isPending}
+                    className="rounded-lg border border-amber-300/40 bg-amber-300/10 px-3 py-2 text-xs font-bold text-amber-100 disabled:opacity-40"
+                  >
+                    Continuar conteo
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -522,9 +562,21 @@ export default function KitchenInventoryCountClient({
           </div>
         </div>
         {selectedRequest || selectedFrequency ? (
-          <button type="button" onClick={() => chooseRequest(null)} className="rounded-xl border border-[#3A3A48] px-3 py-2 text-sm">
-            Cerrar vista
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {selectedRequest?.canCancel ? (
+              <button
+                type="button"
+                onClick={() => cancelOpenCount(selectedRequest)}
+                disabled={isPending}
+                className="rounded-xl border border-red-400/35 px-3 py-2 text-sm font-semibold text-red-200 disabled:opacity-40"
+              >
+                Eliminar conteo abierto
+              </button>
+            ) : null}
+            <button type="button" onClick={() => chooseRequest(null)} className="rounded-xl border border-[#3A3A48] px-3 py-2 text-sm">
+              Cerrar vista
+            </button>
+          </div>
         ) : (
           <label className="min-w-64 text-xs text-[#A6A6B2]">
             <span className="mb-1.5 block">Alcance</span>

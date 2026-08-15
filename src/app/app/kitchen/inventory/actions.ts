@@ -119,6 +119,26 @@ export async function openKitchenInventoryShiftAction(input: {
   return { countId };
 }
 
+export async function cancelKitchenInventoryOpenCountAction(input: {
+  countId: number;
+}) {
+  const ctx = await requireKitchenInventoryContext();
+  const countId = positiveInteger(input.countId, 'El conteo');
+  const { data, error } = await ctx.supabase.rpc('inventory_cancel_open_count_v1', {
+    p_inventory_count_id: countId,
+    p_notes: 'Conteo abierto eliminado desde Cocina antes de ser presentado.',
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidateKitchenInventory();
+  revalidatePath(`/app/inventory/counts/${countId}`);
+  return {
+    countId,
+    status: String((data as { count_status?: unknown } | null)?.count_status ?? 'cancelled'),
+  };
+}
+
 export async function submitKitchenInventoryCountAction(input: {
   operationId: string;
   countKind: KitchenCountKind;

@@ -30,6 +30,7 @@ type CountHeaderRow = {
   id: number;
   count_kind: string;
   status: string;
+  created_by_user_id: string;
   due_at: string | null;
   notes: string | null;
   created_at: string;
@@ -74,16 +75,17 @@ export default async function KitchenInventoryCountsPage() {
     ctx.supabase.rpc('inventory_receipt_workspace_v1'),
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,due_at,notes,created_at,shift_business_date,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
+      .select('id,count_kind,status,created_by_user_id,due_at,notes,created_at,shift_business_date,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
       .eq('status', 'open')
       .eq('responsible_role', 'kitchen')
       .in('count_kind', ['requested', 'recount', 'periodic', 'shift_change'])
       .order('created_at', { ascending: true }),
     ctx.supabase
       .from('inventory_counts')
-      .select('id,count_kind,status,due_at,notes,created_at,submitted_at,reviewed_at,shift_business_date,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
+      .select('id,count_kind,status,created_by_user_id,due_at,notes,created_at,submitted_at,reviewed_at,shift_business_date,created_by:profiles!inventory_counts_created_by_user_id_fkey(full_name),submitted_by:profiles!inventory_counts_submitted_by_user_id_fkey(full_name)')
       .eq('responsible_role', 'kitchen')
       .neq('status', 'open')
+      .neq('status', 'cancelled')
       .order('created_at', { ascending: false })
       .limit(50),
   ]);
@@ -177,6 +179,10 @@ export default async function KitchenInventoryCountsPage() {
     shiftBusinessDate: count.shift_business_date,
     openedByName: inventoryDisplayText(
       (Array.isArray(count.created_by) ? count.created_by[0] : count.created_by)?.full_name || 'Cocina',
+    ),
+    canCancel: ctx.roles.includes('admin') || (
+      count.created_by_user_id === ctx.user.id
+      && ['shift_change', 'periodic'].includes(count.count_kind)
     ),
     items: (linesByCount.get(Number(count.id)) ?? []).flatMap((line) => {
       const item = itemById.get(Number(line.inventory_item_id));

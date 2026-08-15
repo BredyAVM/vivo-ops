@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { parseDecimalInput } from '@/lib/number-input';
 import {
+  cancelInventoryOpenCountAction,
   requestSupplementalInventoryRecountAction,
   reviewInventoryCountAction,
   submitInventoryOpenCountAction,
@@ -102,6 +103,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
     isAdmin &&
     count.status === 'open' &&
     ['recount', 'requested', 'periodic', 'shift_change'].includes(count.countKind);
+  const canCancelOpen = canReview && count.status === 'open';
   const canRequestInitialRecount = canReview && count.status === 'submitted';
   const canRequestSupplementalRecount =
     canReview && ['accepted', 'recount_requested'].includes(count.status);
@@ -176,6 +178,23 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
         router.refresh();
       } catch (reviewError) {
         setError(reviewError instanceof Error ? reviewError.message : 'No se pudo revisar el conteo.');
+      }
+    });
+  }
+
+  function handleCancelOpenCount() {
+    if (!window.confirm(`¿Eliminar ${inventoryCountFolio(count.id)}? Se quitará de los pendientes y no modificará las existencias.`)) {
+      return;
+    }
+
+    setError(null);
+    startTransition(async () => {
+      try {
+        await cancelInventoryOpenCountAction({ countId: count.id, notes });
+        router.replace(returnHref);
+        router.refresh();
+      } catch (cancelError) {
+        setError(cancelError instanceof Error ? cancelError.message : 'No se pudo eliminar el conteo abierto.');
       }
     });
   }
@@ -333,7 +352,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
         </div>
       ) : null}
 
-      {canSubmitOpen || canRequestInitialRecount || canRequestSupplementalRecount ? (
+      {canSubmitOpen || canCancelOpen || canRequestInitialRecount || canRequestSupplementalRecount ? (
         <div className="mt-5 rounded-2xl border border-[#242433] bg-[#111117] p-5">
           <label className="block text-sm">
             <span className="mb-2 block text-[#A6A6B2]">Nota de esta acción (opcional)</span>
@@ -354,6 +373,16 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
           ) : null}
 
           <div className="mt-4 flex flex-wrap justify-end gap-3">
+            {canCancelOpen ? (
+              <button
+                type="button"
+                onClick={handleCancelOpenCount}
+                disabled={isPending}
+                className="rounded-xl border border-red-400/40 bg-red-400/5 px-4 py-2.5 text-sm font-semibold text-red-200 disabled:opacity-40"
+              >
+                {isPending ? 'Eliminando…' : 'Eliminar conteo abierto'}
+              </button>
+            ) : null}
             {canSubmitOpen ? (
               <button
                 type="button"
