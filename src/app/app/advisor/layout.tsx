@@ -3,7 +3,11 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import AdvisorShell from './AdvisorShell';
 import AdvisorPwaRegistrar from './AdvisorPwaRegistrar';
-import { countUnreadOrderNotificationsByKind, type RawOrderNotification } from './inbox/inbox-shared';
+import {
+  ADVISOR_TIMELINE_RECIPIENT_SELECT,
+  countCoalescedNotificationsByKind,
+  type InboxRecipientCountRow,
+} from './inbox/inbox-shared';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
 export const metadata: Metadata = {
@@ -47,15 +51,14 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
     .eq('id', ctx.user.id)
     .maybeSingle();
 
-  const { data: notificationsData } = await ctx.supabase
-    .from('notifications')
-    .select('id, order_id, type, status, meta, created_at, read_at')
-    .eq('recipient_user_id', ctx.user.id)
-    .not('order_id', 'is', null)
+  const { data: recipientsData } = await ctx.supabase
+    .from('order_timeline_event_recipients')
+    .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
+    .eq('target_user_id', ctx.user.id)
     .order('created_at', { ascending: false })
     .limit(500);
-  const notificationCounts = countUnreadOrderNotificationsByKind(
-    (notificationsData ?? []) as RawOrderNotification[]
+  const notificationCounts = countCoalescedNotificationsByKind(
+    (recipientsData ?? []) as unknown as InboxRecipientCountRow[]
   );
 
   return (
@@ -67,8 +70,8 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
         ctx.user.user_metadata?.name ||
         'Asesor'
       }
-      actionCount={notificationCounts.actions}
-      updateCount={notificationCounts.updates}
+      actionCount={notificationCounts.unreadActions}
+      updateCount={notificationCounts.unreadUpdates}
     >
       <AdvisorPwaRegistrar />
       {children}

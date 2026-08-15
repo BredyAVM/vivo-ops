@@ -44,6 +44,16 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 - Editar o repetir desde el detalle vuelve primero al detalle y luego a la pantalla de origen.
 - Solo debe existir una acción visible de volver en el encabezado; las tarjetas no deben duplicarla.
 
+## Notificaciones y seguimiento
+
+- La fuente canónica del inbox del asesor es `order_timeline_events` junto con `order_timeline_event_recipients`.
+- La tabla `notifications` es legado y no debe usarse para construir el inbox ni sus contadores.
+- Cada evento dirigido al asesor debe tener `target_user_id` igual al asesor atribuido a la orden.
+- El seguimiento informativo muestra solo el evento más reciente por orden. Una actualización nueva reemplaza visualmente la anterior para evitar ruido.
+- Las acciones pendientes pueden mantenerse separadas hasta que un evento posterior las resuelva.
+- El push del teléfono usa una misma etiqueta por orden para los cambios operativos; el aviso nuevo reemplaza al anterior en vez de acumular spam.
+- La suscripción push es propia de cada dispositivo. Si queda inactiva o cambia el teléfono, debe activarse nuevamente desde Configuración.
+
 ## Contrato para inventario futuro
 
 - Inventario no se integra en esta entrega.

@@ -93,6 +93,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
 
             <div className="flex items-center gap-2">
               <AdvisorInboxBell
+                key={`${actionCount}:${updateCount}`}
                 advisorName={advisorName}
                 userId={userId}
                 actionCount={actionCount}

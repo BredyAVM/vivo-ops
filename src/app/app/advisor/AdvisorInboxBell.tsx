@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import AdvisorPendingLink from './AdvisorPendingLink';
-import { countUnreadOrderNotificationsByKind, type RawOrderNotification } from './inbox/inbox-shared';
+import {
+  ADVISOR_TIMELINE_RECIPIENT_SELECT,
+  countCoalescedNotificationsByKind,
+  type InboxRecipientCountRow,
+} from './inbox/inbox-shared';
 
 function ActionIcon() {
   return (
@@ -61,22 +65,19 @@ export default function AdvisorInboxBell({
   const [counts, setCounts] = useState({ actions: actionCount, updates: updateCount });
 
   useEffect(() => {
-    setCounts({ actions: actionCount, updates: updateCount });
-  }, [actionCount, updateCount]);
-
-  useEffect(() => {
     const supabase = supabaseRef.current;
 
     async function refreshUnreadCount() {
       const { data } = await supabase
-        .from('notifications')
-        .select('id, order_id, type, status, meta, created_at, read_at')
-        .eq('recipient_user_id', userId)
-        .not('order_id', 'is', null)
+        .from('order_timeline_event_recipients')
+        .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
+        .eq('target_user_id', userId)
         .order('created_at', { ascending: false })
-        .limit(220);
-      const nextCounts = countUnreadOrderNotificationsByKind((data ?? []) as RawOrderNotification[]);
-      setCounts({ actions: nextCounts.actions, updates: nextCounts.updates });
+        .limit(500);
+      const nextCounts = countCoalescedNotificationsByKind(
+        (data ?? []) as unknown as InboxRecipientCountRow[]
+      );
+      setCounts({ actions: nextCounts.unreadActions, updates: nextCounts.unreadUpdates });
     }
 
     function scheduleCountRefresh() {
@@ -90,6 +91,32 @@ export default function AdvisorInboxBell({
       }, 1800);
     }
 
+    const channel = supabase
+      .channel(`advisor-inbox-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: `target_user_id=eq.${userId}`,
+        },
+        () => {
+          window.dispatchEvent(new Event('advisor:notification'));
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'order_timeline_event_recipients',
+          filter: `target_user_id=eq.${userId}`,
+        },
+        scheduleCountRefresh
+      )
+      .subscribe();
+
     window.addEventListener('advisor:notification', scheduleCountRefresh);
 
     return () => {
@@ -98,6 +125,7 @@ export default function AdvisorInboxBell({
         refreshTimerRef.current = null;
       }
       window.removeEventListener('advisor:notification', scheduleCountRefresh);
+      void supabase.removeChannel(channel);
     };
   }, [userId]);
 

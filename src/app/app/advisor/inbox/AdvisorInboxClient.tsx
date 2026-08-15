@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorPendingLink from '../AdvisorPendingLink';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
+import { markAdvisorTimelineRecipientsReadAction } from './actions';
 import {
   type InboxEvent,
   FILTERS,
@@ -52,7 +52,6 @@ export default function AdvisorInboxClient({
   initialEvents: InboxEvent[];
 }) {
   const router = useRouter();
-  const supabaseRef = useRef(createSupabaseBrowser());
   const [events, setEvents] = useState(initialEvents);
   const [savingIds, setSavingIds] = useState<number[]>([]);
   const [markingAll, setMarkingAll] = useState(false);
@@ -114,10 +113,9 @@ export default function AdvisorInboxClient({
       )
     );
 
-    const { error } = await supabaseRef.current
-      .rpc('mark_notification_read', { p_notification_id: notificationId });
-
-    if (error) {
+    try {
+      await markAdvisorTimelineRecipientsReadAction([notificationId]);
+    } catch {
       setEvents(previousEvents);
     }
 
@@ -139,14 +137,9 @@ export default function AdvisorInboxClient({
       )
     );
 
-    const results = await Promise.all(
-      recipientIds.map((notificationId) =>
-        supabaseRef.current.rpc('mark_notification_read', { p_notification_id: notificationId })
-      )
-    );
-    const error = results.find((result) => result.error)?.error ?? null;
-
-    if (error) {
+    try {
+      await markAdvisorTimelineRecipientsReadAction(recipientIds);
+    } catch {
       setEvents(previousEvents);
     }
 

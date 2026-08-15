@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vivo-ops-advisor-v3';
+const CACHE_NAME = 'vivo-ops-advisor-v4';
 const PRECACHE_URLS = [
   '/app/advisor/manifest.webmanifest',
   '/pwa/advisor-180.png',
@@ -44,13 +44,16 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   const isSameOrigin = url.origin === self.location.origin;
-  const isAdvisorAsset =
-    isSameOrigin &&
-    (url.pathname.startsWith('/app/advisor') ||
-      url.pathname.startsWith('/_next/static/') ||
-      url.pathname.startsWith('/pwa/'));
+  const isAdvisorPage = isSameOrigin && url.pathname.startsWith('/app/advisor');
+  const isStaticAsset =
+    isSameOrigin && (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/pwa/'));
 
-  if (!isAdvisorAsset) return;
+  if (isAdvisorPage || request.mode === 'navigate') {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
+  if (!isStaticAsset) return;
 
   event.respondWith(
     caches.match(request).then((cached) => {

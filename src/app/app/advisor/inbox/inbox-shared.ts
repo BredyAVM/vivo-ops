@@ -1,5 +1,25 @@
 export type InboxFilter = 'pending' | 'updates' | 'kitchen' | 'delivery' | 'payments' | 'all';
 
+export const ADVISOR_TIMELINE_RECIPIENT_SELECT = `
+  id,
+  event_id,
+  requires_action,
+  read_at,
+  created_at,
+  event:order_timeline_events!order_timeline_event_recipients_event_id_fkey(
+    id,
+    order_id,
+    event_type,
+    event_group,
+    title,
+    message,
+    severity,
+    actor_user_id,
+    payload,
+    created_at
+  )
+`;
+
 export type RawTimelineEvent = {
   id: number | string | null;
   order_id: number | string | null;

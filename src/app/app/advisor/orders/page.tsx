@@ -849,8 +849,13 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <StatusBadge label={operationalPhaseLabel(order)} tone={tone(order.status)} />
+                    <div className="mt-3 flex items-end justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#6F7890]">
+                          Estado actual
+                        </div>
+                        <StatusBadge label={operationalPhaseLabel(order)} tone={tone(order.status)} />
+                      </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
                         {reviewBadge ? <StatusBadge label={reviewBadge.label} tone={reviewBadge.tone} /> : null}
                         {paymentStatus ? <StatusBadge label={paymentStatus.label} tone={paymentStatus.tone} /> : null}
@@ -862,7 +867,10 @@ export default async function AdvisorOrdersPage({ searchParams }: { searchParams
                         Pedido cancelado.
                       </div>
                     ) : (
-                      <div className="mt-3 grid grid-cols-5 gap-1">
+                      <div
+                        className="mt-3 grid grid-cols-5 gap-1"
+                        aria-label={`Progreso del pedido: ${operationalPhaseLabel(order)}`}
+                      >
                         {OPERATIONAL_PHASES.map((phase, index) => (
                           <div
                             key={`${order.id}-${phase.key}`}
