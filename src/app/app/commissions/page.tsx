@@ -8,8 +8,11 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import {
+  addCommissionDeductionAction,
   calculateCommissionPeriodAction,
   confirmCommissionClosureAction,
+  createCommissionPeriodAction,
+  deleteCommissionDeductionAction,
   registerCommissionPaymentAction,
   reopenCommissionClosureAction,
 } from './actions';
@@ -394,6 +397,54 @@ export default async function CommissionAdministrationPage({
             ) : null}
           </div>
 
+          <details className="mt-4 rounded-2xl border border-[#30303A] bg-[#101014] px-4 py-3">
+            <summary className="cursor-pointer text-xs font-semibold text-[#C9C9D1]">
+              Crear otro periodo
+            </summary>
+            <form action={createCommissionPeriodAction} className="mt-3 grid gap-3 border-t border-[#292933] pt-3 md:grid-cols-2 xl:grid-cols-[1fr_150px_150px_1fr_auto] xl:items-end">
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Nombre</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  maxLength={120}
+                  name="name"
+                  placeholder="Ej. Agosto 1"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Desde</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  name="dateFrom"
+                  required
+                  type="date"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Hasta</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  name="dateTo"
+                  required
+                  type="date"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Nota</span>
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  maxLength={500}
+                  name="notes"
+                  placeholder="Opcional"
+                />
+              </label>
+              <button className="h-10 rounded-xl border border-[#F0D000]/45 px-4 text-sm font-semibold text-[#F7DA66]" type="submit">
+                Crear periodo
+              </button>
+            </form>
+          </details>
+
           {periods.length > 0 ? (
             <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
               {periods.map((period) => {
@@ -622,10 +673,58 @@ export default async function CommissionAdministrationPage({
                             {row.deductions.map((deduction) => (
                               <div key={deduction.id} className="flex items-start justify-between gap-4 text-xs">
                                 <span className="text-[#AAAAAF]">{deduction.description || 'Sin concepto'}</span>
-                                <span className="shrink-0 font-semibold text-[#E4E4E8]">{money(deduction.amount_usd)}</span>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <span className="font-semibold text-[#E4E4E8]">{money(deduction.amount_usd)}</span>
+                                  {row.closure.status === 'preliminary' && deduction.deduction_type !== 'gift' ? (
+                                    <form action={deleteCommissionDeductionAction}>
+                                      <input name="closureId" type="hidden" value={row.closure.id} />
+                                      <input name="deductionId" type="hidden" value={deduction.id} />
+                                      <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
+                                      <button className="rounded-full border border-red-400/25 px-2 py-0.5 text-[10px] text-red-200" type="submit">
+                                        Quitar
+                                      </button>
+                                    </form>
+                                  ) : null}
+                                </div>
                               </div>
                             ))}
                           </div>
+                        </details>
+                      ) : null}
+
+                      {row.closure.status === 'preliminary' ? (
+                        <details className="mt-4 rounded-2xl border border-[#2D2D37] bg-[#111116] px-4 py-3">
+                          <summary className="cursor-pointer text-xs font-semibold text-[#C9C9D1]">
+                            Agregar deducible extraordinario
+                          </summary>
+                          <form action={addCommissionDeductionAction} className="mt-3 grid gap-3 border-t border-[#292933] pt-3 sm:grid-cols-[1fr_120px_auto] sm:items-end">
+                            <input name="closureId" type="hidden" value={row.closure.id} />
+                            <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
+                            <label className="block">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Concepto</span>
+                              <input
+                                className="mt-1 h-9 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                                maxLength={240}
+                                name="description"
+                                placeholder="Pedido, préstamo, adelanto…"
+                                required
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Monto USD</span>
+                              <input
+                                className="mt-1 h-9 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-xs text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                                min="0.01"
+                                name="amountUsd"
+                                required
+                                step="0.01"
+                                type="number"
+                              />
+                            </label>
+                            <button className="h-9 rounded-xl border border-[#F0D000]/45 px-4 text-xs font-semibold text-[#F7DA66]" type="submit">
+                              Agregar
+                            </button>
+                          </form>
                         </details>
                       ) : null}
 

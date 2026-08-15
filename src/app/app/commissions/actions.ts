@@ -88,6 +88,7 @@ async function applySettlementToPreliminaryClosures(input: {
   periodId: number;
   scheduledLiquidationDate: string | null;
   previousSnapshotsByAdvisor?: Map<string, unknown>;
+  closureId?: number;
 }) {
   const { supabase } = await requireCommissionAdmin();
   const { data: periodData, error: periodError } = await supabase
@@ -127,7 +128,9 @@ async function applySettlementToPreliminaryClosures(input: {
   if (currentError) throw new Error(currentError.message);
 
   const currentClosures = ((currentData ?? []) as ClosureMoneyRow[]).filter(
-    (closure) => closure.status === 'preliminary'
+    (closure) =>
+      closure.status === 'preliminary' &&
+      (!input.closureId || Number(closure.id) === input.closureId)
   );
   if (currentClosures.length === 0) {
     return { updated: 0, skippedLocked: (currentData ?? []).length };
@@ -253,7 +256,9 @@ async function applySettlementToPreliminaryClosures(input: {
 
   return {
     updated: updates.length,
-    skippedLocked: (currentData ?? []).length - currentClosures.length,
+    skippedLocked: input.closureId
+      ? 0
+      : (currentData ?? []).length - currentClosures.length,
   };
 }
 
@@ -638,6 +643,199 @@ export async function registerCommissionPaymentAction(formData: FormData) {
   redirect(
     `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
       'Abono registrado en la liquidación y en la cuenta seleccionada.'
+    )}`
+  );
+}
+
+function dateOnly(value: unknown, label: string) {
+  const date = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(`${label} no es válida.`);
+  }
+  return date;
+}
+
+export async function createCommissionPeriodAction(formData: FormData) {
+  let createdPeriodId = 0;
+
+  try {
+    const { supabase, user } = await requireCommissionAdmin();
+    const name = requiredText(formData.get('name'), 'El nombre', 120);
+    const dateFrom = dateOnly(formData.get('dateFrom'), 'La fecha inicial');
+    const dateTo = dateOnly(formData.get('dateTo'), 'La fecha final');
+    const notes = String(formData.get('notes') ?? '').trim() || null;
+
+    if (dateFrom > dateTo) {
+      throw new Error('La fecha inicial no puede ser posterior a la fecha final.');
+    }
+    if (notes && notes.length > 500) {
+      throw new Error('La nota no puede superar 500 caracteres.');
+    }
+
+    const { data: overlap, error: overlapError } = await supabase
+      .from('advisor_commission_periods')
+      .select('id, name')
+      .lte('date_from', dateTo)
+      .gte('date_to', dateFrom)
+      .limit(1)
+      .maybeSingle();
+
+    if (overlapError) throw new Error(overlapError.message);
+    if (overlap) {
+      throw new Error(`Las fechas se cruzan con el periodo ${overlap.name}.`);
+    }
+
+    const { data, error } = await supabase
+      .from('advisor_commission_periods')
+      .insert({
+        name,
+        date_from: dateFrom,
+        date_to: dateTo,
+        status: 'open',
+        notes,
+        created_by_user_id: user.id,
+      })
+      .select('id')
+      .single();
+
+    if (error || !data) throw new Error(error?.message || 'No se pudo crear el periodo.');
+    createdPeriodId = Number(data.id);
+  } catch (error) {
+    redirect(`/app/commissions?error=${encodeURIComponent(actionMessage(error))}`);
+  }
+
+  revalidatePath('/app/commissions');
+  revalidatePath('/app/master/dashboard');
+  redirect(
+    `/app/commissions?period=${createdPeriodId}&notice=${encodeURIComponent(
+      'Periodo creado. Ya puedes generar su cálculo preliminar.'
+    )}`
+  );
+}
+
+async function loadEditableClosure(
+  supabase: Awaited<ReturnType<typeof requireCommissionAdmin>>['supabase'],
+  closureId: number
+) {
+  const { data, error } = await supabase
+    .from('advisor_commission_closures')
+    .select('id, period_id, status, snapshot')
+    .eq('id', closureId)
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message || 'No se pudo cargar la liquidación.');
+  }
+  if (data.status !== 'preliminary') {
+    throw new Error('Solo una liquidación preliminar admite cambios en deducibles.');
+  }
+  return data;
+}
+
+async function recalculateEditedClosure(input: {
+  closureId: number;
+  periodId: number;
+  snapshot: unknown;
+}) {
+  const settlement = readAdvisorCommissionSettlementSnapshot(input.snapshot);
+  await applySettlementToPreliminaryClosures({
+    periodId: input.periodId,
+    closureId: input.closureId,
+    scheduledLiquidationDate: settlement.scheduledLiquidationDate,
+  });
+}
+
+export async function addCommissionDeductionAction(formData: FormData) {
+  const closureId = Number(formData.get('closureId') ?? 0);
+  const requestedPeriodId = Number(formData.get('periodId') ?? 0);
+
+  try {
+    const { supabase, user } = await requireCommissionAdmin();
+    const amountUsd = roundMoney(formData.get('amountUsd'));
+    const description = requiredText(formData.get('description'), 'El concepto', 240);
+    if (!Number.isInteger(closureId) || closureId <= 0) {
+      throw new Error('Selecciona una liquidación válida.');
+    }
+    if (amountUsd <= 0) throw new Error('El deducible debe ser mayor a cero.');
+
+    const closure = await loadEditableClosure(supabase, closureId);
+    const { error: insertError } = await supabase
+      .from('advisor_commission_deductions')
+      .insert({
+        closure_id: closureId,
+        deduction_type: 'manual_expense',
+        description,
+        amount_usd: amountUsd,
+        created_by_user_id: user.id,
+      });
+
+    if (insertError) throw new Error(insertError.message);
+    await recalculateEditedClosure({
+      closureId,
+      periodId: Number(closure.period_id),
+      snapshot: closure.snapshot,
+    });
+  } catch (error) {
+    redirect(
+      `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&error=${encodeURIComponent(
+        actionMessage(error)
+      )}`
+    );
+  }
+
+  revalidatePath('/app/commissions');
+  redirect(
+    `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
+      'Deducible agregado y liquidación actualizada.'
+    )}`
+  );
+}
+
+export async function deleteCommissionDeductionAction(formData: FormData) {
+  const closureId = Number(formData.get('closureId') ?? 0);
+  const deductionId = Number(formData.get('deductionId') ?? 0);
+  const requestedPeriodId = Number(formData.get('periodId') ?? 0);
+
+  try {
+    const { supabase } = await requireCommissionAdmin();
+    if (
+      !Number.isInteger(closureId) ||
+      closureId <= 0 ||
+      !Number.isInteger(deductionId) ||
+      deductionId <= 0
+    ) {
+      throw new Error('Selecciona un deducible válido.');
+    }
+
+    const closure = await loadEditableClosure(supabase, closureId);
+    const { data: deleted, error: deleteError } = await supabase
+      .from('advisor_commission_deductions')
+      .delete()
+      .eq('id', deductionId)
+      .eq('closure_id', closureId)
+      .neq('deduction_type', 'gift')
+      .select('id')
+      .maybeSingle();
+
+    if (deleteError) throw new Error(deleteError.message);
+    if (!deleted) throw new Error('El deducible ya no existe o no puede eliminarse.');
+    await recalculateEditedClosure({
+      closureId,
+      periodId: Number(closure.period_id),
+      snapshot: closure.snapshot,
+    });
+  } catch (error) {
+    redirect(
+      `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&error=${encodeURIComponent(
+        actionMessage(error)
+      )}`
+    );
+  }
+
+  revalidatePath('/app/commissions');
+  redirect(
+    `/app/commissions?period=${requestedPeriodId > 0 ? requestedPeriodId : ''}&notice=${encodeURIComponent(
+      'Deducible eliminado y liquidación actualizada.'
     )}`
   );
 }
