@@ -89,8 +89,6 @@ import {
   toggleInventoryItemActiveAction,
   updateDeliveryPartnerAction,
   updateDeliveryPartnerRateAction,
-  updateCatalogItemAction,
-  updateCatalogPricesQuickAction,
   createInventoryMovementAction,
   createExtraMoneyMovementAction,
   createMoneyAccountBaselineAction,
@@ -136,6 +134,10 @@ import {
   voidFinancialMovementAction,
   logoutAction,
 } from './actions';
+import {
+  updateInventoryProductCommercialTermsAction,
+  updateInventoryProductPricesBulkAction,
+} from '@/app/app/inventory/actions';
 import { getPaymentReportRequirements, validatePaymentReportDetails } from '@/lib/payments/payment-report-rules';
 import { getMasterDashboardPermissions } from './permissions';
 import MasterPushPanel from './MasterPushPanel';
@@ -1090,6 +1092,8 @@ type QuickCatalogPriceRow = {
   productId: number;
   name: string;
   sku: string;
+  isActive: boolean;
+  originalCurrency: 'VES' | 'USD';
   sourcePriceCurrency: 'VES' | 'USD';
   originalAmount: string;
   nextAmount: string;
@@ -4233,57 +4237,6 @@ function getCatalogOperationalModel(
   };
 }
 
-function validateCatalogBeforeSave(params: {
-  item: CatalogItem | null;
-  editIsDetailEditable: boolean;
-  editDetailUnitsLimit: string;
-  editComponents: EditableComponentRow[];
-}) {
-  const { item, editIsDetailEditable, editDetailUnitsLimit, editComponents } = params;
-
-  if (!item) {
-    return 'Producto inválido.';
-  }
-
-  const normalized = editComponents.map((row) => ({
-    ...row,
-    componentProductId: Number(row.componentProductId || 0),
-    quantity: Number(row.quantity || 0),
-    sortOrder: Number(row.sortOrder || 0),
-  }));
-
-  if (normalized.some((row) => row.componentProductId <= 0)) {
-    return 'Todos los componentes deben tener un producto válido.';
-  }
-
-  if (normalized.some((row) => row.componentMode === 'fixed' && row.quantity <= 0)) {
-  return 'Todos los componentes fijos deben tener cantidad mayor a 0.';
-}
-
-  const seen = new Set<string>();
-  for (const row of normalized) {
-    const key = `${row.componentProductId}::${row.componentMode}`;
-    if (seen.has(key)) {
-      return 'No repitas el mismo componente con el mismo modo. Edítalo en una sola fila.';
-    }
-    seen.add(key);
-  }
-
-  if (editIsDetailEditable) {
-    const selectable = normalized.filter((row) => row.componentMode === 'selectable');
-    if (selectable.length === 0) {
-      return 'Un plato editable debe tener al menos un componente seleccionable.';
-    }
-
-    const detailLimit = Number(editDetailUnitsLimit || 0);
-    if (detailLimit <= 0) {
-      return 'El límite de detalle debe ser mayor a 0 para un plato editable.';
-    }
-  }
-
-  return null;
-}
-
 export default function MasterDashboardClient({
   currentUser,
   roles,
@@ -5211,9 +5164,10 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [editSourcePriceAmount, editSourcePriceCurrency, orders, selectedCatalogItem]);
 
   const quickCatalogPriceImpacts = useMemo(() => {
+    const quickCatalogItemById = new Map(catalogItems.map((item) => [item.id, item]));
     return quickCatalogRows
       .map((row) => {
-        const product = catalogItems.find((item) => item.id === row.productId);
+        const product = quickCatalogItemById.get(row.productId);
         if (!product) return null;
 
         const nextAmount = Number(String(row.nextAmount || '').trim().replace(',', '.'));
@@ -7917,19 +7871,7 @@ const handleClearDeliveryAssignment = async (o: Order) => {
 const handleSaveCatalog = async () => {
   if (!selectedCatalogItem) return;
   if (!permissions.canManageCatalogItems) {
-    showToast('error', 'Solo admin puede modificar el catalogo.');
-    return;
-  }
-
-  const validationError = validateCatalogBeforeSave({
-    item: selectedCatalogItem,
-    editIsDetailEditable,
-    editDetailUnitsLimit,
-    editComponents,
-  });
-
-  if (validationError) {
-    showToast('error', validationError);
+    showToast('error', 'Solo administración puede modificar precios y condiciones comerciales.');
     return;
   }
 
@@ -7956,18 +7898,10 @@ const handleSaveCatalog = async () => {
       if (!confirmed) return;
     }
 
-    await updateCatalogItemAction({
+    await updateInventoryProductCommercialTermsAction({
       productId: selectedCatalogItem.id,
-      type: editType,
       sourcePriceAmount: normalizedSourcePriceAmount,
       sourcePriceCurrency: editSourcePriceCurrency,
-      isActive: editIsActive,
-      unitsPerService: Number(editUnitsPerService || 0),
-      isDetailEditable: editIsDetailEditable,
-      detailUnitsLimit: Number(editDetailUnitsLimit || 0),
-      isInventoryItem: editInventoryEnabled,
-      isTemporary: editIsTemporary,
-      isComboComponentSelectable: editIsComboComponentSelectable,
       commissionMode: editCommissionMode,
       commissionValue:
         editCommissionMode === 'default'
@@ -7978,44 +7912,13 @@ const handleSaveCatalog = async () => {
       commissionNotes: editCommissionNotes.trim() || null,
       advisorGiftCostUsd: editAdvisorGiftCostUsd.trim()
         ? Number(String(editAdvisorGiftCostUsd).trim().replace(',', '.'))
-        : 0,
+        : null,
       internalRiderPayUsd: editInternalRiderPayUsd.trim()
         ? Number(String(editInternalRiderPayUsd).trim().replace(',', '.'))
         : null,
-      inventoryEnabled: editInventoryEnabled,
-      inventoryKind: editInventoryKind,
-      inventoryGroup: editInventoryGroup,
-      inventoryDeductionMode: editInventoryDeductionMode,
-      inventoryUnitName: editInventoryUnitName.trim() || 'pieza',
-      packagingName: editPackagingName.trim() || null,
-      packagingSize: editPackagingSize.trim()
-        ? Number(String(editPackagingSize).trim().replace(',', '.'))
-        : null,
-      currentStockUnits: editCurrentStockUnits.trim()
-        ? Number(String(editCurrentStockUnits).trim().replace(',', '.'))
-        : 0,
-      lowStockThreshold: editLowStockThreshold.trim()
-        ? Number(String(editLowStockThreshold).trim().replace(',', '.'))
-        : null,
-      inventoryLinks: editInventoryLinks.map((row, idx) => ({
-        inventoryItemId: Number(row.inventoryItemId || 0),
-        quantityUnits: Number(String(row.quantityUnits || 0).trim().replace(',', '.')),
-        notes: row.notes?.trim() || null,
-        sortOrder: Number(row.sortOrder || idx + 1),
-      })),
-      components: editComponents.map((row, idx) => ({
-        componentProductId: Number(row.componentProductId),
-        componentMode: row.componentMode,
-        quantity: row.componentMode === 'selectable' ? 1 : Number(row.quantity || 0),
-        countsTowardDetailLimit:
-          row.componentMode === 'selectable' ? true : !!row.countsTowardDetailLimit,
-        isRequired: !!row.isRequired,
-        sortOrder: Number(row.sortOrder || idx + 1),
-        notes: row.notes?.trim() || null,
-      })),
     });
 
-    showToast('success', 'Catálogo actualizado.');
+    showToast('success', 'Precio y condiciones comerciales actualizados.');
     setCatalogEditMode(false);
     router.refresh();
   } catch (err) {
@@ -8026,9 +7929,36 @@ const handleSaveCatalog = async () => {
   }
 };
 
-const handleQuickCatalogRowChange = (productId: number, value: string) => {
+const openQuickCatalog = () => {
+  if (!permissions.canManageCatalogPrices) {
+    showToast('error', 'Solo administración puede actualizar precios.');
+    return;
+  }
+
+  setQuickCatalogRows(
+    catalogItems
+      .slice()
+      .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name, 'es'))
+      .map((item) => ({
+        productId: item.id,
+        name: item.name,
+        sku: item.sku,
+        isActive: item.isActive,
+        originalCurrency: item.sourcePriceCurrency,
+        sourcePriceCurrency: item.sourcePriceCurrency,
+        originalAmount: String(item.sourcePriceAmount ?? 0),
+        nextAmount: String(item.sourcePriceAmount ?? 0),
+      }))
+  );
+  setQuickCatalogOpen(true);
+};
+
+const handleQuickCatalogRowChange = (
+  productId: number,
+  patch: Partial<Pick<QuickCatalogPriceRow, 'nextAmount' | 'sourcePriceCurrency'>>,
+) => {
   setQuickCatalogRows((prev) =>
-    prev.map((row) => (row.productId === productId ? { ...row, nextAmount: value } : row))
+    prev.map((row) => (row.productId === productId ? { ...row, ...patch } : row))
   );
 };
 
@@ -8048,17 +7978,21 @@ const handleSaveQuickCatalog = async () => {
           productId: row.productId,
           normalized,
           original,
+          sourcePriceCurrency: row.sourcePriceCurrency,
+          originalCurrency: row.originalCurrency,
         };
       })
       .filter(
         (row) =>
           Number.isFinite(row.normalized) &&
           row.normalized >= 0 &&
-          Math.abs(row.normalized - row.original) > 0.000001
+          (Math.abs(row.normalized - row.original) > 0.000001 ||
+            row.sourcePriceCurrency !== row.originalCurrency)
       )
       .map((row) => ({
         productId: row.productId,
         sourcePriceAmount: row.normalized,
+        sourcePriceCurrency: row.sourcePriceCurrency,
       }));
 
     if (changedItems.length === 0) {
@@ -8075,7 +8009,7 @@ const handleSaveQuickCatalog = async () => {
     }
 
     setQuickCatalogSaving(true);
-    await updateCatalogPricesQuickAction({
+    await updateInventoryProductPricesBulkAction({
       items: changedItems,
     });
     showToast('success', `Catálogo actualizado por bloque (${changedItems.length}).`);
@@ -16898,13 +16832,16 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
 
               {permissions.canManageCatalogPrices ? (
               <div className="mb-3 flex flex-wrap gap-2">
-                <Link
-                  href="/app/inventory/configure"
-                  prefetch={false}
-                  className="rounded-xl border border-[#FEEF00]/50 px-4 py-2 text-sm font-semibold text-[#FEEF00]"
+                <button
+                  type="button"
+                  onClick={openQuickCatalog}
+                  className="rounded-xl bg-[#FEEF00] px-4 py-2 text-sm font-semibold text-[#0B0B0D]"
                 >
-                  Configurar precios y comisiones en Inventario
-                </Link>
+                  Actualizar precios en lista
+                </button>
+                <span className="self-center text-xs text-[#8A8A96]">
+                  Cambia varios precios y su moneda USD/VES sin abrir los productos uno por uno.
+                </span>
               </div>
               ) : null}
 
@@ -18877,13 +18814,13 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 >
                   Crear nuevo
                 </Link>
-                <Link
-                  href="/app/inventory/configure"
-                  prefetch={false}
+                <button
                   className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
+                  onClick={() => setCatalogEditMode(true)}
+                  type="button"
                 >
-                  Editar en Inventario
-                </Link>
+                  Editar precio y condiciones
+                </button>
                 {selectedCatalogItem.isActive ? (
                   <button
                     className="rounded-xl border border-[#242433] bg-[#121218] px-3 py-1.5 text-sm text-[#F5F5F7]"
@@ -19003,6 +18940,63 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </div>
 
+                <div className="rounded-2xl border border-[#3A3212] bg-[#171500] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#F5F5F7]">
+                        Precio y condiciones para asesor
+                      </div>
+                      <div className="mt-1 text-xs text-[#B7B7C2]">
+                        Condiciones comerciales vigentes de este producto.
+                      </div>
+                    </div>
+                    {permissions.canManageCatalogItems ? (
+                      <button
+                        type="button"
+                        onClick={() => setCatalogEditMode(true)}
+                        className="rounded-xl bg-[#FEEF00] px-3 py-2 text-xs font-semibold text-[#0B0B0D]"
+                      >
+                        Modificar
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                    <InfoCell
+                      label="Precio de venta"
+                      value={
+                        selectedCatalogItem.sourcePriceCurrency === 'VES'
+                          ? fmtBs(selectedCatalogItem.sourcePriceAmount)
+                          : fmtUSD(selectedCatalogItem.sourcePriceAmount)
+                      }
+                    />
+                    <InfoCell label="Moneda" value={selectedCatalogItem.sourcePriceCurrency} />
+                    <InfoCell
+                      label="Comisión"
+                      value={
+                        selectedCatalogItem.commissionMode === 'default'
+                          ? 'Comisión general'
+                          : `${selectedCatalogItem.commissionValue ?? 0}% ${
+                              selectedCatalogItem.commissionMode === 'fixed_order'
+                                ? 'por orden'
+                                : 'por ítem'
+                            }`
+                      }
+                    />
+                    <InfoCell
+                      label="Costo para asesor"
+                      value={fmtUSD(selectedCatalogItem.advisorGiftCostUsd)}
+                    />
+                  </div>
+
+                  {selectedCatalogItem.commissionNotes ? (
+                    <div className="mt-3 rounded-xl border border-[#3A3212] bg-[#0B0B0D] px-3 py-2 text-xs text-[#B7B7C2]">
+                      <span className="font-semibold text-[#F5F5F7]">Nota:</span>{' '}
+                      {selectedCatalogItem.commissionNotes}
+                    </div>
+                  ) : null}
+                </div>
+
                 <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
   <div className="flex items-center justify-between gap-3">
     <div className="text-sm font-semibold text-[#F5F5F7]">Regla operativa</div>
@@ -19070,8 +19064,8 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                 </div>
               </>
             ) : (
-              <>
-                <fieldset disabled className="rounded-2xl border border-[#242433] bg-[#121218] p-4 opacity-70">
+              <div className="flex flex-col gap-4">
+                <fieldset disabled className="order-3 rounded-2xl border border-[#242433] bg-[#121218] p-4 opacity-70">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-[#F5F5F7]">Inventario · solo lectura</div>
@@ -19198,10 +19192,10 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </fieldset>
 
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                <div className="order-1 rounded-2xl border border-[#242433] bg-[#121218] p-4">
                   <div className="text-sm font-semibold text-[#F5F5F7]">Datos comerciales</div>
                   <div className="mt-1 text-xs text-[#8A8A96]">
-                    Aquí solo se guardan precio y pago de rider. La estructura bloqueada se modifica en el Centro de Inventario.
+                    Aquí puedes cambiar el precio de venta y el pago de rider. La estructura física se modifica en el Centro de Inventario.
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
@@ -19301,31 +19295,32 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-[#242433] bg-[#121218] p-4">
-                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión</div>
+                <div className="order-2 rounded-2xl border border-[#242433] bg-[#121218] p-4">
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Comisión y costo para asesor</div>
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <FieldSelect
                       label="Regla comisión"
                       value={editCommissionMode}
                       onChange={(v) => setEditCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
                       options={[
-                        { value: 'default', label: 'Default' },
-                        { value: 'fixed_item', label: 'Fija por ítem' },
-                        { value: 'fixed_order', label: 'Fija por orden' },
+                        { value: 'default', label: 'Comisión general' },
+                        { value: 'fixed_item', label: 'Porcentaje especial por ítem' },
+                        { value: 'fixed_order', label: 'Porcentaje especial por orden' },
                       ]}
                     />
                     <FieldInput
-                      label="Valor comisión"
+                      label="Porcentaje de comisión"
                       value={editCommissionValue}
                       onChange={setEditCommissionValue}
                       type="text"
+                      hint={editCommissionMode === 'default' ? 'No aplica: se usará la comisión general.' : 'Escribe un porcentaje entre 0 y 100.'}
                     />
                     <FieldInput
-                      label="Costo asesor obsequio ($)"
+                      label="Costo para asesor ($)"
                       value={editAdvisorGiftCostUsd}
                       onChange={setEditAdvisorGiftCostUsd}
                       type="text"
-                      hint="Si este producto es un obsequio, este monto se descuenta por unidad en el cierre del asesor."
+                      hint="Costo por unidad que asume el asesor cuando este producto se usa como obsequio o jugada."
                     />
                   </div>
                   <div className="mt-3">
@@ -19337,7 +19332,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   </div>
                 </div>
 
-                <fieldset disabled className="rounded-2xl border border-[#242433] bg-[#121218] p-4 opacity-70">
+                <fieldset disabled className="order-4 rounded-2xl border border-[#242433] bg-[#121218] p-4 opacity-70">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-[#F5F5F7]">Composición · solo lectura</div>
@@ -19568,7 +19563,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
   </div>
 </div>
                 </fieldset>
-              </>
+              </div>
             )}
           </div>
         )}
@@ -22315,9 +22310,9 @@ deliveryAssignMode === 'external' ? (
           <div className="text-sm font-semibold text-[#F5F5F7]">
             Montos fuente por bloque
           </div>
-          <div className="mt-1 text-sm text-[#B7B7C2]">
-            Edita solo el monto en la moneda de origen. Puedes usar tabulador para pasar rápido de un ítem al siguiente.
-          </div>
+           <div className="mt-1 text-sm text-[#B7B7C2]">
+             Cambia el monto y, si hace falta, su moneda de origen. La equivalencia USD/Bs se recalcula automáticamente.
+           </div>
         </div>
 
         <SmallBadge label={`${quickCatalogRows.length} ítems`} tone="muted" />
@@ -22330,7 +22325,8 @@ deliveryAssignMode === 'external' ? (
               <tr>
                 <th className="w-[84px] px-3 py-3 text-left font-medium">SKU</th>
                 <th className="px-3 py-3 text-left font-medium">Ítem</th>
-                <th className="w-[78px] px-3 py-3 text-left font-medium">Moneda</th>
+                <th className="w-[76px] px-3 py-3 text-left font-medium">Estado</th>
+                <th className="w-[104px] px-3 py-3 text-left font-medium">Moneda</th>
                 <th className="w-[170px] px-3 py-3 text-left font-medium">Monto fuente</th>
               </tr>
             </thead>
@@ -22342,12 +22338,34 @@ deliveryAssignMode === 'external' ? (
                 >
                   <td className="px-3 py-2 text-[#8A8A96]">{row.sku || '—'}</td>
                   <td className="px-3 py-2 text-[#F5F5F7]">{row.name}</td>
-                  <td className="px-3 py-2 text-[#F5F5F7]">{row.sourcePriceCurrency}</td>
+                  <td className="px-3 py-2">
+                    <span className={row.isActive ? 'text-emerald-400' : 'text-[#8A8A96]'}>
+                      {row.isActive ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={row.sourcePriceCurrency}
+                      onChange={(event) =>
+                        handleQuickCatalogRowChange(row.productId, {
+                          sourcePriceCurrency: event.target.value as 'VES' | 'USD',
+                        })
+                      }
+                      className="w-full rounded-xl border border-[#242433] bg-[#121218] px-2 py-2 text-sm text-[#F5F5F7]"
+                      aria-label={`Moneda de ${row.name}`}
+                    >
+                      <option value="USD">USD</option>
+                      <option value="VES">VES</option>
+                    </select>
+                  </td>
                   <td className="px-3 py-2">
                     <input
                       value={row.nextAmount}
-                      onChange={(e) => handleQuickCatalogRowChange(row.productId, e.target.value)}
+                      onChange={(event) =>
+                        handleQuickCatalogRowChange(row.productId, { nextAmount: event.target.value })
+                      }
                       inputMode="decimal"
+                      aria-label={`Precio de ${row.name}`}
                       className="w-full rounded-xl border border-[#242433] bg-[#121218] px-3 py-2 text-sm text-[#F5F5F7]"
                     />
                   </td>
@@ -22369,9 +22387,9 @@ deliveryAssignMode === 'external' ? (
       ) : null}
 
       <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="text-xs text-[#8A8A96]">
-          Se respetan la moneda de origen y la tasa activa al guardar.
-        </div>
+         <div className="text-xs text-[#8A8A96]">
+           Solo se guardan las filas modificadas. Incluye productos activos e inactivos.
+         </div>
 
         <div className="flex gap-2">
           <button
@@ -22562,24 +22580,25 @@ deliveryAssignMode === 'external' ? (
           value={newCommissionMode}
           onChange={(v) => setNewCommissionMode(v as 'default' | 'fixed_item' | 'fixed_order')}
           options={[
-            { value: 'default', label: 'Default' },
-            { value: 'fixed_item', label: 'Fija por ítem' },
-            { value: 'fixed_order', label: 'Fija por orden' },
+            { value: 'default', label: 'Comisión general' },
+            { value: 'fixed_item', label: 'Porcentaje especial por ítem' },
+            { value: 'fixed_order', label: 'Porcentaje especial por orden' },
           ]}
         />
 
         <FieldInput
-          label="Valor comisión"
+          label="Porcentaje de comisión"
           value={newCommissionValue}
           onChange={setNewCommissionValue}
           type="text"
+          hint={newCommissionMode === 'default' ? 'No aplica: se usará la comisión general.' : 'Escribe un porcentaje entre 0 y 100.'}
         />
         <FieldInput
-          label="Costo asesor obsequio ($)"
+          label="Costo para asesor ($)"
           value={newAdvisorGiftCostUsd}
           onChange={setNewAdvisorGiftCostUsd}
           type="text"
-          hint="Si este producto es un obsequio, este monto se descuenta por unidad en el cierre del asesor."
+          hint="Costo por unidad que asume el asesor cuando este producto se usa como obsequio o jugada."
         />
       </div>
 

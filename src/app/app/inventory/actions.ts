@@ -382,6 +382,195 @@ export async function updateInventoryProductIdentityAction(input: {
   return result;
 }
 
+type InventoryProductCommercialTermsInput = {
+  productId: number;
+  sourcePriceAmount: number;
+  sourcePriceCurrency: 'USD' | 'VES';
+  commissionMode: 'default' | 'fixed_item' | 'fixed_order';
+  commissionValue: number | null;
+  commissionNotes: string | null;
+  advisorGiftCostUsd: number | null;
+  internalRiderPayUsd: number | null;
+};
+
+function normalizeProductSourcePrice(input: {
+  productId: number;
+  sourcePriceAmount: number;
+  sourcePriceCurrency: 'USD' | 'VES';
+}) {
+  const productId = normalizeCountId(input.productId);
+  const sourcePriceAmount = Number(input.sourcePriceAmount);
+  if (!Number.isFinite(sourcePriceAmount) || sourcePriceAmount < 0) {
+    throw new Error('El precio fuente debe ser mayor o igual a cero.');
+  }
+  if (!['USD', 'VES'].includes(input.sourcePriceCurrency)) {
+    throw new Error('La moneda del precio fuente no es válida.');
+  }
+
+  return {
+    productId,
+    sourcePriceAmount,
+    sourcePriceCurrency: input.sourcePriceCurrency,
+  };
+}
+
+export async function updateInventoryProductCommercialTermsAction(
+  input: InventoryProductCommercialTermsInput,
+) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede modificar precios y condiciones comerciales.');
+  }
+
+  const sourcePrice = normalizeProductSourcePrice(input);
+  if (!['default', 'fixed_item', 'fixed_order'].includes(input.commissionMode)) {
+    throw new Error('La modalidad de comisión no es válida.');
+  }
+
+  const commissionValue = input.commissionMode === 'default'
+    ? null
+    : input.commissionValue == null
+      ? null
+      : Number(input.commissionValue);
+  if (
+    input.commissionMode !== 'default' &&
+    (commissionValue == null ||
+      !Number.isFinite(commissionValue) ||
+      commissionValue < 0 ||
+      commissionValue > 100)
+  ) {
+    throw new Error('La comisión específica debe ser un porcentaje entre 0 y 100.');
+  }
+
+  const commissionNotes = normalizeOptionalText(input.commissionNotes, 'La nota de comisión', 1000);
+  const optionalNonnegative = (value: number | null, label: string) => {
+    if (value == null) return null;
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized < 0) {
+      throw new Error(`${label} debe ser mayor o igual a cero.`);
+    }
+    return normalized;
+  };
+  const advisorGiftCostUsd = optionalNonnegative(input.advisorGiftCostUsd, 'El costo para el asesor');
+  const internalRiderPayUsd = optionalNonnegative(input.internalRiderPayUsd, 'El pago interno de delivery');
+
+  const { data: product, error: productError } = await ctx.supabase
+    .from('products')
+    .select('id, name, source_price_amount, source_price_currency, extra_fields')
+    .eq('id', sourcePrice.productId)
+    .maybeSingle();
+  if (productError) throw new Error(productError.message);
+  if (!product) throw new Error('Producto no encontrado.');
+
+  const extraFields = product.extra_fields &&
+    typeof product.extra_fields === 'object' &&
+    !Array.isArray(product.extra_fields)
+    ? (product.extra_fields as Record<string, unknown>)
+    : {};
+  const nextExtraFields = { ...extraFields };
+  if (advisorGiftCostUsd == null) {
+    delete nextExtraFields.advisor_gift_cost_usd;
+  } else {
+    nextExtraFields.advisor_gift_cost_usd = advisorGiftCostUsd;
+  }
+
+  const { data: updatedProduct, error: updateError } = await ctx.supabase
+    .from('products')
+    .update({
+      source_price_amount: sourcePrice.sourcePriceAmount,
+      source_price_currency: sourcePrice.sourcePriceCurrency,
+      commission_mode: input.commissionMode,
+      commission_value: commissionValue,
+      commission_notes: commissionNotes,
+      extra_fields: nextExtraFields,
+      internal_rider_pay_usd: internalRiderPayUsd,
+    })
+    .eq('id', sourcePrice.productId)
+    .select('id')
+    .maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  if (!updatedProduct) throw new Error('No se pudo actualizar el producto.');
+
+  await notifyCanonicalCatalogPriceChangeAction({
+    productId: sourcePrice.productId,
+    productName: String(product.name || 'Producto'),
+    previousCurrency: product.source_price_currency === 'VES' ? 'VES' : 'USD',
+    previousAmount: Number(product.source_price_amount ?? 0),
+    nextCurrency: sourcePrice.sourcePriceCurrency,
+    nextAmount: sourcePrice.sourcePriceAmount,
+  });
+
+  revalidateInventoryConfigurationRoutes();
+  revalidatePath('/app/master/dashboard');
+}
+
+export async function updateInventoryProductPricesBulkAction(input: {
+  items: Array<{
+    productId: number;
+    sourcePriceAmount: number;
+    sourcePriceCurrency: 'USD' | 'VES';
+  }>;
+}) {
+  const ctx = await requireMasterOrAdminContext();
+  if (!ctx.roles.includes('admin')) {
+    throw new Error('Solo administración puede actualizar precios.');
+  }
+
+  const seenProductIds = new Set<number>();
+  const items = (input.items ?? []).map((item) => {
+    const normalized = normalizeProductSourcePrice(item);
+    if (seenProductIds.has(normalized.productId)) {
+      throw new Error('La lista contiene un producto repetido.');
+    }
+    seenProductIds.add(normalized.productId);
+    return normalized;
+  });
+  if (items.length === 0) {
+    throw new Error('No hay precios válidos para actualizar.');
+  }
+
+  const { data: products, error: productsError } = await ctx.supabase
+    .from('products')
+    .select('id, name, source_price_amount, source_price_currency')
+    .in('id', items.map((item) => item.productId));
+  if (productsError) throw new Error(productsError.message);
+
+  const productById = new Map((products ?? []).map((product) => [Number(product.id), product]));
+  if (productById.size !== items.length) {
+    throw new Error('No se pudieron cargar todos los productos de la lista.');
+  }
+
+  for (const item of items) {
+    const product = productById.get(item.productId);
+    if (!product) throw new Error(`Producto ${item.productId} no encontrado.`);
+
+    const { data: updatedProduct, error: updateError } = await ctx.supabase
+      .from('products')
+      .update({
+        source_price_amount: item.sourcePriceAmount,
+        source_price_currency: item.sourcePriceCurrency,
+      })
+      .eq('id', item.productId)
+      .select('id')
+      .maybeSingle();
+    if (updateError) throw new Error(updateError.message);
+    if (!updatedProduct) throw new Error(`No se pudo actualizar ${String(product.name || 'el producto')}.`);
+
+    await notifyCanonicalCatalogPriceChangeAction({
+      productId: item.productId,
+      productName: String(product.name || 'Producto'),
+      previousCurrency: product.source_price_currency === 'VES' ? 'VES' : 'USD',
+      previousAmount: Number(product.source_price_amount ?? 0),
+      nextCurrency: item.sourcePriceCurrency,
+      nextAmount: item.sourcePriceAmount,
+    });
+  }
+
+  revalidateInventoryConfigurationRoutes();
+  revalidatePath('/app/master/dashboard');
+  return { updatedCount: items.length };
+}
+
 export async function updateInventoryProductPhysicalConfigurationAction(input: {
   productId: number;
   inventoryPolicy: 'self' | 'direct' | 'components' | 'none';
