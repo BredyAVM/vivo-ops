@@ -63,6 +63,7 @@ type CommissionClosureRow = {
 type AdvisorProfileRow = {
   user_id: string;
   full_name: string | null;
+  is_active: boolean | null;
 };
 
 type CommissionPaymentRow = {
@@ -190,10 +191,12 @@ export default async function CommissionAdministrationPage({
     periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
 
   let closures: CommissionClosureRow[] = [];
+  let advisorProfiles: AdvisorProfileRow[] = [];
   let advisorNames = new Map<string, string>();
   let moneyAccounts: MoneyAccountRow[] = [];
   let commissionPayments: CommissionPaymentRow[] = [];
   let closureLoadFailed = false;
+  let advisorLoadFailed = false;
 
   if (selectedPeriod) {
     const [closuresResult, advisorsResult, accountsResult, paymentsResult] = await Promise.all([
@@ -255,9 +258,11 @@ export default async function CommissionAdministrationPage({
     ]);
 
     closureLoadFailed = Boolean(closuresResult.error);
+    advisorLoadFailed = Boolean(advisorsResult.error);
     closures = closuresResult.error ? [] : ((closuresResult.data ?? []) as CommissionClosureRow[]);
+    advisorProfiles = advisorsResult.error ? [] : ((advisorsResult.data ?? []) as AdvisorProfileRow[]);
     advisorNames = new Map(
-      ((advisorsResult.data ?? []) as AdvisorProfileRow[]).map((advisor) => [
+      advisorProfiles.map((advisor) => [
         String(advisor.user_id),
         advisor.full_name?.trim() || 'Asesor',
       ])
@@ -322,6 +327,23 @@ export default async function CommissionAdministrationPage({
       };
     })
     .sort((left, right) => left.advisorName.localeCompare(right.advisorName, 'es'));
+  const closureByAdvisorId = new Map(
+    closures.map((closure) => [String(closure.advisor_user_id), closure])
+  );
+  const commissionRateAdvisors = advisorProfiles
+    .filter((advisor) => Boolean(advisor.is_active ?? true))
+    .map((advisor) => {
+      const userId = String(advisor.user_id);
+      const closure = closureByAdvisorId.get(userId) ?? null;
+      return {
+        userId,
+        name: advisor.full_name?.trim() || 'Asesor',
+        closure,
+        isLocked: closure?.status === 'closed' || closure?.status === 'paid',
+      };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name, 'es'));
+  const hasEditableCommissionRate = commissionRateAdvisors.some((advisor) => !advisor.isLocked);
 
   const totals = rows.reduce(
     (result, row) => {
@@ -488,48 +510,97 @@ export default async function CommissionAdministrationPage({
           {selectedPeriod ? (
             <form
               action={calculateCommissionPeriodAction}
-              className="mt-4 grid gap-3 border-t border-[#24242D] pt-4 md:grid-cols-[150px_190px_1fr_auto] md:items-end"
+              className="mt-4 space-y-4 border-t border-[#24242D] pt-4"
             >
               <input name="periodId" type="hidden" value={selectedPeriod.id} />
-              <label className="block">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
-                  Porcentaje base
-                </span>
-                <div className="relative mt-1">
-                  <input
-                    className="h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 pr-8 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                    defaultValue={numberValue(rows[0]?.closure.base_commission_pct) || 8}
-                    max="100"
-                    min="0"
-                    name="baseCommissionPct"
-                    required
-                    step="0.01"
-                    type="number"
-                  />
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
+              <div>
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold">Porcentaje por asesor</div>
+                    <p className="mt-1 text-xs leading-5 text-[#92929E]">
+                      El periodo es común, pero cada liquidación conserva su propio porcentaje.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
+                    Comisión general de cada asesor
+                  </span>
                 </div>
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
-                  Fecha prevista de pago
-                </span>
-                <input
-                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                  defaultValue={rows.find((row) => row.settlement.scheduledLiquidationDate)?.settlement.scheduledLiquidationDate ?? ''}
-                  name="scheduledLiquidationDate"
-                  type="date"
-                />
-              </label>
-              <p className="text-xs leading-5 text-[#92929E]">
-                Actualiza pedidos, pagos validados, deducibles y arrastres. Los cierres ya confirmados no se modifican.
-              </p>
-              <button
-                className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={selectedPeriod.status !== 'open'}
-                type="submit"
-              >
-                Calcular / actualizar
-              </button>
+                {advisorLoadFailed ? (
+                  <div className="mt-3 rounded-2xl border border-red-500/25 bg-red-500/5 px-4 py-3 text-sm text-red-100">
+                    No se pudieron cargar los asesores activos. El cálculo permanece bloqueado para evitar porcentajes incorrectos.
+                  </div>
+                ) : commissionRateAdvisors.length > 0 ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    {commissionRateAdvisors.map((advisor) => {
+                      const currentCommissionPct = advisor.closure?.base_commission_pct == null
+                        ? 8
+                        : numberValue(advisor.closure.base_commission_pct);
+                      return (
+                        <label
+                          className={`rounded-2xl border px-3 py-2.5 ${
+                            advisor.isLocked
+                              ? 'border-[#292932] bg-[#111116] opacity-65'
+                              : 'border-[#32323D] bg-[#0E0E12]'
+                          }`}
+                          key={advisor.userId}
+                        >
+                          <span className="block truncate text-xs font-semibold text-[#D7D7DE]" title={advisor.name}>
+                            {advisor.name}
+                          </span>
+                          <div className="relative mt-2">
+                            <input
+                              className="h-9 w-full rounded-xl border border-[#34343F] bg-[#15151B] px-3 pr-8 text-sm font-semibold text-[#F7F7F8] outline-none focus:border-[#F0D000] disabled:cursor-not-allowed"
+                              defaultValue={currentCommissionPct}
+                              disabled={advisor.isLocked || selectedPeriod.status !== 'open'}
+                              max="100"
+                              min="0"
+                              name={`baseCommissionPct:${advisor.userId}`}
+                              required={!advisor.isLocked}
+                              step="0.01"
+                              type="number"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
+                          </div>
+                          {advisor.isLocked ? (
+                            <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">Cierre protegido</span>
+                          ) : null}
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-2xl border border-dashed border-[#363641] px-4 py-4 text-sm text-[#A6A6B0]">
+                    No hay asesores activos disponibles para calcular.
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-3 border-t border-[#24242D] pt-4 md:grid-cols-[190px_1fr_auto] md:items-end">
+                <label className="block">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
+                    Fecha prevista de pago
+                  </span>
+                  <input
+                    className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                    defaultValue={rows.find((row) => row.settlement.scheduledLiquidationDate)?.settlement.scheduledLiquidationDate ?? ''}
+                    name="scheduledLiquidationDate"
+                    type="date"
+                  />
+                </label>
+                <p className="text-xs leading-5 text-[#92929E]">
+                  Actualiza pedidos, pagos validados, deducibles y arrastres. Los cierres ya confirmados no se modifican.
+                </p>
+                <button
+                  className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={
+                    selectedPeriod.status !== 'open' ||
+                    advisorLoadFailed ||
+                    !hasEditableCommissionRate
+                  }
+                  type="submit"
+                >
+                  Calcular / actualizar
+                </button>
+              </div>
             </form>
           ) : null}
         </section>

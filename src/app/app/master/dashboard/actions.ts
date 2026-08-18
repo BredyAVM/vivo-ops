@@ -12229,7 +12229,8 @@ function buildAdvisorCommissionSnapshots(params: {
   advisorIds: string[];
   advisorNamesById: Map<string, string>;
   period: { id: number; name: string; date_from: string; date_to: string };
-  baseCommissionPct: number;
+  defaultBaseCommissionPct: number;
+  baseCommissionPctByAdvisor: Map<string, number>;
 }) {
   const {
     orders,
@@ -12239,12 +12240,14 @@ function buildAdvisorCommissionSnapshots(params: {
     advisorIds,
     advisorNamesById,
     period,
-    baseCommissionPct,
+    defaultBaseCommissionPct,
+    baseCommissionPctByAdvisor,
   } = params;
 
   const closuresByAdvisor = new Map<string, {
     advisorUserId: string;
     advisorName: string;
+    baseCommissionPct: number;
     orders: Array<Record<string, unknown>>;
     paidOrders: Array<Record<string, unknown>>;
     pendingOrders: Array<Record<string, unknown>>;
@@ -12274,6 +12277,7 @@ function buildAdvisorCommissionSnapshots(params: {
     closuresByAdvisor.set(advisorId, {
       advisorUserId: advisorId,
       advisorName: advisorNamesById.get(advisorId) || 'Asesor',
+      baseCommissionPct: baseCommissionPctByAdvisor.get(advisorId) ?? defaultBaseCommissionPct,
       orders: [],
       paidOrders: [],
       pendingOrders: [],
@@ -12381,7 +12385,7 @@ function buildAdvisorCommissionSnapshots(params: {
       }
     }
 
-    const regularCommissionUsd = regularBaseUsd * (baseCommissionPct / 100);
+    const regularCommissionUsd = regularBaseUsd * (closure.baseCommissionPct / 100);
     const fixedOrderCommissionUsd =
       fixedOrderPct == null ? 0 : fixedOrderBaseUsd * (fixedOrderPct / 100);
     const orderCommissionUsd = roundMoney(regularCommissionUsd + specialItemCommissionUsd + fixedOrderCommissionUsd);
@@ -12512,7 +12516,7 @@ function buildAdvisorCommissionSnapshots(params: {
       period_id: period.id,
       advisor_user_id: closure.advisorUserId,
       status: 'preliminary',
-      base_commission_pct: baseCommissionPct,
+      base_commission_pct: closure.baseCommissionPct,
       delivered_orders_count: totals.deliveredOrdersCount,
       billed_usd: totals.billedUsd,
       regular_base_usd: totals.regularBaseUsd,
@@ -12536,7 +12540,7 @@ function buildAdvisorCommissionSnapshots(params: {
           id: closure.advisorUserId,
           name: closure.advisorName,
         },
-        base_commission_pct: baseCommissionPct,
+        base_commission_pct: closure.baseCommissionPct,
         totals,
         orders: closure.orders,
         paid_orders: closure.paidOrders,
@@ -12595,12 +12599,32 @@ export async function createAdvisorCommissionPeriodAction(input: {
 
 export async function generateAdvisorCommissionClosuresAction(input: {
   periodId: number;
-  baseCommissionPct: number;
+  baseCommissionPct?: number;
+  baseCommissionPctByAdvisor?: Record<string, number>;
   advisorUserId?: string | null;
 }) {
   const { supabase, user } = await requireMasterOrAdmin();
   const periodId = Number(input.periodId || 0);
-  const baseCommissionPct = Math.max(0, toSafeNumber(input.baseCommissionPct, 0));
+  const defaultBaseCommissionPct = input.baseCommissionPct == null
+    ? 8
+    : Number(input.baseCommissionPct);
+  if (
+    !Number.isFinite(defaultBaseCommissionPct) ||
+    defaultBaseCommissionPct < 0 ||
+    defaultBaseCommissionPct > 100
+  ) {
+    throw new Error('El porcentaje general debe estar entre 0 y 100.');
+  }
+  const baseCommissionPctByAdvisor = new Map<string, number>();
+  for (const [rawAdvisorId, rawCommissionPct] of Object.entries(input.baseCommissionPctByAdvisor ?? {})) {
+    const rateAdvisorId = rawAdvisorId.trim();
+    const commissionPct = Number(rawCommissionPct);
+    if (!rateAdvisorId) continue;
+    if (!Number.isFinite(commissionPct) || commissionPct < 0 || commissionPct > 100) {
+      throw new Error('Cada porcentaje de comisión debe estar entre 0 y 100.');
+    }
+    baseCommissionPctByAdvisor.set(rateAdvisorId, commissionPct);
+  }
   const advisorUserId = String(input.advisorUserId || '').trim() || null;
 
   if (!Number.isFinite(periodId) || periodId <= 0) {
@@ -12966,7 +12990,8 @@ export async function generateAdvisorCommissionClosuresAction(input: {
       date_from: String(period.date_from),
       date_to: String(period.date_to),
     },
-    baseCommissionPct,
+    defaultBaseCommissionPct,
+    baseCommissionPctByAdvisor,
   });
 
   for (const snapshot of snapshots) {

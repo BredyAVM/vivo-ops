@@ -49,9 +49,37 @@ type PeriodRow = {
   date_from: string;
 };
 
+const ADVISOR_COMMISSION_PCT_FIELD_PREFIX = 'baseCommissionPct:';
+
 function numberValue(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function advisorCommissionRates(formData: FormData) {
+  const rates = Object.create(null) as Record<string, number>;
+
+  for (const [field, value] of formData.entries()) {
+    if (!field.startsWith(ADVISOR_COMMISSION_PCT_FIELD_PREFIX)) continue;
+    const advisorUserId = field.slice(ADVISOR_COMMISSION_PCT_FIELD_PREFIX.length).trim();
+    const rawValue = String(value ?? '').trim().replace(',', '.');
+    const commissionPct = Number(rawValue);
+
+    if (!advisorUserId || !rawValue || !Number.isFinite(commissionPct)) {
+      throw new Error('Indica un porcentaje válido para cada asesor.');
+    }
+    if (commissionPct < 0 || commissionPct > 100) {
+      throw new Error('Cada porcentaje debe estar entre 0 y 100.');
+    }
+
+    rates[advisorUserId] = commissionPct;
+  }
+
+  if (Object.keys(rates).length === 0) {
+    throw new Error('Indica el porcentaje de comisión de cada asesor.');
+  }
+
+  return rates;
 }
 
 function roundMoney(value: unknown) {
@@ -276,7 +304,6 @@ async function applySettlementToPreliminaryClosures(input: {
 
 export async function calculateCommissionPeriodAction(formData: FormData) {
   const periodId = Number(formData.get('periodId') ?? 0);
-  const baseCommissionPct = numberValue(formData.get('baseCommissionPct'));
   let result: { updated: number; skippedLocked: number };
 
   try {
@@ -284,9 +311,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
     if (!Number.isInteger(periodId) || periodId <= 0) {
       throw new Error('Selecciona un periodo válido.');
     }
-    if (baseCommissionPct < 0 || baseCommissionPct > 100) {
-      throw new Error('El porcentaje debe estar entre 0 y 100.');
-    }
+    const baseCommissionPctByAdvisor = advisorCommissionRates(formData);
     const scheduledLiquidationDate = optionalDate(formData.get('scheduledLiquidationDate'));
     const { data: previousClosures, error: previousClosuresError } = await supabase
       .from('advisor_commission_closures')
@@ -303,7 +328,7 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
 
     await generateAdvisorCommissionClosuresAction({
       periodId,
-      baseCommissionPct,
+      baseCommissionPctByAdvisor,
     });
     result = await applySettlementToPreliminaryClosures({
       periodId,
