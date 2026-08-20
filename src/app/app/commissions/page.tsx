@@ -168,13 +168,41 @@ function CommissionRateField({
   userId,
   value,
   locked,
+  compact = false,
   showLockedNote = true,
 }: {
   userId: string;
   value: number;
   locked: boolean;
+  compact?: boolean;
   showLockedNote?: boolean;
 }) {
+  if (compact) {
+    return (
+      <label className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[#30303A] bg-[#101014] py-1 pl-2.5 pr-1.5">
+        <span className="text-[11px] font-medium text-[#A8A8B3]">Porcentaje</span>
+        <div className="relative w-16">
+          <input
+            className="h-7 w-full rounded-lg border border-[#34343F] bg-[#0E0E12] px-2 pr-5 text-xs font-semibold text-[#F7F7F8] outline-none focus:border-[#F0D000] disabled:cursor-not-allowed disabled:opacity-60"
+            defaultValue={value}
+            disabled={locked}
+            form={COMMISSION_CALCULATION_FORM_ID}
+            max="100"
+            min="0"
+            name={`baseCommissionPct:${userId}`}
+            required={!locked}
+            step="0.01"
+            type="number"
+          />
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#8F8F9B]">%</span>
+        </div>
+        {locked && showLockedNote ? (
+          <span className="pr-1 text-[10px] text-[#8F8F9B]">Protegido</span>
+        ) : null}
+      </label>
+    );
+  }
+
   return (
     <label className="block">
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
@@ -708,17 +736,18 @@ export default async function CommissionAdministrationPage({
                   return (
                     <article key={row.closure.id} className="rounded-3xl border border-[#282832] bg-[#141419] p-5">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <h3 className="text-lg font-semibold tracking-[-0.02em]">{row.advisorName}</h3>
-                          <div className="mt-1 text-xs text-[#92929E]">
-                            {numberValue(row.closure.delivered_orders_count)} pedidos entregados
-                          </div>
-                          <div className="mt-3 rounded-2xl border border-[#30303A] bg-[#101014] p-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                            <h3 className="text-lg font-semibold tracking-[-0.02em]">{row.advisorName}</h3>
                             <CommissionRateField
+                              compact
                               locked={row.closure.status !== 'preliminary' || selectedPeriod?.status !== 'open'}
                               userId={row.closure.advisor_user_id}
                               value={numberValue(row.closure.base_commission_pct)}
                             />
+                          </div>
+                          <div className="mt-1 text-xs text-[#92929E]">
+                            {numberValue(row.closure.delivered_orders_count)} pedidos entregados
                           </div>
                           <Link
                             className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#F0D000]/40 px-3 py-1.5 text-xs font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
