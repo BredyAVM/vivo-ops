@@ -88,6 +88,8 @@ type MoneyAccountRow = {
   is_active: boolean;
 };
 
+const COMMISSION_CALCULATION_FORM_ID = 'commission-period-calculation';
+
 function numberValue(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -159,6 +161,44 @@ function Stat({ label, value, note, href }: { label: string; value: string; note
     </Link>
   ) : (
     <div className="rounded-2xl border border-[#282832] bg-[#15151B] px-4 py-3">{content}</div>
+  );
+}
+
+function CommissionRateField({
+  userId,
+  value,
+  locked,
+  showLockedNote = true,
+}: {
+  userId: string;
+  value: number;
+  locked: boolean;
+  showLockedNote?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
+        Porcentaje de comisión
+      </span>
+      <div className="relative mt-1.5 max-w-40">
+        <input
+          className="h-9 w-full rounded-xl border border-[#34343F] bg-[#0E0E12] px-3 pr-8 text-sm font-semibold text-[#F7F7F8] outline-none focus:border-[#F0D000] disabled:cursor-not-allowed disabled:opacity-60"
+          defaultValue={value}
+          disabled={locked}
+          form={COMMISSION_CALCULATION_FORM_ID}
+          max="100"
+          min="0"
+          name={`baseCommissionPct:${userId}`}
+          required={!locked}
+          step="0.01"
+          type="number"
+        />
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
+      </div>
+      {locked && showLockedNote ? (
+        <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">Cierre protegido</span>
+      ) : null}
+    </label>
   );
 }
 
@@ -372,6 +412,7 @@ export default async function CommissionAdministrationPage({
     })
     .sort((left, right) => left.name.localeCompare(right.name, 'es'));
   const hasEditableCommissionRate = commissionRateAdvisors.some((advisor) => !advisor.isLocked);
+  const advisorsWithoutClosure = commissionRateAdvisors.filter((advisor) => !advisor.closure);
 
   const totals = rows.reduce(
     (result, row) => {
@@ -538,97 +579,35 @@ export default async function CommissionAdministrationPage({
           {selectedPeriod ? (
             <form
               action={calculateCommissionPeriodAction}
-              className="mt-4 space-y-4 border-t border-[#24242D] pt-4"
+              className="mt-4 grid gap-3 border-t border-[#24242D] pt-4 md:grid-cols-[190px_1fr_auto] md:items-end"
+              id={COMMISSION_CALCULATION_FORM_ID}
             >
               <input name="periodId" type="hidden" value={selectedPeriod.id} />
-              <div>
-                <div className="flex flex-wrap items-end justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold">Porcentaje por asesor</div>
-                    <p className="mt-1 text-xs leading-5 text-[#92929E]">
-                      El periodo es común, pero cada liquidación conserva su propio porcentaje.
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
-                    Comisión general de cada asesor
-                  </span>
-                </div>
-                {advisorLoadFailed ? (
-                  <div className="mt-3 rounded-2xl border border-red-500/25 bg-red-500/5 px-4 py-3 text-sm text-red-100">
-                    No se pudieron cargar los asesores activos. El cálculo permanece bloqueado para evitar porcentajes incorrectos.
-                  </div>
-                ) : commissionRateAdvisors.length > 0 ? (
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                    {commissionRateAdvisors.map((advisor) => {
-                      const currentCommissionPct = advisor.closure?.base_commission_pct == null
-                        ? 8
-                        : numberValue(advisor.closure.base_commission_pct);
-                      return (
-                        <label
-                          className={`rounded-2xl border px-3 py-2.5 ${
-                            advisor.isLocked
-                              ? 'border-[#292932] bg-[#111116] opacity-65'
-                              : 'border-[#32323D] bg-[#0E0E12]'
-                          }`}
-                          key={advisor.userId}
-                        >
-                          <span className="block truncate text-xs font-semibold text-[#D7D7DE]" title={advisor.name}>
-                            {advisor.name}
-                          </span>
-                          <div className="relative mt-2">
-                            <input
-                              className="h-9 w-full rounded-xl border border-[#34343F] bg-[#15151B] px-3 pr-8 text-sm font-semibold text-[#F7F7F8] outline-none focus:border-[#F0D000] disabled:cursor-not-allowed"
-                              defaultValue={currentCommissionPct}
-                              disabled={advisor.isLocked || selectedPeriod.status !== 'open'}
-                              max="100"
-                              min="0"
-                              name={`baseCommissionPct:${advisor.userId}`}
-                              required={!advisor.isLocked}
-                              step="0.01"
-                              type="number"
-                            />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
-                          </div>
-                          {advisor.isLocked ? (
-                            <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">Cierre protegido</span>
-                          ) : null}
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="mt-3 rounded-2xl border border-dashed border-[#363641] px-4 py-4 text-sm text-[#A6A6B0]">
-                    No hay asesores activos disponibles para calcular.
-                  </div>
-                )}
-              </div>
-              <div className="grid gap-3 border-t border-[#24242D] pt-4 md:grid-cols-[190px_1fr_auto] md:items-end">
-                <label className="block">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
-                    Fecha prevista de pago
-                  </span>
-                  <input
-                    className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                    defaultValue={rows.find((row) => row.settlement.scheduledLiquidationDate)?.settlement.scheduledLiquidationDate ?? ''}
-                    name="scheduledLiquidationDate"
-                    type="date"
-                  />
-                </label>
-                <p className="text-xs leading-5 text-[#92929E]">
-                  Actualiza pedidos, pagos validados, deducibles y arrastres. Los cierres ya confirmados no se modifican.
-                </p>
-                <button
-                  className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={
-                    selectedPeriod.status !== 'open' ||
-                    advisorLoadFailed ||
-                    !hasEditableCommissionRate
-                  }
-                  type="submit"
-                >
-                  Calcular / actualizar
-                </button>
-              </div>
+              <label className="block">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">
+                  Fecha prevista de pago
+                </span>
+                <input
+                  className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
+                  defaultValue={rows.find((row) => row.settlement.scheduledLiquidationDate)?.settlement.scheduledLiquidationDate ?? ''}
+                  name="scheduledLiquidationDate"
+                  type="date"
+                />
+              </label>
+              <p className="text-xs leading-5 text-[#92929E]">
+                Ajusta el porcentaje dentro de la tarjeta de cada asesor y luego actualiza el periodo. Los cierres confirmados permanecen protegidos.
+              </p>
+              <button
+                className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={
+                  selectedPeriod.status !== 'open' ||
+                  advisorLoadFailed ||
+                  !hasEditableCommissionRate
+                }
+                type="submit"
+              >
+                Calcular / actualizar
+              </button>
             </form>
           ) : null}
         </section>
@@ -638,11 +617,37 @@ export default async function CommissionAdministrationPage({
             No se pudieron cargar los cierres del periodo. No se modificó ninguna información.
           </section>
         ) : selectedPeriod && rows.length === 0 ? (
-          <section className="rounded-3xl border border-dashed border-[#363641] bg-[#121217] px-5 py-12 text-center">
-            <div className="text-base font-semibold">Este periodo todavía no tiene cálculos</div>
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#A6A6B0]">
-              Cuando se genere el cálculo preliminar, la relación completa aparecerá aquí.
-            </p>
+          <section className="rounded-3xl border border-[#2B2B35] bg-[#121217] p-5">
+            <div>
+              <h2 className="text-lg font-semibold tracking-[-0.02em]">Preparar relación por asesor</h2>
+              <p className="mt-1 text-sm leading-6 text-[#A6A6B0]">
+                Define el porcentaje individual en cada tarjeta y utiliza “Calcular / actualizar” para generar los preliminares.
+              </p>
+            </div>
+            {advisorLoadFailed ? (
+              <div className="mt-4 rounded-2xl border border-red-500/25 bg-red-500/5 px-4 py-3 text-sm text-red-100">
+                No se pudieron cargar los asesores activos. El cálculo permanece bloqueado para evitar porcentajes incorrectos.
+              </div>
+            ) : commissionRateAdvisors.length > 0 ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                {commissionRateAdvisors.map((advisor) => (
+                  <article key={advisor.userId} className="rounded-2xl border border-[#32323D] bg-[#15151B] p-4">
+                    <h3 className="truncate text-sm font-semibold text-[#F0F0F3]" title={advisor.name}>{advisor.name}</h3>
+                    <div className="mt-3 border-t border-[#292933] pt-3">
+                      <CommissionRateField
+                        locked={advisor.isLocked || selectedPeriod.status !== 'open'}
+                        userId={advisor.userId}
+                        value={advisor.closure?.base_commission_pct == null ? 8 : numberValue(advisor.closure.base_commission_pct)}
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-[#363641] px-4 py-8 text-center text-sm text-[#A6A6B0]">
+                No hay asesores activos disponibles para calcular.
+              </div>
+            )}
           </section>
         ) : rows.length > 0 ? (
           <>
@@ -672,6 +677,29 @@ export default async function CommissionAdministrationPage({
                 <p className="mt-1 text-sm text-[#9696A2]">Una sola lectura compacta por cada liquidación.</p>
               </div>
 
+              {advisorsWithoutClosure.length > 0 ? (
+                <div className="rounded-3xl border border-dashed border-[#3A3A45] bg-[#111116] p-4">
+                  <div className="text-sm font-semibold">Asesores pendientes de incorporar al periodo</div>
+                  <p className="mt-1 text-xs leading-5 text-[#9696A2]">
+                    Define su porcentaje antes de actualizar; su tarjeta completa aparecerá al generarse el cierre.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+                    {advisorsWithoutClosure.map((advisor) => (
+                      <article key={advisor.userId} className="rounded-2xl border border-[#32323D] bg-[#15151B] p-4">
+                        <h3 className="truncate text-sm font-semibold text-[#F0F0F3]" title={advisor.name}>{advisor.name}</h3>
+                        <div className="mt-3 border-t border-[#292933] pt-3">
+                          <CommissionRateField
+                            locked={selectedPeriod?.status !== 'open'}
+                            userId={advisor.userId}
+                            value={8}
+                          />
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid gap-3 xl:grid-cols-2">
                 {rows.map((row) => {
                   const status = closureStatus(row.closure.status);
@@ -683,8 +711,14 @@ export default async function CommissionAdministrationPage({
                         <div>
                           <h3 className="text-lg font-semibold tracking-[-0.02em]">{row.advisorName}</h3>
                           <div className="mt-1 text-xs text-[#92929E]">
-                            {numberValue(row.closure.delivered_orders_count)} pedidos entregados · Comisión base{' '}
-                            {numberValue(row.closure.base_commission_pct).toFixed(2)}%
+                            {numberValue(row.closure.delivered_orders_count)} pedidos entregados
+                          </div>
+                          <div className="mt-3 rounded-2xl border border-[#30303A] bg-[#101014] p-3">
+                            <CommissionRateField
+                              locked={row.closure.status !== 'preliminary' || selectedPeriod?.status !== 'open'}
+                              userId={row.closure.advisor_user_id}
+                              value={numberValue(row.closure.base_commission_pct)}
+                            />
                           </div>
                           <Link
                             className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#F0D000]/40 px-3 py-1.5 text-xs font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
