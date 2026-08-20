@@ -904,7 +904,7 @@ export default function OrderDetailActions({
                         return;
                       }
 
-                      await createAdvisorPaymentReportAction({
+                      const result = await createAdvisorPaymentReportAction({
                         orderId,
                         reportedMoneyAccountId: Number(moneyAccountId || 0),
                         reportedCurrency: selectedAccount?.currencyCode || '',
@@ -918,6 +918,11 @@ export default function OrderDetailActions({
                         payerName: payerName.trim() || null,
                         notes: notes.trim() || null,
                       });
+
+                      if (!result.ok) {
+                        setError(result.message);
+                        return;
+                      }
 
                       setSuccess('Pago enviado a revision.');
                       setReportBoxOpen(false);

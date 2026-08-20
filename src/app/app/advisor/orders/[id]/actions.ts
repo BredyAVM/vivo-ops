@@ -53,6 +53,22 @@ type OrderEventRecipientInput = {
   requiresAction?: boolean;
 };
 
+type AdvisorPaymentReportInput = {
+  orderId: number;
+  reportedMoneyAccountId: number;
+  reportedCurrency: string;
+  reportedAmount: number;
+  reportedExchangeRateVesPerUsd: number | null;
+  paymentMethod?: string | null;
+  operationDate?: string | null;
+  referenceCode: string | null;
+  bankName?: string | null;
+  payerName: string | null;
+  notes: string | null;
+};
+
+type AdvisorPaymentReportResult = { ok: true } | { ok: false; message: string };
+
 const MASTER_PING_COOLDOWN_MS = 3 * 60 * 1000;
 
 function toSafeNumber(value: unknown, fallback = 0) {
@@ -67,6 +83,46 @@ function roundMoney(value: unknown) {
 function normalizeDateOnly(value: unknown) {
   const text = String(value || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function getAdvisorPaymentReportErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message.trim() : '';
+
+  if (/not authenticated/i.test(message)) {
+    return 'Tu sesión venció. Vuelve a iniciar sesión e intenta nuevamente.';
+  }
+
+  if (/advisor cannot report payments|no puedes reportar pagos/i.test(message)) {
+    return 'Esta orden no está asignada a tu usuario asesor.';
+  }
+
+  if (/payment account is inactive|cuenta seleccionada no esta disponible/i.test(message)) {
+    return 'La cuenta seleccionada ya no está disponible. Elige otra cuenta.';
+  }
+
+  const safePrefixes = [
+    'No autorizado.',
+    'Orden invalida.',
+    'No se pudo cargar la orden.',
+    'Selecciona una cuenta.',
+    'Falta la moneda del reporte.',
+    'El monto debe ser mayor a cero.',
+    'La tasa es obligatoria',
+    'La moneda reportada no coincide',
+    'Selecciona el metodo',
+    'Selecciona el método',
+    'Este metodo de pago',
+    'Este método de pago',
+    'No tienes permiso para reportar pagos',
+    'Debes indicar',
+    'Posible pago duplicado:',
+  ];
+
+  if (safePrefixes.some((prefix) => message.startsWith(prefix))) {
+    return message;
+  }
+
+  return 'No se pudo reportar el pago. Revisa los datos e intenta nuevamente.';
 }
 
 function parseRpcId(value: unknown) {
@@ -318,19 +374,7 @@ async function appendOrderEvent(
   }
 }
 
-export async function createAdvisorPaymentReportAction(input: {
-  orderId: number;
-  reportedMoneyAccountId: number;
-  reportedCurrency: string;
-  reportedAmount: number;
-  reportedExchangeRateVesPerUsd: number | null;
-  paymentMethod?: string | null;
-  operationDate?: string | null;
-  referenceCode: string | null;
-  bankName?: string | null;
-  payerName: string | null;
-  notes: string | null;
-}) {
+async function createAdvisorPaymentReport(input: AdvisorPaymentReportInput) {
   const ctx = await requireAuthContext();
   const isMasterOrAdmin = isMasterOrAdminRole(ctx.roles);
   if (!isAdvisorRole(ctx.roles) && !isMasterOrAdmin) {
@@ -534,7 +578,27 @@ export async function createAdvisorPaymentReportAction(input: {
   revalidatePath('/app/advisor/payments');
   revalidatePath('/app/advisor/inbox');
 
-  return { ok: true };
+  return { ok: true as const };
+}
+
+export async function createAdvisorPaymentReportAction(
+  input: AdvisorPaymentReportInput
+): Promise<AdvisorPaymentReportResult> {
+  try {
+    return await createAdvisorPaymentReport(input);
+  } catch (error) {
+    console.error('[advisor-payment-report]', {
+      orderId: Number(input.orderId || 0),
+      accountId: Number(input.reportedMoneyAccountId || 0),
+      currency: String(input.reportedCurrency || '').trim().toUpperCase(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      ok: false,
+      message: getAdvisorPaymentReportErrorMessage(error),
+    };
+  }
 }
 
 export async function loadAdvisorPaymentOptionsAction(input: {
