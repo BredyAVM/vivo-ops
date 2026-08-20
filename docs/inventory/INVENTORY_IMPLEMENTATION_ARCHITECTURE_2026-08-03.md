@@ -744,3 +744,37 @@ La corrección inicial reutiliza el SKU estable `DEGUSTPF_8`, sin depender de un
 id generado. Antes de reclasificarlo, la migración verifica que la ruta directa
 tenga cinco vínculos y totalice exactamente 8 UND crudas. La migración vigente
 es `20260820163156_inventory_product_commercial_family_edit_v1.sql`.
+
+## 30. Corte físico al salir del local
+
+El estado comercial `out_for_delivery` representa la entrega efectiva de la
+orden al motorizado. Desde ese instante, los productos ya no están dentro del
+local y no pueden permanecer en el saldo físico ni como compromisos pendientes.
+
+Para órdenes con `fulfillment = delivery`, la transición a `out_for_delivery`
+ejecuta atómicamente dos acciones:
+
+1. registra los movimientos `sale_out` contra el libro canónico;
+2. cierra como `fulfilled` todos los `order_commitment` abiertos de la orden.
+
+La transición posterior a `delivered` usa la misma clave de operación. Si el
+despacho ya se registró, devuelve un replay sin mover nuevamente el saldo. Si
+el intento inicial produjo una incidencia no bloqueante, la entrega final
+reintenta la conciliación y resuelve la alerta al tener éxito.
+
+Los retiros (`fulfillment <> delivery`) conservan el corte físico en
+`delivered`, porque el producto permanece en el local hasta que el cliente lo
+recibe. En ambos casos, una insuficiencia permite saldo negativo y genera
+control; nunca impide que la orden avance.
+
+Si vuelve mercancía utilizable después de salir, debe ingresar mediante
+`return_in` por su cantidad física exacta. Averías o mermas usan sus movimientos
+propios. La liquidación de cobros y efectivo del motorizado no representa una
+devolución de mercancía.
+
+No se agregaron tablas ni columnas. Se reutilizan `orders.status`,
+`inventory_movements`, `inventory_planned_flows` y las funciones de incidencia
+existentes. Migraciones vigentes:
+
+- `20260820184644_inventory_consume_on_dispatch_v1.sql`;
+- `20260820185313_inventory_dispatch_issue_resolution_v1.sql`.

@@ -249,7 +249,7 @@ export default async function InventoryOperationsPage() {
             />
             <StatusRow
               label="Descuento automático por ventas"
-              value={isCanonicalReady ? 'Activo al entregar' : 'Espera apertura completa'}
+              value={isCanonicalReady ? 'Activo al salir del local' : 'Espera apertura completa'}
               tone={isCanonicalReady ? 'good' : 'neutral'}
             />
             <StatusRow
