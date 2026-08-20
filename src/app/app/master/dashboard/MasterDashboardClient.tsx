@@ -19233,9 +19233,17 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         { value: 'combo', label: 'Combo' },
                         { value: 'service', label: 'Servicio' },
                         { value: 'promo', label: 'Promo' },
-                        { value: 'gambit', label: 'Gambit' },
+                        { value: 'gambit', label: 'Obsequio' },
                       ]}
                     />
+                    {selectedCatalogItem ? (
+                      <Link
+                        href={`/app/inventory/configure?view=edit&productId=${selectedCatalogItem.id}`}
+                        className="col-span-2 rounded-xl border border-[#FEEF00]/35 px-3 py-2 text-center text-xs font-semibold text-[#FEEF00] hover:bg-[#FEEF00]/5"
+                      >
+                        Modificar familia y estructura en Inventario
+                      </Link>
+                    ) : null}
                     <FieldCheckbox
                       label="Detalle editable"
                       checked={editIsDetailEditable}

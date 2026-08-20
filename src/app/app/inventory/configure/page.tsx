@@ -113,7 +113,7 @@ function mapProductRoutes(
 }
 
 type ConfigureView = 'edit' | 'activate' | 'create';
-type ConfigureSearchParams = Promise<{ view?: string; itemId?: string }>;
+type ConfigureSearchParams = Promise<{ view?: string; itemId?: string; productId?: string }>;
 
 export default async function InventoryConfigurePage({
   searchParams,
@@ -132,8 +132,12 @@ export default async function InventoryConfigurePage({
   const resolvedSearchParams = await searchParams;
   const requestedView = resolvedSearchParams?.view;
   const requestedItemId = Number(resolvedSearchParams?.itemId ?? 0);
+  const requestedProductId = Number(resolvedSearchParams?.productId ?? 0);
   const initialItemId = Number.isSafeInteger(requestedItemId) && requestedItemId > 0
     ? requestedItemId
+    : null;
+  const initialProductId = Number.isSafeInteger(requestedProductId) && requestedProductId > 0
+    ? requestedProductId
     : null;
   const view: ConfigureView = requestedView === 'activate' || requestedView === 'create'
     ? requestedView
@@ -354,7 +358,11 @@ export default async function InventoryConfigurePage({
       </section>
 
       {view === 'edit' ? (
-        <InventoryAdministrationClient workspace={administrationWorkspace} initialItemId={initialItemId} />
+        <InventoryAdministrationClient
+          workspace={administrationWorkspace}
+          initialItemId={initialItemId}
+          initialProductId={initialProductId}
+        />
       ) : null}
       {view === 'activate' ? (
         <InventoryActivationQueueClient

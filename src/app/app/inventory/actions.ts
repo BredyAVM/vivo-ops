@@ -262,10 +262,15 @@ function revalidateInventoryConfigurationRoutes() {
   revalidatePath('/app/inventory/readiness');
   revalidatePath('/app/inventory/reports');
   revalidatePath('/app/inventory/alerts');
+  revalidatePath('/app/master/dashboard');
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor/new');
+  revalidatePath('/app/counter');
 }
 
 export async function updateInventoryProductIdentityAction(input: {
   productId: number;
+  productType: 'product' | 'combo' | 'service' | 'promo' | 'gambit';
   name: string;
   sku: string;
   unitsPerService: number;
@@ -286,6 +291,9 @@ export async function updateInventoryProductIdentityAction(input: {
   }
 
   const productId = normalizeCountId(input.productId);
+  if (!['product', 'combo', 'service', 'promo', 'gambit'].includes(input.productType)) {
+    throw new Error('La familia comercial no es válida.');
+  }
   const name = normalizeOptionalText(input.name, 'El nombre', 160);
   const sku = normalizeOptionalText(input.sku, 'El SKU', 64);
   const unitsPerService = Number(input.unitsPerService);
@@ -343,6 +351,7 @@ export async function updateInventoryProductIdentityAction(input: {
   const { data, error } = await ctx.supabase.rpc('inventory_update_product_identity_v1', {
     p_configuration: {
       product_id: productId,
+      product_type: input.productType,
       name,
       sku,
       units_per_service: unitsPerService,

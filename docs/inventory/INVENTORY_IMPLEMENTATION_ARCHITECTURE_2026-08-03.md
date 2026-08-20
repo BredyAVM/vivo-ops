@@ -718,3 +718,29 @@ La migración vigente es
 `20260820150134_inventory_order_issue_reconciliation_v1.sql`. La auditoría y
 certificación están en
 `docs/inventory/INVENTORY_ORDER_ISSUE_RECONCILIATION_2026-08-20.md`.
+
+## 29. Familia comercial editable sin alterar la topología física
+
+La familia comercial de un producto existente se guarda en el campo canónico
+`products.type`. Sus valores operativos son `product`, `combo`, `service`,
+`promo` y `gambit`; en la interfaz se presentan como Producto, Combo, Servicio,
+Promoción y Obsequio. `products.is_combo` se mantiene sincronizado únicamente
+como indicador legado del valor `combo`.
+
+Administración realiza el cambio desde
+`/app/inventory/configure?view=edit&productId=<id>`. La dashboard no mantiene un
+segundo editor: muestra la clasificación y enlaza al mismo producto dentro del
+Centro de Inventario. El RPC `inventory_update_product_identity_v1` conserva
+la autorización administrativa, el bloqueo transaccional por producto y el
+registro de identidad y condiciones comerciales en una sola escritura.
+
+Cambiar la familia comercial nunca modifica `inventory_policy`,
+`product_inventory_links`, `product_components`, recetas, movimientos, saldos
+ni snapshots históricos de órdenes. Por tanto, reclasificar una presentación
+de Combo a Obsequio afecta su agrupación comercial futura, pero no cambia qué
+consume físicamente.
+
+La corrección inicial reutiliza el SKU estable `DEGUSTPF_8`, sin depender de un
+id generado. Antes de reclasificarlo, la migración verifica que la ruta directa
+tenga cinco vínculos y totalice exactamente 8 UND crudas. La migración vigente
+es `20260820163156_inventory_product_commercial_family_edit_v1.sql`.

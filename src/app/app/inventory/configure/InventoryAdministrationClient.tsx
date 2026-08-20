@@ -43,11 +43,13 @@ type ProductComponent = {
   is_required: boolean;
 };
 
+type ProductCommercialType = 'product' | 'combo' | 'service' | 'promo' | 'gambit';
+
 export type AdminProduct = {
   id: number;
   sku: string | null;
   name: string;
-  type: string;
+  type: ProductCommercialType;
   is_active: boolean;
   units_per_service: number;
   allows_half_service: boolean;
@@ -163,6 +165,14 @@ const policyLabels: Record<NonNullable<AdminProduct['inventory_policy']>, string
   none: 'No descuenta inventario',
 };
 
+const productCommercialTypeLabels: Record<ProductCommercialType, string> = {
+  product: 'Producto',
+  combo: 'Combo',
+  service: 'Servicio',
+  promo: 'Promoción',
+  gambit: 'Obsequio',
+};
+
 const availabilityLabels: Record<NonNullable<AdminItem['availability_mode']>, string> = {
   on_hand_only: 'Solo existencia física',
   immediate_recipe: 'Preparación inmediata',
@@ -216,12 +226,14 @@ function recipeKey(outputItemId: number, kind: AdminRecipe['recipe_kind']) {
 export default function InventoryAdministrationClient({
   workspace,
   initialItemId = null,
+  initialProductId = null,
 }: {
   workspace: InventoryAdminWorkspace;
   initialItemId?: number | null;
+  initialProductId?: number | null;
 }) {
-  const [editor, setEditor] = useState<Editor>('item');
-  const [productId, setProductId] = useState('');
+  const [editor, setEditor] = useState<Editor>(initialProductId ? 'product' : 'item');
+  const [productId, setProductId] = useState(initialProductId ? String(initialProductId) : '');
   const [productSearch, setProductSearch] = useState('');
   const [itemId, setItemId] = useState(initialItemId ? String(initialItemId) : '');
   const [itemSearch, setItemSearch] = useState('');
@@ -457,6 +469,7 @@ function ProductEditor({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(product.name);
+  const [productType, setProductType] = useState<ProductCommercialType>(product.type);
   const [sku, setSku] = useState(product.sku ?? '');
   const [unitsPerService, setUnitsPerService] = useState(String(product.units_per_service));
   const [detailUnitsLimit, setDetailUnitsLimit] = useState(String(product.detail_units_limit));
@@ -486,6 +499,7 @@ function ProductEditor({
       try {
         await updateInventoryProductIdentityAction({
           productId: product.id,
+          productType,
           name,
           sku,
           unitsPerService: Number(unitsPerService),
@@ -501,7 +515,7 @@ function ProductEditor({
           advisorGiftCostUsd: optionalDecimal(advisorGiftCostUsd),
           internalRiderPayUsd: optionalDecimal(internalRiderPayUsd),
         });
-        setMessage('Producto actualizado. Las órdenes históricas conservaron sus datos originales.');
+        setMessage('Producto actualizado. La familia aplica al catálogo futuro y las órdenes históricas conservaron sus datos originales.');
         router.refresh();
       } catch (saveError) {
         setError(saveError instanceof Error ? saveError.message : 'No se pudo modificar el producto.');
@@ -577,6 +591,20 @@ function ProductEditor({
           </Field>
           <Field label="SKU">
             <input value={sku} onChange={(event) => setSku(event.target.value)} maxLength={64} className={INPUT_CLASS} />
+          </Field>
+          <Field
+            label="Familia comercial"
+            hint="Define dónde se agrupa el producto para ventas y reportes. No cambia lo que descuenta del inventario."
+          >
+            <select
+              value={productType}
+              onChange={(event) => setProductType(event.target.value as ProductCommercialType)}
+              className={INPUT_CLASS}
+            >
+              {(Object.entries(productCommercialTypeLabels) as Array<[ProductCommercialType, string]>).map(
+                ([value, label]) => <option key={value} value={value}>{label}</option>,
+              )}
+            </select>
           </Field>
           <Field label="Unidades por servicio">
             <input type="number" min="0" step="1" value={unitsPerService} onChange={(event) => setUnitsPerService(event.target.value)} className={INPUT_CLASS} />
@@ -684,6 +712,7 @@ function ProductEditor({
       </div>
 
       <ImpactCard title="Impacto antes de guardar">
+        <ImpactLine label="Familia comercial" value={productCommercialTypeLabels[productType]} />
         <ImpactLine label="Política" value={product.inventory_policy ? policyLabels[product.inventory_policy] : 'Sin clasificar'} />
         <ImpactLine label="Órdenes históricas" value={quantity(product.order_reference_count)} />
         <ImpactLine label="Órdenes abiertas" value={quantity(product.open_order_reference_count)} />
