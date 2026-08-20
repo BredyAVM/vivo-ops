@@ -696,3 +696,25 @@ de existencias agrupa por familia y separa: saldo actual, pedidos dentro de diez
 días, pedidos posteriores, saldo libre sin reposiciones y proyección con
 entradas conocidas. `Entradas esperadas` permanece dentro del control operativo
 de Máster y no redirige al Centro general.
+
+## 28. Saneamiento de incidencias de inventario en órdenes
+
+Los marcadores estructurados `@sel` de un producto configurable describen una
+presentación, no el total de toda la partida. `order_item_components` conserva
+el total físico resultante de multiplicar esa composición por `order_items.qty`.
+El resolver, los compromisos y el descuento final leen ese mismo snapshot.
+
+Durante una sustitución de partidas, una orden puede quedar vacía dentro de la
+misma edición. Ese estado transitorio equivale a un compromiso de cero: se
+cierran sus flujos abiertos y no se genera `order_without_items`. La orden nunca
+se bloquea.
+
+Las incidencias de sincronización reutilizan el timeline existente. Una misma
+firma pendiente produce un único evento accionable; al reconstruir el snapshot,
+el compromiso o el consumo, sus destinatarios se marcan automáticamente como
+resueltos sin borrar el historial.
+
+La migración vigente es
+`20260820150134_inventory_order_issue_reconciliation_v1.sql`. La auditoría y
+certificación están en
+`docs/inventory/INVENTORY_ORDER_ISSUE_RECONCILIATION_2026-08-20.md`.
