@@ -151,9 +151,8 @@ function closureStatus(status: string) {
 }
 
 function orderLabel(order: SnapshotOrder) {
-  const explicit = String(order.orderNumber || '').trim();
   const id = numberValue(order.orderId);
-  return explicit || (id > 0 ? formatOrderDisplayNumber(id) : 'Sin número');
+  return id > 0 ? formatOrderDisplayNumber(id) : 'Sin número';
 }
 
 function commissionModeLabel(value: string | null | undefined) {
@@ -877,7 +876,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                             <div className="shrink-0 text-sm font-semibold text-[#F5F7FB]">{money(firstOrderTotal)}</div>
                           </div>
                           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#AAB2C5]">
-                            <span>Primera orden {client.orderNumber || (orderId > 0 ? formatOrderDisplayNumber(orderId) : 'sin número')}</span>
+                            <span>Primera orden {orderId > 0 ? formatOrderDisplayNumber(orderId) : 'sin número'}</span>
                             {orderId > 0 ? (
                               <Link
                                 href={withAdvisorReturnTo(`/app/advisor/orders/${orderId}`, returnTo)}

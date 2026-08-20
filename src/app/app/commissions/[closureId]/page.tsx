@@ -111,9 +111,8 @@ function dateTimeLabel(value: string | null | undefined) {
 }
 
 function orderLabel(order: CommissionAuditOrder | CommissionAuditProduct) {
-  const explicit = String(order.orderNumber || '').trim();
   const id = commissionAuditNumber(order.orderId);
-  return explicit || (id > 0 ? formatOrderDisplayNumber(id) : 'Sin número');
+  return id > 0 ? formatOrderDisplayNumber(id) : 'Sin número';
 }
 
 function commissionModeLabel(value: string | null | undefined) {
