@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
+import { adminCommissionAuditHref } from '@/lib/commissions/admin-audit';
 import { readAdvisorCommissionCarryOverride } from '@/lib/commissions/carry-state';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
 import {
@@ -144,13 +145,20 @@ function getSnapshotAdvisorName(snapshot: unknown) {
   return typeof name === 'string' && name.trim() ? name.trim() : null;
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
-  return (
-    <div className="rounded-2xl border border-[#282832] bg-[#15151B] px-4 py-3">
+function Stat({ label, value, note, href }: { label: string; value: string; note?: string; href?: string }) {
+  const content = (
+    <>
       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8F8F9C]">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-[#F7F7F8]">{value}</div>
       {note ? <div className="mt-1 text-xs text-[#A4A4AF]">{note}</div> : null}
-    </div>
+    </>
+  );
+  return href ? (
+    <Link className="rounded-2xl border border-[#282832] bg-[#15151B] px-4 py-3 transition hover:border-[#F0D000]/55" href={href}>
+      {content}
+    </Link>
+  ) : (
+    <div className="rounded-2xl border border-[#282832] bg-[#15151B] px-4 py-3">{content}</div>
   );
 }
 
@@ -639,12 +647,12 @@ export default async function CommissionAdministrationPage({
         ) : rows.length > 0 ? (
           <>
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-              <Stat label="Asesores" value={String(rows.length)} note="Cierres del periodo" />
-              <Stat label="Facturación entregada" value={money(totals.billedUsd)} note="Base comercial registrada" />
-              <Stat label="Comisión bruta" value={money(totals.grossCommissionUsd)} />
-              <Stat label="Deducibles" value={money(totals.deductionsUsd)} note="Obsequios y cargos registrados" />
-              <Stat label="Comisión retenida" value={money(totals.retainedCommissionUsd)} note="Se arrastra al próximo periodo" />
-              <Stat label="Saldo por pagar" value={money(totals.paymentBalanceUsd)} note={`${money(totals.paidUsd)} ya abonados`} />
+              <Stat label="Asesores" value={String(rows.length)} note="Ver cierres del periodo" href="#advisor-closures" />
+              <Stat label="Facturación entregada" value={money(totals.billedUsd)} note="Desglosada abajo por asesor" href="#advisor-closures" />
+              <Stat label="Comisión bruta" value={money(totals.grossCommissionUsd)} note="Desglosada abajo por asesor" href="#advisor-closures" />
+              <Stat label="Deducibles" value={money(totals.deductionsUsd)} note="Obsequios y cargos por asesor" href="#advisor-closures" />
+              <Stat label="Comisión retenida" value={money(totals.retainedCommissionUsd)} note="Arrastre detallado por asesor" href="#advisor-closures" />
+              <Stat label="Saldo por pagar" value={money(totals.paymentBalanceUsd)} note={`${money(totals.paidUsd)} ya abonados · ver relación`} href="#advisor-closures" />
             </section>
 
             {totals.differences > 0 ? (
@@ -658,7 +666,7 @@ export default async function CommissionAdministrationPage({
               </section>
             ) : null}
 
-            <section className="space-y-3">
+            <section id="advisor-closures" className="scroll-mt-5 space-y-3">
               <div>
                 <h2 className="text-lg font-semibold tracking-[-0.02em]">Relación por asesor</h2>
                 <p className="mt-1 text-sm text-[#9696A2]">Una sola lectura compacta por cada liquidación.</p>
@@ -678,6 +686,12 @@ export default async function CommissionAdministrationPage({
                             {numberValue(row.closure.delivered_orders_count)} pedidos entregados · Comisión base{' '}
                             {numberValue(row.closure.base_commission_pct).toFixed(2)}%
                           </div>
+                          <Link
+                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#F0D000]/40 px-3 py-1.5 text-xs font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
+                            href={adminCommissionAuditHref(row.closure.id, 'settlement')}
+                          >
+                            Auditar cierre completo <span aria-hidden="true">→</span>
+                          </Link>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${status.classes}`}>
@@ -699,35 +713,41 @@ export default async function CommissionAdministrationPage({
                       </div>
 
                       <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-[#272730] py-4 sm:grid-cols-3">
-                        <div>
+                        <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'billing')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Facturación</div>
                           <div className="mt-1 font-semibold">{money(row.closure.billed_usd)}</div>
-                        </div>
-                        <div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver pedidos →</div>
+                        </Link>
+                        <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'commission')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Comisión bruta</div>
                           <div className="mt-1 font-semibold">{money(row.closure.gross_commission_usd)}</div>
-                        </div>
-                        <div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver fórmula →</div>
+                        </Link>
+                        <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'deductions')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Deducibles</div>
                           <div className="mt-1 font-semibold">
                             {money(numberValue(row.closure.gift_deductions_usd) + row.registeredManualDeductionsUsd)}
                           </div>
-                        </div>
-                        <div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver cargos →</div>
+                        </Link>
+                        <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'debts')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Deuda clientes</div>
                           <div className="mt-1 font-semibold text-amber-200">{money(row.closure.pending_collection_usd)}</div>
-                        </div>
-                        <div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver clientes →</div>
+                        </Link>
+                        <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'settlement')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Liquidación acordada</div>
                           <div className="mt-1 font-semibold text-[#F7DA66]">{money(row.closure.payable_usd)}</div>
-                        </div>
-                        <div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver cálculo →</div>
+                        </Link>
+                        <Link className="rounded-xl p-2 transition hover:bg-[#1C1C24]" href={adminCommissionAuditHref(row.closure.id, 'payments')}>
                           <div className="text-[10px] uppercase tracking-[0.14em] text-[#858591]">Pagado / pendiente</div>
                           <div className="mt-1 font-semibold">
                             {money(row.paidUsd)} <span className="text-[#777784]">/</span>{' '}
                             <span className="text-[#F7DA66]">{money(row.paymentBalanceUsd)}</span>
                           </div>
-                        </div>
+                          <div className="mt-1 text-[10px] font-semibold text-[#F7DA66]">Ver abonos →</div>
+                        </Link>
                       </div>
 
                       {settlementIsCurrent ? (

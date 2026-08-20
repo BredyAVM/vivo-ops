@@ -12461,6 +12461,7 @@ function buildAdvisorCommissionSnapshots(params: {
       clientId: client?.id ?? null,
       clientName: client?.full_name || 'Cliente',
       deliveryDate,
+      billedUsd: roundMoney(commissionableSubtotalUsd),
       totalUsd,
       confirmedPaidUsd,
       pendingUsd,
