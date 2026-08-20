@@ -47,7 +47,7 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
 
   const { data: profile } = await ctx.supabase
     .from('profiles')
-    .select('full_name')
+    .select('full_name, receives_commissions')
     .eq('id', ctx.user.id)
     .maybeSingle();
 
@@ -72,6 +72,7 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
       }
       actionCount={notificationCounts.unreadActions}
       updateCount={notificationCounts.unreadUpdates}
+      receivesCommissions={profile?.receives_commissions === true}
     >
       <AdvisorPwaRegistrar />
       {children}

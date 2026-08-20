@@ -15,6 +15,7 @@ type AdvisorShellProps = {
   userId: string;
   actionCount: number;
   updateCount: number;
+  receivesCommissions: boolean;
 };
 
 const navItems = [
@@ -45,7 +46,7 @@ function resolveBackHref(pathname: string, requestedReturnTo: string | null) {
 }
 
 export default function AdvisorShell(props: AdvisorShellProps) {
-  const { children, userId, fullName, actionCount, updateCount } = props;
+  const { children, userId, fullName, actionCount, updateCount, receivesCommissions } = props;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -62,6 +63,9 @@ export default function AdvisorShell(props: AdvisorShellProps) {
     const normalized = String(fullName || '').trim();
     return normalized ? normalized.split(/\s+/)[0] || 'Asesor' : 'Asesor';
   }, [fullName]);
+  const visibleNavItems = receivesCommissions
+    ? navItems
+    : navItems.filter((item) => item.href !== '/app/advisor/commissions');
 
   return (
     <div className="advisor-app min-h-screen bg-[#090B10] text-[#F5F7FB]">
@@ -126,7 +130,7 @@ export default function AdvisorShell(props: AdvisorShellProps) {
           {menuOpen ? (
             <div className="absolute inset-x-4 top-full mt-2 rounded-[18px] border border-[#232632] bg-[#11141C] p-2 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
               <div className="grid gap-1">
-                {navItems.map((item) => {
+                {visibleNavItems.map((item) => {
                   const active = isActive(pathname, item.href);
 
                   return (

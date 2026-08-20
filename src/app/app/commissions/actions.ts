@@ -18,6 +18,10 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { calculateAdvisorCommissionSettlement } from '@/lib/commissions/settlement-engine';
 import {
+  advisorReceivesCommissions,
+  loadEligibleCommissionAdvisors,
+} from '@/lib/commissions/advisor-eligibility';
+import {
   confirmAdvisorCommissionWorkflowSnapshot,
   preserveAdvisorCommissionWorkflowSnapshot,
   readAdvisorCommissionWorkflowSnapshot,
@@ -159,9 +163,13 @@ async function applySettlementToPreliminaryClosures(input: {
 
   if (currentError) throw new Error(currentError.message);
 
+  const eligibleAdvisorIds = new Set(
+    (await loadEligibleCommissionAdvisors(supabase)).map((advisor) => advisor.userId)
+  );
   const currentClosures = ((currentData ?? []) as ClosureMoneyRow[]).filter(
     (closure) =>
       closure.status === 'preliminary' &&
+      eligibleAdvisorIds.has(closure.advisor_user_id) &&
       (!input.closureId || Number(closure.id) === input.closureId)
   );
   if (currentClosures.length === 0) {
@@ -410,7 +418,7 @@ export async function confirmCommissionClosureAction(formData: FormData) {
 
     const { data: closure, error: closureError } = await supabase
       .from('advisor_commission_closures')
-      .select('id, status, snapshot')
+      .select('id, advisor_user_id, status, snapshot')
       .eq('id', closureId)
       .single();
 
@@ -419,6 +427,9 @@ export async function confirmCommissionClosureAction(formData: FormData) {
     }
     if (closure.status !== 'preliminary' && closure.status !== 'closed') {
       throw new Error('Esta liquidación ya no admite conformidad.');
+    }
+    if (!(await advisorReceivesCommissions(supabase, closure.advisor_user_id))) {
+      throw new Error('Este usuario no está habilitado para recibir comisiones.');
     }
     const settlement = readAdvisorCommissionSettlementSnapshot(closure.snapshot);
     if (settlement.formulaVersion === 'legacy') {
@@ -756,7 +767,7 @@ async function loadEditableClosure(
 ) {
   const { data, error } = await supabase
     .from('advisor_commission_closures')
-    .select('id, period_id, status, snapshot')
+    .select('id, period_id, advisor_user_id, status, snapshot')
     .eq('id', closureId)
     .single();
 
@@ -765,6 +776,9 @@ async function loadEditableClosure(
   }
   if (data.status !== 'preliminary') {
     throw new Error('Solo una liquidación preliminar admite cambios en deducibles.');
+  }
+  if (!(await advisorReceivesCommissions(supabase, data.advisor_user_id))) {
+    throw new Error('Este usuario no está habilitado para recibir comisiones.');
   }
   return data;
 }

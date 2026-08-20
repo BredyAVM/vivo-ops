@@ -418,6 +418,7 @@ type RawProfileRow = {
   id: string;
   full_name: string | null;
   is_active: boolean | null;
+  receives_commissions: boolean | null;
   created_at: string | null;
 };
 
@@ -1109,7 +1110,7 @@ const [
     'profiles',
     supabase
       .from('profiles')
-      .select('id, full_name, is_active, created_at')
+      .select('id, full_name, is_active, receives_commissions, created_at')
       .order('created_at', { ascending: false })
       .limit(500),
     optionalSupabaseResponse([] as RawProfileRow[])
@@ -1167,8 +1168,11 @@ const dashboardUsers = ((userProfilesData ?? []) as RawProfileRow[]).map((row) =
   fullName: row.full_name?.trim() || '',
   email: authUserEmailById.get(String(row.id)) ?? null,
   isActive: Boolean(row.is_active ?? true),
+  receivesCommissions: row.receives_commissions === true,
   createdAt: row.created_at ?? null,
 }));
+
+const dashboardUserById = new Map(dashboardUsers.map((profile) => [profile.id, profile]));
 
 const dashboardUserRoles = ((userRolesData ?? []) as RawUserRoleRow[]).map((row) => ({
   userId: String(row.user_id),
@@ -1375,6 +1379,7 @@ const advisorOptions = ((advisorsRpcData ?? []) as Array<{
     userId: String(row.user_id),
     fullName: row.full_name?.trim() || 'Sin nombre',
     isActive: Boolean(row.is_active ?? true),
+    receivesCommissions: dashboardUserById.get(String(row.user_id))?.receivesCommissions === true,
   }))
   .sort((a, b) => a.fullName.localeCompare(b.fullName));
 

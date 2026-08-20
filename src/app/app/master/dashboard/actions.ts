@@ -15,6 +15,10 @@ import { formatOrderDisplayLabel } from '@/lib/orders/order-labels';
 import { isOrderPriceProtected } from '@/lib/domain/order-domain';
 import { loadMoneyAccountBalanceSnapshots } from '@/lib/finance/account-balances';
 import {
+  advisorReceivesCommissions,
+  loadEligibleCommissionAdvisors,
+} from '@/lib/commissions/advisor-eligibility';
+import {
   getOrderCommercialNetUsd,
   getOrderLineTotalUsd,
   getOrderMoneySnapshot,
@@ -669,6 +673,7 @@ async function updateDashboardUserActionLegacy(input: {
   userId: string;
   fullName: string;
   isActive: boolean;
+  receivesCommissions: boolean;
   roles: AppUserRole[];
 }) {
   const { supabase, user, roles } = await requireMasterOrAdmin();
@@ -695,6 +700,8 @@ async function updateDashboardUserActionLegacy(input: {
     .update({
       full_name: fullName || null,
       is_active: Boolean(input.isActive),
+      receives_commissions:
+        nextRoles.includes('advisor') && Boolean(input.receivesCommissions),
     })
     .eq('id', userId);
 
@@ -736,6 +743,7 @@ export async function updateDashboardUserAction(input: {
   userId: string;
   fullName: string;
   isActive: boolean;
+  receivesCommissions: boolean;
   roles: AppUserRole[];
 }) {
   try {
@@ -764,6 +772,8 @@ export async function updateDashboardUserAction(input: {
       .update({
         full_name: fullName || null,
         is_active: Boolean(input.isActive),
+        receives_commissions:
+          nextRoles.includes('advisor') && Boolean(input.receivesCommissions),
       })
       .eq('id', userId);
 
@@ -12645,26 +12655,19 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     throw new Error('Solo se pueden generar preliminares en periodos abiertos.');
   }
 
-  const { data: advisorsData, error: advisorsError } = await supabase.rpc('get_advisor_profiles');
-  if (advisorsError) {
-    throw new Error(advisorsError.message);
-  }
-
-  const advisors = ((advisorsData ?? []) as Array<{
-    user_id: string;
-    full_name: string | null;
-    is_active: boolean | null;
-  }>)
-    .filter((advisor) => Boolean(advisor.is_active ?? true))
-    .filter((advisor) => !advisorUserId || String(advisor.user_id) === advisorUserId);
+  const advisors = await loadEligibleCommissionAdvisors(supabase, advisorUserId);
 
   if (advisors.length === 0) {
-    throw new Error('No hay asesores activos para generar.');
+    throw new Error(
+      advisorUserId
+        ? 'El usuario seleccionado no está habilitado para recibir comisiones.'
+        : 'No hay asesores activos habilitados para recibir comisiones.'
+    );
   }
 
-  const advisorIds = advisors.map((advisor) => String(advisor.user_id));
+  const advisorIds = advisors.map((advisor) => advisor.userId);
   const advisorNamesById = new Map(
-    advisors.map((advisor) => [String(advisor.user_id), advisor.full_name?.trim() || 'Asesor'])
+    advisors.map((advisor) => [advisor.userId, advisor.fullName])
   );
   const endExclusive = new Date(`${period.date_to}T00:00:00-04:00`);
   endExclusive.setDate(endExclusive.getDate() + 1);
@@ -13056,7 +13059,7 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
 
   const { data: currentClosure, error: currentClosureError } = await supabase
     .from('advisor_commission_closures')
-    .select('id, status')
+    .select('id, advisor_user_id, status')
     .eq('id', closureId)
     .single();
 
@@ -13067,6 +13070,13 @@ export async function updateAdvisorCommissionClosureStatusAction(input: {
   const currentStatus = String(currentClosure.status || '');
   if (nextStatus === 'closed' && currentStatus !== 'preliminary') {
     throw new Error('Solo un preliminar puede pasar a cierre.');
+  }
+
+  if (
+    nextStatus === 'closed' &&
+    !(await advisorReceivesCommissions(supabase, String(currentClosure.advisor_user_id || '')))
+  ) {
+    throw new Error('Este usuario no está habilitado para recibir comisiones.');
   }
 
   if (nextStatus === 'preliminary' && currentStatus !== 'closed') {
@@ -13172,9 +13182,19 @@ export async function loadAdvisorCommissionClosuresAction(input: {
     throw new Error(error.message);
   }
 
+  const eligibleAdvisorIds = new Set(
+    (await loadEligibleCommissionAdvisors(supabase)).map((advisor) => advisor.userId)
+  );
+  const visibleRows = ((data ?? []) as any[]).filter(
+    (row) =>
+      eligibleAdvisorIds.has(String(row.advisor_user_id)) ||
+      row.status === 'closed' ||
+      row.status === 'paid'
+  );
+
   return {
     ok: true as const,
-    closures: ((data ?? []) as any[]).map((row) => ({
+    closures: visibleRows.map((row) => ({
       id: Number(row.id),
       periodId: Number(row.period_id),
       advisorUserId: row.advisor_user_id,
@@ -13218,8 +13238,8 @@ export async function loadAdvisorCommissionPeriodAdvisorsAction(input: { periodI
     throw new Error('Selecciona un periodo valido.');
   }
 
-  const [advisorsResult, closuresResult] = await Promise.all([
-    supabase.rpc('get_advisor_profiles'),
+  const [eligibleAdvisors, closuresResult] = await Promise.all([
+    loadEligibleCommissionAdvisors(supabase),
     supabase
       .from('advisor_commission_closures')
       .select('advisor_user_id, status, generated_at')
@@ -13228,10 +13248,6 @@ export async function loadAdvisorCommissionPeriodAdvisorsAction(input: { periodI
       .limit(200),
   ]);
 
-  if (advisorsResult.error) {
-    throw new Error(advisorsResult.error.message);
-  }
-
   if (closuresResult.error) {
     throw new Error(closuresResult.error.message);
   }
@@ -13239,10 +13255,12 @@ export async function loadAdvisorCommissionPeriodAdvisorsAction(input: { periodI
   const advisorIds = Array.from(
     new Set(
       [
-        ...((advisorsResult.data ?? []) as Array<{ user_id: string | null; is_active: boolean | null }>)
-          .filter((advisor) => Boolean(advisor.is_active ?? true))
-          .map((advisor) => String(advisor.user_id || '').trim()),
-        ...((closuresResult.data ?? []) as Array<{ advisor_user_id: string | null }>)
+        ...eligibleAdvisors.map((advisor) => advisor.userId),
+        ...((closuresResult.data ?? []) as Array<{
+          advisor_user_id: string | null;
+          status: string | null;
+        }>)
+          .filter((row) => row.status === 'closed' || row.status === 'paid')
           .map((row) => String(row.advisor_user_id || '').trim()),
       ].filter(Boolean)
     )

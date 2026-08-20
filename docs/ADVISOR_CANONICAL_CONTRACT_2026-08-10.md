@@ -24,6 +24,10 @@ Este documento fija los límites operativos del módulo Asesor para que futuras 
 
 ## Comisiones
 
+- El rol `advisor` concede acceso operativo para vender; no implica por sí solo recibir comisiones.
+- `profiles.receives_commissions` es la única marca de participación económica. Para generar una liquidación, el perfil debe estar activo, tener rol Asesor y tener esta marca habilitada.
+- Un usuario puede conservar el módulo Asesor con `receives_commissions = false`. En ese caso no aparece en cálculos nuevos ni en el menú personal de Comisiones.
+- Los preliminares antiguos de una persona actualmente no comisionable no se recalculan ni se presentan como liquidaciones activas. Los cierres históricos confirmados o pagados se conservan para auditoría.
 - La fuente es `advisor_commission_periods`, `advisor_commission_closures` y `advisor_commission_deductions`.
 - La aplicación muestra el snapshot cerrado por administración y no intenta reconstruir el período en el cliente.
 - Las órdenes del snapshot pueden abrirse, conservando el período seleccionado como ruta de regreso.

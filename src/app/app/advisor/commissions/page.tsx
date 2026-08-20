@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
@@ -265,6 +266,13 @@ function CommissionSummaryLink({
 export default async function AdvisorCommissionsPage({ searchParams }: { searchParams?: SearchParams }) {
   const ctx = await getAuthContext();
   if (!ctx) return null;
+
+  const { data: profile } = await ctx.supabase
+    .from('profiles')
+    .select('receives_commissions')
+    .eq('id', ctx.user.id)
+    .maybeSingle();
+  if (profile?.receives_commissions !== true) redirect('/app/advisor');
 
   const params = (await searchParams) ?? {};
   const { data: periodData, error: periodError } = await ctx.supabase

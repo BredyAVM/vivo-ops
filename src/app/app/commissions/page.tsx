@@ -8,6 +8,7 @@ import {
   getAdvisorCommissionClosureIdFromPaymentDescription,
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
+import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
 import {
   addCommissionDeductionAction,
   calculateCommissionPeriodAction,
@@ -229,7 +230,12 @@ export default async function CommissionAdministrationPage({
         .eq('period_id', Number(selectedPeriod.id))
         .order('generated_at', { ascending: false })
         .limit(100),
-      ctx.supabase.rpc('get_advisor_profiles'),
+      loadEligibleCommissionAdvisors(ctx.supabase)
+        .then((data) => ({ data, error: null as Error | null }))
+        .catch((error: unknown) => ({
+          data: [],
+          error: error instanceof Error ? error : new Error('No se pudieron cargar los asesores.'),
+        })),
       ctx.supabase
         .from('money_accounts')
         .select('id, name, currency_code, is_active')
@@ -259,8 +265,22 @@ export default async function CommissionAdministrationPage({
 
     closureLoadFailed = Boolean(closuresResult.error);
     advisorLoadFailed = Boolean(advisorsResult.error);
-    closures = closuresResult.error ? [] : ((closuresResult.data ?? []) as CommissionClosureRow[]);
-    advisorProfiles = advisorsResult.error ? [] : ((advisorsResult.data ?? []) as AdvisorProfileRow[]);
+    advisorProfiles = advisorsResult.error
+      ? []
+      : advisorsResult.data.map((advisor) => ({
+          user_id: advisor.userId,
+          full_name: advisor.fullName,
+          is_active: true,
+        }));
+    const eligibleAdvisorIds = new Set(advisorProfiles.map((advisor) => advisor.user_id));
+    closures = closuresResult.error
+      ? []
+      : ((closuresResult.data ?? []) as CommissionClosureRow[]).filter(
+          (closure) =>
+            eligibleAdvisorIds.has(String(closure.advisor_user_id)) ||
+            closure.status === 'closed' ||
+            closure.status === 'paid'
+        );
     advisorNames = new Map(
       advisorProfiles.map((advisor) => [
         String(advisor.user_id),

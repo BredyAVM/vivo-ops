@@ -668,6 +668,7 @@ type AdvisorOption = {
   userId: string;
   fullName: string;
   isActive: boolean;
+  receivesCommissions: boolean;
 };
 
 type AdvisorCommissionPeriod = {
@@ -1080,6 +1081,7 @@ type DashboardUser = {
   fullName: string;
   email: string | null;
   isActive: boolean;
+  receivesCommissions: boolean;
   createdAt: string | null;
 };
 
@@ -4353,6 +4355,7 @@ export default function MasterDashboardClient({
   const [userSaving, setUserSaving] = useState(false);
   const [userFormFullName, setUserFormFullName] = useState('');
   const [userFormIsActive, setUserFormIsActive] = useState(true);
+  const [userFormReceivesCommissions, setUserFormReceivesCommissions] = useState(false);
   const [userFormRoles, setUserFormRoles] = useState<Record<AppUserRole, boolean>>({
     admin: false,
     master: false,
@@ -6644,6 +6647,7 @@ const openEditDashboardUser = (userItem: DashboardUser) => {
   setSelectedDashboardUserId(userItem.id);
   setUserFormFullName(userItem.fullName);
   setUserFormIsActive(userItem.isActive);
+  setUserFormReceivesCommissions(userItem.receivesCommissions);
   setUserFormRoles({
     admin: userRoles.has('admin'),
     master: userRoles.has('master'),
@@ -6660,6 +6664,7 @@ const closeEditDashboardUser = () => {
   setSelectedDashboardUserId(null);
   setUserFormFullName('');
   setUserFormIsActive(true);
+  setUserFormReceivesCommissions(false);
   setUserFormRoles({
     admin: false,
     master: false,
@@ -6685,6 +6690,7 @@ const handleSaveDashboardUser = async () => {
       userId: selectedDashboardUser.id,
       fullName: userFormFullName,
       isActive: userFormIsActive,
+      receivesCommissions: userFormRoles.advisor && userFormReceivesCommissions,
       roles: nextRoles,
     });
 
@@ -13780,7 +13786,7 @@ const selectedCreateOrderClientAddresses = useMemo(
       return advisors.filter((advisor) => ids.has(advisor.userId));
     }
 
-    return advisors.filter((advisor) => advisor.isActive);
+    return advisors.filter((advisor) => advisor.isActive && advisor.receivesCommissions);
   }, [
     advisorCommissionPeriodAdvisorIds,
     advisorCommissionPeriodAdvisorsLoaded,
@@ -18008,6 +18014,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
               <th className="px-3 py-3 text-left font-medium">Usuario</th>
               <th className="px-3 py-3 text-left font-medium">Roles</th>
               <th className="px-3 py-3 text-left font-medium">Estado</th>
+              <th className="px-3 py-3 text-left font-medium">Comisiones</th>
               <th className="px-3 py-3 text-left font-medium">Creado</th>
               <th className="px-3 py-3 text-left font-medium">Detalle</th>
             </tr>
@@ -18015,7 +18022,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           <tbody>
             {filteredDashboardUsers.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={5}>
+                <td className="px-3 py-6 text-center text-[#B7B7C2]" colSpan={6}>
                   No hay usuarios que coincidan con el filtro.
                 </td>
               </tr>
@@ -18057,6 +18064,17 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                         <span className="text-emerald-400">Activo</span>
                       ) : (
                         <span className="text-[#8A8A96]">Inactivo</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {userRoles.includes('advisor') ? (
+                        userItem.receivesCommissions ? (
+                          <span className="text-emerald-400">Recibe</span>
+                        ) : (
+                          <span className="text-[#8A8A96]">No recibe</span>
+                        )
+                      ) : (
+                        '—'
                       )}
                     </td>
                     <td className="px-3 py-3">{userItem.createdAt ? fmtDateTimeES(userItem.createdAt) : '—'}</td>
@@ -28191,6 +28209,20 @@ return (
 
       <FieldInput label="Nombre" value={userFormFullName} onChange={setUserFormFullName} />
       <FieldCheckbox label="Activo" checked={userFormIsActive} onChange={setUserFormIsActive} />
+
+      {userFormRoles.advisor ? (
+        <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
+          <FieldCheckbox
+            label="Recibe comisiones"
+            checked={userFormReceivesCommissions}
+            onChange={setUserFormReceivesCommissions}
+          />
+          <p className="mt-2 text-[12px] leading-5 text-[#8A8A96]">
+            Puede vender desde el módulo Asesor aunque esta opción esté desactivada. Solo quienes la
+            tengan activa entrarán en los cálculos y liquidaciones.
+          </p>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-[#242433] bg-[#121218] p-3">
         <div className="text-sm font-semibold text-[#F5F5F7]">Roles</div>
