@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorPendingLink from '../AdvisorPendingLink';
 import { EmptyBlock, SectionCard, StatusBadge } from '../advisor-ui';
-import { markAdvisorTimelineRecipientsReadAction } from './actions';
+import { markAdvisorInboxItemsReadAction } from './actions';
 import {
   type InboxEvent,
   FILTERS,
@@ -25,6 +25,9 @@ function isTodayEvent(value: string) {
 
 function actionHref(event: InboxEvent, activeFilter: InboxFilter) {
   const returnTo = `/app/advisor/inbox?filter=${activeFilter}`;
+  if (event.href?.startsWith('/app/advisor/commissions')) {
+    return withAdvisorReturnTo(event.href, returnTo);
+  }
   if (event.eventType === 'payment_rejected') {
     return withAdvisorReturnTo(`/app/advisor/orders/${event.orderId}?reportPayment=1`, returnTo);
   }
@@ -37,6 +40,13 @@ function actionHref(event: InboxEvent, activeFilter: InboxFilter) {
 }
 
 function actionLabel(event: InboxEvent) {
+  if (
+    event.eventType === 'advisor_commission_review_ready' ||
+    event.eventType === 'advisor_commission_reconfirmation_required'
+  ) {
+    return 'Revisar liquidación';
+  }
+  if (event.eventType.startsWith('advisor_commission_')) return 'Ver comisiones';
   if (event.eventType === 'payment_rejected') return 'Corregir pago';
   if (event.eventType === 'order_returned_to_review' || event.eventType === 'order_changes_rejected') {
     return 'Corregir pedido';
@@ -53,7 +63,7 @@ export default function AdvisorInboxClient({
 }) {
   const router = useRouter();
   const [events, setEvents] = useState(initialEvents);
-  const [savingIds, setSavingIds] = useState<number[]>([]);
+  const [savingIds, setSavingIds] = useState<string[]>([]);
   const [markingAll, setMarkingAll] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -95,55 +105,65 @@ export default function AdvisorInboxClient({
   const todayEvents = useMemo(() => events.filter((event) => isTodayEvent(event.createdAt)), [events]);
   const earlierEvents = useMemo(() => events.filter((event) => !isTodayEvent(event.createdAt)), [events]);
 
-  function isSaving(recipientId: number) {
-    return savingIds.includes(recipientId);
+  function readKey(event: InboxEvent) {
+    return `${event.source}:${event.recipientId}`;
   }
 
-  async function markNotificationRead(notificationId: number) {
-    const currentEvent = events.find((event) => event.recipientId === notificationId);
-    if (!currentEvent || currentEvent.readAt) return;
+  function isSaving(event: InboxEvent) {
+    return savingIds.includes(readKey(event));
+  }
 
-    setSavingIds((current) => [...current, notificationId]);
+  async function markNotificationRead(event: InboxEvent) {
+    const currentEvent = events.find((candidate) => candidate.id === event.id);
+    if (!currentEvent || currentEvent.readAt) return;
+    const key = readKey(currentEvent);
+
+    setSavingIds((current) => [...current, key]);
 
     const nextReadAt = new Date().toISOString();
     const previousEvents = events;
     setEvents((current) =>
       current.map((event) =>
-        event.recipientId === notificationId ? { ...event, readAt: nextReadAt } : event
+        event.id === currentEvent.id ? { ...event, readAt: nextReadAt } : event
       )
     );
 
     try {
-      await markAdvisorTimelineRecipientsReadAction([notificationId]);
+      await markAdvisorInboxItemsReadAction([
+        { source: currentEvent.source, id: currentEvent.recipientId },
+      ]);
     } catch {
       setEvents(previousEvents);
     }
 
-    setSavingIds((current) => current.filter((id) => id !== notificationId));
+    setSavingIds((current) => current.filter((id) => id !== key));
   }
 
   async function markAllVisibleAsRead() {
-    const recipientIds = events.filter((event) => !event.readAt).map((event) => event.recipientId);
-    if (recipientIds.length === 0) return;
+    const unreadEvents = events.filter((event) => !event.readAt);
+    if (unreadEvents.length === 0) return;
+    const readKeys = unreadEvents.map(readKey);
 
     setMarkingAll(true);
-    setSavingIds((current) => [...current, ...recipientIds]);
+    setSavingIds((current) => [...current, ...readKeys]);
 
     const nextReadAt = new Date().toISOString();
     const previousEvents = events;
     setEvents((current) =>
       current.map((event) =>
-        recipientIds.includes(event.recipientId) ? { ...event, readAt: nextReadAt } : event
+        readKeys.includes(readKey(event)) ? { ...event, readAt: nextReadAt } : event
       )
     );
 
     try {
-      await markAdvisorTimelineRecipientsReadAction(recipientIds);
+      await markAdvisorInboxItemsReadAction(
+        unreadEvents.map((event) => ({ source: event.source, id: event.recipientId })),
+      );
     } catch {
       setEvents(previousEvents);
     }
 
-    setSavingIds((current) => current.filter((id) => !recipientIds.includes(id)));
+    setSavingIds((current) => current.filter((id) => !readKeys.includes(id)));
     setMarkingAll(false);
   }
 
@@ -167,17 +187,21 @@ export default function AdvisorInboxClient({
   const visibleEventCount = groupedSections.reduce((sum, section) => sum + section.rows.length, 0);
   const visibleFilters = activeFilter === 'pending'
     ? []
-    : activeFilter === 'updates' || activeFilter === 'kitchen' || activeFilter === 'delivery' || activeFilter === 'payments'
+    : activeFilter === 'updates' || activeFilter === 'kitchen' || activeFilter === 'delivery' || activeFilter === 'payments' || activeFilter === 'commissions'
       ? []
       : FILTERS;
   const sectionTitle = activeFilter === 'pending'
     ? 'Acciones por atender'
+    : activeFilter === 'commissions'
+      ? 'Comisiones'
     : activeFilter === 'updates'
       ? 'Seguimiento operativo'
       : 'Bandeja';
   const emptyTitle = activeFilter === 'pending' ? 'Sin acciones pendientes' : 'Sin eventos para este filtro';
   const emptyDetail = activeFilter === 'pending'
-    ? 'Cuando una orden necesite correccion o un pago requiera accion, aparecera aqui.'
+    ? 'Cuando una orden o liquidación requiera tu revisión, aparecerá aquí.'
+    : activeFilter === 'commissions'
+      ? 'Cuando una liquidación esté lista o reciba un abono, aparecerá aquí.'
     : 'Cuando haya movimiento operativo, aparecera aqui sin mezclarlo con acciones.';
 
   return (
@@ -208,6 +232,8 @@ export default function AdvisorInboxClient({
         subtitle={
           activeFilter === 'pending'
             ? 'Solo llamadas de accion para resolver cuanto antes.'
+            : activeFilter === 'commissions'
+              ? 'Revisiones y pagos de tus liquidaciones, sin mezclarlos con pedidos.'
             : activeFilter === 'updates'
               ? 'Seguimiento operativo sin acciones pendientes.'
               : 'Ultimo estado por orden, sin ruido duplicado.'
@@ -260,8 +286,8 @@ export default function AdvisorInboxClient({
                           key={event.id}
                           href={actionHref(event, activeFilter)}
                           onClick={() => {
-                            if (!isRead && !isSaving(event.recipientId)) {
-                              void markNotificationRead(event.recipientId);
+                            if (!isRead && !isSaving(event)) {
+                              void markNotificationRead(event);
                             }
                           }}
                           className={[
@@ -328,11 +354,11 @@ export default function AdvisorInboxClient({
                             {!isRead ? (
                               <button
                                 type="button"
-                                onClick={() => void markNotificationRead(event.recipientId)}
-                                disabled={isSaving(event.recipientId)}
+                                onClick={() => void markNotificationRead(event)}
+                                disabled={isSaving(event)}
                                 className="inline-flex h-8 items-center rounded-[10px] border border-[#232632] px-2 text-[10px] font-medium text-[#CCD3E2] disabled:text-[#6F7890]"
                               >
-                                {isSaving(event.recipientId) ? 'Guardando...' : 'Visto'}
+                                {isSaving(event) ? 'Guardando...' : 'Visto'}
                               </button>
                             ) : (
                               <span className="inline-flex h-8 items-center px-2 text-[10px] text-[#6F7890]">Leída</span>
@@ -341,8 +367,8 @@ export default function AdvisorInboxClient({
                           <AdvisorPendingLink
                             href={actionHref(event, activeFilter)}
                             onClick={() => {
-                              if (!isRead && !isSaving(event.recipientId)) {
-                                void markNotificationRead(event.recipientId);
+                              if (!isRead && !isSaving(event)) {
+                                void markNotificationRead(event);
                               }
                             }}
                             className={[

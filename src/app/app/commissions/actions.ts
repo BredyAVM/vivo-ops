@@ -16,6 +16,12 @@ import {
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
   buildAdvisorCommissionPaymentDescription,
 } from '@/lib/commissions/payment-ledger';
+import {
+  notifyAdvisorCommissionPayment,
+  notifyAdvisorCommissionPeriodReviewReady,
+  notifyAdvisorCommissionReconfirmationRequired,
+  resolveAdvisorCommissionReviewNotification,
+} from '@/lib/commissions/notifications';
 import { calculateAdvisorCommissionSettlement } from '@/lib/commissions/settlement-engine';
 import {
   advisorReceivesCommissions,
@@ -88,6 +94,20 @@ function advisorCommissionRates(formData: FormData) {
 
 function roundMoney(value: unknown) {
   return Math.round((numberValue(value) + Number.EPSILON) * 100) / 100;
+}
+
+async function bestEffortCommissionNotification(
+  label: string,
+  task: () => Promise<unknown>,
+) {
+  try {
+    await task();
+  } catch (error) {
+    console.warn(
+      `advisor commission notification skipped: ${label}`,
+      error instanceof Error ? error.message : 'unknown notification error',
+    );
+  }
 }
 
 function directDeductionsUsd(closure: Pick<ClosureMoneyRow, 'deductions'>) {
@@ -343,6 +363,9 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
       scheduledLiquidationDate,
       previousSnapshotsByAdvisor,
     });
+    await bestEffortCommissionNotification('period review ready', () =>
+      notifyAdvisorCommissionPeriodReviewReady({ supabase, periodId }),
+    );
   } catch (error) {
     redirect(
       `/app/commissions?period=${Number.isInteger(periodId) && periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
@@ -352,6 +375,9 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
+  revalidatePath('/app/advisor', 'layout');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/advisor/commissions');
   redirect(
     `/app/commissions?period=${periodId}&notice=${encodeURIComponent(
       `${result.updated} liquidaciones actualizadas${
@@ -458,6 +484,13 @@ export async function confirmCommissionClosureAction(formData: FormData) {
       .eq('id', closureId);
 
     if (updateError) throw new Error(updateError.message);
+    await bestEffortCommissionNotification('review resolved', () =>
+      resolveAdvisorCommissionReviewNotification({
+        supabase,
+        advisorUserId: closure.advisor_user_id,
+        closureId,
+      }),
+    );
   } catch (error) {
     redirect(
       `/app/commissions?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
@@ -467,6 +500,8 @@ export async function confirmCommissionClosureAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
+  revalidatePath('/app/advisor', 'layout');
+  revalidatePath('/app/advisor/inbox');
   redirect(
     `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
       'Conformidad registrada. La liquidación ya puede recibir abonos.'
@@ -487,7 +522,7 @@ export async function reopenCommissionClosureAction(formData: FormData) {
 
     const { data: closure, error: closureError } = await supabase
       .from('advisor_commission_closures')
-      .select('id, status, snapshot')
+      .select('id, advisor_user_id, period_id, status, payable_usd, snapshot')
       .eq('id', closureId)
       .single();
 
@@ -528,6 +563,31 @@ export async function reopenCommissionClosureAction(formData: FormData) {
       .eq('status', 'closed');
 
     if (updateError) throw new Error(updateError.message);
+
+    const { data: period, error: periodError } = await supabase
+      .from('advisor_commission_periods')
+      .select('id, name')
+      .eq('id', Number(closure.period_id))
+      .single();
+    if (periodError || !period) {
+      console.warn(
+        'advisor commission notification skipped: reopened period unavailable',
+        periodError?.message || 'period not found',
+      );
+    } else {
+      await bestEffortCommissionNotification('reconfirmation required', () =>
+        notifyAdvisorCommissionReconfirmationRequired({
+          supabase,
+          advisorUserId: closure.advisor_user_id,
+          closureId,
+          periodId: Number(period.id),
+          periodName: String(period.name || `Periodo ${period.id}`),
+          payableUsd: roundMoney(closure.payable_usd),
+          reason,
+          snapshot,
+        }),
+      );
+    }
   } catch (error) {
     redirect(
       `/app/commissions?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
@@ -537,6 +597,9 @@ export async function reopenCommissionClosureAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
+  revalidatePath('/app/advisor', 'layout');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/advisor/commissions');
   redirect(
     `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(
       'Liquidación reabierta. Debe recalcularse y recibir una nueva conformidad.'
@@ -634,33 +697,41 @@ export async function registerCommissionPaymentAction(formData: FormData) {
       advisorName,
     });
     const now = new Date().toISOString();
-    const { error: paymentError } = await supabase.from('money_movements').insert({
-      movement_date: paidOn,
-      created_by_user_id: user.id,
-      confirmed_at: now,
-      confirmed_by_user_id: user.id,
-      status: 'confirmed',
-      approval_required: false,
-      approval_required_reason: null,
-      direction: 'outflow',
-      movement_type: 'expense_payment',
-      money_account_id: moneyAccountId,
-      currency_code: currencyCode,
-      amount: nativeAmount,
-      exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
-      amount_usd_equivalent: amountUsd,
-      reference_code: referenceCode,
-      counterparty_name: advisorName,
-      description,
-      notes: null,
-      order_id: null,
-      payment_report_id: null,
-      movement_group_id: null,
-    });
+    const { data: payment, error: paymentError } = await supabase
+      .from('money_movements')
+      .insert({
+        movement_date: paidOn,
+        created_by_user_id: user.id,
+        confirmed_at: now,
+        confirmed_by_user_id: user.id,
+        status: 'confirmed',
+        approval_required: false,
+        approval_required_reason: null,
+        direction: 'outflow',
+        movement_type: 'expense_payment',
+        money_account_id: moneyAccountId,
+        currency_code: currencyCode,
+        amount: nativeAmount,
+        exchange_rate_ves_per_usd: currencyCode === 'VES' ? exchangeRate : null,
+        amount_usd_equivalent: amountUsd,
+        reference_code: referenceCode,
+        counterparty_name: advisorName,
+        description,
+        notes: null,
+        order_id: null,
+        payment_report_id: null,
+        movement_group_id: null,
+      })
+      .select('id')
+      .single();
 
-    if (paymentError) throw new Error(paymentError.message);
+    if (paymentError || !payment) {
+      throw new Error(paymentError?.message || 'No se pudo registrar el abono.');
+    }
 
-    if (remainingUsd - amountUsd <= 0.005) {
+    const remainingAfterPaymentUsd = roundMoney(Math.max(0, remainingUsd - amountUsd));
+    const fullyPaid = remainingAfterPaymentUsd <= 0.005;
+    if (fullyPaid) {
       const { error: paidStatusError } = await supabase
         .from('advisor_commission_closures')
         .update({
@@ -678,6 +749,20 @@ export async function registerCommissionPaymentAction(formData: FormData) {
         );
       }
     }
+
+    await bestEffortCommissionNotification('payment registered', () =>
+      notifyAdvisorCommissionPayment({
+        supabase,
+        advisorUserId: closure.advisor_user_id,
+        closureId,
+        periodId: Number(periodResult.data.id),
+        periodName: String(periodResult.data.name || `Periodo ${periodResult.data.id}`),
+        movementId: Number(payment.id),
+        amountUsd,
+        remainingUsd: remainingAfterPaymentUsd,
+        fullyPaid,
+      }),
+    );
   } catch (error) {
     redirect(
       `/app/commissions?period=${periodId > 0 ? periodId : ''}&error=${encodeURIComponent(
@@ -687,6 +772,9 @@ export async function registerCommissionPaymentAction(formData: FormData) {
   }
 
   revalidatePath('/app/commissions');
+  revalidatePath('/app/advisor', 'layout');
+  revalidatePath('/app/advisor/inbox');
+  revalidatePath('/app/advisor/commissions');
   revalidatePath('/app/master/dashboard');
   redirect(
     `/app/commissions?period=${periodId > 0 ? periodId : ''}&notice=${encodeURIComponent(

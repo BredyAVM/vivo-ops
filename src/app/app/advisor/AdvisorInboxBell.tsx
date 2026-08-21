@@ -5,8 +5,10 @@ import { createSupabaseBrowser } from '@/lib/supabase/browser';
 import AdvisorPendingLink from './AdvisorPendingLink';
 import {
   ADVISOR_TIMELINE_RECIPIENT_SELECT,
+  countCommissionNotificationsByKind,
   countCoalescedNotificationsByKind,
   type InboxRecipientCountRow,
+  type RawCommissionNotification,
 } from './inbox/inbox-shared';
 
 function ActionIcon() {
@@ -68,16 +70,31 @@ export default function AdvisorInboxBell({
     const supabase = supabaseRef.current;
 
     async function refreshUnreadCount() {
-      const { data } = await supabase
-        .from('order_timeline_event_recipients')
-        .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
-        .eq('target_user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(500);
-      const nextCounts = countCoalescedNotificationsByKind(
-        (data ?? []) as unknown as InboxRecipientCountRow[]
+      const [recipientsResult, commissionNotificationsResult] = await Promise.all([
+        supabase
+          .from('order_timeline_event_recipients')
+          .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
+          .eq('target_user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('notifications')
+          .select('id, status, title, body, meta, created_at, read_at')
+          .eq('recipient_user_id', userId)
+          .contains('meta', { domain: 'advisor_commissions' })
+          .order('created_at', { ascending: false })
+          .limit(100),
+      ]);
+      const orderCounts = countCoalescedNotificationsByKind(
+        (recipientsResult.data ?? []) as unknown as InboxRecipientCountRow[],
       );
-      setCounts({ actions: nextCounts.unreadActions, updates: nextCounts.unreadUpdates });
+      const commissionCounts = countCommissionNotificationsByKind(
+        (commissionNotificationsResult.data ?? []) as RawCommissionNotification[],
+      );
+      setCounts({
+        actions: orderCounts.unreadActions + commissionCounts.unreadActions,
+        updates: orderCounts.unreadUpdates + commissionCounts.unreadUpdates,
+      });
     }
 
     function scheduleCountRefresh() {
@@ -114,6 +131,30 @@ export default function AdvisorInboxBell({
           filter: `target_user_id=eq.${userId}`,
         },
         scheduleCountRefresh
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_user_id=eq.${userId}`,
+        },
+        () => {
+          window.dispatchEvent(new Event('advisor:notification'));
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `recipient_user_id=eq.${userId}`,
+        },
+        () => {
+          window.dispatchEvent(new Event('advisor:notification'));
+        },
       )
       .subscribe();
 

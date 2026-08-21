@@ -1,4 +1,6 @@
-export type InboxFilter = 'pending' | 'updates' | 'kitchen' | 'delivery' | 'payments' | 'all';
+export type InboxFilter = 'pending' | 'updates' | 'kitchen' | 'delivery' | 'payments' | 'commissions' | 'all';
+
+export type InboxEventSource = 'timeline' | 'notification';
 
 export const ADVISOR_TIMELINE_RECIPIENT_SELECT = `
   id,
@@ -38,6 +40,7 @@ export type RawTimelineEvent = {
 
 export type InboxEvent = {
   id: string;
+  source: InboxEventSource;
   recipientId: number;
   orderId: number;
   orderNumber: string;
@@ -51,6 +54,17 @@ export type InboxEvent = {
   requiresAction: boolean;
   readAt: string | null;
   tone: 'neutral' | 'warning' | 'success' | 'danger';
+  href?: string | null;
+};
+
+export type RawCommissionNotification = {
+  id: number | string;
+  status: string | null;
+  title: string | null;
+  body: string | null;
+  created_at: string | null;
+  read_at: string | null;
+  meta: Record<string, unknown> | null;
 };
 
 export type RawOrderNotification = {
@@ -83,6 +97,7 @@ export const FILTERS: Array<{ key: InboxFilter; label: string }> = [
   { key: 'kitchen', label: 'Cocina' },
   { key: 'delivery', label: 'Entrega' },
   { key: 'payments', label: 'Pagos' },
+  { key: 'commissions', label: 'Comisiones' },
   { key: 'all', label: 'Todo' },
 ];
 
@@ -136,7 +151,7 @@ export type LatestOrderActionState = {
 };
 
 export function normalizeFilter(value: string | undefined): InboxFilter {
-  if (value === 'pending' || value === 'updates' || value === 'kitchen' || value === 'delivery' || value === 'payments' || value === 'all') {
+  if (value === 'pending' || value === 'updates' || value === 'kitchen' || value === 'delivery' || value === 'payments' || value === 'commissions' || value === 'all') {
     return value;
   }
   return 'all';
@@ -194,6 +209,7 @@ export function formatEventTime(value: string) {
 
 export function getFilterForEvent(eventType: string): InboxFilter {
   if (ACTION_EVENT_TYPES.has(eventType)) return 'pending';
+  if (eventType.startsWith('advisor_commission_')) return 'commissions';
   if (
     eventType === 'order_sent_to_kitchen' ||
     eventType === 'kitchen_taken' ||
@@ -455,11 +471,17 @@ export function shouldRequireAdvisorAction(
 
 export function coalesceInboxEvents(events: InboxEvent[]) {
   const actionEvents: InboxEvent[] = [];
+  const standaloneUpdates: InboxEvent[] = [];
   const latestInfoByOrderId = new Map<number, InboxEvent>();
 
   for (const event of events) {
     if (event.requiresAction) {
       actionEvents.push(event);
+      continue;
+    }
+
+    if (event.source === 'notification') {
+      standaloneUpdates.push(event);
       continue;
     }
 
@@ -469,9 +491,42 @@ export function coalesceInboxEvents(events: InboxEvent[]) {
     }
   }
 
-  return [...actionEvents, ...latestInfoByOrderId.values()].sort((a, b) =>
+  return [...actionEvents, ...standaloneUpdates, ...latestInfoByOrderId.values()].sort((a, b) =>
     String(b.createdAt).localeCompare(String(a.createdAt))
   );
+}
+
+export function countCommissionNotificationsByKind(notifications: RawCommissionNotification[]) {
+  let actions = 0;
+  let updates = 0;
+  let unreadActions = 0;
+  let unreadUpdates = 0;
+
+  for (const notification of notifications) {
+    const meta = notification.meta && typeof notification.meta === 'object' && !Array.isArray(notification.meta)
+      ? notification.meta
+      : {};
+    if (meta.domain !== 'advisor_commissions') continue;
+
+    const requiresAction = meta.requires_action === true;
+    const isUnread = notification.status === 'unread' && !notification.read_at;
+    if (requiresAction) {
+      actions += 1;
+      if (isUnread) unreadActions += 1;
+    } else {
+      updates += 1;
+      if (isUnread) unreadUpdates += 1;
+    }
+  }
+
+  return {
+    actions,
+    updates,
+    total: actions + updates,
+    unreadActions,
+    unreadUpdates,
+    unreadTotal: unreadActions + unreadUpdates,
+  };
 }
 
 export function countCoalescedUnreadNotifications(

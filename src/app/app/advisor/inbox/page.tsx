@@ -5,6 +5,7 @@ import AdvisorInboxClient from './AdvisorInboxClient';
 import {
   type InboxEvent,
   type InboxRecipientCountRow,
+  type RawCommissionNotification,
   type RawTimelineEvent,
   ACTION_EVENT_TYPES,
   ADVISOR_TIMELINE_RECIPIENT_SELECT,
@@ -74,20 +75,47 @@ function getDeliveryLabel(order: OrderRow) {
   return combined || formatEventTime(order.created_at);
 }
 
+function notificationMeta(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function commissionNotificationHref(meta: Record<string, unknown>) {
+  const periodId = Number(meta.period_id || 0);
+  const requestedHref = safeText(meta.href, '');
+  if (requestedHref.startsWith('/app/advisor/commissions')) return requestedHref;
+  return periodId > 0
+    ? `/app/advisor/commissions?period=${periodId}`
+    : '/app/advisor/commissions';
+}
+
 export default async function AdvisorInboxPage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
   const activeFilter = normalizeFilter(params.filter);
   const ctx = await getAuthContext();
   if (!ctx) return null;
 
-  const { data: recipientsData } = await ctx.supabase
-    .from('order_timeline_event_recipients')
-    .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
-    .eq('target_user_id', ctx.user.id)
-    .order('created_at', { ascending: false })
-    .limit(500);
+  const [recipientsResult, commissionNotificationsResult] = await Promise.all([
+    ctx.supabase
+      .from('order_timeline_event_recipients')
+      .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
+      .eq('target_user_id', ctx.user.id)
+      .order('created_at', { ascending: false })
+      .limit(500),
+    ctx.supabase
+      .from('notifications')
+      .select('id, status, title, body, meta, created_at, read_at')
+      .eq('recipient_user_id', ctx.user.id)
+      .contains('meta', { domain: 'advisor_commissions' })
+      .order('created_at', { ascending: false })
+      .limit(100),
+  ]);
 
-  const recipients = (recipientsData ?? []) as unknown as TimelineRecipientRow[];
+  const recipients = (recipientsResult.data ?? []) as unknown as TimelineRecipientRow[];
+  const commissionNotifications = (
+    commissionNotificationsResult.data ?? []
+  ) as RawCommissionNotification[];
   const notificationOrderIds = Array.from(
     new Set(
       recipients
@@ -117,10 +145,10 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
   const orderById = new Map(orders.map((order) => [order.id, order]));
   const actionState = buildLatestOrderActionState(recipients as InboxRecipientCountRow[]);
 
-  const inboxEvents: InboxEvent[] = coalesceInboxEvents(recipients
-    .map((recipient) => {
+  const timelineEvents: InboxEvent[] = recipients
+    .flatMap((recipient): InboxEvent[] => {
       const event = Array.isArray(recipient.event) ? recipient.event[0] ?? null : recipient.event;
-      if (!event) return null;
+      if (!event) return [];
 
       const eventType = getOrderNotificationEventType({
         id: event.id ?? recipient.event_id,
@@ -133,7 +161,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       });
       const orderId = Number(event.order_id || 0);
       const order = orderById.get(orderId);
-      if (!order) return null;
+      if (!order) return [];
 
       const payload =
         event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
@@ -151,8 +179,9 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         actionState
       );
 
-      return {
+      return [{
         id: `timeline-${event.id ?? recipient.event_id}`,
+        source: 'timeline',
         recipientId: Number(recipient.id),
         orderId,
         orderNumber: `Orden ${formatOrderDisplayNumber(orderId)}`,
@@ -166,22 +195,64 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         requiresAction,
         readAt: recipient.read_at,
         tone: eventTone(eventType),
+      } satisfies InboxEvent];
+    });
+
+  const commissionEvents: InboxEvent[] = commissionNotifications
+    .map((notification) => {
+      const meta = notificationMeta(notification.meta);
+      const eventType = safeText(meta.kind, 'advisor_commission_review_ready');
+      const periodName = safeText(meta.period_name, 'Periodo de comisiones');
+      const createdAt = safeText(notification.created_at, new Date().toISOString());
+      const requiresAction = meta.requires_action === true;
+      const tone = eventType === 'advisor_commission_paid' || eventType === 'advisor_commission_payment_recorded'
+        ? 'success' as const
+        : 'warning' as const;
+
+      return {
+        id: `notification-${notification.id}`,
+        source: 'notification',
+        recipientId: Number(notification.id),
+        orderId: 0,
+        orderNumber: 'Comisiones',
+        clientName: periodName,
+        deliveryLabel: `Liquidación de ${periodName}`,
+        title: safeText(notification.title, 'Actualización de comisiones'),
+        message: safeText(notification.body, 'Tienes una actualización en tus comisiones.'),
+        eventType,
+        createdAt,
+        detailLines: [],
+        requiresAction,
+        readAt: notification.read_at || (notification.status === 'read' ? createdAt : null),
+        tone,
+        href: commissionNotificationHref(meta),
       } satisfies InboxEvent;
     })
-    .filter((event): event is InboxEvent => !!event)
+    .filter((event) => Number.isFinite(event.recipientId) && event.recipientId > 0);
+
+  const inboxEvents: InboxEvent[] = coalesceInboxEvents([
+    ...timelineEvents,
+    ...commissionEvents,
+  ])
     .filter((event) => {
       if (activeFilter === 'all') return true;
       if (activeFilter === 'updates') return !event.requiresAction;
       if (activeFilter === 'pending') return event.requiresAction;
       return getFilterForEvent(event.eventType) === activeFilter;
     })
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const intro = activeFilter === 'pending'
     ? {
         eyebrow: 'Acciones',
         title: 'Acciones pendientes',
         description: 'Solo llamadas de atencion que requieren respuesta del asesor.',
       }
+    : activeFilter === 'commissions'
+      ? {
+          eyebrow: 'Comisiones',
+          title: 'Actividad de tus liquidaciones',
+          description: 'Revisiones, abonos y pagos de comisiones en un solo lugar.',
+        }
     : activeFilter === 'updates' || activeFilter === 'kitchen' || activeFilter === 'delivery' || activeFilter === 'payments'
       ? {
           eyebrow: 'Seguimiento',

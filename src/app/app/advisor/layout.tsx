@@ -5,8 +5,10 @@ import AdvisorShell from './AdvisorShell';
 import AdvisorPwaRegistrar from './AdvisorPwaRegistrar';
 import {
   ADVISOR_TIMELINE_RECIPIENT_SELECT,
+  countCommissionNotificationsByKind,
   countCoalescedNotificationsByKind,
   type InboxRecipientCountRow,
+  type RawCommissionNotification,
 } from './inbox/inbox-shared';
 import { getAuthContext, isMasterOrAdminRole, resolveHomePath } from '@/lib/auth';
 
@@ -51,14 +53,26 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
     .eq('id', ctx.user.id)
     .maybeSingle();
 
-  const { data: recipientsData } = await ctx.supabase
-    .from('order_timeline_event_recipients')
-    .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
-    .eq('target_user_id', ctx.user.id)
-    .order('created_at', { ascending: false })
-    .limit(500);
-  const notificationCounts = countCoalescedNotificationsByKind(
-    (recipientsData ?? []) as unknown as InboxRecipientCountRow[]
+  const [recipientsResult, commissionNotificationsResult] = await Promise.all([
+    ctx.supabase
+      .from('order_timeline_event_recipients')
+      .select(ADVISOR_TIMELINE_RECIPIENT_SELECT)
+      .eq('target_user_id', ctx.user.id)
+      .order('created_at', { ascending: false })
+      .limit(500),
+    ctx.supabase
+      .from('notifications')
+      .select('id, status, title, body, meta, created_at, read_at')
+      .eq('recipient_user_id', ctx.user.id)
+      .contains('meta', { domain: 'advisor_commissions' })
+      .order('created_at', { ascending: false })
+      .limit(100),
+  ]);
+  const orderNotificationCounts = countCoalescedNotificationsByKind(
+    (recipientsResult.data ?? []) as unknown as InboxRecipientCountRow[]
+  );
+  const commissionNotificationCounts = countCommissionNotificationsByKind(
+    (commissionNotificationsResult.data ?? []) as RawCommissionNotification[],
   );
 
   return (
@@ -70,8 +84,8 @@ export default async function AdvisorLayout({ children }: { children: ReactNode 
         ctx.user.user_metadata?.name ||
         'Asesor'
       }
-      actionCount={notificationCounts.unreadActions}
-      updateCount={notificationCounts.unreadUpdates}
+      actionCount={orderNotificationCounts.unreadActions + commissionNotificationCounts.unreadActions}
+      updateCount={orderNotificationCounts.unreadUpdates + commissionNotificationCounts.unreadUpdates}
       receivesCommissions={profile?.receives_commissions === true}
     >
       <AdvisorPwaRegistrar />

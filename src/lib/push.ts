@@ -32,6 +32,10 @@ export const ADVISOR_PUSH_EVENT_TYPES = new Set([
   'order_delivered',
   'payment_confirmed',
   'payment_rejected',
+  'advisor_commission_review_ready',
+  'advisor_commission_reconfirmation_required',
+  'advisor_commission_payment_recorded',
+  'advisor_commission_paid',
 ]);
 
 function safeText(value: unknown, fallback = '') {
@@ -77,6 +81,10 @@ function webPushTopicFromTag(value: unknown) {
 }
 
 function eventPushTone(eventType: string): AdvisorPushTone {
+  if (eventType === 'advisor_commission_reconfirmation_required') return 'warning';
+  if (eventType === 'advisor_commission_payment_recorded' || eventType === 'advisor_commission_paid') {
+    return 'success';
+  }
   if (eventType === 'payment_rejected' || eventType === 'order_changes_rejected' || eventType === 'order_returned_to_review') {
     return 'critical';
   }
@@ -90,6 +98,12 @@ function eventPushTone(eventType: string): AdvisorPushTone {
 }
 
 function advisorPushTag(eventType: string, orderId: number) {
+  if (eventType.startsWith('advisor_commission_')) {
+    return eventType === 'advisor_commission_review_ready' || eventType === 'advisor_commission_reconfirmation_required'
+      ? `advisor-commission-${orderId}-review`
+      : `advisor-commission-${orderId}-${eventType}`;
+  }
+
   if (eventPushTone(eventType) === 'critical') {
     return `advisor-order-${orderId}-${eventType}`;
   }
@@ -190,6 +204,22 @@ function buildAdvisorPushCopy(input: {
     payment_rejected: {
       title: `Pago rechazado ${orderLabel}`,
       body: reason ? `${clientName}. Motivo: ${reason}` : `${clientName}. Debes reportar el pago de nuevo.`,
+    },
+    advisor_commission_review_ready: {
+      title: 'Tu liquidación está lista para revisar',
+      body: defaultLine,
+    },
+    advisor_commission_reconfirmation_required: {
+      title: 'Tu liquidación requiere una nueva revisión',
+      body: defaultLine,
+    },
+    advisor_commission_payment_recorded: {
+      title: 'Se registró un abono de tu comisión',
+      body: defaultLine,
+    },
+    advisor_commission_paid: {
+      title: 'Tu comisión fue pagada completamente',
+      body: defaultLine,
     },
   };
 
@@ -439,6 +469,7 @@ export async function sendPushToAdvisorDevices(input: {
   orderNumber?: string | null;
   clientName?: string | null;
   payload?: Record<string, unknown> | null;
+  url?: string | null;
 }) {
   if (!hasPushEnv()) return { skipped: true, reason: 'missing_env' as const };
   if (!ADVISOR_PUSH_EVENT_TYPES.has(String(input.eventType || '').trim())) {
@@ -472,7 +503,7 @@ export async function sendPushToAdvisorDevices(input: {
   const payload = JSON.stringify({
     title: copy.title || input.title || 'VIVO OPS',
     body: copy.body || String(input.body || '').trim() || 'Tienes una actualizacion en una orden.',
-    url: `/app/advisor/orders/${input.orderId}`,
+    url: safeText(input.url, `/app/advisor/orders/${input.orderId}`),
     tag: String(input.tag || '').trim() || copy.tag,
     tone: copy.tone,
     requireInteraction: copy.requireInteraction,
