@@ -146,12 +146,17 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
         - (rightIndex === -1 ? countSectionOrder.length : rightIndex);
     });
   }, [lines]);
+  const hasUnresolvedChildRecount = childrenCounts.some((child) =>
+    ['open', 'submitted', 'recount_requested'].includes(child.status),
+  );
   const canSubmitOpen =
     isAdmin &&
     count.status === 'open' &&
     ['recount', 'requested', 'periodic', 'shift_change'].includes(count.countKind);
   const canCancelOpen = canReview && count.status === 'open';
-  const canRequestInitialRecount = canReview && count.status === 'submitted';
+  const canRequestInitialRecount = canReview
+    && count.status === 'submitted'
+    && !hasUnresolvedChildRecount;
   const canRequestSupplementalRecount =
     canReview && ['accepted', 'recount_requested'].includes(count.status);
   const canSelectRecountLines = canRequestInitialRecount || canRequestSupplementalRecount;
@@ -311,6 +316,12 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
               Reconteo · {inventoryCountFolio(child.id)} · {statusLabels[child.status] ?? child.status}
             </Link>
           ))}
+        </div>
+      ) : null}
+
+      {count.status === 'submitted' && hasUnresolvedChildRecount ? (
+        <div className="mt-4 rounded-2xl border border-sky-400/30 bg-sky-400/5 px-4 py-3 text-sm text-sky-100">
+          Primero debe completarse y revisarse la verificación de bebidas vinculada. Después el Máster podrá aceptar este conteo completo o solicitar revisiones adicionales.
         </div>
       ) : null}
 

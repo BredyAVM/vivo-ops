@@ -9,7 +9,9 @@ Fecha canónica: 2026-08-21.
 - Bebidas aparecen por ciclo o por excepción: recepción posterior al último conteo, diferencia previa o cercanía al mínimo.
 - Las bebidas en cero estable no ensucian la lista; vuelven a aparecer cuando entra mercancía.
 - El primer conteo permanece ciego.
-- Si existe una diferencia, el mismo envío abre atómicamente una segunda verificación ciega con solo los ítems distintos.
+- Solo las diferencias de bebidas abren atómicamente una segunda verificación ciega.
+- Las diferencias de crudos, prefritos y salsas quedan visibles para la revisión normal del Máster, pero no exigen cuadrar en cero ni generan reconteo automático.
+- El conteo padre conserva todos sus ítems y se acepta después de resolver la verificación de bebidas vinculada.
 - Ninguna de estas reglas bloquea órdenes, entregas ni ventas.
 
 ## Recorridos físicos

@@ -373,7 +373,7 @@ export default function KitchenInventoryCountClient({
         });
         setMessage(
           result.recountCountId != null
-            ? `${inventoryCountFolio(result.countId)} quedó aplicado. Hay ${result.varianceCount} ${result.varianceCount === 1 ? 'diferencia' : 'diferencias'}; completa ahora la segunda verificación ciega.`
+            ? `${inventoryCountFolio(result.countId)} quedó aplicado. Hay ${result.varianceCount} ${result.varianceCount === 1 ? 'diferencia en bebidas' : 'diferencias en bebidas'}; completa ahora la segunda verificación ciega.`
             : `${inventoryCountFolio(result.countId)} enviado a revisión. La existencia ya quedó ajustada a lo contado.`,
         );
         setDrafts({});
