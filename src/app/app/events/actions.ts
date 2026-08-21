@@ -327,7 +327,9 @@ export async function saveEventBudgetAction(input: SaveEventBudgetInput) {
     payload,
     quote_text: buildQuoteText(normalized),
     total_usd: normalized.totalUsd,
-    total_bs: Number((normalized.totalUsd * normalized.fxRate).toFixed(2)),
+    total_bs: normalized.negotiatedCurrency === 'VES'
+      ? Number(normalized.negotiatedAmount.toFixed(2))
+      : Number((normalized.totalUsd * normalized.fxRate).toFixed(2)),
     fx_rate: normalized.fxRate,
     quoted_at: status === 'quoted' ? now : null,
     updated_at: now,
