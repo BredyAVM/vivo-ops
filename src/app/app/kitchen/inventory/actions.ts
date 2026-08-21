@@ -213,14 +213,21 @@ export async function submitKitchenInventoryCountAction(input: {
         p_lines: serializedLines,
         p_notes: notes,
       })
-    : await ctx.supabase.rpc('inventory_submit_count_v1', {
-        p_operation_id: normalizedOperationId,
-        p_count_kind: input.countKind,
-        p_lines: serializedLines,
-        p_notes: notes,
-        p_parent_count_id: null,
-        p_existing_count_id: countId,
-      });
+    : input.countKind === 'shift_change'
+      ? await ctx.supabase.rpc('inventory_submit_shift_count_with_recount_v1', {
+          p_operation_id: normalizedOperationId,
+          p_lines: serializedLines,
+          p_notes: notes,
+          p_existing_count_id: countId,
+        })
+      : await ctx.supabase.rpc('inventory_submit_count_v1', {
+          p_operation_id: normalizedOperationId,
+          p_count_kind: input.countKind,
+          p_lines: serializedLines,
+          p_notes: notes,
+          p_parent_count_id: null,
+          p_existing_count_id: countId,
+        });
 
   if (error) throw new Error(error.message);
 
@@ -228,9 +235,21 @@ export async function submitKitchenInventoryCountAction(input: {
     (data as { inventory_count_id?: unknown } | null)?.inventory_count_id,
     'El conteo registrado',
   );
+  const rawRecountCountId = (data as { recount_inventory_count_id?: unknown } | null)
+    ?.recount_inventory_count_id;
+  const rawVarianceCount = Number((data as { variance_count?: unknown } | null)?.variance_count ?? 0);
+  const recountCountId = rawRecountCountId == null
+    ? null
+    : positiveInteger(rawRecountCountId, 'El reconteo automático');
+  const varianceCount = Number.isSafeInteger(rawVarianceCount) && rawVarianceCount >= 0
+    ? rawVarianceCount
+    : 0;
   revalidateKitchenInventory();
   revalidatePath(`/app/inventory/counts/${returnedCountId}`);
-  return { countId: returnedCountId };
+  if (recountCountId != null) {
+    revalidatePath(`/app/inventory/counts/${recountCountId}`);
+  }
+  return { countId: returnedCountId, recountCountId, varianceCount };
 }
 
 export async function recordKitchenInventoryLossAction(input: {

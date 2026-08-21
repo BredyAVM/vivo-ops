@@ -724,6 +724,7 @@ export async function updateInventoryItemControlsAction(input: {
   shelfLifeDays: number | null;
   primaryCountFrequency: 'per_shift' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | null;
   primaryCountRole: 'admin' | 'master' | 'kitchen' | 'counter' | null;
+  primaryCountLocationCode: 'beverage_pepsi' | 'beverage_coca_cola' | 'beverage_reserve' | null;
   notes: string | null;
 }) {
   const ctx = await requireMasterOrAdminContext();
@@ -755,6 +756,14 @@ export async function updateInventoryItemControlsAction(input: {
     throw new Error('Un conteo programado debe tener un responsable.');
   }
   if (
+    input.primaryCountLocationCode != null
+    && !['beverage_pepsi', 'beverage_coca_cola', 'beverage_reserve'].includes(
+      input.primaryCountLocationCode,
+    )
+  ) {
+    throw new Error('La ruta física de conteo no es válida.');
+  }
+  if (
     lowStockThreshold != null
     && targetStockUnits != null
     && targetStockUnits < lowStockThreshold
@@ -773,6 +782,7 @@ export async function updateInventoryItemControlsAction(input: {
       shelf_life_days: shelfLifeDays,
       primary_count_frequency: input.primaryCountFrequency,
       primary_count_role: input.primaryCountRole,
+      primary_count_location_code: input.primaryCountLocationCode,
       notes,
     },
   });

@@ -89,6 +89,7 @@ export type AdminItem = {
   shelf_life_days: number | null;
   primary_count_frequency: 'per_shift' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | null;
   primary_count_role: 'admin' | 'master' | 'kitchen' | 'counter' | null;
+  primary_count_location_code: 'beverage_pepsi' | 'beverage_coca_cola' | 'beverage_reserve' | null;
   notes: string | null;
   is_active: boolean;
   has_accepted_opening: boolean;
@@ -192,6 +193,12 @@ const roleLabels: Record<NonNullable<AdminItem['primary_count_role']>, string> =
   master: 'Máster',
   kitchen: 'Cocina',
   counter: 'Counter',
+};
+
+const countLocationLabels: Record<NonNullable<AdminItem['primary_count_location_code']>, string> = {
+  beverage_pepsi: 'Cava Pepsi + reserva',
+  beverage_coca_cola: 'Cava Coca-Cola + reserva',
+  beverage_reserve: 'Reserva u otra ubicación',
 };
 
 function frequencyLabel(value: NonNullable<AdminItem['primary_count_frequency']>) {
@@ -985,6 +992,7 @@ function ItemEditor({ item }: { item: AdminItem }) {
   const [shelfLifeDays, setShelfLifeDays] = useState(item.shelf_life_days == null ? '' : String(item.shelf_life_days));
   const [countFrequency, setCountFrequency] = useState(item.primary_count_frequency ?? '');
   const [countRole, setCountRole] = useState(item.primary_count_role ?? '');
+  const [countLocationCode, setCountLocationCode] = useState(item.primary_count_location_code ?? '');
   const [notes, setNotes] = useState(item.notes ?? '');
   const [lifecycleNote, setLifecycleNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -995,6 +1003,10 @@ function ItemEditor({ item }: { item: AdminItem }) {
     setError(null);
     if (countFrequency && !countRole) {
       setError('Selecciona quién realiza el conteo programado.');
+      return;
+    }
+    if (item.inventory_group === 'beverages' && !countLocationCode) {
+      setError('Selecciona la cava o ruta física donde se cuenta esta bebida.');
       return;
     }
     startTransition(async () => {
@@ -1009,6 +1021,7 @@ function ItemEditor({ item }: { item: AdminItem }) {
           shelfLifeDays: optionalDecimal(shelfLifeDays),
           primaryCountFrequency: (countFrequency || null) as AdminItem['primary_count_frequency'],
           primaryCountRole: (countRole || null) as AdminItem['primary_count_role'],
+          primaryCountLocationCode: (countLocationCode || null) as AdminItem['primary_count_location_code'],
           notes,
         });
         setMessage('Controles actualizados sin modificar la existencia física.');
@@ -1125,6 +1138,16 @@ function ItemEditor({ item }: { item: AdminItem }) {
               <option value="counter">Counter</option>
             </select>
           </Field>
+          {item.inventory_group === 'beverages' ? (
+            <Field label="Ruta física para contar">
+              <select value={countLocationCode} onChange={(event) => setCountLocationCode(event.target.value as typeof countLocationCode)} className={INPUT_CLASS}>
+                <option value="">Seleccionar cava o reserva</option>
+                <option value="beverage_pepsi">Cava Pepsi + reserva</option>
+                <option value="beverage_coca_cola">Cava Coca-Cola + reserva</option>
+                <option value="beverage_reserve">Reserva u otra ubicación</option>
+              </select>
+            </Field>
+          ) : null}
           <div className="flex items-end pb-2">
             <Checkbox checked={lowStockInclusive} onChange={setLowStockInclusive} label="Alertar también al llegar exactamente al mínimo" />
           </div>
@@ -1146,6 +1169,14 @@ function ItemEditor({ item }: { item: AdminItem }) {
             value={item.primary_count_frequency ? frequencyLabel(item.primary_count_frequency) : 'Solo conteo solicitado'}
           />
           <ImpactLine label="Responsable" value={roleLabel(item.primary_count_role)} />
+          {item.inventory_group === 'beverages' ? (
+            <ImpactLine
+              label="Ruta para contar"
+              value={item.primary_count_location_code
+                ? countLocationLabels[item.primary_count_location_code]
+                : 'Pendiente de definir'}
+            />
+          ) : null}
           <ImpactLine
             label="Alerta de mínimo"
             value={item.low_stock_threshold == null ? 'Pendiente de definir' : `${quantity(item.low_stock_threshold)} ${item.unit_name}`}

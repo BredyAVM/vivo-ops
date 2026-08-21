@@ -20,7 +20,13 @@ function toNullableNumber(value: unknown) {
 function toInventoryItem(value: unknown) {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw || typeof raw !== 'object') return null;
-  return raw as { name?: unknown; unit_name?: unknown; current_stock_units?: unknown };
+  return raw as {
+    name?: unknown;
+    unit_name?: unknown;
+    current_stock_units?: unknown;
+    inventory_group?: unknown;
+    primary_count_location_code?: unknown;
+  };
 }
 
 export default async function InventoryCountDetailPage({ params }: PageProps) {
@@ -47,7 +53,7 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
         difference_quantity_units,
         line_status,
         note,
-        inventory_items!inventory_count_lines_inventory_item_id_fkey(name,unit_name,current_stock_units)
+        inventory_items!inventory_count_lines_inventory_item_id_fkey(name,unit_name,current_stock_units,inventory_group,primary_count_location_code)
       `)
       .eq('inventory_count_id', countId)
       .order('id', { ascending: true }),
@@ -86,6 +92,10 @@ export default async function InventoryCountDetailPage({ params }: PageProps) {
       inventoryItemId,
       itemName: inventoryDisplayText(String(inventoryItem?.name ?? `Ítem #${inventoryItemId}`)),
       unitName: inventoryUnitLabel(String(inventoryItem?.unit_name ?? 'unidad')),
+      inventoryGroup: String(inventoryItem?.inventory_group ?? 'other'),
+      countLocationCode: inventoryItem?.primary_count_location_code == null
+        ? null
+        : String(inventoryItem.primary_count_location_code),
       expectedQuantityUnits: toNullableNumber(rawLine.expected_quantity_units) ?? 0,
       currentStockUnits: toNullableNumber(inventoryItem?.current_stock_units) ?? 0,
       countedQuantityUnits: toNullableNumber(rawLine.counted_quantity_units),

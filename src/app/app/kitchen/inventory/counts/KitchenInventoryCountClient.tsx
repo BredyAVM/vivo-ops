@@ -21,6 +21,7 @@ export type KitchenCountItem = {
   inventoryGroup: string;
   countFrequency: string | null;
   countRole: string | null;
+  countLocationCode: string | null;
   lastCountedAt: string | null;
   presentations: Array<{
     id: number;
@@ -68,6 +69,28 @@ const groupLabels: Record<string, string> = {
   beverages: 'Bebidas',
   other: 'Otros productos',
 };
+
+const groupOrder = ['raw', 'prefried', 'sauces', 'beverages', 'fried', 'packaging', 'other'];
+
+const beverageLocationLabels: Record<string, string> = {
+  beverage_pepsi: 'Cava Pepsi + reserva',
+  beverage_coca_cola: 'Cava Coca-Cola + reserva',
+  beverage_reserve: 'Reserva u otra ubicación',
+};
+
+function beverageLocationGroups(items: KitchenCountItem[]) {
+  const groups = new Map<string, KitchenCountItem[]>();
+  for (const item of items) {
+    const locationCode = item.countLocationCode || 'beverage_reserve';
+    const current = groups.get(locationCode) ?? [];
+    current.push(item);
+    groups.set(locationCode, current);
+  }
+  const locationOrder = ['beverage_pepsi', 'beverage_coca_cola', 'beverage_reserve'];
+  return Array.from(groups.entries()).sort(
+    ([left], [right]) => locationOrder.indexOf(left) - locationOrder.indexOf(right),
+  );
+}
 
 const periodicPrograms: Array<{
   frequency: KitchenPeriodicFrequency;
@@ -209,10 +232,6 @@ export default function KitchenInventoryCountClient({
     () => items.find((item) => item.id === manualItemId) ?? null,
     [items, manualItemId],
   );
-  const shiftItems = useMemo(
-    () => items.filter((item) => item.countFrequency === 'per_shift' && item.countRole === 'kitchen'),
-    [items],
-  );
   const periodicItems = useMemo(
     () => selectedFrequency
       ? items.filter((item) => item.countFrequency === selectedFrequency && item.countRole === 'kitchen')
@@ -230,7 +249,12 @@ export default function KitchenInventoryCountClient({
       groupItems.push(item);
       groups.set(item.inventoryGroup, groupItems);
     }
-    return Array.from(groups.entries());
+    return Array.from(groups.entries()).sort(([left], [right]) => {
+      const leftIndex = groupOrder.indexOf(left);
+      const rightIndex = groupOrder.indexOf(right);
+      return (leftIndex === -1 ? groupOrder.length : leftIndex)
+        - (rightIndex === -1 ? groupOrder.length : rightIndex);
+    });
   }, [activeItems]);
   const visibleGroups = useMemo(
     () => activeGroup === 'all'
@@ -347,10 +371,14 @@ export default function KitchenInventoryCountClient({
           lines,
           notes,
         });
-        setMessage(`${inventoryCountFolio(result.countId)} enviado a revisión. La existencia ya quedó ajustada a lo contado.`);
+        setMessage(
+          result.recountCountId != null
+            ? `${inventoryCountFolio(result.countId)} quedó aplicado. Hay ${result.varianceCount} ${result.varianceCount === 1 ? 'diferencia' : 'diferencias'}; completa ahora la segunda verificación ciega.`
+            : `${inventoryCountFolio(result.countId)} enviado a revisión. La existencia ya quedó ajustada a lo contado.`,
+        );
         setDrafts({});
         setNotes('');
-        setSelectedRequestId(null);
+        setSelectedRequestId(result.recountCountId ?? null);
         setManualItemId(null);
         setSelectedFrequency(null);
         setActiveGroup('all');
@@ -413,7 +441,7 @@ export default function KitchenInventoryCountClient({
           </p>
         </div>
         <span className="rounded-full border border-[#343444] px-3 py-1.5 text-sm text-[#C4C4CE]">
-          {shiftItems.length} ítems por turno
+          Lista automática por turno
         </span>
       </div>
 
@@ -422,7 +450,7 @@ export default function KitchenInventoryCountClient({
           <div>
             <h3 className="font-bold text-[#FEEF00]">Conteo por turno</h3>
             <p className="mt-1 text-xs leading-5 text-[#C4C4CE]">
-              Inícialo en cada cambio de guardia. Puedes registrar tantos como ocurran durante el día; cada uno conserva fecha, hora y responsables.
+              Crudos, prefritos y salsas conservan su rutina. Bebidas muestra solo la ruta que corresponde por ciclo o porque requiere atención. Puedes registrar tantos conteos como ocurran durante el día.
             </p>
           </div>
           <label className="text-xs text-[#A6A6B2]">
@@ -665,17 +693,40 @@ export default function KitchenInventoryCountClient({
                 <summary className="cursor-pointer bg-[#171720] px-4 py-3 font-bold">
                   {groupLabels[group] ?? group} · {groupItems.length}
                 </summary>
-                <div className="divide-y divide-[#292938]">
-                  {groupItems.map((item) => (
-                    <CountItemEditor
-                      key={item.id}
-                      item={item}
-                      draft={draftFor(item.id)}
-                      onChange={(patch) => updateDraft(item.id, patch)}
-                      disabled={isPending}
-                    />
-                  ))}
-                </div>
+                {group === 'beverages' ? (
+                  <div className="space-y-3 p-3">
+                    {beverageLocationGroups(groupItems).map(([locationCode, locationItems]) => (
+                      <section key={locationCode} className="overflow-hidden rounded-xl border border-[#30303F] bg-[#0D0D12]">
+                        <div className="border-b border-[#30303F] bg-[#15151D] px-4 py-2.5 text-sm font-semibold text-sky-200">
+                          {beverageLocationLabels[locationCode] ?? 'Ruta de bebidas'} · {locationItems.length}
+                        </div>
+                        <div className="divide-y divide-[#292938]">
+                          {locationItems.map((item) => (
+                            <CountItemEditor
+                              key={item.id}
+                              item={item}
+                              draft={draftFor(item.id)}
+                              onChange={(patch) => updateDraft(item.id, patch)}
+                              disabled={isPending}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[#292938]">
+                    {groupItems.map((item) => (
+                      <CountItemEditor
+                        key={item.id}
+                        item={item}
+                        draft={draftFor(item.id)}
+                        onChange={(patch) => updateDraft(item.id, patch)}
+                        disabled={isPending}
+                      />
+                    ))}
+                  </div>
+                )}
               </details>
             ))}
           </div>

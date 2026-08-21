@@ -13,6 +13,7 @@ type InventoryItemRow = {
   inventory_group: string;
   primary_count_frequency: string | null;
   primary_count_role: string | null;
+  primary_count_location_code: string | null;
 };
 
 type ReceiptWorkspaceRow = {
@@ -66,7 +67,7 @@ export default async function KitchenInventoryCountsPage() {
   const [itemsResult, receiptResult, openCountsResult, recentCountsResult] = await Promise.all([
     ctx.supabase
       .from('inventory_items')
-      .select('id,name,unit_name,inventory_group,primary_count_frequency,primary_count_role')
+      .select('id,name,unit_name,inventory_group,primary_count_frequency,primary_count_role,primary_count_location_code')
       .eq('is_active', true)
       .is('merged_into_item_id', null)
       .in('tracking_mode', ['transactional', 'periodic_count'])
@@ -145,6 +146,7 @@ export default async function KitchenInventoryCountsPage() {
       inventoryGroup: item.inventory_group,
       countFrequency: item.primary_count_frequency,
       countRole: item.primary_count_role,
+      countLocationCode: item.primary_count_location_code,
       lastCountedAt: lastCountedAtByItem.get(Number(item.id)) ?? null,
       presentations: presentationsByItem.get(Number(item.id)) ?? [],
     }));

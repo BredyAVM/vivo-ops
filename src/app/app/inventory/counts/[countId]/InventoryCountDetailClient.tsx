@@ -35,6 +35,8 @@ export type InventoryCountDetailLine = {
   inventoryItemId: number;
   itemName: string;
   unitName: string;
+  inventoryGroup: string;
+  countLocationCode: string | null;
   expectedQuantityUnits: number;
   currentStockUnits: number;
   countedQuantityUnits: number | null;
@@ -87,6 +89,36 @@ function differenceClass(value: number | null) {
   return value > 0 ? 'text-emerald-300' : 'text-red-300';
 }
 
+const countSectionLabels: Record<string, string> = {
+  raw: 'Crudos',
+  prefried: 'Prefritos',
+  sauces: 'Salsas y bases',
+  fried: 'Fritos',
+  packaging: 'Empaques',
+  other: 'Otros productos',
+  'beverages:beverage_pepsi': 'Bebidas · Cava Pepsi + reserva',
+  'beverages:beverage_coca_cola': 'Bebidas · Cava Coca-Cola + reserva',
+  'beverages:beverage_reserve': 'Bebidas · Reserva u otra ubicación',
+};
+
+const countSectionOrder = [
+  'raw',
+  'prefried',
+  'sauces',
+  'beverages:beverage_pepsi',
+  'beverages:beverage_coca_cola',
+  'beverages:beverage_reserve',
+  'fried',
+  'packaging',
+  'other',
+];
+
+function countSectionKey(line: InventoryCountDetailLine) {
+  return line.inventoryGroup === 'beverages'
+    ? `beverages:${line.countLocationCode || 'beverage_reserve'}`
+    : line.inventoryGroup;
+}
+
 export default function InventoryCountDetailClient({ count, lines, childrenCounts, isAdmin, canReview, returnHref }: Props) {
   const router = useRouter();
   const [selectedLineIds, setSelectedLineIds] = useState<Set<number>>(() => new Set());
@@ -99,6 +131,21 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
     () => lines.filter((line) => line.lineStatus === 'submitted').map((line) => line.id),
     [lines],
   );
+  const lineSections = useMemo(() => {
+    const sections = new Map<string, InventoryCountDetailLine[]>();
+    for (const line of lines) {
+      const key = countSectionKey(line);
+      const current = sections.get(key) ?? [];
+      current.push(line);
+      sections.set(key, current);
+    }
+    return Array.from(sections.entries()).sort(([left], [right]) => {
+      const leftIndex = countSectionOrder.indexOf(left);
+      const rightIndex = countSectionOrder.indexOf(right);
+      return (leftIndex === -1 ? countSectionOrder.length : leftIndex)
+        - (rightIndex === -1 ? countSectionOrder.length : rightIndex);
+    });
+  }, [lines]);
   const canSubmitOpen =
     isAdmin &&
     count.status === 'open' &&
@@ -267,8 +314,13 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
         </div>
       ) : null}
 
-      <div className="mt-5 overflow-hidden rounded-2xl border border-[#242433] bg-[#111117]">
-        <div className="overflow-x-auto">
+      <div className="mt-5 space-y-4">
+        {lineSections.map(([sectionKey, sectionLines]) => (
+          <section key={sectionKey} className="overflow-hidden rounded-2xl border border-[#242433] bg-[#111117]">
+            <div className="border-b border-[#242433] bg-[#16161F] px-4 py-3 font-semibold text-white">
+              {countSectionLabels[sectionKey] ?? sectionKey} · {sectionLines.length}
+            </div>
+            <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead className="bg-[#16161F] text-xs uppercase tracking-wide text-[#8F8F9C]">
               <tr>
@@ -283,7 +335,7 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
               </tr>
             </thead>
             <tbody className="divide-y divide-[#242433]">
-              {lines.map((line) => (
+              {sectionLines.map((line) => (
                 <tr key={line.id} className="hover:bg-[#15151D]">
                   {canSelectRecountLines ? (
                     <td className="px-4 py-3">
@@ -342,7 +394,9 @@ export default function InventoryCountDetailClient({ count, lines, childrenCount
               ))}
             </tbody>
           </table>
-        </div>
+            </div>
+          </section>
+        ))}
       </div>
 
       {count.notes ? (

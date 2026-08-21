@@ -10,6 +10,7 @@ import InventoryActivationQueueClient, {
   type InventoryActivationQueue,
 } from './InventoryActivationQueueClient';
 import InventoryAdministrationClient, {
+  type AdminItem,
   type InventoryAdminWorkspace,
 } from './InventoryAdministrationClient';
 import { inventoryDisplayText, inventoryUnitLabel, repairInventoryDisplayData } from '../display';
@@ -20,6 +21,7 @@ type RawInventoryItem = {
   unit_name: string;
   tracking_mode: ConfiguratorInventoryItem['trackingMode'];
   is_active: boolean;
+  primary_count_location_code: AdminItem['primary_count_location_code'];
 };
 
 type RawProduct = {
@@ -146,7 +148,7 @@ export default async function InventoryConfigurePage({
   const [itemsResult, productsResult, linksResult, componentsResult, activationQueueResult, administrationResult] = await Promise.all([
     ctx.supabase
       .from('inventory_items')
-      .select('id, name, unit_name, tracking_mode, is_active')
+      .select('id, name, unit_name, tracking_mode, is_active, primary_count_location_code')
       .is('merged_into_item_id', null)
       .order('name', { ascending: true }),
     ctx.supabase
@@ -269,6 +271,12 @@ export default async function InventoryConfigurePage({
   const rawAdministrationWorkspace = repairInventoryDisplayData(
     administrationResult.data as InventoryAdminWorkspace,
   );
+  const countLocationByItemId = new Map(
+    ((itemsResult.data ?? []) as RawInventoryItem[]).map((item) => [
+      Number(item.id),
+      item.primary_count_location_code,
+    ]),
+  );
   const mappedWorkspaceProducts: InventoryAdminWorkspace['products'] = rawAdministrationWorkspace.products.map((product) => {
     const commercial = commercialByProductId.get(product.id);
     const rawProduct = rawProductById.get(product.id);
@@ -334,6 +342,10 @@ export default async function InventoryConfigurePage({
     });
   const administrationWorkspace: InventoryAdminWorkspace = {
     ...rawAdministrationWorkspace,
+    items: rawAdministrationWorkspace.items.map((item) => ({
+      ...item,
+      primary_count_location_code: countLocationByItemId.get(item.id) ?? null,
+    })),
     products: [...mappedWorkspaceProducts, ...inactiveReadyProducts]
       .sort((left, right) => left.name.localeCompare(right.name, 'es')),
   };
