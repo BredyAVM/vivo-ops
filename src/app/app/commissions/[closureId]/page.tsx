@@ -13,7 +13,10 @@ import {
   type CommissionAuditOrder,
   type CommissionAuditProduct,
 } from '@/lib/commissions/admin-audit';
-import { ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX } from '@/lib/commissions/payment-ledger';
+import {
+  ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX,
+  ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
+} from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 
@@ -79,6 +82,19 @@ type PaymentRow = {
   exchange_rate_ves_per_usd: number | string | null;
   amount_usd_equivalent: number | string;
   reference_code: string | null;
+  movement_group_id: string | null;
+};
+
+type BankFeeRow = {
+  id: number | string;
+  movement_group_id: string | null;
+  currency_code: string;
+  amount: number | string;
+  amount_usd_equivalent: number | string;
+};
+
+type PaymentDisplayRow = PaymentRow & {
+  bankFee: BankFeeRow | null;
 };
 
 function money(value: unknown) {
@@ -270,7 +286,8 @@ export default async function CommissionAuditPage({
 
   const closure = closureResult.data as ClosureRow;
   const paymentDescriptionPattern = `${ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX}${closureId} · %`;
-  const [periodResult, profileResult, paymentsResult] = await Promise.all([
+  const bankFeeDescriptionPattern = `${ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX}${paymentDescriptionPattern}`;
+  const [periodResult, profileResult, paymentsResult, bankFeesResult] = await Promise.all([
     ctx.supabase
       .from('advisor_commission_periods')
       .select('id, name, date_from, date_to, status')
@@ -283,16 +300,35 @@ export default async function CommissionAuditPage({
       .maybeSingle(),
     ctx.supabase
       .from('money_movements')
-      .select('id, movement_date, created_at, money_account_id, currency_code, amount, exchange_rate_ves_per_usd, amount_usd_equivalent, reference_code')
+      .select('id, movement_date, created_at, money_account_id, currency_code, amount, exchange_rate_ves_per_usd, amount_usd_equivalent, reference_code, movement_group_id')
       .eq('direction', 'outflow')
       .eq('movement_type', 'expense_payment')
       .eq('status', 'confirmed')
       .like('description', paymentDescriptionPattern)
       .order('created_at', { ascending: true }),
+    ctx.supabase
+      .from('money_movements')
+      .select('id, movement_group_id, currency_code, amount, amount_usd_equivalent')
+      .eq('direction', 'outflow')
+      .eq('movement_type', 'fee_charge')
+      .eq('status', 'confirmed')
+      .like('description', bankFeeDescriptionPattern),
   ]);
 
   const period = (periodResult.data as PeriodRow | null) ?? null;
-  const payments = paymentsResult.error ? [] : ((paymentsResult.data ?? []) as PaymentRow[]);
+  const bankFeeByMovementGroupId = new Map(
+    (bankFeesResult.error ? [] : ((bankFeesResult.data ?? []) as BankFeeRow[]))
+      .filter((fee) => Boolean(fee.movement_group_id))
+      .map((fee) => [String(fee.movement_group_id), fee])
+  );
+  const payments: PaymentDisplayRow[] = paymentsResult.error
+    ? []
+    : ((paymentsResult.data ?? []) as PaymentRow[]).map((payment) => ({
+        ...payment,
+        bankFee: payment.movement_group_id
+          ? bankFeeByMovementGroupId.get(payment.movement_group_id) ?? null
+          : null,
+      }));
   const accountIds = Array.from(new Set(payments.map((payment) => Number(payment.money_account_id)).filter((id) => id > 0)));
   const accountsResult = accountIds.length
     ? await ctx.supabase.from('money_accounts').select('id, name').in('id', accountIds)
@@ -561,7 +597,7 @@ export default async function CommissionAuditPage({
                 <AmountCard label="Saldo por pagar" value={money(audit.paymentBalanceUsd)} />
               </div>
               {paymentsResult.error ? <EmptyDetail>No se pudieron cargar los movimientos bancarios vinculados.</EmptyDetail> : payments.length === 0 ? <EmptyDetail>Todavía no hay abonos registrados para esta liquidación.</EmptyDetail> : (
-                <TableFrame><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-[#0F0F13] text-[10px] uppercase tracking-[0.12em] text-[#858591]"><tr><th className="px-4 py-3">Abono</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Moneda real</th><th className="px-4 py-3 text-right">Monto real</th><th className="px-4 py-3 text-right">Tasa</th><th className="px-4 py-3 text-right">Equivalente USD</th><th className="px-4 py-3">Referencia</th></tr></thead><tbody className="divide-y divide-[#292933]">{payments.map((payment, index) => <tr key={payment.id}><td className="px-4 py-3 font-semibold">Abono {index + 1}</td><td className="px-4 py-3">{dateLabel(payment.movement_date)}</td><td className="px-4 py-3">{accountNames.get(Number(payment.money_account_id)) || 'Cuenta sin nombre'}</td><td className="px-4 py-3">{payment.currency_code}</td><td className="px-4 py-3 text-right">{commissionAuditNumber(payment.amount).toFixed(2)}</td><td className="px-4 py-3 text-right">{payment.currency_code === 'VES' ? commissionAuditNumber(payment.exchange_rate_ves_per_usd).toFixed(2) : '—'}</td><td className="px-4 py-3 text-right font-semibold text-emerald-300">{money(payment.amount_usd_equivalent)}</td><td className="px-4 py-3">{payment.reference_code || '—'}</td></tr>)}</tbody></table></TableFrame>
+                <TableFrame><table className="min-w-[1040px] w-full text-left text-xs"><thead className="bg-[#0F0F13] text-[10px] uppercase tracking-[0.12em] text-[#858591]"><tr><th className="px-4 py-3">Abono</th><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Moneda real</th><th className="px-4 py-3 text-right">Monto real</th><th className="px-4 py-3 text-right">Tasa</th><th className="px-4 py-3 text-right">Equivalente USD</th><th className="px-4 py-3 text-right">Comisión bancaria</th><th className="px-4 py-3">Referencia</th></tr></thead><tbody className="divide-y divide-[#292933]">{payments.map((payment, index) => <tr key={payment.id}><td className="px-4 py-3 font-semibold">Abono {index + 1}</td><td className="px-4 py-3">{dateLabel(payment.movement_date)}</td><td className="px-4 py-3">{accountNames.get(Number(payment.money_account_id)) || 'Cuenta sin nombre'}</td><td className="px-4 py-3">{payment.currency_code}</td><td className="px-4 py-3 text-right">{commissionAuditNumber(payment.amount).toFixed(2)}</td><td className="px-4 py-3 text-right">{payment.currency_code === 'VES' ? commissionAuditNumber(payment.exchange_rate_ves_per_usd).toFixed(2) : '—'}</td><td className="px-4 py-3 text-right font-semibold text-emerald-300">{money(payment.amount_usd_equivalent)}</td><td className="px-4 py-3 text-right">{payment.bankFee ? <><div>{payment.bankFee.currency_code === 'VES' ? `Bs. ${commissionAuditNumber(payment.bankFee.amount).toFixed(2)}` : money(payment.bankFee.amount)}</div><div className="mt-1 text-[10px] text-[#858591]">{money(payment.bankFee.amount_usd_equivalent)} equiv.</div></> : '—'}</td><td className="px-4 py-3">{payment.reference_code || '—'}</td></tr>)}</tbody></table></TableFrame>
               )}
             </div>
           ) : null}

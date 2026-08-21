@@ -5,6 +5,7 @@ import { adminCommissionAuditHref } from '@/lib/commissions/admin-audit';
 import { readAdvisorCommissionCarryOverride } from '@/lib/commissions/carry-state';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
 import {
+  ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX,
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
   getAdvisorCommissionClosureIdFromPaymentDescription,
 } from '@/lib/commissions/payment-ledger';
@@ -16,10 +17,12 @@ import {
   confirmCommissionClosureAction,
   createCommissionPeriodAction,
   deleteCommissionDeductionAction,
-  registerCommissionPaymentAction,
   reopenCommissionClosureAction,
   saveCommissionBootstrapAction,
 } from './actions';
+import CommissionPaymentForm, {
+  type CommissionPaymentAccountOption,
+} from './CommissionPaymentForm';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -79,6 +82,19 @@ type CommissionPaymentRow = {
   amount_usd_equivalent: number | string;
   reference_code: string | null;
   description: string | null;
+  movement_group_id: string | null;
+};
+
+type CommissionBankFeeRow = {
+  id: number | string;
+  movement_group_id: string | null;
+  currency_code: string;
+  amount: number | string;
+  amount_usd_equivalent: number | string;
+};
+
+type CommissionPaymentDisplayRow = CommissionPaymentRow & {
+  bankFee: CommissionBankFeeRow | null;
 };
 
 type MoneyAccountRow = {
@@ -272,11 +288,20 @@ export default async function CommissionAdministrationPage({
   let advisorNames = new Map<string, string>();
   let moneyAccounts: MoneyAccountRow[] = [];
   let commissionPayments: CommissionPaymentRow[] = [];
+  let commissionBankFees: CommissionBankFeeRow[] = [];
+  let activeExchangeRate: number | null = null;
   let closureLoadFailed = false;
   let advisorLoadFailed = false;
 
   if (selectedPeriod) {
-    const [closuresResult, advisorsResult, accountsResult, paymentsResult] = await Promise.all([
+    const [
+      closuresResult,
+      advisorsResult,
+      accountsResult,
+      paymentsResult,
+      bankFeesResult,
+      activeRateResult,
+    ] = await Promise.all([
       ctx.supabase
         .from('advisor_commission_closures')
         .select(`
@@ -329,7 +354,8 @@ export default async function CommissionAdministrationPage({
           exchange_rate_ves_per_usd,
           amount_usd_equivalent,
           reference_code,
-          description
+          description,
+          movement_group_id
         `)
         .eq('direction', 'outflow')
         .eq('movement_type', 'expense_payment')
@@ -337,6 +363,24 @@ export default async function CommissionAdministrationPage({
         .like('description', `${ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX}%`)
         .order('created_at', { ascending: false })
         .limit(1000),
+      ctx.supabase
+        .from('money_movements')
+        .select('id, movement_group_id, currency_code, amount, amount_usd_equivalent')
+        .eq('direction', 'outflow')
+        .eq('movement_type', 'fee_charge')
+        .eq('status', 'confirmed')
+        .like(
+          'description',
+          `${ADVISOR_COMMISSION_BANK_FEE_DESCRIPTION_PREFIX}${ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX}%`
+        )
+        .order('created_at', { ascending: false })
+        .limit(1000),
+      ctx.supabase
+        .from('exchange_rates')
+        .select('rate_bs_per_usd')
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle(),
     ]);
 
     closureLoadFailed = Boolean(closuresResult.error);
@@ -367,18 +411,45 @@ export default async function CommissionAdministrationPage({
     commissionPayments = paymentsResult.error
       ? []
       : ((paymentsResult.data ?? []) as CommissionPaymentRow[]);
+    commissionBankFees = bankFeesResult.error
+      ? []
+      : ((bankFeesResult.data ?? []) as CommissionBankFeeRow[]);
+    activeExchangeRate = activeRateResult.error
+      ? null
+      : numberValue(activeRateResult.data?.rate_bs_per_usd) || null;
   }
 
-  const paymentsByClosureId = new Map<number, CommissionPaymentRow[]>();
+  const bankFeeByMovementGroupId = new Map(
+    commissionBankFees
+      .filter((fee) => Boolean(fee.movement_group_id))
+      .map((fee) => [String(fee.movement_group_id), fee])
+  );
+  const paymentsByClosureId = new Map<number, CommissionPaymentDisplayRow[]>();
   for (const payment of commissionPayments) {
     const closureId = getAdvisorCommissionClosureIdFromPaymentDescription(payment.description);
     if (!closureId) continue;
     const payments = paymentsByClosureId.get(closureId) ?? [];
-    payments.push(payment);
+    payments.push({
+      ...payment,
+      bankFee: payment.movement_group_id
+        ? bankFeeByMovementGroupId.get(payment.movement_group_id) ?? null
+        : null,
+    });
     paymentsByClosureId.set(closureId, payments);
   }
   const moneyAccountNameById = new Map(
     moneyAccounts.map((account) => [Number(account.id), account.name])
+  );
+  const commissionPaymentAccounts = moneyAccounts.flatMap<CommissionPaymentAccountOption>(
+    (account) => {
+      const currencyCode = String(account.currency_code).toUpperCase();
+      if (currencyCode !== 'USD' && currencyCode !== 'VES') return [];
+      return [{
+        id: Number(account.id),
+        name: account.name,
+        currencyCode,
+      }];
+    }
   );
 
   const rows = closures
@@ -986,6 +1057,14 @@ export default async function CommissionAdministrationPage({
                                       {numberValue(payment.exchange_rate_ves_per_usd).toFixed(2)}
                                     </div>
                                   ) : null}
+                                  {payment.bankFee ? (
+                                    <div className="mt-1 text-amber-200/80">
+                                      Comisión bancaria:{' '}
+                                      {payment.bankFee.currency_code === 'VES'
+                                        ? `Bs. ${numberValue(payment.bankFee.amount).toFixed(2)}`
+                                        : money(payment.bankFee.amount)}
+                                    </div>
+                                  ) : null}
                                   {payment.reference_code ? (
                                     <div className="mt-1">Ref. {payment.reference_code}</div>
                                   ) : null}
@@ -1032,76 +1111,16 @@ export default async function CommissionAdministrationPage({
                         <div className="mt-4 rounded-2xl border border-[#34343F] bg-[#101014] p-4">
                           <div className="text-sm font-semibold">Registrar abono</div>
                           <p className="mt-1 text-xs text-[#92929E]">
-                            Saldo pendiente: {money(row.paymentBalanceUsd)}. El monto se mantiene en dólares y la cuenta define la moneda real.
+                            Saldo pendiente: {money(row.paymentBalanceUsd)}. Verás el equivalente en bolívares antes de confirmar.
                           </p>
-                          <form action={registerCommissionPaymentAction} className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <input name="closureId" type="hidden" value={row.closure.id} />
-                            <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
-                            <label className="block sm:col-span-2">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Cuenta de pago</span>
-                              <select
-                                className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                                name="moneyAccountId"
-                                required
-                              >
-                                <option value="">Seleccionar cuenta</option>
-                                {moneyAccounts.map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.name} · {account.currency_code}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="block">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Monto USD</span>
-                              <input
-                                className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                                defaultValue={row.paymentBalanceUsd.toFixed(2)}
-                                max={row.paymentBalanceUsd.toFixed(2)}
-                                min="0.01"
-                                name="amountUsd"
-                                required
-                                step="0.01"
-                                type="number"
-                              />
-                            </label>
-                            <label className="block">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Fecha</span>
-                              <input
-                                className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                                defaultValue={caracasToday()}
-                                name="movementDate"
-                                required
-                                type="date"
-                              />
-                            </label>
-                            <label className="block">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Tasa Bs/USD</span>
-                              <input
-                                className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                                min="0.000001"
-                                name="exchangeRateVesPerUsd"
-                                placeholder="Solo si la cuenta es en Bs."
-                                step="0.000001"
-                                type="number"
-                              />
-                            </label>
-                            <label className="block">
-                              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Referencia</span>
-                              <input
-                                className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]"
-                                maxLength={120}
-                                name="referenceCode"
-                                placeholder="Opcional"
-                              />
-                            </label>
-                            <button
-                              className="h-10 rounded-xl bg-[#F0D000] px-4 text-sm font-semibold text-[#111113] transition hover:bg-[#FFE44F] sm:col-span-2"
-                              type="submit"
-                            >
-                              Registrar abono
-                            </button>
-                          </form>
+                          <CommissionPaymentForm
+                            accounts={commissionPaymentAccounts}
+                            activeRate={activeExchangeRate}
+                            closureId={Number(row.closure.id)}
+                            defaultDate={caracasToday()}
+                            paymentBalanceUsd={row.paymentBalanceUsd}
+                            periodId={Number(selectedPeriod?.id ?? 0)}
+                          />
                         </div>
                       ) : null}
 
