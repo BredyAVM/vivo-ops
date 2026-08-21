@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireAuthContext } from '@/lib/auth';
+import { readEventBudgetPayload } from '@/lib/events/event-budget';
 
 export async function archiveAdvisorOrderDraftAction(draftIdInput: number) {
   const ctx = await requireAuthContext();
@@ -9,6 +10,20 @@ export async function archiveAdvisorOrderDraftAction(draftIdInput: number) {
 
   if (!Number.isFinite(draftId) || draftId <= 0) {
     throw new Error('El borrador no es válido.');
+  }
+
+  const { data: existing, error: existingError } = await ctx.supabase
+    .from('advisor_order_drafts')
+    .select('id, payload')
+    .eq('id', draftId)
+    .eq('advisor_user_id', ctx.user.id)
+    .in('status', ['draft', 'quoted'])
+    .maybeSingle();
+
+  if (existingError) throw new Error(existingError.message);
+  if (!existing) throw new Error('Este borrador ya no está disponible para eliminar.');
+  if (readEventBudgetPayload(existing.payload)) {
+    throw new Error('Los presupuestos de eventos son de solo lectura para el asesor.');
   }
 
   const { data, error } = await ctx.supabase

@@ -10722,6 +10722,7 @@ export async function createOrderAction(input: {
   deliveryNoteDocumentId: string;
   deliveryNoteAddress: string;
   deliveryNotePhone: string;
+  preserveClientCommercialProfile?: boolean;
 
   items: Array<{
     productId: number;
@@ -10837,7 +10838,7 @@ export async function createOrderAction(input: {
 
   const { data: clientAddressData, error: clientAddressError } = await supabase
     .from('clients')
-    .select('recent_addresses')
+    .select('recent_addresses, billing_company_name, billing_tax_id, billing_address, billing_phone, delivery_note_name, delivery_note_document_id, delivery_note_address, delivery_note_phone')
     .eq('id', clientId)
     .maybeSingle();
 
@@ -10850,28 +10851,28 @@ export async function createOrderAction(input: {
     .update({
       billing_company_name: input.hasInvoice
         ? String(input.invoiceCompanyName || '').trim() || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.billing_company_name ?? null : null,
       billing_tax_id: input.hasInvoice
         ? String(input.invoiceTaxId || '').trim() || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.billing_tax_id ?? null : null,
       billing_address: input.hasInvoice
         ? String(input.invoiceAddress || '').trim() || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.billing_address ?? null : null,
       billing_phone: input.hasInvoice
         ? normalizePhone(String(input.invoicePhone || '')) || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.billing_phone ?? null : null,
       delivery_note_name: input.hasDeliveryNote
         ? String(input.deliveryNoteName || '').trim() || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.delivery_note_name ?? null : null,
       delivery_note_document_id: input.hasDeliveryNote
         ? String(input.deliveryNoteDocumentId || '').trim() || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.delivery_note_document_id ?? null : null,
       delivery_note_address: input.hasDeliveryNote
         ? String(input.deliveryNoteAddress || '').trim() || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.delivery_note_address ?? null : null,
       delivery_note_phone: input.hasDeliveryNote
         ? normalizePhone(String(input.deliveryNotePhone || '')) || null
-        : null,
+        : input.preserveClientCommercialProfile ? clientAddressData?.delivery_note_phone ?? null : null,
       recent_addresses:
         fulfillment === 'delivery'
           ? mergeRecentAddresses(
@@ -12131,6 +12132,11 @@ type AdvisorCommissionManualDeductionSnapshot = {
   createdAt: string | null;
 };
 
+type AdvisorCommissionItemTerms = {
+  mode: 'default' | 'fixed_item' | 'fixed_order' | 'none';
+  value: number | null;
+};
+
 const ADVISOR_COMMISSION_CLIENT_IMPORT_CUTOFF = '2026-06-02';
 
 function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
@@ -12139,6 +12145,25 @@ function getAdvisorCommissionClient(order: AdvisorCommissionOrderRow) {
 
 function getAdvisorCommissionProduct(item: AdvisorCommissionOrderItemRow) {
   return Array.isArray(item.product) ? item.product[0] ?? null : item.product ?? null;
+}
+
+function getAdvisorCommissionItemTerms(
+  item: AdvisorCommissionOrderItemRow,
+  overrides: Map<number, AdvisorCommissionItemTerms>
+): AdvisorCommissionItemTerms {
+  const override = overrides.get(Number(item.id));
+  if (override) return override;
+
+  const product = getAdvisorCommissionProduct(item);
+  const rawMode = String(product?.commission_mode || 'default');
+  const mode: AdvisorCommissionItemTerms['mode'] =
+    rawMode === 'fixed_item' || rawMode === 'fixed_order' || rawMode === 'none'
+      ? rawMode
+      : 'default';
+  return {
+    mode,
+    value: product?.commission_value == null ? null : Math.max(0, toSafeNumber(product.commission_value, 0)),
+  };
 }
 
 function getAdvisorGiftCostUsd(product: ReturnType<typeof getAdvisorCommissionProduct>) {
@@ -12241,6 +12266,7 @@ function buildAdvisorCommissionSnapshots(params: {
   period: { id: number; name: string; date_from: string; date_to: string };
   defaultBaseCommissionPct: number;
   baseCommissionPctByAdvisor: Map<string, number>;
+  commissionTermsByOrderItemId: Map<number, AdvisorCommissionItemTerms>;
 }) {
   const {
     orders,
@@ -12252,6 +12278,7 @@ function buildAdvisorCommissionSnapshots(params: {
     period,
     defaultBaseCommissionPct,
     baseCommissionPctByAdvisor,
+    commissionTermsByOrderItemId,
   } = params;
 
   const closuresByAdvisor = new Map<string, {
@@ -12339,22 +12366,23 @@ function buildAdvisorCommissionSnapshots(params: {
     let specialItemCommissionUsd = 0;
     let fixedOrderBaseUsd = 0;
     let fixedOrderPct: number | null = null;
-    const fixedOrderProduct = items
-      .map(getAdvisorCommissionProduct)
-      .find((product) => String(product?.commission_mode || '') === 'fixed_order');
+    const fixedOrderTerms = items
+      .map((item) => getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId))
+      .find((terms) => terms.mode === 'fixed_order');
 
-    if (fixedOrderProduct) {
+    if (fixedOrderTerms) {
       fixedOrderBaseUsd = commissionableSubtotalUsd;
-      fixedOrderPct = Math.max(0, toSafeNumber(fixedOrderProduct.commission_value, 0));
+      fixedOrderPct = Math.max(0, toSafeNumber(fixedOrderTerms.value, 0));
     } else {
       for (const item of items) {
         const product = getAdvisorCommissionProduct(item);
+        const commissionTerms = getAdvisorCommissionItemTerms(item, commissionTermsByOrderItemId);
         const lineBaseUsd = Math.max(0, getOrderLineTotalUsd(item) * discountFactor);
-        if (String(product?.commission_mode || '') === 'fixed_item') {
-          const pct = Math.max(0, toSafeNumber(product?.commission_value, 0));
+        if (commissionTerms.mode === 'fixed_item') {
+          const pct = Math.max(0, toSafeNumber(commissionTerms.value, 0));
           specialItemBaseUsd += lineBaseUsd;
           specialItemCommissionUsd += lineBaseUsd * (pct / 100);
-        } else {
+        } else if (commissionTerms.mode !== 'none') {
           regularBaseUsd += lineBaseUsd;
         }
 
@@ -12385,8 +12413,8 @@ function buildAdvisorCommissionSnapshots(params: {
           productType,
           qty: toSafeNumber(item.qty, 0),
           lineBaseUsd: roundMoney(lineBaseUsd),
-          commissionMode: String(product?.commission_mode || 'default'),
-          commissionValue: product?.commission_value ?? null,
+          commissionMode: commissionTerms.mode,
+          commissionValue: commissionTerms.value,
         });
       }
 
@@ -12759,8 +12787,50 @@ export async function generateAdvisorCommissionClosuresAction(input: {
   const financialStates = new Map<number, AdvisorCommissionFinancialStateRow>();
   const paymentLedgerEntries: AdvisorCommissionPaymentLedgerEntry[] = [];
   const firstPurchaseOrdersByClientId = new Map<number, AdvisorCommissionFirstOrderRow>();
+  const commissionTermsByOrderItemId = new Map<number, AdvisorCommissionItemTerms>();
 
   if (orderIds.length > 0) {
+    const { data: commercialTermsRows, error: commercialTermsError } = await supabase
+      .from('order_admin_adjustments')
+      .select('id, order_item_id, payload, created_at')
+      .in('order_id', orderIds)
+      .eq('adjustment_type', 'other')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+
+    if (commercialTermsError) {
+      throw new Error(commercialTermsError.message);
+    }
+
+    for (const row of (commercialTermsRows ?? []) as Array<{
+      order_item_id: number | string | null;
+      payload: Record<string, unknown> | null;
+    }>) {
+      const orderItemId = Number(row.order_item_id || 0);
+      const payload = row.payload && typeof row.payload === 'object' && !Array.isArray(row.payload)
+        ? row.payload
+        : {};
+      if (
+        orderItemId <= 0 ||
+        commissionTermsByOrderItemId.has(orderItemId) ||
+        payload.kind !== 'event_commercial_terms'
+      ) {
+        continue;
+      }
+      const rawMode = String(payload.commission_mode || 'default');
+      const mode: AdvisorCommissionItemTerms['mode'] =
+        rawMode === 'fixed_item' || rawMode === 'fixed_order' || rawMode === 'none'
+          ? rawMode
+          : 'default';
+      commissionTermsByOrderItemId.set(orderItemId, {
+        mode,
+        value:
+          mode === 'fixed_item' || mode === 'fixed_order'
+            ? Math.max(0, toSafeNumber(payload.commission_value, 0))
+            : null,
+      });
+    }
+
     const { data: financialStateData, error: financialStateError } = await (supabase as any).rpc(
       'get_orders_financial_state',
       {
@@ -12996,6 +13066,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     },
     defaultBaseCommissionPct,
     baseCommissionPctByAdvisor,
+    commissionTermsByOrderItemId,
   });
 
   for (const snapshot of snapshots) {

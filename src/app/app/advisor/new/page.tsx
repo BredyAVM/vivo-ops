@@ -1,5 +1,7 @@
 import AdvisorOrderComposer from './AdvisorOrderComposer';
 import { getAuthContext } from '@/lib/auth';
+import { redirect } from 'next/navigation';
+import { readEventBudgetPayload } from '@/lib/events/event-budget';
 
 type SearchParams = Promise<{
   fromOrder?: string;
@@ -31,6 +33,9 @@ export default async function AdvisorNewOrderPage({
         .in('status', ['draft', 'quoted'])
         .maybeSingle();
 
+      if (data && readEventBudgetPayload(data.payload)) {
+        redirect(`/app/advisor/drafts/${draftId}`);
+      }
       initialDraft = data;
     }
   }

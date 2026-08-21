@@ -2991,6 +2991,10 @@ const inboxOrdersData = Array.from(inboxOrdersDataById.values())
     isInventoryItem: p.is_inventory_item,
     isTemporary: p.is_temporary,
     isComboComponentSelectable: p.is_combo_component_selectable,
+    accessScope:
+      p.extra_fields && typeof p.extra_fields === 'object' && !Array.isArray(p.extra_fields)
+        ? String((p.extra_fields as Record<string, unknown>).catalog_access_scope || '') || null
+        : null,
     commissionMode:
       p.commission_mode === 'fixed_item'
         ? ('fixed_item' as const)

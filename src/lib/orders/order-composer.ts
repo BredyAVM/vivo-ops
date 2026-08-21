@@ -1,4 +1,6 @@
 export const EDITABLE_DETAIL_SELECTION_PREFIX = '@sel|';
+export const EDITABLE_DETAIL_PREPARATION_PREFIX = '@prep|';
+export const EDITABLE_DETAIL_EVENT_PREFIX = '@event|';
 
 export type OrderComposerComponentMode = 'fixed' | 'selectable';
 
@@ -20,7 +22,12 @@ export type ParsedEditableDetailLine = {
 };
 
 export function isEditableDetailMetadataLine(line: string) {
-  return String(line || '').trim().startsWith(EDITABLE_DETAIL_SELECTION_PREFIX);
+  const normalized = String(line || '').trim();
+  return [
+    EDITABLE_DETAIL_SELECTION_PREFIX,
+    EDITABLE_DETAIL_PREPARATION_PREFIX,
+    EDITABLE_DETAIL_EVENT_PREFIX,
+  ].some((prefix) => normalized.startsWith(prefix));
 }
 
 export function getVisibleEditableDetailLines(lines: string[]) {

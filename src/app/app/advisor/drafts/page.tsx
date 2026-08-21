@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+import { readEventBudgetPayload } from '@/lib/events/event-budget';
 import ArchiveDraftButton from './ArchiveDraftButton';
 
 type DraftRow = {
@@ -15,6 +16,7 @@ type DraftRow = {
   fx_rate: number | string | null;
   quoted_at: string | null;
   updated_at: string | null;
+  payload: Record<string, unknown> | null;
 };
 
 function formatUsd(value: number | string | null | undefined) {
@@ -56,7 +58,7 @@ export default async function AdvisorDraftsPage() {
 
   const { data, error } = await ctx.supabase
     .from('advisor_order_drafts')
-    .select('id, status, title, client_id, client_snapshot, new_client_snapshot, total_usd, total_bs, fx_rate, quoted_at, updated_at')
+    .select('id, status, title, client_id, client_snapshot, new_client_snapshot, total_usd, total_bs, fx_rate, quoted_at, updated_at, payload')
     .eq('advisor_user_id', ctx.user.id)
     .in('status', ['draft', 'quoted'])
     .order('updated_at', { ascending: false })
@@ -92,7 +94,9 @@ export default async function AdvisorDraftsPage() {
           />
         ) : (
           <div className="space-y-3">
-            {drafts.map((draft) => (
+            {drafts.map((draft) => {
+              const eventBudget = readEventBudgetPayload(draft.payload);
+              return (
               <article key={draft.id} className="rounded-[18px] border border-[#232632] bg-[#0D1017] p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -101,7 +105,7 @@ export default async function AdvisorDraftsPage() {
                         {draft.title || getDraftClientLabel(draft)}
                       </h3>
                       <StatusBadge
-                        label={getDraftStatusLabel(draft.status)}
+                        label={eventBudget ? 'Evento · solo lectura' : getDraftStatusLabel(draft.status)}
                         tone={draft.status === 'quoted' ? 'warning' : 'neutral'}
                       />
                     </div>
@@ -119,20 +123,23 @@ export default async function AdvisorDraftsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                <div className={`mt-3 grid gap-2 ${eventBudget ? 'grid-cols-1' : 'grid-cols-[1fr_auto]'}`}>
                   <Link
-                    href={`/app/advisor/new?draftId=${draft.id}&returnTo=${encodeURIComponent('/app/advisor/drafts')}`}
+                    href={eventBudget
+                      ? `/app/advisor/drafts/${draft.id}`
+                      : `/app/advisor/new?draftId=${draft.id}&returnTo=${encodeURIComponent('/app/advisor/drafts')}`}
                     className="inline-flex h-10 items-center justify-center rounded-[14px] border border-[#2A3040] px-4 text-sm font-semibold text-[#F5F7FB]"
                   >
-                    Abrir
+                    {eventBudget ? 'Ver propuesta' : 'Abrir'}
                   </Link>
-                  <ArchiveDraftButton
+                  {!eventBudget ? <ArchiveDraftButton
                     draftId={draft.id}
                     label={draft.status === 'quoted' ? 'este presupuesto' : 'este borrador'}
-                  />
+                  /> : null}
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </SectionCard>

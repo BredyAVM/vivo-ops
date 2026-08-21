@@ -2866,7 +2866,8 @@ async function loadMasterOpsOrderComposerLookups(
         units_per_service,
         is_detail_editable,
         detail_units_limit,
-        internal_rider_pay_usd
+        internal_rider_pay_usd,
+        extra_fields
       `
       )
       .eq("is_active", true)
@@ -2933,6 +2934,12 @@ async function loadMasterOpsOrderComposerLookups(
       internalRiderPayUsd:
         product.internal_rider_pay_usd == null ? null : toNumber(product.internal_rider_pay_usd, 0),
     }))
+    .filter((product) => {
+      const source = ((productsResult.data ?? []) as Array<{ id: number | string; extra_fields?: unknown }>).find(
+        (row) => Number(row.id) === product.id
+      );
+      return asOpsRecord(source?.extra_fields).catalog_access_scope !== "admin_internal";
+    })
     .filter((product) => Number.isFinite(product.id) && product.id > 0);
 
   const productComponents = ((productComponentsResult.data ?? []) as RawProductComponentEditRow[])
@@ -3131,7 +3138,8 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
         units_per_service,
         is_detail_editable,
         detail_units_limit,
-        internal_rider_pay_usd
+        internal_rider_pay_usd,
+        extra_fields
       `
       )
       .eq("is_active", true)
@@ -3211,6 +3219,12 @@ export async function loadMasterOpsOrderEditDataAction(orderIdInput: number): Pr
       internalRiderPayUsd:
         product.internal_rider_pay_usd == null ? null : toNumber(product.internal_rider_pay_usd, 0),
     }))
+    .filter((product) => {
+      const source = ((productsResult.data ?? []) as Array<{ id: number | string; extra_fields?: unknown }>).find(
+        (row) => Number(row.id) === product.id
+      );
+      return asOpsRecord(source?.extra_fields).catalog_access_scope !== "admin_internal";
+    })
     .filter((product) => Number.isFinite(product.id) && product.id > 0);
 
   const productComponents = ((productComponentsResult.data ?? []) as RawProductComponentEditRow[])

@@ -1693,7 +1693,8 @@ export default function AdvisorOrderComposer({
       .filter(
         (product) =>
           product.is_active !== false &&
-          product.extra_fields?.inventory_component_only !== true
+          product.extra_fields?.inventory_component_only !== true &&
+          product.extra_fields?.catalog_access_scope !== 'admin_internal'
       )
       .map((product) => ({
         product,
@@ -1724,7 +1725,11 @@ export default function AdvisorOrderComposer({
 
     let cancelled = false;
     const productIds = products
-      .filter((product) => product.is_active !== false && product.extra_fields?.inventory_component_only !== true)
+      .filter((product) =>
+        product.is_active !== false &&
+        product.extra_fields?.inventory_component_only !== true &&
+        product.extra_fields?.catalog_access_scope !== 'admin_internal'
+      )
       .map((product) => product.id)
       .slice(0, 200);
 

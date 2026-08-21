@@ -1117,6 +1117,7 @@ type CatalogItem = {
   isInventoryItem: boolean;
   isTemporary: boolean;
   isComboComponentSelectable: boolean;
+  accessScope: string | null;
   commissionMode: 'default' | 'fixed_item' | 'fixed_order';
   commissionValue: number | null;
   commissionNotes: string | null;
@@ -5930,6 +5931,7 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
     const q = catalogSearch.trim().toLowerCase();
 
     return catalogItems.filter((item) => {
+      if (item.accessScope === 'admin_internal') return false;
       const matchesType = catalogTypeFilter === 'all' ? true : item.type === catalogTypeFilter;
       const matchesSearch =
         !q ||
@@ -5941,14 +5943,15 @@ const [exchangeRateSaving, setExchangeRateSaving] = useState(false);
   }, [catalogItems, catalogSearch, catalogTypeFilter]);
 
   const catalogStats = useMemo(() => {
+    const visibleItems = catalogItems.filter((item) => item.accessScope !== 'admin_internal');
     return {
-      total: catalogItems.length,
-      active: catalogItems.filter((x) => x.isActive).length,
-      products: catalogItems.filter((x) => x.type === 'product').length,
-      combos: catalogItems.filter((x) => x.type === 'combo').length,
-      services: catalogItems.filter((x) => x.type === 'service').length,
-      promos: catalogItems.filter((x) => x.type === 'promo').length,
-      gambits: catalogItems.filter((x) => x.type === 'gambit').length,
+      total: visibleItems.length,
+      active: visibleItems.filter((x) => x.isActive).length,
+      products: visibleItems.filter((x) => x.type === 'product').length,
+      combos: visibleItems.filter((x) => x.type === 'combo').length,
+      services: visibleItems.filter((x) => x.type === 'service').length,
+      promos: visibleItems.filter((x) => x.type === 'promo').length,
+      gambits: visibleItems.filter((x) => x.type === 'gambit').length,
     };
   }, [catalogItems]);
 
@@ -6131,7 +6134,7 @@ const createOrderSelectedProductIsEditable = !!createOrderSelectedCatalogItem?.i
   const selectableComponentOptions = useMemo(
     () =>
       catalogItems
-        .filter((item) => item.isActive)
+        .filter((item) => item.isActive && item.accessScope !== 'admin_internal')
         .map((item) => ({
           id: item.id,
           label: item.name,
@@ -7943,6 +7946,7 @@ const openQuickCatalog = () => {
 
   setQuickCatalogRows(
     catalogItems
+      .filter((item) => item.accessScope !== 'admin_internal')
       .slice()
       .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name, 'es'))
       .map((item) => ({
@@ -11467,7 +11471,7 @@ const handleClearAdjustedCreateOrderItemPrice = (localId: string) => {
 };
 
 const createOrderFilteredProducts = catalogItems
-  .filter((item) => item.isActive)
+  .filter((item) => item.isActive && item.accessScope !== 'admin_internal')
   .filter((item) => {
     const q = createOrderProductSearch.trim().toLowerCase();
     if (!q) return true;
@@ -14457,6 +14461,15 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
         >
           Inventario
         </Link>
+        {permissions.isAdmin ? (
+          <Link
+            href="/app/events"
+            prefetch={false}
+            className="whitespace-nowrap rounded-full border border-[#242433] bg-[#101014] px-2 py-0.5 text-[11px] text-[#8A8A96] hover:border-[#FEEF00]/60 hover:text-[#F5F5F7]"
+          >
+            Eventos
+          </Link>
+        ) : null}
         <Chip active={settingsTab === 'exchange_rate'} onClick={() => setSettingsTab('exchange_rate')}>
           Tasa
         </Chip>
@@ -26915,7 +26928,7 @@ deliveryAssignMode === 'external' ? (
     setCreateOrderProductActiveIndex(-1);
 
     const firstMatch = catalogItems
-      .filter((item) => item.isActive)
+      .filter((item) => item.isActive && item.accessScope !== 'admin_internal')
       .find((item) => {
         const q = value.trim().toLowerCase();
         if (!q) return false;

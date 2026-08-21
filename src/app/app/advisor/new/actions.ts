@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAuthContext } from '@/lib/auth';
 import { canAdvisorModifyOrder } from '@/lib/domain/order-domain';
+import { readEventBudgetPayload } from '@/lib/events/event-budget';
 import {
   sanitizeOrderChangeDetails,
   summarizeOrderChangeDetails,
@@ -487,6 +488,9 @@ export async function saveAdvisorOrderDraftAction(input: SaveAdvisorOrderDraftIn
   if (!input.payload || typeof input.payload !== 'object' || Array.isArray(input.payload)) {
     throw new Error('No se pudo guardar el borrador: faltan los datos del pedido.');
   }
+  if (readEventBudgetPayload(input.payload)) {
+    throw new Error('Los presupuestos de eventos solo pueden ser modificados por Administración.');
+  }
 
   const draftPayload = {
     advisor_user_id: ctx.user.id,
@@ -506,7 +510,7 @@ export async function saveAdvisorOrderDraftAction(input: SaveAdvisorOrderDraftIn
   if (Number.isFinite(draftId) && draftId > 0) {
     const { data: existing, error: existingError } = await adminSupabase
       .from('advisor_order_drafts')
-      .select('id, advisor_user_id, status')
+      .select('id, advisor_user_id, status, payload')
       .eq('id', draftId)
       .maybeSingle();
 
@@ -516,6 +520,9 @@ export async function saveAdvisorOrderDraftAction(input: SaveAdvisorOrderDraftIn
 
     if (existing.advisor_user_id !== ctx.user.id) {
       throw new Error('No puedes modificar este borrador.');
+    }
+    if (readEventBudgetPayload(existing.payload)) {
+      throw new Error('Los presupuestos de eventos son de solo lectura para el asesor.');
     }
 
     if (existing.status === 'converted' || existing.status === 'archived') {
@@ -561,7 +568,7 @@ export async function markAdvisorOrderDraftConvertedAction(input: { draftId: num
   const adminSupabase = createSupabaseServiceRoleServer();
   const { data: existing, error: existingError } = await adminSupabase
     .from('advisor_order_drafts')
-    .select('id, advisor_user_id, status')
+    .select('id, advisor_user_id, status, payload')
     .eq('id', draftId)
     .maybeSingle();
 
@@ -571,6 +578,9 @@ export async function markAdvisorOrderDraftConvertedAction(input: { draftId: num
 
   if (existing.advisor_user_id !== ctx.user.id) {
     throw new Error('No puedes cerrar este borrador.');
+  }
+  if (readEventBudgetPayload(existing.payload)) {
+    throw new Error('Solo Administración puede convertir un presupuesto de evento.');
   }
 
   const { error } = await adminSupabase
