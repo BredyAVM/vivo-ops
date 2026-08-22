@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { normalizePhoneDetailed } from '@/lib/phone/normalize-phone';
-import { normalizeSearchValue, splitSearchTokens } from '@/lib/search/normalize-search';
 import { EmptyBlock, PageIntro, StatusBadge } from '../advisor-ui';
 
 type PortfolioRow = {
@@ -25,6 +24,22 @@ type PortfolioRow = {
 
 type PortfolioSegment = 'all' | 'contact' | 'overdue' | 'new';
 type PortfolioSort = 'attention' | 'recent' | 'revenue' | 'name';
+type PortfolioPayload = {
+  summary: {
+    total_clients: number | string;
+    contact_count: number | string;
+    overdue_count: number | string;
+    new_count: number | string;
+    total_revenue_usd: number | string;
+  };
+  pagination: {
+    filtered_count: number | string;
+    current_page: number | string;
+    total_pages: number | string;
+    page_size: number | string;
+  };
+  rows: PortfolioRow[];
+};
 type SearchParams = Promise<{
   q?: string;
   segment?: string;
@@ -94,11 +109,6 @@ function isOutsideRhythm(row: PortfolioRow) {
   return cadence !== null && cadence > 0 && days !== null && days > cadence;
 }
 
-function needsContact(row: PortfolioRow) {
-  const days = optionalNumber(row.days_since_last_purchase);
-  return !row.last_purchase_on || (days !== null && days >= CONTACT_AFTER_DAYS);
-}
-
 function segmentValue(value: string | undefined): PortfolioSegment {
   return value === 'contact' || value === 'overdue' || value === 'new' ? value : 'all';
 }
@@ -163,29 +173,6 @@ function daysLabel(row: PortfolioRow) {
   return `Hace ${Math.round(days)} días`;
 }
 
-function sortPortfolio(rows: PortfolioRow[], sort: PortfolioSort) {
-  return [...rows].sort((left, right) => {
-    if (sort === 'name') {
-      return String(left.client_name || '').localeCompare(String(right.client_name || ''), 'es');
-    }
-    if (sort === 'revenue') {
-      return numberValue(right.net_revenue_usd) - numberValue(left.net_revenue_usd);
-    }
-    if (sort === 'recent') {
-      return String(right.last_purchase_on || '').localeCompare(String(left.last_purchase_on || ''));
-    }
-
-    const leftNoHistory = left.last_purchase_on ? 0 : 1;
-    const rightNoHistory = right.last_purchase_on ? 0 : 1;
-    if (leftNoHistory !== rightNoHistory) return rightNoHistory - leftNoHistory;
-
-    const leftDays = optionalNumber(left.days_since_last_purchase) ?? -1;
-    const rightDays = optionalNumber(right.days_since_last_purchase) ?? -1;
-    if (leftDays !== rightDays) return rightDays - leftDays;
-    return numberValue(right.net_revenue_usd) - numberValue(left.net_revenue_usd);
-  });
-}
-
 function SummaryMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <article className="rounded-[18px] border border-[#232632] bg-[#12151D] px-3.5 py-3">
@@ -213,12 +200,22 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
     day: '2-digit',
   }).format(new Date());
 
-  const result = await ctx.supabase.rpc('crm_my_client_portfolio_v1', {
+  const result = await ctx.supabase.rpc('crm_my_client_portfolio_page_v1', {
     p_purchase_window: cadenceWindow,
+    p_search: query || null,
+    p_segment: segment,
+    p_sort: sort,
+    p_page: requestedPage,
+    p_page_size: PAGE_SIZE,
   });
 
-  if (result.error) {
-    console.error('Unable to load advisor client portfolio', result.error.message);
+  const payload = result.data as PortfolioPayload | null;
+
+  if (result.error || !payload || !Array.isArray(payload.rows)) {
+    console.error(
+      'Unable to load advisor client portfolio',
+      result.error?.message ?? 'Invalid portfolio response'
+    );
     return (
       <div className="space-y-4">
         <PageIntro
@@ -234,37 +231,18 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
     );
   }
 
-  const rows = (result.data ?? []) as PortfolioRow[];
-  const contactCount = rows.filter(needsContact).length;
-  const overdueCount = rows.filter(isOutsideRhythm).length;
-  const newCount = rows.filter((row) => isNewClient(row, todayKey)).length;
-  const totalRevenue = rows.reduce((sum, row) => sum + numberValue(row.net_revenue_usd), 0);
-  const queryTokens = splitSearchTokens(query);
-
-  const segmentedRows = rows.filter((row) => {
-    if (segment === 'contact') return needsContact(row);
-    if (segment === 'overdue') return isOutsideRhythm(row);
-    if (segment === 'new') return isNewClient(row, todayKey);
-    return true;
-  });
-
-  const searchedRows = queryTokens.length
-    ? segmentedRows.filter((row) => {
-        const normalizedPhone = normalizePhoneDetailed(row.phone);
-        const searchValue = normalizeSearchValue(
-          `${row.client_name || ''} ${row.phone || ''} ${normalizedPhone.digits} ${normalizedPhone.e164 || ''}`
-        );
-        return queryTokens.every((token) => searchValue.includes(token));
-      })
-    : segmentedRows;
-
-  const sortedRows = sortPortfolio(searchedRows, sort);
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
-  const currentPage = Math.min(requestedPage, totalPages);
-  const visibleRows = sortedRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const rows = payload.rows;
+  const totalClients = numberValue(payload.summary.total_clients);
+  const contactCount = numberValue(payload.summary.contact_count);
+  const overdueCount = numberValue(payload.summary.overdue_count);
+  const newCount = numberValue(payload.summary.new_count);
+  const totalRevenue = numberValue(payload.summary.total_revenue_usd);
+  const filteredCount = numberValue(payload.pagination.filtered_count);
+  const totalPages = Math.max(1, numberValue(payload.pagination.total_pages));
+  const currentPage = Math.max(1, numberValue(payload.pagination.current_page));
   const routeState = { q: query, segment, sort, window: cadenceWindow, page: currentPage };
   const segments: Array<{ value: PortfolioSegment; label: string; count: number }> = [
-    { value: 'all', label: 'Todos', count: rows.length },
+    { value: 'all', label: 'Todos', count: totalClients },
     { value: 'contact', label: 'Por contactar', count: contactCount },
     { value: 'overdue', label: 'Fuera de ritmo', count: overdueCount },
     { value: 'new', label: 'Nuevos', count: newCount },
@@ -280,7 +258,7 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
       />
 
       <div className="grid grid-cols-2 gap-2">
-        <SummaryMetric label="Asignados" value={String(rows.length)} detail="Clientes activos en tu cartera" />
+        <SummaryMetric label="Asignados" value={String(totalClients)} detail="Clientes activos en tu cartera" />
         <SummaryMetric label="Por contactar" value={String(contactCount)} detail="60 días o sin historial visible" />
         <SummaryMetric label="Fuera de ritmo" value={String(overdueCount)} detail="Superaron su frecuencia habitual" />
         <SummaryMetric
@@ -375,7 +353,7 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
           <div>
             <h2 className="text-base font-semibold text-[#F5F7FB]">Clientes</h2>
             <p className="mt-0.5 text-xs text-[#8B93A7]">
-              {sortedRows.length} resultado{sortedRows.length === 1 ? '' : 's'}
+              {filteredCount} resultado{filteredCount === 1 ? '' : 's'}
               {query ? ` para “${query}”` : ''}
             </p>
           </div>
@@ -386,7 +364,7 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
           ) : null}
         </div>
 
-        {visibleRows.length === 0 ? (
+        {rows.length === 0 ? (
           <EmptyBlock
             title="Sin clientes en este filtro"
             detail="Prueba otro nombre, limpia la búsqueda o cambia la señal comercial seleccionada."
@@ -394,7 +372,7 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
             cta="Ver toda la cartera"
           />
         ) : (
-          visibleRows.map((row) => {
+          rows.map((row) => {
             const status = rowStatus(row, todayKey);
             const phone = normalizePhoneDetailed(row.phone);
             const whatsappHref = phone.e164 ? `https://wa.me/${phone.e164.slice(1)}` : null;
