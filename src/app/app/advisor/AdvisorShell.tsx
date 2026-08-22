@@ -21,6 +21,7 @@ type AdvisorShellProps = {
 const navItems = [
   { href: '/app/advisor', label: 'Inicio' },
   { href: '/app/advisor/orders', label: 'Pedidos' },
+  { href: '/app/advisor/clients', label: 'Cartera' },
   { href: '/app/advisor/inventory', label: 'Disponibilidad' },
   { href: '/app/advisor/drafts', label: 'Borradores' },
   { href: '/app/advisor/payments', label: 'Pagos' },
@@ -38,6 +39,7 @@ function resolveBackHref(pathname: string, requestedReturnTo: string | null) {
   if (contextualReturnTo && contextualReturnTo !== pathname) return contextualReturnTo;
   if (pathname.startsWith('/app/advisor/new')) return '/app/advisor/orders';
   if (pathname.startsWith('/app/advisor/orders/')) return '/app/advisor/orders';
+  if (pathname.startsWith('/app/advisor/clients')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/drafts')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/payments')) return '/app/advisor';
   if (pathname.startsWith('/app/advisor/commissions')) return '/app/advisor';
