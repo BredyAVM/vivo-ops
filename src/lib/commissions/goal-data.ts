@@ -51,6 +51,15 @@ type PaymentReportDbRow = {
   created_at: string;
 };
 
+type FinancialStateDbRow = {
+  order_id: number | string;
+  order_number: string | null;
+  total_usd: number | string | null;
+  confirmed_paid_usd: number | string | null;
+  pending_usd: number | string | null;
+  delivery_reference_date: string | null;
+};
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -95,6 +104,8 @@ function snapshotOrders(snapshot: unknown) {
     if (totalUsd <= 0.005) return [];
     return [{
       orderId,
+      orderNumber: order.orderNumber == null ? null : String(order.orderNumber),
+      clientName: String(order.clientName || 'Cliente').trim() || 'Cliente',
       deliveryDate,
       totalUsd,
       confirmedPaidUsd: numberValue(order.confirmedPaidUsd),
@@ -134,10 +145,11 @@ async function loadCollectionByAdvisorId(params: {
   }
   const uniqueOrderIds = Array.from(new Set(orderIds));
   const entries: AdvisorGoalPaymentRegistrationEntry[] = [];
+  const financialStateByOrderId = new Map<number, FinancialStateDbRow>();
 
   for (let index = 0; index < uniqueOrderIds.length; index += 250) {
     const chunk = uniqueOrderIds.slice(index, index + 250);
-    const [movementsResult, reportsResult, fundResult, refundReceiptsResult] = await Promise.all([
+    const [movementsResult, reportsResult, fundResult, refundReceiptsResult, financialStatesResult] = await Promise.all([
       params.supabase
         .from('money_movements')
         .select('id, order_id, created_at, direction, movement_type, amount_usd_equivalent, movement_group_id, payment_report_id')
@@ -157,11 +169,22 @@ async function loadCollectionByAdvisorId(params: {
         .select('order_id, idempotency_key')
         .in('order_id', chunk)
         .eq('command_type', 'request_refund'),
+      params.supabase.rpc('get_orders_financial_state', {
+        p_order_ids: chunk,
+        p_operation_date: null,
+        p_active_bs_rate: null,
+      }),
     ]);
     if (movementsResult.error) throw new Error(movementsResult.error.message);
     if (reportsResult.error) throw new Error(reportsResult.error.message);
     if (fundResult.error) throw new Error(fundResult.error.message);
     if (refundReceiptsResult.error) throw new Error(refundReceiptsResult.error.message);
+    if (financialStatesResult.error) throw new Error(financialStatesResult.error.message);
+
+    for (const state of (financialStatesResult.data ?? []) as FinancialStateDbRow[]) {
+      const orderId = Number(state.order_id);
+      if (Number.isInteger(orderId) && orderId > 0) financialStateByOrderId.set(orderId, state);
+    }
 
     const reports = (reportsResult.data ?? []) as PaymentReportDbRow[];
     const reportDateById = new Map(
@@ -217,9 +240,38 @@ async function loadCollectionByAdvisorId(params: {
   return new Map(
     Array.from(ordersByAdvisorId.entries()).map(([advisorUserId, orders]) => [
       advisorUserId,
-      calculateAdvisorGoalCollectionSummary({ orders, entries, asOfDate }),
+      calculateAdvisorGoalCollectionSummary({
+        orders: orders.map((order) => {
+          const state = financialStateByOrderId.get(order.orderId);
+          if (!state) return order;
+          return {
+            ...order,
+            orderNumber: state.order_number ?? order.orderNumber,
+            deliveryDate: state.delivery_reference_date || order.deliveryDate,
+            totalUsd: numberValue(state.total_usd) || order.totalUsd,
+            confirmedPaidUsd: numberValue(state.confirmed_paid_usd),
+            pendingUsd: numberValue(state.pending_usd),
+          };
+        }),
+        entries,
+        asOfDate,
+      }),
     ])
   );
+}
+
+export async function loadAdvisorGoalCollectionForClosure(params: {
+  supabase: SupabaseServerClient;
+  advisorUserId: string;
+  snapshot: unknown;
+  periodTo: string;
+}) {
+  const summaries = await loadCollectionByAdvisorId({
+    supabase: params.supabase,
+    closures: [{ id: 0, advisor_user_id: params.advisorUserId, snapshot: params.snapshot }],
+    cutoffDate: datePlusDays(params.periodTo, 5),
+  });
+  return summaries.get(params.advisorUserId) ?? null;
 }
 
 export async function loadAdvisorGoalSimulation(params: {

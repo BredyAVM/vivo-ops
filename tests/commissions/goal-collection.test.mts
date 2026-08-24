@@ -7,9 +7,9 @@ import {
 } from '../../src/lib/commissions/goal-collection.ts';
 
 const orders = [
-  { orderId: 1, deliveryDate: '2026-08-10', totalUsd: 100, confirmedPaidUsd: 100, pendingUsd: 0 },
-  { orderId: 2, deliveryDate: '2026-08-10', totalUsd: 80, confirmedPaidUsd: 80, pendingUsd: 0 },
-  { orderId: 3, deliveryDate: '2026-08-10', totalUsd: 50, confirmedPaidUsd: 0, pendingUsd: 50 },
+  { orderId: 1, orderNumber: '1', clientName: 'Cliente puntual', deliveryDate: '2026-08-10', totalUsd: 100, confirmedPaidUsd: 100, pendingUsd: 0 },
+  { orderId: 2, orderNumber: '2', clientName: 'Cliente crédito', deliveryDate: '2026-08-10', totalUsd: 80, confirmedPaidUsd: 80, pendingUsd: 0 },
+  { orderId: 3, orderNumber: '3', clientName: 'Cliente pendiente', deliveryDate: '2026-08-10', totalUsd: 50, confirmedPaidUsd: 0, pendingUsd: 50 },
 ];
 
 test('usa la fecha de registro del pago completo y no la fecha bancaria', () => {
@@ -54,4 +54,25 @@ test('resume puntual, crédito de cinco días y atraso en una sola relación', (
   assert.equal(summary.punctualCount, 1);
   assert.equal(summary.creditCount, 1);
   assert.equal(summary.overdueCount, 1);
+  assert.deepEqual(summary.orders.map((order) => order.status), [
+    'punctual_paid',
+    'credit_paid',
+    'overdue_open',
+  ]);
+  assert.equal(summary.orders[2].clientName, 'Cliente pendiente');
+  assert.equal(summary.orders[2].creditDueDate, '2026-08-15');
+});
+
+test('separa una deuda vigente de un pago sin fecha verificable', () => {
+  const summary = calculateAdvisorGoalCollectionSummary({
+    orders: [
+      { ...orders[0], orderId: 4, pendingUsd: 100, confirmedPaidUsd: 0 },
+      { ...orders[0], orderId: 5, pendingUsd: 0, confirmedPaidUsd: 100 },
+    ],
+    entries: [],
+    asOfDate: '2026-08-12',
+  });
+
+  assert.equal(summary.orders[0].status, 'credit_open');
+  assert.equal(summary.orders[1].status, 'missing_registration');
 });

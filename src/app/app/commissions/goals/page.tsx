@@ -12,6 +12,7 @@ import {
   finalizeAdvisorGoalResultsAction,
   saveAdvisorGoalConfigurationAction,
 } from './actions';
+import { AdvisorGoalCollectionBreakdown } from '../AdvisorGoalCollectionBreakdown';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -367,14 +368,18 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                       <MetricCard label="Nuevos propios" metric={advisor.metrics.newOwnClients} points={metricPoints(advisor.score, 'new_own_clients')} />
                       <MetricCard label="Nuevos asignados" metric={advisor.metrics.newAssignedClients} points={metricPoints(advisor.score, 'new_assigned_clients')} />
                     </div>
-                    <details className="mt-3 rounded-2xl border border-[#2D2D37] bg-[#15151B] px-4 py-3">
-                      <summary className="cursor-pointer text-xs font-semibold text-[#D6D6DD]">Auditar clasificación de cobranza</summary>
-                      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-[#2A2A33] pt-3 text-center text-xs">
-                        <div className="rounded-xl bg-[#101014] p-2.5"><div className="text-emerald-300">100%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.punctualCount} puntuales</div></div>
-                        <div className="rounded-xl bg-[#101014] p-2.5"><div className="text-[#F7DA66]">80%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.creditCount} con crédito</div></div>
-                        <div className="rounded-xl bg-[#101014] p-2.5"><div className="text-red-300">0%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.overdueCount} atrasados</div></div>
+                    <div className="mt-3 space-y-2">
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-emerald-300">100%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.punctualCount} puntuales</div></div>
+                        <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-[#F7DA66]">80%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.creditCount} con crédito</div></div>
+                        <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-red-300">0%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.overdueCount} atrasados</div></div>
                       </div>
-                    </details>
+                      <AdvisorGoalCollectionBreakdown
+                        defaultOpen
+                        points={metricPoints(advisor.score, 'collection')?.points}
+                        summary={advisor.collection}
+                      />
+                    </div>
                   </article>
                 ))}
               </div>

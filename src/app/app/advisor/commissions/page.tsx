@@ -8,6 +8,8 @@ import {
   readAdvisorGoalPublicationSnapshot,
   type AdvisorGoalMetricPublication,
 } from '@/lib/commissions/goal-snapshot';
+import { loadAdvisorGoalCollectionForClosure } from '@/lib/commissions/goal-data';
+import { AdvisorGoalCollectionBreakdown } from '@/app/app/commissions/AdvisorGoalCollectionBreakdown';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type CommissionDetail =
@@ -396,6 +398,22 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const status = closure ? closureStatus(closure.status) : null;
   const storedGoal = readAdvisorGoalPublicationSnapshot(closure?.snapshot);
   const visibleGoal = storedGoal && storedGoal.status !== 'draft' ? storedGoal : null;
+  let currentGoalCollection = null;
+  if (visibleGoal && closure && selectedPeriod) {
+    try {
+      currentGoalCollection = await loadAdvisorGoalCollectionForClosure({
+        supabase: ctx.supabase,
+        advisorUserId: ctx.user.id,
+        snapshot: closure.snapshot,
+        periodTo: selectedPeriod.date_to,
+      });
+    } catch (error) {
+      console.warn(
+        'advisor goal collection detail skipped',
+        error instanceof Error ? error.message : 'unknown collection detail error'
+      );
+    }
+  }
   const liveGoalScore = visibleGoal
     ? visibleGoal.status === 'final'
       ? visibleGoal.score
@@ -414,7 +432,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
           },
           {
             key: 'collection',
-            actual: visibleGoal.metrics.collection.actual,
+            actual: currentGoalCollection?.ratio ?? visibleGoal.metrics.collection.actual,
             reference: visibleGoal.metrics.collection.personalReference,
             target: visibleGoal.metrics.collection.target,
           },
@@ -438,7 +456,10 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
       : {
         billing: { ...visibleGoal.metrics.billing, actual: numberValue(closure?.billed_usd) },
         closures: { ...visibleGoal.metrics.closures, actual: numberValue(closure?.delivered_orders_count) },
-        collection: visibleGoal.metrics.collection,
+        collection: {
+          ...visibleGoal.metrics.collection,
+          actual: currentGoalCollection?.ratio ?? visibleGoal.metrics.collection.actual,
+        },
         new_own_clients: { ...visibleGoal.metrics.new_own_clients, actual: numberValue(closure?.new_own_clients_count) },
         new_assigned_clients: { ...visibleGoal.metrics.new_assigned_clients, actual: numberValue(closure?.new_assigned_clients_count) },
         }
@@ -648,6 +669,15 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                   );
                 })}
               </div>
+
+              {currentGoalCollection ? (
+                <div className="mt-3">
+                  <AdvisorGoalCollectionBreakdown
+                    points={liveGoalScore.metrics.find((metric) => metric.key === 'collection')?.points}
+                    summary={currentGoalCollection}
+                  />
+                </div>
+              ) : null}
 
               <details className="mt-3 rounded-[16px] border border-[#252A37] bg-[#0D1017] px-3 py-3">
                 <summary className="cursor-pointer text-xs font-semibold text-[#D9DDE7]">¿Cómo se calculó?</summary>
