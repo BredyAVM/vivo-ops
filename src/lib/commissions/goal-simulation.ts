@@ -9,6 +9,7 @@ import {
   type AdvisorGoalSeasonality,
 } from './goal-engine.ts';
 import type { AdvisorGoalCollectionSummary } from './goal-collection.ts';
+import { advisorGoalPeriodIdentity } from './goal-period.ts';
 
 export type AdvisorGoalCommercialMetricRow = {
   periodKey: string;
@@ -54,6 +55,7 @@ export type AdvisorGoalAdvisorSimulation = {
   };
   collection: AdvisorGoalCollectionSummary;
   score: AdvisorGoalScore | null;
+  targetScore: AdvisorGoalScore | null;
   warning: string | null;
 };
 
@@ -62,6 +64,7 @@ export type AdvisorGoalSimulation = {
   periodFrom: string;
   periodTo: string;
   cutoffDate: string;
+  mode: 'projection' | 'active';
   seasonality: {
     billing: AdvisorGoalSeasonality;
     closures: AdvisorGoalSeasonality;
@@ -214,12 +217,34 @@ export function buildAdvisorGoalSimulation(params: {
   periodFrom: string;
   periodTo: string;
   metrics: AdvisorGoalCommercialMetricRow[];
+  projectionAdvisors?: Array<{ advisorUserId: string; advisorName: string }>;
   collectionByAdvisorId?: Map<string, AdvisorGoalCollectionSummary>;
   context?: Partial<AdvisorGoalSimulationContext>;
+  mode?: 'projection' | 'active';
 }): AdvisorGoalSimulation {
-  const targetRows = params.metrics.filter((row) => row.periodFrom === params.periodFrom);
+  const actualTargetRows = params.metrics.filter((row) => row.periodFrom === params.periodFrom);
+  const actualTargetByAdvisorId = new Map(
+    actualTargetRows.map((row) => [row.advisorUserId, row])
+  );
+  const identity = advisorGoalPeriodIdentity(params.periodFrom);
+  const targetRows = params.projectionAdvisors && params.projectionAdvisors.length > 0
+    ? params.projectionAdvisors.map((advisor) => actualTargetByAdvisorId.get(advisor.advisorUserId) ?? {
+        periodKey: identity.key,
+        periodFrom: params.periodFrom,
+        periodTo: params.periodTo,
+        periodYear: identity.year,
+        periodMonth: identity.month,
+        periodHalf: identity.half,
+        advisorUserId: advisor.advisorUserId,
+        advisorName: advisor.advisorName,
+        billingUsd: 0,
+        closuresCount: 0,
+        newOwnClientsCount: 0,
+        newAssignedClientsCount: 0,
+      })
+    : actualTargetRows;
   if (targetRows.length === 0) {
-    throw new Error('El periodo no tiene hechos comerciales disponibles para simular sus metas.');
+    throw new Error('No hay asesores activos disponibles para proyectar este periodo.');
   }
   const target = targetRows[0];
   const billingSeasonality = calculateAdvisorGoalSeasonality(seasonalSamples({
@@ -283,6 +308,15 @@ export function buildAdvisorGoalSimulation(params: {
           { key: 'new_own_clients', actual: newOwnClients.actual, reference: newOwnClients.reference ?? 0, target: newOwnClients.target ?? 0 },
           { key: 'new_assigned_clients', actual: newAssignedClients.actual, reference: newAssignedClients.reference ?? 0, target: newAssignedClients.target ?? 0 },
         ]);
+    const targetScore = missing > 0
+      ? null
+      : calculateAdvisorGoalScore([
+          { key: 'billing', actual: billing.target ?? 0, reference: billing.reference ?? 0, target: billing.target ?? 0 },
+          { key: 'closures', actual: closures.target ?? 0, reference: closures.reference ?? 0, target: closures.target ?? 0 },
+          { key: 'collection', actual: 1, reference: 0.8, target: 1 },
+          { key: 'new_own_clients', actual: newOwnClients.target ?? 0, reference: newOwnClients.reference ?? 0, target: newOwnClients.target ?? 0 },
+          { key: 'new_assigned_clients', actual: newAssignedClients.target ?? 0, reference: newAssignedClients.reference ?? 0, target: newAssignedClients.target ?? 0 },
+        ]);
 
     return {
       advisorUserId: row.advisorUserId,
@@ -313,6 +347,7 @@ export function buildAdvisorGoalSimulation(params: {
       },
       collection,
       score,
+      targetScore,
       warning: missing > 0 ? 'Faltan referencias históricas; administración debe completarlas antes de publicar.' : null,
     };
   }).sort((left, right) => left.advisorName.localeCompare(right.advisorName, 'es'));
@@ -322,6 +357,7 @@ export function buildAdvisorGoalSimulation(params: {
     periodFrom: params.periodFrom,
     periodTo: params.periodTo,
     cutoffDate: datePlusDays(params.periodTo, 5),
+    mode: params.mode ?? (actualTargetRows.length === 0 ? 'projection' : 'active'),
     seasonality: { billing: billingSeasonality, closures: closuresSeasonality },
     appliedContext: {
       growthChallengePct: round(growthChallengePct),

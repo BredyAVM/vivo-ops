@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { requireAuthContext } from '@/lib/auth';
 import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
+import { suggestNextAdvisorGoalPeriod } from '@/lib/commissions/goal-period';
 import { buildAdvisorGoalPublicationBundle } from '@/lib/commissions/goal-publication';
 import { notifyAdvisorGoalPublications } from '@/lib/commissions/notifications';
 import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closure-snapshot';
@@ -59,6 +60,71 @@ function caracasToday() {
   }).formatToParts(new Date());
   const fields = new Map(parts.map((part) => [part.type, part.value]));
   return `${fields.get('year')}-${fields.get('month')}-${fields.get('day')}`;
+}
+
+export async function createAdvisorGoalProjectionPeriodAction(formData: FormData) {
+  const sourcePeriodId = Number(formData.get('sourcePeriodId') ?? 0);
+  let targetPeriodId = 0;
+  let notice = '';
+
+  try {
+    const { supabase, user } = await requireGoalAdmin();
+    if (!Number.isInteger(sourcePeriodId) || sourcePeriodId <= 0) {
+      throw new Error('Selecciona un periodo válido para preparar el siguiente.');
+    }
+    const sourceResult = await supabase
+      .from('advisor_commission_periods')
+      .select('id, name, date_to')
+      .eq('id', sourcePeriodId)
+      .single();
+    if (sourceResult.error || !sourceResult.data) {
+      throw new Error(sourceResult.error?.message || 'No se pudo cargar el periodo de origen.');
+    }
+    const suggestion = suggestNextAdvisorGoalPeriod(sourceResult.data.date_to);
+    const overlapResult = await supabase
+      .from('advisor_commission_periods')
+      .select('id, name, date_from, date_to')
+      .lte('date_from', suggestion.dateTo)
+      .gte('date_to', suggestion.dateFrom)
+      .limit(1)
+      .maybeSingle();
+    if (overlapResult.error) throw new Error(overlapResult.error.message);
+
+    if (overlapResult.data) {
+      if (
+        overlapResult.data.date_from !== suggestion.dateFrom
+        || overlapResult.data.date_to !== suggestion.dateTo
+      ) {
+        throw new Error(`La proyección se cruza con el periodo ${overlapResult.data.name}.`);
+      }
+      targetPeriodId = Number(overlapResult.data.id);
+      notice = `${overlapResult.data.name} ya existía. Se abrió su proyección sin modificar datos.`;
+    } else {
+      const insertResult = await supabase
+        .from('advisor_commission_periods')
+        .insert({
+          name: suggestion.name,
+          date_from: suggestion.dateFrom,
+          date_to: suggestion.dateTo,
+          status: 'open',
+          notes: `Preparado desde la proyección de ${sourceResult.data.name}.`,
+          created_by_user_id: user.id,
+        })
+        .select('id')
+        .single();
+      if (insertResult.error || !insertResult.data) {
+        throw new Error(insertResult.error?.message || 'No se pudo preparar el siguiente periodo.');
+      }
+      targetPeriodId = Number(insertResult.data.id);
+      notice = `${suggestion.name} quedó preparado como proyección. Todavía no publica metas ni calcula comisiones.`;
+    }
+  } catch (error) {
+    redirect(`/app/commissions/goals?period=${sourcePeriodId > 0 ? sourcePeriodId : ''}&error=${encodeURIComponent(errorMessage(error))}`);
+  }
+
+  revalidatePath('/app/commissions/goals');
+  revalidatePath('/app/commissions');
+  redirect(`/app/commissions/goals?period=${targetPeriodId}&notice=${encodeURIComponent(notice)}`);
 }
 
 export async function saveAdvisorGoalConfigurationAction(formData: FormData) {

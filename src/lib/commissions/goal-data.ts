@@ -1,4 +1,5 @@
 import type { AuthContext } from '@/lib/auth';
+import { loadEligibleCommissionAdvisors } from './advisor-eligibility.ts';
 import {
   calculateAdvisorGoalCollectionSummary,
   type AdvisorGoalCollectionSnapshotOrder,
@@ -281,7 +282,7 @@ export async function loadAdvisorGoalSimulation(params: {
   periodTo: string;
   context?: Partial<AdvisorGoalSimulationContext>;
 }): Promise<AdvisorGoalSimulation> {
-  const [metricsResult, closuresResult] = await Promise.all([
+  const [metricsResult, closuresResult, advisors] = await Promise.all([
     params.supabase.rpc('advisor_goal_commercial_metrics_v1', {
       p_from: '2023-01-01',
       p_to: params.periodTo,
@@ -290,6 +291,7 @@ export async function loadAdvisorGoalSimulation(params: {
       .from('advisor_commission_closures')
       .select('id, advisor_user_id, snapshot')
       .eq('period_id', params.periodId),
+    loadEligibleCommissionAdvisors(params.supabase),
   ]);
   if (metricsResult.error) throw new Error(metricsResult.error.message);
   if (closuresResult.error) throw new Error(closuresResult.error.message);
@@ -305,7 +307,12 @@ export async function loadAdvisorGoalSimulation(params: {
     periodFrom: params.periodFrom,
     periodTo: params.periodTo,
     metrics,
+    projectionAdvisors: advisors.map((advisor) => ({
+      advisorUserId: advisor.userId,
+      advisorName: advisor.fullName,
+    })),
     collectionByAdvisorId,
     context: params.context,
+    mode: params.periodFrom > caracasDate(new Date()) ? 'projection' : 'active',
   });
 }

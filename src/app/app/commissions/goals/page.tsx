@@ -3,12 +3,14 @@ import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ADVISOR_GOAL_METRICS } from '@/lib/commissions/goal-engine';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
+import { suggestNextAdvisorGoalPeriod } from '@/lib/commissions/goal-period';
 import type { AdvisorGoalSimulatedMetric } from '@/lib/commissions/goal-simulation';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
 } from '@/lib/commissions/goal-snapshot';
 import {
+  createAdvisorGoalProjectionPeriodAction,
   finalizeAdvisorGoalResultsAction,
   saveAdvisorGoalConfigurationAction,
 } from './actions';
@@ -117,12 +119,14 @@ function MetricCard({
   points,
   moneyValues = false,
   ratio = false,
+  projection = false,
 }: {
   label: string;
   metric: AdvisorGoalSimulatedMetric;
   points: { points: number; basePoints: number } | null;
   moneyValues?: boolean;
   ratio?: boolean;
+  projection?: boolean;
 }) {
   const value = (input: number | null) => ratio
     ? percent(input)
@@ -134,12 +138,12 @@ function MetricCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">{label}</div>
-          <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-[#F7F7F8]">{value(metric.actual)}</div>
-          <div className="mt-0.5 text-[11px] text-[#92929E]">Resultado observado</div>
+          <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-[#F7F7F8]">{projection ? 'Por iniciar' : value(metric.actual)}</div>
+          <div className="mt-0.5 text-[11px] text-[#92929E]">{projection ? 'Todavía sin resultado' : 'Resultado observado'}</div>
         </div>
         {points ? (
           <div className="rounded-full border border-[#F0D000]/30 bg-[#F0D000]/10 px-2.5 py-1 text-xs font-semibold text-[#F7DA66]">
-            {numberLabel(points.points, 1)} / {numberLabel(points.basePoints, 0)} pts
+            {projection ? `hasta ${numberLabel(points.basePoints, 0)} pts` : `${numberLabel(points.points, 1)} / ${numberLabel(points.basePoints, 0)} pts`}
           </div>
         ) : null}
       </div>
@@ -173,6 +177,15 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
   const periods = (periodsResult.data ?? []) as PeriodRow[];
   const requestedPeriodId = Number(params.period ?? 0);
   const selectedPeriod = periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
+  const nextPeriodSuggestion = selectedPeriod
+    ? suggestNextAdvisorGoalPeriod(selectedPeriod.date_to)
+    : null;
+  const existingNextPeriod = nextPeriodSuggestion
+    ? periods.find((period) =>
+        period.date_from === nextPeriodSuggestion.dateFrom
+        && period.date_to === nextPeriodSuggestion.dateTo
+      ) ?? null
+    : null;
   const storedConfig = readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config);
   const context = {
     growthChallengePct: numberParam(params.growth) ?? storedConfig?.growthChallengePct,
@@ -246,6 +259,32 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
           })}
         </nav>
 
+        {selectedPeriod && nextPeriodSuggestion ? (
+          <section className="rounded-3xl border border-sky-400/25 bg-sky-400/5 p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-sky-300">Siguiente al periodo seleccionado</div>
+                <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em]">Preparar {nextPeriodSuggestion.name}</h2>
+                <p className="mt-1 text-sm leading-6 text-[#A9B7C4]">
+                  Del {dateLabel(nextPeriodSuggestion.dateFrom)} al {dateLabel(nextPeriodSuggestion.dateTo)}. La proyección usa históricos, temporalidad y capacidad personal; no publica metas ni calcula comisiones.
+                </p>
+              </div>
+              {existingNextPeriod ? (
+                <Link className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-sky-300/40 px-4 text-sm font-semibold text-sky-100 hover:border-sky-200" href={`/app/commissions/goals?period=${existingNextPeriod.id}`}>
+                  Abrir {existingNextPeriod.name}
+                </Link>
+              ) : (
+                <form action={createAdvisorGoalProjectionPeriodAction}>
+                  <input name="sourcePeriodId" type="hidden" value={selectedPeriod.id} />
+                  <button className="h-10 shrink-0 rounded-xl bg-sky-300 px-4 text-sm font-semibold text-[#07131A] hover:bg-sky-200" type="submit">
+                    Crear y proyectar
+                  </button>
+                </form>
+              )}
+            </div>
+          </section>
+        ) : null}
+
         {selectedPeriod ? (
           <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -253,8 +292,11 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="text-sm font-semibold">{selectedPeriod.name}</div>
                   <span className="rounded-full border border-[#373742] bg-[#18181F] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#C4C4CC]">
-                    {storedConfig ? `${storedConfig.status === 'published' ? 'Publicada' : 'Borrador'} · revisión ${storedConfig.revision}` : 'Sin guardar'}
+                    {storedConfig ? `${storedConfig.status === 'published' ? 'Publicada' : storedConfig.status === 'closed' ? 'Finalizada' : 'Borrador'} · revisión ${storedConfig.revision}` : 'Sin guardar'}
                   </span>
+                  {simulation?.mode === 'projection' ? (
+                    <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">Proyección previa</span>
+                  ) : null}
                 </div>
                 <div className="mt-1 text-xs text-[#9696A2]">Del {dateLabel(selectedPeriod.date_from)} al {dateLabel(selectedPeriod.date_to)} · corte de cobranza {simulation ? dateLabel(simulation.cutoffDate) : 'por calcular'}</div>
               </div>
@@ -312,7 +354,11 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-2xl">
                   <h2 className="text-lg font-semibold tracking-[-0.02em]">Guardar esta propuesta</h2>
-                  <p className="mt-1 text-sm leading-6 text-[#B5B29D]">Guardar crea una revisión administrativa. Publicar deja disponible la meta para el asesor. Si cambia una propuesta ya guardada, el motivo es obligatorio.</p>
+                  <p className="mt-1 text-sm leading-6 text-[#B5B29D]">
+                    {simulation.mode === 'projection'
+                      ? 'Puedes guardarla como borrador o publicarla antes de que comience el periodo. Al publicar, cada asesor verá su meta y cualquier modificación posterior quedará registrada.'
+                      : 'Guardar crea una revisión administrativa. Publicar deja disponible la meta para el asesor. Si cambia una propuesta ya guardada, el motivo es obligatorio.'}
+                  </p>
                 </div>
                 <form action={saveAdvisorGoalConfigurationAction} className="grid w-full gap-3 lg:max-w-2xl lg:grid-cols-[1fr_1fr_auto]">
                   <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
@@ -328,7 +374,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                     <input className="mt-1 h-10 w-full rounded-xl border border-[#3D3A27] bg-[#0E0E0B] px-3 text-sm outline-none focus:border-[#F0D000]" defaultValue={storedConfig?.publicationMessage ?? ''} maxLength={500} name="publicationMessage" placeholder="Qué se busca impulsar en el periodo" />
                   </label>
                   <div className="flex items-end gap-2">
-                    <button className="h-10 rounded-xl border border-[#6A6140] px-4 text-sm font-semibold text-[#E2D99D]" name="intent" type="submit" value="draft">Guardar</button>
+                    <button className="h-10 rounded-xl border border-[#6A6140] px-4 text-sm font-semibold text-[#E2D99D]" name="intent" type="submit" value="draft">{simulation.mode === 'projection' ? 'Guardar borrador' : 'Guardar'}</button>
                     <button className="h-10 rounded-xl bg-[#F0D000] px-4 text-sm font-semibold text-[#111113] hover:bg-[#FFE44F]" name="intent" type="submit" value="publish">Publicar</button>
                   </div>
                 </form>
@@ -342,19 +388,22 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
 
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5">
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Lectura por asesor</h2>
-              <p className="mt-1 text-sm text-[#A5A5B0]">Referencia = el mayor valor entre la mediana de seis periodos y la mediana de los últimos tres. El contexto y el desafío se muestran por separado.</p>
+              <p className="mt-1 text-sm text-[#A5A5B0]">{simulation.mode === 'projection' ? 'Esta es la meta propuesta antes de que comience el periodo. “Al cumplir” muestra el nivel y porcentaje que representa llegar exactamente a los cinco objetivos.' : 'Referencia = el mayor valor entre la mediana de seis periodos y la mediana de los últimos tres. El contexto y el desafío se muestran por separado.'}</p>
               <div className="mt-5 space-y-5">
-                {simulation.advisors.map((advisor) => (
+                {simulation.advisors.map((advisor) => {
+                  const displayedScore = simulation.mode === 'projection' ? advisor.targetScore : advisor.score;
+                  return (
                   <article className="rounded-3xl border border-[#30303A] bg-[#101014] p-4 md:p-5" key={advisor.advisorUserId}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold">{advisor.advisorName}</h3>
                         <p className="mt-1 text-xs text-[#9595A1]">Facturación y cierres incluyen entregados; obsequios puros no cuentan.</p>
                       </div>
-                      {advisor.score ? (
+                      {displayedScore ? (
                         <div className="flex items-center gap-2">
-                          <span className="rounded-full border border-[#3B3B46] bg-[#18181F] px-3 py-1.5 text-xs font-semibold text-[#D5D5DC]">{numberLabel(advisor.score.points, 1)} pts · {advisor.score.band.label}</span>
-                          <span className="rounded-full border border-[#F0D000]/40 bg-[#F0D000]/10 px-3 py-1.5 text-sm font-bold text-[#F7DA66]">{advisor.score.calculatedCommissionPct}%</span>
+                          {simulation.mode === 'projection' ? <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">Al cumplir</span> : null}
+                          <span className="rounded-full border border-[#3B3B46] bg-[#18181F] px-3 py-1.5 text-xs font-semibold text-[#D5D5DC]">{numberLabel(displayedScore.points, 1)} pts · {displayedScore.band.label}</span>
+                          <span className="rounded-full border border-[#F0D000]/40 bg-[#F0D000]/10 px-3 py-1.5 text-sm font-bold text-[#F7DA66]">{displayedScore.calculatedCommissionPct}%</span>
                         </div>
                       ) : (
                         <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">Referencia manual requerida</span>
@@ -362,13 +411,13 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                     </div>
                     {advisor.warning ? <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">{advisor.warning}</div> : null}
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                      <MetricCard label="Facturación" metric={advisor.metrics.billing} moneyValues points={metricPoints(advisor.score, 'billing')} />
-                      <MetricCard label="Cierres" metric={advisor.metrics.closures} points={metricPoints(advisor.score, 'closures')} />
-                      <MetricCard label="Cobranza" metric={advisor.metrics.collection} points={metricPoints(advisor.score, 'collection')} ratio />
-                      <MetricCard label="Nuevos propios" metric={advisor.metrics.newOwnClients} points={metricPoints(advisor.score, 'new_own_clients')} />
-                      <MetricCard label="Nuevos asignados" metric={advisor.metrics.newAssignedClients} points={metricPoints(advisor.score, 'new_assigned_clients')} />
+                      <MetricCard label="Facturación" metric={advisor.metrics.billing} moneyValues points={metricPoints(displayedScore, 'billing')} projection={simulation.mode === 'projection'} />
+                      <MetricCard label="Cierres" metric={advisor.metrics.closures} points={metricPoints(displayedScore, 'closures')} projection={simulation.mode === 'projection'} />
+                      <MetricCard label="Cobranza" metric={advisor.metrics.collection} points={metricPoints(displayedScore, 'collection')} projection={simulation.mode === 'projection'} ratio />
+                      <MetricCard label="Nuevos propios" metric={advisor.metrics.newOwnClients} points={metricPoints(displayedScore, 'new_own_clients')} projection={simulation.mode === 'projection'} />
+                      <MetricCard label="Nuevos asignados" metric={advisor.metrics.newAssignedClients} points={metricPoints(displayedScore, 'new_assigned_clients')} projection={simulation.mode === 'projection'} />
                     </div>
-                    <div className="mt-3 space-y-2">
+                    {simulation.mode === 'active' ? <div className="mt-3 space-y-2">
                       <div className="grid grid-cols-3 gap-2 text-center text-xs">
                         <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-emerald-300">100%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.punctualCount} puntuales</div></div>
                         <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-[#F7DA66]">80%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.creditCount} con crédito</div></div>
@@ -379,9 +428,14 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                         points={metricPoints(advisor.score, 'collection')?.points}
                         summary={advisor.collection}
                       />
-                    </div>
+                    </div> : (
+                      <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-400/5 px-4 py-3 text-xs leading-5 text-sky-100">
+                        La cobranza comenzará a medirse cuando existan pedidos entregados: puntual 100%, crédito de hasta cinco días 80% y atraso 0%.
+                      </div>
+                    )}
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </section>
 

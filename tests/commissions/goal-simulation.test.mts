@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildAdvisorGoalSimulation, type AdvisorGoalCommercialMetricRow } from '../../src/lib/commissions/goal-simulation.ts';
+import { suggestNextAdvisorGoalPeriod } from '../../src/lib/commissions/goal-period.ts';
 
 function row(periodKey: string, billingUsd: number, closuresCount: number): AdvisorGoalCommercialMetricRow {
   const [year, month, half] = periodKey.split('-').map(Number);
@@ -58,4 +59,43 @@ test('no inventa un porcentaje cuando faltan tres periodos válidos', () => {
 
   assert.equal(simulation.advisors[0].score, null);
   assert.match(simulation.advisors[0].warning ?? '', /Faltan referencias/);
+});
+
+test('proyecta agosto 2 antes de tener ventas sin inventar un resultado observado', () => {
+  const metrics = [
+    row('2026-05-1', 458.07, 14),
+    row('2026-05-2', 428.52, 13),
+    row('2026-06-1', 427.35, 12),
+    row('2026-06-2', 448.06, 12),
+    row('2026-07-1', 678.41, 13),
+    row('2026-07-2', 793.55, 18),
+    row('2026-08-1', 514.72, 12),
+  ];
+  const simulation = buildAdvisorGoalSimulation({
+    periodFrom: '2026-08-16',
+    periodTo: '2026-08-31',
+    metrics,
+    projectionAdvisors: [{ advisorUserId: 'advisor', advisorName: 'Martin Montiel' }],
+    mode: 'projection',
+    context: { billingContextPct: 0, closuresContextPct: 0, growthChallengePct: 10 },
+  });
+
+  assert.equal(simulation.mode, 'projection');
+  assert.equal(simulation.periodKey, '2026-08-2');
+  assert.equal(simulation.advisors[0].metrics.billing.actual, 0);
+  assert.ok((simulation.advisors[0].metrics.billing.target ?? 0) > 0);
+  assert.equal(simulation.advisors[0].targetScore?.points, 200);
+  assert.equal(simulation.advisors[0].targetScore?.calculatedCommissionPct, 11);
+});
+
+test('sugiere la siguiente quincena completa', () => {
+  assert.deepEqual(suggestNextAdvisorGoalPeriod('2026-08-15'), {
+    name: 'Agosto 02',
+    dateFrom: '2026-08-16',
+    dateTo: '2026-08-31',
+    year: 2026,
+    month: 8,
+    half: 2,
+  });
+  assert.equal(suggestNextAdvisorGoalPeriod('2026-08-31').name, 'Septiembre 01');
 });
