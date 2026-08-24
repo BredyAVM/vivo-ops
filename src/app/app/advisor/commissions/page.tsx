@@ -3,6 +3,11 @@ import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
+import { calculateAdvisorGoalScore, type AdvisorGoalMetricKey } from '@/lib/commissions/goal-engine';
+import {
+  readAdvisorGoalPublicationSnapshot,
+  type AdvisorGoalMetricPublication,
+} from '@/lib/commissions/goal-snapshot';
 import { EmptyBlock, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
 
 type CommissionDetail =
@@ -120,6 +125,7 @@ type ClosureRow = {
     new_clients?: SnapshotClient[];
     products?: SnapshotProduct[];
     gifts?: SnapshotGift[];
+    advisorGoal?: unknown;
   } | null;
   deductions: DeductionRow[] | null;
 };
@@ -262,6 +268,65 @@ function CommissionSummaryLink({
   );
 }
 
+function goalValue(key: AdvisorGoalMetricKey, value: number) {
+  if (key === 'billing') return money(value);
+  if (key === 'collection') return `${(value * 100).toFixed(1)}%`;
+  return numberValue(value).toFixed(0);
+}
+
+function GoalMetricProgress({
+  metricKey,
+  label,
+  metric,
+  points,
+  basePoints,
+}: {
+  metricKey: AdvisorGoalMetricKey;
+  label: string;
+  metric: AdvisorGoalMetricPublication;
+  points: number;
+  basePoints: number;
+}) {
+  const progress = metric.target > 0 ? Math.max(0, Math.min(100, metric.actual / metric.target * 100)) : 0;
+  return (
+    <details className="rounded-[16px] border border-[#252A37] bg-[#0D1017] px-3 py-3">
+      <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">{label}</div>
+            <div className="mt-1.5 flex items-baseline gap-1.5">
+              <span className="text-lg font-semibold text-[#F5F7FB]">{goalValue(metricKey, metric.actual)}</span>
+              <span className="text-[11px] text-[#8B93A7]">de {goalValue(metricKey, metric.target)}</span>
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="text-xs font-semibold text-[#F7DA66]">{points.toFixed(1)} pts</div>
+            <div className="mt-0.5 text-[10px] text-[#8B93A7]">base {basePoints}</div>
+          </div>
+        </div>
+        <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-[#252A37]">
+          <div className="h-full rounded-full bg-[#F0D000]" style={{ width: `${progress}%` }} />
+        </div>
+      </summary>
+      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#252A37] pt-3 text-xs">
+        <div className="rounded-[12px] bg-[#12151D] p-2.5">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">Referencia personal</div>
+          <div className="mt-1 font-semibold text-[#E8EBF2]">{goalValue(metricKey, metric.personalReference)}</div>
+        </div>
+        <div className="rounded-[12px] bg-[#12151D] p-2.5">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">Capacidad esperada</div>
+          <div className="mt-1 font-semibold text-[#E8EBF2]">{goalValue(metricKey, metric.expectedCapacity)}</div>
+        </div>
+        <div className="col-span-2 text-[11px] leading-5 text-[#9FA7B9]">
+          {metric.validPeriods.length > 0
+            ? `Referencia calculada con ${metric.validPeriods.join(', ')}. Contexto ${metric.appliedContextPct >= 0 ? '+' : ''}${metric.appliedContextPct.toFixed(2)}% y desafío ${metric.growthChallengePct.toFixed(2)}%.`
+            : 'Cobranza: pago registrado hasta la entrega vale 100%, crédito de hasta cinco días vale 80% y atraso posterior vale 0%.'}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 export default async function AdvisorCommissionsPage({ searchParams }: { searchParams?: SearchParams }) {
   const ctx = await getAuthContext();
   if (!ctx) return null;
@@ -329,6 +394,55 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const ownClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'own');
   const assignedClients = newClients.filter((client) => String(client.clientType || '').toLowerCase() === 'assigned');
   const status = closure ? closureStatus(closure.status) : null;
+  const storedGoal = readAdvisorGoalPublicationSnapshot(closure?.snapshot);
+  const visibleGoal = storedGoal && storedGoal.status !== 'draft' ? storedGoal : null;
+  const liveGoalScore = visibleGoal
+    ? visibleGoal.status === 'final'
+      ? visibleGoal.score
+      : calculateAdvisorGoalScore([
+          {
+            key: 'billing',
+            actual: numberValue(closure?.billed_usd),
+            reference: visibleGoal.metrics.billing.personalReference,
+            target: visibleGoal.metrics.billing.target,
+          },
+          {
+            key: 'closures',
+            actual: numberValue(closure?.delivered_orders_count),
+            reference: visibleGoal.metrics.closures.personalReference,
+            target: visibleGoal.metrics.closures.target,
+          },
+          {
+            key: 'collection',
+            actual: visibleGoal.metrics.collection.actual,
+            reference: visibleGoal.metrics.collection.personalReference,
+            target: visibleGoal.metrics.collection.target,
+          },
+          {
+            key: 'new_own_clients',
+            actual: numberValue(closure?.new_own_clients_count),
+            reference: visibleGoal.metrics.new_own_clients.personalReference,
+            target: visibleGoal.metrics.new_own_clients.target,
+          },
+          {
+            key: 'new_assigned_clients',
+            actual: numberValue(closure?.new_assigned_clients_count),
+            reference: visibleGoal.metrics.new_assigned_clients.personalReference,
+            target: visibleGoal.metrics.new_assigned_clients.target,
+          },
+        ])
+    : null;
+  const liveGoalMetrics = visibleGoal && liveGoalScore
+    ? visibleGoal.status === 'final'
+      ? visibleGoal.metrics
+      : {
+        billing: { ...visibleGoal.metrics.billing, actual: numberValue(closure?.billed_usd) },
+        closures: { ...visibleGoal.metrics.closures, actual: numberValue(closure?.delivered_orders_count) },
+        collection: visibleGoal.metrics.collection,
+        new_own_clients: { ...visibleGoal.metrics.new_own_clients, actual: numberValue(closure?.new_own_clients_count) },
+        new_assigned_clients: { ...visibleGoal.metrics.new_assigned_clients, actual: numberValue(closure?.new_assigned_clients_count) },
+        }
+    : null;
 
   const giftsByName = new Map<string, { qty: number; deductionUsd: number; rows: SnapshotGift[] }>();
   for (const gift of gifts) {
@@ -485,6 +599,62 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             </div>
             {status ? <StatusBadge label={status.label} tone={status.tone} /> : null}
           </div>
+
+          {visibleGoal && liveGoalScore && liveGoalMetrics ? (
+            <SectionCard
+              title="Mi meta"
+              subtitle={visibleGoal.publicationMessage || 'Tu avance se compara con tu propia capacidad y el desafío definido para este período.'}
+              action={<StatusBadge label={visibleGoal.status === 'final' ? 'Resultado final' : 'Publicada'} tone={visibleGoal.status === 'final' ? 'success' : 'neutral'} />}
+            >
+              <div className="rounded-[18px] border border-[#4C4315] bg-[#1A180B] p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#A59A62]">Puntaje actual</div>
+                    <div className="mt-1 flex items-baseline gap-2">
+                      <span className="text-[30px] font-semibold tracking-[-0.05em] text-[#F7DA66]">{liveGoalScore.points.toFixed(1)}</span>
+                      <span className="text-xs text-[#AFA679]">puntos</span>
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-[#E9E3C1]">Nivel {liveGoalScore.band.label}</div>
+                  </div>
+                  <div className="rounded-[14px] border border-[#F0D000]/35 bg-[#F0D000]/10 px-3 py-2 text-right">
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-[#AFA679]">Comisión</div>
+                    <div className="mt-0.5 text-xl font-bold text-[#F7DA66]">{visibleGoal.appliedCommissionPct.toFixed(2)}%</div>
+                  </div>
+                </div>
+                <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#302C16]">
+                  <div className="h-full rounded-full bg-[#F0D000]" style={{ width: `${Math.max(0, Math.min(100, liveGoalScore.points / 240 * 100))}%` }} />
+                </div>
+                <div className="mt-2 flex justify-between text-[10px] text-[#9F966A]"><span>Yuca</span><span>Bronce 140</span><span>Oro 200</span><span>Platino 240</span></div>
+              </div>
+
+              <div className="mt-3 space-y-2.5">
+                {([
+                  ['billing', 'Facturación', liveGoalMetrics.billing],
+                  ['closures', 'Cierres', liveGoalMetrics.closures],
+                  ['collection', 'Cobranza', liveGoalMetrics.collection],
+                  ['new_own_clients', 'Clientes propios', liveGoalMetrics.new_own_clients],
+                  ['new_assigned_clients', 'Clientes asignados', liveGoalMetrics.new_assigned_clients],
+                ] as const).map(([metricKey, label, metric]) => {
+                  const scoreMetric = liveGoalScore.metrics.find((item) => item.key === metricKey);
+                  return (
+                    <GoalMetricProgress
+                      basePoints={scoreMetric?.basePoints ?? 0}
+                      key={metricKey}
+                      label={label}
+                      metric={metric}
+                      metricKey={metricKey}
+                      points={scoreMetric?.points ?? 0}
+                    />
+                  );
+                })}
+              </div>
+
+              <details className="mt-3 rounded-[16px] border border-[#252A37] bg-[#0D1017] px-3 py-3">
+                <summary className="cursor-pointer text-xs font-semibold text-[#D9DDE7]">¿Cómo se calculó?</summary>
+                <p className="mt-2 border-t border-[#252A37] pt-2 text-[11px] leading-5 text-[#9FA7B9]">{visibleGoal.explanation}</p>
+              </details>
+            </SectionCard>
+          ) : null}
 
           <section className="grid grid-cols-2 gap-3">
             <CommissionSummaryLink

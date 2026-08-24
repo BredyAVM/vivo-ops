@@ -62,6 +62,7 @@ export type AdvisorGoalPublicationSnapshot = {
   publishedByUserId: string | null;
   revision: number;
   explanation: string;
+  publicationMessage: string | null;
   calculatedCommissionPct: number;
   appliedCommissionPct: number;
   rateOverrideReason: string | null;

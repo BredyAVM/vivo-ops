@@ -46,6 +46,7 @@ const publication: AdvisorGoalPublicationSnapshot = {
   publishedByUserId: 'admin',
   revision: 1,
   explanation: 'La meta separa capacidad y crecimiento.',
+  publicationMessage: null,
   calculatedCommissionPct: 9,
   appliedCommissionPct: 9,
   rateOverrideReason: null,

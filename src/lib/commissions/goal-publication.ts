@@ -164,6 +164,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
       publishedByUserId: advisorPublished ? previous?.publishedByUserId ?? params.actorUserId : null,
       revision: advisorRevision,
       explanation: `Referencia personal estable, contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`,
+      publicationMessage: params.publicationMessage,
       calculatedCommissionPct: score.calculatedCommissionPct,
       appliedCommissionPct: previous?.rateOverrideReason ? previous.appliedCommissionPct : score.calculatedCommissionPct,
       rateOverrideReason: previous?.rateOverrideReason ?? null,
