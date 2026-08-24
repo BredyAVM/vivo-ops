@@ -5,6 +5,7 @@ import { ADVISOR_GOAL_METRICS } from '@/lib/commissions/goal-engine';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
 import type { AdvisorGoalSimulatedMetric } from '@/lib/commissions/goal-simulation';
 import { readAdvisorGoalPeriodConfig } from '@/lib/commissions/goal-snapshot';
+import { saveAdvisorGoalConfigurationAction } from './actions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -14,6 +15,8 @@ type SearchParams = Promise<{
   billingContext?: string;
   closuresContext?: string;
   growth?: string;
+  notice?: string;
+  error?: string;
 }>;
 
 type PeriodRow = {
@@ -206,6 +209,12 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
       </header>
 
       <div className="mx-auto max-w-[1500px] space-y-5 px-5 py-6">
+        {params.notice ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">{params.notice}</div>
+        ) : null}
+        {params.error ? (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">{params.error}</div>
+        ) : null}
         <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Periodos">
           {periods.map((period) => {
             const active = Number(period.id) === Number(selectedPeriod?.id);
@@ -221,7 +230,12 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
           <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="text-sm font-semibold">{selectedPeriod.name}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-semibold">{selectedPeriod.name}</div>
+                  <span className="rounded-full border border-[#373742] bg-[#18181F] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#C4C4CC]">
+                    {storedConfig ? `${storedConfig.status === 'published' ? 'Publicada' : 'Borrador'} · revisión ${storedConfig.revision}` : 'Sin guardar'}
+                  </span>
+                </div>
                 <div className="mt-1 text-xs text-[#9696A2]">Del {dateLabel(selectedPeriod.date_from)} al {dateLabel(selectedPeriod.date_to)} · corte de cobranza {simulation ? dateLabel(simulation.cutoffDate) : 'por calcular'}</div>
               </div>
               <form className="grid gap-2 sm:grid-cols-4" method="get">
@@ -271,6 +285,33 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                   </div>
                 </article>
               ))}
+            </section>
+
+            <section className="rounded-3xl border border-[#F0D000]/25 bg-[#15140C] p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-2xl">
+                  <h2 className="text-lg font-semibold tracking-[-0.02em]">Guardar esta propuesta</h2>
+                  <p className="mt-1 text-sm leading-6 text-[#B5B29D]">Guardar crea una revisión administrativa. Publicar deja disponible la meta para el asesor. Si cambia una propuesta ya guardada, el motivo es obligatorio.</p>
+                </div>
+                <form action={saveAdvisorGoalConfigurationAction} className="grid w-full gap-3 lg:max-w-2xl lg:grid-cols-[1fr_1fr_auto]">
+                  <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
+                  <input name="billingContextPct" type="hidden" value={simulation.appliedContext.billingPct} />
+                  <input name="closuresContextPct" type="hidden" value={simulation.appliedContext.closuresPct} />
+                  <input name="growthChallengePct" type="hidden" value={simulation.appliedContext.growthChallengePct} />
+                  <label className="block">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-[#9C9986]">Motivo del ajuste</span>
+                    <input className="mt-1 h-10 w-full rounded-xl border border-[#3D3A27] bg-[#0E0E0B] px-3 text-sm outline-none focus:border-[#F0D000]" maxLength={500} name="reason" placeholder={storedConfig ? 'Obligatorio si cambió algún valor' : 'Opcional en la primera versión'} />
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-[#9C9986]">Mensaje al asesor</span>
+                    <input className="mt-1 h-10 w-full rounded-xl border border-[#3D3A27] bg-[#0E0E0B] px-3 text-sm outline-none focus:border-[#F0D000]" defaultValue={storedConfig?.publicationMessage ?? ''} maxLength={500} name="publicationMessage" placeholder="Qué se busca impulsar en el periodo" />
+                  </label>
+                  <div className="flex items-end gap-2">
+                    <button className="h-10 rounded-xl border border-[#6A6140] px-4 text-sm font-semibold text-[#E2D99D]" name="intent" type="submit" value="draft">Guardar</button>
+                    <button className="h-10 rounded-xl bg-[#F0D000] px-4 text-sm font-semibold text-[#111113] hover:bg-[#FFE44F]" name="intent" type="submit" value="publish">Publicar</button>
+                  </div>
+                </form>
+              </div>
             </section>
 
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5">

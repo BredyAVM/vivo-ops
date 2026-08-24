@@ -1,0 +1,184 @@
+import type { AdvisorGoalAdvisorSimulation, AdvisorGoalSimulatedMetric, AdvisorGoalSimulation } from './goal-simulation.ts';
+import type {
+  AdvisorGoalAuditEntry,
+  AdvisorGoalMetricPublication,
+  AdvisorGoalPeriodConfig,
+  AdvisorGoalPublicationSnapshot,
+} from './goal-snapshot.ts';
+
+type PublicationIntent = 'draft' | 'publish';
+
+function metricPublication(metric: AdvisorGoalSimulatedMetric): AdvisorGoalMetricPublication {
+  if (
+    metric.reference == null
+    || metric.expectedCapacity == null
+    || metric.target == null
+  ) {
+    throw new Error('Todas las referencias deben estar completas antes de guardar la meta.');
+  }
+  return {
+    actual: metric.actual,
+    history: metric.history,
+    medianAvailable: metric.capacity.medianAvailable ?? metric.reference,
+    medianRecent: metric.capacity.medianRecent ?? metric.capacity.medianAvailable ?? metric.reference,
+    personalReference: metric.reference,
+    appliedContextPct: metric.appliedContextPct,
+    expectedCapacity: metric.expectedCapacity,
+    growthChallengePct: metric.growthChallengePct,
+    target: metric.target,
+    validPeriods: metric.capacity.validPeriods,
+    excludedPeriods: metric.capacity.excludedPeriods,
+  };
+}
+
+function compactPeriodConfig(simulation: AdvisorGoalSimulation) {
+  return {
+    periodKey: simulation.periodKey,
+    growthChallengePct: simulation.appliedContext.growthChallengePct,
+    billingContextPct: simulation.appliedContext.billingPct,
+    closuresContextPct: simulation.appliedContext.closuresPct,
+  };
+}
+
+function compactAdvisorGoal(advisor: AdvisorGoalAdvisorSimulation) {
+  return {
+    advisorUserId: advisor.advisorUserId,
+    points: advisor.score?.points ?? null,
+    band: advisor.score?.band.label ?? null,
+    calculatedCommissionPct: advisor.score?.calculatedCommissionPct ?? null,
+  };
+}
+
+function nextAction(params: {
+  previousRevision: number;
+  intent: PublicationIntent;
+  wasPublished: boolean;
+}): AdvisorGoalAuditEntry['action'] {
+  if (params.previousRevision > 0) {
+    return params.intent === 'publish' && !params.wasPublished ? 'published' : 'modified';
+  }
+  return params.intent === 'publish' ? 'published' : 'generated';
+}
+
+export function buildAdvisorGoalPublicationBundle(params: {
+  simulation: AdvisorGoalSimulation;
+  periodId: number;
+  intent: PublicationIntent;
+  reason: string;
+  publicationMessage: string | null;
+  actorUserId: string;
+  recordedAt: string;
+  previousConfig: AdvisorGoalPeriodConfig | null;
+  previousByAdvisorId: Map<string, AdvisorGoalPublicationSnapshot>;
+}) {
+  const reason = params.reason.trim();
+  const configurationChanged = Boolean(params.previousConfig) && (
+    params.previousConfig?.growthChallengePct !== params.simulation.appliedContext.growthChallengePct
+    || params.previousConfig?.billing.appliedPct !== params.simulation.appliedContext.billingPct
+    || params.previousConfig?.closures.appliedPct !== params.simulation.appliedContext.closuresPct
+    || params.previousConfig?.publicationMessage !== params.publicationMessage
+  );
+  if (configurationChanged && !reason) {
+    throw new Error('Indica el motivo de la modificación para conservar la trazabilidad.');
+  }
+  if (params.simulation.advisors.some((advisor) => advisor.score == null)) {
+    throw new Error('No se puede guardar mientras un asesor requiera una referencia manual.');
+  }
+
+  const previousRevision = params.previousConfig?.revision ?? 0;
+  const revision = previousRevision + 1;
+  const wasPublished = params.previousConfig?.status === 'published';
+  const published = params.intent === 'publish' || wasPublished;
+  const action = nextAction({ previousRevision, intent: params.intent, wasPublished });
+  const periodAudit: AdvisorGoalAuditEntry = {
+    version: revision,
+    action,
+    recordedAt: params.recordedAt,
+    recordedByUserId: params.actorUserId,
+    reason: reason || null,
+    previous: params.previousConfig ? {
+      growthChallengePct: params.previousConfig.growthChallengePct,
+      billingContextPct: params.previousConfig.billing.appliedPct,
+      closuresContextPct: params.previousConfig.closures.appliedPct,
+    } : null,
+    next: compactPeriodConfig(params.simulation),
+  };
+  const config: AdvisorGoalPeriodConfig = {
+    version: 1,
+    status: published ? 'published' : 'draft',
+    growthChallengePct: params.simulation.appliedContext.growthChallengePct,
+    billing: {
+      observed: params.simulation.seasonality.billing,
+      appliedPct: params.simulation.appliedContext.billingPct,
+      reason: reason || params.previousConfig?.billing.reason || 'Sugerencia histórica aceptada para la simulación inicial.',
+    },
+    closures: {
+      observed: params.simulation.seasonality.closures,
+      appliedPct: params.simulation.appliedContext.closuresPct,
+      reason: reason || params.previousConfig?.closures.reason || 'Sugerencia histórica aceptada para la simulación inicial.',
+    },
+    publicationMessage: params.publicationMessage,
+    generatedAt: params.recordedAt,
+    generatedByUserId: params.actorUserId,
+    publishedAt: published ? params.previousConfig?.publishedAt ?? params.recordedAt : null,
+    publishedByUserId: published ? params.previousConfig?.publishedByUserId ?? params.actorUserId : null,
+    revision,
+    audit: [...(params.previousConfig?.audit ?? []), periodAudit],
+  };
+
+  const publications = params.simulation.advisors.map((advisor) => {
+    const score = advisor.score;
+    if (!score) throw new Error(`La meta de ${advisor.advisorName} no está completa.`);
+    const previous = params.previousByAdvisorId.get(advisor.advisorUserId) ?? null;
+    const advisorRevision = (previous?.revision ?? 0) + 1;
+    const advisorWasPublished = previous?.status === 'published' || previous?.status === 'final';
+    const advisorPublished = params.intent === 'publish' || advisorWasPublished;
+    const advisorAction = nextAction({
+      previousRevision: previous?.revision ?? 0,
+      intent: params.intent,
+      wasPublished: advisorWasPublished,
+    });
+    const audit: AdvisorGoalAuditEntry = {
+      version: advisorRevision,
+      action: advisorAction,
+      recordedAt: params.recordedAt,
+      recordedByUserId: params.actorUserId,
+      reason: reason || null,
+      previous: previous ? {
+        points: previous.score.points,
+        band: previous.score.band.label,
+        calculatedCommissionPct: previous.calculatedCommissionPct,
+        appliedCommissionPct: previous.appliedCommissionPct,
+      } : null,
+      next: compactAdvisorGoal(advisor),
+    };
+    const publication: AdvisorGoalPublicationSnapshot = {
+      version: 1,
+      status: advisorPublished ? 'published' : 'draft',
+      periodId: params.periodId,
+      advisorUserId: advisor.advisorUserId,
+      advisorName: advisor.advisorName,
+      generatedAt: params.recordedAt,
+      generatedByUserId: params.actorUserId,
+      publishedAt: advisorPublished ? previous?.publishedAt ?? params.recordedAt : null,
+      publishedByUserId: advisorPublished ? previous?.publishedByUserId ?? params.actorUserId : null,
+      revision: advisorRevision,
+      explanation: `Referencia personal estable, contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`,
+      calculatedCommissionPct: score.calculatedCommissionPct,
+      appliedCommissionPct: previous?.rateOverrideReason ? previous.appliedCommissionPct : score.calculatedCommissionPct,
+      rateOverrideReason: previous?.rateOverrideReason ?? null,
+      score,
+      metrics: {
+        billing: metricPublication(advisor.metrics.billing),
+        closures: metricPublication(advisor.metrics.closures),
+        collection: metricPublication(advisor.metrics.collection),
+        new_own_clients: metricPublication(advisor.metrics.newOwnClients),
+        new_assigned_clients: metricPublication(advisor.metrics.newAssignedClients),
+      },
+      audit: [...(previous?.audit ?? []), audit],
+    };
+    return { advisorUserId: advisor.advisorUserId, publication };
+  });
+
+  return { config, publications };
+}

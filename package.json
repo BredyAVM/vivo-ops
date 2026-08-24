@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/commissions/settlement-engine.test.mts tests/commissions/legacy-projection.test.mts tests/commissions/closure-snapshot.test.mts tests/commissions/carry-state.test.mts tests/commissions/workflow-snapshot.test.mts tests/commissions/payment-ledger.test.mts tests/commissions/advisor-eligibility.test.mts tests/commissions/admin-audit.test.mts tests/commissions/notification-inbox.test.mts tests/commissions/goal-engine.test.mts tests/commissions/goal-snapshot.test.mts tests/commissions/goal-collection.test.mts tests/commissions/goal-simulation.test.mts",
+    "test:commissions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/commissions/settlement-engine.test.mts tests/commissions/legacy-projection.test.mts tests/commissions/closure-snapshot.test.mts tests/commissions/carry-state.test.mts tests/commissions/workflow-snapshot.test.mts tests/commissions/payment-ledger.test.mts tests/commissions/advisor-eligibility.test.mts tests/commissions/admin-audit.test.mts tests/commissions/notification-inbox.test.mts tests/commissions/goal-engine.test.mts tests/commissions/goal-snapshot.test.mts tests/commissions/goal-collection.test.mts tests/commissions/goal-simulation.test.mts tests/commissions/goal-publication.test.mts",
     "test:kitchen": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test --experimental-strip-types tests/kitchen/operations.test.mts"
   },
   "dependencies": {
