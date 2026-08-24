@@ -11,6 +11,7 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
+import { readAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
 import {
   addCommissionDeductionAction,
   calculateCommissionPeriodAction,
@@ -186,12 +187,14 @@ function CommissionRateField({
   locked,
   compact = false,
   showLockedNote = true,
+  readOnly = false,
 }: {
   userId: string;
   value: number;
   locked: boolean;
   compact?: boolean;
   showLockedNote?: boolean;
+  readOnly?: boolean;
 }) {
   if (compact) {
     return (
@@ -207,13 +210,14 @@ function CommissionRateField({
             min="0"
             name={`baseCommissionPct:${userId}`}
             required={!locked}
+            readOnly={readOnly}
             step="0.01"
             type="number"
           />
           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#8F8F9B]">%</span>
         </div>
-        {locked && showLockedNote ? (
-          <span className="pr-1 text-[10px] text-[#8F8F9B]">Protegido</span>
+        {(locked || readOnly) && showLockedNote ? (
+          <span className="pr-1 text-[10px] text-[#8F8F9B]">{readOnly && !locked ? 'Meta' : 'Protegido'}</span>
         ) : null}
       </label>
     );
@@ -234,13 +238,14 @@ function CommissionRateField({
           min="0"
           name={`baseCommissionPct:${userId}`}
           required={!locked}
+          readOnly={readOnly}
           step="0.01"
           type="number"
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
       </div>
-      {locked && showLockedNote ? (
-        <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">Cierre protegido</span>
+      {(locked || readOnly) && showLockedNote ? (
+        <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">{readOnly && !locked ? 'Determinado por la meta final' : 'Cierre protegido'}</span>
       ) : null}
     </label>
   );
@@ -467,6 +472,7 @@ export default async function CommissionAdministrationPage({
       const settlement = readAdvisorCommissionSettlementSnapshot(closure.snapshot);
       const carryOverride = readAdvisorCommissionCarryOverride(closure.snapshot);
       const workflow = readAdvisorCommissionWorkflowSnapshot(closure.snapshot);
+      const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
       const payments = paymentsByClosureId.get(Number(closure.id)) ?? [];
       const paidUsd = roundMoney(
         payments.reduce((sum, payment) => sum + numberValue(payment.amount_usd_equivalent), 0)
@@ -488,6 +494,7 @@ export default async function CommissionAdministrationPage({
         settlement,
         carryOverride,
         workflow,
+        goal,
         payments,
         paidUsd,
         paymentBalanceUsd,
@@ -502,11 +509,18 @@ export default async function CommissionAdministrationPage({
     .map((advisor) => {
       const userId = String(advisor.user_id);
       const closure = closureByAdvisorId.get(userId) ?? null;
+      const goal = readAdvisorGoalPublicationSnapshot(closure?.snapshot);
       return {
         userId,
         name: advisor.full_name?.trim() || 'Asesor',
         closure,
         isLocked: closure?.status === 'closed' || closure?.status === 'paid',
+        isGoalFinal: goal?.status === 'final',
+        rate: goal?.status === 'final'
+          ? goal.appliedCommissionPct
+          : closure?.base_commission_pct == null
+            ? 8
+            : numberValue(closure.base_commission_pct),
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name, 'es'));
@@ -744,7 +758,8 @@ export default async function CommissionAdministrationPage({
                       <CommissionRateField
                         locked={advisor.isLocked || selectedPeriod.status !== 'open'}
                         userId={advisor.userId}
-                        value={advisor.closure?.base_commission_pct == null ? 8 : numberValue(advisor.closure.base_commission_pct)}
+                        readOnly={advisor.isGoalFinal}
+                        value={advisor.rate}
                       />
                     </div>
                   </article>
@@ -821,8 +836,9 @@ export default async function CommissionAdministrationPage({
                             <CommissionRateField
                               compact
                               locked={row.closure.status !== 'preliminary' || selectedPeriod?.status !== 'open'}
+                              readOnly={row.goal?.status === 'final'}
                               userId={row.closure.advisor_user_id}
-                              value={numberValue(row.closure.base_commission_pct)}
+                              value={row.goal?.status === 'final' ? row.goal.appliedCommissionPct : numberValue(row.closure.base_commission_pct)}
                             />
                           </div>
                           <div className="mt-1 text-xs text-[#92929E]">

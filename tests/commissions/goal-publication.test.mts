@@ -95,3 +95,25 @@ test('publicar una modificación exige motivo y aumenta la revisión', () => {
   assert.equal(published.config.revision, 2);
   assert.equal(published.publications[0].publication.audit.at(-1)?.action, 'published');
 });
+
+test('finaliza el resultado y audita una sustitución excepcional del porcentaje', () => {
+  const bundle = buildAdvisorGoalPublicationBundle({
+    simulation,
+    periodId: 5,
+    intent: 'finalize',
+    reason: 'Resultado revisado por administración.',
+    publicationMessage: null,
+    actorUserId: 'admin',
+    recordedAt: '2026-08-20T12:00:00.000Z',
+    previousConfig: null,
+    previousByAdvisorId: new Map(),
+    commissionOverrideByAdvisorId: new Map([
+      ['advisor', { commissionPct: 12, reason: 'Reconocimiento excepcional aprobado.' }],
+    ]),
+  });
+
+  assert.equal(bundle.config.status, 'closed');
+  assert.equal(bundle.publications[0].publication.status, 'final');
+  assert.equal(bundle.publications[0].publication.appliedCommissionPct, 12);
+  assert.equal(bundle.publications[0].publication.audit.at(-1)?.action, 'rate_overridden');
+});

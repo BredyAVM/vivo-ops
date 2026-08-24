@@ -4,8 +4,14 @@ import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ADVISOR_GOAL_METRICS } from '@/lib/commissions/goal-engine';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
 import type { AdvisorGoalSimulatedMetric } from '@/lib/commissions/goal-simulation';
-import { readAdvisorGoalPeriodConfig } from '@/lib/commissions/goal-snapshot';
-import { saveAdvisorGoalConfigurationAction } from './actions';
+import {
+  readAdvisorGoalPeriodConfig,
+  readAdvisorGoalPublicationSnapshot,
+} from '@/lib/commissions/goal-snapshot';
+import {
+  finalizeAdvisorGoalResultsAction,
+  saveAdvisorGoalConfigurationAction,
+} from './actions';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -188,6 +194,19 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
       simulationError = error instanceof Error ? error.message : 'No se pudo construir la simulación.';
     }
   }
+  const storedGoalByAdvisorId = new Map<string, NonNullable<ReturnType<typeof readAdvisorGoalPublicationSnapshot>>>();
+  if (selectedPeriod) {
+    const storedGoalsResult = await ctx.supabase
+      .from('advisor_commission_closures')
+      .select('advisor_user_id, snapshot')
+      .eq('period_id', Number(selectedPeriod.id));
+    if (!storedGoalsResult.error) {
+      for (const closure of storedGoalsResult.data ?? []) {
+        const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+        if (goal) storedGoalByAdvisorId.set(String(closure.advisor_user_id), goal);
+      }
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#0B0B0D] text-[#F7F7F8]">
@@ -287,6 +306,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
               ))}
             </section>
 
+            {storedConfig?.status !== 'closed' ? (
             <section className="rounded-3xl border border-[#F0D000]/25 bg-[#15140C] p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-2xl">
@@ -313,6 +333,11 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                 </form>
               </div>
             </section>
+            ) : (
+              <section className="rounded-3xl border border-emerald-500/25 bg-emerald-500/10 p-5 text-sm text-emerald-100">
+                Este resultado ya está finalizado. La rectificación permanece disponible abajo y exige una nueva revisión completa.
+              </section>
+            )}
 
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5">
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Lectura por asesor</h2>
@@ -355,8 +380,52 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
               </div>
             </section>
 
+            {storedConfig && (storedConfig.status === 'published' || storedConfig.status === 'closed') ? (
+              <section className="rounded-3xl border border-emerald-500/25 bg-[#0E1814] p-5">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-[-0.02em]">{storedConfig.status === 'closed' ? 'Rectificar resultado final' : 'Finalizar resultado y porcentaje'}</h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A8B9B1]">Al finalizar, el porcentaje calculado de cada asesor pasa a su liquidación. Puedes sustituir uno de forma excepcional; si difiere, su motivo es obligatorio y queda en el historial.</p>
+                </div>
+                <form action={finalizeAdvisorGoalResultsAction} className="mt-4 space-y-3">
+                  <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+                    {simulation.advisors.map((advisor) => {
+                      const storedGoal = storedGoalByAdvisorId.get(advisor.advisorUserId);
+                      const calculatedPct = advisor.score?.calculatedCommissionPct ?? 0;
+                      return (
+                        <article className="rounded-2xl border border-[#294037] bg-[#0B1210] p-3" key={advisor.advisorUserId}>
+                          <div className="truncate text-sm font-semibold" title={advisor.advisorName}>{advisor.advisorName}</div>
+                          <div className="mt-1 text-[11px] text-[#8FA49A]">Calculado: {calculatedPct.toFixed(2)}%</div>
+                          <label className="mt-3 block">
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Porcentaje aplicado</span>
+                            <div className="relative mt-1">
+                              <input className="h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 pr-7 text-sm font-semibold outline-none focus:border-emerald-400" defaultValue={storedGoal?.appliedCommissionPct ?? calculatedPct} max="100" min="0" name={`commissionPct:${advisor.advisorUserId}`} required step="0.01" type="number" />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#789087]">%</span>
+                            </div>
+                          </label>
+                          <label className="mt-2 block">
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Motivo si cambia</span>
+                            <input className="mt-1 h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 text-xs outline-none focus:border-emerald-400" defaultValue={storedGoal?.rateOverrideReason ?? ''} maxLength={500} name={`overrideReason:${advisor.advisorUserId}`} placeholder="Solo si sustituye" />
+                          </label>
+                        </article>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-col gap-3 border-t border-[#294037] pt-3 md:flex-row md:items-end md:justify-between">
+                    <label className="block w-full md:max-w-2xl">
+                      <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Nota de finalización o rectificación</span>
+                      <input className="mt-1 h-10 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 text-sm outline-none focus:border-emerald-400" maxLength={500} name="finalizationReason" placeholder={storedConfig.status === 'closed' ? 'Obligatoria para explicar la nueva revisión' : 'Opcional en el primer cierre'} required={storedConfig.status === 'closed'} />
+                    </label>
+                    <button className="h-10 shrink-0 rounded-xl bg-emerald-400 px-5 text-sm font-semibold text-[#07110D] hover:bg-emerald-300" disabled={simulation.advisors.some((advisor) => advisor.score == null)} type="submit">
+                      {storedConfig.status === 'closed' ? 'Rectificar y recalcular' : 'Finalizar y aplicar'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            ) : null}
+
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5 text-sm text-[#A8A8B3]">
-              Los {ADVISOR_GOAL_METRICS.reduce((sum, metric) => sum + metric.basePoints, 0)} puntos base se reparten en 100 facturación, 40 cierres, 20 cobranza, 30 clientes propios y 10 asignados. Esta pantalla aún es una simulación: no cambia liquidaciones ni porcentajes publicados.
+              Los {ADVISOR_GOAL_METRICS.reduce((sum, metric) => sum + metric.basePoints, 0)} puntos base se reparten en 100 facturación, 40 cierres, 20 cobranza, 30 clientes propios y 10 asignados. Simular no cambia datos; solo “Finalizar y aplicar” actualiza los porcentajes de las liquidaciones.
             </section>
           </>
         ) : null}

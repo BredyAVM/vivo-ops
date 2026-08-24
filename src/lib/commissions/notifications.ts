@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendPushToAdvisorDevices } from '@/lib/push';
 import { readAdvisorCommissionWorkflowSnapshot } from './workflow-snapshot';
+import { readAdvisorGoalPublicationSnapshot } from './goal-snapshot';
 
 const COMMISSION_NOTIFICATION_DOMAIN = 'advisor_commissions';
 
@@ -9,7 +10,10 @@ export type AdvisorCommissionNotificationKind =
   | 'advisor_commission_review_ready'
   | 'advisor_commission_reconfirmation_required'
   | 'advisor_commission_payment_recorded'
-  | 'advisor_commission_paid';
+  | 'advisor_commission_paid'
+  | 'advisor_goal_published'
+  | 'advisor_goal_updated'
+  | 'advisor_goal_finalized';
 
 type NotificationMeta = Record<string, unknown>;
 
@@ -384,4 +388,85 @@ export async function notifyAdvisorCommissionPayment(input: {
       remaining_usd: input.remainingUsd,
     },
   });
+}
+
+export async function notifyAdvisorGoalPublications(input: {
+  supabase: SupabaseClient;
+  periodId: number;
+  event: 'published' | 'updated' | 'finalized';
+}) {
+  const [periodResult, closuresResult] = await Promise.all([
+    input.supabase
+      .from('advisor_commission_periods')
+      .select('id, name')
+      .eq('id', input.periodId)
+      .single(),
+    input.supabase
+      .from('advisor_commission_closures')
+      .select('id, advisor_user_id, snapshot')
+      .eq('period_id', input.periodId),
+  ]);
+  if (periodResult.error || !periodResult.data) {
+    throw new Error(periodResult.error?.message || 'No se pudo cargar el periodo de metas.');
+  }
+  if (closuresResult.error) throw new Error(closuresResult.error.message);
+
+  const periodId = Number(periodResult.data.id);
+  const periodName = String(periodResult.data.name || `Periodo ${periodId}`);
+  const kind: AdvisorCommissionNotificationKind = input.event === 'finalized'
+    ? 'advisor_goal_finalized'
+    : input.event === 'updated'
+      ? 'advisor_goal_updated'
+      : 'advisor_goal_published';
+  const results = await Promise.allSettled(
+    (closuresResult.data ?? []).flatMap((closure) => {
+      const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+      if (!goal || goal.status === 'draft') return [];
+      const title = input.event === 'finalized'
+        ? 'Tu resultado del periodo está listo'
+        : input.event === 'updated'
+          ? 'Tu meta del periodo fue actualizada'
+          : 'Ya puedes revisar tu nueva meta';
+      const body = input.event === 'finalized'
+        ? `${periodName}: obtuviste ${goal.score.points.toFixed(1)} puntos, nivel ${goal.score.band.label} y ${goal.appliedCommissionPct.toFixed(2)}% de comisión.`
+        : input.event === 'updated'
+          ? `Administración publicó la revisión ${goal.revision} de tu meta para ${periodName}. Revisa los cambios y tu avance.`
+          : `Tu meta para ${periodName} ya está disponible. Revisa los indicadores y cómo se calculó cada objetivo.`;
+      return [upsertCommissionNotification({
+        supabase: input.supabase,
+        advisorUserId: String(closure.advisor_user_id),
+        closureId: Number(closure.id),
+        periodId,
+        periodName,
+        kind,
+        dedupeKey: `advisor-goal:${closure.id}`,
+        fingerprint: notificationFingerprint({
+          kind,
+          revision: goal.revision,
+          status: goal.status,
+          points: goal.score.points,
+          appliedCommissionPct: goal.appliedCommissionPct,
+        }),
+        requiresAction: true,
+        title,
+        body,
+        extraMeta: {
+          goal_revision: goal.revision,
+          goal_status: goal.status,
+          points: goal.score.points,
+          band: goal.score.band.label,
+          commission_pct: goal.appliedCommissionPct,
+        },
+      })];
+    })
+  );
+  const failures = results.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    console.warn('advisor goal notifications failed', failures.length);
+  }
+  return {
+    attempted: results.length,
+    delivered: results.filter((result) => result.status === 'fulfilled').length,
+    failures: failures.length,
+  };
 }

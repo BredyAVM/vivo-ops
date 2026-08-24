@@ -6,7 +6,7 @@ import type {
   AdvisorGoalPublicationSnapshot,
 } from './goal-snapshot.ts';
 
-type PublicationIntent = 'draft' | 'publish';
+type PublicationIntent = 'draft' | 'publish' | 'finalize';
 
 function metricPublication(metric: AdvisorGoalSimulatedMetric): AdvisorGoalMetricPublication {
   if (
@@ -54,6 +54,7 @@ function nextAction(params: {
   intent: PublicationIntent;
   wasPublished: boolean;
 }): AdvisorGoalAuditEntry['action'] {
+  if (params.intent === 'finalize') return 'finalized';
   if (params.previousRevision > 0) {
     return params.intent === 'publish' && !params.wasPublished ? 'published' : 'modified';
   }
@@ -70,6 +71,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
   recordedAt: string;
   previousConfig: AdvisorGoalPeriodConfig | null;
   previousByAdvisorId: Map<string, AdvisorGoalPublicationSnapshot>;
+  commissionOverrideByAdvisorId?: Map<string, { commissionPct: number; reason: string }>;
 }) {
   const reason = params.reason.trim();
   const configurationChanged = Boolean(params.previousConfig) && (
@@ -87,8 +89,8 @@ export function buildAdvisorGoalPublicationBundle(params: {
 
   const previousRevision = params.previousConfig?.revision ?? 0;
   const revision = previousRevision + 1;
-  const wasPublished = params.previousConfig?.status === 'published';
-  const published = params.intent === 'publish' || wasPublished;
+  const wasPublished = params.previousConfig?.status === 'published' || params.previousConfig?.status === 'closed';
+  const published = params.intent === 'publish' || params.intent === 'finalize' || wasPublished;
   const action = nextAction({ previousRevision, intent: params.intent, wasPublished });
   const periodAudit: AdvisorGoalAuditEntry = {
     version: revision,
@@ -105,7 +107,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
   };
   const config: AdvisorGoalPeriodConfig = {
     version: 1,
-    status: published ? 'published' : 'draft',
+    status: params.intent === 'finalize' ? 'closed' : published ? 'published' : 'draft',
     growthChallengePct: params.simulation.appliedContext.growthChallengePct,
     billing: {
       observed: params.simulation.seasonality.billing,
@@ -132,7 +134,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
     const previous = params.previousByAdvisorId.get(advisor.advisorUserId) ?? null;
     const advisorRevision = (previous?.revision ?? 0) + 1;
     const advisorWasPublished = previous?.status === 'published' || previous?.status === 'final';
-    const advisorPublished = params.intent === 'publish' || advisorWasPublished;
+    const advisorPublished = params.intent === 'publish' || params.intent === 'finalize' || advisorWasPublished;
     const advisorAction = nextAction({
       previousRevision: previous?.revision ?? 0,
       intent: params.intent,
@@ -152,9 +154,36 @@ export function buildAdvisorGoalPublicationBundle(params: {
       } : null,
       next: compactAdvisorGoal(advisor),
     };
+    const override = params.commissionOverrideByAdvisorId?.get(advisor.advisorUserId) ?? null;
+    if (override && (!Number.isFinite(override.commissionPct) || override.commissionPct < 0 || override.commissionPct > 100)) {
+      throw new Error(`El porcentaje aplicado a ${advisor.advisorName} no es válido.`);
+    }
+    const overrideDiffers = Boolean(override) && Math.abs((override?.commissionPct ?? 0) - score.calculatedCommissionPct) > 0.0001;
+    if (overrideDiffers && !override?.reason.trim()) {
+      throw new Error(`Indica el motivo para sustituir el porcentaje de ${advisor.advisorName}.`);
+    }
+    const appliedCommissionPct = override?.commissionPct
+      ?? (previous?.rateOverrideReason ? previous.appliedCommissionPct : score.calculatedCommissionPct);
+    const rateOverrideReason = overrideDiffers
+      ? override?.reason.trim() || null
+      : override
+        ? null
+        : previous?.rateOverrideReason ?? null;
+    const auditEntries = [...(previous?.audit ?? []), audit];
+    if (overrideDiffers) {
+      auditEntries.push({
+        version: advisorRevision,
+        action: 'rate_overridden',
+        recordedAt: params.recordedAt,
+        recordedByUserId: params.actorUserId,
+        reason: rateOverrideReason,
+        previous: { calculatedCommissionPct: score.calculatedCommissionPct },
+        next: { appliedCommissionPct },
+      });
+    }
     const publication: AdvisorGoalPublicationSnapshot = {
       version: 1,
-      status: advisorPublished ? 'published' : 'draft',
+      status: params.intent === 'finalize' ? 'final' : advisorPublished ? 'published' : 'draft',
       periodId: params.periodId,
       advisorUserId: advisor.advisorUserId,
       advisorName: advisor.advisorName,
@@ -166,8 +195,8 @@ export function buildAdvisorGoalPublicationBundle(params: {
       explanation: `Referencia personal estable, contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`,
       publicationMessage: params.publicationMessage,
       calculatedCommissionPct: score.calculatedCommissionPct,
-      appliedCommissionPct: previous?.rateOverrideReason ? previous.appliedCommissionPct : score.calculatedCommissionPct,
-      rateOverrideReason: previous?.rateOverrideReason ?? null,
+      appliedCommissionPct,
+      rateOverrideReason,
       score,
       metrics: {
         billing: metricPublication(advisor.metrics.billing),
@@ -176,7 +205,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
         new_own_clients: metricPublication(advisor.metrics.newOwnClients),
         new_assigned_clients: metricPublication(advisor.metrics.newAssignedClients),
       },
-      audit: [...(previous?.audit ?? []), audit],
+      audit: auditEntries,
     };
     return { advisorUserId: advisor.advisorUserId, publication };
   });

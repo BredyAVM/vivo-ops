@@ -12,6 +12,7 @@ import {
   readAdvisorCommissionSettlementSnapshot,
   writeAdvisorCommissionSettlementSnapshot,
 } from '@/lib/commissions/closure-snapshot';
+import { readAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
 import {
   ADVISOR_COMMISSION_PAYMENT_DESCRIPTION_PREFIX,
   buildAdvisorCommissionBankFeeDescription,
@@ -333,6 +334,13 @@ async function applySettlementToPreliminaryClosures(input: {
   };
 }
 
+export async function recalculateAdvisorCommissionSettlementsForGoal(input: {
+  periodId: number;
+  scheduledLiquidationDate: string | null;
+}) {
+  return applySettlementToPreliminaryClosures(input);
+}
+
 export async function calculateCommissionPeriodAction(formData: FormData) {
   const periodId = Number(formData.get('periodId') ?? 0);
   let result: { updated: number; skippedLocked: number };
@@ -356,6 +364,12 @@ export async function calculateCommissionPeriodAction(formData: FormData) {
         closure.snapshot,
       ])
     );
+    for (const closure of previousClosures ?? []) {
+      const goal = readAdvisorGoalPublicationSnapshot(closure.snapshot);
+      if (goal?.status === 'final') {
+        baseCommissionPctByAdvisor[String(closure.advisor_user_id)] = goal.appliedCommissionPct;
+      }
+    }
 
     await generateAdvisorCommissionClosuresAction({
       periodId,
