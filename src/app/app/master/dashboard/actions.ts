@@ -18,6 +18,7 @@ import {
   advisorReceivesCommissions,
   loadEligibleCommissionAdvisors,
 } from '@/lib/commissions/advisor-eligibility';
+import { preserveAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
 import {
   getOrderCommercialNetUsd,
   getOrderLineTotalUsd,
@@ -13022,7 +13023,7 @@ export async function generateAdvisorCommissionClosuresAction(input: {
 
   const { data: existingClosures, error: existingError } = await supabase
     .from('advisor_commission_closures')
-    .select('id, advisor_user_id, status')
+    .select('id, advisor_user_id, status, snapshot')
     .eq('period_id', periodId);
 
   if (existingError) {
@@ -13033,7 +13034,11 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     id: number | string;
     advisor_user_id: string;
     status: string;
+    snapshot: unknown;
   }>;
+  const previousSnapshotByAdvisorId = new Map(
+    typedExistingClosures.map((closure) => [closure.advisor_user_id, closure.snapshot])
+  );
   const lockedAdvisorIds = new Set(
     typedExistingClosures
       .filter((closure) => closure.status === 'closed' || closure.status === 'paid')
@@ -13118,6 +13123,10 @@ export async function generateAdvisorCommissionClosuresAction(input: {
     snapshot.snapshot.totals.manualDeductionsUsd = manualDeductionsUsd;
     snapshot.snapshot.totals.payableUsd = payableUsd;
     snapshot.snapshot.deductions = manualDeductions;
+    snapshot.snapshot = preserveAdvisorGoalPublicationSnapshot({
+      generatedSnapshot: snapshot.snapshot,
+      previousSnapshot: previousSnapshotByAdvisorId.get(snapshot.advisor_user_id),
+    }) as typeof snapshot.snapshot;
   }
 
   if (snapshots.length > 0) {
