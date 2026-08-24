@@ -555,12 +555,20 @@ export default async function CommissionAdministrationPage({
               Cierres, cobranza, deducibles y liquidación por asesor.
             </p>
           </div>
-          <Link
-            className="inline-flex w-fit items-center rounded-full border border-[#34343F] px-4 py-2 text-sm font-semibold text-[#D8D8DF] transition hover:border-[#F0D000] hover:text-[#F7DA66]"
-            href="/app/master/dashboard"
-          >
-            Volver al panel
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              className="inline-flex w-fit items-center rounded-full border border-[#F0D000]/45 bg-[#F0D000]/10 px-4 py-2 text-sm font-semibold text-[#F7DA66] transition hover:border-[#F0D000]"
+              href={`/app/commissions/goals${selectedPeriod ? `?period=${selectedPeriod.id}` : ''}`}
+            >
+              Metas y porcentajes
+            </Link>
+            <Link
+              className="inline-flex w-fit items-center rounded-full border border-[#34343F] px-4 py-2 text-sm font-semibold text-[#D8D8DF] transition hover:border-[#F0D000] hover:text-[#F7DA66]"
+              href="/app/master/dashboard"
+            >
+              Volver al panel
+            </Link>
+          </div>
         </div>
       </header>
 
