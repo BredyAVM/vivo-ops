@@ -8001,6 +8001,41 @@ export async function searchClientsAction(input: {
   return data ?? [];
 }
 
+export async function loadMasterClientCommercialProfileAction(input: {
+  clientId: number;
+  purchaseWindow?: number;
+  recentLimit?: number;
+}) {
+  const { supabase } = await requireMasterOrAdmin();
+  const clientId = Math.floor(Number(input.clientId));
+
+  if (!Number.isFinite(clientId) || clientId <= 0) {
+    throw new Error('El cliente seleccionado no es válido.');
+  }
+
+  const purchaseWindow = Math.max(
+    2,
+    Math.min(50, Math.floor(Number(input.purchaseWindow ?? 6) || 6))
+  );
+  const recentLimit = Math.max(
+    1,
+    Math.min(20, Math.floor(Number(input.recentLimit ?? 5) || 5))
+  );
+
+  const { data, error } = await supabase.rpc('crm_master_client_profile_v1', {
+    p_client_id: clientId,
+    p_purchase_window: purchaseWindow,
+    p_recent_limit: recentLimit,
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('No se pudo construir la ficha comercial del cliente.');
+  }
+
+  return data as Record<string, unknown>;
+}
+
 function getOrderOperationalDate(order: { created_at?: unknown; extra_fields?: unknown }) {
   const extraFields =
     order.extra_fields && typeof order.extra_fields === 'object' && !Array.isArray(order.extra_fields)

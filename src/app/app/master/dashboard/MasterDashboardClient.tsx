@@ -116,6 +116,7 @@ import {
   createClientAction,
   createOrderClientQuickAction,
   getClientFundSnapshotAction,
+  loadMasterClientCommercialProfileAction,
   loadClientStatsAction,
   searchClientsAction,
   searchMasterOrdersAction,
@@ -627,6 +628,155 @@ type ClientItem = {
   extraFields: Record<string, unknown>;
   updatedAt: string;
 };
+
+type ClientCommercialActivity = {
+  factKey: string;
+  origin: 'historical' | 'live';
+  sourceControl: string;
+  purchasedAt: string;
+  eventKind: 'purchase' | 'gift_only';
+  netTotalUsd: number;
+  fulfillment: string;
+  advisorName: string;
+  hasGift: boolean;
+};
+
+type ClientPendingOrder = {
+  id: number;
+  orderNumber: string;
+  status: OrderStatus;
+  createdAt: string;
+  scheduledDate: string;
+  totalUsd: number;
+  fulfillment: string;
+  advisorName: string;
+};
+
+type ClientCommercialProfile = {
+  clientId: number;
+  generatedAt: string;
+  purchaseWindow: number;
+  metrics: {
+    firstPurchaseOn: string;
+    lastPurchaseOn: string;
+    purchaseCount: number;
+    netRevenueUsd: number;
+    averageTicketUsd: number | null;
+    cadenceDays: number | null;
+    lastAdvisorId: string;
+    lastAdvisorName: string;
+    lastGiftOn: string;
+    giftEventCount: number;
+    daysSinceLastPurchase: number | null;
+    usedPickup: boolean;
+    usedDelivery: boolean;
+    historicalPurchaseCount: number;
+    livePurchaseCount: number;
+    historicalRevenueUsd: number;
+    liveRevenueUsd: number;
+  };
+  classification: {
+    isNewClient: boolean;
+    needsContact: boolean;
+    outsideRhythm: boolean;
+  };
+  recentActivity: ClientCommercialActivity[];
+  pendingOrderCount: number;
+  pendingOrders: ClientPendingOrder[];
+};
+
+function mapClientCommercialProfile(value: unknown): ClientCommercialProfile {
+  const root = value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+  const metrics = root.metrics && typeof root.metrics === 'object' && !Array.isArray(root.metrics)
+    ? (root.metrics as Record<string, unknown>)
+    : {};
+  const classification = root.classification
+    && typeof root.classification === 'object'
+    && !Array.isArray(root.classification)
+    ? (root.classification as Record<string, unknown>)
+    : {};
+  const stringValue = (item: unknown) => (typeof item === 'string' ? item : '');
+  const numberValue = (item: unknown, fallback = 0) => {
+    const parsed = Number(item);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const nullableNumber = (item: unknown) => {
+    if (item == null || item === '') return null;
+    const parsed = Number(item);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const recentActivity = Array.isArray(root.recent_activity)
+    ? root.recent_activity.map((item): ClientCommercialActivity => {
+        const row = item && typeof item === 'object' && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+        return {
+          factKey: stringValue(row.fact_key),
+          origin: row.origin === 'live' ? 'live' : 'historical',
+          sourceControl: stringValue(row.source_control),
+          purchasedAt: stringValue(row.purchased_at),
+          eventKind: row.event_kind === 'gift_only' ? 'gift_only' : 'purchase',
+          netTotalUsd: numberValue(row.net_total_usd),
+          fulfillment: stringValue(row.fulfillment),
+          advisorName: stringValue(row.advisor_name),
+          hasGift: Boolean(row.has_gift),
+        };
+      })
+    : [];
+  const pendingOrders = Array.isArray(root.pending_orders)
+    ? root.pending_orders.map((item): ClientPendingOrder => {
+        const row = item && typeof item === 'object' && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+        const status = stringValue(row.status) as OrderStatus;
+        return {
+          id: numberValue(row.id),
+          orderNumber: stringValue(row.order_number),
+          status,
+          createdAt: stringValue(row.created_at),
+          scheduledDate: stringValue(row.scheduled_date),
+          totalUsd: numberValue(row.total_usd),
+          fulfillment: stringValue(row.fulfillment),
+          advisorName: stringValue(row.advisor_name),
+        };
+      })
+    : [];
+
+  return {
+    clientId: numberValue(root.client_id),
+    generatedAt: stringValue(root.generated_at),
+    purchaseWindow: numberValue(root.purchase_window, 6),
+    metrics: {
+      firstPurchaseOn: stringValue(metrics.first_purchase_on),
+      lastPurchaseOn: stringValue(metrics.last_purchase_on),
+      purchaseCount: numberValue(metrics.purchase_count),
+      netRevenueUsd: numberValue(metrics.net_revenue_usd),
+      averageTicketUsd: nullableNumber(metrics.average_ticket_usd),
+      cadenceDays: nullableNumber(metrics.cadence_days),
+      lastAdvisorId: stringValue(metrics.last_advisor_id),
+      lastAdvisorName: stringValue(metrics.last_advisor_name),
+      lastGiftOn: stringValue(metrics.last_gift_on),
+      giftEventCount: numberValue(metrics.gift_event_count),
+      daysSinceLastPurchase: nullableNumber(metrics.days_since_last_purchase),
+      usedPickup: Boolean(metrics.used_pickup),
+      usedDelivery: Boolean(metrics.used_delivery),
+      historicalPurchaseCount: numberValue(metrics.historical_purchase_count),
+      livePurchaseCount: numberValue(metrics.live_purchase_count),
+      historicalRevenueUsd: numberValue(metrics.historical_revenue_usd),
+      liveRevenueUsd: numberValue(metrics.live_revenue_usd),
+    },
+    classification: {
+      isNewClient: Boolean(classification.is_new_client),
+      needsContact: Boolean(classification.needs_contact),
+      outsideRhythm: Boolean(classification.outside_rhythm),
+    },
+    recentActivity,
+    pendingOrderCount: numberValue(root.pending_order_count),
+    pendingOrders,
+  };
+}
 
 function mapClientActionRow(client: any): ClientItem {
   return {
@@ -1759,6 +1909,56 @@ function fmtDateInputES(dateText: string | null | undefined) {
   const match = String(dateText || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return dateText || '—';
   return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function buildClientCommercialReview(profile: ClientCommercialProfile) {
+  const { metrics, classification } = profile;
+  const parts: string[] = [];
+
+  if (metrics.purchaseCount === 0) {
+    parts.push('Aún no registra compras entregadas.');
+  } else {
+    parts.push(
+      `Cliente desde el ${fmtDateInputES(metrics.firstPurchaseOn)}. Registra ${metrics.purchaseCount} ${metrics.purchaseCount === 1 ? 'compra' : 'compras'} por ${fmtUSD(metrics.netRevenueUsd)}.`
+    );
+
+    if (metrics.lastPurchaseOn) {
+      const elapsed = metrics.daysSinceLastPurchase === 0
+        ? 'hoy'
+        : `hace ${metrics.daysSinceLastPurchase ?? 0} ${metrics.daysSinceLastPurchase === 1 ? 'día' : 'días'}`;
+      parts.push(`Su última compra fue el ${fmtDateInputES(metrics.lastPurchaseOn)} (${elapsed}).`);
+    }
+
+    if (metrics.historicalPurchaseCount > 0 || metrics.livePurchaseCount > 0) {
+      parts.push(
+        `Origen: ${metrics.historicalPurchaseCount} ${metrics.historicalPurchaseCount === 1 ? 'histórica' : 'históricas'} y ${metrics.livePurchaseCount} en vivo.`
+      );
+    }
+  }
+
+  if (profile.pendingOrderCount > 0) {
+    parts.push(
+      `Tiene ${profile.pendingOrderCount} ${profile.pendingOrderCount === 1 ? 'pedido en curso' : 'pedidos en curso'}; todavía no ${profile.pendingOrderCount === 1 ? 'cuenta' : 'cuentan'} como compra hasta ser ${profile.pendingOrderCount === 1 ? 'entregado' : 'entregados'}.`
+    );
+  }
+
+  if (classification.isNewClient) {
+    parts.push('Clasifica como cliente nuevo porque su primera compra ocurrió dentro de los últimos 30 días.');
+  } else if (metrics.firstPurchaseOn) {
+    parts.push(
+      `No clasifica como nuevo porque su primera compra registrada fue el ${fmtDateInputES(metrics.firstPurchaseOn)}.`
+    );
+  } else if (profile.pendingOrderCount > 0) {
+    parts.push('Todavía no clasifica como nuevo porque su primer pedido no ha sido entregado.');
+  }
+
+  if (classification.outsideRhythm) {
+    parts.push('Está fuera de su ritmo habitual de compra.');
+  } else if (classification.needsContact) {
+    parts.push('Aparece por contactar porque lleva 60 días sin comprar o aún no tiene una compra entregada.');
+  }
+
+  return parts.join(' ');
 }
 
 function fmtClosureMoment(closure: Pick<MoneyAccountClosureItem, 'closureDate' | 'closureAt'>) {
@@ -4529,6 +4729,11 @@ export default function MasterDashboardClient({
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [clientDetailOpen, setClientDetailOpen] = useState(false);
+  const [clientCommercialProfile, setClientCommercialProfile] =
+    useState<ClientCommercialProfile | null>(null);
+  const [clientCommercialProfileLoading, setClientCommercialProfileLoading] = useState(false);
+  const [clientCommercialProfileError, setClientCommercialProfileError] = useState<string | null>(null);
+  const clientCommercialRequestRef = useRef(0);
   const [clientEditOpen, setClientEditOpen] = useState(false);
   const [clientCreateOpen, setClientCreateOpen] = useState(false);
   const [clientSaving, setClientSaving] = useState(false);
@@ -9618,6 +9823,41 @@ const handleSaveQuickCatalog = async () => {
     setClientCreateOpen(true);
   };
 
+  const loadClientCommercialProfile = async (clientId: number) => {
+    const requestId = clientCommercialRequestRef.current + 1;
+    clientCommercialRequestRef.current = requestId;
+    setClientCommercialProfileLoading(true);
+    setClientCommercialProfileError(null);
+
+    try {
+      const payload = await loadMasterClientCommercialProfileAction({
+        clientId,
+        purchaseWindow: 6,
+        recentLimit: 5,
+      });
+      if (clientCommercialRequestRef.current !== requestId) return;
+      setClientCommercialProfile(mapClientCommercialProfile(payload));
+    } catch (err) {
+      if (clientCommercialRequestRef.current !== requestId) return;
+      setClientCommercialProfile(null);
+      setClientCommercialProfileError(
+        err instanceof Error ? err.message : 'No se pudo cargar la reseña comercial.'
+      );
+    } finally {
+      if (clientCommercialRequestRef.current === requestId) {
+        setClientCommercialProfileLoading(false);
+      }
+    }
+  };
+
+  const openClientDetail = (clientId: number) => {
+    setSelectedClientId(clientId);
+    setClientCommercialProfile(null);
+    setClientCommercialProfileError(null);
+    setClientDetailOpen(true);
+    void loadClientCommercialProfile(clientId);
+  };
+
   const openEditClient = (client: ClientItem) => {
     const addresses = normalizeClientAddresses(client.recentAddresses);
     setSelectedClientId(client.id);
@@ -12046,6 +12286,12 @@ const selectedOrderChangeMovements = useMemo(() => {
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
   );
+
+  const selectedClientCommercialProfile =
+    clientCommercialProfile?.clientId === selectedClientId ? clientCommercialProfile : null;
+  const selectedClientCommercialReview = selectedClientCommercialProfile
+    ? buildClientCommercialReview(selectedClientCommercialProfile)
+    : '';
 
 const selectedCreateOrderClient = useMemo(
   () =>
@@ -17927,10 +18173,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
                   <tr
                     key={client.id}
                     className={`${zebra} cursor-pointer border-b border-[#242433] align-top transition-colors hover:bg-[#1A1A28]`}
-                    onClick={() => {
-                      setSelectedClientId(client.id);
-                      setClientDetailOpen(true);
-                    }}
+                    onClick={() => openClientDetail(client.id)}
                   >
                     <td className="px-3 py-3">
                       <div className="font-semibold text-[#F5F5F7]">{client.fullName}</div>
@@ -26242,7 +26485,11 @@ deliveryAssignMode === 'external' ? (
       <Drawer
         open={clientDetailOpen}
         title={selectedClient ? `Cliente: ${selectedClient.fullName}` : 'Cliente'}
-        onClose={() => setClientDetailOpen(false)}
+        onClose={() => {
+          clientCommercialRequestRef.current += 1;
+          setClientDetailOpen(false);
+          setClientCommercialProfileLoading(false);
+        }}
         widthClass="w-[820px]"
       >
         {!selectedClient ? (
@@ -26320,6 +26567,220 @@ deliveryAssignMode === 'external' ? (
                   {selectedClient.notes}
                 </div>
               ) : null}
+            </div>
+
+            <div className="rounded-2xl border border-[#2F2F3D] bg-[#121218] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[#F5F5F7]">Reseña comercial</div>
+                  <div className="mt-1 text-xs text-[#8A8A96]">
+                    Se actualiza al abrir la ficha; incluye históricos y pedidos en vivo.
+                  </div>
+                </div>
+                {selectedClientCommercialProfile ? (
+                  <SmallBadge
+                    label={`Ritmo ${selectedClientCommercialProfile.purchaseWindow}`}
+                    tone="muted"
+                  />
+                ) : null}
+              </div>
+
+              {clientCommercialProfileLoading ? (
+                <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-4 text-sm text-[#B7B7C2]">
+                  Construyendo la reseña comercial...
+                </div>
+              ) : clientCommercialProfileError ? (
+                <div className="mt-4 rounded-xl border border-[#FF4D4D]/40 bg-[#2A1114] p-4">
+                  <div className="text-sm text-[#FFD6D6]">{clientCommercialProfileError}</div>
+                  <button
+                    type="button"
+                    className="mt-3 rounded-lg border border-[#FF4D4D]/40 px-3 py-1.5 text-xs font-semibold text-[#FFD6D6]"
+                    onClick={() => void loadClientCommercialProfile(selectedClient.id)}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              ) : selectedClientCommercialProfile ? (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-xl border border-[#FEEF00]/30 bg-[#FEEF00]/[0.06] p-4 text-sm leading-6 text-[#EDEDF2]">
+                    {selectedClientCommercialReview}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {selectedClientCommercialProfile.classification.isNewClient ? (
+                      <SmallBadge label="Cliente nuevo" tone="brand" />
+                    ) : null}
+                    {selectedClientCommercialProfile.classification.needsContact ? (
+                      <SmallBadge label="Por contactar" tone="warn" />
+                    ) : null}
+                    {selectedClientCommercialProfile.classification.outsideRhythm ? (
+                      <SmallBadge label="Fuera de ritmo" tone="warn" />
+                    ) : null}
+                    {selectedClientCommercialProfile.pendingOrderCount > 0 ? (
+                      <SmallBadge
+                        label={`${selectedClientCommercialProfile.pendingOrderCount} ${selectedClientCommercialProfile.pendingOrderCount === 1 ? 'pedido en curso' : 'pedidos en curso'}`}
+                        tone="brand"
+                      />
+                    ) : null}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <InfoCell
+                      label="Primera compra"
+                      value={fmtDateInputES(selectedClientCommercialProfile.metrics.firstPurchaseOn)}
+                    />
+                    <InfoCell
+                      label="Última compra"
+                      value={fmtDateInputES(selectedClientCommercialProfile.metrics.lastPurchaseOn)}
+                    />
+                    <InfoCell
+                      label="Cierres"
+                      value={String(selectedClientCommercialProfile.metrics.purchaseCount)}
+                    />
+                    <InfoCell
+                      label="Facturación sin IVA"
+                      value={fmtUSD(selectedClientCommercialProfile.metrics.netRevenueUsd)}
+                    />
+                    <InfoCell
+                      label="Ticket promedio"
+                      value={
+                        selectedClientCommercialProfile.metrics.averageTicketUsd == null
+                          ? '—'
+                          : fmtUSD(selectedClientCommercialProfile.metrics.averageTicketUsd)
+                      }
+                    />
+                    <InfoCell
+                      label="Ritmo promedio"
+                      value={
+                        selectedClientCommercialProfile.metrics.cadenceDays == null
+                          ? 'Sin patrón'
+                          : `${selectedClientCommercialProfile.metrics.cadenceDays.toFixed(1).replace('.', ',')} días`
+                      }
+                    />
+                    <InfoCell
+                      label="Tiempo sin comprar"
+                      value={
+                        selectedClientCommercialProfile.metrics.daysSinceLastPurchase == null
+                          ? 'Sin compra entregada'
+                          : `${selectedClientCommercialProfile.metrics.daysSinceLastPurchase} ${selectedClientCommercialProfile.metrics.daysSinceLastPurchase === 1 ? 'día' : 'días'}`
+                      }
+                    />
+                    <InfoCell
+                      label="Último obsequio"
+                      value={fmtDateInputES(selectedClientCommercialProfile.metrics.lastGiftOn)}
+                    />
+                    <InfoCell
+                      label="Asesor de última compra"
+                      value={selectedClientCommercialProfile.metrics.lastAdvisorName || '—'}
+                    />
+                    <InfoCell
+                      label="Modalidad usada"
+                      value={
+                        selectedClientCommercialProfile.metrics.usedPickup
+                          && selectedClientCommercialProfile.metrics.usedDelivery
+                          ? 'Pickup y delivery'
+                          : selectedClientCommercialProfile.metrics.usedDelivery
+                            ? 'Delivery'
+                            : selectedClientCommercialProfile.metrics.usedPickup
+                              ? 'Pickup'
+                              : '—'
+                      }
+                    />
+                    <InfoCell
+                      label="Histórico"
+                      value={`${selectedClientCommercialProfile.metrics.historicalPurchaseCount} · ${fmtUSD(selectedClientCommercialProfile.metrics.historicalRevenueUsd)}`}
+                    />
+                    <InfoCell
+                      label="En vivo entregado"
+                      value={`${selectedClientCommercialProfile.metrics.livePurchaseCount} · ${fmtUSD(selectedClientCommercialProfile.metrics.liveRevenueUsd)}`}
+                    />
+                  </div>
+
+                  {selectedClientCommercialProfile.pendingOrders.length > 0 ? (
+                    <div>
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8A96]">
+                        Pedidos en curso
+                      </div>
+                      <div className="space-y-2">
+                        {selectedClientCommercialProfile.pendingOrders.map((order) => (
+                          <div
+                            key={order.id}
+                            className="flex flex-col gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:flex-row md:items-center md:justify-between"
+                          >
+                            <div>
+                              <div className="text-sm font-semibold text-[#F5F5F7]">
+                                {order.orderNumber || `Orden #${order.id}`}
+                              </div>
+                              <div className="mt-1 text-xs text-[#8A8A96]">
+                                {order.scheduledDate
+                                  ? `Programado: ${fmtDateInputES(order.scheduledDate)}`
+                                  : fmtDateTimeES(order.createdAt)}
+                                {order.advisorName ? ` · ${order.advisorName}` : ''}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <SmallBadge
+                                label={ORDER_STATUS_LABELS[order.status] || order.status}
+                                tone="muted"
+                              />
+                              <span className="text-sm font-semibold text-[#F5F5F7]">
+                                {fmtUSD(order.totalUsd)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8A96]">
+                      Actividad comercial reciente
+                    </div>
+                    {selectedClientCommercialProfile.recentActivity.length === 0 ? (
+                      <div className="rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 text-sm text-[#B7B7C2]">
+                        Todavía no hay compras entregadas ni obsequios registrados.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectedClientCommercialProfile.recentActivity.map((activity) => (
+                          <div
+                            key={activity.factKey}
+                            className="flex flex-col gap-2 rounded-xl border border-[#242433] bg-[#0B0B0D] p-3 md:flex-row md:items-center md:justify-between"
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold text-[#F5F5F7]">
+                                  {activity.eventKind === 'gift_only' ? 'Obsequio' : 'Compra'} {activity.sourceControl ? `#${activity.sourceControl}` : ''}
+                                </span>
+                                <SmallBadge
+                                  label={activity.origin === 'historical' ? 'Histórico' : 'En vivo'}
+                                  tone="muted"
+                                />
+                                {activity.hasGift && activity.eventKind !== 'gift_only' ? (
+                                  <SmallBadge label="Con obsequio" tone="brand" />
+                                ) : null}
+                              </div>
+                              <div className="mt-1 text-xs text-[#8A8A96]">
+                                {fmtDateTimeES(activity.purchasedAt)}
+                                {activity.advisorName ? ` · ${activity.advisorName}` : ''}
+                                {activity.fulfillment ? ` · ${activity.fulfillment === 'delivery' ? 'Delivery' : 'Pickup'}` : ''}
+                              </div>
+                            </div>
+                            <div className="text-sm font-semibold text-[#F5F5F7]">
+                              {activity.eventKind === 'gift_only' ? 'Sin compra' : fmtUSD(activity.netTotalUsd)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-[#242433] bg-[#0B0B0D] p-4 text-sm text-[#B7B7C2]">
+                  Abre nuevamente la ficha para cargar la reseña comercial.
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
