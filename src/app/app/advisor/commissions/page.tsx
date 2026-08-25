@@ -145,6 +145,10 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function concisePercent(value: number) {
+  return `${new Intl.NumberFormat('es-VE', { maximumFractionDigits: 2 }).format(value)}%`;
+}
+
 function dateLabel(value: string | null | undefined) {
   if (!value) return 'Sin fecha';
   const parsed = new Date(`${value.slice(0, 10)}T12:00:00-04:00`);
@@ -312,16 +316,45 @@ function GoalMetricProgress({
       </summary>
       <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#252A37] pt-3 text-xs">
         <div className="rounded-[12px] bg-[#12151D] p-2.5">
-          <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">Referencia personal</div>
+          <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">1 · Referencia personal</div>
           <div className="mt-1 font-semibold text-[#E8EBF2]">{goalValue(metricKey, metric.personalReference)}</div>
         </div>
-        <div className="rounded-[12px] bg-[#12151D] p-2.5">
-          <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">Capacidad esperada</div>
-          <div className="mt-1 font-semibold text-[#E8EBF2]">{goalValue(metricKey, metric.expectedCapacity)}</div>
-        </div>
+        {metricKey === 'billing' || metricKey === 'closures' ? (
+          <>
+            <div className="rounded-[12px] bg-[#12151D] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">2 · Ajuste de temporada</div>
+              <div className="mt-1 font-semibold text-[#E8EBF2]">{metric.appliedContextPct >= 0 ? '+' : ''}{concisePercent(metric.appliedContextPct)}</div>
+              <div className="mt-0.5 text-[10px] text-[#7F879A]">capacidad {goalValue(metricKey, metric.expectedCapacity)}</div>
+            </div>
+            <div className="rounded-[12px] bg-[#12151D] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">3 · Desafío</div>
+              <div className="mt-1 font-semibold text-[#E8EBF2]">+{concisePercent(metric.growthChallengePct)}</div>
+            </div>
+            <div className="rounded-[12px] border border-[#F0D000]/20 bg-[#17160E] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#A99C49]">4 · Tu meta</div>
+              <div className="mt-1 font-semibold text-[#F7DA66]">{goalValue(metricKey, metric.target)}</div>
+            </div>
+          </>
+        ) : metricKey === 'new_own_clients' || metricKey === 'new_assigned_clients' ? (
+          <>
+            <div className="rounded-[12px] bg-[#12151D] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">2 · Impulso</div>
+              <div className="mt-1 font-semibold text-[#E8EBF2]">+1 cliente</div>
+            </div>
+            <div className="col-span-2 rounded-[12px] border border-[#F0D000]/20 bg-[#17160E] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#A99C49]">3 · Tu meta</div>
+              <div className="mt-1 font-semibold text-[#F7DA66]">{goalValue(metricKey, metric.target)}</div>
+            </div>
+          </>
+        ) : (
+          <div className="rounded-[12px] border border-[#F0D000]/20 bg-[#17160E] p-2.5">
+            <div className="text-[10px] uppercase tracking-[0.12em] text-[#A99C49]">Meta ideal</div>
+            <div className="mt-1 font-semibold text-[#F7DA66]">{goalValue(metricKey, metric.target)}</div>
+          </div>
+        )}
         <div className="col-span-2 text-[11px] leading-5 text-[#9FA7B9]">
           {metric.validPeriods.length > 0
-            ? `Referencia calculada con ${metric.validPeriods.join(', ')}.${metric.recentContext ? ' La quincena inmediatamente anterior no altera la meta.' : ''} Contexto ${metric.appliedContextPct >= 0 ? '+' : ''}${metric.appliedContextPct.toFixed(2)}% y desafío ${metric.growthChallengePct.toFixed(2)}%.`
+            ? `Referencia calculada con ${metric.validPeriods.join(', ')}.${metric.recentContext ? ' La quincena inmediatamente anterior no altera la meta.' : ''}`
             : 'Cobranza: pago registrado hasta la entrega vale 100%, crédito de hasta cinco días vale 80% y atraso posterior vale 0%.'}
         </div>
         {metric.recentContext ? (

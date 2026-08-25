@@ -17,7 +17,7 @@ import { generateAdvisorCommissionClosuresAction } from '@/app/app/master/dashbo
 import { recalculateAdvisorCommissionSettlementsForGoal } from '../actions';
 
 function numberInput(value: FormDataEntryValue | null, label: string) {
-  const parsed = Number(String(value ?? '').trim().replace(',', '.'));
+  const parsed = Number(String(value ?? '').trim().replace(/\s/g, '').replace('%', '').replace(',', '.'));
   if (!Number.isFinite(parsed)) throw new Error(`${label} no es válido.`);
   return parsed;
 }
