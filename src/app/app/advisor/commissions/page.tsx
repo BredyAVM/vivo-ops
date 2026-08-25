@@ -321,9 +321,15 @@ function GoalMetricProgress({
         </div>
         <div className="col-span-2 text-[11px] leading-5 text-[#9FA7B9]">
           {metric.validPeriods.length > 0
-            ? `Referencia calculada con ${metric.validPeriods.join(', ')}. Contexto ${metric.appliedContextPct >= 0 ? '+' : ''}${metric.appliedContextPct.toFixed(2)}% y desafío ${metric.growthChallengePct.toFixed(2)}%.`
+            ? `Referencia calculada con ${metric.validPeriods.join(', ')}.${metric.recentContext ? ' La quincena inmediatamente anterior no altera la meta.' : ''} Contexto ${metric.appliedContextPct >= 0 ? '+' : ''}${metric.appliedContextPct.toFixed(2)}% y desafío ${metric.growthChallengePct.toFixed(2)}%.`
             : 'Cobranza: pago registrado hasta la entrega vale 100%, crédito de hasta cinco días vale 80% y atraso posterior vale 0%.'}
         </div>
+        {metric.recentContext ? (
+          <div className="col-span-2 flex items-center justify-between gap-3 rounded-[12px] border border-sky-400/20 bg-sky-400/5 px-2.5 py-2 text-[11px] text-sky-100">
+            <span>{metric.recentContext.periodKey} · resultado reciente informativo</span>
+            <span className="font-semibold">{goalValue(metricKey, metric.recentContext.value)}</span>
+          </div>
+        ) : null}
       </div>
     </details>
   );

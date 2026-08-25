@@ -11,6 +11,8 @@ import {
 import type { AdvisorGoalCollectionSummary } from './goal-collection.ts';
 import { advisorGoalPeriodIdentity } from './goal-period.ts';
 
+export const ADVISOR_GOAL_REFERENCE_LAG_EFFECTIVE_FROM = '2026-09-01';
+
 export type AdvisorGoalCommercialMetricRow = {
   periodKey: string;
   periodFrom: string;
@@ -35,6 +37,7 @@ export type AdvisorGoalSimulationContext = {
 export type AdvisorGoalSimulatedMetric = {
   actual: number;
   history: Array<{ periodKey: string; value: number }>;
+  recentContext: { periodKey: string; value: number } | null;
   capacity: AdvisorGoalCapacity;
   reference: number | null;
   appliedContextPct: number;
@@ -65,6 +68,7 @@ export type AdvisorGoalSimulation = {
   periodTo: string;
   cutoffDate: string;
   mode: 'projection' | 'active';
+  referenceLagPeriods: 0 | 1;
   seasonality: {
     billing: AdvisorGoalSeasonality;
     closures: AdvisorGoalSeasonality;
@@ -135,22 +139,39 @@ function seasonalSamples(params: {
   return samples;
 }
 
-function observations(
+function observationWindow(
   rows: AdvisorGoalCommercialMetricRow[],
   advisorUserId: string,
   targetFrom: string,
   metric: 'billingUsd' | 'closuresCount' | 'newOwnClientsCount' | 'newAssignedClientsCount'
 ) {
-  return rows
+  const target = advisorGoalPeriodIdentity(targetFrom);
+  const previous = previousHalfPeriod(target.year, target.month, target.half);
+  const recentPeriodKey = key(previous.year, previous.month, previous.half);
+  const usesReferenceLag = targetFrom >= ADVISOR_GOAL_REFERENCE_LAG_EFFECTIVE_FROM;
+  const available = rows
     .filter((row) => row.advisorUserId === advisorUserId && row.periodFrom < targetFrom)
     .sort((left, right) => left.periodFrom.localeCompare(right.periodFrom))
-    .slice(-6)
     .map((row) => ({ periodKey: row.periodKey, value: row[metric] }));
+  const recentContext = usesReferenceLag
+    ? available.find((row) => row.periodKey === recentPeriodKey) ?? null
+    : null;
+  const history = available
+    .filter((row) => !usesReferenceLag || row.periodKey !== recentPeriodKey)
+    .slice(-6);
+  return {
+    history,
+    recentContext,
+    capacityObservations: recentContext
+      ? [...history, { ...recentContext, excluded: true }]
+      : history,
+  };
 }
 
 function commercialMetric(params: {
   actual: number;
   history: Array<{ periodKey: string; value: number }>;
+  recentContext: { periodKey: string; value: number } | null;
   capacity: AdvisorGoalCapacity;
   contextPct: number;
   growthChallengePct: number;
@@ -160,6 +181,7 @@ function commercialMetric(params: {
     return {
       actual: params.actual,
       history: params.history,
+      recentContext: params.recentContext,
       capacity: params.capacity,
       reference: null,
       appliedContextPct: params.contextPct,
@@ -177,6 +199,7 @@ function commercialMetric(params: {
   return {
     actual: params.actual,
     history: params.history,
+    recentContext: params.recentContext,
     capacity: params.capacity,
     reference: target.personalReference,
     appliedContextPct: target.appliedContextPct,
@@ -189,12 +212,14 @@ function commercialMetric(params: {
 function newClientMetric(params: {
   actual: number;
   history: Array<{ periodKey: string; value: number }>;
+  recentContext: { periodKey: string; value: number } | null;
   capacity: AdvisorGoalCapacity;
 }): AdvisorGoalSimulatedMetric {
   const reference = params.capacity.reference;
   return {
     actual: params.actual,
     history: params.history,
+    recentContext: params.recentContext,
     capacity: params.capacity,
     reference,
     appliedContextPct: 0,
@@ -266,34 +291,42 @@ export function buildAdvisorGoalSimulation(params: {
   const closuresContextPct = safeContext(params.context?.closuresContextPct, closuresSeasonality.suggestedPct);
 
   const advisors = targetRows.map((row) => {
-    const billingHistory = observations(params.metrics, row.advisorUserId, params.periodFrom, 'billingUsd');
-    const closuresHistory = observations(params.metrics, row.advisorUserId, params.periodFrom, 'closuresCount');
-    const newOwnHistory = observations(params.metrics, row.advisorUserId, params.periodFrom, 'newOwnClientsCount');
-    const newAssignedHistory = observations(params.metrics, row.advisorUserId, params.periodFrom, 'newAssignedClientsCount');
-    const billingCapacity = selectAdvisorGoalCapacity(billingHistory);
-    const closuresCapacity = selectAdvisorGoalCapacity(closuresHistory);
-    const newOwnCapacity = selectAdvisorGoalCapacity(newOwnHistory);
-    const newAssignedCapacity = selectAdvisorGoalCapacity(newAssignedHistory);
+    const billingWindow = observationWindow(params.metrics, row.advisorUserId, params.periodFrom, 'billingUsd');
+    const closuresWindow = observationWindow(params.metrics, row.advisorUserId, params.periodFrom, 'closuresCount');
+    const newOwnWindow = observationWindow(params.metrics, row.advisorUserId, params.periodFrom, 'newOwnClientsCount');
+    const newAssignedWindow = observationWindow(params.metrics, row.advisorUserId, params.periodFrom, 'newAssignedClientsCount');
+    const billingCapacity = selectAdvisorGoalCapacity(billingWindow.capacityObservations);
+    const closuresCapacity = selectAdvisorGoalCapacity(closuresWindow.capacityObservations);
+    const newOwnCapacity = selectAdvisorGoalCapacity(newOwnWindow.capacityObservations);
+    const newAssignedCapacity = selectAdvisorGoalCapacity(newAssignedWindow.capacityObservations);
     const billing = commercialMetric({
       actual: row.billingUsd,
-      history: billingHistory,
+      history: billingWindow.history,
+      recentContext: billingWindow.recentContext,
       capacity: billingCapacity,
       contextPct: billingContextPct,
       growthChallengePct,
     });
     const closures = commercialMetric({
       actual: row.closuresCount,
-      history: closuresHistory,
+      history: closuresWindow.history,
+      recentContext: closuresWindow.recentContext,
       capacity: closuresCapacity,
       contextPct: closuresContextPct,
       growthChallengePct,
       rounding: 'ceil',
     });
     const collection = params.collectionByAdvisorId?.get(row.advisorUserId) ?? emptyCollection;
-    const newOwnClients = newClientMetric({ actual: row.newOwnClientsCount, history: newOwnHistory, capacity: newOwnCapacity });
+    const newOwnClients = newClientMetric({
+      actual: row.newOwnClientsCount,
+      history: newOwnWindow.history,
+      recentContext: newOwnWindow.recentContext,
+      capacity: newOwnCapacity,
+    });
     const newAssignedClients = newClientMetric({
       actual: row.newAssignedClientsCount,
-      history: newAssignedHistory,
+      history: newAssignedWindow.history,
+      recentContext: newAssignedWindow.recentContext,
       capacity: newAssignedCapacity,
     });
     const missing = [billing, closures, newOwnClients, newAssignedClients].filter(
@@ -327,6 +360,7 @@ export function buildAdvisorGoalSimulation(params: {
         collection: {
           actual: collection.ratio,
           history: [],
+          recentContext: null,
           capacity: {
             reference: 0.8,
             medianAvailable: null,
@@ -358,6 +392,7 @@ export function buildAdvisorGoalSimulation(params: {
     periodTo: params.periodTo,
     cutoffDate: datePlusDays(params.periodTo, 5),
     mode: params.mode ?? (actualTargetRows.length === 0 ? 'projection' : 'active'),
+    referenceLagPeriods: params.periodFrom >= ADVISOR_GOAL_REFERENCE_LAG_EFFECTIVE_FROM ? 1 : 0,
     seasonality: { billing: billingSeasonality, closures: closuresSeasonality },
     appliedContext: {
       growthChallengePct: round(growthChallengePct),

@@ -19,6 +19,7 @@ function metricPublication(metric: AdvisorGoalSimulatedMetric): AdvisorGoalMetri
   return {
     actual: metric.actual,
     history: metric.history,
+    recentContext: metric.recentContext,
     medianAvailable: metric.capacity.medianAvailable ?? metric.reference,
     medianRecent: metric.capacity.medianRecent ?? metric.capacity.medianAvailable ?? metric.reference,
     personalReference: metric.reference,
@@ -192,7 +193,9 @@ export function buildAdvisorGoalPublicationBundle(params: {
       publishedAt: advisorPublished ? previous?.publishedAt ?? params.recordedAt : null,
       publishedByUserId: advisorPublished ? previous?.publishedByUserId ?? params.actorUserId : null,
       revision: advisorRevision,
-      explanation: `Referencia personal estable, contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`,
+      explanation: params.simulation.referenceLagPeriods === 1
+        ? `Referencia personal estable con desfase de una quincena; el periodo inmediatamente anterior se muestra como contexto y no altera la meta. Contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`
+        : `Referencia personal estable, contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`,
       publicationMessage: params.publicationMessage,
       calculatedCommissionPct: score.calculatedCommissionPct,
       appliedCommissionPct,

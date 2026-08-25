@@ -5,8 +5,17 @@ import { buildAdvisorGoalPublicationBundle } from '../../src/lib/commissions/goa
 import { buildAdvisorGoalSimulation, type AdvisorGoalCommercialMetricRow } from '../../src/lib/commissions/goal-simulation.ts';
 
 function row(index: number, target = false): AdvisorGoalCommercialMetricRow {
-  const month = target ? 8 : 5 + Math.floor(index / 2);
-  const half = target ? 1 : index % 2 + 1;
+  const historyPeriods = [
+    { month: 5, half: 2 },
+    { month: 6, half: 1 },
+    { month: 6, half: 2 },
+    { month: 7, half: 1 },
+    { month: 7, half: 2 },
+    { month: 8, half: 1 },
+    { month: 8, half: 2 },
+  ];
+  const selected = target ? { month: 9, half: 1 } : historyPeriods[index];
+  const { month, half } = selected;
   const year = 2026;
   return {
     periodKey: `${year}-${String(month).padStart(2, '0')}-${half}`,
@@ -25,9 +34,9 @@ function row(index: number, target = false): AdvisorGoalCommercialMetricRow {
 }
 
 const simulation = buildAdvisorGoalSimulation({
-  periodFrom: '2026-08-01',
-  periodTo: '2026-08-15',
-  metrics: [...Array.from({ length: 6 }, (_, index) => row(index)), row(6, true)],
+  periodFrom: '2026-09-01',
+  periodTo: '2026-09-15',
+  metrics: [...Array.from({ length: 7 }, (_, index) => row(index)), row(7, true)],
   context: { billingContextPct: 0, closuresContextPct: 0, growthChallengePct: 10 },
 });
 
@@ -47,6 +56,7 @@ test('crea borrador por periodo y asesor con evidencia histórica', () => {
   assert.equal(bundle.config.status, 'draft');
   assert.equal(bundle.config.revision, 1);
   assert.equal(bundle.publications[0].publication.metrics.billing.history.length, 6);
+  assert.equal(bundle.publications[0].publication.metrics.billing.recentContext?.periodKey, '2026-08-2');
   assert.equal(bundle.publications[0].publication.audit[0].action, 'generated');
 });
 
@@ -63,9 +73,9 @@ test('publicar una modificación exige motivo y aumenta la revisión', () => {
     previousByAdvisorId: new Map(),
   });
   const adjustedSimulation = buildAdvisorGoalSimulation({
-    periodFrom: '2026-08-01',
-    periodTo: '2026-08-15',
-    metrics: [...Array.from({ length: 6 }, (_, index) => row(index)), row(6, true)],
+    periodFrom: '2026-09-01',
+    periodTo: '2026-09-15',
+    metrics: [...Array.from({ length: 7 }, (_, index) => row(index)), row(7, true)],
     context: { billingContextPct: 5, closuresContextPct: 0, growthChallengePct: 10 },
   });
   assert.throws(() => buildAdvisorGoalPublicationBundle({

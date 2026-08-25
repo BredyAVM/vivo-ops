@@ -94,6 +94,14 @@ function History({ metric, moneyValues = false }: { metric: AdvisorGoalSimulated
             </span>
           </div>
         ))}
+        {metric.recentContext ? (
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-sky-400/20 bg-sky-400/5 px-2.5 py-2 text-sky-100">
+            <span>{metric.recentContext.periodKey} · solo contexto</span>
+            <span className="font-medium">
+              {moneyValues ? money(metric.recentContext.value) : numberLabel(metric.recentContext.value, 0)}
+            </span>
+          </div>
+        ) : null}
         <div className="mt-2 grid grid-cols-2 gap-2 border-t border-[#2A2A33] pt-2">
           <div>
             <div className="text-[10px] uppercase tracking-[0.12em] text-[#83838F]">Mediana disponible</div>
@@ -388,7 +396,11 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
 
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5">
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Lectura por asesor</h2>
-              <p className="mt-1 text-sm text-[#A5A5B0]">{simulation.mode === 'projection' ? 'Esta es la meta propuesta antes de que comience el periodo. “Al cumplir” muestra el nivel y porcentaje que representa llegar exactamente a los cinco objetivos.' : 'Referencia = el mayor valor entre la mediana de seis periodos y la mediana de los últimos tres. El contexto y el desafío se muestran por separado.'}</p>
+              <p className="mt-1 text-sm leading-6 text-[#A5A5B0]">
+                {simulation.referenceLagPeriods === 1
+                  ? 'La referencia usa hasta seis periodos consolidados y omite la quincena inmediatamente anterior, que se muestra solo como contexto. Luego aplica la temporalidad y el desafío.'
+                  : 'Este periodo conserva la fórmula anterior: referencia con hasta seis periodos, incluyendo la quincena inmediatamente anterior.'} {simulation.mode === 'projection' ? '“Al cumplir” muestra el nivel y porcentaje correspondiente a alcanzar exactamente los cinco objetivos.' : ''}
+              </p>
               <div className="mt-5 space-y-5">
                 {simulation.advisors.map((advisor) => {
                   const displayedScore = simulation.mode === 'projection' ? advisor.targetScore : advisor.score;

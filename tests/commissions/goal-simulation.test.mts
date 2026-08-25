@@ -22,7 +22,7 @@ function row(periodKey: string, billingUsd: number, closuresCount: number): Advi
   };
 }
 
-test('explica agosto 1 desde seis periodos, temporalidad y desafío separados', () => {
+test('conserva la fórmula anterior en los periodos previos a septiembre 1', () => {
   const metrics = [
     row('2025-07-2', 500, 10),
     row('2025-08-1', 450, 9),
@@ -42,10 +42,12 @@ test('explica agosto 1 desde seis periodos, temporalidad y desafío separados', 
   });
   const advisor = simulation.advisors[0];
 
+  assert.equal(simulation.referenceLagPeriods, 0);
   assert.equal(advisor.metrics.billing.reference, 678.41);
   assert.equal(advisor.metrics.billing.expectedCapacity, 678.41);
   assert.equal(advisor.metrics.billing.target, 746.251);
   assert.equal(advisor.metrics.closures.target, 15);
+  assert.equal(advisor.metrics.billing.recentContext, null);
   assert.equal(simulation.seasonality.billing.suggestedPct, -10);
   assert.equal(simulation.cutoffDate, '2026-08-20');
 });
@@ -83,9 +85,37 @@ test('proyecta agosto 2 antes de tener ventas sin inventar un resultado observad
   assert.equal(simulation.mode, 'projection');
   assert.equal(simulation.periodKey, '2026-08-2');
   assert.equal(simulation.advisors[0].metrics.billing.actual, 0);
+  assert.equal(simulation.advisors[0].metrics.billing.recentContext, null);
   assert.ok((simulation.advisors[0].metrics.billing.target ?? 0) > 0);
   assert.equal(simulation.advisors[0].targetScore?.points, 200);
   assert.equal(simulation.advisors[0].targetScore?.calculatedCommissionPct, 11);
+});
+
+test('septiembre 1 omite agosto 2 y lo conserva como contexto reciente', () => {
+  const metrics = [
+    row('2026-05-1', 400, 10),
+    row('2026-05-2', 420, 11),
+    row('2026-06-1', 440, 12),
+    row('2026-06-2', 460, 13),
+    row('2026-07-1', 480, 14),
+    row('2026-07-2', 500, 15),
+    row('2026-08-1', 520, 16),
+    row('2026-08-2', 100, 3),
+    row('2026-09-1', 0, 0),
+  ];
+  const simulation = buildAdvisorGoalSimulation({
+    periodFrom: '2026-09-01',
+    periodTo: '2026-09-15',
+    metrics,
+    context: { billingContextPct: 0, closuresContextPct: 0, growthChallengePct: 10 },
+  });
+  const billing = simulation.advisors[0].metrics.billing;
+
+  assert.equal(simulation.referenceLagPeriods, 1);
+  assert.deepEqual(billing.recentContext, { periodKey: '2026-08-2', value: 100 });
+  assert.deepEqual(billing.capacity.excludedPeriods, ['2026-08-2']);
+  assert.equal(billing.history.some((item) => item.periodKey === '2026-08-2'), false);
+  assert.equal(billing.history.at(-1)?.periodKey, '2026-08-1');
 });
 
 test('sugiere la siguiente quincena completa', () => {

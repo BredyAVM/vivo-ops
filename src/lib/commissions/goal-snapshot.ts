@@ -39,6 +39,7 @@ export type AdvisorGoalPeriodConfig = {
 export type AdvisorGoalMetricPublication = {
   actual: number;
   history: Array<{ periodKey: string; value: number }>;
+  recentContext?: { periodKey: string; value: number } | null;
   medianAvailable: number;
   medianRecent: number;
   personalReference: number;
