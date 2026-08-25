@@ -1,25 +1,21 @@
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
-import { EmptyBlock, MetricCard, PageIntro, SectionCard, StatusBadge } from '../advisor-ui';
+import { EmptyBlock, StatusBadge } from '../advisor-ui';
 
 type PlayRow = {
   id: number | string;
   name: string;
-  description: string | null;
   status: string;
   starts_at: string | null;
   ends_at: string | null;
-  snapshot_at: string | null;
   gift_product_id: number | string;
   gift_quantity: number | string;
-  selection_summary: Record<string, unknown> | null;
 };
 
 type ClientRow = {
   id: number | string;
   full_name: string | null;
-  phone: string | null;
 };
 
 type MemberRow = {
@@ -27,19 +23,10 @@ type MemberRow = {
   play_id: number | string;
   client_id: number | string;
   workflow_status: string;
-  benefit_status: string;
-  first_purchase_on: string | null;
-  last_purchase_on: string | null;
   purchase_count: number | string;
-  net_revenue_usd: number | string;
-  cadence_days: number | string | null;
-  last_gift_on: string | null;
   days_since_last_purchase: number | string | null;
   contact_attempt_count: number | string;
-  last_contact_at: string | null;
   next_follow_up_at: string | null;
-  last_note: string | null;
-  last_event_at: string | null;
   client: ClientRow | ClientRow[] | null;
 };
 
@@ -59,13 +46,6 @@ const dateTimeFormatter = new Intl.DateTimeFormat('es-VE', {
   hour: '2-digit',
   minute: '2-digit',
   timeZone: 'America/Caracas',
-});
-
-const moneyFormatter = new Intl.NumberFormat('es-VE', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
 });
 
 function one<T>(value: T | T[] | null | undefined) {
@@ -89,28 +69,112 @@ function dateTimeLabel(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : dateTimeFormatter.format(parsed);
 }
 
-function workflowLabel(status: string) {
-  const labels: Record<string, string> = {
-    pending: 'Pendiente',
-    contacted: 'Contactado',
-    follow_up_scheduled: 'Seguimiento programado',
-    responded: 'Respondió',
-    accepted: 'Aceptó',
-    converted: 'Recompra lograda',
-    not_interested: 'No interesado',
-    unreachable: 'Sin respuesta',
-    not_applicable: 'No aplica',
-    closed: 'Cerrado',
-    removed: 'Retirado',
+function workflowPresentation(status: string, due: boolean) {
+  if (due) {
+    return {
+      label: 'Vencido',
+      dot: 'bg-[#F06B78]',
+      chip: 'border-[#5E2229] bg-[#261114] text-[#F0A6AE]',
+      row: 'border-l-[#D95360]',
+    };
+  }
+
+  const presentations: Record<string, { label: string; dot: string; chip: string; row: string }> = {
+    pending: {
+      label: 'Pendiente',
+      dot: 'bg-[#7E8799]',
+      chip: 'border-[#343A48] bg-[#171B24] text-[#B7BECC]',
+      row: 'border-l-[#5F6879]',
+    },
+    contacted: {
+      label: 'Contactado',
+      dot: 'bg-[#69B7FF]',
+      chip: 'border-[#214C73] bg-[#102338] text-[#8CC9FF]',
+      row: 'border-l-[#3C8FD9]',
+    },
+    follow_up_scheduled: {
+      label: 'Seguimiento',
+      dot: 'bg-[#F0D000]',
+      chip: 'border-[#564511] bg-[#2A2209] text-[#F7DA66]',
+      row: 'border-l-[#D6B900]',
+    },
+    responded: {
+      label: 'Respondió',
+      dot: 'bg-[#B694FF]',
+      chip: 'border-[#4A3675] bg-[#241A3A] text-[#C9B1FF]',
+      row: 'border-l-[#8D68E1]',
+    },
+    accepted: {
+      label: 'Aceptó',
+      dot: 'bg-[#7CE0A9]',
+      chip: 'border-[#1C5036] bg-[#0F2119] text-[#7CE0A9]',
+      row: 'border-l-[#41B879]',
+    },
+    converted: {
+      label: 'Recompra',
+      dot: 'bg-[#35E293]',
+      chip: 'border-[#176344] bg-[#0A2B1D] text-[#68F0B1]',
+      row: 'border-l-[#24C77A]',
+    },
+    not_interested: {
+      label: 'No aceptó',
+      dot: 'bg-[#F06B78]',
+      chip: 'border-[#5E2229] bg-[#261114] text-[#F0A6AE]',
+      row: 'border-l-[#D95360]',
+    },
+    unreachable: {
+      label: 'Sin respuesta',
+      dot: 'bg-[#F5A65B]',
+      chip: 'border-[#68401B] bg-[#2F1E0D] text-[#F6B97D]',
+      row: 'border-l-[#D8893D]',
+    },
+    not_applicable: {
+      label: 'No aplica',
+      dot: 'bg-[#8B93A7]',
+      chip: 'border-[#343A48] bg-[#171B24] text-[#B7BECC]',
+      row: 'border-l-[#6D7587]',
+    },
+    closed: {
+      label: 'Cerrado',
+      dot: 'bg-[#8B93A7]',
+      chip: 'border-[#343A48] bg-[#171B24] text-[#B7BECC]',
+      row: 'border-l-[#6D7587]',
+    },
+    removed: {
+      label: 'Retirado',
+      dot: 'bg-[#F06B78]',
+      chip: 'border-[#5E2229] bg-[#261114] text-[#F0A6AE]',
+      row: 'border-l-[#D95360]',
+    },
   };
-  return labels[status] ?? status;
+
+  return presentations[status] ?? presentations.pending;
 }
 
-function workflowTone(status: string): 'neutral' | 'warning' | 'success' | 'danger' {
-  if (status === 'converted' || status === 'accepted') return 'success';
-  if (status === 'pending' || status === 'follow_up_scheduled') return 'warning';
-  if (status === 'not_interested' || status === 'not_applicable' || status === 'removed') return 'danger';
-  return 'neutral';
+function CompactPageHeader({ status }: { status?: 'active' | 'paused' }) {
+  return (
+    <header className="flex items-center justify-between gap-3 px-1 py-0.5">
+      <div>
+        <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#747E91]">CRM del asesor</p>
+        <h1 className="mt-0.5 text-lg font-semibold tracking-[-0.03em] text-[#F5F7FB]">Mis jugadas</h1>
+      </div>
+      {status ? (
+        <StatusBadge
+          label={status === 'paused' ? 'Pausada' : 'Activa'}
+          tone={status === 'paused' ? 'warning' : 'success'}
+        />
+      ) : null}
+    </header>
+  );
+}
+
+function CompactStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[12px] border border-[#232632] bg-[#12151D] px-2 py-2 text-center">
+      <div className="text-base font-semibold leading-none tabular-nums text-[#F5F7FB]">{value}</div>
+      <div className="mt-1 truncate text-[9px] uppercase tracking-[0.1em] text-[#747E91]">{label}</div>
+    </div>
+  );
 }
 
 function viewValue(value: string | undefined): ViewFilter {
@@ -164,7 +228,8 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const view = viewValue(query.view);
   const playsResult = await ctx.supabase
     .from('crm_plays')
-    .select('id, name, description, status, starts_at, ends_at, snapshot_at, gift_product_id, gift_quantity, selection_summary')
+    .select('id, name, status, starts_at, ends_at, gift_product_id, gift_quantity')
+    // Draft and frozen plays remain private to the master dashboard.
     .in('status', ['active', 'paused'])
     .order('starts_at', { ascending: false })
     .order('id', { ascending: false })
@@ -173,8 +238,8 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   if (playsResult.error) {
     console.error('Unable to load advisor CRM plays', playsResult.error.message);
     return (
-      <div className="space-y-4">
-        <PageIntro eyebrow="CRM del asesor" title="Mis jugadas" description="Listas activas y seguimiento comercial." />
+      <div className="space-y-3">
+        <CompactPageHeader />
         <EmptyBlock title="No pudimos cargar tus jugadas" detail="Intenta abrir nuevamente esta pantalla." />
       </div>
     );
@@ -185,12 +250,8 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
 
   if (!selectedPlay) {
     return (
-      <div className="space-y-4">
-        <PageIntro
-          eyebrow="CRM del asesor"
-          title="Mis jugadas"
-          description="Aquí aparecerán las listas que hayan sido activadas y asignadas a ti."
-        />
+      <div className="space-y-3">
+        <CompactPageHeader />
         <EmptyBlock
           title="Todavía no tienes jugadas activas"
           detail="Tu cartera continúa disponible y actualizada. Cuando se publique una jugada, verás aquí sus clientes, beneficio y seguimiento."
@@ -205,12 +266,9 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
     ctx.supabase
       .from('crm_play_members')
       .select(`
-        id, play_id, client_id, workflow_status, benefit_status,
-        first_purchase_on, last_purchase_on, purchase_count, net_revenue_usd,
-        cadence_days, last_gift_on, days_since_last_purchase,
-        contact_attempt_count, last_contact_at, next_follow_up_at,
-        last_note, last_event_at,
-        client:clients(id, full_name, phone)
+        id, play_id, client_id, workflow_status, purchase_count,
+        days_since_last_purchase, contact_attempt_count, next_follow_up_at,
+        client:clients(id, full_name)
       `)
       .eq('play_id', Number(selectedPlay.id))
       .eq('advisor_id_snapshot', ctx.user.id)
@@ -218,7 +276,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
       .limit(500),
     ctx.supabase
       .from('products')
-      .select('id, name, sku')
+      .select('id, name')
       .eq('id', Number(selectedPlay.gift_product_id))
       .maybeSingle(),
   ]);
@@ -227,7 +285,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   const members = (membersResult.data ?? []) as unknown as MemberRow[];
 
   if (productResult.error) console.error('Unable to load CRM play gift product', productResult.error.message);
-  const giftProduct = productResult.data as { id: number; name: string; sku: string | null } | null;
+  const giftProduct = productResult.data as { id: number; name: string } | null;
 
   // This is a server-only request snapshot used to classify due follow-ups consistently.
   // eslint-disable-next-line react-hooks/purity
@@ -249,16 +307,11 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
   ];
 
   return (
-    <div className="space-y-4">
-      <PageIntro
-        eyebrow="CRM del asesor"
-        title="Mis jugadas"
-        description="La lista conserva su foto original; contactos y resultados se actualizan aquí."
-        action={<StatusBadge label={selectedPlay.status === 'paused' ? 'Pausada' : 'Activa'} tone={selectedPlay.status === 'paused' ? 'warning' : 'success'} />}
-      />
+    <div className="space-y-3">
+      <CompactPageHeader status={selectedPlay.status === 'paused' ? 'paused' : 'active'} />
 
       {plays.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
           {plays.map((play) => {
             const active = Number(play.id) === Number(selectedPlay.id);
             return (
@@ -267,7 +320,7 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
                 href={playsHref(numberValue(play.id))}
                 aria-current={active ? 'page' : undefined}
                 className={[
-                  'inline-flex h-10 shrink-0 items-center rounded-full border px-3.5 text-xs font-semibold',
+                  'inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[11px] font-semibold',
                   active
                     ? 'border-[#F0D000] bg-[#2B2708] text-[#F7DA66]'
                     : 'border-[#2A3040] bg-[#0D1017] text-[#AAB2C5]',
@@ -280,52 +333,53 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
         </div>
       ) : null}
 
-      <SectionCard title={selectedPlay.name} subtitle={`${dateLabel(selectedPlay.starts_at)} — ${dateLabel(selectedPlay.ends_at)}`}>
-        {selectedPlay.description?.trim() ? (
-          <p className="text-sm leading-5 text-[#D4D9E4]">{selectedPlay.description.trim()}</p>
-        ) : null}
-        <div className="mt-3 rounded-[15px] border border-[#564511] bg-[#2A2209] px-3.5 py-3 text-xs leading-5 text-[#F7DA66]">
-          Beneficio: {numberValue(selectedPlay.gift_quantity).toLocaleString('es-VE')} × {giftProduct?.name || 'producto definido en la jugada'}.
-        </div>
-      </SectionCard>
-
-      <div className="grid grid-cols-2 gap-2">
-        <MetricCard label="Asignados" value={String(members.length)} detail="Clientes de tu lista" />
-        <MetricCard label="Sin tocar" value={String(pendingCount)} detail="Aún sin seguimiento" />
-        <MetricCard label="Vencidos hoy" value={String(dueCount)} detail="Seguimientos por atender" />
-        <MetricCard label="Recompras" value={String(convertedCount)} detail="Resultados registrados" />
-      </div>
-
-      <section className="rounded-[22px] border border-[#232632] bg-[#12151D] px-4 py-3.5">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {filters.map((filter) => {
-            const active = filter.value === view;
-            return (
-              <Link
-                key={filter.value}
-                href={playsHref(numberValue(selectedPlay.id), filter.value)}
-                aria-current={active ? 'page' : undefined}
-                className={[
-                  'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium',
-                  active
-                    ? 'border-[#F0D000] bg-[#2B2708] text-[#F7DA66]'
-                    : 'border-[#2A3040] bg-[#0D1017] text-[#AAB2C5]',
-                ].join(' ')}
-              >
-                <span>{filter.label}</span>
-                <span className="text-[10px] opacity-75">{filter.count}</span>
-              </Link>
-            );
-          })}
+      <section className="rounded-[15px] border border-[#232632] bg-[#12151D] px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold text-[#F5F7FB]">{selectedPlay.name}</h2>
+            <p className="mt-0.5 truncate text-[10px] text-[#747E91]">
+              {dateLabel(selectedPlay.starts_at)} — {dateLabel(selectedPlay.ends_at)}
+            </p>
+          </div>
+          <div className="max-w-[52%] truncate rounded-full border border-[#564511] bg-[#2A2209] px-2.5 py-1 text-right text-[10px] font-medium text-[#F7DA66]">
+            {numberValue(selectedPlay.gift_quantity).toLocaleString('es-VE')} × {giftProduct?.name || 'Beneficio'}
+          </div>
         </div>
       </section>
 
-      <section className="space-y-2.5">
-        <div className="flex items-end justify-between gap-3 px-1">
-          <div>
-            <h2 className="text-base font-semibold text-[#F5F7FB]">Clientes de la jugada</h2>
-            <p className="mt-0.5 text-xs text-[#8B93A7]">{visibleMembers.length} visibles en este filtro</p>
-          </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        <CompactStat label="Total" value={members.length} />
+        <CompactStat label="Pendientes" value={pendingCount} />
+        <CompactStat label="Vencidos" value={dueCount} />
+        <CompactStat label="Recompras" value={convertedCount} />
+      </div>
+
+      <nav aria-label="Filtrar clientes de la jugada" className="flex gap-1.5 overflow-x-auto pb-0.5">
+        {filters.map((filter) => {
+          const active = filter.value === view;
+          return (
+            <Link
+              key={filter.value}
+              href={playsHref(numberValue(selectedPlay.id), filter.value)}
+              aria-current={active ? 'page' : undefined}
+              className={[
+                'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium',
+                active
+                  ? 'border-[#F0D000] bg-[#2B2708] text-[#F7DA66]'
+                  : 'border-[#2A3040] bg-[#0D1017] text-[#AAB2C5]',
+              ].join(' ')}
+            >
+              <span>{filter.label}</span>
+              <span className="text-[10px] opacity-75">{filter.count}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <section className="space-y-1.5">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8B93A7]">Clientes</h2>
+          <span className="text-[10px] tabular-nums text-[#747E91]">{visibleMembers.length}</span>
         </div>
 
         {membersResult.error ? (
@@ -336,51 +390,49 @@ export default async function AdvisorPlaysPage({ searchParams }: { searchParams?
           visibleMembers.map((member) => {
             const client = one(member.client);
             const due = isDue(member, now);
+            const presentation = workflowPresentation(member.workflow_status, due);
+            const clientName = client?.full_name?.trim() || 'Cliente sin nombre';
+            const purchaseCount = numberValue(member.purchase_count);
+            const daysSincePurchase = member.days_since_last_purchase == null
+              ? null
+              : Math.max(0, Math.round(numberValue(member.days_since_last_purchase)));
             const detailHref = withAdvisorReturnTo(
               `/app/advisor/clients/${member.client_id}?playMember=${member.id}`,
               currentHref,
             );
+            const timingTitle = due
+              ? `Seguimiento vencido: ${dateTimeLabel(member.next_follow_up_at)}`
+              : member.next_follow_up_at
+                ? `Próximo seguimiento: ${dateTimeLabel(member.next_follow_up_at)}`
+                : `${numberValue(member.contact_attempt_count)} intentos de contacto`;
 
             return (
-              <article key={String(member.id)} className="rounded-[20px] border border-[#232632] bg-[#12151D] px-4 py-3.5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <Link href={detailHref} className="block truncate text-[15px] font-semibold text-[#F5F7FB] underline decoration-[#4C5260] underline-offset-4">
-                      {client?.full_name?.trim() || 'Cliente sin nombre'}
-                    </Link>
-                    <p className="mt-1 truncate text-xs text-[#8B93A7]">{client?.phone?.trim() || 'Sin teléfono registrado'}</p>
-                  </div>
-                  <StatusBadge label={workflowLabel(member.workflow_status)} tone={workflowTone(member.workflow_status)} />
-                </div>
-
-                {due ? (
-                  <div className="mt-3 rounded-[13px] border border-[#5E2229] bg-[#261114] px-3 py-2 text-xs text-[#F0A6AE]">
-                    Seguimiento vencido: {dateTimeLabel(member.next_follow_up_at)}
-                  </div>
-                ) : member.next_follow_up_at ? (
-                  <div className="mt-3 rounded-[13px] border border-[#564511] bg-[#2A2209] px-3 py-2 text-xs text-[#F7DA66]">
-                    Próximo seguimiento: {dateTimeLabel(member.next_follow_up_at)}
-                  </div>
-                ) : null}
-
-                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-y border-[#232632] py-3 text-xs">
-                  <div><div className="text-[#747E91]">Última compra al corte</div><div className="mt-1 text-[#E2E6EF]">{dateLabel(member.last_purchase_on)}</div></div>
-                  <div><div className="text-[#747E91]">Cierres al corte</div><div className="mt-1 text-[#E2E6EF]">{numberValue(member.purchase_count)}</div></div>
-                  <div><div className="text-[#747E91]">Facturación al corte</div><div className="mt-1 text-[#E2E6EF]">{moneyFormatter.format(numberValue(member.net_revenue_usd))}</div></div>
-                  <div><div className="text-[#747E91]">Último contacto</div><div className="mt-1 text-[#E2E6EF]">{dateTimeLabel(member.last_contact_at)}</div></div>
-                </div>
-
-                {member.last_note?.trim() ? (
-                  <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#AAB2C5]">{member.last_note.trim()}</p>
-                ) : null}
-
-                <Link
-                  href={detailHref}
-                  className="mt-3 inline-flex h-10 w-full items-center justify-center rounded-[13px] border border-[#F0D000] px-4 text-sm font-semibold text-[#F7DA66]"
+              <Link
+                key={String(member.id)}
+                href={detailHref}
+                aria-label={`${clientName}. ${presentation.label}. ${purchaseCount} cierres. ${daysSincePurchase == null ? 'Sin compra registrada' : `${daysSincePurchase} días desde la última compra`}.`}
+                title={timingTitle}
+                className={[
+                  'flex h-12 min-w-0 items-center gap-2 rounded-[12px] border border-l-4 border-[#232632] bg-[#12151D] px-2.5 transition active:scale-[0.995]',
+                  presentation.row,
+                ].join(' ')}
+                style={{ contentVisibility: 'auto', containIntrinsicSize: '48px' }}
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${presentation.dot}`} aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#F5F7FB]">
+                  {clientName}
+                </span>
+                <span
+                  className="shrink-0 whitespace-nowrap text-[10px] tabular-nums text-[#8B93A7]"
+                  title="Cierres · días desde la última compra"
                 >
-                  Abrir ficha y seguimiento
-                </Link>
-              </article>
+                  {purchaseCount}c · {daysSincePurchase == null ? '—' : `${daysSincePurchase}d`}
+                </span>
+                <span className={`max-w-[82px] shrink-0 truncate rounded-full border px-2 py-1 text-[9px] font-semibold ${presentation.chip}`}>
+                  {presentation.label}
+                </span>
+                <span className="shrink-0 text-base leading-none text-[#646D80]" aria-hidden="true">›</span>
+              </Link>
             );
           })
         )}
