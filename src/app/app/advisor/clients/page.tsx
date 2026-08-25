@@ -383,9 +383,12 @@ export default async function AdvisorClientsPage({ searchParams }: { searchParam
               <article key={String(row.client_id)} className="rounded-[20px] border border-[#232632] bg-[#12151D] px-4 py-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="truncate text-[15px] font-semibold text-[#F5F7FB]">
+                    <Link
+                      href={`/app/advisor/clients/${row.client_id}?returnTo=${encodeURIComponent(portfolioHref(routeState, {}))}`}
+                      className="block truncate text-[15px] font-semibold text-[#F5F7FB] underline decoration-[#4C5260] underline-offset-4"
+                    >
                       {row.client_name?.trim() || 'Cliente sin nombre'}
-                    </h3>
+                    </Link>
                     <p className="mt-1 truncate text-xs text-[#8B93A7]">{row.phone?.trim() || 'Sin teléfono registrado'}</p>
                   </div>
                   <StatusBadge label={status.label} tone={status.tone} />
