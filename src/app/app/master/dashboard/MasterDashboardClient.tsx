@@ -4024,7 +4024,21 @@ function TopNavButton({
   );
 }
 
-function TopNavIcon({ kind }: { kind: 'operations' | 'settings' | 'calculations' | 'alerts' }) {
+function TopNavLink({ label, icon, href }: { label: string; icon: React.ReactNode; href: string }) {
+  return (
+    <Link
+      className="group flex items-center gap-2 rounded-2xl border border-[#242433] bg-[#121218] px-2.5 py-1.5 text-left text-[#B7B7C2] transition hover:border-[#FEEF00]/50 hover:text-[#F5F5F7]"
+      href={href}
+    >
+      <span className="flex h-5 w-5 items-center justify-center rounded-lg bg-[#191926] text-[#B7B7C2] group-hover:bg-[#FEEF00] group-hover:text-[#0B0B0D]">
+        {icon}
+      </span>
+      <span className="text-xs font-medium leading-none">{label}</span>
+    </Link>
+  );
+}
+
+function TopNavIcon({ kind }: { kind: 'operations' | 'settings' | 'calculations' | 'alerts' | 'plays' }) {
   if (kind === 'operations') {
     return (
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -4047,6 +4061,16 @@ function TopNavIcon({ kind }: { kind: 'operations' | 'settings' | 'calculations'
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
         <rect x="3" y="2.5" width="10" height="11" rx="1.8" />
         <path d="M5.4 5.2h5.2M5.4 8h1.3M7.9 8h1.3M10.4 8h.2M5.4 10.8h1.3M7.9 10.8h1.3M10.4 10.8h.2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === 'plays') {
+    return (
+      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="8" cy="8" r="5" />
+        <circle cx="8" cy="8" r="2.2" />
+        <path d="M8 1.8v2M14.2 8h-2M8 14.2v-2M1.8 8h2" strokeLinecap="round" />
       </svg>
     );
   }
@@ -14636,6 +14660,7 @@ const calendarDays = useMemo(() => buildCalendarDays(calendarViewMonth), [calend
           {permissions.canViewCalculations ? (
             <TopNavButton label="Cálculos" icon={<TopNavIcon kind="calculations" />} active={viewMode === 'calculations'} onClick={() => setViewMode('calculations')} />
           ) : null}
+          <TopNavLink label="Jugadas" icon={<TopNavIcon kind="plays" />} href="/app/master/plays" />
           <TopNavButton
             label="Acciones"
             icon={<TopNavIcon kind="alerts" />}
