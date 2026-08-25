@@ -103,19 +103,22 @@ test('calcula tendencia observada con mediana, rango y confianza', () => {
   assert.equal(seasonality.confidence, 'high');
 });
 
-test('separa capacidad esperada y desafío de crecimiento', () => {
+test('separa capacidad esperada, campaña y desafío de crecimiento', () => {
   assert.deepEqual(
     buildAdvisorGoalTarget({
       personalReference: 2250,
       appliedContextPct: 20,
+      campaignBoostPct: 5,
       growthChallengePct: 10,
     }),
     {
       personalReference: 2250,
       appliedContextPct: 20,
       expectedCapacity: 2700,
+      campaignBoostPct: 5,
+      campaignCapacity: 2835,
       growthChallengePct: 10,
-      target: 2970,
+      target: 3118.5,
     }
   );
   assert.equal(buildAdvisorNewClientTarget(4.5), 6);

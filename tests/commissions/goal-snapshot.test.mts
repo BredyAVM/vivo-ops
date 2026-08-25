@@ -23,6 +23,7 @@ const periodConfig: AdvisorGoalPeriodConfig = {
   version: 1,
   status: 'published',
   growthChallengePct: 10,
+  campaignBoostPct: 4,
   billing: { observed, appliedPct: -2, reason: 'Campaña activa' },
   closures: { observed: { ...observed, suggestedPct: -11.09 }, appliedPct: -5, reason: 'Campaña activa' },
   publicationMessage: 'Impulsaremos reuniones y celebraciones.',

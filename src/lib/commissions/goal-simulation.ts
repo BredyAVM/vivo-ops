@@ -30,6 +30,7 @@ export type AdvisorGoalCommercialMetricRow = {
 
 export type AdvisorGoalSimulationContext = {
   growthChallengePct: number;
+  campaignBoostPct?: number;
   billingContextPct?: number;
   closuresContextPct?: number;
 };
@@ -42,6 +43,8 @@ export type AdvisorGoalSimulatedMetric = {
   reference: number | null;
   appliedContextPct: number;
   expectedCapacity: number | null;
+  campaignBoostPct: number;
+  campaignCapacity: number | null;
   growthChallengePct: number;
   target: number | null;
 };
@@ -75,6 +78,7 @@ export type AdvisorGoalSimulation = {
   };
   appliedContext: {
     growthChallengePct: number;
+    campaignBoostPct: number;
     billingPct: number;
     closuresPct: number;
   };
@@ -174,6 +178,7 @@ function commercialMetric(params: {
   recentContext: { periodKey: string; value: number } | null;
   capacity: AdvisorGoalCapacity;
   contextPct: number;
+  campaignBoostPct: number;
   growthChallengePct: number;
   rounding?: 'none' | 'ceil';
 }): AdvisorGoalSimulatedMetric {
@@ -186,6 +191,8 @@ function commercialMetric(params: {
       reference: null,
       appliedContextPct: params.contextPct,
       expectedCapacity: null,
+      campaignBoostPct: params.campaignBoostPct,
+      campaignCapacity: null,
       growthChallengePct: params.growthChallengePct,
       target: null,
     };
@@ -193,6 +200,7 @@ function commercialMetric(params: {
   const target = buildAdvisorGoalTarget({
     personalReference: params.capacity.reference,
     appliedContextPct: params.contextPct,
+    campaignBoostPct: params.campaignBoostPct,
     growthChallengePct: params.growthChallengePct,
     targetRounding: params.rounding,
   });
@@ -204,6 +212,8 @@ function commercialMetric(params: {
     reference: target.personalReference,
     appliedContextPct: target.appliedContextPct,
     expectedCapacity: target.expectedCapacity,
+    campaignBoostPct: target.campaignBoostPct,
+    campaignCapacity: target.campaignCapacity,
     growthChallengePct: target.growthChallengePct,
     target: target.target,
   };
@@ -224,6 +234,8 @@ function newClientMetric(params: {
     reference,
     appliedContextPct: 0,
     expectedCapacity: reference,
+    campaignBoostPct: 0,
+    campaignCapacity: reference,
     growthChallengePct: 0,
     target: reference == null ? null : buildAdvisorNewClientTarget(reference),
   };
@@ -287,6 +299,10 @@ export function buildAdvisorGoalSimulation(params: {
     metric: 'closuresCount',
   }));
   const growthChallengePct = params.context?.growthChallengePct ?? 10;
+  const campaignBoostPct = params.context?.campaignBoostPct ?? 0;
+  if (!Number.isFinite(campaignBoostPct) || campaignBoostPct < 0 || campaignBoostPct > 200) {
+    throw new Error('El impulso de campaña debe estar entre 0% y 200%.');
+  }
   const billingContextPct = safeContext(params.context?.billingContextPct, billingSeasonality.suggestedPct);
   const closuresContextPct = safeContext(params.context?.closuresContextPct, closuresSeasonality.suggestedPct);
 
@@ -305,6 +321,7 @@ export function buildAdvisorGoalSimulation(params: {
       recentContext: billingWindow.recentContext,
       capacity: billingCapacity,
       contextPct: billingContextPct,
+      campaignBoostPct,
       growthChallengePct,
     });
     const closures = commercialMetric({
@@ -313,6 +330,7 @@ export function buildAdvisorGoalSimulation(params: {
       recentContext: closuresWindow.recentContext,
       capacity: closuresCapacity,
       contextPct: closuresContextPct,
+      campaignBoostPct,
       growthChallengePct,
       rounding: 'ceil',
     });
@@ -373,6 +391,8 @@ export function buildAdvisorGoalSimulation(params: {
           reference: 0.8,
           appliedContextPct: 0,
           expectedCapacity: 0.8,
+          campaignBoostPct: 0,
+          campaignCapacity: 0.8,
           growthChallengePct: 0,
           target: 1,
         },
@@ -396,6 +416,7 @@ export function buildAdvisorGoalSimulation(params: {
     seasonality: { billing: billingSeasonality, closures: closuresSeasonality },
     appliedContext: {
       growthChallengePct: round(growthChallengePct),
+      campaignBoostPct: round(campaignBoostPct),
       billingPct: billingContextPct,
       closuresPct: closuresContextPct,
     },

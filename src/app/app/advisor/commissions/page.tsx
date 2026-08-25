@@ -327,11 +327,16 @@ function GoalMetricProgress({
               <div className="mt-0.5 text-[10px] text-[#7F879A]">capacidad {goalValue(metricKey, metric.expectedCapacity)}</div>
             </div>
             <div className="rounded-[12px] bg-[#12151D] p-2.5">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">3 · Desafío</div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">3 · Campaña</div>
+              <div className="mt-1 font-semibold text-[#E8EBF2]">+{concisePercent(metric.campaignBoostPct ?? 0)}</div>
+              <div className="mt-0.5 text-[10px] text-[#7F879A]">proyección {goalValue(metricKey, metric.campaignCapacity ?? metric.expectedCapacity)}</div>
+            </div>
+            <div className="rounded-[12px] bg-[#12151D] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#7F879A]">4 · Desafío</div>
               <div className="mt-1 font-semibold text-[#E8EBF2]">+{concisePercent(metric.growthChallengePct)}</div>
             </div>
-            <div className="rounded-[12px] border border-[#F0D000]/20 bg-[#17160E] p-2.5">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-[#A99C49]">4 · Tu meta</div>
+            <div className="col-span-2 rounded-[12px] border border-[#F0D000]/20 bg-[#17160E] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#A99C49]">5 · Tu meta</div>
               <div className="mt-1 font-semibold text-[#F7DA66]">{goalValue(metricKey, metric.target)}</div>
             </div>
           </>
@@ -663,7 +668,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
           {visibleGoal && liveGoalScore && liveGoalMetrics ? (
             <SectionCard
               title="Mi meta"
-              subtitle={visibleGoal.publicationMessage || 'Tu avance se compara con tu propia capacidad y el desafío definido para este período.'}
+              subtitle={visibleGoal.publicationMessage || 'Tu avance se compara con tu propia capacidad, la temporada, la campaña y el desafío de este período.'}
               action={<StatusBadge label={visibleGoal.status === 'final' ? 'Resultado final' : 'Publicada'} tone={visibleGoal.status === 'final' ? 'success' : 'neutral'} />}
             >
               <div className="rounded-[18px] border border-[#4C4315] bg-[#1A180B] p-3.5">

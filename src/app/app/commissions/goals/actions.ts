@@ -136,6 +136,7 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
     if (!Number.isInteger(periodId) || periodId <= 0) throw new Error('Selecciona un periodo válido.');
     const billingContextPct = numberInput(formData.get('billingContextPct'), 'El contexto de facturación');
     const closuresContextPct = numberInput(formData.get('closuresContextPct'), 'El contexto de cierres');
+    const campaignBoostPct = numberInput(formData.get('campaignBoostPct'), 'El impulso de campaña');
     const growthChallengePct = numberInput(formData.get('growthChallengePct'), 'El desafío de crecimiento');
     const reason = textInput(formData.get('reason'), 500);
     const publicationMessage = textInput(formData.get('publicationMessage'), 500) || null;
@@ -144,6 +145,9 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
     }
     if (growthChallengePct < 0 || growthChallengePct > 200) {
       throw new Error('El desafío de crecimiento debe estar entre 0% y 200%.');
+    }
+    if (campaignBoostPct < 0 || campaignBoostPct > 200) {
+      throw new Error('El impulso de campaña debe estar entre 0% y 200%.');
     }
 
     const [periodResult, advisors, closuresResult] = await Promise.all([
@@ -182,7 +186,7 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
       periodId,
       periodFrom: periodResult.data.date_from,
       periodTo: periodResult.data.date_to,
-      context: { billingContextPct, closuresContextPct, growthChallengePct },
+      context: { billingContextPct, closuresContextPct, campaignBoostPct, growthChallengePct },
     });
     const refreshedClosures = await supabase
       .from('advisor_commission_closures')
@@ -292,6 +296,7 @@ export async function finalizeAdvisorGoalResultsAction(formData: FormData) {
       context: {
         billingContextPct: previousConfig.billing.appliedPct,
         closuresContextPct: previousConfig.closures.appliedPct,
+        campaignBoostPct: previousConfig.campaignBoostPct ?? 0,
         growthChallengePct: previousConfig.growthChallengePct,
       },
     });

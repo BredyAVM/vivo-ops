@@ -25,6 +25,7 @@ type SearchParams = Promise<{
   period?: string;
   billingContext?: string;
   closuresContext?: string;
+  campaign?: string;
   growth?: string;
   notice?: string;
   error?: string;
@@ -140,6 +141,7 @@ function ConfigurationHistory({ audit }: { audit: AdvisorGoalAuditEntry[] }) {
         {[...audit].reverse().map((entry, index) => {
           const nextBilling = auditNumber(entry.next, 'billingContextPct');
           const nextClosures = auditNumber(entry.next, 'closuresContextPct');
+          const nextCampaign = auditNumber(entry.next, 'campaignBoostPct') ?? 0;
           const nextGrowth = auditNumber(entry.next, 'growthChallengePct');
           return (
             <article className="rounded-xl bg-[#15151B] px-3 py-2.5" key={`${entry.version}-${entry.recordedAt}-${index}`}>
@@ -151,6 +153,7 @@ function ConfigurationHistory({ audit }: { audit: AdvisorGoalAuditEntry[] }) {
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#B6B6C0]">
                   <span>Temporada facturación <strong className="text-[#F2F2F5]">{contextPercent(nextBilling)}</strong></span>
                   <span>Temporada cierres <strong className="text-[#F2F2F5]">{contextPercent(nextClosures)}</strong></span>
+                  <span>Campaña <strong className="text-[#F2F2F5]">+{numberLabel(nextCampaign)}%</strong></span>
                   <span>Desafío <strong className="text-[#F2F2F5]">+{numberLabel(nextGrowth)}%</strong></span>
                 </div>
               ) : null}
@@ -261,9 +264,14 @@ function MetricCard({
               <div className="mt-0.5 text-[10px] text-[#858591]">queda en {value(metric.expectedCapacity)}</div>
             </div>
             <div className="rounded-xl bg-[#101014] p-2.5">
-              <div className="text-[10px] uppercase tracking-[0.12em] text-[#80808D]">3 · Desafío</div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#80808D]">3 · Campaña</div>
+              <div className="mt-1 font-semibold text-[#E9E9ED]">+{numberLabel(metric.campaignBoostPct)}%</div>
+              <div className="mt-0.5 text-[10px] text-[#858591]">queda en {value(metric.campaignCapacity)}</div>
+            </div>
+            <div className="rounded-xl bg-[#101014] p-2.5">
+              <div className="text-[10px] uppercase tracking-[0.12em] text-[#80808D]">4 · Desafío</div>
               <div className="mt-1 font-semibold text-[#E9E9ED]">+{numberLabel(metric.growthChallengePct)}%</div>
-              <div className="mt-0.5 text-[10px] text-[#858591]">sobre la capacidad</div>
+              <div className="mt-0.5 text-[10px] text-[#858591]">sobre la proyección</div>
             </div>
           </>
         ) : rule === 'new-client' ? (
@@ -272,8 +280,8 @@ function MetricCard({
             <div className="mt-1 font-semibold text-[#E9E9ED]">+1 cliente</div>
           </div>
         ) : null}
-        <div className="rounded-xl bg-[#101014] p-2.5">
-          <div className="text-[10px] uppercase tracking-[0.12em] text-[#80808D]">{rule === 'commercial' ? '4 · Meta' : rule === 'new-client' ? '3 · Meta' : '2 · Meta ideal'}</div>
+        <div className={`rounded-xl bg-[#101014] p-2.5 ${rule === 'commercial' ? 'col-span-2' : ''}`}>
+          <div className="text-[10px] uppercase tracking-[0.12em] text-[#80808D]">{rule === 'commercial' ? '5 · Meta' : rule === 'new-client' ? '3 · Meta' : '2 · Meta ideal'}</div>
           <div className="mt-1 font-semibold text-[#F7DA66]">{value(metric.target)}</div>
         </div>
       </div>
@@ -316,6 +324,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
   const storedConfig = readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config);
   const context = {
     growthChallengePct: numberParam(params.growth) ?? storedConfig?.growthChallengePct,
+    campaignBoostPct: numberParam(params.campaign) ?? storedConfig?.campaignBoostPct ?? 0,
     billingContextPct: numberParam(params.billingContext) ?? storedConfig?.billing.appliedPct,
     closuresContextPct: numberParam(params.closuresContext) ?? storedConfig?.closures.appliedPct,
   };
@@ -360,7 +369,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                 Simulación auditable
               </span>
             </div>
-            <p className="mt-1 text-sm text-[#A9A9B4]">Capacidad personal, temporalidad, desafío y resultado sin fórmulas ocultas.</p>
+            <p className="mt-1 text-sm text-[#A9A9B4]">Capacidad personal, temporalidad, campaña, desafío y resultado sin fórmulas ocultas.</p>
           </div>
           <Link className="inline-flex w-fit items-center rounded-full border border-[#34343F] px-4 py-2 text-sm font-semibold text-[#D8D8DF] hover:border-[#F0D000] hover:text-[#F7DA66]" href={`/app/commissions${selectedPeriod ? `?period=${selectedPeriod.id}` : ''}`}>
             Volver a comisiones
@@ -436,19 +445,19 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
               <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#F7DA66]">1 · Configurar la meta</div>
-                  <h2 className="mt-1 text-xl font-semibold tracking-[-0.025em]">Recomendación, decisión y desafío</h2>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A5A5B0]">El histórico sugiere un ajuste. Administración decide cuánto aplicar y el sistema aplica después el desafío de crecimiento. Puedes escribir enteros o decimales con coma o punto.</p>
+                  <h2 className="mt-1 text-xl font-semibold tracking-[-0.025em]">Temporada, campaña y desafío</h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[#A5A5B0]">El histórico sugiere la temporada. Administración decide cuánto aplicar, añade el impulso esperado de la campaña y finalmente establece el desafío de crecimiento. Puedes escribir enteros o decimales con coma o punto.</p>
                 </div>
                 <div className="rounded-xl border border-[#30303A] bg-[#0E0E12] px-3 py-2 text-xs text-[#A9A9B4]">
                   {storedConfig
-                    ? `Guardado actual: temporada ${contextPercent(storedConfig.billing.appliedPct)} facturación, ${contextPercent(storedConfig.closures.appliedPct)} cierres y desafío +${numberLabel(storedConfig.growthChallengePct)}%.`
+                    ? `Guardado actual: temporada ${contextPercent(storedConfig.billing.appliedPct)} facturación, ${contextPercent(storedConfig.closures.appliedPct)} cierres, campaña +${numberLabel(storedConfig.campaignBoostPct ?? 0)}% y desafío +${numberLabel(storedConfig.growthChallengePct)}%.`
                     : 'Todavía no hay una versión guardada para este período.'}
                 </div>
               </div>
 
               <form className="mt-5" method="get">
                 <input name="period" type="hidden" value={selectedPeriod?.id ?? ''} />
-                <div className="grid gap-3 lg:grid-cols-3">
+                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
                   {([
                     {
                       label: 'Facturación',
@@ -495,10 +504,23 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                     );
                   })}
 
+                  <article className="rounded-2xl border border-violet-400/25 bg-violet-400/5 p-4">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-violet-200">Impulso de campaña</div>
+                    <div className="mt-1 text-lg font-semibold">Efecto comercial esperado</div>
+                    <p className="mt-2 text-[11px] leading-5 text-[#ACA3BD]">Es una decisión administrativa del período. No cambia la lectura histórica: aumenta por igual la proyección de facturación y cierres.</p>
+                    <label className="mt-4 block">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-200">Campaña aplicada</span>
+                      <div className="relative mt-1">
+                        <input className="h-11 w-full rounded-xl border border-violet-400/30 bg-[#100D14] px-3 pr-9 text-base font-semibold outline-none focus:border-violet-300" defaultValue={editableNumber(simulation.appliedContext.campaignBoostPct)} inputMode="decimal" name="campaign" type="text" />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-violet-200/60">%</span>
+                      </div>
+                    </label>
+                  </article>
+
                   <article className="rounded-2xl border border-[#F0D000]/25 bg-[#15140C] p-4">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#D0BC46]">Desafío adicional</div>
-                    <div className="mt-1 text-lg font-semibold">Impulso sobre la capacidad esperada</div>
-                    <p className="mt-2 text-[11px] leading-5 text-[#AAA68E]">Se aplica después de la temporada. Es el esfuerzo adicional que convierte la proyección esperada en una meta de crecimiento.</p>
+                    <div className="mt-1 text-lg font-semibold">Crecimiento sobre la proyección</div>
+                    <p className="mt-2 text-[11px] leading-5 text-[#AAA68E]">Se aplica después de temporada y campaña. Es el esfuerzo adicional que convierte la proyección esperada en la meta final.</p>
                     <label className="mt-4 block">
                       <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#C9C39D]">Desafío aplicado</span>
                       <div className="relative mt-1">
@@ -534,6 +556,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                       <input name="periodId" type="hidden" value={selectedPeriod?.id ?? ''} />
                       <input name="billingContextPct" type="hidden" value={simulation.appliedContext.billingPct} />
                       <input name="closuresContextPct" type="hidden" value={simulation.appliedContext.closuresPct} />
+                      <input name="campaignBoostPct" type="hidden" value={simulation.appliedContext.campaignBoostPct} />
                       <input name="growthChallengePct" type="hidden" value={simulation.appliedContext.growthChallengePct} />
                       <label className="block">
                         <span className="text-[10px] uppercase tracking-[0.12em] text-[#9C9986]">Por qué cambió esta versión</span>
@@ -565,7 +588,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Lectura por asesor</h2>
               <p className="mt-1 text-sm leading-6 text-[#A5A5B0]">
                 {simulation.referenceLagPeriods === 1
-                  ? 'La referencia usa hasta seis periodos consolidados y omite la quincena inmediatamente anterior, que se muestra solo como contexto. Luego aplica la temporalidad y el desafío.'
+                  ? 'La referencia usa hasta seis periodos consolidados y omite la quincena inmediatamente anterior, que se muestra solo como contexto. Luego aplica temporalidad, campaña y desafío.'
                   : 'Este periodo conserva la fórmula anterior: referencia con hasta seis periodos, incluyendo la quincena inmediatamente anterior.'} {simulation.mode === 'projection' ? '“Al cumplir” muestra el nivel y porcentaje correspondiente a alcanzar exactamente los cinco objetivos.' : ''}
               </p>
               <div className="mt-5 space-y-5">

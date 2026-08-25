@@ -55,7 +55,9 @@ test('crea borrador por periodo y asesor con evidencia histórica', () => {
 
   assert.equal(bundle.config.status, 'draft');
   assert.equal(bundle.config.revision, 1);
+  assert.equal(bundle.config.campaignBoostPct, 0);
   assert.equal(bundle.publications[0].publication.metrics.billing.history.length, 6);
+  assert.equal(bundle.publications[0].publication.metrics.billing.campaignBoostPct, 0);
   assert.equal(bundle.publications[0].publication.metrics.billing.recentContext?.periodKey, '2026-08-2');
   assert.equal(bundle.publications[0].publication.audit[0].action, 'generated');
 });
@@ -76,7 +78,7 @@ test('publicar una modificación exige motivo y aumenta la revisión', () => {
     periodFrom: '2026-09-01',
     periodTo: '2026-09-15',
     metrics: [...Array.from({ length: 7 }, (_, index) => row(index)), row(7, true)],
-    context: { billingContextPct: 5, closuresContextPct: 0, growthChallengePct: 10 },
+    context: { billingContextPct: 5, closuresContextPct: 0, campaignBoostPct: 4, growthChallengePct: 10 },
   });
   assert.throws(() => buildAdvisorGoalPublicationBundle({
     simulation: adjustedSimulation,

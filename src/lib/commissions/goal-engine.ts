@@ -77,6 +77,8 @@ export type AdvisorGoalTarget = {
   personalReference: number;
   appliedContextPct: number;
   expectedCapacity: number;
+  campaignBoostPct: number;
+  campaignCapacity: number;
   growthChallengePct: number;
   target: number;
 };
@@ -261,25 +263,31 @@ export function calculateAdvisorGoalSeasonality(
 export function buildAdvisorGoalTarget(params: {
   personalReference: number;
   appliedContextPct?: number;
+  campaignBoostPct?: number;
   growthChallengePct?: number;
   targetRounding?: 'none' | 'ceil';
 }): AdvisorGoalTarget {
   const personalReference = finiteNonNegative(params.personalReference, 'La referencia personal');
   const appliedContextPct = params.appliedContextPct ?? 0;
+  const campaignBoostPct = params.campaignBoostPct ?? 0;
   const growthChallengePct = params.growthChallengePct ?? 10;
   if (!Number.isFinite(appliedContextPct) || appliedContextPct <= -100) {
     throw new Error('El ajuste de contexto debe ser mayor a -100%.');
   }
+  finiteNonNegative(campaignBoostPct, 'El impulso de campaña');
   finiteNonNegative(growthChallengePct, 'El desafío de crecimiento');
 
   const expectedCapacity = personalReference * (1 + appliedContextPct / 100);
-  const rawTarget = expectedCapacity * (1 + growthChallengePct / 100);
+  const campaignCapacity = expectedCapacity * (1 + campaignBoostPct / 100);
+  const rawTarget = campaignCapacity * (1 + growthChallengePct / 100);
   const target = params.targetRounding === 'ceil' ? Math.ceil(rawTarget) : round(rawTarget);
 
   return {
     personalReference: round(personalReference),
     appliedContextPct: round(appliedContextPct),
     expectedCapacity: round(expectedCapacity),
+    campaignBoostPct: round(campaignBoostPct),
+    campaignCapacity: round(campaignCapacity),
     growthChallengePct: round(growthChallengePct),
     target,
   };

@@ -25,6 +25,7 @@ export type AdvisorGoalPeriodConfig = {
   version: 1;
   status: AdvisorGoalPeriodStatus;
   growthChallengePct: number;
+  campaignBoostPct?: number;
   billing: AdvisorGoalContextConfiguration;
   closures: AdvisorGoalContextConfiguration;
   publicationMessage: string | null;
@@ -45,6 +46,8 @@ export type AdvisorGoalMetricPublication = {
   personalReference: number;
   appliedContextPct: number;
   expectedCapacity: number;
+  campaignBoostPct?: number;
+  campaignCapacity?: number;
   growthChallengePct: number;
   target: number;
   validPeriods: string[];
@@ -96,6 +99,7 @@ export function readAdvisorGoalPeriodConfig(value: unknown): AdvisorGoalPeriodCo
   if (!isRecord(value)) return null;
   if (value.version !== 1 || !isPeriodStatus(value.status)) return null;
   if (!isFiniteNumber(value.growthChallengePct) || value.growthChallengePct < 0) return null;
+  if (value.campaignBoostPct != null && (!isFiniteNumber(value.campaignBoostPct) || value.campaignBoostPct < 0)) return null;
   if (!isRecord(value.billing) || !isRecord(value.closures)) return null;
   if (!isIsoTimestamp(value.generatedAt) || typeof value.generatedByUserId !== 'string') return null;
   if (!Number.isInteger(value.revision) || Number(value.revision) < 1) return null;

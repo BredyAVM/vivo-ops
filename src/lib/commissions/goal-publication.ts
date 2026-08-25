@@ -12,6 +12,7 @@ function metricPublication(metric: AdvisorGoalSimulatedMetric): AdvisorGoalMetri
   if (
     metric.reference == null
     || metric.expectedCapacity == null
+    || metric.campaignCapacity == null
     || metric.target == null
   ) {
     throw new Error('Todas las referencias deben estar completas antes de guardar la meta.');
@@ -25,6 +26,8 @@ function metricPublication(metric: AdvisorGoalSimulatedMetric): AdvisorGoalMetri
     personalReference: metric.reference,
     appliedContextPct: metric.appliedContextPct,
     expectedCapacity: metric.expectedCapacity,
+    campaignBoostPct: metric.campaignBoostPct,
+    campaignCapacity: metric.campaignCapacity,
     growthChallengePct: metric.growthChallengePct,
     target: metric.target,
     validPeriods: metric.capacity.validPeriods,
@@ -36,6 +39,7 @@ function compactPeriodConfig(simulation: AdvisorGoalSimulation) {
   return {
     periodKey: simulation.periodKey,
     growthChallengePct: simulation.appliedContext.growthChallengePct,
+    campaignBoostPct: simulation.appliedContext.campaignBoostPct,
     billingContextPct: simulation.appliedContext.billingPct,
     closuresContextPct: simulation.appliedContext.closuresPct,
   };
@@ -77,6 +81,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
   const reason = params.reason.trim();
   const configurationChanged = Boolean(params.previousConfig) && (
     params.previousConfig?.growthChallengePct !== params.simulation.appliedContext.growthChallengePct
+    || (params.previousConfig?.campaignBoostPct ?? 0) !== params.simulation.appliedContext.campaignBoostPct
     || params.previousConfig?.billing.appliedPct !== params.simulation.appliedContext.billingPct
     || params.previousConfig?.closures.appliedPct !== params.simulation.appliedContext.closuresPct
     || params.previousConfig?.publicationMessage !== params.publicationMessage
@@ -101,6 +106,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
     reason: reason || null,
     previous: params.previousConfig ? {
       growthChallengePct: params.previousConfig.growthChallengePct,
+      campaignBoostPct: params.previousConfig.campaignBoostPct ?? 0,
       billingContextPct: params.previousConfig.billing.appliedPct,
       closuresContextPct: params.previousConfig.closures.appliedPct,
     } : null,
@@ -110,6 +116,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
     version: 1,
     status: params.intent === 'finalize' ? 'closed' : published ? 'published' : 'draft',
     growthChallengePct: params.simulation.appliedContext.growthChallengePct,
+    campaignBoostPct: params.simulation.appliedContext.campaignBoostPct,
     billing: {
       observed: params.simulation.seasonality.billing,
       appliedPct: params.simulation.appliedContext.billingPct,
@@ -194,8 +201,8 @@ export function buildAdvisorGoalPublicationBundle(params: {
       publishedByUserId: advisorPublished ? previous?.publishedByUserId ?? params.actorUserId : null,
       revision: advisorRevision,
       explanation: params.simulation.referenceLagPeriods === 1
-        ? `Referencia personal estable con desfase de una quincena; el periodo inmediatamente anterior se muestra como contexto y no altera la meta. Contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`
-        : `Referencia personal estable, contexto ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, más un desafío de ${params.simulation.appliedContext.growthChallengePct}%.`,
+        ? `Referencia personal estable con desfase de una quincena; el periodo inmediatamente anterior se muestra como contexto y no altera la meta. Temporada ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, campaña ${params.simulation.appliedContext.campaignBoostPct}% y desafío ${params.simulation.appliedContext.growthChallengePct}%.`
+        : `Referencia personal estable, temporada ${params.simulation.appliedContext.billingPct}% en facturación y ${params.simulation.appliedContext.closuresPct}% en cierres, campaña ${params.simulation.appliedContext.campaignBoostPct}% y desafío ${params.simulation.appliedContext.growthChallengePct}%.`,
       publicationMessage: params.publicationMessage,
       calculatedCommissionPct: score.calculatedCommissionPct,
       appliedCommissionPct,
