@@ -5,6 +5,7 @@ import {
   preserveAdvisorGoalPublicationSnapshot,
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
+  resolveAdvisorGoalScoringConfiguration,
   withAdvisorGoalPublicationSnapshot,
   type AdvisorGoalPeriodConfig,
   type AdvisorGoalPublicationSnapshot,
@@ -64,6 +65,26 @@ const publication: AdvisorGoalPublicationSnapshot = {
 test('lee la configuración versionada del periodo sin crear tablas paralelas', () => {
   assert.deepEqual(readAdvisorGoalPeriodConfig(periodConfig), periodConfig);
   assert.equal(readAdvisorGoalPeriodConfig({ version: 2 }), null);
+  const scoring = resolveAdvisorGoalScoringConfiguration(periodConfig);
+  assert.equal(scoring.metricBasePoints.billing, 100);
+  assert.equal(scoring.bands.find((band) => band.key === 'platinum')?.commissionPct, 12);
+});
+
+test('rechaza una base inconsistente y conserva compatibilidad con periodos anteriores', () => {
+  assert.equal(readAdvisorGoalPeriodConfig({
+    ...periodConfig,
+    scoring: {
+      metricBasePoints: {
+        billing: 100,
+        closures: 40,
+        collection: 20,
+        new_own_clients: 30,
+        new_assigned_clients: 20,
+      },
+      bands: resolveAdvisorGoalScoringConfiguration(null).bands,
+    },
+  }), null);
+  assert.equal(resolveAdvisorGoalScoringConfiguration(periodConfig).metricBasePoints.new_assigned_clients, 10);
 });
 
 test('guarda la publicación dentro del snapshot existente', () => {

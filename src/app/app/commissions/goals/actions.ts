@@ -5,6 +5,11 @@ import { redirect } from 'next/navigation';
 import { requireAuthContext } from '@/lib/auth';
 import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
+import {
+  ADVISOR_GOAL_BANDS,
+  ADVISOR_GOAL_METRICS,
+  type AdvisorGoalMetricKey,
+} from '@/lib/commissions/goal-engine';
 import { suggestNextAdvisorGoalPeriod } from '@/lib/commissions/goal-period';
 import { buildAdvisorGoalPublicationBundle } from '@/lib/commissions/goal-publication';
 import { notifyAdvisorGoalPublications } from '@/lib/commissions/notifications';
@@ -12,6 +17,7 @@ import { readAdvisorCommissionSettlementSnapshot } from '@/lib/commissions/closu
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
+  resolveAdvisorGoalScoringConfiguration,
 } from '@/lib/commissions/goal-snapshot';
 import { generateAdvisorCommissionClosuresAction } from '@/app/app/master/dashboard/actions';
 import { recalculateAdvisorCommissionSettlementsForGoal } from '../actions';
@@ -26,6 +32,29 @@ function textInput(value: FormDataEntryValue | null, maxLength: number) {
   const text = String(value ?? '').trim();
   if (text.length > maxLength) throw new Error(`El texto no puede superar ${maxLength} caracteres.`);
   return text;
+}
+
+function scoringInput(formData: FormData) {
+  const metricBasePoints = Object.fromEntries(
+    ADVISOR_GOAL_METRICS.map((metric) => {
+      const weightPct = numberInput(
+        formData.get(`metricWeight:${metric.key}`),
+        `El peso de ${metric.label}`
+      );
+      return [metric.key, weightPct * 2];
+    })
+  ) as Record<AdvisorGoalMetricKey, number>;
+  const bands = ADVISOR_GOAL_BANDS.map((band) => ({
+    ...band,
+    minPoints: band.key === 'yuca'
+      ? 0
+      : numberInput(formData.get(`bandMin:${band.key}`), `El mínimo de ${band.label}`),
+    commissionPct: numberInput(
+      formData.get(`bandCommission:${band.key}`),
+      `El porcentaje de ${band.label}`
+    ),
+  }));
+  return { metricBasePoints, bands };
 }
 
 function errorMessage(error: unknown) {
@@ -138,6 +167,7 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
     const closuresContextPct = numberInput(formData.get('closuresContextPct'), 'El contexto de cierres');
     const campaignBoostPct = numberInput(formData.get('campaignBoostPct'), 'El impulso de campaña');
     const growthChallengePct = numberInput(formData.get('growthChallengePct'), 'El desafío de crecimiento');
+    const scoring = scoringInput(formData);
     const reason = textInput(formData.get('reason'), 500);
     const publicationMessage = textInput(formData.get('publicationMessage'), 500) || null;
     if (billingContextPct <= -100 || closuresContextPct <= -100) {
@@ -186,7 +216,14 @@ export async function saveAdvisorGoalConfigurationAction(formData: FormData) {
       periodId,
       periodFrom: periodResult.data.date_from,
       periodTo: periodResult.data.date_to,
-      context: { billingContextPct, closuresContextPct, campaignBoostPct, growthChallengePct },
+      context: {
+        billingContextPct,
+        closuresContextPct,
+        campaignBoostPct,
+        growthChallengePct,
+        metricBasePoints: scoring.metricBasePoints,
+        bands: scoring.bands,
+      },
     });
     const refreshedClosures = await supabase
       .from('advisor_commission_closures')
@@ -288,6 +325,7 @@ export async function finalizeAdvisorGoalResultsAction(formData: FormData) {
       baseCommissionPctByAdvisor: Object.fromEntries(currentRateByAdvisorId),
     });
 
+    const scoring = resolveAdvisorGoalScoringConfiguration(previousConfig);
     const simulation = await loadAdvisorGoalSimulation({
       supabase,
       periodId,
@@ -298,6 +336,8 @@ export async function finalizeAdvisorGoalResultsAction(formData: FormData) {
         closuresContextPct: previousConfig.closures.appliedPct,
         campaignBoostPct: previousConfig.campaignBoostPct ?? 0,
         growthChallengePct: previousConfig.growthChallengePct,
+        metricBasePoints: scoring.metricBasePoints,
+        bands: scoring.bands,
       },
     });
     if (caracasToday() < simulation.cutoffDate) {

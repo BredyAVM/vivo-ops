@@ -1,4 +1,12 @@
-import type { AdvisorGoalScore, AdvisorGoalSeasonality } from './goal-engine.ts';
+import {
+  ADVISOR_GOAL_BANDS,
+  ADVISOR_GOAL_METRICS,
+  validateAdvisorGoalConfiguration,
+  type AdvisorGoalBand,
+  type AdvisorGoalMetricKey,
+  type AdvisorGoalScore,
+  type AdvisorGoalSeasonality,
+} from './goal-engine.ts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -21,11 +29,17 @@ export type AdvisorGoalAuditEntry = {
   next?: JsonRecord | null;
 };
 
+export type AdvisorGoalScoringConfiguration = {
+  metricBasePoints: Record<AdvisorGoalMetricKey, number>;
+  bands: AdvisorGoalBand[];
+};
+
 export type AdvisorGoalPeriodConfig = {
   version: 1;
   status: AdvisorGoalPeriodStatus;
   growthChallengePct: number;
   campaignBoostPct?: number;
+  scoring?: AdvisorGoalScoringConfiguration;
   billing: AdvisorGoalContextConfiguration;
   closures: AdvisorGoalContextConfiguration;
   publicationMessage: string | null;
@@ -95,11 +109,68 @@ function isPublicationStatus(value: unknown): value is AdvisorGoalPublicationSta
   return value === 'draft' || value === 'published' || value === 'provisional' || value === 'final';
 }
 
+function defaultAdvisorGoalScoringConfiguration(): AdvisorGoalScoringConfiguration {
+  return {
+    metricBasePoints: Object.fromEntries(
+      ADVISOR_GOAL_METRICS.map((metric) => [metric.key, metric.basePoints])
+    ) as Record<AdvisorGoalMetricKey, number>,
+    bands: ADVISOR_GOAL_BANDS.map((band) => ({ ...band })),
+  };
+}
+
+function readAdvisorGoalScoringConfiguration(value: unknown): AdvisorGoalScoringConfiguration | null {
+  if (!isRecord(value) || !isRecord(value.metricBasePoints) || !Array.isArray(value.bands)) return null;
+  const rawMetricBasePoints = value.metricBasePoints;
+  const rawBands = value.bands;
+  const metricBasePoints = Object.fromEntries(
+    ADVISOR_GOAL_METRICS.map((metric) => [metric.key, rawMetricBasePoints[metric.key]])
+  ) as Record<AdvisorGoalMetricKey, unknown>;
+  if (Object.values(metricBasePoints).some((points) => !isFiniteNumber(points) || points < 0)) return null;
+  if (rawBands.length !== ADVISOR_GOAL_BANDS.length) return null;
+  const bands = rawBands.map((band) => {
+    if (!isRecord(band)) return null;
+    const canonical = ADVISOR_GOAL_BANDS.find((item) => item.key === band.key);
+    if (!canonical || !isFiniteNumber(band.minPoints) || !isFiniteNumber(band.commissionPct)) return null;
+    return {
+      key: canonical.key,
+      label: canonical.label,
+      minPoints: band.minPoints,
+      commissionPct: band.commissionPct,
+    };
+  });
+  if (bands.some((band) => band == null)) return null;
+  const parsed = {
+    metricBasePoints: metricBasePoints as Record<AdvisorGoalMetricKey, number>,
+    bands: bands as AdvisorGoalBand[],
+  };
+  try {
+    validateAdvisorGoalConfiguration({
+      metrics: ADVISOR_GOAL_METRICS.map((metric) => ({
+        ...metric,
+        basePoints: parsed.metricBasePoints[metric.key],
+        weightPct: parsed.metricBasePoints[metric.key] / 2,
+      })),
+      bands: parsed.bands,
+    });
+  } catch {
+    return null;
+  }
+  return parsed;
+}
+
+export function resolveAdvisorGoalScoringConfiguration(
+  config: Pick<AdvisorGoalPeriodConfig, 'scoring'> | null | undefined
+): AdvisorGoalScoringConfiguration {
+  return readAdvisorGoalScoringConfiguration(config?.scoring)
+    ?? defaultAdvisorGoalScoringConfiguration();
+}
+
 export function readAdvisorGoalPeriodConfig(value: unknown): AdvisorGoalPeriodConfig | null {
   if (!isRecord(value)) return null;
   if (value.version !== 1 || !isPeriodStatus(value.status)) return null;
   if (!isFiniteNumber(value.growthChallengePct) || value.growthChallengePct < 0) return null;
   if (value.campaignBoostPct != null && (!isFiniteNumber(value.campaignBoostPct) || value.campaignBoostPct < 0)) return null;
+  if (value.scoring != null && !readAdvisorGoalScoringConfiguration(value.scoring)) return null;
   if (!isRecord(value.billing) || !isRecord(value.closures)) return null;
   if (!isIsoTimestamp(value.generatedAt) || typeof value.generatedByUserId !== 'string') return null;
   if (!Number.isInteger(value.revision) || Number(value.revision) < 1) return null;

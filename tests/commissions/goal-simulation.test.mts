@@ -91,6 +91,51 @@ test('proyecta agosto 2 antes de tener ventas sin inventar un resultado observad
   assert.equal(simulation.advisors[0].targetScore?.calculatedCommissionPct, 11);
 });
 
+test('aplica una base de puntos y bandas configurables por periodo', () => {
+  const metrics = [
+    row('2026-05-1', 458.07, 14),
+    row('2026-05-2', 428.52, 13),
+    row('2026-06-1', 427.35, 12),
+    row('2026-06-2', 448.06, 12),
+    row('2026-07-1', 678.41, 13),
+    row('2026-07-2', 793.55, 18),
+    row('2026-08-1', 514.72, 12),
+  ];
+  const bands = [
+    { key: 'yuca' as const, label: 'Yuca', minPoints: 0, commissionPct: 7 },
+    { key: 'bronze' as const, label: 'Bronce', minPoints: 120, commissionPct: 8 },
+    { key: 'silver' as const, label: 'Plata', minPoints: 180, commissionPct: 9 },
+    { key: 'gold' as const, label: 'Oro', minPoints: 210, commissionPct: 10 },
+    { key: 'platinum' as const, label: 'Platino', minPoints: 250, commissionPct: 11 },
+  ];
+  const simulation = buildAdvisorGoalSimulation({
+    periodFrom: '2026-08-16',
+    periodTo: '2026-08-31',
+    metrics,
+    projectionAdvisors: [{ advisorUserId: 'advisor', advisorName: 'Martin Montiel' }],
+    mode: 'projection',
+    context: {
+      billingContextPct: 0,
+      closuresContextPct: 0,
+      growthChallengePct: 10,
+      metricBasePoints: {
+        billing: 80,
+        closures: 50,
+        collection: 30,
+        new_own_clients: 30,
+        new_assigned_clients: 10,
+      },
+      bands,
+    },
+  });
+
+  assert.equal(simulation.scoring.metrics.find((metric) => metric.key === 'closures')?.weightPct, 25);
+  assert.equal(simulation.scoring.metrics.find((metric) => metric.key === 'collection')?.basePoints, 30);
+  assert.equal(simulation.advisors[0].targetScore?.points, 200);
+  assert.equal(simulation.advisors[0].targetScore?.band.key, 'silver');
+  assert.equal(simulation.advisors[0].targetScore?.calculatedCommissionPct, 9);
+});
+
 test('septiembre 1 omite agosto 2 y lo conserva como contexto reciente', () => {
   const metrics = [
     row('2026-05-1', 400, 10),

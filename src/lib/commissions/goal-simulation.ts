@@ -1,10 +1,16 @@
 import {
+  ADVISOR_GOAL_BANDS,
+  ADVISOR_GOAL_METRICS,
   buildAdvisorGoalTarget,
   buildAdvisorNewClientTarget,
   calculateAdvisorGoalScore,
   calculateAdvisorGoalSeasonality,
   selectAdvisorGoalCapacity,
+  validateAdvisorGoalConfiguration,
+  type AdvisorGoalBand,
   type AdvisorGoalCapacity,
+  type AdvisorGoalMetricDefinition,
+  type AdvisorGoalMetricKey,
   type AdvisorGoalScore,
   type AdvisorGoalSeasonality,
 } from './goal-engine.ts';
@@ -33,6 +39,8 @@ export type AdvisorGoalSimulationContext = {
   campaignBoostPct?: number;
   billingContextPct?: number;
   closuresContextPct?: number;
+  metricBasePoints?: Partial<Record<AdvisorGoalMetricKey, number>>;
+  bands?: AdvisorGoalBand[];
 };
 
 export type AdvisorGoalSimulatedMetric = {
@@ -81,6 +89,10 @@ export type AdvisorGoalSimulation = {
     campaignBoostPct: number;
     billingPct: number;
     closuresPct: number;
+  };
+  scoring: {
+    metrics: AdvisorGoalMetricDefinition[];
+    bands: AdvisorGoalBand[];
   };
   advisors: AdvisorGoalAdvisorSimulation[];
 };
@@ -305,6 +317,19 @@ export function buildAdvisorGoalSimulation(params: {
   }
   const billingContextPct = safeContext(params.context?.billingContextPct, billingSeasonality.suggestedPct);
   const closuresContextPct = safeContext(params.context?.closuresContextPct, closuresSeasonality.suggestedPct);
+  const scoringMetrics = ADVISOR_GOAL_METRICS.map((metric) => {
+    const basePoints = params.context?.metricBasePoints?.[metric.key] ?? metric.basePoints;
+    return {
+      ...metric,
+      basePoints,
+      weightPct: basePoints / 2,
+    };
+  });
+  const scoringBands = (params.context?.bands ?? ADVISOR_GOAL_BANDS).map((band) => ({ ...band }));
+  validateAdvisorGoalConfiguration({ metrics: scoringMetrics, bands: scoringBands });
+  const basePointsByKey = Object.fromEntries(
+    scoringMetrics.map((metric) => [metric.key, metric.basePoints])
+  ) as Record<AdvisorGoalMetricKey, number>;
 
   const advisors = targetRows.map((row) => {
     const billingWindow = observationWindow(params.metrics, row.advisorUserId, params.periodFrom, 'billingUsd');
@@ -353,21 +378,21 @@ export function buildAdvisorGoalSimulation(params: {
     const score = missing > 0
       ? null
       : calculateAdvisorGoalScore([
-          { key: 'billing', actual: billing.actual, reference: billing.reference ?? 0, target: billing.target ?? 0 },
-          { key: 'closures', actual: closures.actual, reference: closures.reference ?? 0, target: closures.target ?? 0 },
-          { key: 'collection', actual: collection.ratio, reference: 0.8, target: 1 },
-          { key: 'new_own_clients', actual: newOwnClients.actual, reference: newOwnClients.reference ?? 0, target: newOwnClients.target ?? 0 },
-          { key: 'new_assigned_clients', actual: newAssignedClients.actual, reference: newAssignedClients.reference ?? 0, target: newAssignedClients.target ?? 0 },
-        ]);
+          { key: 'billing', actual: billing.actual, reference: billing.reference ?? 0, target: billing.target ?? 0, basePoints: basePointsByKey.billing },
+          { key: 'closures', actual: closures.actual, reference: closures.reference ?? 0, target: closures.target ?? 0, basePoints: basePointsByKey.closures },
+          { key: 'collection', actual: collection.ratio, reference: 0.8, target: 1, basePoints: basePointsByKey.collection },
+          { key: 'new_own_clients', actual: newOwnClients.actual, reference: newOwnClients.reference ?? 0, target: newOwnClients.target ?? 0, basePoints: basePointsByKey.new_own_clients },
+          { key: 'new_assigned_clients', actual: newAssignedClients.actual, reference: newAssignedClients.reference ?? 0, target: newAssignedClients.target ?? 0, basePoints: basePointsByKey.new_assigned_clients },
+        ], scoringBands);
     const targetScore = missing > 0
       ? null
       : calculateAdvisorGoalScore([
-          { key: 'billing', actual: billing.target ?? 0, reference: billing.reference ?? 0, target: billing.target ?? 0 },
-          { key: 'closures', actual: closures.target ?? 0, reference: closures.reference ?? 0, target: closures.target ?? 0 },
-          { key: 'collection', actual: 1, reference: 0.8, target: 1 },
-          { key: 'new_own_clients', actual: newOwnClients.target ?? 0, reference: newOwnClients.reference ?? 0, target: newOwnClients.target ?? 0 },
-          { key: 'new_assigned_clients', actual: newAssignedClients.target ?? 0, reference: newAssignedClients.reference ?? 0, target: newAssignedClients.target ?? 0 },
-        ]);
+          { key: 'billing', actual: billing.target ?? 0, reference: billing.reference ?? 0, target: billing.target ?? 0, basePoints: basePointsByKey.billing },
+          { key: 'closures', actual: closures.target ?? 0, reference: closures.reference ?? 0, target: closures.target ?? 0, basePoints: basePointsByKey.closures },
+          { key: 'collection', actual: 1, reference: 0.8, target: 1, basePoints: basePointsByKey.collection },
+          { key: 'new_own_clients', actual: newOwnClients.target ?? 0, reference: newOwnClients.reference ?? 0, target: newOwnClients.target ?? 0, basePoints: basePointsByKey.new_own_clients },
+          { key: 'new_assigned_clients', actual: newAssignedClients.target ?? 0, reference: newAssignedClients.reference ?? 0, target: newAssignedClients.target ?? 0, basePoints: basePointsByKey.new_assigned_clients },
+        ], scoringBands);
 
     return {
       advisorUserId: row.advisorUserId,
@@ -419,6 +444,10 @@ export function buildAdvisorGoalSimulation(params: {
       campaignBoostPct: round(campaignBoostPct),
       billingPct: billingContextPct,
       closuresPct: closuresContextPct,
+    },
+    scoring: {
+      metrics: scoringMetrics,
+      bands: scoringBands,
     },
     advisors,
   };

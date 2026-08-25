@@ -2,13 +2,14 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getAuthContext, resolveHomePath } from '@/lib/auth';
 import { ADVISOR_GOAL_METRICS } from '@/lib/commissions/goal-engine';
-import type { AdvisorGoalSeasonality } from '@/lib/commissions/goal-engine';
+import type { AdvisorGoalMetricKey, AdvisorGoalSeasonality } from '@/lib/commissions/goal-engine';
 import { loadAdvisorGoalSimulation } from '@/lib/commissions/goal-data';
 import { suggestNextAdvisorGoalPeriod } from '@/lib/commissions/goal-period';
 import type { AdvisorGoalSimulatedMetric } from '@/lib/commissions/goal-simulation';
 import {
   readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
+  resolveAdvisorGoalScoringConfiguration,
 } from '@/lib/commissions/goal-snapshot';
 import type { AdvisorGoalAuditEntry } from '@/lib/commissions/goal-snapshot';
 import {
@@ -22,6 +23,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 type SearchParams = Promise<{
+  [key: string]: string | undefined;
   period?: string;
   billingContext?: string;
   closuresContext?: string;
@@ -71,6 +73,22 @@ function editableNumber(value: number) {
     useGrouping: false,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+const metricWeightParam: Record<AdvisorGoalMetricKey, string> = {
+  billing: 'weightBilling',
+  closures: 'weightClosures',
+  collection: 'weightCollection',
+  new_own_clients: 'weightOwnClients',
+  new_assigned_clients: 'weightAssignedClients',
+};
+
+function bandMinParam(key: string) {
+  return `bandMin${key[0].toUpperCase()}${key.slice(1)}`;
+}
+
+function bandCommissionParam(key: string) {
+  return `bandCommission${key[0].toUpperCase()}${key.slice(1)}`;
 }
 
 function dateLabel(value: string) {
@@ -143,6 +161,7 @@ function ConfigurationHistory({ audit }: { audit: AdvisorGoalAuditEntry[] }) {
           const nextClosures = auditNumber(entry.next, 'closuresContextPct');
           const nextCampaign = auditNumber(entry.next, 'campaignBoostPct') ?? 0;
           const nextGrowth = auditNumber(entry.next, 'growthChallengePct');
+          const hasScoring = Boolean(entry.next?.scoring && typeof entry.next.scoring === 'object');
           return (
             <article className="rounded-xl bg-[#15151B] px-3 py-2.5" key={`${entry.version}-${entry.recordedAt}-${index}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -155,6 +174,7 @@ function ConfigurationHistory({ audit }: { audit: AdvisorGoalAuditEntry[] }) {
                   <span>Temporada cierres <strong className="text-[#F2F2F5]">{contextPercent(nextClosures)}</strong></span>
                   <span>Campaña <strong className="text-[#F2F2F5]">+{numberLabel(nextCampaign)}%</strong></span>
                   <span>Desafío <strong className="text-[#F2F2F5]">+{numberLabel(nextGrowth)}%</strong></span>
+                  {hasScoring ? <span><strong className="text-[#F2F2F5]">Base de puntos y porcentajes registrada</strong></span> : null}
                 </div>
               ) : null}
               {entry.reason ? <p className="mt-1.5 text-[11px] leading-5 text-[#9D9DA8]">Motivo: {entry.reason}</p> : null}
@@ -171,6 +191,15 @@ function metricPoints(
   key: string
 ) {
   return score?.metrics.find((metric) => metric.key === key) ?? null;
+}
+
+function CompactAdvisorValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[9px] font-semibold uppercase tracking-[0.11em] text-[#767681] xl:hidden">{label}</div>
+      <div className="mt-0.5 truncate text-xs font-semibold text-[#E1E1E6]" title={value}>{value}</div>
+    </div>
+  );
 }
 
 function History({ metric, moneyValues = false }: { metric: AdvisorGoalSimulatedMetric; moneyValues?: boolean }) {
@@ -322,11 +351,28 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
       ) ?? null
     : null;
   const storedConfig = readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config);
+  const storedScoring = resolveAdvisorGoalScoringConfiguration(storedConfig);
+  const metricBasePoints = Object.fromEntries(
+    ADVISOR_GOAL_METRICS.map((metric) => {
+      const storedWeight = storedScoring.metricBasePoints[metric.key] / 2;
+      const weight = numberParam(params[metricWeightParam[metric.key]]) ?? storedWeight;
+      return [metric.key, weight * 2];
+    })
+  ) as Record<AdvisorGoalMetricKey, number>;
+  const bands = storedScoring.bands.map((band) => ({
+    ...band,
+    minPoints: band.key === 'yuca'
+      ? 0
+      : numberParam(params[bandMinParam(band.key)]) ?? band.minPoints,
+    commissionPct: numberParam(params[bandCommissionParam(band.key)]) ?? band.commissionPct,
+  }));
   const context = {
     growthChallengePct: numberParam(params.growth) ?? storedConfig?.growthChallengePct,
     campaignBoostPct: numberParam(params.campaign) ?? storedConfig?.campaignBoostPct ?? 0,
     billingContextPct: numberParam(params.billingContext) ?? storedConfig?.billing.appliedPct,
     closuresContextPct: numberParam(params.closuresContext) ?? storedConfig?.closures.appliedPct,
+    metricBasePoints,
+    bands,
   };
 
   let simulation: Awaited<ReturnType<typeof loadAdvisorGoalSimulation>> | null = null;
@@ -530,6 +576,79 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                     </label>
                   </article>
                 </div>
+
+                <section className="mt-4 rounded-2xl border border-[#30303A] bg-[#0E0E12] p-4">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#F7DA66]">Base de puntos y porcentajes</div>
+                      <h3 className="mt-1 text-base font-semibold">Define cuánto vale cada indicador y qué comisión entrega cada banda</h3>
+                    </div>
+                    <div className="text-xs text-[#94949F]">Los pesos deben sumar 100% · equivalen a 200 puntos base</div>
+                  </div>
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="overflow-hidden rounded-xl border border-[#292933]">
+                      <div className="grid grid-cols-[minmax(0,1fr)_82px_72px] gap-2 bg-[#15151B] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-[#858591]">
+                        <span>Indicador</span><span className="text-right">Peso</span><span className="text-right">Puntos</span>
+                      </div>
+                      <div className="divide-y divide-[#292933]">
+                        {simulation.scoring.metrics.map((metric) => (
+                          <label className="grid grid-cols-[minmax(0,1fr)_82px_72px] items-center gap-2 px-3 py-2" key={metric.key}>
+                            <span className="truncate text-xs font-medium text-[#DADAE0]">{metric.label}</span>
+                            <span className="relative">
+                              <input
+                                aria-label={`Peso de ${metric.label}`}
+                                className="h-8 w-full rounded-lg border border-[#3A3A45] bg-[#101014] px-2 pr-6 text-right text-xs font-semibold outline-none focus:border-[#F0D000]"
+                                defaultValue={editableNumber(metric.weightPct)}
+                                inputMode="decimal"
+                                name={metricWeightParam[metric.key]}
+                                type="text"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#777783]">%</span>
+                            </span>
+                            <span className="text-right text-xs font-semibold text-[#F7DA66]">{numberLabel(metric.basePoints, 1)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-xl border border-[#292933]">
+                      <div className="grid grid-cols-[minmax(0,1fr)_92px_88px] gap-2 bg-[#15151B] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-[#858591]">
+                        <span>Banda</span><span className="text-right">Desde pts</span><span className="text-right">Comisión</span>
+                      </div>
+                      <div className="divide-y divide-[#292933]">
+                        {simulation.scoring.bands.map((band) => (
+                          <div className="grid grid-cols-[minmax(0,1fr)_92px_88px] items-center gap-2 px-3 py-2" key={band.key}>
+                            <span className="text-xs font-medium text-[#DADAE0]">{band.label}</span>
+                            {band.key === 'yuca' ? (
+                              <span className="text-right text-xs font-semibold text-[#A5A5B0]">0</span>
+                            ) : (
+                              <input
+                                aria-label={`Puntos mínimos de ${band.label}`}
+                                className="h-8 w-full rounded-lg border border-[#3A3A45] bg-[#101014] px-2 text-right text-xs font-semibold outline-none focus:border-[#F0D000]"
+                                defaultValue={editableNumber(band.minPoints)}
+                                inputMode="decimal"
+                                name={bandMinParam(band.key)}
+                                type="text"
+                              />
+                            )}
+                            <span className="relative">
+                              <input
+                                aria-label={`Comisión de ${band.label}`}
+                                className="h-8 w-full rounded-lg border border-[#3A3A45] bg-[#101014] px-2 pr-6 text-right text-xs font-semibold outline-none focus:border-[#F0D000]"
+                                defaultValue={editableNumber(band.commissionPct)}
+                                inputMode="decimal"
+                                name={bandCommissionParam(band.key)}
+                                type="text"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#777783]">%</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-[11px] leading-5 text-[#858591]">Al recalcular, los puntos se derivan del peso: 1% equivale a 2 puntos. Las bandas deben crecer sin duplicados y sus porcentajes no pueden disminuir.</p>
+                </section>
                 <div className="mt-4 flex flex-col gap-2 border-t border-[#292933] pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-[#8F8F9B]">Recalcular solo cambia esta vista. No guarda ni publica nada.</p>
                   <div className="flex gap-2">
@@ -558,6 +677,17 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                       <input name="closuresContextPct" type="hidden" value={simulation.appliedContext.closuresPct} />
                       <input name="campaignBoostPct" type="hidden" value={simulation.appliedContext.campaignBoostPct} />
                       <input name="growthChallengePct" type="hidden" value={simulation.appliedContext.growthChallengePct} />
+                      <div className="hidden">
+                        {simulation.scoring.metrics.map((metric) => (
+                          <input key={metric.key} name={`metricWeight:${metric.key}`} type="hidden" value={metric.weightPct} />
+                        ))}
+                        {simulation.scoring.bands.map((band) => (
+                          <div key={band.key}>
+                            {band.key !== 'yuca' ? <input name={`bandMin:${band.key}`} type="hidden" value={band.minPoints} /> : null}
+                            <input name={`bandCommission:${band.key}`} type="hidden" value={band.commissionPct} />
+                          </div>
+                        ))}
+                      </div>
                       <label className="block">
                         <span className="text-[10px] uppercase tracking-[0.12em] text-[#9C9986]">Por qué cambió esta versión</span>
                         <input className="mt-1 h-10 w-full rounded-xl border border-[#3D3A27] bg-[#0E0E0B] px-3 text-sm outline-none focus:border-[#F0D000]" maxLength={500} name="reason" placeholder={storedConfig ? 'Obligatorio si modificaste algún valor' : 'Opcional en la primera versión'} />
@@ -591,53 +721,71 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                   ? 'La referencia usa hasta seis periodos consolidados y omite la quincena inmediatamente anterior, que se muestra solo como contexto. Luego aplica temporalidad, campaña y desafío.'
                   : 'Este periodo conserva la fórmula anterior: referencia con hasta seis periodos, incluyendo la quincena inmediatamente anterior.'} {simulation.mode === 'projection' ? '“Al cumplir” muestra el nivel y porcentaje correspondiente a alcanzar exactamente los cinco objetivos.' : ''}
               </p>
-              <div className="mt-5 space-y-5">
+              <div className="mt-4 overflow-hidden rounded-2xl border border-[#30303A] bg-[#101014]">
+                <div className="hidden grid-cols-[minmax(180px,1.35fr)_minmax(95px,0.8fr)_70px_86px_100px_minmax(145px,1fr)_82px] gap-3 border-b border-[#30303A] bg-[#15151B] px-4 py-2 text-[9px] font-semibold uppercase tracking-[0.11em] text-[#7F7F8B] xl:grid">
+                  <span>Asesor</span><span>Facturación</span><span>Cierres</span><span>Cobranza</span><span>Nuevos P / A</span><span>Resultado</span><span className="text-right">Auditoría</span>
+                </div>
+                <div className="divide-y divide-[#30303A]">
                 {simulation.advisors.map((advisor) => {
                   const displayedScore = simulation.mode === 'projection' ? advisor.targetScore : advisor.score;
+                  const collectionValue = simulation.mode === 'projection' ? advisor.metrics.collection.target : advisor.metrics.collection.actual;
                   return (
-                  <article className="rounded-3xl border border-[#30303A] bg-[#101014] p-4 md:p-5" key={advisor.advisorUserId}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-semibold">{advisor.advisorName}</h3>
-                        <p className="mt-1 text-xs text-[#9595A1]">Facturación y cierres incluyen entregados; obsequios puros no cuentan.</p>
-                      </div>
-                      {displayedScore ? (
-                        <div className="flex items-center gap-2">
-                          {simulation.mode === 'projection' ? <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">Al cumplir</span> : null}
-                          <span className="rounded-full border border-[#3B3B46] bg-[#18181F] px-3 py-1.5 text-xs font-semibold text-[#D5D5DC]">{numberLabel(displayedScore.points, 1)} pts · {displayedScore.band.label}</span>
-                          <span className="rounded-full border border-[#F0D000]/40 bg-[#F0D000]/10 px-3 py-1.5 text-sm font-bold text-[#F7DA66]">{displayedScore.calculatedCommissionPct}%</span>
+                    <details className="group" key={advisor.advisorUserId}>
+                      <summary className="grid cursor-pointer list-none grid-cols-2 items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-[#15151B] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#F0D000] [&::-webkit-details-marker]:hidden xl:grid-cols-[minmax(180px,1.35fr)_minmax(95px,0.8fr)_70px_86px_100px_minmax(145px,1fr)_82px]">
+                        <div className="col-span-2 min-w-0 xl:col-span-1">
+                          <div className="truncate text-sm font-semibold text-[#F0F0F3]" title={advisor.advisorName}>{advisor.advisorName}</div>
+                          <div className="mt-0.5 text-[10px] text-[#858591]">{simulation.mode === 'projection' ? 'Meta proyectada' : 'Avance observado'}</div>
                         </div>
-                      ) : (
-                        <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">Referencia manual requerida</span>
-                      )}
-                    </div>
-                    {advisor.warning ? <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">{advisor.warning}</div> : null}
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <MetricCard label="Facturación" metric={advisor.metrics.billing} moneyValues points={metricPoints(displayedScore, 'billing')} projection={simulation.mode === 'projection'} />
-                      <MetricCard label="Cierres" metric={advisor.metrics.closures} points={metricPoints(displayedScore, 'closures')} projection={simulation.mode === 'projection'} />
-                      <MetricCard label="Cobranza" metric={advisor.metrics.collection} points={metricPoints(displayedScore, 'collection')} projection={simulation.mode === 'projection'} ratio rule="collection" />
-                      <MetricCard label="Nuevos propios" metric={advisor.metrics.newOwnClients} points={metricPoints(displayedScore, 'new_own_clients')} projection={simulation.mode === 'projection'} rule="new-client" />
-                      <MetricCard label="Nuevos asignados" metric={advisor.metrics.newAssignedClients} points={metricPoints(displayedScore, 'new_assigned_clients')} projection={simulation.mode === 'projection'} rule="new-client" />
-                    </div>
-                    {simulation.mode === 'active' ? <div className="mt-3 space-y-2">
-                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                        <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-emerald-300">100%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.punctualCount} puntuales</div></div>
-                        <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-[#F7DA66]">80%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.creditCount} con crédito</div></div>
-                        <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-red-300">0%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.overdueCount} atrasados</div></div>
+                        <CompactAdvisorValue label="Facturación" value={money(advisor.metrics.billing.target)} />
+                        <CompactAdvisorValue label="Cierres" value={numberLabel(advisor.metrics.closures.target, 0)} />
+                        <CompactAdvisorValue label="Cobranza" value={percent(collectionValue, 0)} />
+                        <CompactAdvisorValue label="Nuevos P / A" value={`${numberLabel(advisor.metrics.newOwnClients.target, 0)} / ${numberLabel(advisor.metrics.newAssignedClients.target, 0)}`} />
+                        <div className="min-w-0">
+                          <div className="text-[9px] font-semibold uppercase tracking-[0.11em] text-[#767681] xl:hidden">Resultado</div>
+                          {displayedScore ? (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs font-semibold text-[#DADAE0]">{numberLabel(displayedScore.points, 1)} pts · {displayedScore.band.label}</span>
+                              <span className="rounded-full bg-[#F0D000]/10 px-2 py-0.5 text-xs font-bold text-[#F7DA66]">{displayedScore.calculatedCommissionPct}%</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-amber-200">Referencia requerida</span>
+                          )}
+                        </div>
+                        <div className="col-span-2 flex items-center justify-end gap-1 text-[11px] font-semibold text-[#BDBDC6] xl:col-span-1">
+                          <span>Ver detalle</span><span className="transition-transform group-open:rotate-180">⌄</span>
+                        </div>
+                      </summary>
+                      <div className="border-t border-[#2A2A33] bg-[#0D0D11] px-4 py-4">
+                        <p className="text-xs text-[#9595A1]">Facturación y cierres incluyen entregados; obsequios puros no cuentan.</p>
+                        {advisor.warning ? <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">{advisor.warning}</div> : null}
+                        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                          <MetricCard label="Facturación" metric={advisor.metrics.billing} moneyValues points={metricPoints(displayedScore, 'billing')} projection={simulation.mode === 'projection'} />
+                          <MetricCard label="Cierres" metric={advisor.metrics.closures} points={metricPoints(displayedScore, 'closures')} projection={simulation.mode === 'projection'} />
+                          <MetricCard label="Cobranza" metric={advisor.metrics.collection} points={metricPoints(displayedScore, 'collection')} projection={simulation.mode === 'projection'} ratio rule="collection" />
+                          <MetricCard label="Nuevos propios" metric={advisor.metrics.newOwnClients} points={metricPoints(displayedScore, 'new_own_clients')} projection={simulation.mode === 'projection'} rule="new-client" />
+                          <MetricCard label="Nuevos asignados" metric={advisor.metrics.newAssignedClients} points={metricPoints(displayedScore, 'new_assigned_clients')} projection={simulation.mode === 'projection'} rule="new-client" />
+                        </div>
+                        {simulation.mode === 'active' ? <div className="mt-3 space-y-2">
+                          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                            <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-emerald-300">100%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.punctualCount} puntuales</div></div>
+                            <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-[#F7DA66]">80%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.creditCount} con crédito</div></div>
+                            <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-red-300">0%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.overdueCount} atrasados</div></div>
+                          </div>
+                          <AdvisorGoalCollectionBreakdown
+                            defaultOpen
+                            points={metricPoints(advisor.score, 'collection')?.points}
+                            summary={advisor.collection}
+                          />
+                        </div> : (
+                          <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-400/5 px-4 py-3 text-xs leading-5 text-sky-100">
+                            La cobranza comenzará a medirse cuando existan pedidos entregados: puntual 100%, crédito de hasta cinco días 80% y atraso 0%.
+                          </div>
+                        )}
                       </div>
-                      <AdvisorGoalCollectionBreakdown
-                        defaultOpen
-                        points={metricPoints(advisor.score, 'collection')?.points}
-                        summary={advisor.collection}
-                      />
-                    </div> : (
-                      <div className="mt-3 rounded-2xl border border-sky-400/20 bg-sky-400/5 px-4 py-3 text-xs leading-5 text-sky-100">
-                        La cobranza comenzará a medirse cuando existan pedidos entregados: puntual 100%, crédito de hasta cinco días 80% y atraso 0%.
-                      </div>
-                    )}
-                  </article>
+                    </details>
                   );
                 })}
+                </div>
               </div>
             </section>
 
@@ -686,7 +834,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
             ) : null}
 
             <section className="rounded-3xl border border-[#292933] bg-[#121217] p-5 text-sm text-[#A8A8B3]">
-              Los {ADVISOR_GOAL_METRICS.reduce((sum, metric) => sum + metric.basePoints, 0)} puntos base se reparten en 100 facturación, 40 cierres, 20 cobranza, 30 clientes propios y 10 asignados. Simular no cambia datos; solo “Finalizar y aplicar” actualiza los porcentajes de las liquidaciones.
+              La base vigente distribuye {numberLabel(simulation.scoring.metrics.reduce((sum, metric) => sum + metric.basePoints, 0), 0)} puntos: {simulation.scoring.metrics.map((metric) => `${numberLabel(metric.basePoints, 1)} ${metric.label.toLocaleLowerCase('es')}`).join(', ')}. Simular no cambia datos; solo “Finalizar y aplicar” actualiza los porcentajes de las liquidaciones.
             </section>
           </>
         ) : null}

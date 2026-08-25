@@ -223,4 +223,22 @@ test('rechaza configuraciones que no suman 100% o 200 puntos', () => {
     }),
     /sumar 100%/
   );
+  assert.throws(
+    () => validateAdvisorGoalConfiguration({
+      metrics: ADVISOR_GOAL_METRICS,
+      bands: ADVISOR_GOAL_BANDS.map((band) => band.key === 'silver'
+        ? { ...band, key: 'bronze' as const }
+        : band),
+    }),
+    /duplicada/
+  );
+  assert.throws(
+    () => validateAdvisorGoalConfiguration({
+      metrics: ADVISOR_GOAL_METRICS,
+      bands: ADVISOR_GOAL_BANDS.map((band) => band.key === 'gold'
+        ? { ...band, commissionPct: 8 }
+        : band),
+    }),
+    /no pueden disminuir/
+  );
 });

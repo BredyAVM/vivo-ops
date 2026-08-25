@@ -4,7 +4,9 @@ import type {
   AdvisorGoalMetricPublication,
   AdvisorGoalPeriodConfig,
   AdvisorGoalPublicationSnapshot,
+  AdvisorGoalScoringConfiguration,
 } from './goal-snapshot.ts';
+import { resolveAdvisorGoalScoringConfiguration } from './goal-snapshot.ts';
 
 type PublicationIntent = 'draft' | 'publish' | 'finalize';
 
@@ -42,6 +44,16 @@ function compactPeriodConfig(simulation: AdvisorGoalSimulation) {
     campaignBoostPct: simulation.appliedContext.campaignBoostPct,
     billingContextPct: simulation.appliedContext.billingPct,
     closuresContextPct: simulation.appliedContext.closuresPct,
+    scoring: compactScoring(simulation),
+  };
+}
+
+function compactScoring(simulation: AdvisorGoalSimulation): AdvisorGoalScoringConfiguration {
+  return {
+    metricBasePoints: Object.fromEntries(
+      simulation.scoring.metrics.map((metric) => [metric.key, metric.basePoints])
+    ) as AdvisorGoalScoringConfiguration['metricBasePoints'],
+    bands: simulation.scoring.bands.map((band) => ({ ...band })),
   };
 }
 
@@ -79,11 +91,14 @@ export function buildAdvisorGoalPublicationBundle(params: {
   commissionOverrideByAdvisorId?: Map<string, { commissionPct: number; reason: string }>;
 }) {
   const reason = params.reason.trim();
+  const nextScoring = compactScoring(params.simulation);
+  const previousScoring = resolveAdvisorGoalScoringConfiguration(params.previousConfig);
   const configurationChanged = Boolean(params.previousConfig) && (
     params.previousConfig?.growthChallengePct !== params.simulation.appliedContext.growthChallengePct
     || (params.previousConfig?.campaignBoostPct ?? 0) !== params.simulation.appliedContext.campaignBoostPct
     || params.previousConfig?.billing.appliedPct !== params.simulation.appliedContext.billingPct
     || params.previousConfig?.closures.appliedPct !== params.simulation.appliedContext.closuresPct
+    || JSON.stringify(previousScoring) !== JSON.stringify(nextScoring)
     || params.previousConfig?.publicationMessage !== params.publicationMessage
   );
   if (configurationChanged && !reason) {
@@ -109,6 +124,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
       campaignBoostPct: params.previousConfig.campaignBoostPct ?? 0,
       billingContextPct: params.previousConfig.billing.appliedPct,
       closuresContextPct: params.previousConfig.closures.appliedPct,
+      scoring: previousScoring,
     } : null,
     next: compactPeriodConfig(params.simulation),
   };
@@ -117,6 +133,7 @@ export function buildAdvisorGoalPublicationBundle(params: {
     status: params.intent === 'finalize' ? 'closed' : published ? 'published' : 'draft',
     growthChallengePct: params.simulation.appliedContext.growthChallengePct,
     campaignBoostPct: params.simulation.appliedContext.campaignBoostPct,
+    scoring: nextScoring,
     billing: {
       observed: params.simulation.seasonality.billing,
       appliedPct: params.simulation.appliedContext.billingPct,

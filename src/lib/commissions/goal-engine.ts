@@ -181,13 +181,32 @@ export function validateAdvisorGoalConfiguration(params?: {
     throw new Error('La configuración debe contener los cinco indicadores canónicos.');
   }
 
+  const bandKeys = new Set<AdvisorGoalBandKey>();
+  for (const band of bands) {
+    if (!ADVISOR_GOAL_BANDS.some((canonical) => canonical.key === band.key)) {
+      throw new Error(`La banda ${band.key} no es canónica.`);
+    }
+    if (bandKeys.has(band.key)) throw new Error(`La banda ${band.key} está duplicada.`);
+    bandKeys.add(band.key);
+  }
+  if (bandKeys.size !== ADVISOR_GOAL_BANDS.length) {
+    throw new Error('La configuración debe contener las cinco bandas canónicas.');
+  }
   const orderedBands = [...bands].sort((left, right) => left.minPoints - right.minPoints);
   if (orderedBands.length === 0 || orderedBands[0].minPoints !== 0) {
     throw new Error('Las bandas deben comenzar en cero puntos.');
   }
+  for (const band of orderedBands) {
+    finiteNonNegative(band.minPoints, `El mínimo de ${band.label}`);
+    finiteNonNegative(band.commissionPct, `El porcentaje de ${band.label}`);
+    if (band.commissionPct > 100) throw new Error(`El porcentaje de ${band.label} no puede superar 100%.`);
+  }
   for (let index = 1; index < orderedBands.length; index += 1) {
     if (orderedBands[index].minPoints <= orderedBands[index - 1].minPoints) {
       throw new Error('Los mínimos de las bandas deben crecer sin duplicados.');
+    }
+    if (orderedBands[index].commissionPct < orderedBands[index - 1].commissionPct) {
+      throw new Error('Los porcentajes de comisión no pueden disminuir al subir de banda.');
     }
   }
 }
