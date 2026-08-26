@@ -11,7 +11,11 @@ import {
 } from '@/lib/commissions/payment-ledger';
 import { readAdvisorCommissionWorkflowSnapshot } from '@/lib/commissions/workflow-snapshot';
 import { loadEligibleCommissionAdvisors } from '@/lib/commissions/advisor-eligibility';
-import { readAdvisorGoalPublicationSnapshot } from '@/lib/commissions/goal-snapshot';
+import {
+  readAdvisorGoalPeriodConfig,
+  readAdvisorGoalPublicationSnapshot,
+  type AdvisorGoalPeriodConfig,
+} from '@/lib/commissions/goal-snapshot';
 import {
   addCommissionDeductionAction,
   calculateCommissionPeriodAction,
@@ -37,6 +41,7 @@ type CommissionPeriodRow = {
   date_to: string;
   status: string;
   notes: string | null;
+  goal_config: unknown;
 };
 
 type CommissionDeductionRow = {
@@ -153,7 +158,60 @@ function closureStatus(status: string) {
 }
 
 function periodStatus(status: string) {
-  return status === 'open' ? 'En revisión' : 'Archivado';
+  return status === 'open' ? 'Administrativamente abierto' : 'Archivado';
+}
+
+function goalJourneyStatus(
+  period: CommissionPeriodRow,
+  config: AdvisorGoalPeriodConfig | null,
+  today: string
+) {
+  if (config?.status === 'closed') {
+    return {
+      label: 'Resultado final aplicado',
+      detail: 'Las liquidaciones usan el porcentaje definitivo obtenido en la meta.',
+      classes: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200',
+      action: 'Auditar resultado',
+    };
+  }
+  if (config?.status === 'published') {
+    return {
+      label: 'Meta publicada · en desarrollo',
+      detail: 'El porcentaje visible es provisional. El definitivo se aplicará al finalizar el resultado.',
+      classes: 'border-sky-400/30 bg-sky-400/10 text-sky-100',
+      action: 'Ver avance y finalizar',
+    };
+  }
+  if (config?.status === 'draft') {
+    return {
+      label: 'Meta en borrador',
+      detail: 'Administración todavía debe publicar esta versión para que la vea el asesor.',
+      classes: 'border-amber-400/30 bg-amber-400/10 text-amber-100',
+      action: 'Continuar preparación',
+    };
+  }
+  if (today < period.date_from) {
+    return {
+      label: 'Planificado · meta sin preparar',
+      detail: 'El período existe, pero todavía no tiene una propuesta de meta guardada.',
+      classes: 'border-[#3E4657] bg-[#171B24] text-[#C8D0DF]',
+      action: 'Preparar meta',
+    };
+  }
+  if (today <= period.date_to) {
+    return {
+      label: 'En curso · meta no publicada',
+      detail: 'Las comisiones siguen con porcentaje manual hasta que se publique y finalice una meta.',
+      classes: 'border-orange-400/30 bg-orange-400/10 text-orange-100',
+      action: 'Configurar meta',
+    };
+  }
+  return {
+    label: 'Período terminado · meta no finalizada',
+    detail: 'Este período conserva el cálculo manual o histórico y aún figura abierto administrativamente.',
+    classes: 'border-red-400/25 bg-red-400/10 text-red-100',
+    action: 'Revisar período',
+  };
 }
 
 function getSnapshotAdvisorName(snapshot: unknown) {
@@ -188,6 +246,7 @@ function CommissionRateField({
   compact = false,
   showLockedNote = true,
   readOnly = false,
+  readOnlyLabel = 'Meta',
 }: {
   userId: string;
   value: number;
@@ -195,6 +254,7 @@ function CommissionRateField({
   compact?: boolean;
   showLockedNote?: boolean;
   readOnly?: boolean;
+  readOnlyLabel?: string;
 }) {
   if (compact) {
     return (
@@ -217,7 +277,7 @@ function CommissionRateField({
           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[#8F8F9B]">%</span>
         </div>
         {(locked || readOnly) && showLockedNote ? (
-          <span className="pr-1 text-[10px] text-[#8F8F9B]">{readOnly && !locked ? 'Meta' : 'Protegido'}</span>
+          <span className="pr-1 text-[10px] text-[#8F8F9B]">{readOnly && !locked ? readOnlyLabel : 'Protegido'}</span>
         ) : null}
       </label>
     );
@@ -245,7 +305,7 @@ function CommissionRateField({
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8F8F9B]">%</span>
       </div>
       {(locked || readOnly) && showLockedNote ? (
-        <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">{readOnly && !locked ? 'Determinado por la meta final' : 'Cierre protegido'}</span>
+        <span className="mt-1.5 block text-[10px] text-[#8F8F9B]">{readOnly && !locked ? readOnlyLabel : 'Cierre protegido'}</span>
       ) : null}
     </label>
   );
@@ -263,7 +323,7 @@ export default async function CommissionAdministrationPage({
   const params = (await searchParams) ?? {};
   const periodsResult = await ctx.supabase
     .from('advisor_commission_periods')
-    .select('id, name, date_from, date_to, status, notes')
+    .select('id, name, date_from, date_to, status, notes, goal_config')
     .order('date_from', { ascending: false })
     .limit(40);
 
@@ -287,6 +347,11 @@ export default async function CommissionAdministrationPage({
   const requestedPeriodId = Number(params.period || 0);
   const selectedPeriod =
     periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
+  const today = caracasToday();
+  const selectedGoalConfig = readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config);
+  const selectedGoalJourney = selectedPeriod
+    ? goalJourneyStatus(selectedPeriod, selectedGoalConfig, today)
+    : null;
 
   let closures: CommissionClosureRow[] = [];
   let advisorProfiles: AdvisorProfileRow[] = [];
@@ -515,8 +580,9 @@ export default async function CommissionAdministrationPage({
         name: advisor.full_name?.trim() || 'Asesor',
         closure,
         isLocked: closure?.status === 'closed' || closure?.status === 'paid',
-        isGoalFinal: goal?.status === 'final',
-        rate: goal?.status === 'final'
+        goalStatus: goal?.status ?? null,
+        isGoalManaged: goal?.status === 'published' || goal?.status === 'final',
+        rate: goal?.status === 'published' || goal?.status === 'final'
           ? goal.appliedCommissionPct
           : closure?.base_commission_pct == null
             ? 8
@@ -662,26 +728,22 @@ export default async function CommissionAdministrationPage({
           </details>
 
           {periods.length > 0 ? (
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-              {periods.map((period) => {
-                const active = Number(period.id) === Number(selectedPeriod?.id);
-                return (
-                  <Link
-                    key={period.id}
-                    aria-current={active ? 'page' : undefined}
-                    className={[
-                      'shrink-0 rounded-full border px-3 py-2 text-xs font-semibold transition',
-                      active
-                        ? 'border-[#F0D000] bg-[#F0D000] text-[#111113]'
-                        : 'border-[#30303A] bg-[#18181E] text-[#B7B7C1] hover:border-[#6A6140] hover:text-[#F7DA66]',
-                    ].join(' ')}
-                    href={`/app/commissions?period=${period.id}`}
-                  >
-                    {period.name}
-                  </Link>
-                );
-              })}
-            </div>
+            <form action="/app/commissions" className="mt-4 flex items-end gap-2" method="get">
+              <label className="min-w-0 flex-1">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8F8F9B]">Cambiar de período</span>
+                <select className="mt-1 h-10 w-full rounded-xl border border-[#32323D] bg-[#0E0E12] px-3 text-sm text-[#F7F7F8] outline-none focus:border-[#F0D000]" defaultValue={String(selectedPeriod?.id ?? '')} name="period">
+                  {periods.map((period) => {
+                    const config = readAdvisorGoalPeriodConfig(period.goal_config);
+                    return (
+                      <option key={period.id} value={period.id}>
+                        {period.name} · {goalJourneyStatus(period, config, today).label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <button className="h-10 rounded-xl border border-[#4A4A56] px-4 text-sm font-semibold text-[#E3E3E8] hover:border-[#F0D000] hover:text-[#F7DA66]" type="submit">Abrir</button>
+            </form>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-[#363641] px-4 py-8 text-center text-sm text-[#A6A6B0]">
               Aún no hay periodos de comisión registrados.
@@ -694,6 +756,18 @@ export default async function CommissionAdministrationPage({
                 Del {dateLabel(selectedPeriod.date_from)} al {dateLabel(selectedPeriod.date_to)}
               </span>
               {selectedPeriod.notes ? <span>{selectedPeriod.notes}</span> : null}
+            </div>
+          ) : null}
+
+          {selectedPeriod && selectedGoalJourney ? (
+            <div className={`mt-4 flex flex-col gap-3 rounded-2xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${selectedGoalJourney.classes}`}>
+              <div>
+                <div className="text-sm font-semibold">{selectedGoalJourney.label}</div>
+                <p className="mt-1 text-xs leading-5 opacity-85">{selectedGoalJourney.detail}</p>
+              </div>
+              <Link className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-current/30 px-3 text-xs font-semibold" href={`/app/commissions/goals?period=${selectedPeriod.id}`}>
+                {selectedGoalJourney.action}
+              </Link>
             </div>
           ) : null}
 
@@ -716,7 +790,11 @@ export default async function CommissionAdministrationPage({
                 />
               </label>
               <p className="text-xs leading-5 text-[#92929E]">
-                Ajusta el porcentaje dentro de la tarjeta de cada asesor y luego actualiza el periodo. Los cierres confirmados permanecen protegidos.
+                {selectedGoalConfig?.status === 'closed'
+                  ? 'Los porcentajes finales provienen de Metas y porcentajes. Aquí solo se actualiza la relación económica sin sustituirlos.'
+                  : selectedGoalConfig?.status === 'published'
+                    ? 'La meta está en desarrollo. Puedes actualizar la relación, pero el porcentaje definitivo se aplicará únicamente al finalizar el resultado.'
+                    : 'Ajusta el porcentaje dentro de la tarjeta de cada asesor y luego actualiza el período. Los cierres confirmados permanecen protegidos.'}
               </p>
               <button
                 className="h-10 rounded-xl bg-[#F0D000] px-5 text-sm font-semibold text-[#111113] transition enabled:hover:bg-[#FFE44F] disabled:cursor-not-allowed disabled:opacity-40"
@@ -742,7 +820,9 @@ export default async function CommissionAdministrationPage({
             <div>
               <h2 className="text-lg font-semibold tracking-[-0.02em]">Preparar relación por asesor</h2>
               <p className="mt-1 text-sm leading-6 text-[#A6A6B0]">
-                Define el porcentaje individual en cada tarjeta y utiliza “Calcular / actualizar” para generar los preliminares.
+                {selectedGoalConfig?.status === 'published' || selectedGoalConfig?.status === 'closed'
+                  ? 'La meta gobierna los porcentajes de este período. Utiliza “Calcular / actualizar” para generar la relación económica sin sustituirlos.'
+                  : 'Define el porcentaje individual en cada tarjeta y utiliza “Calcular / actualizar” para generar los preliminares.'}
               </p>
             </div>
             {advisorLoadFailed ? (
@@ -758,7 +838,8 @@ export default async function CommissionAdministrationPage({
                       <CommissionRateField
                         locked={advisor.isLocked || selectedPeriod.status !== 'open'}
                         userId={advisor.userId}
-                        readOnly={advisor.isGoalFinal}
+                        readOnly={advisor.isGoalManaged}
+                        readOnlyLabel={advisor.goalStatus === 'final' ? 'Meta final aplicada' : 'Meta en desarrollo'}
                         value={advisor.rate}
                       />
                     </div>
@@ -836,9 +917,10 @@ export default async function CommissionAdministrationPage({
                             <CommissionRateField
                               compact
                               locked={row.closure.status !== 'preliminary' || selectedPeriod?.status !== 'open'}
-                              readOnly={row.goal?.status === 'final'}
+                              readOnly={row.goal?.status === 'published' || row.goal?.status === 'final'}
+                              readOnlyLabel={row.goal?.status === 'final' ? 'Meta final' : 'Meta en curso'}
                               userId={row.closure.advisor_user_id}
-                              value={row.goal?.status === 'final' ? row.goal.appliedCommissionPct : numberValue(row.closure.base_commission_pct)}
+                              value={row.goal?.status === 'published' || row.goal?.status === 'final' ? row.goal.appliedCommissionPct : numberValue(row.closure.base_commission_pct)}
                             />
                           </div>
                           <div className="mt-1 text-xs text-[#92929E]">
@@ -858,6 +940,15 @@ export default async function CommissionAdministrationPage({
                           <span className="rounded-full border border-[#34343F] bg-[#1A1A21] px-2.5 py-1 text-[11px] text-[#AFAFBA]">
                             {settlementIsCurrent ? 'Cálculo nuevo' : 'Cierre existente'}
                           </span>
+                          {row.goal?.status === 'final' ? (
+                            <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200">
+                              Meta final aplicada
+                            </span>
+                          ) : row.goal?.status === 'published' ? (
+                            <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[11px] text-sky-100">
+                              Meta en desarrollo
+                            </span>
+                          ) : null}
                           {conformityStatus === 'confirmed' ? (
                             <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[11px] text-sky-200">
                               Conforme
@@ -1141,7 +1232,7 @@ export default async function CommissionAdministrationPage({
                             accounts={commissionPaymentAccounts}
                             activeRate={activeExchangeRate}
                             closureId={Number(row.closure.id)}
-                            defaultDate={caracasToday()}
+                            defaultDate={today}
                             paymentBalanceUsd={row.paymentBalanceUsd}
                             periodId={Number(selectedPeriod?.id ?? 0)}
                           />
