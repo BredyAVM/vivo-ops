@@ -27,6 +27,8 @@ import type {
 } from './delivery-contract';
 import type {
   CounterDirectSaleIntent,
+  CounterDirectSaleActionResult,
+  CounterDirectSaleFailure,
   CounterDirectSaleResult,
 } from './direct-sale-contract';
 
@@ -176,6 +178,56 @@ function directSaleErrorMessage(message: string) {
     ['counter_item_detail_limit_mismatch', 'La configuración no completa la cantidad de piezas requerida.'],
   ];
   return errors.find(([code]) => message.includes(code))?.[1] ?? message;
+}
+
+function directSaleFailure(message: string): CounterDirectSaleFailure {
+  const knownCodes = [
+    'counter_access_denied',
+    'counter_idempotency_key_reused',
+    'counter_client_name_required',
+    'counter_client_phone_invalid',
+    'counter_client_not_found',
+    'counter_client_inactive',
+    'counter_client_phone_mismatch',
+    'counter_client_phone_conflict',
+    'counter_receiver_phone_invalid',
+    'counter_delivery_address_required',
+    'counter_invoice_phone_invalid',
+    'counter_delivery_note_phone_invalid',
+    'counter_exchange_rate_unavailable',
+    'counter_payment_method_invalid',
+    'counter_payment_currency_invalid',
+    'counter_payment_change_amount_invalid',
+    'counter_discount_rule_not_applicable',
+    'counter_schedule_must_be_future',
+    'counter_schedule_invalid',
+    'counter_items_count_invalid',
+    'counter_product_unavailable',
+    'counter_product_suspended',
+    'counter_configurable_product_quantity_must_be_one',
+    'counter_item_component_unavailable',
+    'counter_item_fixed_component_quantity_invalid',
+    'counter_item_required_component_missing',
+    'counter_item_detail_limit_mismatch',
+  ];
+  const reason = knownCodes.find((code) => message.includes(code)) ?? 'counter_direct_sale_failed';
+  const refreshCatalog = [
+    'counter_product_unavailable',
+    'counter_product_suspended',
+    'counter_item_component_unavailable',
+    'counter_item_fixed_component_quantity_invalid',
+    'counter_item_required_component_missing',
+    'counter_item_detail_limit_mismatch',
+  ].includes(reason);
+
+  return {
+    ok: false,
+    reason,
+    refreshCatalog,
+    message: reason === 'counter_direct_sale_failed'
+      ? 'No se pudo crear la venta. Revisa los datos e intenta nuevamente.'
+      : directSaleErrorMessage(reason),
+  };
 }
 
 function buildOrderItemNotes(input: {
@@ -641,7 +693,7 @@ export async function recordCounterDeliveryReturnAction(
   };
 }
 
-export async function createCounterQuickSaleAction(
+async function executeCounterQuickSaleAction(
   input: CounterDirectSaleIntent
 ): Promise<CounterDirectSaleResult> {
   const ctx = await requireCounterOperatorContext();
@@ -727,7 +779,7 @@ export async function createCounterQuickSaleAction(
       ? availabilityData.products as Array<{ inventory_blocks_submission?: boolean }>
       : [];
     if (availabilityRows.some((row) => row.inventory_blocks_submission === true)) {
-      throw new Error(directSaleErrorMessage('counter_product_suspended'));
+      throw new Error('counter_product_suspended');
     }
   }
 
@@ -735,7 +787,7 @@ export async function createCounterQuickSaleAction(
     p_idempotency_key: idempotencyKey,
     p_payload: payload,
   });
-  if (error) throw new Error(directSaleErrorMessage(error.message));
+  if (error) throw new Error(error.message);
   const result = asRecord(data);
   const orderId = Math.trunc(toSafeNumber(result.id, 0));
   if (orderId <= 0) throw new Error('La venta se creo sin un numero de orden valido.');
@@ -765,6 +817,26 @@ export async function createCounterQuickSaleAction(
     discountPct: toSafeNumber(result.discountPct, 0),
     openPaymentAfterCreate: Boolean(input.openPaymentAfterCreate),
   };
+}
+
+export async function createCounterQuickSaleAction(
+  input: CounterDirectSaleIntent
+): Promise<CounterDirectSaleActionResult> {
+  try {
+    return {
+      ok: true,
+      sale: await executeCounterQuickSaleAction(input),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const failure = directSaleFailure(message);
+    console.error(JSON.stringify({
+      level: 'error',
+      message: 'counter_direct_sale_failed',
+      reason: failure.reason,
+    }));
+    return failure;
+  }
 }
 
 export async function updateCounterPickupScheduleAction(

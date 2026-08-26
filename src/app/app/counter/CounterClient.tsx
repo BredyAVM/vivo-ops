@@ -1703,7 +1703,23 @@ export default function CounterClient({
     setWorkingOrderId(-1);
     startTransition(async () => {
       try {
-        const result = await createCounterQuickSaleAction(input);
+        const actionResult = await createCounterQuickSaleAction(input);
+        if (!actionResult.ok) {
+          if (actionResult.refreshCatalog) {
+            catalogLoadedRef.current = false;
+            const catalogUpdated = await ensureCounterCatalog();
+            setMessage({
+              tone: 'error',
+              text: catalogUpdated
+                ? `${actionResult.message} El catálogo ya se actualizó: quita ese producto del pedido y vuelve a agregarlo.`
+                : actionResult.message,
+            });
+          } else {
+            setMessage({ tone: 'error', text: actionResult.message });
+          }
+          return;
+        }
+        const result = actionResult.sale;
         setMessage({
           tone: 'success',
           text: result.sentToKitchen

@@ -70,3 +70,30 @@ export type CounterDirectSaleResult = {
   discountPct: number;
   openPaymentAfterCreate: boolean;
 };
+
+export type CounterDirectSaleFailure = {
+  ok: false;
+  message: string;
+  reason: string;
+  refreshCatalog: boolean;
+};
+
+export type CounterDirectSaleActionResult =
+  | {
+      ok: true;
+      sale: CounterDirectSaleResult;
+    }
+  | CounterDirectSaleFailure;
+
+export function isCounterAnonymousClient(client: {
+  fullName?: string | null;
+  clientType?: string | null;
+}) {
+  const normalizedName = String(client.fullName || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+
+  return client.clientType === 'legacy' && normalizedName === 'ANONIMO';
+}

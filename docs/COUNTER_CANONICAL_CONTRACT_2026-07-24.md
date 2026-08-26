@@ -207,7 +207,8 @@ esa deuda de custodia.
 
 ### 6.1 Cliente obligatorio
 
-No existen ventas anónimas ni ventas genéricas a “consumidor final”.
+Toda venta debe conservar un `client_id`. Como regla general, no existen ventas
+sin identificar ni se crean registros genéricos nuevos a “consumidor final”.
 
 Antes de crear cualquier orden, sin importar su monto, Counter debe:
 
@@ -218,6 +219,16 @@ Antes de crear cualquier orden, sin importar su monto, Counter debe:
 
 La búsqueda debe evitar duplicados por diferencias de formato telefónico,
 mayúsculas, minúsculas o acentos.
+
+Existe una sola excepción operativa: el registro especial, existente y activo
+`ANONIMO` puede seleccionarse cuando una persona ya se retiró del mostrador sin
+dejar nombre ni teléfono y la orden todavía debe cargarse. Counter no crea otro
+cliente anónimo ni reemplaza con datos inventados los datos faltantes.
+
+El teléfono técnico del registro `ANONIMO` es solamente un identificador interno:
+la interfaz no debe presentarlo como teléfono confirmado del comprador. La orden
+queda trazada al operador de Counter y no hereda asesor, fondo ni atribución
+comercial aparente del historial compartido de ese registro.
 
 ### 6.2 Venta inmediata
 

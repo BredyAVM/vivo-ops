@@ -18,6 +18,7 @@ import type {
   CounterDirectSaleIntent,
   CounterDiscountRuleOption,
 } from './direct-sale-contract';
+import { isCounterAnonymousClient } from './direct-sale-contract';
 import type {
   CounterQuickSaleProductComponent,
   CounterQuickSaleProductOption,
@@ -230,6 +231,9 @@ export function CounterQuickSalePanel({
     return map;
   }, [productComponents]);
   const selectedProduct = selectedProductId ? productsById.get(Number(selectedProductId)) ?? null : null;
+  const selectedClientIsAnonymous = selectedClient
+    ? isCounterAnonymousClient(selectedClient)
+    : false;
   const phoneCandidate = newClientMode ? clientPhone : clientSearch;
   const currentPhoneMatchKey = phoneMatchKey(phoneCandidate);
   const registeredPhoneClients =
@@ -839,19 +843,29 @@ export function CounterQuickSalePanel({
                   onClick={() => selectClient(client)}
                   className="w-full border-b border-[#242433] px-3 py-2 text-left last:border-b-0 hover:bg-[#1A1A22]"
                 >
-                  <div className="text-xs font-semibold text-emerald-200">Cliente registrado</div>
+                  <div className="text-xs font-semibold text-emerald-200">
+                    {isCounterAnonymousClient(client) ? 'Registro operativo' : 'Cliente registrado'}
+                  </div>
                   <div className="mt-0.5 text-sm font-semibold text-[#F5F5F7]">
                     Registrado como: {client.fullName}
                   </div>
-                  <div className="mt-0.5 text-xs text-[#9FA0AA]">
-                    {client.phone || 'Sin telefono'} - {client.clientType || 'sin tipo'} - Fondo {moneyUsd(client.fundBalanceUsd)}
-                  </div>
-                  <div className={[
-                    'mt-1 text-xs font-semibold',
-                    client.advisorName ? 'text-sky-200' : 'text-amber-200',
-                  ].join(' ')}>
-                    {clientAdvisorLabel(client)}
-                  </div>
+                  {isCounterAnonymousClient(client) ? (
+                    <div className="mt-0.5 text-xs text-amber-200">
+                      Para cargar una venta cuando la persona se retiró sin dejar sus datos.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-0.5 text-xs text-[#9FA0AA]">
+                        {client.phone || 'Sin telefono'} - {client.clientType || 'sin tipo'} - Fondo {moneyUsd(client.fundBalanceUsd)}
+                      </div>
+                      <div className={[
+                        'mt-1 text-xs font-semibold',
+                        client.advisorName ? 'text-sky-200' : 'text-amber-200',
+                      ].join(' ')}>
+                        {clientAdvisorLabel(client)}
+                      </div>
+                    </>
+                  )}
                 </button>
               ))}
             </div>
@@ -859,37 +873,45 @@ export function CounterQuickSalePanel({
           {selectedClient ? (
             <div className="space-y-2 rounded-[8px] border border-emerald-400/30 bg-emerald-400/10 px-3 py-2">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-100/70">
-                Cliente registrado seleccionado
+                {selectedClientIsAnonymous ? 'Cliente anónimo seleccionado' : 'Cliente registrado seleccionado'}
               </div>
-              <div className="text-sm text-emerald-100">
-                Este número está registrado a nombre de <strong>{selectedClient.fullName}</strong>.
-              </div>
-              <div className="text-xs text-emerald-100/75">
-                {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
-              </div>
-              <div className={[
-                'rounded-[8px] border px-2.5 py-2 text-xs font-semibold',
-                selectedClient.advisorName
-                  ? 'border-sky-300/25 bg-sky-300/10 text-sky-100'
-                  : 'border-amber-300/25 bg-amber-300/10 text-amber-100',
-              ].join(' ')}>
-                {clientAdvisorLabel(selectedClient)}
-                {!selectedClient.advisorName ? (
-                  <span className="mt-0.5 block font-normal">
-                    Master podra asignar un responsable si la orden queda para seguimiento.
-                  </span>
-                ) : null}
-              </div>
-              <label className="block text-xs text-emerald-100/75">
-                Teléfono confirmado para esta venta
-                <input
-                  value={clientPhone}
-                  onChange={(event) => setClientPhone(event.target.value)}
-                  inputMode="tel"
-                  placeholder="Obligatorio"
-                  className="mt-1 w-full rounded-[8px] border border-emerald-200/30 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
-                />
-              </label>
+              {selectedClientIsAnonymous ? (
+                <div className="rounded-[8px] border border-amber-300/25 bg-amber-300/10 px-2.5 py-2 text-xs text-amber-100">
+                  No se recibieron nombre ni teléfono. La venta quedará registrada a nombre de ANONIMO y trazada al operador de Counter.
+                </div>
+              ) : (
+                <>
+                  <div className="text-sm text-emerald-100">
+                    Este número está registrado a nombre de <strong>{selectedClient.fullName}</strong>.
+                  </div>
+                  <div className="text-xs text-emerald-100/75">
+                    {selectedClient.phone || 'Sin telefono'} - {selectedClient.clientType || 'sin tipo'} - Fondo {moneyUsd(selectedClient.fundBalanceUsd)}
+                  </div>
+                  <div className={[
+                    'rounded-[8px] border px-2.5 py-2 text-xs font-semibold',
+                    selectedClient.advisorName
+                      ? 'border-sky-300/25 bg-sky-300/10 text-sky-100'
+                      : 'border-amber-300/25 bg-amber-300/10 text-amber-100',
+                  ].join(' ')}>
+                    {clientAdvisorLabel(selectedClient)}
+                    {!selectedClient.advisorName ? (
+                      <span className="mt-0.5 block font-normal">
+                        Master podra asignar un responsable si la orden queda para seguimiento.
+                      </span>
+                    ) : null}
+                  </div>
+                  <label className="block text-xs text-emerald-100/75">
+                    Teléfono confirmado para esta venta
+                    <input
+                      value={clientPhone}
+                      onChange={(event) => setClientPhone(event.target.value)}
+                      inputMode="tel"
+                      placeholder="Obligatorio"
+                      className="mt-1 w-full rounded-[8px] border border-emerald-200/30 bg-[#0B0B0D] px-3 py-2 text-sm text-[#F5F5F7] outline-none placeholder:text-[#666878] focus:border-[#FEEF00]/70"
+                    />
+                  </label>
+                </>
+              )}
             </div>
           ) : null}
           {newClientMode ? (
