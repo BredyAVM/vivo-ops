@@ -5,7 +5,9 @@ import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import { formatOrderDisplayNumber } from '@/lib/orders/order-labels';
 import { calculateAdvisorGoalScore, type AdvisorGoalMetricKey } from '@/lib/commissions/goal-engine';
 import {
+  readAdvisorGoalPeriodConfig,
   readAdvisorGoalPublicationSnapshot,
+  resolveAdvisorGoalScoringConfiguration,
   type AdvisorGoalMetricPublication,
 } from '@/lib/commissions/goal-snapshot';
 import { loadAdvisorGoalCollectionForClosure } from '@/lib/commissions/goal-data';
@@ -40,6 +42,7 @@ type PeriodRow = {
   date_from: string;
   date_to: string;
   status: string;
+  goal_config?: unknown;
 };
 
 type SnapshotOrder = {
@@ -387,13 +390,18 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
   const params = (await searchParams) ?? {};
   const { data: periodData, error: periodError } = await ctx.supabase
     .from('advisor_commission_periods')
-    .select('id, name, date_from, date_to, status')
+    .select('id, name, date_from, date_to, status, goal_config')
     .order('date_from', { ascending: false })
     .limit(40);
 
   const periods = (periodData ?? []) as PeriodRow[];
   const requestedPeriodId = Number(params.period || 0);
   const selectedPeriod = periods.find((period) => Number(period.id) === requestedPeriodId) ?? periods[0] ?? null;
+  const goalScoring = resolveAdvisorGoalScoringConfiguration(
+    readAdvisorGoalPeriodConfig(selectedPeriod?.goal_config)
+  );
+  const orderedGoalBands = [...goalScoring.bands].sort((left, right) => left.minPoints - right.minPoints);
+  const topGoalBandPoints = orderedGoalBands.at(-1)?.minPoints ?? 1;
   const activeDetail = getCommissionDetail(params.detail);
   const returnTo = selectedPeriod
     ? commissionHref(selectedPeriod.id, activeDetail || undefined)
@@ -467,32 +475,37 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
             actual: numberValue(closure?.billed_usd),
             reference: visibleGoal.metrics.billing.personalReference,
             target: visibleGoal.metrics.billing.target,
+            basePoints: goalScoring.metricBasePoints.billing,
           },
           {
             key: 'closures',
             actual: numberValue(closure?.delivered_orders_count),
             reference: visibleGoal.metrics.closures.personalReference,
             target: visibleGoal.metrics.closures.target,
+            basePoints: goalScoring.metricBasePoints.closures,
           },
           {
             key: 'collection',
             actual: currentGoalCollection?.ratio ?? visibleGoal.metrics.collection.actual,
             reference: visibleGoal.metrics.collection.personalReference,
             target: visibleGoal.metrics.collection.target,
+            basePoints: goalScoring.metricBasePoints.collection,
           },
           {
             key: 'new_own_clients',
             actual: numberValue(closure?.new_own_clients_count),
             reference: visibleGoal.metrics.new_own_clients.personalReference,
             target: visibleGoal.metrics.new_own_clients.target,
+            basePoints: goalScoring.metricBasePoints.new_own_clients,
           },
           {
             key: 'new_assigned_clients',
             actual: numberValue(closure?.new_assigned_clients_count),
             reference: visibleGoal.metrics.new_assigned_clients.personalReference,
             target: visibleGoal.metrics.new_assigned_clients.target,
+            basePoints: goalScoring.metricBasePoints.new_assigned_clients,
           },
-        ])
+        ], goalScoring.bands)
     : null;
   const liveGoalMetrics = visibleGoal && liveGoalScore
     ? visibleGoal.status === 'final'
@@ -682,14 +695,21 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
                     <div className="mt-1 text-xs font-medium text-[#E9E3C1]">Nivel {liveGoalScore.band.label}</div>
                   </div>
                   <div className="rounded-[14px] border border-[#F0D000]/35 bg-[#F0D000]/10 px-3 py-2 text-right">
-                    <div className="text-[10px] uppercase tracking-[0.12em] text-[#AFA679]">Comisión</div>
-                    <div className="mt-0.5 text-xl font-bold text-[#F7DA66]">{visibleGoal.appliedCommissionPct.toFixed(2)}%</div>
+                    <div className="text-[10px] uppercase tracking-[0.12em] text-[#AFA679]">{visibleGoal.status === 'final' ? 'Comisión final' : 'Si cerrara hoy'}</div>
+                    <div className="mt-0.5 text-xl font-bold text-[#F7DA66]">{(visibleGoal.status === 'final' ? visibleGoal.appliedCommissionPct : liveGoalScore.calculatedCommissionPct).toFixed(2)}%</div>
                   </div>
                 </div>
                 <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#302C16]">
-                  <div className="h-full rounded-full bg-[#F0D000]" style={{ width: `${Math.max(0, Math.min(100, liveGoalScore.points / 240 * 100))}%` }} />
+                  <div className="h-full rounded-full bg-[#F0D000]" style={{ width: `${Math.max(0, Math.min(100, liveGoalScore.points / topGoalBandPoints * 100))}%` }} />
                 </div>
-                <div className="mt-2 flex justify-between text-[10px] text-[#9F966A]"><span>Yuca</span><span>Bronce 140</span><span>Oro 200</span><span>Platino 240</span></div>
+                <div className="mt-2 grid grid-cols-5 gap-1 text-center text-[9px] leading-3 text-[#9F966A]">
+                  {orderedGoalBands.map((band) => (
+                    <span key={band.key}>
+                      <span className="block">{band.label}</span>
+                      <span className="block">{band.minPoints}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
 
               <div className="mt-3 space-y-2.5">
@@ -717,6 +737,7 @@ export default async function AdvisorCommissionsPage({ searchParams }: { searchP
               {currentGoalCollection ? (
                 <div className="mt-3">
                   <AdvisorGoalCollectionBreakdown
+                    basePoints={liveGoalScore.metrics.find((metric) => metric.key === 'collection')?.basePoints}
                     points={liveGoalScore.metrics.find((metric) => metric.key === 'collection')?.points}
                     summary={currentGoalCollection}
                   />

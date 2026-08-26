@@ -772,6 +772,7 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                             <div className="rounded-xl bg-[#15151B] p-2.5"><div className="text-red-300">0%</div><div className="mt-1 text-[#A0A0AB]">{advisor.collection.overdueCount} atrasados</div></div>
                           </div>
                           <AdvisorGoalCollectionBreakdown
+                            basePoints={metricPoints(advisor.score, 'collection')?.basePoints}
                             defaultOpen
                             points={metricPoints(advisor.score, 'collection')?.points}
                             summary={advisor.collection}
@@ -801,14 +802,20 @@ export default async function AdvisorGoalAdministrationPage({ searchParams }: { 
                     {simulation.advisors.map((advisor) => {
                       const storedGoal = storedGoalByAdvisorId.get(advisor.advisorUserId);
                       const calculatedPct = advisor.score?.calculatedCommissionPct ?? 0;
+                      const appliedPct = storedGoal?.rateOverrideReason
+                        ? storedGoal.appliedCommissionPct
+                        : calculatedPct;
                       return (
                         <article className="rounded-2xl border border-[#294037] bg-[#0B1210] p-3" key={advisor.advisorUserId}>
                           <div className="truncate text-sm font-semibold" title={advisor.advisorName}>{advisor.advisorName}</div>
-                          <div className="mt-1 text-[11px] text-[#8FA49A]">Calculado: {calculatedPct.toFixed(2)}%</div>
+                          <div className="mt-1 text-[11px] text-[#8FA49A]">Calculado actual: {calculatedPct.toFixed(2)}%</div>
+                          {storedGoal?.rateOverrideReason ? (
+                            <div className="mt-1 text-[10px] leading-4 text-amber-200">Conserva una sustitución administrativa vigente.</div>
+                          ) : null}
                           <label className="mt-3 block">
                             <span className="text-[10px] uppercase tracking-[0.12em] text-[#82968D]">Porcentaje aplicado</span>
                             <div className="relative mt-1">
-                              <input className="h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 pr-7 text-sm font-semibold outline-none focus:border-emerald-400" defaultValue={storedGoal?.appliedCommissionPct ?? calculatedPct} max="100" min="0" name={`commissionPct:${advisor.advisorUserId}`} required step="0.01" type="number" />
+                              <input className="h-9 w-full rounded-xl border border-[#30483E] bg-[#08100D] px-3 pr-7 text-sm font-semibold outline-none focus:border-emerald-400" defaultValue={appliedPct} max="100" min="0" name={`commissionPct:${advisor.advisorUserId}`} required step="0.01" type="number" />
                               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#789087]">%</span>
                             </div>
                           </label>

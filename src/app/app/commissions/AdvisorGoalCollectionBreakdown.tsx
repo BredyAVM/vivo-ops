@@ -84,10 +84,12 @@ export function AdvisorGoalCollectionBreakdown({
   summary,
   defaultOpen = false,
   points,
+  basePoints,
 }: {
   summary: AdvisorGoalCollectionSummary;
   defaultOpen?: boolean;
   points?: number;
+  basePoints?: number;
 }) {
   const openOrders = summary.orders
     .filter((order) => order.status === 'credit_open' || order.status === 'overdue_open')
@@ -122,7 +124,7 @@ export function AdvisorGoalCollectionBreakdown({
           </div>
           <div className="mt-1 text-[11px] leading-5 text-[#C9C3A0]">
             Entre {summary.ordersCount} pedidos, el resultado de cobranza es {(summary.ratio * 100).toFixed(1)}%
-            {points == null ? '.' : ` y aporta ${points.toFixed(1)} de 20 puntos.`}
+            {points == null || basePoints == null ? '.' : ` y aporta ${points.toFixed(1)} de ${basePoints.toFixed(1)} puntos base.`}
           </div>
           <div className="mt-2 border-t border-[#665C20]/35 pt-2 text-[11px] leading-5 text-[#AAA483]">
             Para llegar al 100%, los {summary.ordersCount} pedidos deben pagarse a más tardar el día de la entrega. Para alcanzar la referencia de 80%, todos pueden pagarse dentro de los cinco días de crédito. El porcentaje final de comisión depende de la suma de los cinco indicadores, no solo de cobranza.
