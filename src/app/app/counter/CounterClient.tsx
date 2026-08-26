@@ -25,6 +25,7 @@ import {
   createCounterQuickSaleAction,
   dispatchCounterDeliveryAction,
   executeCounterRefundAction,
+  giveCounterOrderChangeAction,
   loadCounterDailyHistoryAction,
   requestCounterRefundAction,
   searchCounterHistoricalOrdersAction,
@@ -39,6 +40,8 @@ import type {
   CounterDeliveryDispatchResult,
 } from './delivery-contract';
 import type {
+  CounterGiveChangeIntent,
+  CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
   CounterRefundAuthorization,
@@ -284,6 +287,7 @@ export type CounterOrder = {
   paymentStatus: string;
   pendingReportsUsd: number;
   overpaidUsd: number;
+  changeAvailableUsd: number;
   pendingDigitalChangeUsd: number;
   refundAuthorizations: CounterRefundAuthorization[];
   reports: {
@@ -1650,6 +1654,36 @@ export default function CounterClient({
     }
   }
 
+  async function handleGiveOrderChange(
+    order: CounterOrder,
+    input: CounterGiveChangeIntent
+  ): Promise<CounterGiveChangeResult> {
+    setMessage(null);
+    setWorkingOrderId(order.id);
+    try {
+      const result = await giveCounterOrderChangeAction(input);
+      setMessage({
+        tone: 'success',
+        text: `Cambio entregado en la orden #${order.displayNumber} desde ${result.accountName}.`,
+      });
+      await Promise.all([
+        refreshCounter(),
+        refreshCounterOrder(order.id),
+        cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+      ]);
+      return result;
+    } catch (error) {
+      const message = getCounterUiErrorMessage(
+        error,
+        'No se pudo registrar esta entrega de cambio. Revisa la caja y el monto.'
+      );
+      setMessage({ tone: 'error', text: message });
+      throw error;
+    } finally {
+      setWorkingOrderId(null);
+    }
+  }
+
   async function handleRequestRefund(
     order: CounterOrder,
     input: CounterRefundRequestIntent
@@ -2018,6 +2052,7 @@ export default function CounterClient({
           ]);
         }}
         onCreatePaymentReport={handleCreatePaymentReport}
+        onGiveOrderChange={handleGiveOrderChange}
         onLoadPaymentQuote={loadCounterPaymentQuoteAction}
         onRequestRefund={handleRequestRefund}
         onExecuteRefund={handleExecuteRefund}

@@ -22,6 +22,8 @@ import type {
   CounterDeliveryDispatchResult,
 } from './delivery-contract';
 import type {
+  CounterGiveChangeIntent,
+  CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
   CounterRefundExecutionIntent,
@@ -522,6 +524,7 @@ export function OrderDetail({
   onPrimaryDeliveryAction,
   onDeliverySettlementChanged,
   onCreatePaymentReport,
+  onGiveOrderChange,
   onLoadPaymentQuote,
   onRequestRefund,
   onExecuteRefund,
@@ -550,6 +553,10 @@ export function OrderDetail({
     order: CounterOrder,
     input: CounterPaymentIntent
   ) => Promise<CounterPaymentOperationResult>;
+  onGiveOrderChange: (
+    order: CounterOrder,
+    input: CounterGiveChangeIntent
+  ) => Promise<CounterGiveChangeResult>;
   onLoadPaymentQuote: (input: {
     orderId: number;
     operationDate: string;
@@ -828,8 +835,9 @@ export function OrderDetail({
 
           {order.pendingReportsUsd > 0.005 ||
           order.pendingDigitalChangeUsd > 0.005 ||
-          order.overpaidUsd > 0.005 ? (
-            <div className="grid gap-2 sm:grid-cols-3">
+          order.overpaidUsd > 0.005 ||
+          order.changeAvailableUsd > 0.005 ? (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {order.pendingReportsUsd > 0.005 ? (
                 <Metric
                   label="Pago por revisar"
@@ -851,6 +859,14 @@ export function OrderDetail({
                   label="Saldo a favor"
                   value={moneyUsd(order.overpaidUsd)}
                   note="Puede ir a fondo o devolucion autorizada"
+                />
+              ) : null}
+              {order.changeAvailableUsd > 0.005 ? (
+                <Metric
+                  label="Cambio disponible"
+                  value={moneyUsd(order.changeAvailableUsd)}
+                  note="Puedes entregarlo por caja o dejar el remanente en fondo"
+                  tone="warn"
                 />
               ) : null}
             </div>
@@ -878,17 +894,19 @@ export function OrderDetail({
 
           {paymentOpen && !isCancelled ? (
             <CounterOperationDialog
-              title="Cobrar pedido"
+              title={order.changeAvailableUsd > 0.005 ? 'Cobro y cambio' : 'Cobrar pedido'}
               subtitle={`Orden #${order.displayNumber} · ${order.clientName}`}
               onClose={() => setPaymentOpen(false)}
             >
               <CounterPaymentEngine
-                key={`${order.id}-${order.confirmedPaidUsd}-${order.balanceUsd}-${order.paymentQuote.operationDate}-${order.paymentQuote.pendingBs}-${order.paymentQuote.collectionMode}-${order.reports.pending}`}
+                key={order.id}
                 order={order}
                 paymentAccounts={paymentAccounts}
                 isWorking={isWorking}
                 onSubmit={(input) => onCreatePaymentReport(order, input)}
+                onGiveChange={(input) => onGiveOrderChange(order, input)}
                 onLoadPaymentQuote={onLoadPaymentQuote}
+                onFinish={() => setPaymentOpen(false)}
               />
             </CounterOperationDialog>
           ) : null}
@@ -1006,7 +1024,7 @@ export function OrderDetail({
               disabled={isCancelled || isWorking}
               className="min-h-11 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Cobrar
+              {order.changeAvailableUsd > 0.005 ? 'Cobro / cambio' : 'Cobrar'}
             </button>
             <button
               type="button"

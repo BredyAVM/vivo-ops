@@ -48,6 +48,29 @@ export type CounterPaymentOperationResult = {
   overpaidUsd: number;
 };
 
+export type CounterGiveChangeIntent = {
+  idempotencyKey: string;
+  orderId: number;
+  moneyAccountId: number;
+  amount: number;
+  operationDate: string;
+  notes: string | null;
+};
+
+export type CounterGiveChangeResult = {
+  ok: true;
+  idempotencyKey: string;
+  orderId: number;
+  movementId: number;
+  moneyAccountId: number;
+  accountName: string;
+  currencyCode: 'USD' | 'VES';
+  amount: number;
+  exchangeRateVesPerUsd: number | null;
+  amountUsdEquivalent: number;
+  remainingChangeUsd: number;
+};
+
 export type CounterRefundLineInput = {
   lineKey: string;
   moneyAccountId: number;

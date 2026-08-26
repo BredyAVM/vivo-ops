@@ -366,6 +366,7 @@ function mapCounterOrder(row: CounterReadOrderRow): CounterOrder {
     paymentStatus: String(row.payment_status || (pendingUsd <= 0.005 ? 'paid' : 'unpaid')),
     pendingReportsUsd: roundOrderMoney(row.pending_reports_usd),
     overpaidUsd: roundOrderMoney(row.overpaid_usd),
+    changeAvailableUsd: 0,
     pendingDigitalChangeUsd: roundOrderMoney(row.pending_digital_change_usd),
     refundAuthorizations,
     reports: {
@@ -430,7 +431,7 @@ export async function loadCounterOrderDetailRead(
   supabase: CounterReadClient,
   orderId: number
 ): Promise<CounterOrder> {
-  const [detailData, pickupRequestsData, paymentQuoteData] = await Promise.all([
+  const [detailData, pickupRequestsData, paymentQuoteData, changeBalanceData] = await Promise.all([
     readRpcJson(supabase, 'counter_read_order_detail', {
       p_order_id: orderId,
     }),
@@ -441,11 +442,16 @@ export async function loadCounterOrderDetailRead(
       p_order_id: orderId,
       p_operation_date: null,
     }),
+    readRpcJson(supabase, 'counter_read_order_change_balance', {
+      p_order_id: orderId,
+    }),
   ]);
   const order = mapCounterOrder(asRecord(detailData) as unknown as CounterReadOrderRow);
+  const changeBalance = asRecord(changeBalanceData);
   return {
     ...order,
     paymentQuote: mapCounterPaymentQuote(paymentQuoteData),
+    changeAvailableUsd: roundOrderMoney(changeBalance.availableUsd),
     pickupChangeRequests: asArray(pickupRequestsData)
       .map(mapPickupChangeRequest)
       .filter((request) => request.id > 0),

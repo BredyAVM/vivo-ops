@@ -462,6 +462,22 @@ El cambio puede:
 Cada salida real de efectivo debe generar un egreso confirmado y vinculado a la
 orden.
 
+La experiencia del operador puede ser una atención continua, pero los hechos
+financieros no se agrupan en un único movimiento:
+
+1. cada ingreso recibido se confirma como una operación independiente;
+2. el excedente confirmado se resguarda primero en el fondo del cliente;
+3. cada entrega de cambio desde una caja se confirma como otra operación
+   independiente, con su propio comprobante y grupo de movimiento;
+4. si se usa otra caja o moneda, se registra una nueva entrega;
+5. la parte que no se entregue permanece en el fondo del cliente.
+
+Los pagos mixtos siguen la misma regla: Counter registra y cierra un medio de
+pago antes de continuar con el siguiente. Todas las operaciones permanecen
+vinculadas a la misma orden, pero una corrección o anulación administrativa debe
+afectar exclusivamente el ingreso o la entrega seleccionada. Cada operación
+individual sí es atómica entre su movimiento de caja y su reflejo en el fondo.
+
 ### 11.2 Cambio digital
 
 Counter no ejecuta transferencias bancarias para entregar cambio.

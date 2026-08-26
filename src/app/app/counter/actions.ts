@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { requireCounterOperatorContext } from '@/lib/auth';
 import type {
+  CounterGiveChangeIntent,
+  CounterGiveChangeResult,
   CounterPaymentIntent,
   CounterPaymentOperationResult,
   CounterRefundExecutionIntent,
@@ -392,6 +394,67 @@ export async function applyCounterPaymentAction(
     fundCreditUsd: roundCounterMoney(result.fund_credit_usd),
     pendingUsd: roundCounterMoney(result.pending_usd),
     overpaidUsd: roundCounterMoney(result.overpaid_usd),
+  };
+}
+
+export async function giveCounterOrderChangeAction(
+  input: CounterGiveChangeIntent
+): Promise<CounterGiveChangeResult> {
+  const ctx = await requireCounterOperatorContext();
+  const orderId = Math.trunc(Number(input.orderId || 0));
+  const moneyAccountId = Math.trunc(Number(input.moneyAccountId || 0));
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const amount = roundCounterMoney(input.amount);
+  const operationDate = String(input.operationDate || '').trim();
+
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    throw new Error('La orden indicada no es valida.');
+  }
+  if (!Number.isFinite(moneyAccountId) || moneyAccountId <= 0) {
+    throw new Error('Selecciona una caja valida para entregar el cambio.');
+  }
+  if (!isUuid(idempotencyKey)) {
+    throw new Error('La entrega de cambio no tiene una clave valida.');
+  }
+  if (amount <= 0) {
+    throw new Error('El monto del cambio debe ser mayor que cero.');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(operationDate)) {
+    throw new Error('Indica una fecha valida para entregar el cambio.');
+  }
+
+  const { data, error } = await ctx.supabase.rpc('counter_give_order_change', {
+    p_idempotency_key: idempotencyKey,
+    p_order_id: orderId,
+    p_money_account_id: moneyAccountId,
+    p_amount: amount,
+    p_operation_date: operationDate,
+    p_notes: String(input.notes || '').trim() || null,
+  });
+
+  if (error) throw new Error(error.message);
+  const result = asRecord(data);
+
+  revalidatePath('/app/master/ops');
+  revalidatePath('/app/advisor');
+  revalidatePath('/app/advisor/orders');
+  revalidatePath('/app/advisor/inbox');
+
+  return {
+    ok: true,
+    idempotencyKey: String(result.idempotency_key || idempotencyKey),
+    orderId: Math.trunc(Number(result.order_id || orderId)),
+    movementId: Math.trunc(Number(result.movement_id || 0)),
+    moneyAccountId: Math.trunc(Number(result.money_account_id || moneyAccountId)),
+    accountName: String(result.account_name || 'Caja'),
+    currencyCode: result.currency_code === 'VES' ? 'VES' : 'USD',
+    amount: roundCounterMoney(result.amount),
+    exchangeRateVesPerUsd:
+      result.exchange_rate_ves_per_usd == null
+        ? null
+        : Number(result.exchange_rate_ves_per_usd),
+    amountUsdEquivalent: roundCounterMoney(result.amount_usd_equivalent),
+    remainingChangeUsd: roundCounterMoney(result.remaining_change_usd),
   };
 }
 
