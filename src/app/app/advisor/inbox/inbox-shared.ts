@@ -209,7 +209,9 @@ export function formatEventTime(value: string) {
 
 export function getFilterForEvent(eventType: string): InboxFilter {
   if (ACTION_EVENT_TYPES.has(eventType)) return 'pending';
-  if (eventType.startsWith('advisor_commission_')) return 'commissions';
+  if (eventType.startsWith('advisor_commission_') || eventType.startsWith('advisor_goal_')) {
+    return 'commissions';
+  }
   if (
     eventType === 'order_sent_to_kitchen' ||
     eventType === 'kitchen_taken' ||

@@ -8,6 +8,15 @@ export type AdvisorInboxReadReference = {
   id: number;
 };
 
+type CommissionNotificationRow = {
+  id: number | string;
+  meta: Record<string, unknown> | null;
+};
+
+function isGoalNotification(meta: Record<string, unknown> | null) {
+  return String(meta?.kind ?? '').startsWith('advisor_goal_');
+}
+
 function normalizedIds(values: number[]) {
   return Array.from(
     new Set(
@@ -32,6 +41,20 @@ export async function markAdvisorInboxItemsReadAction(items: AdvisorInboxReadRef
   }
 
   const now = new Date().toISOString();
+  const notificationRowsResult = notificationIds.length > 0
+    ? await ctx.supabase
+        .from('notifications')
+        .select('id, meta')
+        .in('id', notificationIds)
+        .eq('recipient_user_id', ctx.user.id)
+        .contains('meta', { domain: 'advisor_commissions' })
+    : { data: [], error: null };
+  if (notificationRowsResult.error) throw new Error(notificationRowsResult.error.message);
+  const notificationRows = (notificationRowsResult.data ?? []) as CommissionNotificationRow[];
+  const goalNotificationIds = new Set(
+    notificationRows.filter((row) => isGoalNotification(row.meta)).map((row) => Number(row.id))
+  );
+  const ordinaryNotificationIds = notificationIds.filter((id) => !goalNotificationIds.has(id));
   const results = await Promise.all([
     timelineIds.length > 0
       ? ctx.supabase
@@ -40,14 +63,30 @@ export async function markAdvisorInboxItemsReadAction(items: AdvisorInboxReadRef
           .in('id', timelineIds)
           .eq('target_user_id', ctx.user.id)
       : Promise.resolve({ error: null }),
-    notificationIds.length > 0
+    ordinaryNotificationIds.length > 0
       ? ctx.supabase
           .from('notifications')
           .update({ status: 'read', read_at: now })
-          .in('id', notificationIds)
+          .in('id', ordinaryNotificationIds)
           .eq('recipient_user_id', ctx.user.id)
           .contains('meta', { domain: 'advisor_commissions' })
       : Promise.resolve({ error: null }),
+    ...notificationRows
+      .filter((row) => goalNotificationIds.has(Number(row.id)))
+      .map((row) => ctx.supabase
+        .from('notifications')
+        .update({
+          status: 'read',
+          read_at: now,
+          meta: {
+            ...(row.meta ?? {}),
+            requires_action: false,
+            reviewed_at: now,
+          },
+        })
+        .eq('id', Number(row.id))
+        .eq('recipient_user_id', ctx.user.id)
+        .contains('meta', { domain: 'advisor_commissions' })),
   ]);
 
   const error = results.find((result) => result.error)?.error;

@@ -81,3 +81,45 @@ test('mantiene cada abono de comisión como evento auditable', () => {
   assert.equal(events[0]?.id, 'notification-2');
   assert.equal(getFilterForEvent('advisor_commission_payment_recorded'), 'commissions');
 });
+
+test('clasifica las metas dentro de comisiones y permite cerrar su revisión', () => {
+  const counts = countCommissionNotificationsByKind([
+    {
+      id: 10,
+      status: 'unread',
+      title: 'Nueva meta',
+      body: null,
+      created_at: '2026-08-26T10:00:00.000Z',
+      read_at: null,
+      meta: {
+        domain: 'advisor_commissions',
+        kind: 'advisor_goal_published',
+        requires_action: true,
+      },
+    },
+    {
+      id: 11,
+      status: 'read',
+      title: 'Resultado',
+      body: null,
+      created_at: '2026-08-26T11:00:00.000Z',
+      read_at: '2026-08-26T11:05:00.000Z',
+      meta: {
+        domain: 'advisor_commissions',
+        kind: 'advisor_goal_finalized',
+        requires_action: false,
+      },
+    },
+  ]);
+
+  assert.equal(getFilterForEvent('advisor_goal_published'), 'commissions');
+  assert.equal(getFilterForEvent('advisor_goal_finalized'), 'commissions');
+  assert.deepEqual(counts, {
+    actions: 1,
+    updates: 1,
+    total: 2,
+    unreadActions: 1,
+    unreadUpdates: 0,
+    unreadTotal: 1,
+  });
+});

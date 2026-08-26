@@ -90,6 +90,19 @@ function commissionNotificationHref(meta: Record<string, unknown>) {
     : '/app/advisor/commissions';
 }
 
+function commissionNotificationPresentation(eventType: string, periodName: string) {
+  if (eventType === 'advisor_goal_finalized') {
+    return { deliveryLabel: `Resultado de ${periodName}`, tone: 'success' as const };
+  }
+  if (eventType === 'advisor_goal_published' || eventType === 'advisor_goal_updated') {
+    return { deliveryLabel: `Meta de ${periodName}`, tone: 'neutral' as const };
+  }
+  if (eventType === 'advisor_commission_paid' || eventType === 'advisor_commission_payment_recorded') {
+    return { deliveryLabel: `Liquidación de ${periodName}`, tone: 'success' as const };
+  }
+  return { deliveryLabel: `Liquidación de ${periodName}`, tone: 'warning' as const };
+}
+
 export default async function AdvisorInboxPage({ searchParams }: { searchParams?: SearchParams }) {
   const params = (await searchParams) ?? {};
   const activeFilter = normalizeFilter(params.filter);
@@ -205,9 +218,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
       const periodName = safeText(meta.period_name, 'Periodo de comisiones');
       const createdAt = safeText(notification.created_at, new Date().toISOString());
       const requiresAction = meta.requires_action === true;
-      const tone = eventType === 'advisor_commission_paid' || eventType === 'advisor_commission_payment_recorded'
-        ? 'success' as const
-        : 'warning' as const;
+      const presentation = commissionNotificationPresentation(eventType, periodName);
 
       return {
         id: `notification-${notification.id}`,
@@ -216,7 +227,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         orderId: 0,
         orderNumber: 'Comisiones',
         clientName: periodName,
-        deliveryLabel: `Liquidación de ${periodName}`,
+        deliveryLabel: presentation.deliveryLabel,
         title: safeText(notification.title, 'Actualización de comisiones'),
         message: safeText(notification.body, 'Tienes una actualización en tus comisiones.'),
         eventType,
@@ -224,7 +235,7 @@ export default async function AdvisorInboxPage({ searchParams }: { searchParams?
         detailLines: [],
         requiresAction,
         readAt: notification.read_at || (notification.status === 'read' ? createdAt : null),
-        tone,
+        tone: presentation.tone,
         href: commissionNotificationHref(meta),
       } satisfies InboxEvent;
     })

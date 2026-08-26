@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { withAdvisorReturnTo } from '@/lib/advisor-navigation';
 import AdvisorPendingLink from '../AdvisorPendingLink';
@@ -40,6 +40,10 @@ function actionHref(event: InboxEvent, activeFilter: InboxFilter) {
 }
 
 function actionLabel(event: InboxEvent) {
+  if (event.eventType === 'advisor_goal_finalized') return 'Ver resultado';
+  if (event.eventType === 'advisor_goal_published' || event.eventType === 'advisor_goal_updated') {
+    return 'Ver meta';
+  }
   if (
     event.eventType === 'advisor_commission_review_ready' ||
     event.eventType === 'advisor_commission_reconfirmation_required'
@@ -52,6 +56,14 @@ function actionLabel(event: InboxEvent) {
     return 'Corregir pedido';
   }
   return 'Abrir pedido';
+}
+
+function isGoalNotification(event: InboxEvent) {
+  return event.source === 'notification' && event.eventType.startsWith('advisor_goal_');
+}
+
+function requiresReadUpdate(event: InboxEvent) {
+  return !event.readAt || (isGoalNotification(event) && event.requiresAction);
 }
 
 export default function AdvisorInboxClient({
@@ -115,7 +127,7 @@ export default function AdvisorInboxClient({
 
   async function markNotificationRead(event: InboxEvent) {
     const currentEvent = events.find((candidate) => candidate.id === event.id);
-    if (!currentEvent || currentEvent.readAt) return;
+    if (!currentEvent || !requiresReadUpdate(currentEvent)) return;
     const key = readKey(currentEvent);
 
     setSavingIds((current) => [...current, key]);
@@ -124,7 +136,13 @@ export default function AdvisorInboxClient({
     const previousEvents = events;
     setEvents((current) =>
       current.map((event) =>
-        event.id === currentEvent.id ? { ...event, readAt: nextReadAt } : event
+        event.id === currentEvent.id
+          ? {
+              ...event,
+              readAt: nextReadAt,
+              requiresAction: isGoalNotification(event) ? false : event.requiresAction,
+            }
+          : event
       )
     );
 
@@ -140,7 +158,7 @@ export default function AdvisorInboxClient({
   }
 
   async function markAllVisibleAsRead() {
-    const unreadEvents = events.filter((event) => !event.readAt);
+    const unreadEvents = events.filter(requiresReadUpdate);
     if (unreadEvents.length === 0) return;
     const readKeys = unreadEvents.map(readKey);
 
@@ -151,7 +169,13 @@ export default function AdvisorInboxClient({
     const previousEvents = events;
     setEvents((current) =>
       current.map((event) =>
-        readKeys.includes(readKey(event)) ? { ...event, readAt: nextReadAt } : event
+        readKeys.includes(readKey(event))
+          ? {
+              ...event,
+              readAt: nextReadAt,
+              requiresAction: isGoalNotification(event) ? false : event.requiresAction,
+            }
+          : event
       )
     );
 
@@ -167,8 +191,20 @@ export default function AdvisorInboxClient({
     setMarkingAll(false);
   }
 
+  function openNotification(event: InboxEvent, clickEvent: MouseEvent<HTMLAnchorElement>) {
+    if (!requiresReadUpdate(event) || isSaving(event)) return;
+    if (isGoalNotification(event)) {
+      clickEvent.preventDefault();
+      void markNotificationRead(event).then(() => {
+        router.push(actionHref(event, activeFilter));
+      });
+      return;
+    }
+    void markNotificationRead(event);
+  }
+
   const groupedSections: Array<{ key: string; title: string; rows: InboxEvent[] }> = activeFilter === 'pending'
-    ? [{ key: 'pending', title: 'Accion requerida', rows: pendingEvents }]
+    ? [{ key: 'pending', title: 'Acción requerida', rows: pendingEvents }]
     : activeFilter === 'updates'
       ? [
           { key: 'today', title: 'Seguimiento de hoy', rows: todayEvents.filter((event) => !event.requiresAction) },
@@ -250,7 +286,7 @@ export default function AdvisorInboxClient({
                 disabled={markingAll}
                 className="inline-flex h-9 items-center rounded-[12px] border border-[#232632] px-3 text-xs font-medium text-[#F5F7FB] disabled:text-[#6F7890]"
               >
-                {markingAll ? 'Marcando...' : 'Marcar todo leido'}
+                {markingAll ? 'Marcando...' : 'Marcar todo leído'}
               </button>
             ) : null}
           </div>
@@ -285,11 +321,7 @@ export default function AdvisorInboxClient({
                         <AdvisorPendingLink
                           key={event.id}
                           href={actionHref(event, activeFilter)}
-                          onClick={() => {
-                            if (!isRead && !isSaving(event)) {
-                              void markNotificationRead(event);
-                            }
-                          }}
+                          onClick={(clickEvent) => openNotification(event, clickEvent)}
                           className={[
                             'advisor-fade-in block rounded-[16px] border px-3.5 py-3 transition',
                             isRead ? 'border-[#232632] bg-[#0F131B]' : 'border-[#33405A] bg-[#101722]',
@@ -351,7 +383,7 @@ export default function AdvisorInboxClient({
                         <div className="mt-3 grid grid-cols-[minmax(64px,1fr)_auto_auto] items-center gap-2 text-xs text-[#8B93A7]">
                           <span className="min-w-0 leading-5">{formatEventTime(event.createdAt)}</span>
                           <div className="justify-self-end">
-                            {!isRead ? (
+                            {requiresReadUpdate(event) ? (
                               <button
                                 type="button"
                                 onClick={() => void markNotificationRead(event)}
@@ -366,11 +398,7 @@ export default function AdvisorInboxClient({
                           </div>
                           <AdvisorPendingLink
                             href={actionHref(event, activeFilter)}
-                            onClick={() => {
-                              if (!isRead && !isSaving(event)) {
-                                void markNotificationRead(event);
-                              }
-                            }}
+                            onClick={(clickEvent) => openNotification(event, clickEvent)}
                             className={[
                               'inline-flex h-8 items-center rounded-[10px] px-2 text-[10px] font-medium justify-self-end',
                               event.requiresAction
