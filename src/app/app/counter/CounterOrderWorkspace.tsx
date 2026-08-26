@@ -523,6 +523,8 @@ export function OrderDetail({
   onRefreshExact,
   onPrimaryDeliveryAction,
   onDeliverySettlementChanged,
+  onPaymentSessionOpened,
+  onPaymentSessionFinished,
   onCreatePaymentReport,
   onGiveOrderChange,
   onLoadPaymentQuote,
@@ -549,6 +551,8 @@ export function OrderDetail({
     dispatchIntent?: CounterDeliveryDispatchIntent
   ) => Promise<CounterDeliveryDispatchResult | null>;
   onDeliverySettlementChanged: () => Promise<void>;
+  onPaymentSessionOpened: () => void;
+  onPaymentSessionFinished: () => Promise<void>;
   onCreatePaymentReport: (
     order: CounterOrder,
     input: CounterPaymentIntent
@@ -690,12 +694,25 @@ export function OrderDetail({
     );
 
   useEffect(() => {
-    if (initialPaymentOpen) onInitialPaymentOpened();
-  }, [initialPaymentOpen, onInitialPaymentOpened]);
+    if (initialPaymentOpen) {
+      onPaymentSessionOpened();
+      onInitialPaymentOpened();
+    }
+  }, [initialPaymentOpen, onInitialPaymentOpened, onPaymentSessionOpened]);
+
+  function openPaymentSession() {
+    onPaymentSessionOpened();
+    setPaymentOpen(true);
+  }
+
+  function closePaymentSession() {
+    setPaymentOpen(false);
+    void onPaymentSessionFinished();
+  }
 
   function handlePrimaryActionClick() {
     if (pickupCheckoutRequired) {
-      setPaymentOpen(true);
+      openPaymentSession();
       return;
     }
 
@@ -896,7 +913,7 @@ export function OrderDetail({
             <CounterOperationDialog
               title={order.changeAvailableUsd > 0.005 ? 'Cobro y cambio' : 'Cobrar pedido'}
               subtitle={`Orden #${order.displayNumber} · ${order.clientName}`}
-              onClose={() => setPaymentOpen(false)}
+              onClose={closePaymentSession}
             >
               <CounterPaymentEngine
                 key={order.id}
@@ -906,7 +923,7 @@ export function OrderDetail({
                 onSubmit={(input) => onCreatePaymentReport(order, input)}
                 onGiveChange={(input) => onGiveOrderChange(order, input)}
                 onLoadPaymentQuote={onLoadPaymentQuote}
-                onFinish={() => setPaymentOpen(false)}
+                onFinish={closePaymentSession}
               />
             </CounterOperationDialog>
           ) : null}
@@ -1020,7 +1037,10 @@ export function OrderDetail({
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => setPaymentOpen((current) => !current)}
+              onClick={() => {
+                if (paymentOpen) closePaymentSession();
+                else openPaymentSession();
+              }}
               disabled={isCancelled || isWorking}
               className="min-h-11 rounded-[8px] border border-[#303044] bg-[#0B0B0D] px-3 py-2 text-xs font-semibold text-[#F5F5F7] transition hover:border-[#FEEF00]/60 disabled:cursor-not-allowed disabled:opacity-50"
             >

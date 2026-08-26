@@ -478,6 +478,13 @@ vinculadas a la misma orden, pero una corrección o anulación administrativa de
 afectar exclusivamente el ingreso o la entrega seleccionada. Cada operación
 individual sí es atómica entre su movimiento de caja y su reflejo en el fondo.
 
+La sesión visual no termina al confirmar un ingreso ni una salida de cambio.
+Counter debe conservar abierta y fijada la misma orden —incluidas las órdenes
+recuperadas por búsqueda de días anteriores— hasta que el operador elija
+explícitamente terminar. Después de cada paso debe mostrar el saldo todavía a
+favor y permitir entregar desde otra caja, usar otra moneda o dejar el remanente
+en el fondo.
+
 ### 11.2 Cambio digital
 
 Counter no ejecuta transferencias bancarias para entregar cambio.

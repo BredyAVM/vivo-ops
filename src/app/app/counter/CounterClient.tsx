@@ -730,6 +730,7 @@ export default function CounterClient({
   const appliedOrderSequenceRef = useRef(new Map<number, number>());
   const pickupCompletionKeysRef = useRef(new Map<number, string>());
   const selectedOrderIdRef = useRef<number | null>(null);
+  const activePaymentSessionOrderIdRef = useRef<number | null>(null);
   const queueSearchRef = useRef<HTMLInputElement>(null);
   const detailStaleOrderIdRef = useRef<number | null>(null);
   const cashPanelOpenRef = useRef(false);
@@ -1111,7 +1112,12 @@ export default function CounterClient({
     localOrdersRef.current = orders;
     setLocalOrders(orders);
     setSelectedOrderId((current) =>
-      current != null && orders.some((order) => order.id === current) ? current : null
+      current != null && (
+        orders.some((order) => order.id === current)
+        || recoveredOrderRef.current?.id === current
+      )
+        ? current
+        : null
     );
 
     announceReadyOrders(newlyReadyOrders);
@@ -1183,7 +1189,10 @@ export default function CounterClient({
       }
 
       const detailOrderId = selectedOrderIdRef.current;
-      if (detailOrderId != null) {
+      if (
+        detailOrderId != null
+        && activePaymentSessionOrderIdRef.current !== detailOrderId
+      ) {
         const detailAge = now - (detailLastReadAtRef.current.get(detailOrderId) ?? 0);
         if (
           detailAge >= COUNTER_DETAIL_REFRESH_MS
@@ -1639,11 +1648,6 @@ export default function CounterClient({
         tone: 'success',
         text: `Cobro registrado en orden #${order.displayNumber}.${pendingText}${digitalChangeText}`,
       });
-      await Promise.all([
-        refreshCounter(),
-        refreshCounterOrder(order.id),
-        cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
-      ]);
       return result;
     } catch (error) {
       const message = getCounterUiErrorMessage(error, 'No se pudo registrar el cobro. Revisa los datos e intenta nuevamente.');
@@ -1666,11 +1670,6 @@ export default function CounterClient({
         tone: 'success',
         text: `Cambio entregado en la orden #${order.displayNumber} desde ${result.accountName}.`,
       });
-      await Promise.all([
-        refreshCounter(),
-        refreshCounterOrder(order.id),
-        cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
-      ]);
       return result;
     } catch (error) {
       const message = getCounterUiErrorMessage(
@@ -1682,6 +1681,17 @@ export default function CounterClient({
     } finally {
       setWorkingOrderId(null);
     }
+  }
+
+  async function handlePaymentSessionFinished(order: CounterOrder) {
+    if (activePaymentSessionOrderIdRef.current === order.id) {
+      activePaymentSessionOrderIdRef.current = null;
+    }
+    await Promise.all([
+      refreshCounter(),
+      refreshCounterOrder(order.id),
+      cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
+    ]);
   }
 
   async function handleRequestRefund(
@@ -2051,6 +2061,10 @@ export default function CounterClient({
             cashPanelOpen ? refreshCounterCash() : Promise.resolve(true),
           ]);
         }}
+        onPaymentSessionOpened={() => {
+          activePaymentSessionOrderIdRef.current = order.id;
+        }}
+        onPaymentSessionFinished={() => handlePaymentSessionFinished(order)}
         onCreatePaymentReport={handleCreatePaymentReport}
         onGiveOrderChange={handleGiveOrderChange}
         onLoadPaymentQuote={loadCounterPaymentQuoteAction}
